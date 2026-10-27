@@ -52,6 +52,25 @@ export const sourceRevisionGuidance =
   "The workspace is not at the stated sourceRevision, or its git tree is not clean. Pass the full commit id of the checkout: `jj log -r @ --no-graph -T commit_id` in a jj workspace, or `git rev-parse HEAD` in a clean git checkout.";
 
 const isAgentRoleError = Schema.is(Resolver.AgentRoleError);
+const isPolicyLoadError = Schema.is(Policy.AgentPolicyLoadError);
+const isPolicyStoreError = Schema.is(Store.AgentPolicyStoreError);
+/** A policy failure states which file, field or snapshot it did not meet. */
+const isPolicyError = (cause: unknown): cause is { readonly message: string } =>
+  isPolicyLoadError(cause) || isPolicyStoreError(cause);
+
+/** The rule or policy a refusal did not meet, so the caller can report what to fix. */
+const refusalDetail = (cause: unknown, detail: string | undefined): string => {
+  if (isAgentRoleError(cause))
+    return `: ${cause.reason}${
+      cause.detail !== undefined
+        ? `: ${cause.detail}`
+        : cause.candidates === undefined
+          ? ""
+          : ` (${[...new Set(cause.candidates.map((candidate) => candidate.reason))].join(", ")})`
+    }`;
+  if (isPolicyError(cause)) return `: ${cause.message}`;
+  return detail === undefined ? "" : `: ${detail}`;
+};
 
 export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
   "ManagedAgentError",
@@ -66,18 +85,7 @@ export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
   override get message(): string {
     if (this.reason === "hard-link")
       return `Managed writer refused: regular file has multiple hard links: ${this.path}.`;
-    const detail = isAgentRoleError(this.cause)
-      ? `: ${this.cause.reason}${
-          this.cause.detail !== undefined
-            ? `: ${this.cause.detail}`
-            : this.cause.candidates === undefined
-              ? ""
-              : ` (${[...new Set(this.cause.candidates.map((candidate) => candidate.reason))].join(", ")})`
-        }`
-      : this.detail === undefined
-        ? ""
-        : `: ${this.detail}`;
-    const refusal = `Managed agent dispatch refused (${this.reason}${detail}).`;
+    const refusal = `Managed agent dispatch refused (${this.reason}${refusalDetail(this.cause, this.detail)}).`;
     return this.reason === "source" ? `${refusal} ${sourceRevisionGuidance}` : refusal;
   }
 }
@@ -214,7 +222,15 @@ const make = Effect.gen(function* () {
   const currentPolicy = Effect.gen(function* () {
     // Explicit environment-local configuration; installing this feature activates no policy.
     const root = yield* Config.String("T3CODE_AGENT_POLICY_ROOT").pipe(
-      Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause })),
+      Effect.mapError(
+        (cause) =>
+          new ManagedAgentError({
+            reason: "policy",
+            detail:
+              "T3CODE_AGENT_POLICY_ROOT is not set, so this environment reads no role policy; set it to the agent-config checkout to enable managed delegation",
+            cause,
+          }),
+      ),
     );
     return yield* policy
       .snapshot(root)

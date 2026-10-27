@@ -2457,9 +2457,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         // A task's temp dir goes when its turn ends, unless a process it started still runs or
         // another of its turns is live; unloading the thread then removes it. Untraced: it runs
         // inside the turn finalizer's span.
-        // A task's temp dir goes when its last live turn ends, unless a process that turn
-        // started still runs; unloading the thread then removes it. Untraced: it runs inside the
-        // turn finalizer's span.
         const releaseTaskTempDirIfIdle = Effect.fnUntraced(function* (
           context: ActiveCodexTurnContext,
         ) {

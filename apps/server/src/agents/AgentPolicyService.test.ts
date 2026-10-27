@@ -393,6 +393,24 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       expect(escaped.reason).toBe("outside-root");
     }),
   );
+  it.effect("names the policy file and field it could not load", () =>
+    Effect.gen(function* () {
+      const service = yield* AgentPolicy.AgentPolicyService;
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* source;
+      const invalid = manifest();
+      invalid.revision = "";
+      yield* fs.writeFileString(`${root}/roles/policy.json`, JSON.stringify(invalid));
+      const refusal = yield* service.snapshot(root).pipe(Effect.flip);
+      expect(refusal.reason).toBe("invalid");
+      expect(refusal.message).toContain("roles/policy.json");
+      expect(refusal.message).toContain('["revision"]');
+      yield* fs.remove(`${root}/roles/policy.json`);
+      const missing = yield* service.snapshot(root).pipe(Effect.flip);
+      expect(missing.reason).toBe("read");
+      expect(missing.message).toContain("roles/policy.json");
+    }),
+  );
   it.effect("rejects oversized and invalid policy without falling back", () =>
     Effect.gen(function* () {
       const service = yield* AgentPolicy.AgentPolicyService;

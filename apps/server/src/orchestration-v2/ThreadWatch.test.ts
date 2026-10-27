@@ -50,7 +50,10 @@ import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
-import { makeSubagentConversationArtifacts } from "@t3tools/provider-core/server/subagentProjection";
+import {
+  makeSubagentChildThread,
+  makeSubagentConversationArtifacts,
+} from "@t3tools/provider-core/server/subagentProjection";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -1475,7 +1478,11 @@ const makeLandingHarness = Effect.gen(function* () {
       LandingWatchReactor.layer.pipe(Layer.provide(ProjectionStore.layer), Layer.provide(slipJay)),
     ),
   );
-  const submit = (workspace: string, operationId = "op_1"): TrackedLanding => {
+  const submit = (
+    workspace: string,
+    operationId = "op_1",
+    overrides: Partial<TrackedLanding> = {},
+  ): TrackedLanding => {
     const landing: TrackedLanding = {
       operationId,
       repo: "pechhe/t3code",
@@ -1484,6 +1491,7 @@ const makeLandingHarness = Effect.gen(function* () {
       stage: "verifying",
       submittedBy: `${NodeOS.hostname()}:${workspace}`,
       spec: 5255,
+      ...overrides,
     };
     landings.push(landing);
     return landing;
@@ -1683,6 +1691,201 @@ it.layer(layerTest)("landing watches", (it) => {
       yield* h.reactor.sweep;
       assert.lengthOf(yield* watchesOf(thread), 0);
       assert.lengthOf(yield* h.messages(thread), 0);
+    }),
+  );
+
+  it.effect("arms nothing for a landing another host submitted", () =>
+    Effect.gen(function* () {
+      const h = yield* makeLandingHarness;
+      const thread = yield* createWorkspaceThread("landing-other-host", "/workspaces/other-host");
+      h.roots.set("ws-other-host", "/workspaces/other-host");
+      h.submit("ws-other-host", "op_elsewhere", { submittedBy: "another-host:ws-other-host" });
+      h.submit("ws-other-host", "op_unlabelled", { submittedBy: "" });
+      yield* h.reactor.sweep;
+      yield* h.reactor.sweep;
+      assert.lengthOf(yield* watchesOf(thread), 0);
+      h.finish("op_elsewhere", { status: "failed", reason: "not this machine's landing" });
+      h.finish("op_unlabelled", { status: "landed", commitId: "abc1234" });
+      yield* h.reactor.sweep;
+      assert.lengthOf(yield* h.messages(thread), 0);
+    }),
+  );
+
+  it.effect("skips a settled, archived or deleted thread holding the submitting checkout", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      for (const blocked of ["settled", "archived", "deleted"] as const) {
+        const h = yield* makeLandingHarness;
+        const root = `/workspaces/skip-${blocked}`;
+        const skip = yield* createWorkspaceThread(`landing-skip-${blocked}`, root);
+        const live = yield* createWorkspaceThread(`landing-live-${blocked}`, root);
+        h.roots.set(`ws-skip-${blocked}`, root);
+        yield* orchestrator.dispatch({
+          type:
+            blocked === "settled"
+              ? "thread.settle"
+              : blocked === "archived"
+                ? "thread.archive"
+                : "thread.delete",
+          commandId: CommandId.make(`command:landing-skip-${blocked}`),
+          threadId: skip,
+        });
+        h.submit(`ws-skip-${blocked}`, `op_skip_${blocked}`);
+        yield* h.reactor.sweep;
+        const watches = yield* watchesOf(live);
+        assert.lengthOf(watches, 1);
+        assert.deepEqual(watches[0]?.target, {
+          kind: "landing",
+          operationId: `op_skip_${blocked}`,
+        });
+        if (blocked !== "deleted") assert.lengthOf(yield* watchesOf(skip), 0);
+        h.finish(`op_skip_${blocked}`, { status: "landed", commitId: "abc1234" });
+        yield* h.reactor.sweep;
+        assert.lengthOf(yield* h.messages(live), 1);
+        if (blocked !== "deleted") assert.lengthOf(yield* h.messages(skip), 0);
+      }
+    }),
+  );
+
+  it.effect("a subagent child holding the submitting checkout leaves its parent to be woken", () =>
+    Effect.gen(function* () {
+      const h = yield* makeLandingHarness;
+      const root = "/workspaces/subagent-checkout";
+      const parent = yield* createWorkspaceThread("landing-subagent-parent", root);
+      const parentThread = yield* ProjectionStore.ProjectionStoreV2.pipe(
+        Effect.flatMap((store) => store.getThread(parent)),
+        Effect.provide(ProjectionStore.layer),
+      );
+      const child = makeSubagentChildThread({
+        parentThread,
+        childThreadId: ThreadId.make("thread:landing-subagent-child"),
+        parentNodeId: NodeId.make("node:landing-subagent"),
+        activeProviderThreadId: null,
+        providerInstanceId: modelSelection.instanceId,
+        modelSelection,
+        title: "landing subagent child",
+        now,
+        createdBy: "agent",
+        creationSource: "provider",
+      });
+      yield* (yield* EventSink.EventSinkV2).write({
+        commandId: CommandId.make("command:seed-landing-subagent"),
+        events: [
+          {
+            id: EventId.make("event:landing-subagent-child:created"),
+            type: "thread.created",
+            threadId: child.id,
+            providerInstanceId: modelSelection.instanceId,
+            occurredAt: now,
+            payload: child,
+          },
+        ],
+      });
+      h.roots.set("ws-subagent-checkout", root);
+      h.submit("ws-subagent-checkout", "op_subagent");
+      yield* h.reactor.sweep;
+      assert.lengthOf(yield* watchesOf(parent), 1);
+      assert.lengthOf(yield* watchesOf(child.id), 0);
+      h.finish("op_subagent", { status: "landed", commitId: "abc1234" });
+      yield* h.reactor.sweep;
+      assert.lengthOf(yield* h.messages(parent), 1);
+      assert.lengthOf(yield* h.messages(child.id), 0);
+    }),
+  );
+
+  it.effect("a watch armed before its thread settled wakes nobody", () =>
+    Effect.gen(function* () {
+      const h = yield* makeLandingHarness;
+      const thread = yield* createWorkspaceThread(
+        "landing-settled-later",
+        "/workspaces/settled-later",
+      );
+      h.roots.set("ws-settled-later", "/workspaces/settled-later");
+      h.submit("ws-settled-later", "op_settled_later");
+      yield* h.reactor.sweep;
+      assert.lengthOf(yield* watchesOf(thread), 1);
+      yield* (yield* Orchestrator.OrchestratorV2).dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("command:landing-settle-watcher"),
+        threadId: thread,
+      });
+      assert.lengthOf(yield* watchesOf(thread), 0);
+      h.finish("op_settled_later", { status: "landed", commitId: "abc1234" });
+      yield* h.reactor.sweep;
+      assert.lengthOf(yield* h.messages(thread), 0);
+    }),
+  );
+
+  it.effect("the thread's own command output naming the operation suppresses the wake", () =>
+    Effect.gen(function* () {
+      const h = yield* makeLandingHarness;
+      const thread = yield* createWorkspaceThread("landing-output", "/workspaces/output");
+      h.roots.set("ws-output", "/workspaces/output");
+      h.submit("ws-output", "op_output");
+      yield* h.reactor.sweep;
+      assert.lengthOf(yield* watchesOf(thread), 1);
+      const command = {
+        id: TurnItemId.make("turn-item:output-watch"),
+        threadId: thread,
+        runId: run(thread, 1, "running").id,
+        nodeId: rootNodeId,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: 1,
+        status: "running" as const,
+        title: "slipjay watch --json",
+        startedAt: now,
+        completedAt: null,
+        updatedAt: now,
+        type: "command_execution" as const,
+        input: "slipjay watch --json",
+        output: '{"operations":[{"id":"op_output","status":"active"}]}',
+      };
+      yield* seedRun(thread, {
+        status: "running",
+        extra: [
+          {
+            id: EventId.make("event:output-watch:running"),
+            type: "turn-item.updated",
+            threadId: thread,
+            runId: command.runId,
+            nodeId: rootNodeId,
+            providerInstanceId: modelSelection.instanceId,
+            occurredAt: now,
+            payload: command,
+          },
+        ],
+      });
+      h.finish("op_output", { status: "landed", commitId: "abc1234" });
+      yield* h.reactor.sweep;
+      assert.lengthOf(yield* h.messages(thread), 0);
+      assert.lengthOf(yield* watchesOf(thread), 0);
+    }),
+  );
+
+  it.effect("an unknown terminal outcome wakes with the unknown outcome", () =>
+    Effect.gen(function* () {
+      const h = yield* makeLandingHarness;
+      const thread = yield* createWorkspaceThread("landing-unknown", "/workspaces/unknown");
+      h.roots.set("ws-unknown", "/workspaces/unknown");
+      h.submit("ws-unknown", "op_unknown_outcome");
+      yield* h.reactor.sweep;
+      h.finish("op_unknown_outcome", { status: "unknown" });
+      yield* h.reactor.sweep;
+      const [wake, ...rest] = yield* h.messages(thread);
+      assert.lengthOf(rest, 0);
+      assert.deepEqual(wake?.notification, {
+        source: { kind: "landing", operationId: "op_unknown_outcome" },
+        outcome: "unknown",
+        summary: "Landing of Build #5255: unknown",
+      });
+      assert.include(wake?.text, "ended without a recorded outcome at verifying");
+      assert.include(wake?.text, "T3 Code has stopped watching this landing");
+      assert.lengthOf(yield* watchesOf(thread), 0);
+      yield* h.reactor.sweep;
+      assert.lengthOf(yield* h.messages(thread), 1);
     }),
   );
 });

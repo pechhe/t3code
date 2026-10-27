@@ -545,6 +545,37 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           Effect.flip,
         );
       expect(error.reason).toBe("policy");
+      expect(error.message).toContain("T3CODE_AGENT_POLICY_ROOT");
+    }),
+  );
+  it.effect("reports the policy file and hash a refusal could not read or admit", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      yield* f.fs.remove(`${f.policyRoot}/roles/policy.json`);
+      const unreadable = yield* f.prepare().pipe(Effect.flip);
+      expect(unreadable.reason).toBe("policy");
+      expect(unreadable.message).toContain("roles/policy.json");
+      const hash = "0".repeat(64);
+      const unadmitted = yield* f.prepare({ policyHash: hash }).pipe(Effect.flip);
+      expect(unadmitted.reason).toBe("policy");
+      expect(unadmitted.message).toContain(hash);
+    }),
+  );
+  it.effect("role discovery names the policy file and field it could not load", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const discover = f.service
+        .roles({ ...f.prepareInput, request: { taskClass: "non-ui" } })
+        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config), Effect.flip);
+      yield* f.writeManifest({ ...f.manifest, revision: "" });
+      const invalid = yield* discover;
+      expect(invalid.reason).toBe("policy");
+      expect(invalid.message).toContain("roles/policy.json");
+      expect(invalid.message).toContain('["revision"]');
+      yield* f.fs.remove(`${f.policyRoot}/roles/policy.json`);
+      const unreadable = yield* discover;
+      expect(unreadable.reason).toBe("policy");
+      expect(unreadable.message).toContain("roles/policy.json");
     }),
   );
   it.effect("recovers the recorded binding and original brief on retry after policy edits", () =>

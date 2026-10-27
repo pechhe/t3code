@@ -49,7 +49,11 @@ import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import { removeLinkedWorktree } from "./vcs/worktreeRemoval.ts";
 import { withWorkspaceLease } from "./workspace/workspaceLease.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { hostReleaseRunner, releaseSlipJayWorkspace } from "./slipJayRelease.ts";
+import {
+  hostReleaseRunner,
+  isSlipJayWorkspacePath,
+  releaseSlipJayWorkspace,
+} from "./slipJayRelease.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import { isNetworkPath } from "@t3tools/shared/path";
 
@@ -113,27 +117,17 @@ export function worktreeEligibility(input: {
 }
 
 /**
- * SlipJay keeps its workspaces under its own homes, and every one carries a `.jj`
- * directory. `git worktree remove` would take the directory, drop whatever the
- * checkout held outside git — ignored files a thread wrote, a local `.env` — and leave
- * Jujutsu still believing the workspace exists. Those are released through SlipJay,
- * which archives the checkout before it retires it, so cleanup keeps them and says why.
+ * SlipJay keeps its workspaces under its own homes, and every one carries a `.jj` directory.
+ * Cleanup keeps them for release through SlipJay, which archives the checkout before it
+ * retires it: `git worktree remove` would drop what the thread wrote outside git and leave
+ * Jujutsu believing the workspace still exists.
  */
 export function slipJayWorkspaceReason(
   worktreePath: string,
   markers: { home: string; jj: boolean; separator: string },
 ): string | null {
-  if (markers.home !== "") {
-    const homes = [".slipjay", ".slipway", ".pi"].map(
-      (name) => `${markers.home}${markers.separator}${name}${markers.separator}workspaces`,
-    );
-    if (
-      homes.some(
-        (home) => worktreePath === home || worktreePath.startsWith(`${home}${markers.separator}`),
-      )
-    ) {
-      return "a SlipJay workspace: release goes through SlipJay, never git";
-    }
+  if (isSlipJayWorkspacePath(worktreePath, markers.home, markers.separator)) {
+    return "a SlipJay workspace: release goes through SlipJay, never git";
   }
   if (markers.jj) return "a Jujutsu workspace: release goes through SlipJay, never git";
   return null;
@@ -775,12 +769,13 @@ const make = Effect.gen(function* () {
     entries: StorageCleanupReportEntry[],
   ) {
     if (!anyWorktreePolicy(serverSettings, worktreeCleanupEnabled)) return;
+    const home = yield* HostProcess.HomeDirectory;
     const roots: Array<string> = [];
     for (const directory of managedWorktreesDirectories(
       serverSettings,
       config.worktreesDir,
       path,
-      yield* HostProcess.HomeDirectory,
+      home,
     )) {
       const root = yield* fs.exists(directory).pipe(
         Effect.flatMap((exists) => (exists ? fs.realPath(directory) : Effect.succeed(null))),
@@ -856,7 +851,7 @@ const make = Effect.gen(function* () {
         // not pre-empt the checks that keep a running, shared or unsettled thread's checkout.
         const slipJay =
           slipJayWorkspaceReason(path.resolve(worktreePath), {
-            home: process.env.HOME ?? "",
+            home,
             jj: yield* fs.exists(path.join(worktreePath, ".jj")),
             separator: path.sep,
           }) !== null;
@@ -916,11 +911,6 @@ const make = Effect.gen(function* () {
           afterDays: settings.worktreeAfterDays,
           settledAfterDays: settings.worktreeSettledAfterDays,
         });
-        const old =
-          !slipJay &&
-          !deleted &&
-          settings.worktreeAfterDays !== null &&
-          now - activityAt > settings.worktreeAfterDays * DAY_MS;
         let eligible = policy.eligible;
         let removalReason =
           policy.reason ?? (deleted ? "thread was deleted" : `settled for ${settledDays} days`);

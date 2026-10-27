@@ -30,6 +30,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
   hostReleaseRunner,
   isSlipJayWorkspacePath,
@@ -686,7 +687,11 @@ export const layer: Layer.Layer<
       const { worktreePath, branch } = projection.thread;
       const isSlipJayWorkspace =
         worktreePath !== null &&
-        isSlipJayWorkspacePath(path.resolve(worktreePath), process.env.HOME ?? "", path.sep);
+        isSlipJayWorkspacePath(
+          path.resolve(worktreePath),
+          yield* HostProcess.HomeDirectory,
+          path.sep,
+        );
       if (worktreePath !== null && (branch !== null || isSlipJayWorkspace)) {
         const exists = yield* fileSystem
           .exists(worktreePath)

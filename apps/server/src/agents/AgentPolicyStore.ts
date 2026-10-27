@@ -9,11 +9,15 @@ export class AgentPolicyStoreError extends Schema.TaggedError<AgentPolicyStoreEr
   "AgentPolicyStoreError",
   {
     reason: Schema.Literals(["read", "write", "missing"]),
+    /** The policy hash whose snapshot was asked for. */
+    hash: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
-    return `Agent policy snapshot unavailable (${this.reason}).`;
+    return this.reason === "missing"
+      ? `Agent policy snapshot unavailable (missing): no stored snapshot for policy hash ${this.hash ?? "unknown"}.`
+      : `Agent policy snapshot unavailable (${this.reason}).`;
   }
 }
 export class AgentPolicyStore extends Context.Service<
@@ -40,11 +44,12 @@ const make = Effect.gen(function* () {
       const rows = yield* sql<{
         payload_json: string;
       }>`SELECT payload_json FROM agent_policy_snapshots WHERE hash = ${hash}`.pipe(
-        Effect.mapError((cause) => new AgentPolicyStoreError({ reason: "read", cause })),
+        Effect.mapError((cause) => new AgentPolicyStoreError({ reason: "read", hash, cause })),
       );
-      if (rows[0] === undefined) return yield* new AgentPolicyStoreError({ reason: "missing" });
+      if (rows[0] === undefined)
+        return yield* new AgentPolicyStoreError({ reason: "missing", hash });
       return yield* decode(rows[0].payload_json).pipe(
-        Effect.mapError((cause) => new AgentPolicyStoreError({ reason: "read", cause })),
+        Effect.mapError((cause) => new AgentPolicyStoreError({ reason: "read", hash, cause })),
       );
     }),
   });
