@@ -241,6 +241,23 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
     }),
   );
 
+  it.effect("leaves a settled thread alone", () =>
+    Effect.gen(function* () {
+      const reactor = yield* UnattendedReactor.UnattendedReactor;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      yield* setAway(true);
+      const { threadId, run } = yield* setup("settled");
+      const finished = yield* finish(run);
+      yield* orchestrator.dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("settle:settled"),
+        threadId,
+      });
+      yield* reactor.handle(finished);
+      assert.equal((yield* continuations(threadId)).length, 0);
+    }),
+  );
+
   it.effect("waits while a delegated task or a thread watch will wake the thread", () =>
     Effect.gen(function* () {
       const reactor = yield* UnattendedReactor.UnattendedReactor;
