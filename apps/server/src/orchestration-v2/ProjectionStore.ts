@@ -4047,6 +4047,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           FROM orchestration_v2_projection_threads t
           INNER JOIN orchestration_v2_projection_runs r ON r.run_id = (
             SELECT latest.run_id FROM orchestration_v2_projection_runs latest
+              INDEXED BY orchestration_v2_runs_latest_executed_idx
             WHERE latest.thread_id = t.thread_id
               AND latest.status <> 'queued'
               AND NOT (
@@ -4072,6 +4073,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             -- for one long thread; only threads with a usage-limit failure qualify.
             AND t.thread_id IN (
               SELECT failure.thread_id FROM orchestration_v2_projection_turn_items failure
+                INDEXED BY orchestration_v2_turn_items_usage_limit_idx
               WHERE failure.type = 'error' AND failure.status = 'failed'
                 AND json_extract(failure.payload_json, '$.failure.class') = 'usage_limit'
             )
@@ -4992,10 +4994,13 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
     )(
       function* (node) {
         const payloadJson = yield* encodeNodePayload(node);
-        const rows = yield* sql<PayloadRow>`
-          SELECT payload_json FROM orchestration_v2_projection_nodes WHERE node_id = ${node.id}
+        const rows = yield* sql<{ readonly stored: number }>`
+          SELECT EXISTS (
+            SELECT 1 FROM orchestration_v2_projection_nodes
+            WHERE node_id = ${node.id} AND payload_json = ${payloadJson}
+          ) AS stored
         `;
-        return rows[0]?.payload_json === payloadJson;
+        return rows[0]?.stored === 1;
       },
       (effect, node) => effect.pipe(readOnly, Effect.mapError(controlReadError(node.threadId))),
     );
@@ -6175,13 +6180,12 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
 
     const selectShellRunItemCounts = (threadIds: ReadonlyArray<ThreadId>) =>
       sql<ShellRunItemCountRow>`
-        SELECT thread_id, run_id, COUNT(*) AS item_count
-        FROM orchestration_v2_projection_turn_items
+        SELECT thread_id, run_id, item_count
+        FROM orchestration_v2_projection_run_item_counts
         WHERE run_id IS NOT NULL AND thread_id IN ${sql.in(threadIds)}
-        GROUP BY thread_id, run_id
       `;
 
-    // Count all selected threads in one index walk; fork sources still need per-run counts.
+    // Counts follow item writes transactionally; run status stays authoritative at read time.
     const selectShellItemCounts = (threadIds: ReadonlyArray<ThreadId>) =>
       sql<ShellItemCountRow>`
         SELECT counts.thread_id,
@@ -6189,13 +6193,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             THEN counts.item_count ELSE 0 END) AS item_count,
           SUM(CASE WHEN counts.run_id IS NULL THEN counts.item_count ELSE 0 END)
             AS runless_item_count
-        FROM (
-          SELECT thread_id, run_id, COUNT(*) AS item_count
-          FROM orchestration_v2_projection_turn_items
-          WHERE thread_id IN ${sql.in(threadIds)}
-          GROUP BY thread_id, run_id
-        ) counts
+        FROM orchestration_v2_projection_run_item_counts counts
         LEFT JOIN orchestration_v2_projection_runs r ON r.run_id = counts.run_id
+        WHERE counts.thread_id IN ${sql.in(threadIds)}
         GROUP BY counts.thread_id
       `;
 

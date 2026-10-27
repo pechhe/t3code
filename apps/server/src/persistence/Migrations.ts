@@ -93,6 +93,8 @@ import Migration0087 from "./Migrations/087_ScheduledTaskRoleBackfill.ts";
 import Migration0088 from "./Migrations/088_ShellStopRequestIndex.ts";
 import Migration0089 from "./Migrations/089_HqBuildRecords.ts";
 import Migration0090 from "./Migrations/090_ThreadMessageSearch.ts";
+import Migration0091 from "./Migrations/091_ProjectionAggregateIndexes.ts";
+import Migration0092 from "./Migrations/092_MaintenanceCandidateIndexes.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -186,6 +188,8 @@ const migrationEntries = [
   [88, "ShellStopRequestIndex", Migration0088],
   [89, "HqForgeRecords", Migration0089],
   [90, "ThreadMessageSearch", Migration0090],
+  [91, "ProjectionAggregateIndexes", Migration0091],
+  [92, "MaintenanceCandidateIndexes", Migration0092],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

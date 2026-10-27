@@ -72,7 +72,7 @@ const harness = Effect.gen(function* () {
     Effect.provide(Layer.succeedContext(database)),
   );
   /** A read failure a test turns on, as a restart or a maintenance window would cause. */
-  const projectionReads = { fail: false };
+  const projectionReads = { fail: false, calls: [] as Array<ThreadId> };
   /** The T3 run each thread is on, which a report records for the usage of that run. */
   const runs = { latestRunId: "t3-run-1" as string | null };
   const parentOf = (threadId: ThreadId) =>
@@ -87,19 +87,22 @@ const harness = Effect.gen(function* () {
       : "spec-reviewer";
   const projections = Layer.mock(ProjectionStore.ProjectionStoreV2)({
     getThread: (threadId: ThreadId) =>
-      projectionReads.fail
-        ? Effect.fail(new ProjectionStore.ProjectionStoreThreadNotFoundError({ threadId }))
-        : Effect.succeed({
-            id: threadId,
-            lineage: { parentThreadId: parentOf(threadId) },
-            ...(threadId === unresolvedLead
-              ? { workItem: { itemId: "ticket-9", number: 9, origin } }
-              : {}),
-            ...(threadId === leadThread || threadId === unresolvedLead
-              ? {}
-              : { agentTask: { role: roleOf(threadId) } }),
-            modelSelection: { model },
-          } as never),
+      Effect.suspend(() => {
+        projectionReads.calls.push(threadId);
+        return projectionReads.fail
+          ? Effect.fail(new ProjectionStore.ProjectionStoreThreadNotFoundError({ threadId }))
+          : Effect.succeed({
+              id: threadId,
+              lineage: { parentThreadId: parentOf(threadId) },
+              ...(threadId === unresolvedLead
+                ? { workItem: { itemId: "ticket-9", number: 9, origin } }
+                : {}),
+              ...(threadId === leadThread || threadId === unresolvedLead
+                ? {}
+                : { agentTask: { role: roleOf(threadId) } }),
+              modelSelection: { model },
+            } as never);
+      }),
     getThreadShell: () =>
       Effect.succeed(projectionReads.fail ? null : ({ latestRunId: runs.latestRunId } as never)),
   });
@@ -282,6 +285,98 @@ it.effect("a lead's session opens under the generation its bind returned", () =>
         { name: "weave_forge_start_session", args: { ...leadSession.startSession, generation: 3 } },
       ],
     );
+    assert.deepStrictEqual(yield* records.outstanding(), []);
+  }),
+);
+
+it.effect.each(["helper", "usage"] as const)(
+  "backs off blocked %s reads over ten minutes without changing its record",
+  (kind) =>
+    Effect.gen(function* () {
+      const { hq, boot, projectionReads } = yield* harness;
+      const records = yield* boot;
+      const threadId = kind === "helper" ? helperThread : leadThread;
+      const record =
+        kind === "helper"
+          ? {
+              kind,
+              recordKey: "helper:blocked-ten-minutes",
+              threadId,
+              leadThreadId: leadThread,
+              specId: "spec-1",
+              args: { workId: "work-1" },
+            }
+          : {
+              kind,
+              recordKey: "usage:blocked-ten-minutes",
+              threadId,
+              specId: "spec-1",
+              args: { inputTokens: 1_200 },
+            };
+      yield* records.enqueue(record);
+      const before = yield* records.outstanding();
+      yield* records.deliverDue;
+      yield* Effect.forEach(
+        Array.from({ length: 600 }),
+        () => TestClock.adjust("1 second").pipe(Effect.andThen(records.deliverDue)),
+        { discard: true },
+      );
+      assert.strictEqual(projectionReads.calls.filter((id) => id === threadId).length, 10);
+      assert.deepStrictEqual(yield* records.outstanding(), before);
+      assert.deepStrictEqual(hq.toolCalls, []);
+
+      hq.tools.call = (name) =>
+        name === "weave_forge_start_session"
+          ? { status: "succeeded", value: { session: { id: "session-1" } } }
+          : { status: "succeeded", value: {} };
+      yield* records.enqueue(leadSession);
+      yield* records.deliverDue;
+      yield* records.deliverDue;
+      const call = hq.toolCalls.find(
+        ({ name }) =>
+          name === (kind === "helper" ? "weave_forge_record_helper" : "weave_forge_record_usage"),
+      );
+      assert.deepStrictEqual(
+        call?.args,
+        kind === "helper"
+          ? { workId: "work-1", parentSessionId: "session-1" }
+          : { inputTokens: 1_200, sessionId: "session-1" },
+      );
+      assert.deepStrictEqual(yield* records.outstanding(), []);
+    }),
+);
+
+it.effect("discovers a lead session written elsewhere within the five-minute backoff cap", () =>
+  Effect.gen(function* () {
+    const { hq, boot, projectionReads, sql } = yield* harness;
+    const records = yield* boot;
+    yield* records.enqueue({
+      kind: "helper",
+      recordKey: "helper:external-session",
+      threadId: helperThread,
+      leadThreadId: leadThread,
+      specId: "spec-1",
+      args: { workId: "work-1" },
+    });
+    yield* records.deliverDue;
+    yield* Effect.forEach(
+      [1, 2, 4, 8, 16, 32, 64, 128, 256],
+      (seconds) =>
+        TestClock.adjust(Duration.seconds(seconds)).pipe(Effect.andThen(records.deliverDue)),
+      { discard: true },
+    );
+    yield* records.enqueue(leadSession);
+    yield* sql`UPDATE hq_build_records
+      SET status = 'delivered', result_json = '{"session":{"id":"external-session"}}'
+      WHERE kind = 'session' AND thread_id = ${leadThread}`;
+    yield* TestClock.adjust("299 seconds");
+    yield* records.deliverDue;
+    assert.strictEqual(projectionReads.calls.filter((id) => id === helperThread).length, 10);
+    assert.deepStrictEqual(hq.toolCalls, []);
+    yield* TestClock.adjust("1 second");
+    yield* records.deliverDue;
+    const helper = hq.toolCalls.find(({ name }) => name === "weave_forge_record_helper");
+    assert.deepStrictEqual(helper?.args, { workId: "work-1", parentSessionId: "external-session" });
     assert.deepStrictEqual(yield* records.outstanding(), []);
   }),
 );

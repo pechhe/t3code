@@ -3366,7 +3366,7 @@ it.effect("routes projection node lookups to the reader connection", () =>
       const spans: Array<Tracer.Span> = [];
       const observe: Statement.Transformer = (statement, _sql, _fiber, span) => {
         const [query] = statement.compile();
-        if (/orchestration_v2_projection_nodes WHERE node_id/.test(query)) {
+        if (/orchestration_v2_projection_nodes\s+WHERE node_id/.test(query)) {
           spans.push(span);
         }
         return Effect.succeed(statement);

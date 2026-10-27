@@ -54,6 +54,8 @@ layer("055_OrchestrationV2", (it) => {
         [88, "ShellStopRequestIndex"],
         [89, "HqForgeRecords"],
         [90, "ThreadMessageSearch"],
+        [91, "ProjectionAggregateIndexes"],
+        [92, "MaintenanceCandidateIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -110,6 +112,8 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 88, name: "ShellStopRequestIndex" },
         { migration_id: 89, name: "HqForgeRecords" },
         { migration_id: 90, name: "ThreadMessageSearch" },
+        { migration_id: 91, name: "ProjectionAggregateIndexes" },
+        { migration_id: 92, name: "MaintenanceCandidateIndexes" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

@@ -281,6 +281,62 @@ it.effect("background and snapshot reads complete while the writer holds uncommi
   ),
 );
 
+it.effect("node equality returns only a scalar and follows committed updates and rollbacks", () =>
+  withReaderStore(
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const sql = yield* SqlClient.SqlClient;
+      const now = yield* DateTime.now;
+      const node = {
+        id: NodeId.make("node:scalar-equality"),
+        threadId: ThreadId.make("thread:scalar-equality"),
+        runId: null,
+        rootNodeId: NodeId.make("node:scalar-equality"),
+        parentNodeId: null,
+        kind: "root_turn" as const,
+        status: "running" as const,
+        countsForRun: true,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        runtimeRequestId: null,
+        checkpointScopeId: null,
+        startedAt: now,
+        completedAt: null,
+      };
+      assert.isFalse(yield* store.isNodeStored(node));
+      yield* store.apply({
+        id: EventId.make("event:scalar-equality"),
+        type: "node.updated",
+        threadId: node.threadId,
+        occurredAt: now,
+        payload: node,
+      });
+      const { statements, tracer } = traceSqlStatements();
+      assert.isTrue(yield* store.isNodeStored({ ...node }).pipe(Effect.withTracer(tracer)));
+      assert.lengthOf(statements, 1);
+      assert.match(statements[0]!, /SELECT EXISTS/);
+      assert.notMatch(statements[0]!, /SELECT payload_json/);
+      assert.isFalse(yield* store.isNodeStored({ ...node, countsForRun: false }));
+      yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* sql`UPDATE orchestration_v2_projection_nodes
+            SET payload_json = json_set(payload_json, '$.status', 'completed')
+            WHERE node_id = ${node.id}`;
+            assert.isFalse(yield* store.isNodeStored(node));
+            assert.isTrue(yield* store.isNodeStored({ ...node, status: "completed" }));
+            return yield* Effect.fail("rollback" as const);
+          }),
+        )
+        .pipe(Effect.catch(() => Effect.void));
+      assert.isTrue(yield* store.isNodeStored(node));
+      yield* sql`DELETE FROM orchestration_v2_projection_nodes WHERE node_id = ${node.id}`;
+      assert.isFalse(yield* store.isNodeStored(node));
+    }),
+  ),
+);
+
 it.effect("projection reads inside a command transaction see its uncommitted changes", () =>
   withReaderStore(
     Effect.gen(function* () {
@@ -3122,7 +3178,22 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         yield* applyItem(busyThreadId, RunId.make("run:shell-item-counts:missing"));
         yield* applyItem(otherThreadId, otherRunId);
 
-        const snapshot = yield* projectionStore.getShellSnapshot({ projectId });
+        const { statements, tracer } = traceSqlStatements();
+        const snapshot = yield* projectionStore
+          .getShellSnapshot({ projectId })
+          .pipe(Effect.withTracer(tracer));
+        const sql = yield* SqlClient.SqlClient;
+        const countQuery = statements.find((statement) =>
+          statement.includes("AS runless_item_count"),
+        );
+        assert.isDefined(countQuery);
+        const countPlan = yield* sql.unsafe<{ readonly detail: string }>(
+          `EXPLAIN QUERY PLAN ${countQuery}`,
+        );
+        assert.isTrue(
+          countPlan.some(({ detail }) => detail.includes("projection_run_item_counts_key")),
+        );
+        assert.isFalse(countPlan.some(({ detail }) => detail.includes("projection_turn_items")));
         const expected = [
           [busyThreadId, 4],
           [emptyThreadId, 0],
@@ -3136,6 +3207,12 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           );
           assert.equal(shell?.itemCount, itemCount);
         }
+        yield* sql`UPDATE orchestration_v2_projection_runs SET status = 'completed'
+          WHERE run_id = ${rolledBackRunId}`;
+        assert.equal((yield* projectionStore.getThreadShell(busyThreadId))?.itemCount, 5);
+        yield* sql`UPDATE orchestration_v2_projection_runs SET status = 'rolled_back'
+          WHERE run_id = ${completedRunId}`;
+        assert.equal((yield* projectionStore.getThreadShell(busyThreadId))?.itemCount, 3);
       }),
   );
 
@@ -4717,6 +4794,16 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         const plan = (yield* sql.unsafe<{ readonly detail: string }>(
           `EXPLAIN QUERY PLAN ${statement}`,
         )).map((row) => row.detail);
+        if (marker === "AS failure_payload_json") {
+          assert.isTrue(
+            plan.some((detail) => detail.includes("orchestration_v2_turn_items_usage_limit_idx")),
+            plan.join("\n"),
+          );
+          const latestLookup = plan.findIndex((detail) => detail.startsWith("SEARCH latest "));
+          assert.isAtLeast(latestLookup, 0);
+          assert.include(plan[latestLookup], "orchestration_v2_runs_latest_executed_idx");
+          assert.notInclude(plan[latestLookup + 1], "USE TEMP B-TREE FOR ORDER BY");
+        }
         const bindingLookup = plan.findIndex((detail) => detail.startsWith("SEARCH binding "));
         const sessionLookup = plan.findIndex((detail) => detail.startsWith("SEARCH session "));
         assert.isAtLeast(bindingLookup, 0, marker);

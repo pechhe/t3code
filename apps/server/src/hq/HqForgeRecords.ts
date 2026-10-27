@@ -322,6 +322,8 @@ const make = Effect.gen(function* () {
   const buildSpec = yield* ForgeSpecOfThread.ForgeSpecOfThread;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const wakeups = yield* Queue.unbounded<void>();
+  // Dependency waits are scheduling state, not failed delivery attempts on the stored record.
+  const blockedWaits = new Map<string, { count: number; nextAttemptAt: number }>();
   /** Shared by the pass and by a read of the runs, so neither meets a report in neither place. */
   const reviewerRunDrain = yield* Semaphore.make(1);
 
@@ -355,6 +357,7 @@ const make = Effect.gen(function* () {
         VALUES (${defaultRecordKey(record)}, ${record.origin ?? null}, ${record.specId ?? null},
           ${record.threadId}, ${record.kind}, ${payload}, 'pending', 0, ${now}, ${now})
         ON CONFLICT (record_key) DO NOTHING`;
+      if (record.kind === "end") blockedWaits.clear();
       // A new record is due at once; it must not wait out another row's backoff.
       yield* Queue.offer(wakeups, undefined);
     },
@@ -408,6 +411,8 @@ const make = Effect.gen(function* () {
             t3_run_id = coalesce(excluded.t3_run_id, t3_run_id)`;
     }
     yield* weave.forgetReportedRuns(reported);
+    blockedWaits.clear();
+    yield* Queue.offer(wakeups, undefined);
   });
 
   /** The drain as the queue runs it: one at a time, so a reader never meets a report in neither place. */
@@ -804,13 +809,19 @@ const make = Effect.gen(function* () {
       const outcome = yield* attempt(row);
       const at = yield* Clock.currentTimeMillis;
       if (outcome._tag === "delivered") {
+        blockedWaits.delete(row.recordKey);
         yield* sql`UPDATE hq_build_records
           SET status = 'delivered', delivered_at = ${at}, result_json = ${outcome.value === undefined ? null : encodeJson(outcome.value)},
           last_error = NULL
           WHERE record_key = ${row.recordKey}`;
         return true;
       }
-      if (outcome._tag === "blocked") return false;
+      if (outcome._tag === "blocked") {
+        const count = (blockedWaits.get(row.recordKey)?.count ?? 0) + 1;
+        blockedWaits.set(row.recordKey, { count, nextAttemptAt: at + retryDelay(count) });
+        return false;
+      }
+      blockedWaits.delete(row.recordKey);
       const attempts = row.attempts + 1;
       if (outcome._tag === "refused") {
         yield* sql`UPDATE hq_build_records
@@ -839,6 +850,9 @@ const make = Effect.gen(function* () {
     (effect) => effect.pipe(Effect.mapError((cause) => failed("deliver", cause))),
   );
 
+  const orderRows = <R extends Pick<Row, "kind">>(queued: ReadonlyArray<R>) =>
+    [...queued].sort((left, right) => ROW_ORDER_GROUP[left.kind] - ROW_ORDER_GROUP[right.kind]);
+
   /**
    * Sends one thread's rows until one of them has to wait: a row that is not due yet, or one that
    * had to be retried or is waiting on another row, holds the rows behind it, so the thread's end
@@ -847,14 +861,16 @@ const make = Effect.gen(function* () {
   const deliverThread = Effect.fn("HqForgeRecords.deliverThread")(function* (
     queued: ReadonlyArray<Row>,
   ) {
-    const ordered = [...queued].sort(
-      (left, right) => ROW_ORDER_GROUP[left.kind] - ROW_ORDER_GROUP[right.kind],
-    );
-    for (const row of ordered) {
+    for (const row of orderRows(queued)) {
       const now = yield* Clock.currentTimeMillis;
-      if (row.nextAttemptAt > now) return;
+      if (Math.max(row.nextAttemptAt, blockedWaits.get(row.recordKey)?.nextAttemptAt ?? 0) > now)
+        return;
       const settled = yield* deliverRow(row);
       if (!settled) return;
+      if (row.kind === "session" || row.kind === "helper") {
+        blockedWaits.clear();
+        yield* Queue.offer(wakeups, undefined);
+      }
     }
   });
 
@@ -865,6 +881,10 @@ const make = Effect.gen(function* () {
       .withPermits(1)(drainReportedRuns)
       .pipe(Effect.mapError((cause) => failed("deliver", cause)));
     const rows = yield* pendingRows;
+    const pendingKeys = new Set(rows.map((row) => row.recordKey));
+    for (const key of blockedWaits.keys()) {
+      if (!pendingKeys.has(key)) blockedWaits.delete(key);
+    }
     const byThread = new Map<ThreadId, Array<Row>>();
     for (const row of rows) {
       const queued = byThread.get(row.threadId) ?? [];
@@ -876,16 +896,29 @@ const make = Effect.gen(function* () {
 
   /** How long the worker sleeps before looking again, never so briefly that it spins. */
   const waitMsBeforeNextAttempt = Effect.gen(function* () {
-    const [next] = yield* sql<{ readonly at: number | null }>`
-      SELECT MIN(next_attempt_at) AS at FROM hq_build_records WHERE status = 'pending'
+    const rows = yield* sql<Pick<Row, "recordKey" | "threadId" | "kind" | "nextAttemptAt">>`
+      SELECT record_key AS "recordKey", thread_id AS "threadId", kind,
+        next_attempt_at AS "nextAttemptAt"
+      FROM hq_build_records WHERE status = 'pending'
+      ORDER BY created_at, rowid
     `;
-    if (next?.at == null) return RETRY_MAX_MS;
+    const threads = new Set<ThreadId>();
+    let next = Infinity;
+    for (const row of orderRows(rows)) {
+      if (threads.has(row.threadId)) continue;
+      threads.add(row.threadId);
+      next = Math.min(
+        next,
+        Math.max(row.nextAttemptAt, blockedWaits.get(row.recordKey)?.nextAttemptAt ?? 0),
+      );
+    }
     const now = yield* Clock.currentTimeMillis;
-    return Math.min(Math.max(next.at - now, RETRY_BASE_MS), RETRY_MAX_MS);
+    return Math.min(Math.max(next - now, RETRY_BASE_MS), RETRY_MAX_MS);
   }).pipe(Effect.catch(() => Effect.succeed(RETRY_MAX_MS)));
 
   /** Makes every waiting row due again: what failed before may work under this process or Weave. */
   const retryWaitingNow = Effect.gen(function* () {
+    blockedWaits.clear();
     const now = yield* Clock.currentTimeMillis;
     yield* sql`UPDATE hq_build_records SET next_attempt_at = ${now}
       WHERE status = 'pending' AND next_attempt_at > ${now}`;

@@ -12,7 +12,8 @@ import * as Logger from "effect/Logger";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Statement from "effect/sql/Statement";
-import type * as Tracer from "effect/Tracer";
+import * as TestClock from "effect/testing/TestClock";
+import * as Tracer from "effect/Tracer";
 import { vi } from "vite-plus/test";
 
 import * as SqliteClient from "./nodeSqliteClient.ts";
@@ -102,6 +103,33 @@ layer("NodeSqliteClient", (it) => {
       assert.typeOf(span.attributes.get("db.lock_owner_at_start.trace_id"), "string");
       assert.typeOf(span.attributes.get("db.lock_owner_at_start.span_id"), "string");
     }),
+  );
+
+  it.effect(
+    "keeps nested transaction time on the outer writer without duplicating phase totals",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        let outer: Tracer.Span | undefined;
+        let nested: Tracer.Span | undefined;
+        yield* sql.withTransaction(
+          Effect.gen(function* () {
+            outer = yield* Effect.currentSpan;
+            yield* sql.withTransaction(
+              Effect.gen(function* () {
+                nested = yield* Effect.currentSpan;
+                yield* TestClock.adjust("11 millis");
+              }),
+            );
+          }),
+        );
+        assert.equal(outer?.attributes.get("db.transaction.body_ms"), 11);
+        assert.equal(outer?.attributes.get("db.transaction.checkpoint_admission_wait_ms"), 0);
+        assert.equal(outer?.attributes.get("db.transaction.begin_ms"), 0);
+        assert.equal(outer?.attributes.get("db.transaction.commit_ms"), 0);
+        assert.isFalse(nested?.attributes.has("db.transaction.body_ms"));
+        assert.isFalse(nested?.attributes.has("db.transaction.checkpoint_admission_wait_ms"));
+      }),
   );
 
   it.effect("retries preparing a query after the missing schema becomes available", () =>
@@ -564,6 +592,63 @@ const fillWalPastCeiling = (sql: SqlClient.SqlClient) =>
     WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 12000)
     INSERT INTO pages(payload) SELECT randomblob(4000) FROM n
   `;
+
+it.effect("attributes a held checkpoint to admission rather than the transaction body", () =>
+  withCheckpointClient((sql, filename) =>
+    Effect.gen(function* () {
+      yield* sql`CREATE TABLE pages(payload BLOB)`;
+      yield* sql`CREATE TABLE pings(n INTEGER)`;
+      yield* sql`INSERT INTO pages(payload) VALUES (randomblob(4000))`;
+      const pin = new NodeSqlite.DatabaseSync(filename);
+      yield* Effect.addFinalizer(() => Effect.sync(() => pin.isOpen && pin.close()));
+      pin.exec("BEGIN");
+      pin.prepare("SELECT count(*) FROM pages").get();
+      yield* fillWalPastCeiling(sql);
+      const worker = startedWorkers.at(-1)!;
+      yield* checkpointWorkerReply(worker);
+      const requests = pauseCheckpointRequests(worker);
+      yield* Effect.addFinalizer(() => Effect.sync(requests.release));
+
+      const completed: Array<Map<string, unknown>> = [];
+      const tracer = Tracer.make({
+        span: (options) => {
+          const span = new Tracer.NativeSpan(options);
+          const end = span.end.bind(span);
+          span.end = (...args) => {
+            if (span.name === "sql.transaction") completed.push(new Map(span.attributes));
+            end(...args);
+          };
+          return span;
+        },
+      });
+      const transaction = yield* sql
+        .withTransaction(
+          sql`INSERT INTO pings VALUES (1)`.pipe(Effect.andThen(TestClock.adjust("11 millis"))),
+        )
+        .pipe(Effect.provideService(Tracer.Tracer, tracer), (effect) =>
+          Effect.forkChild(effect, { startImmediately: true }),
+        );
+      assert.isNotEmpty(requests.queued);
+      yield* TestClock.adjust("37 millis");
+      pin.exec("COMMIT");
+      requests.release();
+      yield* Fiber.join(transaction);
+
+      assert.lengthOf(completed, 1);
+      const attributes = completed[0]!;
+      assert.equal(attributes.get("db.connection"), "writer");
+      assert.equal(attributes.get("db.lock_wait_ms"), 0);
+      assert.equal(attributes.get("db.transaction.lease_wait_ms"), 0);
+      assert.equal(attributes.get("db.transaction.checkpoint_admission_wait_ms"), 37);
+      assert.equal(attributes.get("db.transaction.begin_ms"), 0);
+      assert.equal(attributes.get("db.transaction.body_ms"), 11);
+      assert.equal(attributes.get("db.transaction.commit_ms"), 0);
+      assert.typeOf(attributes.get("db.transaction.checkpoint_episode_id"), "string");
+      assert.include(String(attributes.get("db.transaction.checkpoint_reason")), "wal-ceiling");
+      assert.deepEqual(yield* sql`SELECT n FROM pings`, [{ n: 1 }]);
+    }),
+  ),
+);
 
 // Collects the gate's records, and resolves `first` when one arrives.
 const collectGateRecords = Effect.gen(function* () {

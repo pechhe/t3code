@@ -1,4 +1,5 @@
 import * as NodeSqlite from "node:sqlite";
+import * as NodeCrypto from "node:crypto";
 import * as NodeUtil from "node:util";
 import * as NodeWorkerThreads from "node:worker_threads";
 
@@ -125,11 +126,23 @@ const annotateAcquired = (
  */
 type Restore = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
 
+interface TransactionTiming {
+  readonly clock: Clock.Clock;
+  span?: Tracer.Span;
+  admissionMs: number;
+  beginMs: number;
+  bodyMs: number;
+  commitMs: number;
+  checkpointEpisodeId?: string;
+  readonly checkpointReasons: Set<string>;
+}
+
 const TransactionAcquire = Context.Reference<
   | {
       acquired?: Acquired;
       ownerAtWaitStart: ConnectionOwner | undefined;
       restore: Restore | undefined;
+      timing?: TransactionTiming;
     }
   | undefined
 >("@t3tools/shared/nodeSqliteClient/TransactionAcquire", { defaultValue: () => undefined });
@@ -730,6 +743,7 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
   // One record per stretch of the gate that held a writer, so the next stuck checkpoint
   // names itself instead of being inferred from lock-wait spans.
   type Episode = {
+    readonly id: string;
     readonly startedAt: number;
     readonly startLog: number;
     readonly startCheckpointed: number;
@@ -759,6 +773,7 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
     if (current.releasedAfterMs !== undefined) current.reasons.add("checkpoint-pinned");
     else if (current.reasons.has("checkpoint-blocked")) current.reasons.add("checkpoint-lagging");
     const attributes = {
+      episodeId: current.id,
       outcome,
       reasons: [...current.reasons].join(","),
       durationMs,
@@ -975,6 +990,7 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
   const runWithAdmission = <A, E>(
     execute: () => Exit.Exit<A, E>,
     admitted?: Waiter,
+    timing?: TransactionTiming,
   ): Effect.Effect<A, E> =>
     Effect.suspend(() => {
       if (!gated()) {
@@ -989,6 +1005,7 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
       if (admitted !== undefined) release(admitted);
       // A waiter the gate closes on again after its episode ended starts a new one.
       episode ??= {
+        id: NodeCrypto.randomUUID(),
         startedAt: performance.now(),
         startLog: log,
         startCheckpointed: checkpointed,
@@ -1001,6 +1018,8 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
       };
       if (admitted === undefined || episode.writersHeld === 0) episode.writersHeld++;
       noteReasons(episode);
+      const currentEpisode = episode;
+      const started = timing?.clock.monotonicTimeNanosUnsafe();
       const waiter: Waiter = { resume: () => {}, cancelled: false };
       const wait = Effect.uninterruptibleMask((restore) =>
         Effect.withFiber((fiber) =>
@@ -1024,8 +1043,23 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
           ),
         ),
       );
-      return wait.pipe(
-        Effect.flatMap(() => runWithAdmission(execute, waiter)),
+      const observedWait =
+        timing === undefined
+          ? wait
+          : wait.pipe(
+              Effect.onExit(() =>
+                Effect.sync(() => {
+                  timing.admissionMs +=
+                    Number(timing.clock.monotonicTimeNanosUnsafe() - started!) / 1e6;
+                  timing.checkpointEpisodeId ??= currentEpisode.id;
+                  for (const reason of currentEpisode.reasons) timing.checkpointReasons.add(reason);
+                  if (currentEpisode.releasedAfterMs !== undefined)
+                    timing.checkpointReasons.add("checkpoint-pinned");
+                }),
+              ),
+            );
+      return observedWait.pipe(
+        Effect.flatMap(() => runWithAdmission(execute, waiter, timing)),
         Effect.onInterrupt(() => Effect.sync(() => release(waiter))),
       );
     });
@@ -1182,10 +1216,13 @@ const make = Effect.fn("makeWithDatabase")(function* (
       statement: NodeSqlite.StatementSync,
       params: ReadonlyArray<unknown>,
       mode: "rows" | "raw" | "values" = "rows",
+      control?: "beginMs" | "commitMs",
     ) =>
       Effect.withFiber<ReadonlyArray<any>, SqlError>((fiber) => {
         const classification = checkpointClassifications.get(statement);
+        const timing = control === undefined ? undefined : fiber.getRef(TransactionAcquire)?.timing;
         const execute = () => {
+          const started = timing?.clock.monotonicTimeNanosUnsafe();
           let arrays = false;
           let result: Exit.Exit<ReadonlyArray<unknown>, SqlError>;
           try {
@@ -1207,6 +1244,11 @@ const make = Effect.fn("makeWithDatabase")(function* (
               }),
             );
           } finally {
+            if (timing !== undefined && control !== undefined) {
+              timing[control] += Number(timing.clock.monotonicTimeNanosUnsafe() - started!) / 1e6;
+              if (control === "commitMs")
+                timing.span?.attribute("db.transaction.commit_ms", timing.commitMs);
+            }
             // OR FAIL may have committed earlier rows even when execution throws.
             if (classification?.check) checkpoint?.check();
           }
@@ -1228,7 +1270,11 @@ const make = Effect.fn("makeWithDatabase")(function* (
           return result;
         };
         return checkpoint !== undefined && classification?.backpressure
-          ? checkpoint.runWithAdmission(execute)
+          ? checkpoint.runWithAdmission(
+              execute,
+              undefined,
+              control === "beginMs" ? timing : undefined,
+            )
           : execute();
       });
 
@@ -1258,7 +1304,14 @@ const make = Effect.fn("makeWithDatabase")(function* (
       },
       executeUnprepared(sql, params, rowTransform) {
         const effect = prepare(sql).pipe(
-          Effect.flatMap((statement) => runStatement(statement, params ?? [])),
+          Effect.flatMap((statement) =>
+            runStatement(
+              statement,
+              params ?? [],
+              "rows",
+              sql === "BEGIN IMMEDIATE" ? "beginMs" : sql === "COMMIT" ? "commitMs" : undefined,
+            ),
+          ),
         );
         return rowTransform ? Effect.map(effect, rowTransform) : effect;
       },
@@ -1416,6 +1469,20 @@ const make = Effect.fn("makeWithDatabase")(function* (
           if (pending !== undefined) {
             pending.acquired = acquired(taken, clock, start);
             pending.ownerAtWaitStart = taken.ownerAtWaitStart;
+            if (
+              taken.connection === "writer" &&
+              options.readonly !== true &&
+              fiber.getRef(References.TracerEnabled)
+            ) {
+              pending.timing = {
+                clock,
+                admissionMs: 0,
+                beginMs: 0,
+                bodyMs: 0,
+                commitMs: 0,
+                checkpointReasons: new Set(),
+              };
+            }
           }
           return Effect.as(Scope.addFinalizer(scope, taken.release), taken.value);
         }),
@@ -1446,6 +1513,7 @@ const make = Effect.fn("makeWithDatabase")(function* (
           acquired?: Acquired;
           ownerAtWaitStart: ConnectionOwner | undefined;
           restore: Restore | undefined;
+          timing?: TransactionTiming;
         } = {
           ownerAtWaitStart: undefined,
           restore,
@@ -1453,7 +1521,32 @@ const make = Effect.fn("makeWithDatabase")(function* (
         const body = Effect.withFiber<A, E, R>((fiber) => {
           annotateAcquired(fiber, pending.acquired, pending.ownerAtWaitStart);
           pending.restore = undefined;
-          return effect;
+          const span = Context.getOrUndefined(fiber.context, Tracer.ParentSpan);
+          const timing = pending.timing;
+          if (timing === undefined) return effect;
+          if (span?._tag === "Span") {
+            timing.span = span;
+            span.attribute("db.transaction.lease_wait_ms", pending.acquired!.lockWaitMs);
+            span.attribute("db.transaction.checkpoint_admission_wait_ms", timing.admissionMs);
+            span.attribute("db.transaction.begin_ms", timing.beginMs);
+            span.attribute("db.transaction.commit_ms", 0);
+            if (timing.checkpointEpisodeId !== undefined) {
+              span.attribute("db.transaction.checkpoint_episode_id", timing.checkpointEpisodeId);
+              span.attribute(
+                "db.transaction.checkpoint_reason",
+                [...timing.checkpointReasons].join(","),
+              );
+            }
+          }
+          const started = timing.clock.monotonicTimeNanosUnsafe();
+          return effect.pipe(
+            Effect.onExit(() =>
+              Effect.sync(() => {
+                timing.bodyMs = Number(timing.clock.monotonicTimeNanosUnsafe() - started) / 1e6;
+                timing.span?.attribute("db.transaction.body_ms", timing.bodyMs);
+              }),
+            ),
+          );
         });
         return restore(
           withTransaction(body).pipe(Effect.provideService(TransactionAcquire, pending)),

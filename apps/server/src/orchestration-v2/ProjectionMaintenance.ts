@@ -8,6 +8,11 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import {
+  compactableEventCondition,
+  READ_STATE_THREAD_EVENT_TYPES,
+  SUPERSEDABLE_THREAD_EVENT_TYPES,
+} from "./compactionCandidates.ts";
 import * as EventStore from "./EventStore.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 
@@ -196,40 +201,13 @@ export const layer: Layer.Layer<
           Effect.mapError((cause) => new ProjectionMaintenanceError({ operation, cause })),
         );
 
-    // Keep thread.created as the verification and replay anchor; clients recognize deletion by thread.deleted event type.
-    const SUPERSEDABLE_THREAD_EVENT_TYPES = [
-      "thread.archived",
-      "thread.unarchived",
-      "thread.settled",
-      "thread.unsettled",
-      "thread.snoozed",
-      "thread.unsnoozed",
-      "thread.pinned",
-      "thread.auto-settle-set",
-      "thread.rollover-hold-set",
-      "thread.rollover-thresholds-set",
-      "thread.compact-at-set",
-      "thread.unpinned",
-      "thread.pin-reordered",
-      "thread.active-reordered",
-      "thread.metadata-updated",
-      "thread.pull-request-synced",
-      "thread.runtime-mode-updated",
-      "thread.interaction-mode-updated",
-      "thread.model-selection-updated",
-      "thread.provider-switched",
-      "thread.guest-share-updated",
-    ];
-    // Read-state events preserve updatedAt and supersede only each other. Activity events supersede both groups.
-    const READ_STATE_THREAD_EVENT_TYPES = ["thread.visited", "thread.marked-unread"];
-
     const supersedableThreadEventTypes = new Set(SUPERSEDABLE_THREAD_EVENT_TYPES);
     const readStateThreadEventTypes = new Set(READ_STATE_THREAD_EVENT_TYPES);
     // Keep subagent.updated and turn-item.updated rows: slimmed payloads reference their prompts.
-    // Small pages bound work on the reader worker and synchronous fallback.
+    // Small indexed pages bound work on the reader worker and synchronous fallback.
     const COMPACTION_PAGE_SIZE = 50;
 
-    /** Retain newest and oldest keyed events to preserve client insertion order; page all events to bound sparse scans.
+    /** Retain newest and oldest keyed events to preserve client insertion order; page compactable events through their sequence index.
      * Keep turn-item.updated because replay assigns positions on first write. */
     const compactEventStore = Effect.gen(function* () {
       const bounds = yield* sql<{
@@ -286,7 +264,9 @@ export const layer: Layer.Layer<
               ELSE 0
             END AS imported_legacy_thread
           FROM orchestration_events AS event
+            INDEXED BY orchestration_events_compactable_sequence_idx
           WHERE event.sequence <= ${throughSequence}
+            AND ${compactableEventCondition(sql)}
           ORDER BY event.sequence DESC
           LIMIT ${COMPACTION_PAGE_SIZE}
         `.pipe(NodeSqliteClient.readOnly);
