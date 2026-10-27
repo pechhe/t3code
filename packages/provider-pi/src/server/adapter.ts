@@ -206,6 +206,17 @@ export interface PiAdapterV2Options {
   };
 }
 
+/** A managed read-only session (a reviewer, scout or browser role): T3 asks for a read-only sandbox Pi cannot enforce. */
+function isManagedReadOnly(policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy): boolean {
+  const sandbox = policy.sandboxPolicy;
+  return (
+    policy.managedAgent === true &&
+    typeof sandbox === "object" &&
+    sandbox !== null &&
+    (sandbox as { type?: unknown }).type === "readOnly"
+  );
+}
+
 function contentText(content: unknown): string {
   if (!Array.isArray(content)) {
     return typeof content === "string" ? content : "";
@@ -423,7 +434,7 @@ interface PiWake {
 }
 
 // Pi reports no per-request token counts, so its turns record no usage for Weave's Build record
-// rather than a zero (Spec #4395).
+// rather than a zero.
 export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
   options: PiAdapterV2Options,
 ) {
@@ -480,6 +491,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         mcpSession,
         agentServers: yield* readAgentServers(input.threadId),
         extensionPath,
+        readOnlyTools: isManagedReadOnly(input.runtimePolicy),
         runtimeMode: input.runtimePolicy.runtimeMode,
       });
       const scopedLaunch = yield* agentScope.wrap({
@@ -496,33 +508,32 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       yield* Effect.addFinalizer(() => stopScope);
       // T3 spawns Pi again for a compaction point, so each connection gets its own watch.
       let exitWatch: Fiber.Fiber<void> | null = null;
-      const spawnConnection = () =>
-        Effect.gen(function* () {
-          const spawned = yield* makePiRpcConnection({
-            command: scopedLaunch.command,
-            args: scopedLaunch.args,
-            cwd,
-            env: launch.env,
-          }).pipe(
-            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-            Effect.mapError(
-              (cause) =>
-                new ProviderAdapter.ProviderAdapterOpenSessionError({
-                  driver: PI_PROVIDER,
-                  providerSessionId: input.providerSessionId,
-                  cause,
-                }),
-            ),
+      const spawnConnection = Effect.fn("PiAdapterV2.spawnConnection")(function* () {
+        const spawned = yield* makePiRpcConnection({
+          command: scopedLaunch.command,
+          args: scopedLaunch.args,
+          cwd,
+          env: launch.env,
+        }).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          Effect.mapError(
+            (cause) =>
+              new ProviderAdapter.ProviderAdapterOpenSessionError({
+                driver: PI_PROVIDER,
+                providerSessionId: input.providerSessionId,
+                cause,
+              }),
+          ),
+        );
+        // Detached children can keep stdout open after Pi exits.
+        if (scopeUnit !== undefined) {
+          exitWatch = yield* spawned.exited.pipe(
+            Effect.matchEffect({ onFailure: () => stopScope, onSuccess: () => stopScope }),
+            Effect.forkIn(scope),
           );
-          // Detached children can keep stdout open after Pi exits.
-          if (scopeUnit !== undefined) {
-            exitWatch = yield* spawned.exited.pipe(
-              Effect.matchEffect({ onFailure: () => stopScope, onSuccess: () => stopScope }),
-              Effect.forkIn(scope),
-            );
-          }
-          return spawned;
-        });
+        }
+        return spawned;
+      });
       let connection: PiRpcConnection = yield* spawnConnection();
       const now = yield* DateTime.now;
       let sessionEntity: OrchestrationV2ProviderSession = {

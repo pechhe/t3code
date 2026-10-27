@@ -34,7 +34,9 @@ const makeAuth = (
   const requests: string[] = [];
   const layer = Layer.mock(EnvironmentAuth.EnvironmentAuth, {
     authenticateWebSocketUpgrade: (request) => {
-      requests.push(request.originalUrl);
+      // The upgrade's originalUrl may be absolute (it names the listening host); compare its path and query.
+      const url = new URL(request.originalUrl, "http://localhost");
+      requests.push(`${url.pathname}${url.search}`);
       return error
         ? Effect.fail(error)
         : Effect.succeed({

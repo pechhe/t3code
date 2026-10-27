@@ -155,6 +155,25 @@ describe("pi T3 MCP injection", () => {
     assert.deepInclude(resolvePiLaunchArgs("--plan @instructions.md"), { ok: false });
   });
 
+  it("withholds mutating built-ins after any user tool selection for a read-only session", () => {
+    const launch = buildPiRpcLaunch({
+      launchArgs: ["--tools", "read,bash", "--exclude-tools=grep", "--provider", "anthropic"],
+      environment: {},
+      mcpSession,
+      extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
+      readOnlyTools: true,
+    });
+    assert.notInclude(launch.args, "read,bash");
+    assert.notInclude(launch.args, "--exclude-tools=grep");
+    const excluded = launch.args.indexOf("--exclude-tools");
+    assert.deepEqual(launch.args.slice(excluded, excluded + 2), [
+      "--exclude-tools",
+      "bash,edit,write",
+    ]);
+    assert.include(launch.args, "anthropic");
+    assert.isTrue(launch.hasT3Mcp);
+  });
+
   it("rejects --provider without --model, which Pi 1.0 refuses at startup", () => {
     const rejection = {
       ok: false,

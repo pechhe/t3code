@@ -198,6 +198,9 @@ function withoutExplicitExtensions(args: ReadonlyArray<string>): ReadonlyArray<s
   return filtered;
 }
 
+/** Pi's built-in tools that run commands or change files; Pi does not sandbox them itself. */
+const PI_MUTATING_BUILTIN_TOOLS = ["bash", "edit", "write"] as const;
+
 function withoutToolSelectionArgs(args: ReadonlyArray<string>): ReadonlyArray<string> {
   const filtered: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
@@ -251,6 +254,8 @@ export function buildPiRpcLaunch(input: {
   readonly ephemeral?: boolean;
   readonly disableExtensions?: boolean;
   readonly disableTools?: boolean;
+  /** A read-only managed session: Pi's mutating built-ins (shell, edit, write) are withheld. */
+  readonly readOnlyTools?: boolean;
   readonly runtimeMode?: "approval-required" | "auto-accept-edits" | "auto" | "full-access";
 }): {
   readonly args: ReadonlyArray<string>;
@@ -264,7 +269,9 @@ export function buildPiRpcLaunch(input: {
       ? withoutExplicitExtensions(input.launchArgs)
       : input.launchArgs;
   const launchArgs =
-    input.disableTools === true ? withoutToolSelectionArgs(extensionSafeArgs) : extensionSafeArgs;
+    input.disableTools === true || input.readOnlyTools === true
+      ? withoutToolSelectionArgs(extensionSafeArgs)
+      : extensionSafeArgs;
   const args = [
     "--mode",
     "rpc",
@@ -276,7 +283,11 @@ export function buildPiRpcLaunch(input: {
     ...launchArgs,
     // Restrictions must follow launch args so user flags cannot re-enable unattended tools/extensions.
     ...(input.disableExtensions === true ? ["--no-extensions"] : []),
-    ...(input.disableTools === true ? ["--no-tools"] : []),
+    ...(input.disableTools === true
+      ? ["--no-tools"]
+      : input.readOnlyTools === true
+        ? ["--exclude-tools", PI_MUTATING_BUILTIN_TOOLS.join(",")]
+        : []),
   ];
   if (
     hasT3Extension &&

@@ -1539,6 +1539,76 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect(
+    "withholds Pi's shell, edit and write tools from a managed read-only session only",
+    () =>
+      Effect.gen(function* () {
+        const launches: Array<ReadonlyArray<string>> = [];
+        const open = (policy: Partial<ProviderAdapter.ProviderAdapterV2RuntimePolicy>) =>
+          Effect.gen(function* () {
+            const fake = yield* makeFakePi;
+            const adapter = yield* makePiAdapterV2({
+              instanceId: PI_INSTANCE_ID,
+              settings: {
+                enabled: true,
+                binaryPath: "pi",
+                launchArgs: "--tools read,bash",
+                customModels: [],
+                autoCompactWindow: "",
+              },
+              environment: {},
+            }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, fake.spawner));
+            yield* adapter.openSession({
+              threadId: THREAD_ID,
+              providerSessionId: SESSION_ID,
+              modelSelection: modelSelection("default"),
+              runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+                runtimeMode: "full-access",
+                interactionMode: "default",
+                cwd: null,
+                ...policy,
+              }),
+            });
+          }).pipe(
+            Effect.scoped,
+            Effect.provideService(AgentScope, {
+              ...AgentScope.defaultValue(),
+              wrap: ({ command, args }) =>
+                Effect.sync(() => {
+                  launches.push(args);
+                  return { command, args, unit: "t3code-pi-test.scope" };
+                }),
+              stop: () => Effect.void,
+            }),
+          );
+        yield* open({
+          managedAgent: true,
+          approvalPolicy: "never",
+          sandboxPolicy: { type: "readOnly", networkAccess: false },
+        });
+        yield* open({
+          managedAgent: true,
+          approvalPolicy: "never",
+          sandboxPolicy: { type: "workspaceWrite", writableRoots: [], networkAccess: false },
+        });
+        yield* open({});
+        const [readOnly, writer, ordinary] = launches;
+        // A user's tool selection cannot re-enable the withheld tools.
+        assert.notInclude(readOnly, "read,bash");
+        assert.deepEqual(
+          readOnly?.slice(
+            readOnly.indexOf("--exclude-tools"),
+            readOnly.indexOf("--exclude-tools") + 2,
+          ),
+          ["--exclude-tools", "bash,edit,write"],
+        );
+        for (const args of [writer, ordinary]) {
+          assert.notInclude(args, "--exclude-tools");
+          assert.include(args, "read,bash");
+        }
+      }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("gives notify and extension-error items distinct ids in each thread", () =>
     Effect.gen(function* () {
       const itemIds = new Set<string>();
