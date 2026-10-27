@@ -27,7 +27,7 @@ export const SUPERSEDABLE_THREAD_EVENT_TYPES = [
 // Read-state events preserve updatedAt and supersede only each other. Activity events supersede both groups.
 export const READ_STATE_THREAD_EVENT_TYPES = ["thread.visited", "thread.marked-unread"];
 
-// Must stay equivalent to orchestration_events_compactable_sequence_idx's predicate (migration 092),
+// Must stay equivalent to orchestration_events_compactable_sequence_idx's predicate (migration 093),
 // which compaction reads by name: changing these types needs a new index.
 export const compactableEventCondition = (sql: SqlClient.SqlClient) =>
   sql.literal(`
@@ -39,6 +39,8 @@ export const compactableEventCondition = (sql: SqlClient.SqlClient) =>
         "thread.pull-request-link-updated",
         "message.updated",
         "node.updated",
+        "turn-item.updated",
+        "provider-turn.updated",
       ]
         .map((type) => `'${type}'`)
         .join(", ")}

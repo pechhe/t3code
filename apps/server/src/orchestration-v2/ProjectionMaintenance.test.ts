@@ -158,6 +158,7 @@ it.effect("discovers events and receipts on the reader and deletes on the writer
           const query = span.attributes.get("db.query.text");
           return (
             typeof query === "string" &&
+            query.trimStart().startsWith("SELECT") &&
             (query.includes("FROM orchestration_events AS event") ||
               query.includes("FROM orchestration_command_receipts AS receipt"))
           );
@@ -170,6 +171,224 @@ it.effect("discovers events and receipts on the reader and deletes on the writer
         assert.lengthOf(deletes, 1);
         assert.equal(deletes[0]!.attributes.get("db.connection"), "writer");
         assert.isFalse(spans.some((span) => span.name === "sql.transaction"));
+      }).pipe(
+        Effect.provide(
+          maintenanceLayer.pipe(
+            Layer.provideMerge(Sqlite.layerFromPath(path.join(directory, "state.sqlite"))),
+          ),
+        ),
+      );
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("compacts settled intermediate updates while retaining prompt and usage anchors", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+    for (const thread of [
+      "settled",
+      "unsettled",
+      "running",
+      "active",
+      "preparing",
+      "provider-running",
+      "item-waiting",
+      "background",
+      "request-pending",
+      "subagent-running",
+    ]) {
+      yield* sql`
+        INSERT INTO orchestration_v2_projection_threads (
+          thread_id, project_id, title, default_provider, runtime_mode, interaction_mode,
+          created_at, updated_at, payload_json
+        ) VALUES (${thread}, 'project', 'title', 'codex', 'full-access', 'default', 'now', 'now',
+          ${JSON.stringify({ settledAt: thread === "unsettled" ? null : "now", settledOverride: thread === "active" ? "active" : null })})
+      `;
+      if (thread === "running" || thread === "preparing")
+        yield* sql`
+        INSERT INTO orchestration_v2_projection_runs
+          (run_id, thread_id, ordinal, provider, status, requested_at, payload_json)
+        VALUES (${thread + ":run"}, ${thread}, 1, 'codex', ${thread}, 'now', '{}')
+      `;
+      if (thread === "provider-running")
+        yield* sql`
+          INSERT INTO orchestration_v2_projection_provider_turns
+            (provider_turn_id, thread_id, provider_thread_id, node_id, ordinal, status, payload_json)
+          VALUES ('active-turn', ${thread}, 'provider-thread', 'node', 1, 'running', '{}')
+        `;
+      if (thread === "item-waiting")
+        yield* sql`
+          INSERT INTO orchestration_v2_projection_turn_items
+            (turn_item_id, thread_id, ordinal, type, status, updated_at, payload_json)
+          VALUES ('active-item', ${thread}, 1, 'command_execution', 'waiting', 'now', '{}')
+        `;
+      if (thread === "background")
+        yield* sql`
+          INSERT INTO orchestration_v2_projection_provider_threads
+            (provider_thread_id, thread_id, provider, status, updated_at, payload_json)
+          VALUES ('background-provider', ${thread}, 'codex', 'idle', 'now',
+            '{"pendingBackgroundTasks":[{"id":"task"}]}')
+        `;
+      if (thread === "request-pending")
+        yield* sql`
+          INSERT INTO orchestration_v2_projection_runtime_requests
+            (runtime_request_id, thread_id, node_id, kind, status, created_at, payload_json)
+          VALUES ('request', ${thread}, 'node', 'approval', 'pending', 'now', '{}')
+        `;
+      if (thread === "subagent-running")
+        yield* sql`
+          INSERT INTO orchestration_v2_projection_subagents
+            (subagent_id, thread_id, parent_node_id, provider, origin, status, updated_at, payload_json)
+          VALUES ('child', ${thread}, 'node', 'codex', 'provider_native', 'running', 'now', '{}')
+        `;
+      for (const type of ["turn-item.updated", "provider-turn.updated"]) {
+        for (let n = 1; n <= 55; n++) {
+          const payload = {
+            id: "entity",
+            type: "command_execution",
+            ...(type === "provider-turn.updated" && (n === 30 || n === 31)
+              ? { tokenUsage: { totalTokens: n === 30 ? 40 : 42 } }
+              : {}),
+          };
+          yield* sql`
+            INSERT INTO orchestration_events (
+              event_id, aggregate_kind, stream_id, stream_version, event_type,
+              occurred_at, actor_kind, payload_json, metadata_json, application_event_version
+            ) VALUES (${`${thread}:${type}:${n}`}, 'thread', ${thread},
+              ${n + (type === "provider-turn.updated" ? 100 : 0)}, ${type},
+              'now', 'server', ${JSON.stringify(payload)}, '{}', 2)
+          `;
+        }
+      }
+    }
+    for (let n = 1; n <= 3; n++)
+      yield* sql`
+      INSERT INTO orchestration_events (
+        event_id, aggregate_kind, stream_id, stream_version, event_type,
+        occurred_at, actor_kind, payload_json, metadata_json, application_event_version
+      ) VALUES (${"prompt:" + n}, 'thread', 'settled', ${200 + n}, 'turn-item.updated',
+        'now', 'server', '{"id":"subagent","type":"subagent","promptSequence":1}', '{}', 2)
+    `;
+    for (let n = 1; n <= 3; n++)
+      yield* sql`
+      INSERT INTO orchestration_events (
+        event_id, aggregate_kind, stream_id, stream_version, event_type, command_id,
+        occurred_at, actor_kind, payload_json, metadata_json, application_event_version
+      ) VALUES (${"receipt:" + n}, 'thread', 'settled', ${300 + n}, 'turn-item.updated',
+        ${"command:" + n}, 'now', 'server', '{"id":"response","type":"user_input_request"}', '{}', 2)
+    `;
+    for (let n = 1; n <= 3; n++)
+      yield* sql`
+      INSERT INTO orchestration_events (
+        event_id, aggregate_kind, stream_id, stream_version, event_type, command_id,
+        occurred_at, actor_kind, payload_json, metadata_json, application_event_version
+      ) VALUES (${"attachment:" + n}, 'thread', 'settled', ${400 + n}, 'message.updated',
+        ${"attachment-command:" + n}, 'now', 'server', '{"id":"message"}', '{}', 2)
+    `;
+    for (let n = 1; n <= 55; n++)
+      yield* sql`
+        INSERT INTO orchestration_events (
+          event_id, aggregate_kind, stream_id, stream_version, event_type,
+          occurred_at, actor_kind, payload_json, metadata_json, application_event_version
+        ) VALUES (${"usage:" + n}, 'thread', 'settled', ${500 + n}, 'provider-turn.updated',
+          'now', 'server', ${JSON.stringify({ id: "usage", tokenUsage: { totalTokens: n } })}, '{}', 2)
+      `;
+    const result = yield* maintenance.compactEventStore;
+    assert.equal(result.deletedEventCount, 158);
+    const rows = yield* sql<{ event_id: string }>`
+      SELECT event_id FROM orchestration_events WHERE stream_id = 'settled' ORDER BY sequence
+    `;
+    assert.sameMembers(
+      rows.map((row) => row.event_id),
+      [
+        "settled:turn-item.updated:1",
+        "settled:turn-item.updated:55",
+        "settled:provider-turn.updated:1",
+        "settled:provider-turn.updated:31",
+        "settled:provider-turn.updated:55",
+        "prompt:1",
+        "prompt:2",
+        "prompt:3",
+        "receipt:1",
+        "receipt:2",
+        "receipt:3",
+        "attachment:1",
+        "attachment:2",
+        "attachment:3",
+        "usage:1",
+        "usage:55",
+      ],
+    );
+    const untouched = yield* sql<{ count: number }>`
+      SELECT COUNT(*) AS count FROM orchestration_events WHERE stream_id != 'settled'
+    `;
+    assert.equal(untouched[0]!.count, 990);
+    assert.equal((yield* maintenance.compactEventStore).deletedEventCount, 0);
+  }).pipe(Effect.provide(maintenanceLayer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+);
+
+it.effect("retains discovered intermediate events when the thread resumes before deletion", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+    yield* sql`
+      INSERT INTO orchestration_v2_projection_threads (
+        thread_id, project_id, title, default_provider, runtime_mode, interaction_mode,
+        created_at, updated_at, payload_json
+      ) VALUES ('resumed', 'project', 'title', 'codex', 'full-access', 'default', 'now', 'now',
+        '{"settledAt":"now"}')
+    `;
+    for (let n = 1; n <= 3; n++)
+      yield* sql`
+        INSERT INTO orchestration_events (
+          event_id, aggregate_kind, stream_id, stream_version, event_type,
+          occurred_at, actor_kind, payload_json, metadata_json, application_event_version
+        ) VALUES (${"resumed:" + n}, 'thread', 'resumed', ${n}, 'turn-item.updated',
+          'now', 'server', '{"id":"item","type":"command_execution"}', '{}', 2)
+      `;
+    let resumed = false;
+    const resumeBeforeDelete: Statement.Transformer = (statement) => {
+      const [query] = statement.compile();
+      if (!query.trimStart().startsWith("DELETE FROM orchestration_events"))
+        return Effect.succeed(statement);
+      resumed = true;
+      return sql`
+        UPDATE orchestration_v2_projection_threads
+        SET payload_json = '{"settledAt":"now","settledOverride":"active"}'
+        WHERE thread_id = 'resumed'
+      `.pipe(Effect.orDie, Effect.as(statement));
+    };
+    const result = yield* maintenance.compactEventStore.pipe(
+      Effect.provideService(Statement.CurrentTransformer, resumeBeforeDelete),
+    );
+    assert.isTrue(resumed);
+    assert.equal(result.deletedEventCount, 0);
+    assert.equal((yield* sql`SELECT sequence FROM orchestration_events`).length, 3);
+  }).pipe(Effect.provide(maintenanceLayer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
+);
+
+it.effect("returns at most 256 free pages per pass and continues on later passes", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "compaction-reclaim-" });
+      yield* Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+        yield* sql`CREATE TABLE reclaim_fixture (value BLOB)`;
+        yield* sql`INSERT INTO reclaim_fixture VALUES (zeroblob(4194304))`;
+        yield* sql`DELETE FROM reclaim_fixture`;
+        const before = (yield* sql<{ page_count: number }>`PRAGMA page_count`)[0]!.page_count;
+        const first = yield* maintenance.compactEventStore;
+        const after = (yield* sql<{ page_count: number }>`PRAGMA page_count`)[0]!.page_count;
+        assert.isAtLeast(before - after, 256);
+        // Pointer-map pages can disappear along with the 256 data pages.
+        assert.isAtMost(before - after, 257);
+        assert.isAbove(first.reclaimableBytes, 0);
+        const second = yield* maintenance.compactEventStore;
+        assert.isBelow(second.reclaimableBytes, first.reclaimableBytes);
       }).pipe(
         Effect.provide(
           maintenanceLayer.pipe(

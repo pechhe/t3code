@@ -72,6 +72,7 @@ describe("V2 preview upgrade", () => {
         [90, "ThreadMessageSearch"],
         [91, "ProjectionAggregateIndexes"],
         [92, "MaintenanceCandidateIndexes"],
+        [93, "IntermediateEventCompaction"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -187,6 +188,7 @@ describe("V2 preview upgrade", () => {
         [90, "ThreadMessageSearch"],
         [91, "ProjectionAggregateIndexes"],
         [92, "MaintenanceCandidateIndexes"],
+        [93, "IntermediateEventCompaction"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

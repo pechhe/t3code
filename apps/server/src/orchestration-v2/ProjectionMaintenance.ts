@@ -203,12 +203,47 @@ export const layer: Layer.Layer<
 
     const supersedableThreadEventTypes = new Set(SUPERSEDABLE_THREAD_EVENT_TYPES);
     const readStateThreadEventTypes = new Set(READ_STATE_THREAD_EVENT_TYPES);
-    // Keep subagent.updated and turn-item.updated rows: slimmed payloads reference their prompts.
+    // Keep prompt anchors, merged token usage, and command responses needed by receipt retries.
+    const settledWithoutActiveWork = sql.literal(`
+      EXISTS (
+        SELECT 1 FROM orchestration_v2_projection_threads AS thread
+        WHERE thread.thread_id = event.stream_id
+          AND json_extract(thread.payload_json, '$.settledOverride') IS NOT 'active'
+          AND (json_extract(thread.payload_json, '$.settledAt') IS NOT NULL
+            OR json_extract(thread.payload_json, '$.settledOverride') = 'settled')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM orchestration_v2_projection_runs AS run
+        WHERE run.thread_id = event.stream_id AND run.status IN ('preparing', 'queued', 'starting', 'running', 'waiting')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM orchestration_v2_projection_provider_turns AS turn
+          INDEXED BY orchestration_v2_provider_turns_active_thread_idx
+        WHERE turn.thread_id = event.stream_id AND turn.status IN ('pending', 'running')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM orchestration_v2_projection_turn_items AS item
+          INDEXED BY orchestration_v2_turn_items_active_thread_idx
+        WHERE item.thread_id = event.stream_id AND item.status IN ('pending', 'running', 'waiting')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM orchestration_v2_projection_runtime_requests AS request
+        WHERE request.thread_id = event.stream_id AND request.status = 'pending'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM orchestration_v2_projection_subagents AS subagent
+        WHERE subagent.thread_id = event.stream_id AND subagent.status IN ('pending', 'running', 'waiting')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM orchestration_v2_projection_provider_threads AS provider_thread
+        WHERE provider_thread.thread_id = event.stream_id
+          AND json_array_length(provider_thread.payload_json, '$.pendingBackgroundTasks') > 0
+      )
+    `);
     // Small indexed pages bound work on the reader worker and synchronous fallback.
     const COMPACTION_PAGE_SIZE = 50;
 
-    /** Retain newest and oldest keyed events to preserve client insertion order; page compactable events through their sequence index.
-     * Keep turn-item.updated because replay assigns positions on first write. */
+    // First and latest keyed events preserve replay insertion order and final state.
     const compactEventStore = Effect.gen(function* () {
       const bounds = yield* sql<{
         readonly event_sequence: number;
@@ -223,7 +258,11 @@ export const layer: Layer.Layer<
       const retainedThreadIds = new Set<string>();
       const retainedReadStateThreadIds = new Set<string>();
       // Retain each key's oldest candidate, deleting it only when an older event appears.
-      const oldestCandidateByEntityKey = new Map<string, number | null>();
+      const oldestCandidateByEntityKey = new Map<
+        string,
+        { readonly sequence: number; readonly protected: boolean } | null
+      >();
+      const retainedProviderUsageKeys = new Set<string>();
       let deletedEventCount = 0;
       let deletedReceiptCount = 0;
 
@@ -236,6 +275,9 @@ export const layer: Layer.Layer<
           readonly event_type: string;
           readonly entity_id: string | null;
           readonly imported_legacy_thread: number;
+          readonly intermediate_eligible: number;
+          readonly protected_intermediate: number;
+          readonly has_provider_usage: number;
         }>`
           SELECT
             event.sequence,
@@ -245,7 +287,7 @@ export const layer: Layer.Layer<
             event.event_type,
             CASE
               WHEN event.application_event_version = 2
-                AND event.event_type IN ('message.updated', 'node.updated')
+                AND event.event_type IN ('message.updated', 'node.updated', 'turn-item.updated', 'provider-turn.updated')
               THEN json_extract(event.payload_json, '$.id')
               WHEN event.application_event_version = 2
                 AND event.event_type = 'thread.pull-request-link-updated'
@@ -262,7 +304,18 @@ export const layer: Layer.Layer<
                   AND legacy_import.transcript_imported_at IS NOT NULL
               )
               ELSE 0
-            END AS imported_legacy_thread
+            END AS imported_legacy_thread,
+            CASE WHEN event.event_type IN ('turn-item.updated', 'provider-turn.updated')
+              THEN ${settledWithoutActiveWork} ELSE 1 END AS intermediate_eligible,
+            CASE
+              WHEN event.command_id IS NOT NULL
+                AND event.event_type IN ('message.updated', 'turn-item.updated', 'provider-turn.updated') THEN 1
+              WHEN event.event_type = 'turn-item.updated'
+                AND json_extract(event.payload_json, '$.type') = 'subagent' THEN 1
+              ELSE 0 END AS protected_intermediate,
+            CASE WHEN event.event_type = 'provider-turn.updated'
+              AND json_type(event.payload_json, '$.tokenUsage') = 'object'
+              THEN 1 ELSE 0 END AS has_provider_usage
           FROM orchestration_events AS event
             INDEXED BY orchestration_events_compactable_sequence_idx
           WHERE event.sequence <= ${throughSequence}
@@ -272,6 +325,7 @@ export const layer: Layer.Layer<
         `.pipe(NodeSqliteClient.readOnly);
         const obsolete: number[] = [];
         for (const row of rows) {
+          if (row.intermediate_eligible !== 1) continue;
           if (row.imported_legacy_thread === 1) {
             obsolete.push(row.sequence);
           } else if (row.application_event_version === 2) {
@@ -300,14 +354,21 @@ export const layer: Layer.Layer<
             } else if (
               row.event_type === "thread.pull-request-link-updated" ||
               row.event_type === "message.updated" ||
-              row.event_type === "node.updated"
+              row.event_type === "node.updated" ||
+              row.event_type === "turn-item.updated" ||
+              row.event_type === "provider-turn.updated"
             ) {
               const key = encodeEntityKey([row.event_type, row.stream_id, row.entity_id]);
+              const keepUsage = row.has_provider_usage === 1 && !retainedProviderUsageKeys.has(key);
+              if (keepUsage) retainedProviderUsageKeys.add(key);
               const candidate = oldestCandidateByEntityKey.get(key);
               if (candidate === undefined) oldestCandidateByEntityKey.set(key, null);
               else {
-                if (candidate !== null) obsolete.push(candidate);
-                oldestCandidateByEntityKey.set(key, row.sequence);
+                if (candidate !== null && !candidate.protected) obsolete.push(candidate.sequence);
+                oldestCandidateByEntityKey.set(key, {
+                  sequence: row.sequence,
+                  protected: row.protected_intermediate === 1 || keepUsage,
+                });
               }
             }
           }
@@ -315,8 +376,14 @@ export const layer: Layer.Layer<
         // Yield even without deletions for clients using the synchronous fallback.
         yield* Effect.yieldNow;
         if (obsolete.length > 0) {
-          yield* sql`DELETE FROM orchestration_events WHERE sequence IN ${sql.in(obsolete)}`;
-          deletedEventCount += obsolete.length;
+          // Recheck on the writer: a thread can resume while reader discovery yields.
+          const deleted = yield* sql<{ sequence: number }>`
+            DELETE FROM orchestration_events AS event WHERE sequence IN ${sql.in(obsolete)}
+              AND (event_type NOT IN ('turn-item.updated', 'provider-turn.updated')
+                OR (${settledWithoutActiveWork}))
+            RETURNING sequence
+          `;
+          deletedEventCount += deleted.length;
           yield* Effect.yieldNow;
         }
         throughSequence = (rows.at(-1)?.sequence ?? 1) - 1;
@@ -359,6 +426,16 @@ export const layer: Layer.Layer<
         if (rows.length < COMPACTION_PAGE_SIZE) break;
       }
 
+      // Existing files opt in through doctor's offline VACUUM; never rebuild a live file here.
+      const mode = yield* sql<{ auto_vacuum: number }>`PRAGMA auto_vacuum`;
+      if (mode[0]?.auto_vacuum === 2) {
+        for (let page = 0; page < 256; page++) {
+          const free = yield* sql<{ freelist_count: number }>`PRAGMA freelist_count`;
+          if ((free[0]?.freelist_count ?? 0) === 0) break;
+          yield* sql`PRAGMA incremental_vacuum(1)`;
+          yield* Effect.yieldNow;
+        }
+      }
       const freelistRows = yield* sql<{ readonly freelist_count: number }>`PRAGMA freelist_count`;
       const pageSizeRows = yield* sql<{ readonly page_size: number }>`PRAGMA page_size`;
       const reclaimableBytes =
