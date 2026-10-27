@@ -388,7 +388,8 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
     SET status = 'stopped', payload_json = json_set(payload_json, '$.status', 'stopped')
     WHERE status NOT IN ('stopped', 'error')`;
 
-  // Usage-limit recovery also depends on settings; exclude latest-run failures and recovery choices.
+  // Usage-limit recovery also depends on settings, so a thread whose latest run failed is live too. A stored
+  // limitRecovery choice is not: it acts only while its run is the failed latest run, and stays after the thread moves on.
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const recoveryThreadIds = yield* Effect.forEach(RECOVERY_KINDS, (kind) =>
     projections.getRecoveryThreadIds(kind),
@@ -401,10 +402,7 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
     SELECT r.thread_id FROM orchestration_v2_projection_runs r
     WHERE r.status = 'failed' AND r.ordinal = (
       SELECT MAX(latest.ordinal) FROM orchestration_v2_projection_runs latest
-      WHERE latest.thread_id = r.thread_id)
-    UNION
-    SELECT thread_id FROM orchestration_v2_projection_threads
-    WHERE json_extract(payload_json, '$.limitRecovery') IS NOT NULL`;
+      WHERE latest.thread_id = r.thread_id)`;
 
   // Clone or drop whole thread families to preserve fork and subagent lineage reads.
   yield* sql`CREATE TEMP TABLE thread_families AS

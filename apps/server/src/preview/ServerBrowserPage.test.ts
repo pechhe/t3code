@@ -153,7 +153,10 @@ describe("server browser element refs", () => {
     );
     expect(result.visibleText).not.toContain("editable-pass");
     expect(result.visibleText).toContain("Order ••••••••-2");
-    expect(tree).toMatch(/row "password: •+"/);
+    // Playwright 1.64 no longer names a row after its cells; where a snapshot does, the name is masked too.
+    const row = tree.split("\n").find((line) => /- row\b/.test(line));
+    expect(row).toBeDefined();
+    if (row!.includes('row "')) expect(row).toMatch(/row "password: •+"/);
     expect(tree).toMatch(/textbox "Username" [^\n]*: maria$/m);
     const line = tree.split("\n").find((line) => line.includes('textbox "Password"'));
     expect(line).toMatch(/: •+$/);
