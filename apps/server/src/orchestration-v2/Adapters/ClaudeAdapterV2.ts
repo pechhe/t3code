@@ -9763,10 +9763,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               ? {}
               : { allowedTools: queryPolicy.allowedTools }),
           });
-          // A different overlay is a different system prompt, which needs a new process.
+          // A different overlay is a different system prompt, which needs a new process. So is a
+          // different workspace: the CLI's shell starts where the process was spawned, so a
+          // thread moved to another workspace must not keep a process in the old one (T3-258).
           const queryPolicyKey = `${claudeEffectiveQueryPolicyKey(queryPolicy, mcpOverrides)}:${
             turnInput.instructionOverlay?.sha256 ?? ""
-          }`;
+          }:${turnInput.runtimePolicy.cwd ?? ""}`;
           // A compaction on another model opens or switches the session for the summary only; the
           // turn's own selection stays the conversation's.
           const querySelection = turnInput.compaction?.modelSelection ?? turnInput.modelSelection;

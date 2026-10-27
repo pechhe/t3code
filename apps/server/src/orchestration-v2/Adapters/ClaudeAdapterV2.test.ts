@@ -14925,6 +14925,48 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     );
   });
 
+  it.effect("reopens the session in the thread's new workspace after it moves", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeWakeHarnessWithOptions({ freshQueueOnReopen: true });
+      const runTurn = Effect.fnUntraced(function* (ordinal: number, cwd: string) {
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: DateTime.makeUnsafe(0),
+            attemptId: RunAttemptId.make(`attempt-cwd-${ordinal}`),
+            text: "Continue.",
+            attachments: [],
+            providerTurnOrdinal: ordinal,
+            runtimePolicy: { ...CLAUDE_TEST_RUNTIME_POLICY, cwd },
+          }),
+        );
+        yield* harness.offerAndWait(claudeSdkFrame(wakeTurnInit));
+        yield* Queue.offer(
+          harness.processQueues.at(-1)!,
+          makeResultFrame({ uuid: `00000000-0000-4000-8000-0000000c0${ordinal}00`, result: "Done." }),
+        );
+        yield* Queue.take(harness.terminalReceipts);
+      });
+
+      yield* runTurn(1, "/workspaces/first");
+      assert.equal(harness.processQueues.length, 1);
+      assert.equal(harness.getOpenedOptions()?.cwd, "/workspaces/first");
+
+      yield* runTurn(2, "/workspaces/second");
+      assert.equal(harness.processQueues.length, 2, "a moved thread gets a new process");
+      assert.equal(harness.getOpenedOptions()?.cwd, "/workspaces/second");
+
+      yield* runTurn(3, "/workspaces/second");
+      assert.equal(harness.processQueues.length, 2, "an unchanged workspace keeps its process");
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
   it.effect("reopens the session with a changed point at the next turn", () =>
     Effect.gen(function* () {
       const harness = yield* makeWakeHarnessWithOptions({
