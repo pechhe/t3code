@@ -452,8 +452,8 @@ export const OrchestrationV2ThreadWorkflow = Schema.Struct({
 export type OrchestrationV2ThreadWorkflow = typeof OrchestrationV2ThreadWorkflow.Type;
 
 /**
- * The YardSmith HQ Forge item a thread works on: a Spec, its Ticket or an Arc. T3 stores only the
- * reference; the item itself is always read from the HQ it was resolved against.
+ * The Weave Forge item a thread works on: a Spec, its Ticket or an Arc. T3 stores only the
+ * reference; the item itself is always read from the Weave it was resolved against.
  */
 export const OrchestrationV2ThreadWorkItem = Schema.Struct({
   itemId: TrimmedNonEmptyString,

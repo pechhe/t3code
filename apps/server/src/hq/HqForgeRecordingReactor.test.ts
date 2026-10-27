@@ -168,7 +168,7 @@ const withReactor = <A, E>(
       } as unknown as ProjectStore.ProjectRow,
     };
     hq.tools.call = (name, args) => {
-      if (name !== "hq_forge_read") return { status: "failed", code: "unknown_tool" };
+      if (name !== "weave_forge_read") return { status: "failed", code: "unknown_tool" };
       // A workspace's item is read by its number, which no link carries.
       const itemId = args.itemId === undefined ? `number:${args.number}` : String(args.itemId);
       reads.push(itemId);

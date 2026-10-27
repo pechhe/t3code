@@ -1,4 +1,10 @@
-import { MessageId, ThreadId, OrchestratorMcpFailure, ProjectId } from "@t3tools/contracts";
+import {
+  WEAVE_NAMES,
+  MessageId,
+  ThreadId,
+  OrchestratorMcpFailure,
+  ProjectId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -57,6 +63,46 @@ const access = Effect.gen(function* () {
   yield* readCaller();
   return yield* Project.ProjectService;
 });
+const connectionHandler: McpToolAccess.Handlers<
+  typeof ProjectToolkit.tools
+>["t3_weave_connection"] = McpToolAccess.writesEnvironment((input) =>
+  Effect.gen(function* () {
+    const context = yield* readCaller();
+    const connections = yield* HqAgentConnections.HqAgentConnections;
+    const invalid = (message: string) =>
+      new OrchestratorMcpFailure({ code: "invalid_request", message });
+    const hqFailure = (error: HqAgentConnections.HqConnectionError) =>
+      error.reason === "store_failed" ? unavailable() : invalid(error.message);
+    if (input.action === "connect") {
+      const { origin: requestedOrigin, delegation: ref } = input;
+      if (requestedOrigin === undefined || ref === undefined)
+        return yield* invalid(
+          "Connecting needs origin and delegation, a secretRef from request_secret.",
+        );
+      // A secret ref is bound to the project of the thread that requested it.
+      if (context.caller === undefined)
+        return yield* invalid(
+          "Connect from inside a T3 thread: request_secret binds the delegation's ref to that thread.",
+        );
+      const projectId = context.caller.projectId;
+      const delegation = yield* SecretRequests.SecretRequests.pipe(
+        Effect.flatMap((secrets) => secrets.consume({ ref, projectId })),
+        Effect.mapError((error) => invalid(error.message)),
+      );
+      const { origin } = yield* connections
+        .connect({ origin: requestedOrigin, delegation })
+        .pipe(Effect.mapError(hqFailure));
+      return { connected: true, origin };
+    }
+    if (input.action === "disconnect") {
+      yield* connections.disconnect.pipe(Effect.mapError(hqFailure));
+      return { connected: false, origin: null };
+    }
+    const current = yield* connections.read.pipe(Effect.mapError(hqFailure));
+    return { connected: current !== null, origin: current?.origin ?? null };
+  }),
+);
+
 export const handlers = {
   t3_thread_launch: McpToolAccess.startsThreads(
     (input) => input,
@@ -329,43 +375,8 @@ export const handlers = {
         .pipe(Effect.mapError(projectFailure));
     }),
   ),
-  t3_hq_connection: McpToolAccess.writesEnvironment((input) =>
-    Effect.gen(function* () {
-      const context = yield* readCaller();
-      const connections = yield* HqAgentConnections.HqAgentConnections;
-      const invalid = (message: string) =>
-        new OrchestratorMcpFailure({ code: "invalid_request", message });
-      const hqFailure = (error: HqAgentConnections.HqConnectionError) =>
-        error.reason === "store_failed" ? unavailable() : invalid(error.message);
-      if (input.action === "connect") {
-        const { origin: requestedOrigin, delegation: ref } = input;
-        if (requestedOrigin === undefined || ref === undefined)
-          return yield* invalid(
-            "Connecting needs origin and delegation, a secretRef from request_secret.",
-          );
-        // A secret ref is bound to the project of the thread that requested it.
-        if (context.caller === undefined)
-          return yield* invalid(
-            "Connect from inside a T3 thread: request_secret binds the delegation's ref to that thread.",
-          );
-        const projectId = context.caller.projectId;
-        const delegation = yield* SecretRequests.SecretRequests.pipe(
-          Effect.flatMap((secrets) => secrets.consume({ ref, projectId })),
-          Effect.mapError((error) => invalid(error.message)),
-        );
-        const { origin } = yield* connections
-          .connect({ origin: requestedOrigin, delegation })
-          .pipe(Effect.mapError(hqFailure));
-        return { connected: true, origin };
-      }
-      if (input.action === "disconnect") {
-        yield* connections.disconnect.pipe(Effect.mapError(hqFailure));
-        return { connected: false, origin: null };
-      }
-      const current = yield* connections.read.pipe(Effect.mapError(hqFailure));
-      return { connected: current !== null, origin: current?.origin ?? null };
-    }),
-  ),
+  [WEAVE_NAMES.connectionTools[0]]: connectionHandler,
+  [WEAVE_NAMES.connectionTools[1]]: connectionHandler,
   t3_project_delete: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
       const projects = yield* Project.ProjectService;

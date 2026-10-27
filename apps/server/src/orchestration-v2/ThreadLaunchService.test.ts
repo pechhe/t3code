@@ -1826,7 +1826,7 @@ const forgeItem = { itemId: "build-item:42", number: 42, origin: "https://hq.exa
 
 /**
  * A SlipJay thread working on Build item 42 whose first run ended, so it is idle: linked to
- * the item in HQ, or launched for it in a project without an HQ connection.
+ * the item in Weave, or launched for it in a project without a Weave server connection.
  */
 const idleSlipJayThread = (thread: string, via: "link" | "launch" = "link") =>
   Effect.gen(function* () {

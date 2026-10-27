@@ -64,7 +64,7 @@ function LinkForgeItemDialog(props: { threadRef: ScopedThreadRef; onClose: () =>
     }
     setError(null);
     setPending(true);
-    // The server resolves the reference against T3's HQ and explains any refusal.
+    // The server resolves the reference against T3's Weave and explains any refusal.
     const result = await link({
       environmentId: threadRef.environmentId,
       input: { threadId: threadRef.threadId, reference: trimmed },

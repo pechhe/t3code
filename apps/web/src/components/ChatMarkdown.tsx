@@ -1194,7 +1194,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
         <span>{label}</span>
       );
     }
-    // A Forge item on T3's HQ is a live chip. Until Forge answers, or when it doesn't
+    // A Forge item on T3's Weave is a live chip. Until Forge answers, or when it doesn't
     // know the number, a `#<number>` stays text and a written link stays an ordinary link.
     const buildNumber =
       href && buildOrigin !== null && threadRef && buildFallback !== true

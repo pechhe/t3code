@@ -1,8 +1,8 @@
 /**
- * A thread's link to the HQ Forge item it works on (pechhe/t3code#78): a Spec, a Ticket of one or
+ * A thread's link to the Weave Forge item it works on (pechhe/t3code#78): a Spec, a Ticket of one or
  * an Arc over both. T3 stores only the reference; what clients show is read from Forge through the
  * server's own observer agent, so every client, local or remote, sees the same state without ever
- * reaching HQ itself.
+ * reaching Weave itself.
  */
 import {
   type ForgeItemReference,
@@ -40,7 +40,7 @@ import * as HqAgentConnections from "./HqAgentConnections.ts";
 /**
  * Forge has no change feed. Clients re-request a shown item on this cadence, and the server
  * starts at this interval and backs off unchanged results to four minutes, so with one client
- * re-request on top a change still shows within five. No timer reads HQ here.
+ * re-request on top a change still shows within five. No timer reads Weave here.
  */
 export const BUILD_REREAD_INTERVAL_MS = 60_000;
 export const BUILD_MAX_REREAD_INTERVAL_MS = 4 * BUILD_REREAD_INTERVAL_MS;
@@ -65,7 +65,7 @@ export const nextInterval = (previous: Cadence | undefined, fingerprint: string 
     ? Math.min(previous.intervalMs * 2, BUILD_MAX_REREAD_INTERVAL_MS)
     : BUILD_REREAD_INTERVAL_MS;
 
-/** An older HQ omits `ref`; an older item has none, and an empty one is none. */
+/** An older Weave omits `ref`; an older item has none, and an empty one is none. */
 const BuildRef = Schema.optionalKey(
   Schema.NullOr(Schema.String).pipe(
     Schema.decodeTo(
@@ -140,7 +140,7 @@ const summaryOf = (
     })),
   });
 
-/** The parts of `hq_forge_read` a card shows. Bodies are never requested. */
+/** The parts of `weave_forge_read` a card shows. Bodies are never requested. */
 const BuildCardRead = Schema.Struct({
   ...BuildRead.fields,
   holds: Schema.Array(
@@ -252,10 +252,10 @@ interface CachedItem extends ReadCadence {
   readonly unavailable: boolean;
 }
 
-/** Items kept for their last known summary, and numbers kept resolved, per HQ connection. */
+/** Items kept for their last known summary, and numbers kept resolved, per Weave connection. */
 const ITEM_CACHE_LIMIT = 1024;
 
-/** A number resolved on one HQ: its item, or null while Forge doesn't know it. */
+/** A number resolved on one Weave: its item, or null while Forge doesn't know it. */
 interface CachedNumber {
   readonly itemId: string | null;
   readonly attemptedAt: number;
@@ -274,12 +274,12 @@ const remember = <V>(map: Map<string, V>, key: string, value: V, limit: number) 
 export class ForgeWorkItems extends Context.Service<
   ForgeWorkItems,
   {
-    /** The thread's linked item as clients show it; null without a link or an HQ connection. */
+    /** The thread's linked item as clients show it; null without a link or a Weave server connection. */
     readonly view: (
       threadId: ThreadId,
     ) => Effect.Effect<ForgeWorkItemReadResult, ForgeWorkItemError>;
     /**
-     * The card for an item read from T3's HQ: its summary, Tickets or delivery,
+     * The card for an item read from T3's Weave: its summary, Tickets or delivery,
      * and who works on it. A new `open` reads Forge at once; repeating it reads at most once a
      * minute.
      */
@@ -287,7 +287,7 @@ export class ForgeWorkItems extends Context.Service<
       input: ForgeWorkItemCardInput,
     ) => Effect.Effect<ForgeWorkItemCardResult, ForgeWorkItemError>;
     /**
-     * Items mentioned in the thread's messages, by number on T3's HQ, as clients show
+     * Items mentioned in the thread's messages, by number on T3's Weave, as clients show
      * them. Shares the linked item's cache and cadence; a number Forge doesn't know is absent, and
      * `unavailable` tells that apart from Forge being unreachable.
      */
@@ -332,7 +332,7 @@ const error = (reason: ForgeWorkItemError["reason"], message: string) =>
   new ForgeWorkItemError({ reason, message });
 
 const make = Effect.gen(function* () {
-  const hq = yield* HqAgentConnections.HqAgentConnections;
+  const weave = yield* HqAgentConnections.HqAgentConnections;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const crypto = yield* Crypto.Crypto;
   const cache = new Map<string, CachedItem>();
@@ -350,14 +350,17 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const readConnection = hq.read.pipe(
+  const readConnection = weave.read.pipe(
     Effect.mapError(() => error("unavailable", "T3 could not read its Weave connection.")),
   );
 
   /** Item and waits together: a blocker's change does not move the item's own revision. */
   const readSummary = (itemId: string) =>
     Effect.all(
-      [hq.observe("hq_forge_read", { itemId }), hq.observe("hq_forge_waits", { itemId })],
+      [
+        weave.observe("weave_forge_read", { itemId }),
+        weave.observe("weave_forge_waits", { itemId }),
+      ],
       { concurrency: 2 },
     ).pipe(
       Effect.map(([read, waits]) =>
@@ -382,7 +385,7 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
         const previous = cache.get(key);
-        const writeVersion = yield* hq.buildWriteVersion;
+        const writeVersion = yield* weave.buildWriteVersion;
         if (
           previous !== undefined &&
           previous.writeVersion === writeVersion &&
@@ -431,7 +434,7 @@ const make = Effect.gen(function* () {
       if (connection === null) return null;
       const workItem = shell.workItem ?? null;
       if (workItem === null) return null;
-      // Never resolved against another HQ: the same number there is a different item. A link made
+      // Never resolved against another Weave: the same number there is a different item. A link made
       // at an address Weave has moved on from is this Weave's.
       if (!sameHqAddress(workItem.origin, connection.origin))
         return {
@@ -447,7 +450,7 @@ const make = Effect.gen(function* () {
   );
 
   /**
-   * The item a number names on this HQ. A known number stays resolved, since Forge never reuses
+   * The item a number names on this Weave. A known number stays resolved, since Forge never reuses
    * one; an unknown one is asked again at most once a minute, and a failed read is not cached.
    */
   const itemIdOf = Effect.fn("ForgeWorkItems.itemIdOf")(function* (
@@ -467,7 +470,7 @@ const make = Effect.gen(function* () {
           remember(numberCache, key, previous, ITEM_CACHE_LIMIT);
           return Option.some(previous.itemId);
         }
-        const read = yield* hq.observe("hq_forge_read", { number }).pipe(
+        const read = yield* weave.observe("weave_forge_read", { number }).pipe(
           Effect.map((result) =>
             Option.match(decodeForgeRead(result.value), {
               onNone: () => Option.none<string | null>(),
@@ -525,7 +528,7 @@ const make = Effect.gen(function* () {
       if (parsed === null)
         return yield* error(
           "invalid_reference",
-          "Give a Forge URL such as https://hq.example/build/1000123, a ref such as YS-12 or YS-ARC-01, #1000123 or 1000123.",
+          "Give a Forge URL such as https://weave.example/build/1000123, a ref such as YS-12 or YS-ARC-01, #1000123 or 1000123.",
         );
       if (
         parsed.kind === "number" &&
@@ -537,9 +540,9 @@ const make = Effect.gen(function* () {
           `That link is on ${parsed.origin}, but T3 uses ${connection.origin}.`,
         );
       const named = parsed.kind === "ref" ? parsed.ref : `#${parsed.number}`;
-      const read = yield* hq
+      const read = yield* weave
         .observe(
-          "hq_forge_read",
+          "weave_forge_read",
           parsed.kind === "ref" ? { ref: parsed.ref } : { number: parsed.number },
         )
         .pipe(
@@ -600,9 +603,9 @@ const make = Effect.gen(function* () {
     function* (itemId: string) {
       const none = Option.none<FreshCard>();
       const observe = (tool: string, args: Record<string, unknown>) =>
-        hq.observe(tool, args).pipe(Effect.map((result) => result.value));
+        weave.observe(tool, args).pipe(Effect.map((result) => result.value));
       const [readValue, waitsValue] = yield* Effect.all(
-        [observe("hq_forge_read", { itemId }), observe("hq_forge_waits", { itemId })],
+        [observe("weave_forge_read", { itemId }), observe("weave_forge_waits", { itemId })],
         { concurrency: 2 },
       );
       const read = decodeForgeCardRead(readValue);
@@ -629,10 +632,10 @@ const make = Effect.gen(function* () {
       if (item.value.kind === "spec") {
         const [ticketsValue, sessionsValue, acceptanceValue] = yield* Effect.all(
           [
-            observe("hq_forge_list", { kind: "ticket", parentId: itemId }),
-            observe("hq_forge_sessions", { specId: itemId }),
+            observe("weave_forge_list", { kind: "ticket", parentId: itemId }),
+            observe("weave_forge_sessions", { specId: itemId }),
             item.value.status === "accepted"
-              ? observe("hq_forge_acceptance", { specId: itemId })
+              ? observe("weave_forge_acceptance", { specId: itemId })
               : Effect.succeed(null),
           ],
           { concurrency: 3 },
@@ -667,11 +670,13 @@ const make = Effect.gen(function* () {
       const parentId = fields.parentId;
       const [parentValue, attemptsValue, sessionsValue] = yield* Effect.all(
         [
-          parentId === null ? Effect.succeed(null) : observe("hq_forge_read", { itemId: parentId }),
-          observe("hq_forge_attempts", { itemId }),
+          parentId === null
+            ? Effect.succeed(null)
+            : observe("weave_forge_read", { itemId: parentId }),
+          observe("weave_forge_attempts", { itemId }),
           parentId === null
             ? Effect.succeed([])
-            : observe("hq_forge_sessions", { specId: parentId }),
+            : observe("weave_forge_sessions", { specId: parentId }),
         ],
         { concurrency: 3 },
       );
@@ -713,7 +718,7 @@ const make = Effect.gen(function* () {
       const shell = yield* shellOf(input.threadId);
       const connection = yield* readConnection;
       if (connection === null) return null;
-      // The link's item is on another HQ: never read it, or its number, on this one.
+      // The link's item is on another Weave: never read it, or its number, on this one.
       if (
         shell.workItem?.itemId === input.itemId &&
         !sameHqAddress(shell.workItem.origin, connection.origin)
@@ -728,7 +733,7 @@ const make = Effect.gen(function* () {
         Effect.gen(function* () {
           const now = yield* Clock.currentTimeMillis;
           const previous = cardCache.get(key);
-          const writeVersion = yield* hq.buildWriteVersion;
+          const writeVersion = yield* weave.buildWriteVersion;
           // Opening a card reads at once; only a client's periodic re-reads are rate-limited.
           if (
             previous !== undefined &&

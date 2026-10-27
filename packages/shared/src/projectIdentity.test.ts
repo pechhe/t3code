@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { hqRepositoryKeyOf } from "./projectIdentity.ts";
+import { weaveRepositoryKeyOf } from "./projectIdentity.ts";
 
 describe("HQ repository keys", () => {
   const repositoryIdentity = {
@@ -12,13 +12,13 @@ describe("HQ repository keys", () => {
     },
   };
   it("uses the grouping identity, dropping only the host", () => {
-    expect(hqRepositoryKeyOf({ repositoryIdentity })).toBe("pechhe/app");
+    expect(weaveRepositoryKeyOf({ repositoryIdentity })).toBe("pechhe/app");
   });
   it("prefers an explicit link and returns to automatic matching when cleared", () => {
-    expect(hqRepositoryKeyOf({ repositoryIdentity, hqRepositoryKey: "manual/app" })).toBe(
+    expect(weaveRepositoryKeyOf({ repositoryIdentity, hqRepositoryKey: "manual/app" })).toBe(
       "manual/app",
     );
-    expect(hqRepositoryKeyOf({ repositoryIdentity, hqRepositoryKey: null })).toBe("pechhe/app");
-    expect(hqRepositoryKeyOf({})).toBeNull();
+    expect(weaveRepositoryKeyOf({ repositoryIdentity, hqRepositoryKey: null })).toBe("pechhe/app");
+    expect(weaveRepositoryKeyOf({})).toBeNull();
   });
 });

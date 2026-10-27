@@ -57,7 +57,7 @@ export class ForgeSpecOfThread extends Context.Service<
   }
 >()("t3/hq/ForgeSpecOfThread") {}
 
-/** What `hq_forge_read` says about a linked item: only a Ticket names the Spec it belongs to. */
+/** What `weave_forge_read` says about a linked item: only a Ticket names the Spec it belongs to. */
 const ForgeItemRead = Schema.Struct({
   id: Schema.String,
   kind: Schema.String,
@@ -68,7 +68,7 @@ const decodeForgeItemRead = Schema.decodeUnknownOption(ForgeItemRead);
 
 const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
-  const hq = yield* HqAgentConnections.HqAgentConnections;
+  const weave = yield* HqAgentConnections.HqAgentConnections;
   /** The Spec each item names, by the connection it was read on, so a Ticket is read once. */
   const specByItem = new Map<
     string,
@@ -77,7 +77,7 @@ const make = Effect.gen(function* () {
 
   /**
    * The Spec a linked item names, or none when it names none. Anything that stops the item being
-   * read raises `BuildSpecUnavailable`: an older HQ, an address that has moved or a Weave that is
+   * read raises `BuildSpecUnavailable`: an older Weave, an address that has moved or a Weave that is
    * down are all "not yet", never "nothing to record". A link read by its number has no origin of
    * its own, so it belongs to the Weave T3 is connected to.
    */
@@ -86,15 +86,15 @@ const make = Effect.gen(function* () {
     item: { readonly number: number; readonly itemId?: string; readonly origin: string | null },
   ) {
     const unavailable = () => new BuildSpecUnavailable({ threadId, origin: item.origin });
-    const connection = yield* hq.read.pipe(Effect.mapError(unavailable));
+    const connection = yield* weave.read.pipe(Effect.mapError(unavailable));
     if (connection === null) return yield* Effect.fail(unavailable());
     const origin = item.origin ?? connection.origin;
     const cacheKey = `${connection.connection}\n${item.itemId ?? `#${item.number}`}`;
     const cached = specByItem.get(cacheKey);
     if (cached !== undefined) return Option.some({ ...cached, origin });
-    const read = yield* hq
+    const read = yield* weave
       .observe(
-        "hq_forge_read",
+        "weave_forge_read",
         item.itemId === undefined ? { number: item.number } : { itemId: item.itemId },
       )
       .pipe(Effect.mapError(unavailable));

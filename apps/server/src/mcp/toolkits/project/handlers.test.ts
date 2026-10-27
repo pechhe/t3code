@@ -433,60 +433,62 @@ const asCaller = (threadId: ThreadId): McpInvocationContext.McpInvocationScope =
   issuedAt: 0,
 });
 
-it.effect("a connection one project's thread makes serves a thread in another project", () =>
-  Effect.gen(function* () {
-    const harness = yield* makeHqHarness;
-    yield* harness.connections.disconnect;
-    const call = (threadId: ThreadId, params: Record<string, unknown>) =>
-      Effect.gen(function* () {
-        const toolkit = yield* ProjectToolkit;
-        const results = yield* toolkit
-          .handle("t3_hq_connection", params as never)
-          .pipe(Stream.unwrap, Stream.runCollect);
-        return results.at(-1)?.result as { connected: boolean; origin: string | null };
-      }).pipe(
-        Effect.provide(
-          McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
-            Layer.provideMerge(
-              Layer.mergeAll(
-                ThreadCommandExecutor.layer,
-                NodeCrypto.layer,
-                NodeServices.layer,
-                Layer.succeed(McpInvocationContext.McpInvocationContext, asCaller(threadId)),
-                Layer.mock(ThreadManagement.ThreadManagementService)({
-                  getThreadShell: (id) =>
-                    Effect.succeed({ ...liveThreadShell(id), projectId: projectOf(id) }),
-                }),
-                // A secret ref is bound to the project of the thread that asked for it.
-                Layer.mock(SecretRequests.SecretRequests)({
-                  consume: ({ ref, projectId }) =>
-                    ref === delegationRef && projectId === projectOf(yardsmithThread)
-                      ? Effect.succeed(delegation)
-                      : Effect.fail(new SecretRequestError({ reason: "invalid_ref" })),
-                }),
-                Layer.succeed(HqAgentConnections.HqAgentConnections, harness.connections),
-                Layer.mock(Project.ProjectService)({}),
+it.effect.each(["t3_weave_connection", "t3_hq_connection"] as const)(
+  "%s: a connection one project's thread makes serves a thread in another project",
+  (connectionTool) =>
+    Effect.gen(function* () {
+      const harness = yield* makeHqHarness;
+      yield* harness.connections.disconnect;
+      const call = (threadId: ThreadId, params: Record<string, unknown>) =>
+        Effect.gen(function* () {
+          const toolkit = yield* ProjectToolkit;
+          const results = yield* toolkit
+            .handle(connectionTool, params as never)
+            .pipe(Stream.unwrap, Stream.runCollect);
+          return results.at(-1)?.result as { connected: boolean; origin: string | null };
+        }).pipe(
+          Effect.provide(
+            McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
+              Layer.provideMerge(
+                Layer.mergeAll(
+                  ThreadCommandExecutor.layer,
+                  NodeCrypto.layer,
+                  NodeServices.layer,
+                  Layer.succeed(McpInvocationContext.McpInvocationContext, asCaller(threadId)),
+                  Layer.mock(ThreadManagement.ThreadManagementService)({
+                    getThreadShell: (id) =>
+                      Effect.succeed({ ...liveThreadShell(id), projectId: projectOf(id) }),
+                  }),
+                  // A secret ref is bound to the project of the thread that asked for it.
+                  Layer.mock(SecretRequests.SecretRequests)({
+                    consume: ({ ref, projectId }) =>
+                      ref === delegationRef && projectId === projectOf(yardsmithThread)
+                        ? Effect.succeed(delegation)
+                        : Effect.fail(new SecretRequestError({ reason: "invalid_ref" })),
+                  }),
+                  Layer.succeed(HqAgentConnections.HqAgentConnections, harness.connections),
+                  Layer.mock(Project.ProjectService)({}),
+                ),
               ),
             ),
           ),
-        ),
-      );
+        );
 
-    expect(yield* call(t3codeThread, { action: "read" })).toStrictEqual({
-      connected: false,
-      origin: null,
-    });
-    yield* call(yardsmithThread, { action: "connect", origin, delegation: delegationRef });
-    expect(yield* call(t3codeThread, { action: "read" })).toStrictEqual({
-      connected: true,
-      origin,
-    });
-    yield* call(t3codeThread, { action: "disconnect" });
-    expect(yield* call(yardsmithThread, { action: "read" })).toStrictEqual({
-      connected: false,
-      origin: null,
-    });
-  }),
+      expect(yield* call(t3codeThread, { action: "read" })).toStrictEqual({
+        connected: false,
+        origin: null,
+      });
+      yield* call(yardsmithThread, { action: "connect", origin, delegation: delegationRef });
+      expect(yield* call(t3codeThread, { action: "read" })).toStrictEqual({
+        connected: true,
+        origin,
+      });
+      yield* call(t3codeThread, { action: "disconnect" });
+      expect(yield* call(yardsmithThread, { action: "read" })).toStrictEqual({
+        connected: false,
+        origin: null,
+      });
+    }),
 );
 
 it.effect(

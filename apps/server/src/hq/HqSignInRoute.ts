@@ -33,7 +33,7 @@ const resultPage = (result: string) => {
 };
 
 /**
- * HQ's browser handback. The code and state are consumed here and the browser is redirected to the
+ * Weave's browser handback. The code and state are consumed here and the browser is redirected to the
  * same path without them, so neither stays in the address bar or history. The path needs no T3
  * session: only the state T3 issued for this environment, which is single use, completes a sign-in.
  */

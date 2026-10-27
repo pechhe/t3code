@@ -385,7 +385,7 @@ export const layerOtlpTracesProxyRoute = HttpRouter.add(
 
 const UNTRACED_REQUEST_PATHS: ReadonlySet<string> = new Set([
   OTLP_TRACES_PROXY_PATH,
-  // HQ's handback carries the sign-in code and state in its query.
+  // Weave's handback carries the sign-in code and state in its query.
   SIGN_IN_CALLBACK_PATH,
 ]);
 

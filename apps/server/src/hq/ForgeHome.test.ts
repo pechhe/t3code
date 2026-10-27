@@ -110,7 +110,7 @@ const makeHarness = Effect.gen(function* () {
       const body = parseJson(
         request.body._tag === "Uint8Array" ? new TextDecoder().decode(request.body.body) : "{}",
       ) as Record<string, unknown>;
-      // An agent's exchange and MCP calls go to HQ too; they are not Forge decisions.
+      // An agent's exchange and MCP calls go to Weave too; they are not Forge decisions.
       const path = new URL(request.url).pathname;
       if (path === "/api/mcp/agents")
         return HttpClientResponse.fromWeb(
@@ -188,7 +188,7 @@ const makeHarness = Effect.gen(function* () {
       }),
     ),
   );
-  // T3's own HQ connection: decisions go out with the delegation it stores.
+  // T3's own Weave connection: decisions go out with the delegation it stores.
   const deps = Layer.mergeAll(
     platform,
     ServerSettings.layerTest({ defaultRuntimeMode: "full-access" }),
@@ -399,7 +399,7 @@ it.effect("an HQ that keeps failing is asked less often each time", () =>
       return hq.calls.filter((c) => c.body.action === "home").length - before;
     });
     assert.strictEqual(yield* attempts, 1);
-    // Failures wait 60s, then 120s, then 240s before the next attempt reaches HQ.
+    // Failures wait 60s, then 120s, then 240s before the next attempt reaches Weave.
     for (const waitMs of [60_000, 120_000, 240_000]) {
       yield* TestClock.adjust(waitMs - 1);
       assert.strictEqual(yield* attempts, 0);
@@ -426,14 +426,14 @@ it.effect("reads Home as HQ actually answers it: an owner card, then a stuck lin
     const need = withCard.home?.needsYou[0];
     assert.strictEqual(need?.kind, "acceptance");
     if (need?.kind === "acceptance") {
-      // The card shows HQ's own checks, so Weave and T3 cannot disagree about them.
+      // The card shows Weave's own checks, so Weave and T3 cannot disagree about them.
       assert.deepStrictEqual(need.checks, hqHomeWithOwnerCard.needsYou[0]?.spec.readiness.checks);
       assert.strictEqual(need.reviewSummary, "Exports now include every row");
       assert.strictEqual(need.tryIt, "https://staging.example/exports");
       assert.deepStrictEqual(need.card, hqHomeWithOwnerCard.needsYou[0]?.spec.card);
     }
 
-    // An HQ from before the checks were projected still shows the card, without checks.
+    // A Weave server from before the checks were projected still shows the card, without checks.
     const [entry] = hqHomeWithOwnerCard.needsYou;
     const { checks: _checks, ...readiness } = entry!.spec.readiness;
     home = {
@@ -587,7 +587,7 @@ it.effect("a delivery is reported only to the HQ that recorded the finding", () 
     yield* service.decide(sendBack);
     assert.strictEqual(world.sent.length, 1);
     const before = deliveries(hq).length;
-    // Reconnected to another HQ: it never hears of a finding it did not record.
+    // Reconnected to another Weave: it never hears of a finding it did not record.
     yield* connections.connect({ origin: "https://other-hq.example.test", delegation });
     hq.answer = sendBackAnswer(leadRef, 200);
     yield* TestClock.adjust(10 * 60_000);
@@ -630,7 +630,7 @@ it.effect(
       assert.strictEqual(world.sent.length, 1);
       assert.isAbove(deliveries(hq).length, 0);
 
-      // Still down after a retry, then the process restarts and HQ is back.
+      // Still down after a retry, then the process restarts and Weave is back.
       yield* TestClock.adjust(5_000);
       assert.strictEqual(world.sent.length, 1);
       yield* h.stop;
@@ -775,7 +775,7 @@ it.effect(
       yield* service.answer({ itemId: "item-2", holdId: "hold-1", answer: "A" });
       assert.strictEqual(hq.calls.filter((c) => c.body.action === "notes").length, 1);
       assert.strictEqual(hq.calls.filter((c) => c.body.action === "answer").length, 0);
-      // An older HQ is asked again after a while, so an HQ update needs no T3 restart.
+      // An older Weave is asked again after a while, so a Weave server update needs no T3 restart.
       yield* TestClock.adjust("5 minutes");
       yield* service.read;
       assert.strictEqual(hq.calls.filter((c) => c.body.action === "notes").length, 2);
@@ -1124,7 +1124,7 @@ it.effect(
       hq.answer = noteAnswer([note("note-1", null)]);
       yield* service.settleDeliveries;
       assert.strictEqual(deliveries(hq)[0]?.state, "undeliverable");
-      // "Start a new thread instead": HQ lists it as pending again, and this environment claims it.
+      // "Start a new thread instead": Weave lists it as pending again, and this environment claims it.
       world.projects = [project];
       yield* service.settleDeliveries;
       assert.strictEqual(world.launches.length, 1);

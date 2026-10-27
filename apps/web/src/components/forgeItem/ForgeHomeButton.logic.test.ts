@@ -39,7 +39,7 @@ describe("the Forge button", () => {
     expect(buildButtonCount(state("not_connected", null))).toBe(0);
     expect(buildButtonCount(state("invalid_token", null))).toBe(0);
     expect(buildButtonCount(undefined)).toBe(0);
-    // HQ unreachable keeps the last count rather than hiding work.
+    // Weave unreachable keeps the last count rather than hiding work.
     expect(buildButtonCount(state("unavailable", 2))).toBe(2);
   });
 

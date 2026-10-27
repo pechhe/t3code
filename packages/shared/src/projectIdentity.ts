@@ -64,7 +64,7 @@ export function deriveProjectIdentity(projectName: string): ProjectIdentity {
   };
 }
 
-export function hqRepositoryKeyOf(project: {
+export function weaveRepositoryKeyOf(project: {
   readonly hqRepositoryKey?: string | null | undefined;
   readonly repositoryIdentity?: RepositoryIdentity | null | undefined;
 }): string | null {

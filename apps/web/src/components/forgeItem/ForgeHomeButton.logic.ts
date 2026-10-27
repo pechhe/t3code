@@ -30,7 +30,7 @@ export const buildInboxKey = (need: ForgeHomeNeed) =>
     ? `hold:${need.holdId}`
     : `${need.kind}:${need.spec.id}`;
 
-/** Home's needs in Inbox order: every group in turn, each keeping HQ's order. */
+/** Home's needs in Inbox order: every group in turn, each keeping Weave's order. */
 export const buildInboxEntries = (home: ForgeHome | null): readonly ForgeHomeNeed[] =>
   home === null
     ? []

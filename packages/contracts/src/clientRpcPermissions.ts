@@ -63,8 +63,8 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.peersUpdate]: AuthAccessWriteScope,
 
   [WS_METHODS.forgeWorkItemLink]: AuthOrchestrationOperateScope,
-  // Deciding acts as the person in HQ through T3's stored delegation, so it takes owner scope. Only a
-  // person can supply that delegation: t3_hq_connection takes a one-use request_secret reference.
+  // Deciding acts as the person in Weave through T3's stored delegation, so it takes owner scope. Only a
+  // person can supply that delegation: t3_weave_connection takes a one-use request_secret reference.
   // Connecting or disconnecting replaces the delegation those decisions act through.
   [WS_METHODS.hqSignInStart]: AuthSettingsWriteScope,
   [WS_METHODS.hqDisconnect]: AuthSettingsWriteScope,

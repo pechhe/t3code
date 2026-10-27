@@ -1,3 +1,5 @@
+import { WEAVE_NAMES } from "@t3tools/contracts";
+
 export type T3McpToolLogo = "t3-code";
 
 export interface T3McpToolPresentation {
@@ -379,7 +381,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_project_update: tool(["Update", "Updating", "Updated", "a project"], "project-update"),
   t3_project_delete: tool(["Delete", "Deleting", "Deleted", "a project"], "project-delete"),
   t3_project_clone: tool(["Clone", "Cloning", "Cloned", "a repository"], "project-clone"),
-  t3_hq_connection: tool(
+  [WEAVE_NAMES.connectionTools[0]]: tool(
     ["Configure", "Configuring", "Configured", "the Weave connection"],
     "project-update",
   ),
@@ -405,7 +407,10 @@ function normalizeT3McpToolLabel(value: string): string {
 
 // ACP tool prefixes vary; match loosely but require a known display-name entry.
 function resolveT3McpToolName(value: string): string | null {
-  const label = normalizeT3McpToolLabel(value);
+  const label = normalizeT3McpToolLabel(value).replace(
+    WEAVE_NAMES.connectionTools[1],
+    WEAVE_NAMES.connectionTools[0],
+  );
   const mcpMatch = /^mcp__(?<server>.+?)__(?<tool>.+)$/i.exec(label);
   if (mcpMatch?.groups) {
     const { server, tool } = mcpMatch.groups;

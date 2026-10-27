@@ -107,7 +107,7 @@ it.effect("a usage reference too long for Weave is bounded and stays distinct pe
     const usage = yield* bootUsage;
     const records = yield* bootRecords;
     hq.tools.call = (name) =>
-      name === "hq_forge_start_session"
+      name === "weave_forge_start_session"
         ? { status: "succeeded", value: { session: { id: "session-1" } } }
         : { status: "succeeded", value: {} };
     yield* openLeadSession(records);
@@ -119,7 +119,7 @@ it.effect("a usage reference too long for Weave is bounded and stays distinct pe
     yield* records.deliverDue;
 
     const refs = hq.toolCalls
-      .filter(({ name }) => name === "hq_forge_record_usage")
+      .filter(({ name }) => name === "weave_forge_record_usage")
       .map(({ args }) => String(args.usageRef));
     assert.lengthOf(refs, 2);
     assert.isTrue(refs.every((ref) => ref.length <= 500));
@@ -134,7 +134,7 @@ it.effect("records what a linked thread's request spent, as Weave's usage tool t
     const usage = yield* bootUsage;
     const records = yield* bootRecords;
     hq.tools.call = (name) =>
-      name === "hq_forge_start_session"
+      name === "weave_forge_start_session"
         ? { status: "succeeded", value: { session: { id: "session-1" } } }
         : { status: "succeeded", value: {} };
     yield* openLeadSession(records);
@@ -155,17 +155,17 @@ it.effect("records what a linked thread's request spent, as Weave's usage tool t
 
     assert.deepStrictEqual(hq.toolCalls, [
       {
-        name: "hq_forge_bind",
+        name: "weave_forge_bind",
         args: { specId: "spec-1" },
         agentId: "agent-1",
       },
       {
-        name: "hq_forge_start_session",
+        name: "weave_forge_start_session",
         args: { specId: "spec-1", modelRef: "claude-opus-5-5" },
         agentId: "agent-1",
       },
       {
-        name: "hq_forge_record_usage",
+        name: "weave_forge_record_usage",
         args: {
           usageRef: "claude:provider-thread-1:msg-1",
           scope: "own",
@@ -189,7 +189,7 @@ it.effect("sends a cache write of zero when the provider reported none", () =>
     const usage = yield* bootUsage;
     const records = yield* bootRecords;
     hq.tools.call = (name) =>
-      name === "hq_forge_start_session"
+      name === "weave_forge_start_session"
         ? { status: "succeeded", value: { session: { id: "session-1" } } }
         : { status: "succeeded", value: {} };
     yield* openLeadSession(records);
@@ -198,7 +198,7 @@ it.effect("sends a cache write of zero when the provider reported none", () =>
     yield* usage.record(usageRequest({ tokens: { input: 10, output: 5, cacheRead: 0 } }));
     yield* records.deliverDue;
 
-    const sent = hq.toolCalls.find(({ name }) => name === "hq_forge_record_usage");
+    const sent = hq.toolCalls.find(({ name }) => name === "weave_forge_record_usage");
     assert.deepStrictEqual(sent?.args.tokens, {
       input: 10,
       output: 5,
@@ -214,7 +214,7 @@ it.effect("names the session its thread recorded, never a T3 run id, and waits f
     const usage = yield* bootUsage;
     const records = yield* bootRecords;
     hq.tools.call = (name) =>
-      name === "hq_forge_start_session"
+      name === "weave_forge_start_session"
         ? { status: "succeeded", value: { session: { id: "session-1" } } }
         : { status: "succeeded", value: {} };
 
@@ -231,7 +231,7 @@ it.effect("names the session its thread recorded, never a T3 run id, and waits f
     yield* openLeadSession(records);
     yield* records.deliverDue;
 
-    const sent = hq.toolCalls.find(({ name }) => name === "hq_forge_record_usage");
+    const sent = hq.toolCalls.find(({ name }) => name === "weave_forge_record_usage");
     assert.strictEqual(sent?.args.sessionId, "session-1");
     // A T3 run id means nothing to Weave: the run id it knows is a Forge run's.
     assert.isUndefined(sent?.args.runId);
@@ -246,7 +246,7 @@ it.effect(
       const usage = yield* bootUsage;
       const records = yield* bootRecords;
       hq.tools.call = (name) =>
-        name === "hq_forge_start_session"
+        name === "weave_forge_start_session"
           ? { status: "succeeded", value: { session: { id: "session-1" } } }
           : { status: "succeeded", value: {} };
       yield* openLeadSession(records);
@@ -266,7 +266,7 @@ it.effect(
       yield* records.deliverDue;
       assert.deepStrictEqual(
         hq.toolCalls.map(({ name }) => name),
-        ["hq_forge_bind", "hq_forge_start_session"],
+        ["weave_forge_bind", "weave_forge_start_session"],
       );
       assert.strictEqual((yield* records.outstanding())[0]?.status, "pending");
 
@@ -275,7 +275,7 @@ it.effect(
       yield* TestClock.adjust(Duration.millis(1_000));
       yield* records.deliverDue;
       assert.strictEqual(
-        hq.toolCalls.find(({ name }) => name === "hq_forge_record_usage")?.args.sessionId,
+        hq.toolCalls.find(({ name }) => name === "weave_forge_record_usage")?.args.sessionId,
         "session-1",
       );
       assert.deepStrictEqual(yield* records.outstanding(), []);

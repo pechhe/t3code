@@ -121,7 +121,7 @@ it.effect.each(["summary", "card"] as const)(
         yield* read();
       }
       assert.strictEqual(hq.toolCalls.length, before);
-      // Advancing the clock alone never makes the display cache read HQ.
+      // Advancing the clock alone never makes the display cache read Weave.
       before = hq.toolCalls.length;
       yield* TestClock.adjust(60 * 60_000);
       assert.strictEqual(hq.toolCalls.length, before);
@@ -131,13 +131,13 @@ it.effect.each(["summary", "card"] as const)(
 interface FakeItem {
   id: string;
   number: number;
-  /** The friendly ref; an older HQ, or an older item, has none and the field is absent. */
+  /** The friendly ref; an older Weave, or an older item, has none and the field is absent. */
   ref?: string | null;
   kind: string;
   title: string;
   status: string;
   holds: Array<{ kind: string; note: string; clearedAt: string | null; openedAt?: string }>;
-  /** The waits Forge derives for it, as `hq_build_waits` returns them. */
+  /** The waits Forge derives for it, as `weave_forge_waits` returns them. */
   waits: Array<{ required: "landed" | "accepted"; blocker: FakeItem }>;
   parentId?: string;
   governedBy?: Array<{ id: string; number: number; title: string; status: string }>;
@@ -170,7 +170,7 @@ const item = (number: number, kind: string, title: string, status: string): Fake
 const BODY = "The whole Spec body, which T3 never asks for";
 
 /**
- * ForgeWorkItems over the real HqAgentConnections and a fake HQ whose Forge answers its read
+ * ForgeWorkItems over the real HqAgentConnections and a fake Weave whose Forge answers its read
  * tools from `items`, `sessions`, `attempts` and `acceptances`, for one thread in a connected
  * project.
  */
@@ -195,7 +195,7 @@ const makeHarness = Effect.gen(function* () {
     body: BODY,
   });
   harness.hq.tools.call = (name, args) => {
-    if (name === "hq_forge_list")
+    if (name === "weave_forge_list")
       return {
         status: "succeeded",
         value: [...items.values()]
@@ -203,12 +203,12 @@ const makeHarness = Effect.gen(function* () {
           .toSorted((a, b) => a.number - b.number)
           .map(viewOf),
       };
-    if (name === "hq_forge_sessions")
+    if (name === "weave_forge_sessions")
       return {
         status: "succeeded",
         value: sessions.filter((session) => session.specId === args.specId),
       };
-    if (name === "hq_forge_acceptance")
+    if (name === "weave_forge_acceptance")
       return { status: "succeeded", value: acceptances.get(String(args.specId)) ?? null };
     const found =
       args.itemId !== undefined
@@ -217,10 +217,10 @@ const makeHarness = Effect.gen(function* () {
           ? [...items.values()].find((entry) => entry.ref === args.ref)
           : items.get(Number(args.number));
     if (found === undefined) return { status: "failed", code: "build_item_unavailable" };
-    if (name === "hq_forge_read") return { status: "succeeded", value: viewOf(found) };
-    if (name === "hq_forge_attempts")
+    if (name === "weave_forge_read") return { status: "succeeded", value: viewOf(found) };
+    if (name === "weave_forge_attempts")
       return { status: "succeeded", value: attempts.get(found.id) ?? [] };
-    if (name === "hq_forge_waits")
+    if (name === "weave_forge_waits")
       return {
         status: "succeeded",
         value: found.waits.map(({ required, blocker }) => ({
@@ -313,7 +313,7 @@ it.effect("links by URL, #number or number through T3's own observer agent", () 
   }),
 );
 
-it.effect("links by a friendly ref in any case with hq_forge_read {ref}", () =>
+it.effect("links by a friendly ref in any case with weave_forge_read {ref}", () =>
   Effect.gen(function* () {
     const { hq, service, add, thread } = yield* makeHarness;
     add({ ...item(1_000_078, "spec", "Show the Forge item", "in_progress"), ref: "YS-12" });
@@ -324,7 +324,7 @@ it.effect("links by a friendly ref in any case with hq_forge_read {ref}", () =>
     yield* service.link({ threadId, reference: "YS-12.1" });
     assert.strictEqual(thread.workItem?.number, 1_000_079);
     assert.deepStrictEqual(
-      hq.toolCalls.filter((call) => call.name === "hq_forge_read").map((call) => call.args),
+      hq.toolCalls.filter((call) => call.name === "weave_forge_read").map((call) => call.args),
       [{ ref: "YS-12" }, { ref: "YS-12.1" }],
     );
     const unknown = yield* service.link({ threadId, reference: "YS-99" }).pipe(Effect.flip);
@@ -358,7 +358,7 @@ it.effect("carries an item's ref to its summary, waits and card, and works witho
     const card = yield* service.card({ threadId, itemId: "item-1000079", open: "a" });
     assert.strictEqual(card?.detail.kind === "ticket" ? card.detail.spec?.ref : null, "YS-12");
 
-    // An older HQ omits the field: the item decodes, with no ref to show.
+    // An older Weave omits the field: the item decodes, with no ref to show.
     yield* service.link({ threadId, reference: "#1000080" });
     const older = yield* service.view(threadId);
     assert.strictEqual(older?.item?.title, "An older Spec");
@@ -458,7 +458,7 @@ it.effect("resolves an Arc and shows it as an Arc, never as a Spec or a Ticket",
     assert.deepStrictEqual(
       hq.toolCalls
         .map((call) => call.name)
-        .filter((name) => name === "hq_forge_attempts" || name === "hq_forge_list"),
+        .filter((name) => name === "weave_forge_attempts" || name === "weave_forge_list"),
       [],
     );
 
@@ -576,8 +576,8 @@ it.effect("one observer reads for the environment until it disconnects", () =>
   Effect.gen(function* () {
     const { hq, connections } = yield* makeHarness;
     yield* connections.connect({ origin, delegation });
-    yield* connections.observe("hq_forge_read", { number: 1 }).pipe(Effect.ignore);
-    yield* connections.observe("hq_forge_read", { number: 1 }).pipe(Effect.ignore);
+    yield* connections.observe("weave_forge_read", { number: 1 }).pipe(Effect.ignore);
+    yield* connections.observe("weave_forge_read", { number: 1 }).pipe(Effect.ignore);
     assert.strictEqual(hq.agents.length, 1);
 
     yield* connections.disconnect;
@@ -983,7 +983,7 @@ it.effect("a card for a link made against another HQ is unavailable and reads no
     const failed = yield* service.card({ threadId, itemId: spec.id, open: "a" }).pipe(Effect.flip);
     assert.strictEqual(failed.reason, "unavailable");
     assert.strictEqual(hq.toolCalls.length, reads);
-    // A mention's card keeps reading the project's current HQ.
+    // A mention's card keeps reading the project's current Weave.
     const card = yield* service.card({ threadId, itemId: mentioned.id, open: "b" });
     assert.strictEqual(card?.item.title, "Chat chips");
   }),

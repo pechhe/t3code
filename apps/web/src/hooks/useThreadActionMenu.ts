@@ -64,7 +64,7 @@ export function useThreadActionMenu(input: {
   readonly threadRef: ScopedThreadRef | null;
   readonly projectCwd: string | null;
   readonly onStartRename: () => void;
-  /** Offered only where the caller knows the project is connected to YardSmith HQ. */
+  /** Offered only where the caller knows the project is connected to Weave. */
   readonly canLinkForgeItem?: boolean;
   /** Guest links need their own grant, so the caller passes whether the environment offers it. */
   readonly canShareWithGuest: boolean;

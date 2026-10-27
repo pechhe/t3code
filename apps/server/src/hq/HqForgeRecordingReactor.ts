@@ -174,7 +174,7 @@ const make = Effect.gen(function* () {
     });
   });
 
-  /** The run a reviewer's own `hq_forge_run` reported, which is what its times belong to. */
+  /** The run a reviewer's own `weave_forge_run` reported, which is what its times belong to. */
   const reviewerRunIdOf = Effect.fn("HqForgeRecordingReactor.reviewerRunIdOf")(function* (
     threadId: ThreadId,
     t3RunId: string,
@@ -202,7 +202,7 @@ const make = Effect.gen(function* () {
         .getThread(threadId)
         .pipe(Effect.orElseSucceed(() => undefined));
       if (thread === undefined) return;
-      // The queue delivers as the thread's own agent, so a thread with no HQ role has nothing to
+      // The queue delivers as the thread's own agent, so a thread with no Weave role has nothing to
       // record as; its lead's rows are unaffected.
       const role = HqAgentConnections.hqAgentRole(thread);
       if (role === undefined) return;

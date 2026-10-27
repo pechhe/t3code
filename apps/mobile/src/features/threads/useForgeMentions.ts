@@ -7,7 +7,7 @@ import { forgeWorkItems } from "../../state/forge-work-items";
 import { useEnvironmentQuery } from "../../state/query";
 import { forgeMentionLabel } from "./build-work-item-subtitle";
 
-/** The HQ whose Build links the thread's messages show as live items; null without one. */
+/** The Weave whose Build links the thread's messages show as live items; null without one. */
 export function useThreadForgeOrigin(environmentId: EnvironmentId, threadId: ThreadId | null) {
   return (
     useEnvironmentQuery(

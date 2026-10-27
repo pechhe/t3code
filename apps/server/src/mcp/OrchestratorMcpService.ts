@@ -4187,7 +4187,7 @@ const make = Effect.gen(function* () {
             Effect.map((item) => item.number),
             Effect.mapError((error) => failure("invalid_request", error.message)),
           );
-        // Stopping a watch never needs HQ for a number, and a ref is matched against the
+        // Stopping a watch never needs Weave for a number, and a ref is matched against the
         // watched items' cached refs first.
         const unwatchNumber = Effect.fnUntraced(function* (reference: string) {
           const parsed = parseForgeReference(reference);

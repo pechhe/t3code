@@ -100,6 +100,11 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
     reason: "source spawned in a child process",
   },
   {
+    when: /^(?:apps|packages|scripts|fork)\/|^AGENTS\.md$/,
+    select: ["scripts/hq-allowlist.test.ts"],
+    reason: "test greps every tracked file for the legacy product name outside its allowlist",
+  },
+  {
     when: /^apps\/server\/scripts\//,
     select: ACP_AGENT_SPAWNERS,
     reason: "ACP mock and replay agents spawned in a child process",

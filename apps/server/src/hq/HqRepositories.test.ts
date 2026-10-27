@@ -44,8 +44,8 @@ it.effect("calls HQ's repository tools and decodes their values", () =>
     };
     assert.deepEqual(yield* hq.setRepository(input), repository);
     assert.deepEqual(calls, [
-      { tool: "hq_forge_repository_list", args: {} },
-      { tool: "hq_forge_repository_set", args: input },
+      { tool: "weave_forge_repository_list", args: {} },
+      { tool: "weave_forge_repository_set", args: input },
     ]);
   }),
 );

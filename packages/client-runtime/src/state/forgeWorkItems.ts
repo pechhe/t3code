@@ -12,7 +12,7 @@ import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
 
 /**
- * Clients ask once a minute while visible; the server backs off unchanged HQ reads to five
+ * Clients ask once a minute while visible; the server backs off unchanged Weave reads to five
  * minutes and expires them after proxied agent writes. No mounted reader means no polling.
  */
 export function createForgeWorkItemAtoms<R, E>(
@@ -55,7 +55,7 @@ export function createForgeWorkItemAtoms<R, E>(
       tag: WS_METHODS.buildConnectionRead,
       staleTimeMs: 60_000,
     }),
-    /** Connect to HQ: returns the HQ page to open; the result arrives through `connection`. */
+    /** Connect to Weave: returns the Weave page to open; the result arrives through `connection`. */
     signInStart: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:build:hq:sign-in",
       tag: WS_METHODS.hqSignInStart,
@@ -68,7 +68,7 @@ export function createForgeWorkItemAtoms<R, E>(
       label: "environment-data:build:work-item:link",
       tag: WS_METHODS.forgeWorkItemLink,
     }),
-    /** Forge Home for the Forge button; the server paces its own reads of HQ. */
+    /** Forge Home for the Forge button; the server paces its own reads of Weave. */
     home: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:build:home",
       tag: WS_METHODS.forgeHomeRead,

@@ -371,8 +371,8 @@ const make = Effect.gen(function* () {
   });
 
   /**
-   * The Build item a thread works under: its HQ link, or else the item its workspace was
-   * attached to, which needs no HQ connection.
+   * The Build item a thread works under: its Weave link, or else the item its workspace was
+   * attached to, which needs no Weave connection.
    */
   const threadForgeItem = Effect.fn("ThreadLaunchService.threadForgeItem")(function* (
     threadId: ThreadId,

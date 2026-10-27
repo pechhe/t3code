@@ -1,5 +1,6 @@
 import { McpAttachmentInput } from "../attachment/input.ts";
 import {
+  WEAVE_NAMES,
   NonNegativeInt,
   ForgeItemReferenceInput,
   ModelSelection,
@@ -168,22 +169,23 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.OpenWorld, false);
 
-const HqConnectionTool = Tool.make("t3_hq_connection", {
-  ...shared,
-  description:
-    'Read, connect or disconnect T3\'s Weave connection, which every project in this environment shares. When connected, each Claude or Codex thread gets a `yardsmith-hq` MCP server that acts in Weave as that thread\'s own agent, on behalf of the person who made the delegation. The person normally connects with Settings → Integrations → Weave → Connect to Weave, which signs in to Weave in their browser. Only if that is unavailable, the person creates a delegation in Weave Settings → Connections → T3 agents; ask for it with request_secret, then pass {action:"connect", origin:"https://<weave origin>", delegation:<secretRef>}. T3 keeps it in its server secret store. Disconnecting stops new Weave calls; to revoke T3\'s access, the person revokes the delegation in Weave.',
-  parameters: Schema.Struct({
-    action: Schema.Literals(["read", "connect", "disconnect"]),
-    origin: Schema.optional(TrimmedNonEmptyString),
-    delegation: Schema.optional(SecretRef),
-  }),
-  success: Schema.Struct({ connected: Schema.Boolean, origin: Schema.NullOr(Schema.String) }),
-  dependencies: [
-    ...shared.dependencies,
-    SecretRequests.SecretRequests,
-    HqAgentConnections.HqAgentConnections,
-  ],
-}).annotate(Tool.Destructive, false);
+const connectionTool = (name: (typeof WEAVE_NAMES.connectionTools)[number]) =>
+  Tool.make(name, {
+    ...shared,
+    description:
+      'Read, connect or disconnect T3\'s Weave connection, which every project in this environment shares. When connected, each Claude or Codex thread gets a `weave` MCP server that acts in Weave as that thread\'s own agent, on behalf of the person who made the delegation. The person normally connects with Settings → Integrations → Weave → Connect to Weave, which signs in to Weave in their browser. Only if that is unavailable, the person creates a delegation in Weave Settings → Connections → T3 agents; ask for it with request_secret, then pass {action:"connect", origin:"https://<weave origin>", delegation:<secretRef>}. T3 keeps it in its server secret store. Disconnecting stops new Weave calls; to revoke T3\'s access, the person revokes the delegation in Weave.',
+    parameters: Schema.Struct({
+      action: Schema.Literals(["read", "connect", "disconnect"]),
+      origin: Schema.optional(TrimmedNonEmptyString),
+      delegation: Schema.optional(SecretRef),
+    }),
+    success: Schema.Struct({ connected: Schema.Boolean, origin: Schema.NullOr(Schema.String) }),
+    dependencies: [
+      ...shared.dependencies,
+      SecretRequests.SecretRequests,
+      HqAgentConnections.HqAgentConnections,
+    ],
+  }).annotate(Tool.Destructive, false);
 
 export const ProjectToolkit = Toolkit.make(
   ThreadLaunchTool,
@@ -193,5 +195,5 @@ export const ProjectToolkit = Toolkit.make(
   ProjectUpdateTool,
   ProjectDeleteTool,
   ProjectCloneTool,
-  HqConnectionTool,
+  ...WEAVE_NAMES.connectionTools.map(connectionTool),
 );

@@ -32,3 +32,13 @@ describe("resolveT3McpToolPresentation", () => {
     expect(resolveT3McpToolPresentation("t3-code-thread_opencode2-adapter_not_a_tool")).toBeNull();
   });
 });
+
+it("presents current and legacy Weave connection tools alike", () => {
+  expect(resolveT3McpToolPresentation("t3_weave_connection")).toEqual({
+    displayName: "Configure the Weave connection",
+    logo: "t3-code",
+  });
+  expect(resolveT3McpToolPresentation("t3_hq_connection")).toEqual(
+    resolveT3McpToolPresentation("t3_weave_connection"),
+  );
+});

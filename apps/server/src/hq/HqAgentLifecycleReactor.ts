@@ -18,9 +18,9 @@ import * as HqForgeRecords from "./HqForgeRecords.ts";
 import * as HqForgeRecordingReactor from "./HqForgeRecordingReactor.ts";
 
 /**
- * Ends a thread's HQ agent when its work is over: a delegated task that completed, failed or was
+ * Ends a thread's Weave agent when its work is over: a delegated task that completed, failed or was
  * cancelled. A deleted thread's agent is dropped. An interrupted run is left alone, since a
- * restart continues it. T3 only ever ends agents; revoking one is the person's call in HQ.
+ * restart continues it. T3 only ever ends agents; revoking one is the person's call in Weave.
  *
  * The end is queued rather than sent: ending replaces the agent's identity, so every Forge record
  * the thread still owes Weave has to reach it first (Spec #4395). A thread with nothing queued
@@ -28,7 +28,7 @@ import * as HqForgeRecordingReactor from "./HqForgeRecordingReactor.ts";
  * records its finished run owes are queued here, in the same fiber, rather than from another
  * reactor, so they are always ahead of the end.
  *
- * Archiving a thread keeps its agent. HQ lets only the agent that opened a Forge bind or session
+ * Archiving a thread keeps its agent. Weave lets only the agent that opened a Forge bind or session
  * end it, and an ended agent is replaced by one with a new id, so ending it on archive would leave
  * an open session that nothing can end once the thread is unarchived. Whether the thread still
  * links a Forge item at that point says nothing about whether its agent owns a session.
@@ -48,7 +48,7 @@ const make = Effect.gen(function* () {
   const records = yield* HqForgeRecords.HqForgeRecords;
   const recording = yield* HqForgeRecordingReactor.HqForgeRecordingReactor;
 
-  /** Acts on the thread's agent; a thread with no HQ role never had one. */
+  /** Acts on the thread's agent; a thread with no Weave role never had one. */
   const withAgentOf = (
     threadId: ThreadId,
     act: (
@@ -112,7 +112,7 @@ const make = Effect.gen(function* () {
   const start: HqAgentLifecycleReactor["Service"]["start"] = Effect.fn(
     "HqAgentLifecycleReactor.start",
   )(function* () {
-    // Ending calls HQ, so one slow request must not hold up the events behind it.
+    // Ending calls Weave, so one slow request must not hold up the events behind it.
     const ends = yield* FiberSet.make<void, never>();
     yield* forkParked(
       Stream.runForEach(engine.streamDomainEvents, (event) =>

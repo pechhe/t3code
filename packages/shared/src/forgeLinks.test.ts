@@ -118,7 +118,7 @@ describe("parseForgeReference", () => {
     for (const written of ["YS-12.x", "YS-0", "YS-", "YS-12.0", "3T-1", "YS-12.1.2", "0", "#0"])
       expect(parseForgeReference(written)).toBeNull();
     expect(parseForgeReference("9".repeat(20))).toBeNull();
-    // HQ's numbers are Postgres integers: one past the bound is malformed, not an unknown item.
+    // Weave's numbers are Postgres integers: one past the bound is malformed, not an unknown item.
     for (const written of [
       "#2147483648",
       "2147483648",

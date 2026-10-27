@@ -108,7 +108,7 @@ const RuntimesRecord = Schema.Struct({
   recordKey: Schema.String,
   args: JsonObject,
 });
-/** The HQ agent's end, which runs only after everything else its thread recorded. */
+/** The Weave agent's end, which runs only after everything else its thread recorded. */
 const EndRecord = Schema.Struct({
   ...recordBase,
   kind: Schema.Literal("end"),
@@ -221,13 +221,13 @@ export class HqForgeRecords extends Context.Service<
     readonly outstanding: (options?: {
       readonly threadId?: ThreadId;
     }) => Effect.Effect<ReadonlyArray<HqForgeRecord>, HqForgeRecordError>;
-    /** A reviewer's own Forge runs, recorded from what Weave answered its `hq_forge_run` call. */
+    /** A reviewer's own Forge runs, recorded from what Weave answered its `weave_forge_run` call. */
     readonly reviewerRuns: Effect.Effect<ReadonlyArray<HqForgeReviewerRun>, HqForgeRecordError>;
     /** Drops what a deleted thread still owes: nothing can act as it any more. */
     readonly forgetThread: (threadId: ThreadId) => Effect.Effect<void, HqForgeRecordError>;
     /** Tries every record that is due once. The worker runs this; a test can drive it directly. */
     readonly deliverDue: Effect.Effect<void, HqForgeRecordError>;
-    /** Records a reviewer's run and delivers what is owed, waking on a new record or a new HQ. */
+    /** Records a reviewer's run and delivers what is owed, waking on a new record or a new Weave. */
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
   }
 >()("t3/hq/HqForgeRecords") {}
@@ -318,7 +318,7 @@ interface Row {
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const hq = yield* HqAgentConnections.HqAgentConnections;
+  const weave = yield* HqAgentConnections.HqAgentConnections;
   const buildSpec = yield* ForgeSpecOfThread.ForgeSpecOfThread;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const wakeups = yield* Queue.unbounded<void>();
@@ -393,7 +393,7 @@ const make = Effect.gen(function* () {
    * stored, so a failed insert leaves them for the next drain instead of losing them.
    */
   const drainReportedRuns = Effect.gen(function* () {
-    const reported = yield* hq.reportedRuns;
+    const reported = yield* weave.reportedRuns;
     if (reported.length === 0) return;
     for (const report of reported) {
       const now = yield* Clock.currentTimeMillis;
@@ -407,7 +407,7 @@ const make = Effect.gen(function* () {
           DO UPDATE SET spec_id = coalesce(excluded.spec_id, spec_id),
             t3_run_id = coalesce(excluded.t3_run_id, t3_run_id)`;
     }
-    yield* hq.forgetReportedRuns(reported);
+    yield* weave.forgetReportedRuns(reported);
   });
 
   /** The drain as the queue runs it: one at a time, so a reader never meets a report in neither place. */
@@ -562,7 +562,7 @@ const make = Effect.gen(function* () {
       // A usage row that names no T3 run keeps the latest report, and is sent without ids when the
       // reviewer has reported none at all.
       if (t3RunId === null) return {};
-      // A reviewer's report of its own run reaches T3 only from its `hq_forge_run` answer, so a row
+      // A reviewer's report of its own run reaches T3 only from its `weave_forge_run` answer, so a row
       // that finds none waits for it rather than naming another run's, unless the run's end has
       // been queued and no report can follow: then the usage is sent without ids and the end after it.
       return (yield* endQueued(agent.threadId, t3RunId)) ? {} : null;
@@ -603,16 +603,16 @@ const make = Effect.gen(function* () {
     // place, so it waits for that connection to come back. A row with no origin is not pinned,
     // because it was queued while Weave could not be read at all.
     if (row.origin !== null) {
-      const connected = yield* hq.read.pipe(Effect.orElseSucceed(() => null));
+      const connected = yield* weave.read.pipe(Effect.orElseSucceed(() => null));
       if (connected === null || !sameHqAddress(row.origin, connected.origin))
         return retry("other_origin");
     }
-    // An end names the role it was queued with: HQ needs only the reference and role to end the
+    // An end names the role it was queued with: Weave needs only the reference and role to end the
     // agent, and the thread may already be gone.
     if (row.kind === "end") {
       const record = decodeEndPayload(payload.value);
       if (Option.isNone(record)) return refused("record_payload_invalid");
-      return yield* hq.endAgent({ threadId: row.threadId, role: record.value.role }).pipe(
+      return yield* weave.endAgent({ threadId: row.threadId, role: record.value.role }).pipe(
         Effect.map(() => delivered(null)),
         Effect.catchTags({
           HqAgentCallUnavailable: (error) => Effect.succeed(retry(error.reason)),
@@ -653,7 +653,7 @@ const make = Effect.gen(function* () {
       );
     }
     const call = (tool: string, args: Record<string, unknown>) =>
-      hq.callAs(agent, tool, args).pipe(
+      weave.callAs(agent, tool, args).pipe(
         Effect.map((result) => delivered(result.value)),
         Effect.catchTags({
           HqAgentCallRefused: (error) => Effect.succeed(refused(error.code)),
@@ -684,11 +684,11 @@ const make = Effect.gen(function* () {
               : workspace,
           );
         }
-        const bound = yield* call("hq_forge_bind", underSpec(record.value.bind));
+        const bound = yield* call("weave_forge_bind", underSpec(record.value.bind));
         if (bound._tag !== "delivered") return bound;
         // The session is opened under the generation the bind returned, which only Weave knows.
         const generation = decodeBoundGeneration(bound.value);
-        const started = yield* call("hq_forge_start_session", {
+        const started = yield* call("weave_forge_start_session", {
           ...underSpec({
             ...record.value.startSession,
             ...(workspaces === undefined ? {} : { workspaces }),
@@ -699,7 +699,7 @@ const make = Effect.gen(function* () {
           return started;
         // The lead started this very session itself (its reference is its thread id), with details
         // of its own, so Weave will not replay it: that session is the one its turns count toward.
-        const existing = yield* call("hq_forge_sessions", underSpec({}));
+        const existing = yield* call("weave_forge_sessions", underSpec({}));
         if (existing._tag !== "delivered") return existing;
         const sessions = Array.isArray(existing.value) ? existing.value : [];
         const sessionRef = record.value.startSession.sessionRef;
@@ -737,7 +737,7 @@ const make = Effect.gen(function* () {
         // Its lead has not opened a session yet, so there is no parent to name. This is not a
         // failure: the record waits until the lead's own row has gone.
         if (lead._tag === "waiting" || lead.sessionId === null) return blocked;
-        return yield* call("hq_forge_record_helper", {
+        return yield* call("weave_forge_record_helper", {
           ...record.value.args,
           parentSessionId: lead.sessionId,
         });
@@ -757,12 +757,12 @@ const make = Effect.gen(function* () {
                 Object.entries(record.value.args).filter(([key]) => key !== "harness"),
               )
             : record.value.args;
-        return yield* call("hq_forge_record_usage", { ...args, ...attribution });
+        return yield* call("weave_forge_record_usage", { ...args, ...attribution });
       }
       case "runtimes": {
         const record = decodeArgsPayload(payload.value);
         if (Option.isNone(record)) return refused("record_payload_invalid");
-        return yield* call("hq_forge_record_run_times", record.value.args);
+        return yield* call("weave_forge_record_run_times", record.value.args);
       }
     }
   });
@@ -788,7 +788,7 @@ const make = Effect.gen(function* () {
       if (code === "lead_session_parked" || code === "session_parked") return;
       const agent = yield* agentOf(row.threadId);
       if (Option.isNone(agent) || agent.value.role.endsWith("-reviewer")) return;
-      yield* hq.callAs(agent.value, "hq_forge_record_contribution", {
+      yield* weave.callAs(agent.value, "weave_forge_record_contribution", {
         itemId: row.specId,
         clientRef: `refused:${row.createdAt}:${row.kind}:${row.recordKey.slice(-120)}`,
         note: `Weave refused this thread's ${row.kind} record with ${code}, so it is parked in T3 and not sent. What it carried stays unreported. Thread: t3-thread://v1/${row.threadId}`,
@@ -884,7 +884,7 @@ const make = Effect.gen(function* () {
     return Math.min(Math.max(next.at - now, RETRY_BASE_MS), RETRY_MAX_MS);
   }).pipe(Effect.catch(() => Effect.succeed(RETRY_MAX_MS)));
 
-  /** Makes every waiting row due again: what failed before may work under this process or HQ. */
+  /** Makes every waiting row due again: what failed before may work under this process or Weave. */
   const retryWaitingNow = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
     yield* sql`UPDATE hq_build_records SET next_attempt_at = ${now}
@@ -894,21 +894,21 @@ const make = Effect.gen(function* () {
   const start: HqForgeRecords["Service"]["start"] = Effect.fn("HqForgeRecords.start")(function* () {
     // Subscribed before the first pass runs, so a connection made while the queue is starting is
     // kept and wakes it.
-    const connectionChanges = yield* Stream.toQueue(hq.connectionChanges, {
+    const connectionChanges = yield* Stream.toQueue(weave.connectionChanges, {
       capacity: "unbounded",
     });
     // A reviewer's run id reaches T3 only in the answer to its own call, and its thread may finish
     // before the next pass looks, so a report wakes the queue rather than waiting for it.
-    const reportedRuns = yield* Stream.toQueue(hq.reportedRunChanges, { capacity: "unbounded" });
+    const reportedRuns = yield* Stream.toQueue(weave.reportedRunChanges, { capacity: "unbounded" });
     // A reviewer is not given its run id until the run is on record: its own end may come before the
     // next pass looks, and Weave's run id reaches T3 nowhere else. The run is stamped on the report
     // here, once, so a write that cannot happen yet still names it when the pass that follows writes
     // it; the answer waits for every try but the last to fail.
-    yield* hq.setRunReportedHook((report) =>
+    yield* weave.setRunReportedHook((report) =>
       Effect.gen(function* () {
         const t3RunId = yield* reportedRunIdOf(report.threadId);
         if (t3RunId !== null)
-          yield* hq.stampReportedRun({
+          yield* weave.stampReportedRun({
             threadId: report.threadId,
             runId: report.runId,
             t3RunId,
@@ -948,7 +948,7 @@ const make = Effect.gen(function* () {
             ),
           );
           const wait = yield* waitMsBeforeNextAttempt;
-          // Woken by a new record, a new HQ connection or a reported reviewer run, without waiting
+          // Woken by a new record, a new Weave connection or a reported reviewer run, without waiting
           // out the sleep.
           const woke = yield* Effect.raceFirst(
             Effect.sleep(Duration.millis(wait)).pipe(Effect.as("timer" as const)),

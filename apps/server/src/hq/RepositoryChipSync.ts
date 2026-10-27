@@ -1,5 +1,5 @@
 import { CommandId, type ProjectIconOverride } from "@t3tools/contracts";
-import { deriveProjectIdentity, hqRepositoryKeyOf } from "@t3tools/shared/projectIdentity";
+import { deriveProjectIdentity, weaveRepositoryKeyOf } from "@t3tools/shared/projectIdentity";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -42,7 +42,7 @@ export class RepositoryChipSync extends Context.Service<
 >()("t3/hq/RepositoryChipSync") {}
 
 const make = Effect.gen(function* () {
-  const hq = yield* HqRepositories.HqRepositories;
+  const weave = yield* HqRepositories.HqRepositories;
   const connections = yield* HqAgentConnections.HqAgentConnections;
   const projects = yield* ProjectService.ProjectService;
   const store = yield* ProjectStore.ProjectStoreV2;
@@ -53,19 +53,19 @@ const make = Effect.gen(function* () {
     const connection = yield* connections.read;
     if (connection === null) return;
     const repositories = new Map(
-      (yield* hq.listRepositories()).map((repository) => [repository.key, repository]),
+      (yield* weave.listRepositories()).map((repository) => [repository.key, repository]),
     );
     for (const listed of yield* store.list()) {
       yield* Effect.gen(function* () {
         const shell = yield* projects.getShell(listed.projectId);
         if (shell._tag === "None") return;
-        const key = hqRepositoryKeyOf(shell.value);
+        const key = weaveRepositoryKeyOf(shell.value);
         const matched =
           key === null
             ? undefined
             : (repositories.get(key) ??
               [...repositories.values()].find((record) => record.aliases.includes(key)));
-        // Only a person registers a repository, so a key HQ does not list is never pushed (it would
+        // Only a person registers a repository, so a key Weave does not list is never pushed (it would
         // only be refused); a hand link to one is recorded so settings can say why it is not synced.
         const unregistered =
           !listed.hqSyncLocalOnly && !matched && listed.hqRepositoryKey
@@ -91,10 +91,10 @@ const make = Effect.gen(function* () {
         const localHash = yield* hash(local);
         let repository = matched;
         let projectIcon: ProjectIconOverride | undefined;
-        // A project with no baseline adopts an HQ record someone has already edited; with no such
+        // A project with no baseline adopts a Weave server record someone has already edited; with no such
         // record (none, or one only registered with its default look) it establishes its own value
-        // once. After that a local edit is pushed and HQ stamps it on receipt, so the later receipt
-        // wins; a newer HQ revision is pulled.
+        // once. After that a local edit is pushed and Weave stamps it on receipt, so the later receipt
+        // wins; a newer Weave revision is pulled.
         const unedited = repository?.updatedSource === "registered";
         const unsynced = (row.hqSyncedValueHash ?? null) === null;
         const adopt = () => {
@@ -109,7 +109,7 @@ const make = Effect.gen(function* () {
           adopt();
         } else if (row.hqSyncedValueHash !== localHash) {
           // A project matched through an alias edits the record it matched, not a new one.
-          repository = yield* hq.setRepository({
+          repository = yield* weave.setRepository({
             key: repository.key,
             ...local,
           });
@@ -117,7 +117,7 @@ const make = Effect.gen(function* () {
         } else if (repository.revision > (row.hqSyncedRevision ?? 0)) {
           adopt();
         } else return;
-        // A reconnect during the request must not persist a baseline for the old HQ.
+        // A reconnect during the request must not persist a baseline for the old Weave.
         const current = yield* connections.read;
         if (current?.connection !== connection.connection) return;
         const valueHash = yield* hash(

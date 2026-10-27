@@ -175,7 +175,7 @@ export interface SlipJaySpec {
   title: string | null;
   status: string | null;
   held: boolean;
-  /** The item's page in HQ; null until Forge answers for it. */
+  /** The item's page in Weave; null until Forge answers for it. */
   url: string | null;
 }
 
@@ -192,7 +192,7 @@ const specFromView = (view: ForgeWorkItemView): SlipJaySpec => {
 };
 
 /**
- * The HQ Forge Spec a landing delivers. `number` is the one SlipJay recorded for the landing;
+ * The Weave Forge Spec a landing delivers. `number` is the one SlipJay recorded for the landing;
  * without it, the submitting thread's own linked Spec. A number Forge does not answer for is
  * still shown, by number.
  */
@@ -224,7 +224,7 @@ export function useSlipJaySpec(
     : { number, ref: null, title: null, status: null, held: false, url: null };
 }
 
-/** A Spec's ref, opening its page in HQ once Forge has given one. */
+/** A Spec's ref, opening its page in Weave once Forge has given one. */
 export function SlipJaySpecLink({ spec, className }: { spec: SlipJaySpec; className?: string }) {
   if (spec.url === null)
     return <ForgeItemLabel item={spec} {...(className === undefined ? {} : { className })} />;

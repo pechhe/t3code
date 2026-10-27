@@ -15,7 +15,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 
 /**
  * A thread row's Build link actions, offered only when its environment is connected to
- * YardSmith HQ: link one, or open, change and unlink the linked Forge item.
+ * Weave: link one, or open, change and unlink the linked Forge item.
  */
 export function useThreadForgeMenu(thread: EnvironmentThreadShell) {
   const connected = useForgeConnected(thread.environmentId);

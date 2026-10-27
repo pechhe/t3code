@@ -1,7 +1,7 @@
 /**
- * Forge Home and person-note delivery use the person's delegated HQ connection. The delegation
+ * Forge Home and person-note delivery use the person's delegated Weave connection. The delegation
  * stays on the server. An outbox survives restarts; deterministic command, message and thread
- * ids let retries recover a send or launch whose delivery report did not reach HQ.
+ * ids let retries recover a send or launch whose delivery report did not reach Weave.
  */
 import {
   ForgeHomeError,
@@ -50,14 +50,14 @@ import {
 } from "./ForgeWorkItems.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
 
-/** Where #4070 kept a separate decision token; removed at startup now the HQ connection decides. */
+/** Where #4070 kept a separate decision token; removed at startup now the Weave connection decides. */
 const RETIRED_STORE_NAME = "hq-build-decisions";
 /** A delivery that fails is tried again after this, doubling to the Forge re-read cap. */
 const DELIVERY_RETRY_MS = 5_000;
 
 const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 
-/** HQ's own `Item` fields Forge Home names a Spec by. The rest of its view is left out. */
+/** Weave's own `Item` fields Forge Home names a Spec by. The rest of its view is left out. */
 const HqItem = Schema.Struct({
   id: Schema.String,
   number: Schema.Int,
@@ -83,7 +83,7 @@ const HqAcceptance = Schema.Struct({
           evidence: Schema.NullOr(Schema.String),
         }),
       ),
-      // An HQ from before #4070's review fixes sends no checks; its card shows none.
+      // A Weave server from before #4070's review fixes sends no checks; its card shows none.
       checks: Schema.optional(
         Schema.Array(Schema.Struct({ label: Schema.String, met: Schema.NullOr(Schema.Boolean) })),
       ),
@@ -94,14 +94,14 @@ const HqAcceptance = Schema.Struct({
     resolvedFindings: Schema.optional(
       Schema.Array(
         Schema.Struct({
-          // HQ's review finding says what it was in `summary`.
+          // Weave's review finding says what it was in `summary`.
           finding: Schema.Struct({ summary: Schema.String }),
         }),
       ),
     ),
   }),
-  // The Proposed Decisions this Spec proposed (YardSmith YS-277), which HQ nests in its card rather
-  // than listing on their own; an HQ from before sends none.
+  // The Proposed Decisions this Spec proposed (YardSmith YS-277), which Weave nests in its card rather
+  // than listing on their own; a Weave server from before sends none.
   decisions: Schema.optional(Schema.Array(HqItem)),
 });
 const HqHoldNeed = Schema.Struct({
@@ -166,9 +166,9 @@ const hqErrorMessage = (code: string | undefined) =>
 export class ForgeHome extends Context.Service<
   ForgeHome,
   {
-    /** Forge Home as the button shows it; HQ is asked at most as often as Forge items are. */
+    /** Forge Home as the button shows it; Weave is asked at most as often as Forge items are. */
     readonly read: Effect.Effect<ForgeHomeState>;
-    /** Resolves once any refresh of Home from HQ begun by a read has finished. */
+    /** Resolves once any refresh of Home from Weave begun by a read has finished. */
     readonly refreshed: Effect.Effect<void>;
     /** Accept or Send back as the person; a Send back's note is then delivered to the lead. */
     readonly decide: (
@@ -201,7 +201,7 @@ interface DeliveryRow {
   readonly state: "pending" | "delivered" | "undeliverable";
   readonly detail: string | null;
   readonly reportedAt: string | null;
-  /** The HQ that recorded the finding; only it is told how delivery went. */
+  /** The Weave that recorded the finding; only it is told how delivery went. */
   readonly hqOrigin: string;
   readonly noteKind: "send_back" | "answer" | "decision" | "gate_removal";
   /** The Proposed Decision a `decision` note was sent back on (YS-277), as `#N “title”`. */
@@ -285,7 +285,7 @@ const notConnected = new ForgeHomeError({
 
 const make = Effect.gen(function* () {
   const store = yield* ServerSecretStore.ServerSecretStore;
-  const hq = yield* HqAgentConnections.HqAgentConnections;
+  const weave = yield* HqAgentConnections.HqAgentConnections;
   const sql = yield* SqlClient.SqlClient;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const settings = yield* ServerSettings.ServerSettingsService;
@@ -298,9 +298,9 @@ const make = Effect.gen(function* () {
   let refreshing: Fiber.Fiber<unknown> | undefined;
   let cached: CachedHome | undefined;
 
-  /** One call to HQ's decisions endpoint as the person. A transport failure carries nothing. */
+  /** One call to Weave's decisions endpoint as the person. A transport failure carries nothing. */
   const post = (body: Record<string, unknown>, origin?: string) =>
-    hq.decide({ body, ...(origin === undefined ? {} : { origin }) }).pipe(
+    weave.decide({ body, ...(origin === undefined ? {} : { origin }) }).pipe(
       Effect.map((response) => ({
         ...response,
         outcome: decodeJson(response.text).pipe(Option.flatMap(decodeOutcome)),
@@ -320,11 +320,11 @@ const make = Effect.gen(function* () {
     readAt,
   });
 
-  // An older HQ is asked again after a while, so updating HQ needs no T3 restart.
+  // An older Weave is asked again after a while, so updating Weave needs no T3 restart.
   let capabilities: { key: string; answer: boolean; notes: boolean; at: number } | undefined;
   const probe = Effect.fn("ForgeHome.probe")(
     function* () {
-      const connection = yield* hq.read;
+      const connection = yield* weave.read;
       if (connection === null) return { answer: false, notes: false };
       const now = yield* Clock.currentTimeMillis;
       if (
@@ -363,7 +363,7 @@ const make = Effect.gen(function* () {
     origin: string,
     supported: { answer: boolean; notes: boolean },
   ): ForgeHomeView => {
-    // A Proposed Decision HQ nests in its Specs' cards is listed once, after the first of them.
+    // A Proposed Decision Weave nests in its Specs' cards is listed once, after the first of them.
     const listed = new Set<string>();
     const decisionNeed = (item: typeof HqItem.Type): ReadonlyArray<ForgeHomeNeed> => {
       if (listed.has(item.id)) return [];
@@ -445,11 +445,11 @@ const make = Effect.gen(function* () {
   const isFresh = (previous: CachedHome, now: number) =>
     now - previous.attemptedAt < previous.intervalMs;
 
-  /** Asks HQ for Home unless the last answer is still within its cadence. */
+  /** Asks Weave for Home unless the last answer is still within its cadence. */
   const refreshHome = lock.withLock(
     "home",
     Effect.gen(function* () {
-      const connected = yield* hq.read.pipe(Effect.orElseSucceed(() => null));
+      const connected = yield* weave.read.pipe(Effect.orElseSucceed(() => null));
       if (connected === null) {
         cached = undefined;
         return stateOf(null, "not_connected", null, null);
@@ -479,7 +479,7 @@ const make = Effect.gen(function* () {
           Effect.orElseSucceed(() => ({ answer: false, notes: false })),
         );
         const view = viewOf(value.value, origin, supported);
-        // HQ counts every need; one T3 cannot read would otherwise vanish from the cards silently.
+        // Weave counts every need; one T3 cannot read would otherwise vanish from the cards silently.
         const dropped = value.value.needsYou.length - view.needsYou.length;
         if (dropped > 0)
           yield* Effect.logWarning("Forge Home has needs T3 could not read", {
@@ -510,7 +510,7 @@ const make = Effect.gen(function* () {
         key,
         attemptedAt: now,
         fingerprint: undefined,
-        // A struggling HQ is not asked every minute: consecutive failures double the wait.
+        // A struggling Weave is not asked every minute: consecutive failures double the wait.
         intervalMs:
           fresh?.state.status === "unavailable"
             ? Math.min(fresh.intervalMs * 2, BUILD_MAX_REREAD_INTERVAL_MS)
@@ -522,12 +522,12 @@ const make = Effect.gen(function* () {
   );
 
   /**
-   * Home as last known, refreshed from HQ in the background once its cadence lapses, so a slow
-   * HQ never holds a client up. The refresh outlives the client's request: a client that gives
-   * up still leaves its answer behind. Only a read with nothing known waits for HQ.
+   * Home as last known, refreshed from Weave in the background once its cadence lapses, so a slow
+   * Weave never holds a client up. The refresh outlives the client's request: a client that gives
+   * up still leaves its answer behind. Only a read with nothing known waits for Weave.
    */
   const readHome = Effect.gen(function* () {
-    const connected = yield* hq.read.pipe(Effect.orElseSucceed(() => null));
+    const connected = yield* weave.read.pipe(Effect.orElseSucceed(() => null));
     const previous =
       connected !== null && cached?.key === connected.connection ? cached : undefined;
     const refresh = Effect.forkIn(refreshHome, scope);
@@ -540,7 +540,7 @@ const make = Effect.gen(function* () {
     refreshing === undefined ? Effect.void : Fiber.await(refreshing).pipe(Effect.asVoid),
   );
 
-  /** A decision changes what Home says, so the next read asks HQ. */
+  /** A decision changes what Home says, so the next read asks Weave. */
   const forget = Effect.sync(() => {
     cached = undefined;
   });
@@ -668,12 +668,12 @@ const make = Effect.gen(function* () {
     return { state: "delivered" as const, detail: null };
   });
 
-  /** Takes a row as far as it goes; true when HQ has accepted its report. */
+  /** Takes a row as far as it goes; true when Weave has accepted its report. */
   const settle = (row: DeliveryRow) =>
     lock.withLock(
       `delivery:${row.findingId}`,
       Effect.gen(function* () {
-        const connected = yield* hq.read.pipe(Effect.orElseSucceed(() => null));
+        const connected = yield* weave.read.pipe(Effect.orElseSucceed(() => null));
         // A finding recorded at an address Weave has moved on from is this Weave's to settle.
         if (connected === null || !sameHqAddress(row.hqOrigin, connected.origin)) return false;
         let state = row.state;
@@ -709,7 +709,7 @@ const make = Effect.gen(function* () {
             WHERE finding_id = ${row.findingId}`;
         }
         if (row.reportedAt !== null) return true;
-        // Reported only to the HQ that recorded it; after reconnecting elsewhere it waits for that one.
+        // Reported only to the Weave that recorded it; after reconnecting elsewhere it waits for that one.
         const [destination] = yield* sql<{
           threadId: string | null;
         }>`SELECT delivered_thread_id AS "threadId" FROM build_send_back_deliveries WHERE finding_id = ${row.findingId}`;
@@ -735,7 +735,7 @@ const make = Effect.gen(function* () {
           },
           row.hqOrigin,
         ).pipe(Effect.option);
-        // A duplicate means HQ already has this report. A note delivered or claimed elsewhere since,
+        // A duplicate means Weave already has this report. A note delivered or claimed elsewhere since,
         // say after "Start a new thread instead", is no longer this environment's to report.
         const accepted =
           Option.isSome(response) &&
@@ -758,7 +758,7 @@ const make = Effect.gen(function* () {
 
   const collectNotes = Effect.fn("ForgeHome.collectNotes")(
     function* () {
-      const connected = yield* hq.read.pipe(Effect.orElseSucceed(() => null));
+      const connected = yield* weave.read.pipe(Effect.orElseSucceed(() => null));
       if (connected === null) return;
       const supported = yield* probe();
       if (!supported.notes) return;
@@ -851,8 +851,8 @@ const make = Effect.gen(function* () {
     readonly claimed?: boolean;
   }) {
     const at = yield* isoNow;
-    // Keyed by finding, so HQ answering the same Send back twice still means one delivery. A claimed
-    // note HQ still lists as pending after this environment reported it undeliverable, or with another lead, was
+    // Keyed by finding, so Weave answering the same Send back twice still means one delivery. A claimed
+    // note Weave still lists as pending after this environment reported it undeliverable, or with another lead, was
     // sent to a new thread ("Start a new thread instead"): it starts over.
     yield* sql`INSERT INTO build_send_back_deliveries
       (finding_id, spec_label, note, lead_harness, lead_session_ref, state, created_at, hq_origin,
@@ -914,7 +914,7 @@ const make = Effect.gen(function* () {
         Effect.orElseSucceed(() => ({ answer: false, notes: false })),
       );
       if (!supported.notes && Option.isSome(decided) && decided.value.finding !== null) {
-        // Delivery never fails the decision: HQ has it, and the outbox keeps trying.
+        // Delivery never fails the decision: Weave has it, and the outbox keeps trying.
         yield* enqueue({
           findingId: decided.value.finding.id,
           specLabel: decided.value.spec.ref || `#${decided.value.spec.number}`,
@@ -987,7 +987,7 @@ const make = Effect.gen(function* () {
     }),
   );
 
-  // #4070's separate decision token is retired: the HQ connection decides now.
+  // #4070's separate decision token is retired: the Weave connection decides now.
   yield* store
     .remove(RETIRED_STORE_NAME)
     .pipe(

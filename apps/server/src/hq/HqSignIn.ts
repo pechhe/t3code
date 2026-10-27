@@ -1,6 +1,6 @@
 /**
- * Connect to HQ by signing in (pechhe/yardsmith YS-309). T3 sends the person's browser to HQ's
- * `/connect/t3` with a PKCE challenge and a single-use state, HQ hands the browser back to this
+ * Connect to Weave by signing in (pechhe/yardsmith YS-309). T3 sends the person's browser to Weave's
+ * `/connect/t3` with a PKCE challenge and a single-use state, Weave hands the browser back to this
  * environment's own callback, and T3 redeems the one-time code for the same delegation the person
  * used to paste. The verifier, state and delegation stay in this process and the secret store; none
  * is logged, and the callback answers with a redirect so the code and state leave the address bar.
@@ -19,7 +19,7 @@ import { HttpClient, HttpClientRequest } from "effect/http";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
 import { SIGN_IN_CALLBACK_PATH } from "./signInPath.ts";
 
-/** HQ keeps a request for ten minutes and at most ten per person. */
+/** Weave keeps a request for ten minutes and at most ten per person. */
 const REQUEST_LIFETIME_MS = 10 * 60 * 1_000;
 const MAX_OPEN_REQUESTS = 10;
 const HQ_REQUEST_TIMEOUT = "30 seconds";
@@ -53,13 +53,13 @@ interface OpenRequest {
 export class HqSignIn extends Context.Service<
   HqSignIn,
   {
-    /** The HQ page the person's browser opens. */
+    /** The Weave page the person's browser opens. */
     readonly begin: (input: {
       readonly handbackOrigin: string;
       readonly hqOrigin?: string | undefined;
     }) => Effect.Effect<{ readonly url: string }, HqSignInError>;
     /**
-     * Finishes whatever HQ handed back. A state this environment did not issue, or already used,
+     * Finishes whatever Weave handed back. A state this environment did not issue, or already used,
      * fails without touching any open sign-in or the connection.
      */
     readonly complete: (params: {
@@ -69,7 +69,7 @@ export class HqSignIn extends Context.Service<
     }) => Effect.Effect<SignInOutcome>;
     /** Where the newest sign-in stands; null once connected or when none was started. */
     readonly status: Effect.Effect<HqSignInState | null>;
-    /** Disconnects T3 from HQ and forgets any sign-in still open. */
+    /** Disconnects T3 from Weave and forgets any sign-in still open. */
     readonly disconnect: Effect.Effect<void, HqAgentConnections.HqConnectionError>;
   }
 >()("t3/hq/HqSignIn") {}
@@ -130,7 +130,7 @@ const make = Effect.gen(function* () {
       Effect.orDie,
     );
     const now = yield* Clock.currentTimeMillis;
-    // HQ refuses an eleventh open request, so forget the oldest rather than start one that fails.
+    // Weave refuses an eleventh open request, so forget the oldest rather than start one that fails.
     while (open.size >= MAX_OPEN_REQUESTS) {
       const oldest = open.keys().next();
       if (oldest.done) break;

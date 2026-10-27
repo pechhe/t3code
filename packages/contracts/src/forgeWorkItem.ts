@@ -32,7 +32,7 @@ export type ForgeItemReferenceInput = typeof ForgeItemReferenceInput.Type;
 export const ForgeWorkItemWait = Schema.Struct({
   number: PositiveInt,
   /**
-   * The friendly per-repository ref such as `YS-12`; null or absent for an older item or HQ.
+   * The friendly per-repository ref such as `YS-12`; null or absent for an older item or Weave.
    * `number` stays the canonical identity.
    */
   ref: Schema.optionalKey(Schema.NullOr(Schema.String)),
@@ -46,7 +46,7 @@ export type ForgeWorkItemWait = typeof ForgeWorkItemWait.Type;
 export const ForgeWorkItemSummary = Schema.Struct({
   kind: ForgeWorkItemKind,
   /**
-   * The friendly per-repository ref such as `YS-12`; null or absent for an older item or HQ.
+   * The friendly per-repository ref such as `YS-12`; null or absent for an older item or Weave.
    * `number` stays the canonical identity.
    */
   ref: Schema.optionalKey(Schema.NullOr(Schema.String)),
@@ -60,11 +60,11 @@ export type ForgeWorkItemSummary = typeof ForgeWorkItemSummary.Type;
 export const ForgeWorkItemView = Schema.Struct({
   itemId: TrimmedNonEmptyString,
   number: PositiveInt,
-  /** The item's page in HQ. */
+  /** The item's page in Weave. */
   url: Schema.String,
   /** The last summary Forge returned; null when nothing has been read yet. */
   item: Schema.NullOr(ForgeWorkItemSummary),
-  /** The latest read failed, or T3's HQ is no longer the one the link was made against. */
+  /** The latest read failed, or T3's Weave is no longer the one the link was made against. */
   unavailable: Schema.Boolean,
   /** When `item` was read from Forge. */
   readAt: Schema.NullOr(IsoDateTime),
@@ -81,7 +81,7 @@ export const ForgeWorkItemReadInput = Schema.Struct({
 });
 export type ForgeWorkItemReadInput = typeof ForgeWorkItemReadInput.Type;
 
-/** Null without a link, or when T3 is not connected to HQ. */
+/** Null without a link, or when T3 is not connected to Weave. */
 export const ForgeWorkItemReadResult = Schema.NullOr(ForgeWorkItemView);
 export type ForgeWorkItemReadResult = typeof ForgeWorkItemReadResult.Type;
 
@@ -89,7 +89,7 @@ export type ForgeWorkItemReadResult = typeof ForgeWorkItemReadResult.Type;
 export const ForgeItemReference = Schema.Struct({
   number: PositiveInt,
   /**
-   * The friendly per-repository ref such as `YS-12`; null or absent for an older item or HQ.
+   * The friendly per-repository ref such as `YS-12`; null or absent for an older item or Weave.
    * `number` stays the canonical identity.
    */
   ref: Schema.optionalKey(Schema.NullOr(Schema.String)),
@@ -168,11 +168,11 @@ export const ForgeWorkItemCardInput = Schema.Struct({
 });
 export type ForgeWorkItemCardInput = typeof ForgeWorkItemCardInput.Type;
 
-/** Null when T3 is not connected to HQ. A first read Forge fails is an error. */
+/** Null when T3 is not connected to Weave. A first read Forge fails is an error. */
 export const ForgeWorkItemCardResult = Schema.NullOr(ForgeWorkItemCard);
 export type ForgeWorkItemCardResult = typeof ForgeWorkItemCardResult.Type;
 
-/** Where a Connect to HQ sign-in stands. `failed` names why in `reason`; `cancelled` is HQ's consent declined. */
+/** Where a Connect to Weave sign-in stands. `failed` names why in `reason`; `cancelled` is Weave's consent declined. */
 export const HqSignInState = Schema.Struct({
   status: Schema.Literals(["pending", "cancelled", "failed"]),
   reason: Schema.optional(
@@ -182,43 +182,43 @@ export const HqSignInState = Schema.Struct({
 export type HqSignInState = typeof HqSignInState.Type;
 
 /**
- * Starts Connect to HQ. `handbackOrigin` is the origin through which the person's browser reaches
- * this environment (HQ sends the browser back to it); the server adds its own callback path.
+ * Starts Connect to Weave. `handbackOrigin` is the origin through which the person's browser reaches
+ * this environment (Weave sends the browser back to it); the server adds its own callback path.
  */
 export const HqSignInStartInput = Schema.Struct({
   handbackOrigin: Schema.String,
-  /** Another HQ than the default, such as a local one. */
+  /** Another Weave than the default, such as a local one. */
   hqOrigin: Schema.optional(Schema.String),
 });
 export type HqSignInStartInput = typeof HqSignInStartInput.Type;
 export const HqSignInStartResult = Schema.Struct({ url: Schema.String });
 export type HqSignInStartResult = typeof HqSignInStartResult.Type;
 
-/** Disconnects T3 from HQ and returns the resulting connection state. */
+/** Disconnects T3 from Weave and returns the resulting connection state. */
 export const HqDisconnectInput = Schema.Struct({});
 export type HqDisconnectInput = typeof HqDisconnectInput.Type;
 
-/** Whether T3 is connected to YardSmith HQ, so its threads can link Forge items. */
+/** Whether T3 is connected to Weave, so its threads can link Forge items. */
 export const BuildConnectionReadInput = Schema.Struct({});
 export type BuildConnectionReadInput = typeof BuildConnectionReadInput.Type;
 export const BuildConnectionReadResult = Schema.Struct({
   connected: Schema.Boolean,
   /**
-   * The HQ whose Forge links chat shows as live items; null when not connected. Optional, so a
+   * The Weave whose Forge links chat shows as live items; null when not connected. Optional, so a
    * client still reads an older server, whose chat then shows Forge links as ordinary links.
    */
   origin: Schema.optional(Schema.NullOr(Schema.String)),
   /**
-   * The newest Connect to HQ sign-in this environment started that has not connected; null once
+   * The newest Connect to Weave sign-in this environment started that has not connected; null once
    * connected or when none is open. Optional for the same reason as `origin`.
    */
   signIn: Schema.optional(Schema.NullOr(HqSignInState)),
-  /** HQ refused the stored delegation (revoked or expired), so threads cannot act in HQ until it reconnects. */
+  /** Weave refused the stored delegation (revoked or expired), so threads cannot act in Weave until it reconnects. */
   refused: Schema.optional(Schema.Boolean),
 });
 export type BuildConnectionReadResult = typeof BuildConnectionReadResult.Type;
 
-/** Forge items mentioned in a thread's messages, read from T3's HQ. */
+/** Forge items mentioned in a thread's messages, read from T3's Weave. */
 export const ForgeWorkItemMentionsInput = Schema.Struct({
   threadId: ThreadId,
   numbers: Schema.Array(PositiveInt).check(Schema.isMinLength(1), Schema.isMaxLength(50)),

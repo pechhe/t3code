@@ -1,14 +1,14 @@
 /**
- * Agents act in Weave, formerly YardSmith HQ, as themselves (pechhe/yardsmith#2478). The environment keeps one HQ
- * connection, the person's HQ delegation, in the server secret store, and every project uses it.
- * Each thread's agent reaches HQ through T3's own `/mcp/yardsmith-hq` endpoint, authenticated by
- * a credential bound to that thread; T3 exchanges the delegation for the agent's HQ token, renews it, and presents it to
- * HQ's `/api/mcp` on the agent's behalf. The delegation and the agent token therefore never
+ * Agents act in Weave, as themselves (pechhe/yardsmith#2478). The environment keeps one Weave
+ * connection, the person's Weave delegation, in the server secret store, and every project uses it.
+ * Each thread's agent reaches Weave through T3's own `/mcp/weave` endpoint, authenticated by
+ * a credential bound to that thread; T3 exchanges the delegation for the agent's Weave token, renews it, and presents it to
+ * Weave's `/api/mcp` on the agent's behalf. The delegation and the agent token therefore never
  * leave this process: no provider config, argv, environment, workspace or prompt carries them,
  * and a long-lived provider process (Codex keeps a thread's MCP headers for its lifetime) never
  * holds a token that can expire.
  */
-import type { OrchestrationV2AppThread, ThreadId } from "@t3tools/contracts";
+import { WEAVE_NAMES, type OrchestrationV2AppThread, type ThreadId } from "@t3tools/contracts";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { currentHqOrigin, sameHqAddress } from "@t3tools/shared/hqOrigins";
@@ -29,14 +29,11 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { mcpEndpointOrigin } from "../mcp/McpSessionRegistry.ts";
 
-const HQ_MCP_SERVER_NAME = "yardsmith-hq";
-export const HQ_MCP_PATH = "/mcp/yardsmith-hq";
-
-const STORE_NAME = "hq-connection";
+const [STORE_NAME, LEGACY_STORE_NAME] = WEAVE_NAMES.connectionStores;
 /** Before the connection belonged to the environment, each project stored its own. */
 const PROJECT_STORE_FILE = /^(hq-connection-[0-9a-f]{32})\.bin$/;
 
-/** HQ tokens last at most 12 hours; renewing this early keeps a call from meeting an expired one. */
+/** Weave tokens last at most 12 hours; renewing this early keeps a call from meeting an expired one. */
 const RENEW_BEFORE_EXPIRY_MS = 15 * 60 * 1_000;
 const HQ_REQUEST_TIMEOUT = "60 seconds";
 
@@ -48,8 +45,8 @@ export interface HqAgent {
 }
 
 /**
- * The role a thread's agent acts under in HQ: its delegated task's canonical role, or `lead` for
- * a top-level thread. Any other thread has none and gets no HQ server: a raw, off-policy child,
+ * The role a thread's agent acts under in Weave: its delegated task's canonical role, or `lead` for
+ * a top-level thread. Any other thread has none and gets no Weave server: a raw, off-policy child,
  * or a fork or side chat with no task (an agent can fork itself), would otherwise act with the
  * lead's full authority.
  */
@@ -58,7 +55,7 @@ export const hqAgentRole = (
 ): string | undefined =>
   thread.agentTask?.role ?? (thread.lineage.parentThreadId === null ? "lead" : undefined);
 
-/** The thread's `yardsmith-hq` MCP server. It carries no HQ credential. */
+/** The thread's `weave` MCP server. It carries no Weave credential. */
 export interface HqMcpConnection {
   readonly endpoint: string;
   readonly authorizationHeader: string;
@@ -78,16 +75,16 @@ interface HqForwardResponse {
   readonly body: Uint8Array;
 }
 
-/** Why the server's own read of HQ failed. `refused` covers a revoked delegation or observer. */
+/** Why the server's own read of Weave failed. `refused` covers a revoked delegation or observer. */
 export class HqObserveError extends Schema.TaggedError<HqObserveError>()("HqObserveError", {
   reason: Schema.Literals(["not_connected", "refused", "unavailable", "failed"]),
-  /** HQ's failure code when the tool itself failed, such as `build_item_unavailable`. */
+  /** Weave's failure code when the tool itself failed, such as `build_item_unavailable`. */
   code: Schema.optional(Schema.String),
 }) {}
 
-/** Why a person's Forge decision could not be posted. HQ's own refusals come back as responses. */
+/** Why a person's Forge decision could not be posted. Weave's own refusals come back as responses. */
 export class HqDecisionError extends Schema.TaggedError<HqDecisionError>()("HqDecisionError", {
-  /** `other_origin`: T3 is now connected to another HQ than the one the caller named. */
+  /** `other_origin`: T3 is now connected to another Weave server than the one the caller named. */
   reason: Schema.Literals(["not_connected", "other_origin", "unavailable"]),
 }) {}
 
@@ -131,7 +128,7 @@ export class HqAgentCallUnavailable extends Schema.TaggedError<HqAgentCallUnavai
   }
 }
 
-/** HQ's answer to one decisions call, with the connection that made it. */
+/** Weave's answer to one decisions call, with the connection that made it. */
 export interface HqDecisionResponse {
   readonly origin: string;
   /** Identifies the origin and delegation used, as `read` does, without revealing either. */
@@ -156,7 +153,7 @@ export class HqConnectionError extends Schema.TaggedError<HqConnectionError>()(
   }
 }
 
-/** Why HQ would not let a thread's agent in. Each is reported to the agent and logged by code. */
+/** Why Weave would not let a thread's agent in. Each is reported to the agent and logged by code. */
 type HqRefusal =
   | "not_connected"
   | "invalid_delegation"
@@ -252,9 +249,9 @@ const toolCallsOf = (body: Uint8Array): ReadonlyArray<{ readonly name: string }>
   );
 };
 /**
- * HQ's Forge tools that only read, and the heartbeat, which only renews a session and comes
+ * Weave's Forge tools that only read, and the heartbeat, which only renews a session and comes
  * often, by name without their prefix. Any other Forge call may change what a card shows, so a
- * tool HQ adds later expires the display caches until it is listed here.
+ * tool Weave adds later expires the display caches until it is listed here.
  */
 const FORGE_TOOLS_KEEPING_CARDS = new Set([
   "acceptance",
@@ -282,16 +279,11 @@ const FORGE_TOOLS_KEEPING_CARDS = new Set([
   "usage",
   "waits",
 ]);
-/**
- * The tool a Forge call names without its prefix. Weave answers `hq_forge_*` and, until it removes
- * them, the older `hq_build_*` names, and an agent may use either.
- */
-const forgeToolOf = (tool: string): string | undefined =>
-  tool.startsWith("hq_forge_")
-    ? tool.slice("hq_forge_".length)
-    : tool.startsWith("hq_build_")
-      ? tool.slice("hq_build_".length)
-      : undefined;
+/** Current and retained Forge names have identical cache and reviewer-record semantics. */
+const forgeToolOf = (tool: string): string | undefined => {
+  const prefix = WEAVE_NAMES.forgePrefixes.find((prefix) => tool.startsWith(prefix));
+  return prefix === undefined ? undefined : tool.slice(prefix.length);
+};
 const isForgeWrite = (tool: string) => {
   const forgeTool = forgeToolOf(tool);
   return forgeTool !== undefined && !FORGE_TOOLS_KEEPING_CARDS.has(forgeTool);
@@ -301,7 +293,7 @@ const containsForgeWrite = (body: Uint8Array): boolean =>
   toolCallsOf(body).some((call) => isForgeWrite(call.name));
 
 /**
- * The run `hq_forge_run` answered with. Weave nests the run it recorded at `run`; a flattened answer
+ * The run `weave_forge_run` answered with. Weave nests the run it recorded at `run`; a flattened answer
  * is accepted too, so a run of either shape is still recorded.
  */
 const HqForgeRun = Schema.Struct({
@@ -315,7 +307,7 @@ const decodeForgeRun = Schema.decodeUnknownOption(HqForgeRun);
 
 const DELEGATION_PATTERN = /^yshqd_[A-Za-z0-9_-]{43}$/;
 
-/** HQ's origin, or null when it is not https (http is allowed only for a local HQ). */
+/** Weave's origin, or null when it is not https (http is allowed only for a local Weave server). */
 export const normalizeHqOrigin = (input: string): string | null => {
   try {
     const url = new URL(input);
@@ -339,12 +331,12 @@ interface AgentToken {
   readonly expiresAt: number;
   readonly role: string;
   readonly model: string;
-  /** The connection it was exchanged under, and so the only HQ it may be presented to. */
+  /** The connection it was exchanged under, and so the only Weave it may be presented to. */
   readonly origin: string;
   readonly delegation: string;
 }
 
-/** The server's own `observer` agent for one HQ connection, shared by every project and thread. */
+/** The server's own `observer` agent for one Weave connection, shared by every project and thread. */
 interface ObserverToken {
   readonly value: string;
   readonly expiresAt: number;
@@ -371,13 +363,13 @@ export class HqAgentConnections extends Context.Service<
       {
         readonly origin: string;
         readonly connection: string;
-        /** HQ has refused this delegation (revoked or expired) and nothing has worked since. */
+        /** Weave has refused this delegation (revoked or expired) and nothing has worked since. */
         readonly refused?: boolean;
       } | null,
       HqConnectionError
     >;
     /**
-     * Calls an HQ MCP tool permitted to T3's own `observer` agent, whether or not any provider
+     * Calls a Weave server MCP tool permitted to T3's own `observer` agent, whether or not any provider
      * runs. `connection` identifies the origin and delegation used,
      * so callers can key what they cache by it without seeing the delegation.
      */
@@ -389,22 +381,22 @@ export class HqAgentConnections extends Context.Service<
       HqObserveError
     >;
     /**
-     * Posts one of the person's own Forge decisions, or the reads that refresh their cards, to HQ's
+     * Posts one of the person's own Forge decisions, or the reads that refresh their cards, to Weave's
      * `/api/build/decisions` as the person, with the stored delegation (pechhe/yardsmith Spec
      * #4367). Only the server's Forge Home calls this; no thread's MCP route can, so no agent decides
-     * as the person through T3. `origin`, when given, refuses to post to any other HQ.
+     * as the person through T3. `origin`, when given, refuses to post to any other Weave.
      */
     readonly decide: (input: {
       readonly body: Record<string, unknown>;
       readonly origin?: string;
     }) => Effect.Effect<HqDecisionResponse, HqDecisionError>;
-    /** Gives the thread's agent a connection when T3 is connected to HQ, and none otherwise. */
+    /** Gives the thread's agent a connection when T3 is connected to Weave, and none otherwise. */
     readonly prepare: (agent: HqAgent) => Effect.Effect<void>;
     readonly connection: (threadId: ThreadId) => Effect.Effect<HqMcpConnection | undefined>;
-    /** Serves one MCP request from a thread's agent by forwarding it to HQ as that agent. */
+    /** Serves one MCP request from a thread's agent by forwarding it to Weave as that agent. */
     readonly forward: (request: HqForwardRequest) => Effect.Effect<HqForwardResponse>;
     /**
-     * Calls an HQ MCP tool as the thread's own agent, whether or not that agent was prepared in
+     * Calls a Weave server MCP tool as the thread's own agent, whether or not that agent was prepared in
      * this process: an idle thread after a restart has no in-memory entry, so the connection is
      * filled from `agent`. `agent` is who the caller read the thread acts as, from the thread's own
      * projection. Only the server calls this, never a provider or an observer.
@@ -438,12 +430,12 @@ export class HqAgentConnections extends Context.Service<
      * queue's next drain; until a hook is installed, the runs wait for that drain.
      */
     readonly setRunReportedHook: (hook: HqRunReportedHandler) => Effect.Effect<void>;
-    /** Changes after proxied Forge writes so display caches expire without another HQ call. */
+    /** Changes after proxied Forge writes so display caches expire without another Weave call. */
     readonly buildWriteVersion: Effect.Effect<number>;
-    /** Ends the thread's HQ agent (never revokes it); its next HQ call starts a new agent. */
+    /** Ends the thread's Weave agent (never revokes it); its next Weave call starts a new agent. */
     readonly end: (agent: Omit<HqAgent, "model">) => Effect.Effect<void>;
     /**
-     * Ends the thread's HQ agent, failing when Weave could not be told, so a queued end stays due
+     * Ends the thread's Weave agent, failing when Weave could not be told, so a queued end stays due
      * instead of leaving an agent that nothing will end.
      */
     readonly endAgent: (
@@ -466,12 +458,12 @@ const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const httpClient = yield* HttpClient.HttpClient;
   const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
-  const endpoint = `${mcpEndpointOrigin((yield* HttpServer.HttpServer).address)}${HQ_MCP_PATH}`;
+  const endpoint = `${mcpEndpointOrigin((yield* HttpServer.HttpServer).address)}/mcp/${WEAVE_NAMES.servers[0]}`;
   const threads = new Map<ThreadId, ThreadConnection>();
   const threadByCredentialHash = new Map<string, ThreadId>();
   const tokenLock = yield* KeyedLock.make<ThreadId>();
   const observers = new Map<string, ObserverToken>();
-  /** Connections HQ answered 401 to, by `connectionKey`, until a call under them succeeds. */
+  /** Connections Weave answered 401 to, by `connectionKey`, until a call under them succeeds. */
   const refusedConnections = new Set<string>();
   let buildWriteVersion = 0;
   const observerLock = yield* KeyedLock.make<string>();
@@ -483,6 +475,9 @@ const make = Effect.gen(function* () {
   const storeFailed = () => new HqConnectionError({ reason: "store_failed" });
 
   const readStoredState = store.get(STORE_NAME).pipe(
+    Effect.flatMap((bytes) =>
+      Option.isSome(bytes) ? Effect.succeed(bytes) : store.get(LEGACY_STORE_NAME),
+    ),
     Effect.map(Option.flatMap((bytes) => decodeStored(new TextDecoder().decode(bytes)))),
     Effect.map(
       Option.map((stored) => ({
@@ -520,7 +515,7 @@ const make = Effect.gen(function* () {
     );
 
   /**
-   * The thread's current HQ token for this stored connection, exchanged (or renewed) when it is
+   * The thread's current Weave token for this stored connection, exchanged (or renewed) when it is
    * missing, near expiry, or was exchanged under another origin or delegation.
    */
   const agentToken = (threadId: ThreadId, stored: StoredHqConnection) =>
@@ -580,7 +575,7 @@ const make = Effect.gen(function* () {
   const connectionKey = (stored: StoredHqConnection) =>
     digest(`${stored.origin}\n${stored.delegation}`);
 
-  // Every project and thread in this environment shares one observer per HQ connection.
+  // Every project and thread in this environment shares one observer per Weave connection.
   const observerToken = (key: string, stored: StoredHqConnection) =>
     observerLock.withLock(
       key,
@@ -664,7 +659,7 @@ const make = Effect.gen(function* () {
         }
         return Option.some(response);
       });
-      // A 401 means HQ no longer honours the token; one fresh exchange tells a stale token
+      // A 401 means Weave no longer honours the token; one fresh exchange tells a stale token
       // from a revoked observer or delegation, which the exchange itself then refuses.
       const response = yield* attempt.pipe(
         Effect.flatMap(
@@ -792,8 +787,8 @@ const make = Effect.gen(function* () {
         const token = yield* agentToken(threadId, stored.value);
         const response = yield* callHq(stored.value.origin, token, request);
         if (response.status !== 401) return Option.some(response);
-        // HQ refuses a revoked agent or delegation on the next request; exchanging again
-        // learns which, or recovers from a token HQ no longer honours.
+        // Weave refuses a revoked agent or delegation on the next request; exchanging again
+        // learns which, or recovers from a token Weave no longer honours.
         dropToken(threadId);
         return Option.none<HqForwardResponse>();
       });
@@ -818,7 +813,7 @@ const make = Effect.gen(function* () {
             reason: refusal,
           }).pipe(Effect.as(refusalResponse(request.body, refusal))),
         ),
-        // Even an ambiguous or interrupted write may have committed in HQ, so expire the display
+        // Even an ambiguous or interrupted write may have committed in Weave, so expire the display
         // caches once forwarding ends however it ends, without interpreting the response.
         Effect.ensuring(
           Effect.sync(() => {
@@ -836,7 +831,7 @@ const make = Effect.gen(function* () {
   );
 
   /**
-   * One HQ request as a thread's agent. `none` means HQ refused the token, so exchanging again
+   * One Weave request as a thread's agent. `none` means Weave refused the token, so exchanging again
    * either recovers or learns which refusal it is.
    */
   const callOnce = Effect.fn("HqAgentConnections.callOnce")(function* (
@@ -852,7 +847,7 @@ const make = Effect.gen(function* () {
   });
 
   /**
-   * Calls an HQ MCP tool as the thread's own agent, giving it a connection here when this process
+   * Calls a Weave server MCP tool as the thread's own agent, giving it a connection here when this process
    * has none: an idle thread after a restart has no entry, so the caller says who it acts as, from
    * the thread's own projection, exactly as a turn does before it starts. Only the server calls
    * this, never a provider, and never as the lead's or the observer's agent.
@@ -934,7 +929,7 @@ const make = Effect.gen(function* () {
   );
 
   /**
-   * Reports a reviewer's own run from the answer Weave gave its `hq_forge_run` call, so it can be
+   * Reports a reviewer's own run from the answer Weave gave its `weave_forge_run` call, so it can be
    * recorded before the reviewer's agent ends. The run id reaches T3 nowhere else, and an agent that
    * has ended cannot be asked for it again. A lead's Forge runs are not reported: only a reviewer's
    * call is its own review.
@@ -978,7 +973,7 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         dropToken(agent.threadId);
         const stored = yield* readStored.pipe(Effect.mapError((): HqRefusal => "unavailable"));
-        // With no HQ connection there is no agent of ours left to end.
+        // With no Weave connection there is no agent of ours left to end.
         if (Option.isNone(stored)) return;
         const { status } = yield* postAgents(stored.value, {
           action: "end",
@@ -990,7 +985,7 @@ const make = Effect.gen(function* () {
       }).pipe(
         Effect.mapError(
           (): HqAgentCallUnavailable =>
-            new HqAgentCallUnavailable({ tool: "hq_agent_end", reason: "unavailable" }),
+            new HqAgentCallUnavailable({ tool: "weave_agent_end", reason: "unavailable" }),
         ),
       ),
     );
@@ -1058,7 +1053,7 @@ const make = Effect.gen(function* () {
   );
 
   /**
-   * Gives the thread an HQ connection when T3 has one, and keeps the credential it already has so a
+   * Gives the thread a Weave server connection when T3 has one, and keeps the credential it already has so a
    * live provider process's headers stay valid. Nothing is added while T3 is disconnected.
    */
   const prepare: HqAgentConnections["Service"]["prepare"] = Effect.fn("HqAgentConnections.prepare")(
@@ -1114,7 +1109,9 @@ const make = Effect.gen(function* () {
     }),
     disconnect: Effect.gen(function* () {
       const previous = yield* readStored;
-      yield* store.remove(STORE_NAME).pipe(Effect.mapError(storeFailed));
+      yield* Effect.forEach(WEAVE_NAMES.connectionStores, (name) => store.remove(name)).pipe(
+        Effect.mapError(storeFailed),
+      );
       yield* PubSub.publish(connectionChanges, undefined);
       for (const connection of threads.values()) connection.token = undefined;
       if (Option.isSome(previous)) yield* releaseObserver(previous.value);
@@ -1184,7 +1181,7 @@ const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(HqAgentConnections, make);
 
-/** A reviewer's own Forge run, as Weave answered its `hq_forge_run` call. */
+/** A reviewer's own Forge run, as Weave answered its `weave_forge_run` call. */
 export interface HqForgeRunReport {
   readonly threadId: ThreadId;
   readonly runId: string;
@@ -1214,13 +1211,11 @@ export const agentMcpServersLayer = Layer.effect(
           Effect.map((connection) =>
             connection === undefined
               ? []
-              : [
-                  {
-                    name: HQ_MCP_SERVER_NAME,
-                    url: connection.endpoint,
-                    authorizationHeader: connection.authorizationHeader,
-                  },
-                ],
+              : WEAVE_NAMES.servers.map((name) => ({
+                  name,
+                  url: connection.endpoint,
+                  authorizationHeader: connection.authorizationHeader,
+                })),
           ),
         ),
     });

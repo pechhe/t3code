@@ -5,7 +5,7 @@ import * as Option from "effect/Option";
 
 /**
  * A T3-owned HTTP MCP server a thread's agent reaches beside `t3-code`, such as Weave's
- * `yardsmith-hq`. The server decides what this agent may do, by the identity its credential is
+ * `weave` (with its retained `yardsmith-hq` alias). The server decides what this agent may do, by the identity its credential is
  * bound to, so adapters attach it without an approval prompt for its tools. The header carries a
  * credential T3 issued for this thread alone, never the upstream service's own secret.
  */

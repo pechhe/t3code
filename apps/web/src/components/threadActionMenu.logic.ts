@@ -90,7 +90,7 @@ export interface ThreadActionMenuState {
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
-  /** The thread's project is connected to YardSmith HQ, so it can link a Forge item. */
+  /** The thread's project is connected to Weave, so it can link a Forge item. */
   readonly canLinkForgeItem?: boolean;
   /** Guest links need their own grant, so the caller checks it instead of `canOperate`. */
   readonly canShareWithGuest?: boolean;

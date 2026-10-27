@@ -33,7 +33,7 @@ import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
-import { hqRepositoryKeyOf } from "@t3tools/shared/projectIdentity";
+import { weaveRepositoryKeyOf } from "@t3tools/shared/projectIdentity";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -519,7 +519,7 @@ function ProjectDetail({
                 ? representative.hqUnregisteredKey === representative.hqRepositoryKey
                   ? "Not synced: Weave has not registered this repository. Register it in Weave and it syncs on the next check."
                   : "Linked by hand. Clear to match automatically."
-                : `Automatically matched: ${hqRepositoryKeyOf(representative) ?? "No repository detected"}`
+                : `Automatically matched: ${weaveRepositoryKeyOf(representative) ?? "No repository detected"}`
             }
             control={
               <Input
@@ -529,7 +529,7 @@ function ProjectDetail({
                 aria-label="Repository (Weave)"
                 disabled={!canEditGroup}
                 defaultValue={representative.hqRepositoryKey ?? ""}
-                placeholder={hqRepositoryKeyOf(representative) ?? "owner/name"}
+                placeholder={weaveRepositoryKeyOf(representative) ?? "owner/name"}
                 onBlur={(event) => {
                   const key = event.currentTarget.value.trim() || null;
                   if (key !== (representative.hqRepositoryKey ?? null))

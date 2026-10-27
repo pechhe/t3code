@@ -1263,7 +1263,7 @@ describe("ClaudeAdapterV2 YardSmith HQ connection", () => {
             role: "lead",
             model: CLAUDE_TEST_MODEL_SELECTION.model,
           });
-          // An exchanged token, a renewal HQ cannot answer, then a revoked delegation.
+          // An exchanged token, a renewal Weave cannot answer, then a revoked delegation.
           yield* hq.call(threadId);
           yield* TestClock.adjust(12 * HqTestkit.hourMs);
           hq.hq.state.unreachable = true;

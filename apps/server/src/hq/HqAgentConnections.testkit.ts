@@ -25,7 +25,7 @@ export const delegation = `yshqd_${"d".repeat(43)}`;
 export const origin = "https://hq.example.test";
 export const otherDelegation = `yshqd_${"e".repeat(43)}`;
 export const otherOrigin = "https://hq-other.example.test";
-export const hqEndpoint = "http://127.0.0.1:43123/mcp/yardsmith-hq";
+export const hqEndpoint = "http://127.0.0.1:43123/mcp/weave";
 export const hourMs = 60 * 60 * 1_000;
 const parseJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const stringifyJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -37,7 +37,7 @@ const delegations = new Map([
 ]);
 
 /**
- * HQ's exchange as `POST /api/mcp/agents` documents it: one live agent per reference and role,
+ * Weave's exchange as `POST /api/mcp/agents` documents it: one live agent per reference and role,
  * renewed by a new exchange, replaced after it ends, refused for ever once the person revokes it.
  * A reference keeps the role it first exchanged for.
  */
@@ -58,9 +58,9 @@ const makeFakeHq = () => {
     agentId: string | undefined;
     body: string;
   }> = [];
-  /** `toolCallsHang` holds every `tools/call` open after HQ receives it, as a slow HQ would. */
+  /** `toolCallsHang` holds every `tools/call` open after Weave receives it, as a slow Weave would. */
   const state = { unreachable: false, delegationRevoked: false, toolCallsHang: false };
-  /** Answers a `tools/call` with HQ's structured outcome; tests replace it with Forge data. */
+  /** Answers a `tools/call` with Weave's structured outcome; tests replace it with Forge data. */
   const tools: {
     call: (name: string, args: Record<string, unknown>) => Record<string, unknown>;
   } = { call: () => ({ status: "succeeded", value: null }) };
@@ -136,7 +136,7 @@ const makeFakeHq = () => {
         });
       }
       if (url.pathname === "/api/mcp") {
-        // A token is honoured only by the HQ that issued it.
+        // A token is honoured only by the Weave that issued it.
         const record = tokens.get(bearer);
         const agent = agents.find((a) => a.id === record?.agentId);
         const valid =
@@ -188,9 +188,9 @@ const makeFakeHq = () => {
 export type FakeHq = ReturnType<typeof makeFakeHq>;
 
 /**
- * The real HqAgentConnections against a fake HQ, with every log line captured, a lead and a
- * spec-reviewer thread prepared once T3 is connected, and a check that no HQ credential
- * (the delegations and every token HQ minted) reached what a test collected. Given a secrets
+ * The real HqAgentConnections against a fake Weave, with every log line captured, a lead and a
+ * spec-reviewer thread prepared once T3 is connected, and a check that no Weave credential
+ * (the delegations and every token Weave minted) reached what a test collected. Given a secrets
  * directory, it uses the real file store there and connects nothing itself.
  */
 export const makeHqHarnessAt = Effect.fnUntraced(function* (secretsDirectory?: string) {
@@ -280,7 +280,7 @@ export const makeHqHarnessAt = Effect.fnUntraced(function* (secretsDirectory?: s
     });
   }
 
-  /** No HQ credential may reach anything outside T3's own requests to HQ. */
+  /** No Weave credential may reach anything outside T3's own requests to Weave. */
   const assertNoSecretsIn = (...surfaces: ReadonlyArray<unknown>) => {
     const text = [
       ...surfaces.map((surface) => NodeUtil.inspect(surface, { depth: 20 })),

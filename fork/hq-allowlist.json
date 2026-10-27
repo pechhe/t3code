@@ -1,0 +1,527 @@
+[
+  {
+    "path": "AGENTS.md",
+    "category": "compatibility-aliases",
+    "reason": "Test data instructions retain the old connection-secret read fallback."
+  },
+  {
+    "path": "apps/desktop/resources/dmg/dmg-background-nightly.svg",
+    "category": "captured-fixtures",
+    "reason": "Embedded raster bytes incidentally contain the token and are not product terminology."
+  },
+  {
+    "path": "apps/server/src/auth/RpcAuthorization.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/fleet/FleetSummaryService.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/fleet/FleetSummaryService.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/hq/ForgeHome.hqFixtures.ts",
+    "category": "captured-fixtures",
+    "reason": "Captured responses retain their original endpoint and evidence identifiers."
+  },
+  {
+    "path": "apps/server/src/hq/ForgeHome.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/hq/ForgeHome.ts",
+    "category": "stored-storage-wire",
+    "reason": "Delivery columns, error codes, the service tag and retired decision-store cleanup retain stored identifiers."
+  },
+  {
+    "path": "apps/server/src/hq/ForgeSpecOfThread.ts",
+    "category": "stored-storage-wire",
+    "reason": "Existing service-module paths and service tags retain their identity while calls use Weave names."
+  },
+  {
+    "path": "apps/server/src/hq/ForgeWorkItems.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/hq/ForgeWorkItems.ts",
+    "category": "stored-storage-wire",
+    "reason": "Existing service-module paths and service tags retain their identity while calls use Weave names."
+  },
+  {
+    "path": "apps/server/src/hq/HqAgentConnections.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/hq/HqAgentConnections.testkit.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/hq/HqAgentConnections.ts",
+    "category": "stored-storage-wire",
+    "reason": "The old environment/project secret keys remain readable and the existing service tag remains stable."
+  },
+  {
+    "path": "apps/server/src/hq/HqAgentLifecycleReactor.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/hq/HqAgentLifecycleReactor.ts",
+    "category": "stored-storage-wire",
+    "reason": "Existing service-module paths and service tags retain their identity while calls use Weave names."
+  },
+  {
+    "path": "apps/server/src/hq/HqForgeRecordingReactor.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/hq/HqForgeRecordingReactor.ts",
+    "category": "stored-storage-wire",
+    "reason": "Existing service-module paths and service tags retain their identity while calls use Weave names."
+  },
+  {
+    "path": "apps/server/src/hq/HqForgeRecords.test.ts",
+    "category": "stored-storage-wire",
+    "reason": "Tests use existing record tables and prove reviewer-run capture accepts all three Forge prefixes."
+  },
+  {
+    "path": "apps/server/src/hq/HqForgeRecords.ts",
+    "category": "stored-storage-wire",
+    "reason": "Durable hq_build_records and reviewer-run tables and the service tag retain their schema identifiers."
+  },
+  {
+    "path": "apps/server/src/hq/HqForgeUsage.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/hq/HqForgeUsage.ts",
+    "category": "stored-storage-wire",
+    "reason": "Existing service-module paths and service tags retain their identity while calls use Weave names."
+  },
+  {
+    "path": "apps/server/src/hq/HqMcpRoute.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/hq/HqRepositories.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/hq/HqRepositories.ts",
+    "category": "stored-storage-wire",
+    "reason": "The upstream repository updatedSource value hq remains a wire value alongside the existing service tag."
+  },
+  {
+    "path": "apps/server/src/hq/HqSignIn.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/hq/HqSignIn.ts",
+    "category": "stored-storage-wire",
+    "reason": "Existing service-module paths and service tags retain their identity while calls use Weave names."
+  },
+  {
+    "path": "apps/server/src/hq/HqSignInRoute.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/hq/RepositoryChipSync.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/hq/RepositoryChipSync.ts",
+    "category": "stored-storage-wire",
+    "reason": "Existing service-module paths and service tags retain their identity while calls use Weave names."
+  },
+  {
+    "path": "apps/server/src/hq/signInPath.ts",
+    "category": "stored-storage-wire",
+    "reason": "The existing OAuth callback path remains valid for outstanding sign-in handbacks."
+  },
+  {
+    "path": "apps/server/src/http.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/mcp/ExperimentWorkMcp.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/mcp/ManagedDelegation.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/mcp/ManagedFollowup.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/mcp/OrchestratorMcpService.activity.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/mcp/OrchestratorMcpService.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/mcp/OrchestratorMcpService.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/mcp/SessionToolListings.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/mcp/ThreadMetadataMcpService.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/mcp/toolkits/core.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/mcp/toolkits/project/handlers.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/mcp/toolkits/project/handlers.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/mcp/toolkits/project/tools.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/Adapters/OpenCode2AdapterV2.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/ForgeWatchReactor.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/ProjectStore.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/ProviderSessionManager.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/ThreadLaunchService.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/ThreadProjectMove.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/ThreadWatch.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/ThreadWorkflow.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/runtimeLayer.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/project/ProjectService.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/project/SlipJayReleases.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/provider/ClaudeTurnTokenUsage.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/provider/TurnUsageRecords.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/server.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/ws.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/ws.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/web/src/components/CommandPalette.tsx",
+    "category": "compatibility-aliases",
+    "reason": "Legacy product-name searches still find the Weave action."
+  },
+  {
+    "path": "apps/web/src/components/forgeItem/ForgeHomeButton.logic.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/web/src/components/settings/HqConnectionSettings.logic.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/web/src/components/settings/HqConnectionSettings.tsx",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/web/src/components/threadActionMenu.logic.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "fork/differences.md",
+    "category": "append-only-history",
+    "reason": "Fork record IDs and earlier reconciliation decisions retain historical names; current requirements describe compatibility."
+  },
+  {
+    "path": "fork/hq-allowlist.json",
+    "category": "compatibility-aliases",
+    "reason": "This inventory names the retained legacy paths and why they remain."
+  },
+  {
+    "path": "fork/upstream-receipt.json",
+    "category": "append-only-history",
+    "reason": "Pinned reconciliation receipt names the existing fork record IDs."
+  },
+  {
+    "path": "packages/client-runtime/src/state/forgeWorkItems.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "packages/client-runtime/src/state/forgeWorkItems.ts",
+    "category": "stored-storage-wire",
+    "reason": "RPC calls and existing environment-data operation labels retain their wire and diagnostic identity."
+  },
+  {
+    "path": "packages/contracts/src/project.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "packages/contracts/src/project.ts",
+    "category": "stored-storage-wire",
+    "reason": "Persisted hqRepositoryKey and sync fields remain readable without rewriting project history."
+  },
+  {
+    "path": "packages/contracts/src/rpc.ts",
+    "category": "stored-storage-wire",
+    "reason": "Existing hq.signIn.start and hq.disconnect RPC names remain accepted by shipped clients."
+  },
+  {
+    "path": "packages/contracts/src/weaveNames.ts",
+    "category": "compatibility-aliases",
+    "reason": "The shared table retains the old MCP server, tool prefixes, connection tool and store fallback."
+  },
+  {
+    "path": "packages/provider-acp/src/server/adapter.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Provider transport fixtures prove the retained yardsmith-hq server and supplied legacy tools still work."
+  },
+  {
+    "path": "packages/provider-acp/src/server/mcpOverAcpBridge.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Provider transport fixtures prove the retained yardsmith-hq server and supplied legacy tools still work."
+  },
+  {
+    "path": "packages/provider-core/src/server/AgentMcpServers.ts",
+    "category": "compatibility-aliases",
+    "reason": "The server-list contract documents the retained yardsmith-hq server alias."
+  },
+  {
+    "path": "packages/provider-cursor/src/server/adapter.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Provider transport fixtures prove the retained yardsmith-hq server and supplied legacy tools still work."
+  },
+  {
+    "path": "packages/provider-muse/src/server/adapter.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Provider transport fixtures prove the retained yardsmith-hq server and supplied legacy tools still work."
+  },
+  {
+    "path": "packages/provider-opencode/src/server/adapter.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Provider transport fixtures prove the retained yardsmith-hq server and supplied legacy tools still work."
+  },
+  {
+    "path": "packages/provider-pi/src/server/adapter.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Provider transport fixtures prove the retained yardsmith-hq server and supplied legacy tools still work."
+  },
+  {
+    "path": "packages/provider-pi/src/server/mcpExtensionSource.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Provider transport fixtures prove the retained yardsmith-hq server and supplied legacy tools still work."
+  },
+  {
+    "path": "packages/provider-pi/src/server/mcpInjection.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Provider transport fixtures prove the retained yardsmith-hq server and supplied legacy tools still work."
+  },
+  {
+    "path": "packages/shared/src/forgeLinks.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "packages/shared/src/hqOrigins.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Tests prove stored old service origins still canonicalize and compare correctly."
+  },
+  {
+    "path": "packages/shared/src/hqOrigins.ts",
+    "category": "compatibility-aliases",
+    "reason": "Old service origins canonicalize to the current Weave address."
+  },
+  {
+    "path": "packages/shared/src/markdownPipeline.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "packages/shared/src/projectIdentity.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "pnpm-lock.yaml",
+    "category": "stored-storage-wire",
+    "reason": "An integrity hash incidentally contains the token; changing it would invalidate the package checksum."
+  },
+  {
+    "path": "scripts/hq-allowlist.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "The acceptance guard reads this legacy-name inventory and executes its grep contract."
+  },
+  {
+    "path": "scripts/lib/test-landing-inputs.ts",
+    "category": "compatibility-aliases",
+    "reason": "Maps the legacy-name guard test, whose file name carries the legacy name, to the changes that rerun it."
+  },
+  {
+    "path": "scripts/test-landing.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "tests/durations.json",
+    "category": "append-only-history",
+    "reason": "Recorded test timings retain the historical source paths they measured."
+  },
+  {
+    "path": ".repos/alchemy-effect/**",
+    "category": "captured-fixtures",
+    "reason": "Read-only vendored source uses headquarters examples and integrity hashes unrelated to this product."
+  },
+  {
+    "path": ".repos/effect-smol/**",
+    "category": "captured-fixtures",
+    "reason": "Read-only vendored bundles and integrity hashes contain incidental token matches."
+  },
+  {
+    "path": "apps/server/src/persistence/Migrations/**",
+    "category": "append-only-history",
+    "reason": "Historical migration names, schemas and migration fixtures are not rewritten."
+  }
+]

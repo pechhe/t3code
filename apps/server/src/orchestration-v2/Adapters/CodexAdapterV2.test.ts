@@ -1835,7 +1835,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           role: "spec-reviewer",
           model: "gpt-5.4",
         });
-        // An exchanged token, a renewal HQ cannot answer, then a revoked delegation.
+        // An exchanged token, a renewal Weave cannot answer, then a revoked delegation.
         yield* hq.call(threadId);
         yield* TestClock.adjust(12 * HqTestkit.hourMs);
         hq.hq.state.unreachable = true;

@@ -19,7 +19,7 @@ const Repository = Schema.Struct({
   icon: RepositoryIcon,
   revision: Schema.Number,
   updatedAt: Schema.String,
-  // `registered`: the repository was registered in HQ and nobody has chosen its look yet.
+  // `registered`: the repository was registered in Weave and nobody has chosen its look yet.
   updatedSource: Schema.Literals(["hq", "t3", "registered"]),
 });
 export type Repository = typeof Repository.Type;
@@ -48,18 +48,18 @@ export class HqRepositories extends Context.Service<
 >()("t3/hq/HqRepositories") {}
 
 const make = Effect.gen(function* () {
-  const hq = yield* HqAgentConnections.HqAgentConnections;
+  const weave = yield* HqAgentConnections.HqAgentConnections;
   return HqRepositories.of({
     listRepositories: Effect.fn("HqRepositories.listRepositories")(
       function* () {
-        const result = yield* hq.observe("hq_forge_repository_list", {});
+        const result = yield* weave.observe("weave_forge_repository_list", {});
         return yield* decodeRepositories(result.value);
       },
       Effect.mapError((cause) => new HqRepositoryError({ operation: "list", cause })),
     ),
     setRepository: Effect.fn("HqRepositories.setRepository")(
       function* (input) {
-        const result = yield* hq.observe("hq_forge_repository_set", { ...input });
+        const result = yield* weave.observe("weave_forge_repository_set", { ...input });
         return yield* decodeRepository(result.value);
       },
       Effect.mapError((cause) => new HqRepositoryError({ operation: "set", cause })),

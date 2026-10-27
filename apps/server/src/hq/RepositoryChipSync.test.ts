@@ -56,7 +56,7 @@ const harness = Effect.gen(function* () {
   let linked = true;
   let connected = true;
   let failed = false;
-  // HQ lists a repository only once a person registered it.
+  // Weave lists a repository only once a person registered it.
   let repository: HqRepositories.Repository | undefined = {
     key: "pechhe/yardsmith",
     name: "yardsmith",
@@ -269,7 +269,7 @@ it.layer(testLayer)("RepositoryChipSync", (it) => {
       assert.equal((yield* h.row).hqSyncedRevision, 2);
     }),
   );
-  // The first sync against a recorded snapshot of T3 project looks: HQ ends up with each one.
+  // The first sync against a recorded snapshot of T3 project looks: Weave ends up with each one.
   it.effect.each([
     {
       override: { kind: "lucide" as const, name: "server", color: "violet" as const },

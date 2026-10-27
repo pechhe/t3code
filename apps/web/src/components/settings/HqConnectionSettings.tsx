@@ -11,7 +11,7 @@ import { Button } from "../ui/button";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { describeHqConnection, handbackOriginOf } from "./HqConnectionSettings.logic";
 
-/** While HQ's page is open, so the result shows without a reload; the server ends it after ten minutes. */
+/** While Weave's page is open, so the result shows without a reload; the server ends it after ten minutes. */
 const SIGN_IN_POLL_MS = 2_000;
 
 function HqConnectionRow({

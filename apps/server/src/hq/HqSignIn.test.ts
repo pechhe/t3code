@@ -18,7 +18,7 @@ const delegation = `yshqd_${"d".repeat(43)}`;
 const parseJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const stringifyJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
-/** HQ's `/connect/t3` and `/api/connect/t3/token` as the contract documents them. */
+/** Weave's `/connect/t3` and `/api/connect/t3/token` as the contract documents them. */
 const makeHarness = Effect.gen(function* () {
   const requests = new Map<string, { challenge: string; handback: string }>();
   const codes = new Map<string, { challenge: string; state: string }>();
@@ -85,7 +85,7 @@ const makeHarness = Effect.gen(function* () {
   const logLayer = Logger.layer([logger], { mergeWithExisting: false });
   const signIn = yield* HqSignIn.HqSignIn.pipe(Effect.provide(layer));
 
-  /** The person approves HQ's consent page: HQ records the request and mints a code. */
+  /** The person approves Weave's consent page: Weave records the request and mints a code. */
   const startAndConsent = Effect.gen(function* () {
     const { url } = yield* signIn.begin({ handbackOrigin, hqOrigin });
     const params = new URL(url).searchParams;

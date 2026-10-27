@@ -71,7 +71,7 @@ export const ProjectIconColor = Schema.Literals([
 ]);
 export type ProjectIconColor = typeof ProjectIconColor.Type;
 
-// HQ names a repository `owner/name`; a link it would refuse is rejected when it is typed, not on every sync.
+// Weave names a repository `owner/name`; a link it would refuse is rejected when it is typed, not on every sync.
 const HqRepositoryKey = TrimmedNonEmptyString.check(Schema.isPattern(/^[^\s/]+\/[^\s/]+$/));
 
 const ProjectLucideIconName = TrimmedNonEmptyString.check(
@@ -171,7 +171,7 @@ export const Project = Schema.Struct({
   autoPull: Schema.optional(Schema.Boolean),
   hqRepositoryKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   hqSyncLocalOnly: Schema.optional(Schema.Boolean),
-  // The hand-linked key HQ's last sync found unregistered; only a person registers one in HQ.
+  // The hand-linked key Weave's last sync found unregistered; only a person registers one in Weave.
   hqUnregisteredKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,

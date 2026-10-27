@@ -585,7 +585,7 @@ const makeForgeHarness = Effect.gen(function* () {
     buildWriteVersion: Effect.succeed(0),
     observe: (tool, args) =>
       Effect.sync(() => {
-        if (tool === "hq_forge_waits") {
+        if (tool === "weave_forge_waits") {
           state.waits++;
           return {
             ...connection,
@@ -595,7 +595,7 @@ const makeForgeHarness = Effect.gen(function* () {
             })),
           };
         }
-        // An answer T3 cannot decode reads as HQ being unreachable for that number.
+        // An answer T3 cannot decode reads as Weave being unreachable for that number.
         if (args.number === UNREACHABLE_BUILD_NUMBER) return { ...connection, value: {} };
         if (args.number !== undefined) state.resolutions++;
         else state.reads++;

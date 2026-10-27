@@ -50,56 +50,53 @@ it.effect("forwarded Forge writes expire display caches, excluding reads and hea
     const { connections, hq } = yield* makeHarness;
     const agent = yield* connections.connection(leadThread);
     let version = yield* connections.buildWriteVersion;
-    for (const name of [
-      "hq_build_read",
-      "hq_build_list",
-      "hq_build_waits",
-      "hq_build_sessions",
-      "hq_build_acceptance",
-      "hq_build_attempts",
-      "hq_build_heartbeat",
-      "hq_build_set_status",
-      "hq_build_update",
-      "hq_build_bind",
-      "hq_build_start_session",
-      "hq_build_end_session",
-      "hq_build_report",
-      "hq_build_open_hold",
-      "hq_build_clear_hold",
-      "hq_build_relate",
-      "hq_build_associate_landing",
-      "hq_build_post_update",
-    ]) {
-      const body = new TextEncoder().encode(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: 88,
-          method: "tools/call",
-          params: { name, arguments: {} },
-        }),
-      );
-      const response = yield* connections.forward({
-        authorization: agent!.authorizationHeader,
-        contentType: undefined,
-        accept: undefined,
-        protocolVersion: undefined,
-        body,
-      });
-      assert.strictEqual(response.status, 200);
-      assert.strictEqual(hq.mcpCalls.at(-1)?.body, new TextDecoder().decode(body));
-      if (
-        ![
-          "hq_build_read",
-          "hq_build_list",
-          "hq_build_waits",
-          "hq_build_sessions",
-          "hq_build_acceptance",
-          "hq_build_attempts",
-          "hq_build_heartbeat",
-        ].includes(name)
-      )
-        version++;
-      assert.strictEqual(yield* connections.buildWriteVersion, version);
+    for (const prefix of ["weave_forge_", "hq_forge_", "hq_build_"]) {
+      for (const suffix of [
+        "read",
+        "list",
+        "waits",
+        "sessions",
+        "acceptance",
+        "attempts",
+        "heartbeat",
+        "set_status",
+        "update",
+        "bind",
+        "start_session",
+        "end_session",
+        "report",
+        "open_hold",
+        "clear_hold",
+        "relate",
+        "associate_landing",
+        "post_update",
+      ]) {
+        const name = `${prefix}${suffix}`;
+        const body = new TextEncoder().encode(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 88,
+            method: "tools/call",
+            params: { name, arguments: {} },
+          }),
+        );
+        const response = yield* connections.forward({
+          authorization: agent!.authorizationHeader,
+          contentType: undefined,
+          accept: undefined,
+          protocolVersion: undefined,
+          body,
+        });
+        assert.strictEqual(response.status, 200);
+        assert.strictEqual(hq.mcpCalls.at(-1)?.body, new TextDecoder().decode(body));
+        if (
+          !["read", "list", "waits", "sessions", "acceptance", "attempts", "heartbeat"].includes(
+            suffix,
+          )
+        )
+          version++;
+        assert.strictEqual(yield* connections.buildWriteVersion, version);
+      }
     }
     for (const message of [JSON.stringify({ jsonrpc: "2.0", id: 89, method: "tools/list" })]) {
       yield* connections.forward({
@@ -136,7 +133,7 @@ it.effect("an interrupted Forge write still expires display caches", () =>
         ),
       })
       .pipe(Effect.forkChild);
-    // HQ has the write, and may commit it, before the agent goes away.
+    // Weave has the write, and may commit it, before the agent goes away.
     while (hq.toolCalls.length === 0) yield* Effect.yieldNow;
     yield* Fiber.interrupt(forwarding);
     assert.strictEqual(yield* connections.buildWriteVersion, version + 1);
@@ -240,8 +237,8 @@ it.effect("the delegation is kept only in the server secret store", () =>
   Effect.gen(function* () {
     const { connections, stored } = yield* makeHarness;
     assert.strictEqual((yield* connections.read)?.origin, origin);
-    assert.deepStrictEqual([...stored.keys()], ["hq-connection"]);
-    assert.include(new TextDecoder().decode(stored.get("hq-connection")), delegation);
+    assert.deepStrictEqual([...stored.keys()], ["weave-connection"]);
+    assert.include(new TextDecoder().decode(stored.get("weave-connection")), delegation);
     yield* connections.disconnect;
     assert.strictEqual(stored.size, 0);
     assert.isNull(yield* connections.read);
@@ -261,11 +258,14 @@ it.effect(
       const agentServers = yield* readAgentServers(reviewerThread);
       assert.deepStrictEqual(
         agentServers.map(({ name, url }) => ({ name, url })),
-        [{ name: "yardsmith-hq", url: hqEndpoint }],
+        [
+          { name: "weave", url: hqEndpoint },
+          { name: "yardsmith-hq", url: hqEndpoint },
+        ],
       );
-      // A thread HQ never prepared, such as a raw delegated child, gets no server.
+      // A thread Weave never prepared, such as a raw delegated child, gets no server.
       assert.deepStrictEqual(yield* readAgentServers(ThreadId.make("thread-raw-child")), []);
-      // A managed reviewer is a leaf: no t3-code, but HQ's role-limited tools.
+      // A managed reviewer is a leaf: no t3-code, but Weave's role-limited tools.
       const claude = claudeMcpQueryOverrides({
         mcpSession: undefined,
         agentServers,
@@ -282,15 +282,18 @@ it.effect(
           cwd: "/workspace",
         },
       });
-      assert.deepStrictEqual(Object.keys(claude.mcpServers ?? {}), ["yardsmith-hq"]);
+      assert.deepStrictEqual(Object.keys(claude.mcpServers ?? {}), ["weave", "yardsmith-hq"]);
       assert.include(claude.allowedTools ?? [], "mcp__yardsmith-hq__*");
+      assert.include(claude.allowedTools ?? [], "mcp__weave__*");
       const codexServers = codex.config.mcp_servers as Record<
         string,
         { url: string; default_tools_approval_mode?: string }
       >;
-      assert.deepStrictEqual(Object.keys(codexServers), ["yardsmith-hq"]);
+      assert.deepStrictEqual(Object.keys(codexServers), ["weave", "yardsmith-hq"]);
       assert.strictEqual(codexServers["yardsmith-hq"]!.url, hqEndpoint);
-      // Codex denies an unapproved MCP tool under `approval_policy: never`, so its HQ server
+      assert.strictEqual(codexServers["weave"]!.url, hqEndpoint);
+      assert.strictEqual(codexServers["weave"]!.default_tools_approval_mode, "approve");
+      // Codex denies an unapproved MCP tool under `approval_policy: never`, so its Weave server
       // must pre-approve like Claude's wildcard or a reviewer cannot record its review.
       assert.strictEqual(codexServers["yardsmith-hq"]!.default_tools_approval_mode, "approve");
       assertNoSecretsIn(agentServers, claude, codex);
@@ -324,7 +327,7 @@ it.effect("calls a tool as an idle thread that nothing has prepared in this proc
   Effect.gen(function* () {
     const { hq, connections, assertNoSecretsIn } = yield* makeHarness;
     hq.tools.call = (name, args) => ({ status: "succeeded", value: { name, args } });
-    // What a restart leaves behind: a thread with no HQ connection in memory.
+    // What a restart leaves behind: a thread with no Weave connection in memory.
     const idle = ThreadId.make("thread-idle");
     assert.isUndefined(yield* connections.connection(idle));
 
@@ -427,8 +430,8 @@ it.effect("a project's stored connection becomes the environment's, stored once"
     const { connections, call } = yield* makeHqHarnessAt(directory);
     assert.strictEqual((yield* connections.read)?.origin, origin);
     assert.deepStrictEqual(
-      (yield* fileSystem.readDirectory(directory)).filter((file) => file.startsWith("hq-")),
-      ["hq-connection.bin"],
+      (yield* fileSystem.readDirectory(directory)).filter((file) => /^(hq|weave)-/.test(file)),
+      ["weave-connection.bin"],
     );
     yield* connections.prepare({ threadId: leadThread, role: "lead", model: "gpt-5.5" });
     assert.isDefined((yield* call(leadThread)).json.result);
@@ -559,3 +562,35 @@ describe("hqAgentRole", () => {
     );
   });
 });
+
+it.effect("new connection writes prefer Weave and disconnect removes the legacy fallback", () =>
+  Effect.gen(function* () {
+    const { connections, stored } = yield* makeHarness;
+    assert.isTrue(stored.has("weave-connection"));
+    stored.set(
+      "hq-connection",
+      new TextEncoder().encode(
+        JSON.stringify({ origin: otherOrigin, delegation: otherDelegation }),
+      ),
+    );
+    assert.strictEqual((yield* connections.read)?.origin, origin);
+    yield* connections.disconnect;
+    assert.isNull(yield* connections.read);
+    assert.isFalse(stored.has("weave-connection"));
+    assert.isFalse(stored.has("hq-connection"));
+  }),
+);
+
+it.effect("a legacy connection key still serves calls and can be disconnected", () =>
+  Effect.gen(function* () {
+    const { connections, stored, call } = yield* makeHarness;
+    const bytes = stored.get("weave-connection")!;
+    stored.delete("weave-connection");
+    stored.set("hq-connection", bytes);
+    assert.strictEqual((yield* connections.read)?.origin, origin);
+    assert.isDefined((yield* call(leadThread)).json.result);
+    yield* connections.disconnect;
+    assert.isNull(yield* connections.read);
+    assert.strictEqual(stored.size, 0);
+  }),
+);

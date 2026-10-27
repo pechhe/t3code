@@ -1,6 +1,6 @@
 /**
  * Forge Home as T3's Forge button shows it (pechhe/yardsmith Specs #4070, #4367). The server reads
- * it from HQ through T3's HQ connection, as the person, and trims it to what the dropdown draws.
+ * it from Weave through T3's Weave connection, as the person, and trims it to what the dropdown draws.
  */
 import * as Schema from "effect/Schema";
 
@@ -43,7 +43,7 @@ export const ForgeHomeAcceptanceNeed = Schema.Struct({
   spec: ForgeHomeItem,
   url: Schema.String,
   repositories: Schema.Array(Schema.String),
-  /** Forge's objective checks, as HQ's build-home projection words them; `met: null` is information only. */
+  /** Forge's objective checks, as Weave's build-home projection words them; `met: null` is information only. */
   checks: Schema.Array(ForgeHomeCheck),
   reviewSummary: Schema.NullOr(Schema.String),
   tryIt: Schema.NullOr(Schema.String),
@@ -96,7 +96,7 @@ export const ForgeHomeState = Schema.Struct({
   status: Schema.Literals(["not_connected", "invalid_token", "unavailable", "ready"]),
   /** The Weave T3 is connected to; null when it is not. */
   origin: Schema.NullOr(Schema.String),
-  /** HQ's Forge Home, for "Open Forge in Weave". */
+  /** Weave's Forge Home, for "Open Forge in Weave". */
   buildUrl: Schema.NullOr(Schema.String),
   home: Schema.NullOr(ForgeHome),
   readAt: Schema.NullOr(IsoDateTime),

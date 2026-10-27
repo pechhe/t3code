@@ -23,7 +23,7 @@ export function useThreadForgeWorkItem(threadRef: ScopedThreadRef | null) {
   );
 }
 
-/** Whether the environment is connected to YardSmith HQ, so its threads offer Link Forge item. */
+/** Whether the environment is connected to Weave, so its threads offer Link Forge item. */
 export function useForgeConnected(environmentId: EnvironmentId | null): boolean {
   return (
     useEnvironmentQuery(
@@ -32,7 +32,7 @@ export function useForgeConnected(environmentId: EnvironmentId | null): boolean 
   );
 }
 
-/** The HQ whose Forge links the thread's messages show as live items; null without one. */
+/** The Weave whose Forge links the thread's messages show as live items; null without one. */
 export function useThreadForgeOrigin(threadRef: ScopedThreadRef | null | undefined): string | null {
   return (
     useEnvironmentQuery(

@@ -1,5 +1,5 @@
 /**
- * What a provider turn spent, recorded into Weave's Forge record under the HQ identity of the
+ * What a provider turn spent, recorded into Weave's Forge record under the Weave identity of the
  * thread it describes (Spec #4395). Only T3 records it: a provider turn reports its token counts
  * as ordinary orchestration facts, and the adapter that saw them hands them here.
  *

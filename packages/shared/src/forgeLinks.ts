@@ -1,5 +1,5 @@
 /**
- * How T3 recognises a YardSmith HQ Forge item (pechhe/t3code#78): a Forge URL, `#<number>` or a friendly ref such as `YS-12`.
+ * How T3 recognises a Weave Forge item (pechhe/t3code#78): a Forge URL, `#<number>` or a friendly ref such as `YS-12`.
  * The server resolves references with these rules and both clients recognise chat mentions with
  * them, so a mention the client shows is one the server can read.
  */
@@ -20,7 +20,7 @@ export type ForgeReference =
   | { readonly kind: "number"; readonly number: number; readonly origin: string | null }
   | { readonly kind: "ref"; readonly ref: string };
 
-/** HQ's bound on Forge numbers, sequences and ordinals (a Postgres `integer`), so a larger one is malformed, not unknown. */
+/** Weave's bound on Forge numbers, sequences and ordinals (a Postgres `integer`), so a larger one is malformed, not unknown. */
 const MAX_FORGE_INTEGER = 2_147_483_647;
 
 const positiveInteger = (digits: string) => {
@@ -38,7 +38,7 @@ const FRIENDLY_REF = /^([a-z][a-z\d]*)-(\d+)(?:\.(\d+))?$/iu;
  */
 const ARC_REF = /^([a-z][a-z\d]*)-arc-(\d+)$/iu;
 
-/** A Forge URL on any HQ, `#<number>`, a bare number or a friendly ref (normalised to upper case). */
+/** A Forge URL on any Weave, `#<number>`, a bare number or a friendly ref (normalised to upper case). */
 export function parseForgeReference(reference: string): ForgeReference | null {
   const trimmed = reference.trim();
   const bare = /^#?(\d+)$/u.exec(trimmed);
@@ -48,9 +48,7 @@ export function parseForgeReference(reference: string): ForgeReference | null {
   }
   const arc = ARC_REF.exec(trimmed);
   if (arc)
-    return positiveInteger(arc[2]!) === null
-      ? null
-      : { kind: "ref", ref: trimmed.toUpperCase() };
+    return positiveInteger(arc[2]!) === null ? null : { kind: "ref", ref: trimmed.toUpperCase() };
   const friendly = FRIENDLY_REF.exec(trimmed);
   if (friendly) {
     const [, , sequence, ordinal] = friendly;
@@ -73,7 +71,7 @@ export function parseForgeReference(reference: string): ForgeReference | null {
 export const forgeItemUrl = (origin: string, number: number) => `${origin}/forge/${number}`;
 
 /**
- * The item a link names, only when it is a Forge URL on `origin`: another HQ's link stays a link.
+ * The item a link names, only when it is a Forge URL on `origin`: another Weave's link stays a link.
  * A link written at an address Weave has moved on from belongs to the Weave at `origin`.
  */
 export function forgeItemNumberFromUrl(href: string, origin: string): number | null {
@@ -199,7 +197,7 @@ type HastNode = {
 const IGNORED_TAGS = new Set(["a", "code", "pre", "script", "style"]);
 
 /**
- * Turns `#<number>` into a link to the item on T3's HQ, marked so the anchor can show
+ * Turns `#<number>` into a link to the item on T3's Weave, marked so the anchor can show
  * it as written when Forge doesn't know the number. It runs on the HTML tree after raw HTML is
  * parsed, so `<code>` and `<a>` written as HTML leave mentions as written, like markdown code
  * and links. Forge links already written stay as they are.
