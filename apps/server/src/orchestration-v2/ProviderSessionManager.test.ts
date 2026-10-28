@@ -1710,6 +1710,87 @@ it.effect.each([
     }),
 );
 
+it.effect("ProviderSessionManagerV2 gives a Spec lead a top-level thread's MCP listing", () =>
+  Effect.gen(function* () {
+    const state = yield* Ref.make(emptyState);
+    const mcpConfigs = yield* Ref.make<
+      ReadonlyArray<McpProviderSession.McpProviderSessionConfig | undefined>
+    >([]);
+    const effect = Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const registry = yield* McpSessionRegistry.McpSessionRegistry;
+      const now = yield* DateTime.now;
+      const parentThreadId = ThreadId.make("thread-provider-session-manager-arc-lead");
+      const leadThreadId = ThreadId.make("thread-provider-session-manager-spec-lead");
+      const parent = yield* makeThreadCreatedEvent({ idAllocator, threadId: parentThreadId, now });
+      const lead = yield* makeThreadCreatedEvent({ idAllocator, threadId: leadThreadId, now });
+      yield* eventSink.write({
+        events: [
+          parent,
+          {
+            ...lead,
+            payload: {
+              ...lead.payload,
+              lineage: {
+                parentThreadId,
+                relationshipToParent: "subagent",
+                rootThreadId: parentThreadId,
+              },
+              agentTask: {
+                role: "lead" as const,
+                taskClass: "non-ui" as const,
+                workId: "spec-lead-work",
+                attemptId: "1",
+                workspacePath: "/fixture/spec-lead",
+                requestFingerprint: "a".repeat(64),
+                policyHash: "b".repeat(64),
+                policyRevision: "test",
+                briefHash: "c".repeat(64),
+                sourceAccess: "scoped-write" as const,
+                toolProfile: "implementation" as const,
+                requested: modelSelection,
+                assigned: null,
+                effective: modelSelection,
+              },
+            },
+          },
+        ],
+      });
+      const listings = [];
+      for (const threadId of [parentThreadId, leadThreadId]) {
+        const providerSessionId = yield* idAllocator.allocate.providerSession({
+          providerInstanceId: modelSelection.instanceId,
+          threadId,
+        });
+        yield* manager.open({ threadId, providerSessionId, modelSelection, runtimePolicy });
+        const config = (yield* Ref.get(mcpConfigs)).at(-1);
+        assert.isDefined(config);
+        const resolved = yield* registry.resolve(
+          config!.authorizationHeader.replace(/^Bearer\s+/, ""),
+        );
+        const {
+          threadId: _threadId,
+          providerSessionId: _providerSessionId,
+          authorizationHeader: _authorizationHeader,
+          ...listing
+        } = config!;
+        listings.push({
+          listing,
+          subagent: resolved?.thread.subagent,
+          capabilities: resolved?.capabilities,
+        });
+        yield* manager.close(providerSessionId);
+      }
+      assert.deepEqual(listings[1], listings[0]);
+      assert.equal(listings[1]?.subagent, false);
+    });
+
+    yield* effect.pipe(Effect.provide(layerTest({ state, idleTimeoutMs: 1_000, mcpConfigs })));
+  }),
+);
+
 it.effect(
   "ProviderSessionManagerV2 withholds the preview capability when agent browser access is off",
   () =>

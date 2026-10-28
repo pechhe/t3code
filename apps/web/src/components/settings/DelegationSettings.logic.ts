@@ -19,6 +19,7 @@ export function rolePolicy(manifest: Manifest, role: AgentRole): RolePolicy {
 
 /** The jobs in the order the page lists them; roles sharing a list appear together. */
 const ROLE_ORDER: ReadonlyArray<AgentRole> = [
+  "lead",
   "implementation-worker",
   "ui-worker",
   "ticket-reviewer",
@@ -42,6 +43,7 @@ export const ROLE_DESCRIPTIONS: Record<AgentRole, string> = {
   "ui-verifier": "Checks the running app",
   researcher: "Researches docs and the web",
   scout: "Maps the codebase",
+  lead: "Runs one Spec for an Arc lead",
 };
 
 export interface RoleGroup {

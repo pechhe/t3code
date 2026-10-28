@@ -1,6 +1,7 @@
 import type { AgentRole, ProjectIconColor } from "@t3tools/contracts";
 import {
   BrushCleaningIcon,
+  CompassIcon,
   FileCheckIcon,
   GlobeIcon,
   HammerIcon,
@@ -30,6 +31,7 @@ export const AGENT_ROLE_PRESENTATION: Record<
   "spec-reviewer": { label: "Spec reviewer", icon: FileCheckIcon, tint: "teal" },
   researcher: { label: "Researcher", icon: SearchIcon, tint: "orange" },
   scout: { label: "Scout", icon: MapIcon, tint: "lime" },
+  lead: { label: "Spec lead", icon: CompassIcon, tint: "indigo" },
 };
 
 /** A subagent role as a chip with its icon and colour. */

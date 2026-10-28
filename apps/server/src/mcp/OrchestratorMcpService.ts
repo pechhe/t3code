@@ -96,6 +96,7 @@ import {
   AGENT_ROLE_COARSE_KIND,
   isReviewerRole,
   type OrchestrationV2WatchTarget,
+  isLeafAgentTask,
 } from "@t3tools/contracts";
 import { getProviderOptionCurrentValue } from "@t3tools/shared/model";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
@@ -1373,7 +1374,7 @@ const make = Effect.gen(function* () {
       );
     const caller = yield* loadCaller(scope);
     if (caller.parent !== undefined) {
-      if (caller.parent.thread.agentTask !== undefined)
+      if (isLeafAgentTask(caller.parent.thread.agentTask))
         return yield* failure("capability_denied", "Managed leaves cannot allocate parent work.");
       const run = ThreadManagementService.latestActiveRun(caller.parent);
       if (
@@ -2601,6 +2602,7 @@ const make = Effect.gen(function* () {
         (input.agentTask !== undefined ||
           input.target !== undefined ||
           input.isolation !== undefined ||
+          input.forgeItem !== undefined ||
           input.offPolicyReason !== undefined ||
           input.runtimeMode !== undefined ||
           input.interactionMode !== undefined ||
@@ -2618,6 +2620,19 @@ const make = Effect.gen(function* () {
         return yield* failure(
           "invalid_request",
           'isolation "worktree" applies only to a delegation without agentTask; managed work uses agentTask.workspaceAssignment "isolated".',
+        );
+      const specLead = input.agentTask?.role === "lead";
+      if (specLead !== (input.forgeItem !== undefined))
+        return yield* failure(
+          "invalid_request",
+          specLead
+            ? "A `lead` task runs one Spec: pass its Forge item as forgeItem."
+            : "forgeItem applies only to agentTask role `lead`.",
+        );
+      if (specLead && input.agentTask?.workspaceAssignment === "isolated")
+        return yield* failure(
+          "invalid_request",
+          "A `lead` task works in its Forge item's own workspace: omit workspaceAssignment.",
         );
       if (callerScope.client !== undefined && callerScope.thread === undefined) {
         const service = yield* external;
@@ -2649,11 +2664,25 @@ const make = Effect.gen(function* () {
           "External session bindings require an authenticated external caller.",
         );
       const { scope, parent } = yield* loadThreadCaller(callerScope, "delegate_task");
-      if (parent.thread.agentTask !== undefined)
+      if (isLeafAgentTask(parent.thread.agentTask))
         return yield* failure(
           "capability_denied",
           "Managed child tasks cannot delegate recursively.",
         );
+      if (parent.thread.agentTask?.role === "lead" && specLead)
+        return yield* failure(
+          "capability_denied",
+          "A Spec lead runs one Spec; only an Arc lead starts another `lead`.",
+        );
+      // A Spec lead starts in its parent's own mode, as a thread it launched would.
+      const childRuntimeDefault = specLead
+        ? Effect.succeed<OrchestratorMcpRuntimeMode>("inherit")
+        : serverSettings.getSettings.pipe(
+            Effect.map((settings) => settings.delegation.defaultChildRuntimeMode),
+            Effect.mapError(() =>
+              failure("orchestration_error", "Unable to read delegation settings."),
+            ),
+          );
       const parentRun = parent.runs
         .filter(ThreadManagementService.isActiveRun)
         .toSorted((left, right) => right.ordinal - left.ordinal)[0];
@@ -3040,11 +3069,7 @@ const make = Effect.gen(function* () {
                 parent.thread.runtimeMode,
                 input.runtimeMode,
                 undefined,
-                (yield* serverSettings.getSettings.pipe(
-                  Effect.mapError(() =>
-                    failure("orchestration_error", "Unable to read delegation settings."),
-                  ),
-                )).delegation.defaultChildRuntimeMode,
+                yield* childRuntimeDefault,
               );
               // The first choice's cached reading may hide that it is out of allowance, so
               // it is re-read before the task starts there.
@@ -3177,17 +3202,24 @@ const make = Effect.gen(function* () {
         parent.thread.runtimeMode,
         input.runtimeMode,
         target,
-        (yield* serverSettings.getSettings.pipe(
-          Effect.mapError(() =>
-            failure("orchestration_error", "Unable to read delegation settings."),
-          ),
-        )).delegation.defaultChildRuntimeMode,
+        yield* childRuntimeDefault,
       ).pipe(Effect.tapError((error) => recordExperimentFailure(error.message)));
       const interactionMode = yield* resolveInteractionMode(
         parent.thread.interactionMode,
         input.interactionMode,
       ).pipe(Effect.tapError((error) => recordExperimentFailure(error.message)));
       let workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy | undefined;
+      if (input.forgeItem !== undefined && !isRetryOfAcceptedDelegation) {
+        // SlipJay's attach-issue always receives the canonical number, so a ref is resolved first.
+        const forgeItem =
+          typeof input.forgeItem === "string"
+            ? (yield* forgeWorkItems.resolve(input.forgeItem).pipe(
+                Effect.mapError((error) => failure("invalid_request", error.message)),
+                Effect.tapError((error) => recordExperimentFailure(error.message)),
+              )).number
+            : input.forgeItem;
+        workspaceStrategy = { type: "worktree", baseRef: "HEAD", forgeItem };
+      }
       if (input.isolation === "worktree" && !isRetryOfAcceptedDelegation) {
         const project = yield* requireProject(parent.thread.projectId).pipe(
           Effect.tapError((error) => recordExperimentFailure(error.message)),

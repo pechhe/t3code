@@ -232,10 +232,12 @@ export const delegatedTaskProgressTurnItems = {
 /**
  * When a thread has finished its work: the one rule delegated-task delivery, `task_status` and
  * thread watches share. Its own thread watches do not count, since waiting on another thread is
- * not unfinished work of its own; its pull request watches do.
+ * not unfinished work of its own; its pull request watches do. A Spec lead's do count: it waits
+ * on its own Spec's landing and helpers, and its parent is woken once, with the outcome.
  */
 export function delegatedTaskProgress(projection: {
-  readonly thread: Pick<OrchestrationV2AppThread, "pullRequests" | "activeProviderThreadId">;
+  readonly thread: Pick<OrchestrationV2AppThread, "pullRequests" | "activeProviderThreadId"> &
+    Partial<Pick<OrchestrationV2AppThread, "threadWatches" | "agentTask">>;
   readonly runs: OrchestrationV2ThreadProjection["runs"];
   /** Active turn items are enough: only those can be pending background work. */
   readonly turnItems: Parameters<typeof derivePendingBackgroundWork>[0]["turnItems"];
@@ -269,6 +271,8 @@ export function delegatedTaskProgress(projection: {
     .filter((run) => terminal(run.status) && (run.startedAt !== null || run.ordinal === 1))
     .toSorted((a, b) => (runRanAfter(a, b) ? -1 : runRanAfter(b, a) ? 1 : 0))[0];
   const children =
+    (projection.thread.agentTask?.role === "lead" &&
+      (projection.thread.threadWatches?.length ?? 0) > 0) ||
     projection.subagents.some(
       (task) =>
         isOrchestrationV2WorkActive(task.status) ||

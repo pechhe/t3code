@@ -215,6 +215,7 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
     }),
   ),
   interactionMode: Schema.optional(OrchestratorMcpInteractionMode),
+  forgeItem: Schema.optional(ForgeItemReferenceInput),
 });
 export type OrchestratorMcpDelegateTaskInput = typeof OrchestratorMcpDelegateTaskInput.Type;
 

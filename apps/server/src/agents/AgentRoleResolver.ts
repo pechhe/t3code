@@ -175,8 +175,20 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     if (input.browser.refusal !== null)
       return yield* new AgentRoleError({ reason: input.browser.refusal });
   }
+  // A Spec lead has a top-level thread's permissions: no narrower boundary, and none of the
+  // leaf-writer gates below; the caller's ceiling and the role's model list still bind it.
+  const specLead = request.role === "lead";
+  if (
+    specLead &&
+    (request.readOnly === true || request.executionRequirement === "sandbox-required")
+  )
+    return yield* new AgentRoleError({
+      reason: "unsupported-permissions",
+      detail:
+        "a lead runs with a top-level thread's permissions, so it cannot be read-only or sandboxed",
+    });
   const readOnly = role.sourceAccess === "read-only" || request.readOnly === true;
-  if (!readOnly && input.ceiling === "approval-required")
+  if (!readOnly && !specLead && input.ceiling === "approval-required")
     return yield* new AgentRoleError({ reason: "unsupported-permissions" });
   const list = snapshot.manifest.lists[role.list] ?? [];
   const diagnostics: Array<AgentPolicyCandidate> = [];
@@ -209,7 +221,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     const binding = snapshot.manifest.models[alias]!;
     const effort = large?.model === alias ? large.effort : entry.effort;
     // Writers may use any installed provider; readers require declared enforcement.
-    if (!readOnly && binding.driverKind === "claudeAgent") {
+    if (!readOnly && !specLead && binding.driverKind === "claudeAgent") {
       const refusal = !input.allowTrustedClaudeWriters
         ? "trusted-claude-disabled"
         : (input.runtimeMode ?? input.ceiling) !== "full-access"
@@ -397,7 +409,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       : (request.executionRequirement ?? "sandbox-required"),
     executionBoundary: readOnly
       ? ("read-only" as const)
-      : chosen.provider.driver === "claudeAgent"
+      : specLead || chosen.provider.driver === "claudeAgent"
         ? ("trusted-host-access" as const)
         : ("workspace-sandbox" as const),
     refusal: null,

@@ -265,6 +265,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       /** The lead's own model, with whatever options its thread carries. */
       readonly parent?: ModelSelection;
       readonly providers?: ReadonlyArray<ServerProvider>;
+      /** The lead is itself a delegated task with this binding, such as a Spec lead. */
+      readonly parentTask?: Partial<AgentTaskBinding>;
     } = {},
   ) =>
     Effect.gen(function* () {
@@ -314,6 +316,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           runtimeMode: "full-access",
           interactionMode: "default",
           worktreePath: options.scratch ? scratchFolder : bound ? lead : null,
+          ...(options.parentTask === undefined ? {} : { agentTask: options.parentTask }),
           modelSelection: options.parent ?? {
             instanceId: codex.instanceId,
             model: codex.models[0]!.slug,
@@ -752,6 +755,70 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
     }),
   );
 
+  it.effect("starts a Spec lead in its Forge item's workspace, and lets it delegate leaves", () =>
+    Effect.gen(function* () {
+      const h = yield* harness();
+      const specLead = (extra: { readonly forgeItem?: number } = {}) => ({
+        task: "Run T3-9",
+        clientRequestId: `spec-lead-${extra.forgeItem ?? "none"}`,
+        agentTask: request({
+          role: "lead",
+          taskClass: "mixed",
+          workspacePath: h.lead,
+          workId: "T3-9",
+        }),
+        ...extra,
+      });
+      expect((yield* h.delegate(specLead())).code).toBe("invalid_request");
+      const worker = {
+        task: "Implement the importer",
+        clientRequestId: "worker-with-item",
+        agentTask: request({ workspacePath: h.lead }),
+        forgeItem: 9,
+      };
+      expect((yield* h.delegate(worker)).code).toBe("invalid_request");
+      expect(h.dispatched).toHaveLength(0);
+      yield* h.delegate(specLead({ forgeItem: 9 }));
+      expect(h.dispatched).toHaveLength(1);
+      const command = h.dispatched[0] as {
+        workspaceStrategy?: unknown;
+        title?: string;
+        agentTask?: { role: string };
+      };
+      expect(command.agentTask?.role).toBe("lead");
+      expect(command.title).toBe("Spec lead · Run T3-9");
+      expect(command.workspaceStrategy).toEqual({
+        type: "worktree",
+        baseRef: "HEAD",
+        forgeItem: 9,
+      });
+
+      // A Spec lead delegates its own leaves, but never another lead.
+      const child = yield* harness(undefined, true, { parentTask: { role: "lead" } });
+      expect(
+        (yield* child.delegate({
+          ...specLead({ forgeItem: 10 }),
+          agentTask: request({ role: "lead", taskClass: "mixed", workspacePath: child.lead }),
+        })).code,
+      ).toBe("capability_denied");
+      yield* child.delegate({
+        task: "Implement the importer",
+        clientRequestId: "lead-worker",
+        agentTask: request({ workspacePath: child.lead }),
+      });
+      expect(child.dispatched).toHaveLength(1);
+      const leaf = yield* harness(undefined, true, {
+        parentTask: { role: "implementation-worker" },
+      });
+      expect(
+        (yield* leaf.delegate({
+          task: "Implement the importer",
+          clientRequestId: "leaf-worker",
+          agentTask: request({ workspacePath: leaf.lead }),
+        })).code,
+      ).toBe("capability_denied");
+    }),
+  );
   it.effect("launches an isolated helper in its own workspace and refuses a second writer", () =>
     Effect.gen(function* () {
       const isolatedTask = (path: string, workId = "importer") => ({

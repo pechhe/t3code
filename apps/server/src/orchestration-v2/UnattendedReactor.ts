@@ -48,12 +48,12 @@ const SUBAGENT_DONE = new Set(["completed", "failed", "cancelled", "interrupted"
  */
 const SWEEP_WINDOW_MS = 10 * 60 * 1000;
 
-/** Away covers every top-level thread but a Chat, which has no work to carry on. */
+/** Away covers every top-level thread and Spec lead but a Chat, which has no work to carry on. */
 function isCovered(thread: OrchestrationV2AppThread, now: DateTime.Utc) {
   return (
     thread.workflow?.kind !== "chat" &&
-    thread.lineage.parentThreadId === null &&
-    thread.agentTask === undefined &&
+    ((thread.lineage.parentThreadId === null && thread.agentTask === undefined) ||
+      thread.agentTask?.role === "lead") &&
     thread.archivedAt === null &&
     thread.deletedAt === null &&
     thread.settledOverride !== "settled" &&

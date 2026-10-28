@@ -559,6 +559,28 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
+  it.effect("admits a Spec lead wherever a top-level thread could run, never narrower", () =>
+    Effect.gen(function* () {
+      const lead = request({ role: "lead" });
+      // Supervised, and Claude without the leaf-writer opt-in, both stay open to a lead.
+      expect(
+        (yield* resolve(
+          input({ providers: [claude], ceiling: "approval-required", request: lead }),
+        )).model,
+      ).toBe(claudeModel);
+      expect((yield* resolve(input({ providers: [claude], request: lead }))).model).toBe(
+        claudeModel,
+      );
+      for (const narrower of [
+        request({ role: "lead", readOnly: true }),
+        request({ role: "lead", executionRequirement: "sandbox-required" }),
+      ])
+        expect((yield* refusal(input({ request: narrower }))).reason).toBe(
+          "unsupported-permissions",
+        );
+    }),
+  );
+
   it.effect("permits read-only Claude but explicitly refuses Claude source writes", () =>
     Effect.gen(function* () {
       const base = input({ providers: [claude] });

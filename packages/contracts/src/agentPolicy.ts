@@ -16,6 +16,7 @@ export const AgentRole = Schema.Literals([
   "spec-reviewer",
   "researcher",
   "scout",
+  "lead",
 ]);
 export type AgentRole = typeof AgentRole.Type;
 /** How a managed task's thread title names its role: `<label> · <topic>`. */
@@ -30,6 +31,7 @@ export const AGENT_ROLE_TITLE_LABEL = {
   "spec-reviewer": "Spec reviewer",
   researcher: "Researcher",
   scout: "Scout",
+  lead: "Spec lead",
 } as const satisfies Record<AgentRole, string>;
 /**
  * A managed task's title without its role prefix, for places that already show the role as
@@ -40,6 +42,17 @@ export const agentTaskTopic = (title: string, role: AgentRole): string => {
   if (title === label) return "";
   return title.startsWith(`${label} · `) ? title.slice(label.length + 3) : title;
 };
+/**
+ * A `lead` task runs one Spec with exactly a top-level thread's privileges; every other role
+ * is a leaf that cannot change T3 state, delegate or watch.
+ */
+export const isLeafAgentTask = (task: { readonly role: AgentRole } | undefined) =>
+  task !== undefined && task.role !== "lead";
+/** A subagent thread other than a `lead` task: it reports to its parent, which watches for it. */
+export const isLeafSubagentThread = (thread: {
+  readonly lineage: { readonly relationshipToParent: string | null };
+  readonly agentTask?: { readonly role: AgentRole } | undefined;
+}) => thread.lineage.relationshipToParent === "subagent" && thread.agentTask?.role !== "lead";
 /** The roles that judge pinned work: fresh-context, read-only and scoped by `review`. */
 export const isReviewerRole = (role: AgentRole) =>
   role === "ticket-reviewer" || role === "spec-reviewer";
@@ -66,6 +79,7 @@ export const AGENT_ROLE_COARSE_KIND = {
   "spec-reviewer": "review",
   researcher: "research",
   scout: "research",
+  lead: "implementation",
 } as const satisfies Record<AgentRole, string>;
 
 export const AgentTaskClass = Schema.Literals(["non-ui", "ui", "mixed"]);
@@ -130,8 +144,8 @@ const RolePolicy = Schema.Struct({
 });
 
 /**
- * One entry per role. `researcher` and `scout` were added after policies and task snapshots
- * were saved, so a policy may leave them out; such a role is then unavailable.
+ * One entry per role. `researcher`, `scout` and `lead` were added after policies and task
+ * snapshots were saved, so a policy may leave them out; such a role is then unavailable.
  */
 const rolesRecord = <S extends Schema.Top>(entry: S) =>
   Schema.Struct({
@@ -145,6 +159,7 @@ const rolesRecord = <S extends Schema.Top>(entry: S) =>
     "spec-reviewer": entry,
     researcher: Schema.optionalKey(entry),
     scout: Schema.optionalKey(entry),
+    lead: Schema.optionalKey(entry),
   });
 
 const Manifest = Schema.Struct({
@@ -192,6 +207,9 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
   return (
     (roles.researcher === undefined || readOnly(roles.researcher, "web-research")) &&
     (roles.scout === undefined || readOnly(roles.scout, "source-reader")) &&
+    (roles.lead === undefined ||
+      (roles.lead.sourceAccess === "scoped-write" &&
+        roles.lead.toolProfile === "implementation")) &&
     readOnly(roles.browser, "phi") &&
     readOnly(roles["ui-verifier"], "phi") &&
     [roles["ticket-reviewer"], roles["spec-reviewer"], roles.advisor].every((role) =>

@@ -25,7 +25,12 @@ import * as DateTime from "effect/DateTime";
 import * as TestClock from "effect/testing/TestClock";
 import * as Fiber from "effect/Fiber";
 import * as Schema from "effect/Schema";
-import { OrchestrationV2ThreadWatch, type ForgeWorkItemSummary } from "@t3tools/contracts";
+import {
+  type AgentRole,
+  type AgentTaskBinding,
+  OrchestrationV2ThreadWatch,
+  type ForgeWorkItemSummary,
+} from "@t3tools/contracts";
 import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as HqAgentConnections from "../hq/HqAgentConnections.ts";
 import * as ForgeWatchReactor from "./ForgeWatchReactor.ts";
@@ -544,7 +549,7 @@ const watchesOf = (threadId: ThreadId) =>
     return (yield* orchestrator.getThreadShell(threadId))?.threadWatches ?? [];
   });
 
-it("refuses a watch from a subagent, which its parent owns", () => {
+it("refuses a watch from a subagent, which its parent owns, but not from a Spec lead", () => {
   const thread = {
     id: ThreadId.make("thread:child"),
     lineage: {
@@ -564,6 +569,9 @@ it("refuses a watch from a subagent, which its parent owns", () => {
       "thread:other",
     ),
   );
+  const task = (role: AgentRole) => ({ role }) as AgentTaskBinding;
+  assert.include(threadWatchRefusal({ ...thread, agentTask: task("scout") }), "subagent");
+  assert.isUndefined(threadWatchRefusal({ ...thread, agentTask: task("lead") }, "thread:other"));
 });
 
 const UNREACHABLE_BUILD_NUMBER = 1000099;

@@ -23,6 +23,7 @@ import {
   type RuntimeMode,
   type ScheduledTaskId,
   ThreadId,
+  isLeafAgentTask,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -1489,13 +1490,13 @@ const make = Effect.gen(function* () {
   ) {
     // Only a conversation's own SlipJay workspace is replaced. A git
     // worktree has a branch to recreate it from, and a managed task's
-    // workspace belongs to the work that assigned it.
+    // workspace belongs to the work that assigned it; a Spec lead's is its own.
     const thread = yield* threads.getThreadShell(threadId);
     if (
       thread === null ||
       thread.worktreePath === null ||
       thread.branch !== null ||
-      thread.agentTask !== undefined
+      isLeafAgentTask(thread.agentTask)
     ) {
       return null;
     }

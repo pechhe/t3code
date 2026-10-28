@@ -14,6 +14,8 @@ import {
   ThreadId,
   type ProviderThreadId,
   usesPhi,
+  isLeafAgentTask,
+  isLeafSubagentThread,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -343,11 +345,13 @@ export const layerWithOptions = (
             // endpoint whose listing includes the preview family.
             const managedBrowser =
               thread.agentTask?.role === "ui-worker" && usesPhi(thread.agentTask?.toolProfile);
-            // A thread with an agentTask is delegated: it lists only what its own role
-            // can use, and is told so (see sessionEndpointKey and the child instructions).
-            const delegated = thread.agentTask !== undefined;
-            const toolProfile = thread.agentTask?.toolProfile;
-            const agentRole = thread.agentTask?.role;
+            // A leaf task is delegated: it lists only what its own role can use, and is told
+            // so (see sessionEndpointKey and the child instructions). A Spec lead lists what a
+            // top-level thread does.
+            const leafTask = isLeafAgentTask(thread.agentTask) ? thread.agentTask : undefined;
+            const delegated = leafTask !== undefined;
+            const toolProfile = leafTask?.toolProfile;
+            const agentRole = leafTask?.role;
             const entries = Object.values(settings.projectSettingsOverrides);
             const browserOverridden = entries.some(
               (entry) => entry.enableAgentBrowserAccess !== undefined,
@@ -526,7 +530,7 @@ export const layerWithOptions = (
                 if (browserToolsAvailable) capabilities.add("preview");
                 if (deviceToolsAvailable) capabilities.add("device");
                 const subagent = yield* projectionStore.getThread(threadId).pipe(
-                  Effect.map((thread) => thread.lineage.relationshipToParent === "subagent"),
+                  Effect.map(isLeafSubagentThread),
                   Effect.orElseSucceed(() => false),
                 );
                 const existing = yield* mcpSessions.read(threadId);

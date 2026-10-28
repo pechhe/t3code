@@ -255,14 +255,17 @@ const make = Effect.gen(function* () {
       return yield* new ManagedAgentError({ reason: "policy" });
     const trustedEnabled = configured?.delegation.allowTrustedClaudeWriters === true;
     // Boundary-less historical bindings never carry consent to the broader route.
+    // A Spec lead runs on the host like the top-level thread it stands in for.
     const requirement = readOnly
       ? "sandbox-required"
-      : ((legacy && (!("executionBoundary" in request) || request.executionBoundary === undefined)
-          ? undefined
-          : request.executionRequirement) ??
-        (!legacy && trustedEnabled && mode === "full-access"
-          ? "trusted-host-allowed"
-          : "sandbox-required"));
+      : request.role === "lead"
+        ? (request.executionRequirement ?? "trusted-host-allowed")
+        : ((legacy && (!("executionBoundary" in request) || request.executionBoundary === undefined)
+            ? undefined
+            : request.executionRequirement) ??
+          (!legacy && trustedEnabled && mode === "full-access"
+            ? "trusted-host-allowed"
+            : "sandbox-required"));
 
     return {
       ceiling: input.ceiling,
@@ -712,10 +715,12 @@ const make = Effect.gen(function* () {
           executionBoundary:
             context.request.readOnly === true || role.sourceAccess === "read-only"
               ? "read-only"
-              : input.providers.find((p) => p.instanceId === selection.instanceId)?.driver ===
-                  "claudeAgent"
+              : context.request.role === "lead"
                 ? "trusted-host-access"
-                : "workspace-sandbox",
+                : input.providers.find((p) => p.instanceId === selection.instanceId)?.driver ===
+                    "claudeAgent"
+                  ? "trusted-host-access"
+                  : "workspace-sandbox",
           requestFingerprint: input.requestFingerprint,
           policyHash: snapshot.hash,
           policyRevision: snapshot.sourceRevision,
@@ -795,7 +800,7 @@ const make = Effect.gen(function* () {
       const boundary =
         input.binding.sourceAccess === "read-only"
           ? "read-only"
-          : provider?.driver === "claudeAgent"
+          : input.binding.role === "lead" || provider?.driver === "claudeAgent"
             ? "trusted-host-access"
             : "workspace-sandbox";
       if (

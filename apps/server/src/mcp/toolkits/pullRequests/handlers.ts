@@ -5,6 +5,7 @@ import {
   type SourceControlProviderKind,
   type ThreadId,
   type ThreadPullRequestLink,
+  isLeafSubagentThread,
 } from "@t3tools/contracts";
 import { canonicalizeGitCafePullRequestUrl } from "@t3tools/source-control-definitions/registry";
 import * as Cause from "effect/Cause";
@@ -270,7 +271,7 @@ const make = Effect.gen(function* () {
       threadPullRequestsOf(shell).find(
         (link) => link.source !== "stack-dismissed" && threadPullRequestKeysEqual(link, target),
       );
-    if (watching && thread.lineage.relationshipToParent === "subagent") {
+    if (watching && isLeafSubagentThread(thread)) {
       return yield* new PullRequestWatchFromSubagentError();
     }
     const before = watchedLink(thread);

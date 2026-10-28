@@ -1,6 +1,9 @@
 import { assert, it } from "@effect/vitest";
 import {
+  type AgentRole,
+  type AgentTaskBinding,
   type ModelSelection,
+  type OrchestrationV2ThreadWatch,
   NodeId,
   RunId,
   RunAttemptId,
@@ -164,6 +167,21 @@ it("reports the run that ended last, not the highest ordinal", () => {
   });
   assert.equal(progress.state, "result_available");
   assert.equal(progress.resultRun?.ordinal, 3);
+});
+
+it("holds a Spec lead's result while it watches, but not a leaf's", () => {
+  const { projection } = taskFixture();
+  const watching = (role: AgentRole) =>
+    delegatedTaskProgress({
+      ...projection,
+      thread: {
+        ...projection.thread,
+        agentTask: { role } as AgentTaskBinding,
+        threadWatches: [{ id: "watch:landing" } as OrchestrationV2ThreadWatch],
+      },
+    }).state;
+  assert.equal(watching("lead"), "waiting_for_children");
+  assert.equal(watching("scout"), "result_available");
 });
 
 it("waits for nested work and retains the report across monitor acknowledgements", () => {

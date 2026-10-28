@@ -5,6 +5,7 @@ import {
   OrchestratorMcpFailure,
   sessionToolFamilies,
   usesPhi,
+  isLeafAgentTask,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Effect from "effect/Effect";
@@ -44,6 +45,7 @@ export const listsBrowserFamily = ({
 /** Whether this caller's own live task drives a browser of its own. */
 export const drivesOwnBrowser = ({ caller }: Caller) =>
   caller?.agentTask !== undefined &&
+  isLeafAgentTask(caller.agentTask) &&
   listsBrowserFamily({
     toolProfile: caller.agentTask.toolProfile,
     agentRole: caller.agentTask.role,

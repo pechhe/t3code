@@ -1,4 +1,5 @@
 import {
+  isLeafAgentTask,
   OrchestratorMcpFailure,
   type ProviderInteractionMode,
   type RuntimeMode,
@@ -93,7 +94,7 @@ const refuseReadOnlyClient = McpInvocationContext.McpInvocationContext.pipe(
  * themselves.
  */
 const refuseManagedChildWrites = ({ caller }: Caller) =>
-  caller?.agentTask === undefined
+  !isLeafAgentTask(caller?.agentTask)
     ? Effect.void
     : Effect.fail(
         new OrchestratorMcpFailure({

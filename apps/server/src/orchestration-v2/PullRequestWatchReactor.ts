@@ -8,6 +8,7 @@ import {
   type PullRequestThreadCommentsResult,
   type ThreadPullRequestLink,
   type ThreadPullRequestWatch,
+  isLeafSubagentThread,
 } from "@t3tools/contracts";
 import {
   normalizeThreadPullRequestKey,
@@ -399,7 +400,7 @@ export const make = Effect.gen(function* () {
       ? "merged"
       : thread.settledOverride === "settled" || thread.settledAt !== null
         ? "settled"
-        : thread.lineage.relationshipToParent === "subagent"
+        : isLeafSubagentThread(thread)
           ? "subagent"
           : undefined;
 

@@ -9,6 +9,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   type RuntimeMode,
+  isLeafAgentTask,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -158,7 +159,8 @@ export const layerFromProjectStore: Layer.Layer<
         );
         // The thread's own point, else the one set for its model in the server settings.
         const compactAt = input.thread.compactAt ?? modelCompactAt;
-        if (input.thread.agentTask !== undefined) {
+        // A Spec lead runs under a top-level thread's policy; its role was admitted at dispatch.
+        if (input.thread.agentTask !== undefined && isLeafAgentTask(input.thread.agentTask)) {
           const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
           if (Option.isNone(managed) || instance === undefined)
             return yield* new RuntimePolicyResolveError({

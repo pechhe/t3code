@@ -92,6 +92,12 @@ its revision and the role names, or the reason the policy is refused.
   when it gives an `offPolicyReason` or the configured policy is unreadable.
   If no eligible role fits, report the task as blocked. Without a configured
   policy, unmanaged delegation is unchanged.
+- A `lead` task is the one delegated task that is not a leaf: an Arc lead starts
+  it with the Spec as `forgeItem`, and it runs in that item's SlipJay workspace with
+  exactly a top-level thread's runtime mode, tools and authority, so it can
+  delegate, watch and land. It is still a subagent: it wakes its parent when it
+  finishes, shows only among its parent's subagents, and cannot start another `lead`. Like `researcher`,
+  the role is optional in a policy.
 - An `isolated` task runs in its own registered workspace of the lead's
   repository, or of any other registered project's repository, on this
   computer, never the lead's checkout or the project's main checkout, and is

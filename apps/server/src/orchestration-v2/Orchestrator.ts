@@ -1,3 +1,4 @@
+import { isLeafSubagentThread } from "@t3tools/contracts";
 import type {
   GuestShareId,
   OrchestrationV2SearchThreadInput,
@@ -3383,7 +3384,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (
       command.type === "thread.pull-request.watch" &&
       command.watching &&
-      thread.lineage.relationshipToParent === "subagent"
+      isLeafSubagentThread(thread)
     ) {
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,

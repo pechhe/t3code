@@ -232,6 +232,47 @@ it.layer(layerTest)("managed RuntimePolicyV2", (it) => {
     }),
   );
 
+  it.effect("runs a Spec lead under exactly a top-level thread's policy", () =>
+    Effect.gen(function* () {
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const leadBinding: AgentTaskBinding = {
+        ...managedBinding,
+        role: "lead",
+        sourceAccess: "scoped-write",
+        toolProfile: "implementation",
+      };
+      const guard = Layer.mergeAll(
+        ServerSettings.layerTest(),
+        Layer.mock(ManagedAgent.ManagedAgentService)({
+          validate: () => Effect.fail(new ManagedAgent.ManagedAgentError({ reason: "revoked" })),
+        }),
+      );
+      for (const runtimeMode of ["full-access", "approval-required"] as const) {
+        const topLevel = {
+          ...makeThread({ now, worktreePath: "/spec-workspace", runtimeMode }),
+          interactionMode: "plan" as const,
+        };
+        const specLead = {
+          ...topLevel,
+          lineage: {
+            parentThreadId: ThreadId.make("thread:arc-lead"),
+            relationshipToParent: "subagent" as const,
+            rootThreadId: ThreadId.make("thread:arc-lead"),
+          },
+          agentTask: leadBinding,
+        };
+        const expected = yield* policy
+          .resolve({ thread: topLevel, modelSelection })
+          .pipe(Effect.provide(guard));
+        assert.deepEqual(
+          yield* policy.resolve({ thread: specLead, modelSelection }).pipe(Effect.provide(guard)),
+          expected,
+        );
+      }
+    }),
+  );
+
   it.effect("keeps approved managed review read-only with exact cwd under full access", () =>
     Effect.gen(function* () {
       const policy = yield* RuntimePolicy.RuntimePolicyV2;

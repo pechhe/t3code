@@ -33,6 +33,7 @@ export function snapshot() {
       { large: { model: "sol", effort: "high" } },
     ),
     "ui-worker": role("ui-worker", "ui", "scoped-write", "implementation", ["ui", "mixed"]),
+    lead: role("lead", "workhorse", "scoped-write", "implementation", ["non-ui", "ui", "mixed"]),
     browser: role("browser", "browser", "read-only", "phi", ["ui"]),
     "ui-verifier": role("ui-verifier", "browser", "read-only", "phi", ["ui"]),
     advisor: role("advisor", "advisor", "read-only", "source-reader", ["non-ui", "ui", "mixed"], {
