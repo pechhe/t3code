@@ -277,7 +277,10 @@ main()
   .finally(async () => {
     await stopServer();
     if (values.keep) {
-      console.log(`Scratch kept at ${scratch} (contains copied credentials).`);
+      for (const credential of [".claude/.credentials.json", ".claude.json", ".codex/auth.json"]) {
+        NodeFS.rmSync(NodePath.join(home, credential), { force: true });
+      }
+      console.log(`Scratch kept at ${scratch}; the copied credentials were deleted.`);
     } else {
       NodeFS.rmSync(scratch, { recursive: true, force: true });
     }
