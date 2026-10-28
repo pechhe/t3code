@@ -570,7 +570,13 @@ const UNREACHABLE_BUILD_NUMBER = 1000099;
 
 const makeForgeHarness = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
-  const state: { item: ForgeWorkItemSummary; reads: number; waits: number; resolutions: number } = {
+  const state: {
+    item: ForgeWorkItemSummary;
+    reads: number;
+    waits: number;
+    resolutions: number;
+    unreachable: boolean;
+  } = {
     item: {
       kind: "ticket",
       title: "Publish the candidate",
@@ -581,6 +587,7 @@ const makeForgeHarness = Effect.gen(function* () {
     reads: 0,
     waits: 0,
     resolutions: 0,
+    unreachable: false,
   };
   const connection = { origin: "https://hq.example", connection: "test-connection" };
   const hq = Layer.mock(HqAgentConnections.HqAgentConnections)({
@@ -602,6 +609,7 @@ const makeForgeHarness = Effect.gen(function* () {
         if (args.number === UNREACHABLE_BUILD_NUMBER) return { ...connection, value: {} };
         if (args.number !== undefined) state.resolutions++;
         else state.reads++;
+        if (state.unreachable && args.number === undefined) return { ...connection, value: {} };
         return {
           ...connection,
           value: {
@@ -642,7 +650,7 @@ const makeForgeHarness = Effect.gen(function* () {
           messages.filter((message) => message.notification?.source.kind === "build_item"),
         ),
       );
-  return { state, reactor, restart, start, messages };
+  return { state, build, reactor, restart, start, messages };
 });
 
 const decodeWatch = Schema.decodeUnknownSync(OrchestrationV2ThreadWatch);
@@ -1312,6 +1320,42 @@ it.layer(layerTest)("thread watches", (it) => {
             status === "dropped" ? "Dropped" : "closed",
           );
         }
+      }),
+  );
+
+  it.effect(
+    "an unblocked watch confirms a cached clear answer before waking, so a hold opened outside T3 keeps it",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeForgeHarness;
+        const watcher = yield* createThread("build-external-hold");
+        // A card read caches the item clear; the agent then opens a hold through its own Weave connection,
+        // which T3's cache does not see, and watches straight away.
+        h.state.item = { ...h.state.item, waits: [] };
+        yield* h.build.mentions({ threadId: watcher, numbers: [1000001] });
+        yield* TestClock.adjust("1 second");
+        h.state.item = { ...h.state.item, holds: [{ kind: "external", note: "Publication" }] };
+        yield* h.start(watcher, "unblocked");
+        yield* h.reactor.sweep;
+        assert.lengthOf(yield* h.messages(watcher), 0);
+        assert.lengthOf(yield* watchesOf(watcher), 1);
+        // A confirmation Forge cannot answer wakes no one either, even once the hold has cleared.
+        h.state.item = { ...h.state.item, holds: [] };
+        h.state.unreachable = true;
+        yield* TestClock.adjust("1 minute");
+        yield* h.reactor.sweep;
+        assert.lengthOf(yield* h.messages(watcher), 0);
+        assert.lengthOf(yield* watchesOf(watcher), 1);
+        // Once Forge answers clear, the watch wakes once, after a restart too.
+        h.state.unreachable = false;
+        yield* TestClock.adjust("1 minute");
+        const restarted = yield* h.restart();
+        yield* restarted.sweep;
+        yield* restarted.sweep;
+        const [message, ...rest] = yield* h.messages(watcher);
+        assert.lengthOf(rest, 0);
+        assert.include(message?.text, "all waits and holds are clear");
+        assert.lengthOf(yield* watchesOf(watcher), 0);
       }),
   );
 

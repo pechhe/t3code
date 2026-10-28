@@ -1,4 +1,5 @@
 import { CommandId, ThreadId } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -46,6 +47,7 @@ const make = Effect.gen(function* () {
             (watch) => watch.target.kind === "build_item",
           );
           if (watches.length === 0) return;
+          const passStartedAt = yield* Clock.currentTimeMillis;
           const result = yield* build.mentions({
             threadId: thread.id,
             numbers: watches.flatMap((watch) =>
@@ -56,7 +58,19 @@ const make = Effect.gen(function* () {
           for (const watch of watches) {
             if (watch.target.kind !== "build_item") continue;
             const number = watch.target.number;
-            const view = result.items.find((item) => item.number === number);
+            const cached = result.items.find((item) => item.number === number);
+            if (cached === undefined || cached.unavailable || cached.item === null) continue;
+            if (decideBuildWatch(watch.target, cached.item) === undefined) continue;
+            // A cached answer can predate a hold or wait opened outside T3's own connection: wake only
+            // on an answer read in this pass.
+            const readThisPass =
+              cached.readAt !== null && Date.parse(cached.readAt) >= passStartedAt;
+            const view = readThisPass
+              ? cached
+              : (yield* build.mentions(
+                  { threadId: thread.id, numbers: [number] },
+                  { fresh: true },
+                )).items.find((item) => item.number === number);
             if (view === undefined || view.unavailable || view.item === null) continue;
             const condition = decideBuildWatch(watch.target, view.item);
             if (condition === undefined) continue;

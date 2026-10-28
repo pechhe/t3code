@@ -44,6 +44,14 @@ import * as HqAgentConnections from "./HqAgentConnections.ts";
  */
 export const BUILD_REREAD_INTERVAL_MS = 60_000;
 export const BUILD_MAX_REREAD_INTERVAL_MS = 4 * BUILD_REREAD_INTERVAL_MS;
+
+/**
+ * `fresh` reads Forge now instead of answering from the cache. Writes made outside T3's own Weave
+ * connection, such as an agent opening a hold through its own MCP, do not invalidate the cache.
+ */
+export interface ForgeWorkItemReadOptions {
+  readonly fresh?: boolean;
+}
 export const fingerprintOf = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 export interface Cadence {
@@ -293,6 +301,7 @@ export class ForgeWorkItems extends Context.Service<
      */
     readonly mentions: (
       input: ForgeWorkItemMentionsInput,
+      options?: ForgeWorkItemReadOptions,
     ) => Effect.Effect<ForgeWorkItemMentionsResult, ForgeWorkItemError>;
     /** Whether threads can link Forge items at all. */
     readonly connected: Effect.Effect<
@@ -374,10 +383,11 @@ const make = Effect.gen(function* () {
 
   type Connection = { readonly origin: string; readonly connection: string };
 
-  /** An item as clients show it, on its adaptive cadence however many ask. */
+  /** An item as clients show it, on its adaptive cadence however many ask, or read now when `fresh`. */
   const summaryView = Effect.fn("ForgeWorkItems.summaryView")(function* (
     connection: Connection,
     target: { readonly itemId: string; readonly number: number },
+    options?: ForgeWorkItemReadOptions,
   ) {
     const key = `${connection.connection}\n${target.itemId}`;
     const cached = yield* readLock.withLock(
@@ -387,6 +397,7 @@ const make = Effect.gen(function* () {
         const previous = cache.get(key);
         const writeVersion = yield* weave.buildWriteVersion;
         if (
+          options?.fresh !== true &&
           previous !== undefined &&
           previous.writeVersion === writeVersion &&
           now - previous.attemptedAt < previous.intervalMs
@@ -492,7 +503,7 @@ const make = Effect.gen(function* () {
   });
 
   const mentions: ForgeWorkItems["Service"]["mentions"] = Effect.fn("ForgeWorkItems.mentions")(
-    function* (input) {
+    function* (input, options) {
       yield* shellOf(input.threadId);
       const connection = yield* readConnection;
       if (connection === null) return { items: [] };
@@ -504,7 +515,7 @@ const make = Effect.gen(function* () {
             Effect.flatMap((itemId) => {
               if (Option.isNone(itemId)) unreachable = true;
               return Option.isSome(itemId) && itemId.value !== null
-                ? summaryView(connection, { itemId: itemId.value, number }).pipe(
+                ? summaryView(connection, { itemId: itemId.value, number }, options).pipe(
                     Effect.map(Option.some),
                   )
                 : Effect.succeed(Option.none<ForgeWorkItemView>());

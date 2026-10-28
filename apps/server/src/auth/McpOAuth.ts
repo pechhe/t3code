@@ -58,10 +58,21 @@ export interface McpOAuthUrls {
   readonly resource: string;
 }
 
+/**
+ * The scheme a TLS-terminating proxy (Tailscale serve, a tunnel) reports. effect 4.0.6 stopped reading
+ * `x-forwarded-proto` in `toURL`, so behind such a proxy the metadata advertised `http://`. Only an upgrade to
+ * https is taken from the header, never a downgrade.
+ */
+const forwardedHttps = (request: HttpServerRequest.HttpServerRequest) =>
+  request.headers["x-forwarded-proto"]?.split(",")[0]?.trim().toLowerCase() === "https";
+
 export const requestUrls = (request: HttpServerRequest.HttpServerRequest): McpOAuthUrls => {
   const origin = Option.match(HttpServerRequest.toURL(request), {
     onNone: () => "http://localhost",
-    onSome: (url) => url.origin,
+    onSome: (url) => {
+      if (forwardedHttps(request)) url.protocol = "https:";
+      return url.origin;
+    },
   });
   return { issuer: origin, resource: `${origin}/mcp` };
 };
