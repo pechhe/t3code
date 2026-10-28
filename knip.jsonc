@@ -48,6 +48,8 @@
         "scripts/evaluate-thread-titles.ts",
         "scripts/fetch-expo-schema.ts",
         "scripts/probe-claude-fork-local-rollback-replay.ts",
+        // A manual probe that spends provider turns, run by path.
+        "scripts/probe-provider-resume.ts",
         "scripts/update-test-shard-weights.ts",
         // A manual offline tool: docs/operations/agent-delegation.md runs it by path.
         "scripts/validate-agent-policy.ts",
