@@ -206,17 +206,6 @@ export interface PiAdapterV2Options {
   };
 }
 
-/** A managed read-only session (a reviewer, scout or browser role): T3 asks for a read-only sandbox Pi cannot enforce. */
-function isManagedReadOnly(policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy): boolean {
-  const sandbox = policy.sandboxPolicy;
-  return (
-    policy.managedAgent === true &&
-    typeof sandbox === "object" &&
-    sandbox !== null &&
-    (sandbox as { type?: unknown }).type === "readOnly"
-  );
-}
-
 function contentText(content: unknown): string {
   if (!Array.isArray(content)) {
     return typeof content === "string" ? content : "";
@@ -491,7 +480,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         mcpSession,
         agentServers: yield* readAgentServers(input.threadId),
         extensionPath,
-        readOnlyTools: isManagedReadOnly(input.runtimePolicy),
+        readOnlyTools: ProviderAdapter.isManagedReadOnlyRuntimePolicy(input.runtimePolicy),
         runtimeMode: input.runtimePolicy.runtimeMode,
       });
       const spawnConnection = Effect.fn("PiAdapterV2.spawnConnection")(function* () {

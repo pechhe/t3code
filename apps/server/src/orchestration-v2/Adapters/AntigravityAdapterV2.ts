@@ -18,6 +18,7 @@ import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import type { AntigravityAuth } from "../../provider/AntigravityAuth.ts";
 import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import {
+  antigravityLaunchRuntimeMode,
   antigravityPermissionMode,
   applyAntigravityAcpModelSelection,
   type AntigravityAcpRuntimeInput,
@@ -173,7 +174,8 @@ export function makeAntigravityAcpAdapterFlavor(
         mapError: (cause) => cause,
       });
     }),
-    sessionModeForPolicy: (policy) => antigravityPermissionMode(policy.runtimeMode),
+    sessionModeForPolicy: (policy) =>
+      antigravityPermissionMode(antigravityLaunchRuntimeMode(policy)),
     clientFileSystem: {
       readTextFile: (request, cwd) =>
         readAntigravityClientTextFile({
@@ -207,7 +209,7 @@ export function makeAntigravityAcpAdapterFlavor(
 }
 
 // Antigravity reports no per-request token counts, so its turns record no usage for Weave's
-// Build record rather than a zero (Spec #4395).
+// Build record rather than a zero.
 export const makeAntigravityAdapterV2 = Effect.fn("makeAntigravityAdapterV2")(function* (
   options: AntigravityAdapterV2Options,
 ) {

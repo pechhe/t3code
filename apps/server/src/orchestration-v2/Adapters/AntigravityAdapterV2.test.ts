@@ -60,6 +60,26 @@ function permissionRequest(
 }
 
 describe("AntigravityAdapterV2 flavor", () => {
+  it("starts a managed read-only task in an ask mode, not the thread's full access", () => {
+    const policy = (overrides: Partial<ProviderAdapter.ProviderAdapterV2RuntimePolicy>) =>
+      ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: "/workspace",
+        ...overrides,
+      });
+    assert.equal(
+      flavor.sessionModeForPolicy?.(
+        policy({
+          managedAgent: true,
+          sandboxPolicy: { type: "readOnly", networkAccess: false },
+        }),
+      ),
+      "default",
+    );
+    assert.equal(flavor.sessionModeForPolicy?.(policy({})), "yolo");
+  });
+
   it("keeps a successful subagent launch running until the parent turn becomes idle", () => {
     const batch = flavor.extractSubagentUpdate?.({
       toolCallId: "trajectory:4",
@@ -122,80 +142,111 @@ const layerSession = Layer.mergeAll(
   TestProviderHost.layer().pipe(Layer.provide(NodeServices.layer)),
 );
 
+/**
+ * Opens an Antigravity session against the mock agent and returns the client file handlers the
+ * adapter registered, so a test can drive `fs/read_text_file` and `fs/write_text_file` itself.
+ */
+const openAntigravityClientFiles = Effect.fnUntraced(function* (
+  policyOverrides: Partial<ProviderAdapter.ProviderAdapterV2RuntimePolicy>,
+) {
+  const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const host = yield* ProviderHost.ProviderHost;
+  const mockAgentPath = yield* path.fromFileUrl(
+    new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+  );
+  type RuntimeService = AcpSessionRuntime.AcpSessionRuntime["Service"];
+  // effect-acp keeps the last handler registered per method; so does this.
+  let readTextFile: Parameters<RuntimeService["handleReadTextFile"]>[0] | undefined;
+  let writeTextFile: Parameters<RuntimeService["handleWriteTextFile"]>[0] | undefined;
+  const crypto = yield* Crypto.Crypto;
+  const instanceId = ProviderInstanceId.make("antigravity-containment-test");
+  const adapter = yield* makeAntigravityAdapterV2({
+    instanceId,
+    selfInvocation: yield* resolveSelfInvocation(),
+    makeRuntime: (input) =>
+      makeAntigravityAcpRuntime({
+        ...input,
+        childProcessSpawner,
+        spawn: {
+          command: process.execPath,
+          args: [mockAgentPath],
+          cwd: input.cwd,
+          env: { T3_ACP_ANTIGRAVITY: "1" },
+        },
+      }).pipe(
+        Effect.provideService(Crypto.Crypto, crypto),
+        Effect.map((runtime): RuntimeService => ({
+          ...runtime,
+          handleReadTextFile: (handler) =>
+            Effect.sync(() => {
+              readTextFile = handler;
+            }).pipe(Effect.andThen(runtime.handleReadTextFile(handler))),
+          handleWriteTextFile: (handler) =>
+            Effect.sync(() => {
+              writeTextFile = handler;
+            }).pipe(Effect.andThen(runtime.handleWriteTextFile(handler))),
+        })),
+      ),
+    withProcess: (_stop, task) => task,
+    defaultModel: Effect.succeed(undefined),
+  });
+  const workspace = yield* fileSystem.makeTempDirectoryScoped({
+    prefix: "t3-antigravity-workspace-",
+  });
+  const outside = yield* fileSystem.makeTempDirectoryScoped({
+    prefix: "t3-antigravity-outside-",
+  });
+  const outsideFile = path.join(outside, "secret.txt");
+  yield* fileSystem.writeFileString(outsideFile, "secret");
+  const attachment = path.join(host.paths.attachmentsDir, "pasted.txt");
+  yield* fileSystem.writeFileString(attachment, "pasted");
+
+  const threadId = ThreadId.make("thread-antigravity-containment");
+  const runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy =
+    ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      cwd: workspace,
+      ...policyOverrides,
+    });
+  const modelSelection = { instanceId, model: "gemini-test-low" } as const;
+  const session = yield* adapter.openSession({
+    threadId,
+    providerSessionId: ProviderSessionId.make("provider-session-antigravity-containment"),
+    modelSelection,
+    runtimePolicy,
+  });
+  yield* session.ensureThread({ threadId, modelSelection, runtimePolicy });
+  if (readTextFile === undefined || writeTextFile === undefined) {
+    return yield* Effect.die("Antigravity sessions must serve client file requests");
+  }
+  return {
+    fileSystem,
+    path,
+    workspace,
+    outside,
+    outsideFile,
+    attachment,
+    readTextFile,
+    writeTextFile,
+  };
+});
+
 describe("AntigravityAdapterV2 client file system", () => {
   it.effect("confines agent file requests to the workspace under full access", () =>
     Effect.gen(function* () {
-      const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const host = yield* ProviderHost.ProviderHost;
-      const mockAgentPath = yield* path.fromFileUrl(
-        new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
-      );
-      type RuntimeService = AcpSessionRuntime.AcpSessionRuntime["Service"];
-      // effect-acp keeps the last handler registered per method; so does this.
-      let readTextFile: Parameters<RuntimeService["handleReadTextFile"]>[0] | undefined;
-      let writeTextFile: Parameters<RuntimeService["handleWriteTextFile"]>[0] | undefined;
-      const crypto = yield* Crypto.Crypto;
-      const instanceId = ProviderInstanceId.make("antigravity-containment-test");
-      const adapter = yield* makeAntigravityAdapterV2({
-        instanceId,
-        selfInvocation: yield* resolveSelfInvocation(),
-        makeRuntime: (input) =>
-          makeAntigravityAcpRuntime({
-            ...input,
-            childProcessSpawner,
-            spawn: {
-              command: process.execPath,
-              args: [mockAgentPath],
-              cwd: input.cwd,
-              env: { T3_ACP_ANTIGRAVITY: "1" },
-            },
-          }).pipe(
-            Effect.provideService(Crypto.Crypto, crypto),
-            Effect.map((runtime): RuntimeService => ({
-              ...runtime,
-              handleReadTextFile: (handler) =>
-                Effect.sync(() => {
-                  readTextFile = handler;
-                }).pipe(Effect.andThen(runtime.handleReadTextFile(handler))),
-              handleWriteTextFile: (handler) =>
-                Effect.sync(() => {
-                  writeTextFile = handler;
-                }).pipe(Effect.andThen(runtime.handleWriteTextFile(handler))),
-            })),
-          ),
-        withProcess: (_stop, task) => task,
-        defaultModel: Effect.succeed(undefined),
-      });
-      const workspace = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-antigravity-workspace-",
-      });
-      const outside = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-antigravity-outside-",
-      });
-      const outsideFile = path.join(outside, "secret.txt");
-      yield* fileSystem.writeFileString(outsideFile, "secret");
-      const attachment = path.join(host.paths.attachmentsDir, "pasted.txt");
-      yield* fileSystem.writeFileString(attachment, "pasted");
-
-      const threadId = ThreadId.make("thread-antigravity-containment");
-      const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        cwd: workspace,
-      });
-      const modelSelection = { instanceId, model: "gemini-test-low" } as const;
-      const session = yield* adapter.openSession({
-        threadId,
-        providerSessionId: ProviderSessionId.make("provider-session-antigravity-containment"),
-        modelSelection,
-        runtimePolicy,
-      });
-      yield* session.ensureThread({ threadId, modelSelection, runtimePolicy });
-      if (readTextFile === undefined || writeTextFile === undefined) {
-        return yield* Effect.die("Antigravity sessions must serve client file requests");
-      }
+      const {
+        fileSystem,
+        path,
+        workspace,
+        outside,
+        outsideFile,
+        attachment,
+        readTextFile,
+        writeTextFile,
+      } = yield* openAntigravityClientFiles({});
       const context = (method: string) => ({ requestId: `test-${method}`, method });
 
       const insidePath = path.join(workspace, "src", "inside.ts");
@@ -262,6 +313,31 @@ describe("AntigravityAdapterV2 client file system", () => {
         context("fs/read_text_file"),
       );
       assert.equal(viaInsideLink.content, "inside");
+    }).pipe(Effect.provide(layerSession), Effect.scoped),
+  );
+
+  it.effect("refuses every client write for a managed read-only task", () =>
+    Effect.gen(function* () {
+      const { fileSystem, path, workspace, readTextFile, writeTextFile } =
+        yield* openAntigravityClientFiles({
+          managedAgent: true,
+          sandboxPolicy: { type: "readOnly", networkAccess: false },
+        });
+      const context = (method: string) => ({ requestId: `test-${method}`, method });
+      const target = path.join(workspace, "editor-note.md");
+      const write = yield* writeTextFile(
+        { sessionId: "mock-session-1", path: target, content: "written" },
+        context("fs/write_text_file"),
+      ).pipe(Effect.exit);
+      assert.isTrue(Exit.isFailure(write), "a read-only task cannot ask T3 to write a file");
+      assert.isFalse(yield* fileSystem.exists(target));
+      // Reading is the task's whole job, so it still reaches the workspace.
+      yield* fileSystem.writeFileString(path.join(workspace, "source.md"), "source");
+      const read = yield* readTextFile(
+        { sessionId: "mock-session-1", path: path.join(workspace, "source.md") },
+        context("fs/read_text_file"),
+      );
+      assert.equal(read.content, "source");
     }).pipe(Effect.provide(layerSession), Effect.scoped),
   );
 });

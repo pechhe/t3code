@@ -66,8 +66,11 @@ its revision and the role names, or the reason the policy is refused.
   and a Full access child within the caller's permission ceiling. Codex writers
   keep their workspace sandbox with network access disabled. Read-only tasks
   (a reader role or `readOnly: true`) require the provider snapshot to declare
-  read-only source enforcement. Claude, Codex, OpenCode, Grok and Pi currently
-  declare it; Pi also disables user extensions for these tasks. Dispatch skips
+  read-only source enforcement. Claude, Codex, OpenCode, Grok, Pi, Muse and
+  Antigravity currently declare it; Pi also disables user extensions for these
+  tasks, Muse runs the task with its shell and write tools disabled, and
+  Antigravity asks for permission on every edit and command so the task's
+  read-only policy can refuse it. Dispatch skips
   other providers with `read-only-unenforced` and refuses when none qualify,
   including explicit model choices and resumes. Writer tasks are unchanged.
 - The `phi` tool profile gives a reader its own browser endpoint serving only

@@ -141,6 +141,8 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
         displayName: "Antigravity",
         showInteractionModeToggle: false,
         toolCallGuard: "blocking",
+        // A managed read-only task asks for permission and T3 denies every edit and command.
+        readOnlySourceAccess: "enforced",
       },
       enabled: settings.enabled,
       checkedAt,

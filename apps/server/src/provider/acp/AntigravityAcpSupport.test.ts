@@ -10,9 +10,12 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
+import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import {
+  antigravityLaunchRuntimeMode,
+  antigravityPermissionMode,
   applyAntigravityAcpModelSelection,
   buildAntigravityPrompt,
 } from "./AntigravityAcpSupport.ts";
@@ -485,4 +488,37 @@ it.layer(NodeServices.layer)("buildAntigravityPrompt", (it) => {
       });
     }),
   );
+});
+
+describe("antigravityLaunchRuntimeMode", () => {
+  const policy = (overrides: Partial<ProviderAdapter.ProviderAdapterV2RuntimePolicy>) =>
+    ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      cwd: "/workspace",
+      ...overrides,
+    });
+
+  it("asks for permission on a managed read-only task", () => {
+    const readOnly = policy({
+      managedAgent: true,
+      sandboxPolicy: { type: "readOnly", networkAccess: false },
+    });
+    expect(antigravityLaunchRuntimeMode(readOnly)).toBe("approval-required");
+    expect(antigravityPermissionMode(antigravityLaunchRuntimeMode(readOnly))).toBe("default");
+  });
+
+  it("leaves writer tasks and ordinary threads on the thread's runtime mode", () => {
+    const workspaceWrite = policy({
+      managedAgent: true,
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: ["/workspace"],
+        networkAccess: false,
+      },
+    });
+    expect(antigravityLaunchRuntimeMode(workspaceWrite)).toBe("full-access");
+    expect(antigravityPermissionMode(antigravityLaunchRuntimeMode(workspaceWrite))).toBe("yolo");
+    expect(antigravityLaunchRuntimeMode(policy({}))).toBe("full-access");
+  });
 });

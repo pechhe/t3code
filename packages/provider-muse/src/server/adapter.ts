@@ -1664,6 +1664,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
       );
       const launchHost = Effect.fnUntraced(function* () {
         const epoch = ++hostEpoch;
+        const readOnly = ProviderAdapter.isManagedReadOnlyRuntimePolicy(input.runtimePolicy);
         const mcpSession = yield* mcpSessions.read(input.threadId);
         const environment = McpProviderSession.withAgentDeviceEnvironment(
           options.environment,
@@ -1692,6 +1693,8 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
               cwd,
               environment,
               runtimeMode: input.runtimePolicy.runtimeMode,
+              // Muse derives turn events from its session log, so a read-only host keeps it.
+              ...(readOnly ? { readOnly: true, sessionLogging: true } : {}),
               onProcessExit: (exit) => {
                 Deferred.doneUnsafe(processExited, Effect.succeed(exit));
               },

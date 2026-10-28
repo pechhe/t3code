@@ -98,6 +98,7 @@ import {
   acpClientExecuteDisposition,
   acpMcpToolApprovalElicitationDisposition,
   acpExecuteCommand,
+  acpClientFileWriteDisposition,
   acpPermissionDisposition,
   type AcpPermissionDisposition,
   makeAcpClientPolicyGrants,
@@ -5867,6 +5868,18 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           }),
         );
 
+        const guardClientFileWrite = (
+          request: EffectAcpSchema.WriteTextFileRequest,
+        ): Effect.Effect<void, EffectAcpErrors.AcpError> =>
+          clientPolicyContext.pipe(
+            Effect.flatMap(({ policy }) => {
+              const disposition = acpClientFileWriteDisposition(policy, request);
+              return disposition === "deny"
+                ? denyClientRequest("fs/write_text_file", disposition)
+                : Effect.void;
+            }),
+          );
+
         const wireAcpRuntimeTerminalHandlers = Effect.fnUntraced(function* (
           targetRuntime: AcpSessionRuntime.AcpSessionRuntime["Service"],
         ) {
@@ -5946,7 +5959,11 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             );
             yield* targetRuntime.handleWriteTextFile((request) =>
               clientPolicyContext.pipe(
-                Effect.flatMap(({ policy }) => clientFileSystem.writeTextFile(request, policy.cwd)),
+                Effect.flatMap(({ policy }) =>
+                  guardClientFileWrite(request).pipe(
+                    Effect.andThen(clientFileSystem.writeTextFile(request, policy.cwd)),
+                  ),
+                ),
               ),
             );
           }

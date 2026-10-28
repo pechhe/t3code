@@ -211,6 +211,17 @@ export function acpPermissionDisposition(
   });
 }
 
+/** A client-mediated write is the edit an agent's own tool call asks permission for. */
+export function acpClientFileWriteDisposition(
+  runtimePolicy: AcpRuntimePolicy,
+  request: EffectAcpSchema.WriteTextFileRequest,
+): AcpPermissionDisposition {
+  return acpOperationDisposition(runtimePolicy, {
+    kind: "edit",
+    locations: [{ path: request.path }],
+  });
+}
+
 export function acpMcpToolApprovalElicitationDisposition(
   runtimePolicy: AcpRuntimePolicy,
   request: EffectAcpSchema.CreateElicitationRequest,

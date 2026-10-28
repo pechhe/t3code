@@ -6,7 +6,7 @@ import {
   ThreadId,
   type ScheduledTask,
 } from "@t3tools/contracts";
-import { describe, expect, it } from "vite-plus/test";
+import { assert, describe, expect, it } from "vite-plus/test";
 
 import {
   groupScheduledTasks,
@@ -197,6 +197,16 @@ describe("planGroupSave", () => {
 });
 
 describe("workspace choice", () => {
+  it("starts a fresh run where a new thread does, with no branch to exist", () => {
+    assert.deepEqual(workspaceStrategyFor("fresh", null), { type: "root", rootIsDefault: true });
+    assert.equal(workspaceChoiceOf({ type: "root", rootIsDefault: true }), "fresh");
+  });
+
+  it("keeps an explicit worktree choice a fresh run was given", () => {
+    const worktree = { type: "worktree", baseRef: "origin/release" } as const;
+    assert.deepEqual(workspaceStrategyFor("fresh", worktree), worktree);
+  });
+
   it("shows an agent's default workspace as fresh and drops the default when checkout is chosen", () => {
     const agentDefault = { type: "root", rootIsDefault: true } as const;
     expect(workspaceChoiceOf(agentDefault)).toBe("fresh");

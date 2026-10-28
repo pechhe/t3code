@@ -23,6 +23,7 @@ import {
   makeAntigravityStdoutTransform,
 } from "../antigravityAuthSupport.ts";
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
+import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { normalizeAntigravitySessionUpdate } from "./AntigravityProtocol.ts";
 
 export interface AntigravityAcpRuntimeInput extends Omit<
@@ -90,6 +91,18 @@ export function antigravityPermissionMode(runtimeMode: RuntimeMode): string {
     case "approval-required":
       return "default";
   }
+}
+
+/**
+ * A managed read-only task launches in an ask mode, so Antigravity's own edit and shell tools
+ * reach T3's runtime-policy disposition instead of running under the thread's full access.
+ */
+export function antigravityLaunchRuntimeMode(
+  runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
+): RuntimeMode {
+  return ProviderAdapter.isManagedReadOnlyRuntimePolicy(runtimePolicy)
+    ? "approval-required"
+    : runtimePolicy.runtimeMode;
 }
 
 function antigravityModelOptions(

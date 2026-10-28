@@ -449,3 +449,41 @@ it.effect("saving a plain root over a default root keeps the default unless it i
     assert.deepEqual(yield* save({ type: "root" }), { type: "root" });
   }).pipe(Effect.provide(layerWithoutLaunch.pipe(Layer.provide(SqlitePersistence.layerMemory)))),
 );
+
+it.effect("reads a task the old web editor saved as a worktree from HEAD as the default root", () =>
+  Effect.gen(function* () {
+    const service = yield* ScheduledTaskService.ScheduledTaskService;
+    const save = (workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy) =>
+      service
+        .upsert({
+          id: ScheduledTaskId.make("task:saved-default-worktree"),
+          title: "Nightly audit",
+          prompt: "Audit",
+          enabled: true,
+          schedule: { type: "interval", everyMs: 60_000 },
+          projectId: ProjectId.make("project:test"),
+          workspaceStrategy,
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+        })
+        .pipe(Effect.map(({ task }) => task.workspaceStrategy));
+    const defaultRoot = { type: "root", rootIsDefault: true } as const;
+    assert.deepEqual(yield* save({ type: "worktree", baseRef: "HEAD" }), defaultRoot);
+    // A branch the person picked, and a Forge item's workspace, are still what they say.
+    assert.deepEqual(yield* save({ type: "worktree", baseRef: "HEAD", branch: "release" }), {
+      type: "worktree",
+      baseRef: "HEAD",
+      branch: "release",
+    });
+    assert.deepEqual(yield* save({ type: "worktree", baseRef: "HEAD", forgeItem: 42 }), {
+      type: "worktree",
+      baseRef: "HEAD",
+      forgeItem: 42,
+    });
+    assert.deepEqual(yield* save({ type: "worktree", baseRef: "origin/main" }), {
+      type: "worktree",
+      baseRef: "origin/main",
+    });
+  }).pipe(Effect.provide(layerWithoutLaunch.pipe(Layer.provide(SqlitePersistence.layerMemory)))),
+);

@@ -177,7 +177,6 @@ function makeRecordingCreateHost(
         },
         close: () => void close(),
       },
-      readOnly: options.readOnly,
       mintCommandId: () => {
         const id = mint();
         minted.push(id);

@@ -76,6 +76,17 @@ export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
 });
 export type ProviderAdapterV2RuntimePolicy = typeof ProviderAdapterV2RuntimePolicy.Type;
 
+/** A managed read-only agent (a reviewer, scout or browser role) rather than an ordinary thread. */
+export function isManagedReadOnlyRuntimePolicy(policy: ProviderAdapterV2RuntimePolicy): boolean {
+  const sandbox: unknown = policy.sandboxPolicy;
+  return (
+    policy.managedAgent === true &&
+    typeof sandbox === "object" &&
+    sandbox !== null &&
+    (sandbox as { type?: unknown }).type === "readOnly"
+  );
+}
+
 /**
  * A still sampled from a video attachment on the server host. Frames are derived
  * from `attachments`, not attachments themselves, so they never count toward the

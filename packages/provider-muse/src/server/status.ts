@@ -22,6 +22,8 @@ import {
 
 const MUSE_PRESENTATION = {
   toolCallGuard: "observe-only",
+  // A read-only managed task launches Muse with shell and write disabled.
+  readOnlySourceAccess: "enforced",
   displayName: "Muse Code",
   showInteractionModeToggle: false,
   reportsContextWindow: true,

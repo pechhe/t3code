@@ -134,10 +134,12 @@ export function museServeArgs(
   return args;
 }
 
-export function museInitializeParams(readOnly = false) {
+export function museInitializeParams() {
   return {
     clientInfo: { name: "t3_code", title: "T3 Code", version: "1" },
-    capabilities: { requestedCapabilities: readOnly ? [] : ["sessionMcp"] },
+    // A read-only host still carries T3's MCP session, so the capability is always requested;
+    // the adapter checks what the server grants before attaching a server.
+    capabilities: { requestedCapabilities: ["sessionMcp"] },
   };
 }
 
@@ -177,10 +179,7 @@ export async function createMuseSdkHost(
   );
   timer.unref();
   try {
-    const host = await Promise.race([
-      handshake.initialize(museInitializeParams(options.readOnly)),
-      interrupted,
-    ]);
+    const host = await Promise.race([handshake.initialize(museInitializeParams()), interrupted]);
     if (host.initializeResult.schema?.version !== 1) {
       throw new Error("Muse SDK returned an unsupported protocol envelope version.");
     }

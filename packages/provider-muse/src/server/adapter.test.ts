@@ -211,11 +211,13 @@ const makeHarness = Effect.fnUntraced(function* (
   > = {},
 ) {
   let hostCount = 0;
+  const hostOptions: MuseSdkHostOptions[] = [];
   const adapter = yield* makeMuseAdapterV2({
     instanceId,
     settings: museSettings,
     environment: { PATH: "/fake/bin" },
     createHost: async (options) => {
+      hostOptions.push(options);
       const selected = hostCount++ === 0 ? fake : (replacement ?? fake);
       selected.observeProcessExit(options.onProcessExit);
       return selected.host;
@@ -267,7 +269,16 @@ const makeHarness = Effect.fnUntraced(function* (
       }
     }
   });
-  return { adapter, runtime, providerThread, takeEvent, allEvents, policy, eventsEnded };
+  return {
+    adapter,
+    runtime,
+    providerThread,
+    takeEvent,
+    allEvents,
+    policy,
+    eventsEnded,
+    hostOptions,
+  };
 });
 
 const preallocatedProviderThread = Effect.fnUntraced(function* () {
@@ -409,6 +420,58 @@ describe("MuseAdapterV2", () => {
         { type: "image", base64Data: "CQo=", mediaType: "image/jpeg" },
       ]);
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect(
+    "launches a read-only managed task with shell and write disabled and keeps its MCP session",
+    () =>
+      Effect.gen(function* () {
+        const writer = yield* makeFakeMuse();
+        const writerHarness = yield* makeHarness(writer, INSTANCE_ID);
+        assert.strictEqual(writerHarness.hostOptions[0]?.readOnly, undefined);
+        assert.strictEqual(writerHarness.hostOptions[0]?.sessionLogging, undefined);
+
+        yield* (yield* McpProviderSessions.McpProviderSessions).set({
+          environmentId: EnvironmentId.make("test-environment"),
+          threadId: THREAD_ID,
+          providerSessionId: "test-session",
+          providerInstanceId: INSTANCE_ID,
+          endpoint: "http://127.0.0.1:43210/mcp",
+          authorizationHeader: "Bearer thread-scoped-test-token",
+          browserToolsAvailable: false,
+        });
+        const readOnlyPolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          ...runtimePolicy,
+          managedAgent: true,
+          sandboxPolicy: { type: "readOnly", networkAccess: false },
+        });
+        const fake = yield* makeFakeMuse();
+        fake.host.initializeResult.grantedCapabilities.push("sessionMcp");
+        const harness = yield* makeHarness(
+          fake,
+          INSTANCE_ID,
+          undefined,
+          undefined,
+          undefined,
+          readOnlyPolicy,
+        );
+        const call = yield* fake.takeCall("session/start");
+        const options = harness.hostOptions[0]!;
+        assert.strictEqual(options.readOnly, true);
+        // Muse derives turn events from its session log, so a read-only host keeps it.
+        assert.strictEqual(options.sessionLogging, true);
+        assert.strictEqual(options.runtimeMode, "full-access");
+        assert.deepStrictEqual(call.params.config, {
+          mcpServers: {
+            "t3-code": {
+              transport: "streamableHttp",
+              mode: "optional",
+              url: "http://127.0.0.1:43210/mcp",
+              headers: { Authorization: "Bearer thread-scoped-test-token" },
+            },
+          },
+        });
+      }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 
   it.effect("connects the thread's MCP credential on native start and resume", () =>

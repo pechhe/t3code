@@ -9,6 +9,7 @@ import * as NodePath from "node:path";
 
 import {
   acpClientExecuteDisposition,
+  acpClientFileWriteDisposition,
   acpExecuteCommand,
   acpMcpToolApprovalElicitationDisposition,
   acpPermissionDisposition,
@@ -49,6 +50,60 @@ describe("acpExecuteCommand", () => {
     assert.isNull(acpExecuteCommand({}));
     assert.isNull(acpExecuteCommand({ command: "   " }));
     assert.isNull(acpExecuteCommand({ command: 42 }));
+  });
+});
+
+describe("acpClientFileWriteDisposition", () => {
+  const cwd = NodePath.resolve(process.cwd(), "acp-client-write-workspace");
+  const writeRequest = (path: string): EffectAcpSchema.WriteTextFileRequest => ({
+    sessionId: "write-session",
+    path,
+    content: "content",
+  });
+
+  it("denies a write for a managed read-only task, which has no writable root", () => {
+    assert.equal(
+      acpClientFileWriteDisposition(
+        {
+          runtimeMode: "full-access",
+          cwd,
+          approvalPolicy: "never",
+          sandboxPolicy: { type: "readOnly", networkAccess: false },
+        },
+        writeRequest(NodePath.join(cwd, "src", "index.ts")),
+      ),
+      "deny",
+    );
+  });
+
+  it("allows a write inside a workspace-write sandbox and denies one outside it", () => {
+    const sandboxed: AcpRuntimePolicy = {
+      runtimeMode: "full-access",
+      cwd,
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "workspaceWrite", writableRoots: [], networkAccess: false },
+    };
+    assert.equal(
+      acpClientFileWriteDisposition(sandboxed, writeRequest(NodePath.join(cwd, "src", "index.ts"))),
+      "allow",
+    );
+    assert.equal(
+      acpClientFileWriteDisposition(
+        sandboxed,
+        writeRequest(NodePath.resolve(process.cwd(), "outside-acp-client-write", "index.ts")),
+      ),
+      "deny",
+    );
+  });
+
+  it("keeps the permission prompt for an unsandboxed approval-required thread", () => {
+    assert.equal(
+      acpClientFileWriteDisposition(
+        { runtimeMode: "approval-required", cwd },
+        writeRequest(NodePath.join(cwd, "src", "index.ts")),
+      ),
+      "ask",
+    );
   });
 });
 

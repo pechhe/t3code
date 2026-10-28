@@ -33,7 +33,7 @@ import {
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
 import { randomUUID } from "../../lib/utils";
@@ -160,31 +160,29 @@ function useProjectChoices(): ReadonlyArray<
 > {
   const projects = useProjects();
   const grouping = useClientSettings(selectProjectGroupingSettings);
-  return useMemo(() => {
-    const byKey = new Map<
-      string,
-      {
-        title: string;
-        project: (typeof projects)[number];
-        ids: Map<EnvironmentId, (typeof projects)[number]["id"]>;
-      }
-    >();
-    for (const project of projects) {
-      if (project.isScratch) continue;
-      const key = deriveLogicalProjectKeyFromSettings(project, grouping);
-      const entry = byKey.get(key) ?? { title: project.title, project, ids: new Map() };
-      entry.ids.set(project.environmentId, project.id);
-      byKey.set(key, entry);
+  const byKey = new Map<
+    string,
+    {
+      title: string;
+      project: (typeof projects)[number];
+      ids: Map<EnvironmentId, (typeof projects)[number]["id"]>;
     }
-    return [...byKey.entries()]
-      .map(([key, entry]) => ({
-        key,
-        title: entry.title,
-        project: entry.project,
-        projectIdByEnvironment: entry.ids,
-      }))
-      .toSorted((a, b) => a.title.localeCompare(b.title));
-  }, [projects, grouping]);
+  >();
+  for (const project of projects) {
+    if (project.isScratch) continue;
+    const key = deriveLogicalProjectKeyFromSettings(project, grouping);
+    const entry = byKey.get(key) ?? { title: project.title, project, ids: new Map() };
+    entry.ids.set(project.environmentId, project.id);
+    byKey.set(key, entry);
+  }
+  return [...byKey.entries()]
+    .map(([key, entry]) => ({
+      key,
+      title: entry.title,
+      project: entry.project,
+      projectIdByEnvironment: entry.ids,
+    }))
+    .toSorted((a, b) => a.title.localeCompare(b.title));
 }
 
 /**
@@ -196,16 +194,10 @@ export function ScheduledTasksPage(props: {
   readonly taskId?: string | undefined;
 }) {
   const sources = useAllScheduledTasks();
-  const groups = useMemo(
-    () =>
-      groupScheduledTasks(
-        sources.flatMap((source) =>
-          source.tasks === null
-            ? []
-            : [{ environmentId: source.environmentId, tasks: source.tasks }],
-        ),
-      ),
-    [sources],
+  const groups = groupScheduledTasks(
+    sources.flatMap((source) =>
+      source.tasks === null ? [] : [{ environmentId: source.environmentId, tasks: source.tasks }],
+    ),
   );
   const linkedKey = groups.find((group) =>
     group.members.some(
@@ -795,8 +787,9 @@ function TaskDetail(props: {
         ) : null}
       </div>
       <p className="-mt-3 text-muted-foreground text-xs">
-        A fresh workspace is a SlipJay workspace in a SlipJay project, and a new worktree elsewhere.
-        The project checkout runs in the project folder itself.
+        A fresh run starts where a new thread does: its own workspace in a SlipJay project. The
+        project checkout runs in the project folder, which is the integration checkout in a SlipJay
+        project.
       </p>
 
       <div className="flex flex-col gap-1.5">

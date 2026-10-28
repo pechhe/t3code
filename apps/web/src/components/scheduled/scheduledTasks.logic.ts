@@ -152,11 +152,9 @@ export function roleModelSummary(
 export type WorkspaceChoice = "fresh" | "checkout";
 
 /**
- * Where a run works. "fresh" gives each run its own checkout: a SlipJay workspace from
- * the integration branch in a SlipJay project, a Git worktree from the checkout's
- * current commit otherwise; a task created by an agent runs where a new thread does,
- * which also counts as "fresh". "checkout" runs in the project folder itself, in a
- * SlipJay project too.
+ * Where a run works. "fresh" starts the run where a new thread does: its own SlipJay workspace
+ * in a SlipJay project, and the project folder elsewhere, so it needs no branch to exist.
+ * "checkout" runs in the project folder itself, in a SlipJay project too.
  */
 export function workspaceStrategyFor(
   choice: WorkspaceChoice,
@@ -168,13 +166,9 @@ export function workspaceStrategyFor(
       ? previous
       : { type: "root" };
   }
-  if (
-    previous?.type === "worktree" ||
-    (previous?.type === "root" && previous.rootIsDefault === true)
-  ) {
-    return previous;
-  }
-  return { type: "worktree", baseRef: "HEAD" };
+  // An explicit worktree choice is a branch the person picked; it stays.
+  if (previous?.type === "worktree") return previous;
+  return { type: "root", rootIsDefault: true };
 }
 
 const isDefaultWorkspace = (

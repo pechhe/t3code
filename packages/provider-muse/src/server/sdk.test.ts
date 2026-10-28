@@ -108,6 +108,27 @@ describe("Muse SDK host", () => {
     }
   });
 
+  it("keeps the session MCP capability on a read-only host with its session log", async () => {
+    const fake = mockSpawn();
+    const running = createMuseSdkHost({
+      binaryPath: "muse",
+      runtimeMode: "full-access",
+      readOnly: true,
+      sessionLogging: true,
+    });
+    expect(vi.mocked(spawnMspConnection).mock.lastCall?.[0]).toMatchObject({
+      args: ["serve", "--disable-shell", "--disable-write"],
+    });
+    expect(fake.initialize).toHaveBeenCalledWith({
+      clientInfo: { name: "t3_code", title: "T3 Code", version: "1" },
+      capabilities: { requestedCapabilities: ["sessionMcp"] },
+    });
+    fake.startup.resolve(fake.ready);
+    const host = await running;
+    fake.shutdown.resolve({ code: 0, signal: null });
+    await host.close();
+  });
+
   it.each([undefined, 2])(
     "rejects unsupported envelope version %s and awaits shutdown",
     async (version) => {

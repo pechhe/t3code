@@ -330,11 +330,31 @@ function webhookEndpoint(
   };
 }
 
+/**
+ * The web editor's old "fresh" default stored a worktree from `HEAD`, which now means where a new
+ * thread starts. Nothing writes that shape without a branch or a Forge item, so a saved task of
+ * that shape reads as the default root instead.
+ */
+function savedWorkspaceStrategy(
+  strategy: ScheduledTask["workspaceStrategy"],
+): ScheduledTask["workspaceStrategy"] {
+  return strategy.type === "worktree" &&
+    strategy.baseRef === "HEAD" &&
+    strategy.branch === undefined &&
+    strategy.startFromOrigin === undefined &&
+    strategy.forgeItem === undefined &&
+    strategy.buildItem === undefined
+    ? { type: "root", rootIsDefault: true }
+    : strategy;
+}
+
 const decodeRow = Effect.fnUntraced(
   function* (row: ScheduledTaskRow, origin: WebhookOrigin | null = null) {
     const schedule = yield* decodeScheduleJson(row.schedule_json);
     const webhook = schedule.type === "webhook" ? webhookEndpoint(row, origin) : undefined;
-    const workspaceStrategy = yield* decodeWorkspaceStrategyJson(row.workspace_strategy_json);
+    const workspaceStrategy = savedWorkspaceStrategy(
+      yield* decodeWorkspaceStrategyJson(row.workspace_strategy_json),
+    );
     const modelSelection = yield* decodeModelSelectionJson(row.model_selection_json);
     return yield* decodeTask({
       id: row.task_id,

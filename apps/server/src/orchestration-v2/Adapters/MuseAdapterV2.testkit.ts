@@ -361,7 +361,6 @@ class MuseReplayController {
 
 export async function connectMuseTransport(input: {
   readonly transport: DuplexTransport;
-  readonly readOnly: boolean | undefined;
   readonly mintCommandId?: () => string;
   readonly exited: MuseSdkHost["exited"];
   readonly close: () => Promise<void>;
@@ -370,7 +369,7 @@ export async function connectMuseTransport(input: {
     input.transport,
     input.mintCommandId ? { mintCommandId: input.mintCommandId } : {},
   );
-  const result = await connection.request("initialize", museInitializeParams(input.readOnly));
+  const result = await connection.request("initialize", museInitializeParams());
   connection.notify("initialized");
   const granted = result.grantedCapabilities;
   return {
@@ -398,7 +397,6 @@ function makeReplayCreateHost(controller: MuseReplayController) {
         },
         close: () => controller.close(host),
       },
-      readOnly: options.readOnly,
       mintCommandId: () => controller.mint(host),
       exited: host.exited,
       close: async () => controller.close(host),
