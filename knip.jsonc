@@ -46,6 +46,7 @@
         "src/claude-history-worker.ts!",
         "scripts/cli.ts",
         "scripts/evaluate-thread-titles.ts",
+        "scripts/event-compaction-equivalence.ts",
         "scripts/fetch-expo-schema.ts",
         "scripts/probe-claude-fork-local-rollback-replay.ts",
         // A manual probe that spends provider turns, run by path.

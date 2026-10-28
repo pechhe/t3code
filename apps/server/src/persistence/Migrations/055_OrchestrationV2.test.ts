@@ -57,6 +57,7 @@ layer("055_OrchestrationV2", (it) => {
         [91, "ProjectionAggregateIndexes"],
         [92, "MaintenanceCandidateIndexes"],
         [93, "IntermediateEventCompaction"],
+        [94, "EventLogWriteIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -116,6 +117,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 91, name: "ProjectionAggregateIndexes" },
         { migration_id: 92, name: "MaintenanceCandidateIndexes" },
         { migration_id: 93, name: "IntermediateEventCompaction" },
+        { migration_id: 94, name: "EventLogWriteIndexes" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`
