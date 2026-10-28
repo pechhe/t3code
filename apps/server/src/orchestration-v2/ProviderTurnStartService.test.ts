@@ -1733,7 +1733,10 @@ effectIt.effect.each([
       expect(harness.createWorktree).not.toHaveBeenCalled();
       expect(harness.projection().runs.at(-1)?.status).toBe("failed");
       const [item] = harness.projection().turnItems;
-      expect(item).toMatchObject({ type: "error", title: "Workspace invalid" });
+      expect(item).toMatchObject({
+        type: "error",
+        title: state === "absent" ? "Workspace missing" : "Workspace invalid",
+      });
       expect(item?.type === "error" ? item.failure.message : "").toContain(
         "ask its lead to assign the work again",
       );

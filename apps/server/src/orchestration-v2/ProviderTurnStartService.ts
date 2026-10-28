@@ -798,8 +798,11 @@ export const layer: Layer.Layer<
           return;
         }
       }
+      const workspaceMissing =
+        worktreePath !== null &&
+        !(yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => true)));
       let invalidWorkspace = false;
-      if (projection.thread.agentTask !== undefined && worktreePath !== null) {
+      if (projection.thread.agentTask !== undefined && worktreePath !== null && !workspaceMissing) {
         const project = yield* projects.getById(projection.thread.projectId);
         if (Option.isSome(project)) {
           // The repository a directory belongs to, and where it sits in that checkout.
@@ -832,11 +835,7 @@ export const layer: Layer.Layer<
       }
       // A provider never starts in a missing directory: it would run somewhere
       // else or fail without saying why. The run fails with the reason instead.
-      if (
-        worktreePath !== null &&
-        (invalidWorkspace ||
-          !(yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => true))))
-      ) {
+      if (worktreePath !== null && (workspaceMissing || invalidWorkspace)) {
         const now = yield* DateTime.now;
         yield* settleRunBeforeStart({
           signal: "workspace-missing",
