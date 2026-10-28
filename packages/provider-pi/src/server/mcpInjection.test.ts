@@ -183,6 +183,8 @@ describe("pi T3 MCP injection", () => {
       "--exclude-tools",
       "bash,edit,write",
     ]);
+    const added = launch.args.indexOf("--tools");
+    assert.deepEqual(launch.args.slice(added, added + 2), ["--tools", "+grep,+find,+ls"]);
     assert.include(launch.args, "anthropic");
     assert.isTrue(launch.hasT3Mcp);
   });

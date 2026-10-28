@@ -200,6 +200,8 @@ function withoutExplicitExtensions(args: ReadonlyArray<string>): ReadonlyArray<s
 
 /** Pi's built-in tools that run commands or change files; Pi does not sandbox them itself. */
 const PI_MUTATING_BUILTIN_TOOLS = ["bash", "edit", "write"] as const;
+/** Pi's read-only search built-ins, off by default; without them a read-only session has only `read`. */
+const PI_READ_ONLY_SEARCH_TOOLS = ["+grep", "+find", "+ls"] as const;
 
 function withoutToolSelectionArgs(args: ReadonlyArray<string>): ReadonlyArray<string> {
   const filtered: string[] = [];
@@ -288,7 +290,12 @@ export function buildPiRpcLaunch(input: {
     ...(input.disableTools === true
       ? ["--no-tools"]
       : input.readOnlyTools === true
-        ? ["--exclude-tools", PI_MUTATING_BUILTIN_TOOLS.join(",")]
+        ? [
+            "--tools",
+            PI_READ_ONLY_SEARCH_TOOLS.join(","),
+            "--exclude-tools",
+            PI_MUTATING_BUILTIN_TOOLS.join(","),
+          ]
         : []),
   ];
   if (
