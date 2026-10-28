@@ -383,6 +383,7 @@ describe("OrchestratorMcpService", () => {
         ],
       } as unknown as OrchestrationV2ThreadProjection;
       const childProjection = {
+        providerSessions: [],
         thread: { id: childThreadId, title: "Child" },
         runs: [
           {
@@ -727,6 +728,7 @@ describe("OrchestratorMcpService", () => {
         ],
       } as unknown as OrchestrationV2ThreadProjection;
       const childProjection = {
+        providerSessions: [],
         thread: { id: childThreadId, title: "Child" },
         runs: [
           {
@@ -940,6 +942,7 @@ describe("OrchestratorMcpService", () => {
         ],
       } as unknown as OrchestrationV2ThreadProjection;
       const childProjection = {
+        providerSessions: [],
         thread: { id: childThreadId, title: "Child" },
         runs: [],
         contextTransfers: [],
@@ -1031,6 +1034,7 @@ describe("OrchestratorMcpService", () => {
           }) as unknown as OrchestrationV2ThreadProjection;
         // A finished run whose binding to the follow-up was lost.
         const childProjection = {
+          providerSessions: [],
           thread: { id: childThreadId, title: "Child" },
           runs:
             childState === "no runs"
@@ -1139,6 +1143,7 @@ describe("OrchestratorMcpService", () => {
         ],
       } as unknown as OrchestrationV2ThreadProjection;
       const childProjection = {
+        providerSessions: [],
         thread: { id: childThreadId, title: "Child" },
         runs: [{ id: childRunId, status: "running" }],
         contextTransfers: [],
@@ -1226,6 +1231,8 @@ describe("OrchestratorMcpService", () => {
         ],
       } as unknown as OrchestrationV2ThreadProjection;
       const childProjection = {
+        // A turn Stop is still interrupting keeps its session: no detach is dispatched.
+        providerSessions: [{ id: "provider-session:live", status: "ready" }],
         thread: { id: childThreadId, title: "Child" },
         runs: [{ id: childRunId, status: "running" }],
         contextTransfers: [],
@@ -1294,6 +1301,106 @@ describe("OrchestratorMcpService", () => {
     }),
   );
 
+  it.effect(
+    "releases the closed task's live provider session so its idle process frees the workspace (T3-264)",
+    () =>
+      Effect.gen(function* () {
+        const parentThreadId = ThreadId.make("thread:mcp-cancel-release-session-parent");
+        const childThreadId = ThreadId.make("thread:mcp-cancel-release-session-child");
+        const childRunId = RunId.make("run:mcp-cancel-release-session-child");
+        const taskId = NodeId.make("node:mcp-cancel-release-session-task");
+        const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
+        const parentProjection = {
+          thread: { id: parentThreadId },
+          runs: [],
+          contextTransfers: [],
+          subagents: [
+            {
+              id: taskId,
+              threadId: parentThreadId,
+              origin: "app_owned",
+              childThreadId,
+              driver: "codex",
+              model: "gpt-5.6-terra",
+              result: null,
+              completionDelivery: { state: "pending" },
+            },
+          ],
+        } as unknown as OrchestrationV2ThreadProjection;
+        const childProjection = {
+          providerSessions: [
+            { id: "provider-session:live", status: "ready" },
+            { id: "provider-session:stopped", status: "stopped" },
+          ],
+          thread: { id: childThreadId, title: "Child" },
+          runs: [{ id: childRunId, status: "completed" }],
+          turnItems: [],
+          contextTransfers: [],
+          messages: [],
+          subagents: [],
+          providerThreads: [],
+          runtimeRequests: [],
+        } as unknown as OrchestrationV2ThreadProjection;
+        const layerDependencies = Layer.mergeAll(
+          Layer.merge(
+            NodeServices.layer,
+            Layer.mock(Experiments.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
+            }),
+          ),
+          Layer.mock(ThreadManagementService.ThreadManagementService)({
+            getThreadRecords: (threadId) =>
+              Effect.succeed(threadId === parentThreadId ? parentProjection : childProjection),
+            getThreadShell: (threadId) => Effect.succeed(liveThreadShell(threadId)),
+            dispatch: (command) =>
+              Ref.update(dispatched, (commands) => [...commands, command]).pipe(
+                Effect.andThen(Effect.succeed({} as never)),
+              ),
+            stopDelegatedTasks: () => Effect.void,
+            delegatedTaskResultPending: () => Effect.succeed(false),
+          }),
+          ServerSettings.layerTest(),
+          Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+          Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+            list: () => Effect.succeed([]),
+          }),
+          Layer.mock(ProjectService.ProjectService)({}),
+          Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+          Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+        );
+        const scope: McpInvocationScope = {
+          environmentId: EnvironmentId.make("environment:mcp-cancel-release-session"),
+          requestNamespace: "provider-session:mcp-cancel-release-session",
+          thread: {
+            threadId: parentThreadId,
+            providerSessionId: "provider-session:mcp-cancel-release-session",
+            providerInstanceId: ProviderInstanceId.make("codex"),
+          },
+          client: undefined,
+          capabilities: new Set(["orchestration"]),
+          issuedAt: 1,
+        };
+
+        yield* Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const result = yield* service.cancelTask(scope, {
+            taskId,
+            clientRequestId: "cancel-release-session-task",
+          });
+          assert.equal(result.taskId, taskId);
+          const detached = (yield* Ref.get(dispatched)).filter(
+            (command) => (command as { type: string }).type === "provider-session.detach",
+          );
+          assert.deepEqual(
+            detached.map((command) => (command as { providerSessionId: string }).providerSessionId),
+            ["provider-session:live"],
+          );
+        }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
+      }),
+  );
+
   it.effect("refuses to cancel a task whose child now runs above the parent's modes", () =>
     Effect.gen(function* () {
       const parentThreadId = ThreadId.make("thread:mcp-cancel-dispose-failed-parent");
@@ -1319,6 +1426,7 @@ describe("OrchestratorMcpService", () => {
         ],
       } as unknown as OrchestrationV2ThreadProjection;
       const childProjection = {
+        providerSessions: [],
         thread: { id: childThreadId, title: "Child" },
         runs: [{ id: childRunId, status: "running" }],
         contextTransfers: [],
@@ -1657,6 +1765,7 @@ describe("OrchestratorMcpService provider resolution", () => {
     }) as unknown as OrchestrationV2ThreadProjection;
 
   const childProjection = {
+    providerSessions: [],
     thread: { id: childThreadId, title: "Child" },
     runs: [],
     contextTransfers: [],

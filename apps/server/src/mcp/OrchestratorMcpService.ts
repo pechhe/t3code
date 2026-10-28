@@ -3590,6 +3590,44 @@ const make = Effect.gen(function* () {
               })
               .pipe(Effect.mapError(threadManagementFailure));
           }
+          // Release a closed task's idle provider process now, not at the idle timeout, so it frees
+          // its workspace (T3-264); a follow-up resumes in a fresh session. A turn Stop is still
+          // interrupting keeps its session, since releasing it mid-turn could fail the run.
+          yield* Effect.gen(function* () {
+            const child = yield* threadManagement.getThreadRecords(current.childThreadId, [
+              "runs",
+              "providerSessions",
+            ]);
+            const turnLive = child.runs.some(
+              (run) =>
+                run.status === "preparing" || run.status === "starting" || run.status === "running",
+            );
+            if (turnLive) return;
+            for (const session of child.providerSessions) {
+              if (session.status === "stopped" || session.status === "error") continue;
+              yield* threadManagement.dispatch({
+                type: "provider-session.detach",
+                commandId: stableCommandId({
+                  scope,
+                  requestKey: key,
+                  operation: `cancel-task-provider-session:${session.id}`,
+                }),
+                threadId: current.childThreadId,
+                providerSessionId: session.id,
+                reason: "Delegated task closed.",
+              });
+            }
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning(
+                "task_cancel could not release the closed task's provider session",
+                {
+                  taskId: input.taskId,
+                  cause,
+                },
+              ),
+            ),
+          );
         });
         // Checked above; a user raising one of these threads meanwhile is
         // caught again under that thread's lock, which leaves it running.
