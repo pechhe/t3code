@@ -1,26 +1,8 @@
 /**
- * What a thread's agent owes Weave's Forge record, queued rather than sent from the turn that
- * produced it (Spec #4395). Ending an agent replaces its identity, so everything it has to record
- * must reach Weave first; and a provider turn can end, or T3 restart, between a record being made
- * and Weave taking it. A row therefore waits here in `hq_build_records` until Weave accepts it,
- * and is retried for as long as Weave is unreachable. A refusal Weave states with a code is
- * permanent: the row is parked with its reason, visible through `outstanding`, instead of holding
- * the thread's later rows or spamming a person's Forge record.
- *
- * Rows go out in the order their thread made them, and a row that has to wait holds the rows of its
- * thread behind it, so its `end` only goes once nothing else of the thread's is left. A row queued
- * while its Forge item could not be read carries no Spec: the pass resolves it when it sends,
- * waiting while Weave still cannot answer, parking it when the link names no Spec at all, and
- * writing the Spec onto the row so later rows of that Spec can find it. A row belongs to the Weave
- * it was queued on, and waits while T3 is connected to another. A helper's row additionally waits
- * for the lead's session of that Spec, because the session id it must name as its parent is only
- * known once the lead's own row has been delivered, and a helper queued while its link was unread
- * resolves its lead on every attempt. A turn's usage waits for the record of its own run, because
- * that is the session Weave attributes it to; a reviewer's usage names the Forge run its own T3 run
- * reported, and waits for that report while the run's end has not been queued. That report is
- * written before the reviewer is given the answer naming its run, retrying a failed write briefly
- * first, and it keeps the T3 run it was made in, so a write that has to wait names that run rather
- * than the one its thread has moved on to.
+ * What a thread's agent owes Weave's Forge record, queued durably because ending an agent replaces
+ * its identity and a turn can end, or T3 restart, before Weave takes it. A row waits for its own
+ * thread's earlier rows, retries while Weave is unreachable, and is parked with its reason when
+ * Weave refuses it, so no later row waits for ever.
  */
 import { sameHqAddress } from "@t3tools/shared/hqOrigins";
 import { ThreadId } from "@t3tools/contracts";
@@ -40,6 +22,7 @@ import * as Stream from "effect/Stream";
 import type * as Scope from "effect/Scope";
 
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as ForgeSpecOfThread from "./ForgeSpecOfThread.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
@@ -175,6 +158,11 @@ const HqSession = Schema.Struct({
   id: Schema.optional(Schema.String),
 });
 const decodeSession = Schema.decodeUnknownOption(HqSession);
+/** A Forge item's status, which says whether a bind refused for its status can still succeed. */
+const ForgeItemStatus = Schema.Struct({ status: Schema.optional(Schema.String) });
+const decodeForgeItemStatus = Schema.decodeUnknownOption(ForgeItemStatus);
+/** A Spec in one of these has passed the statuses Weave lets a lead bind. */
+const PAST_BINDABLE_STATUSES = new Set(["landed", "accepted", "dropped"]);
 /** The generation Weave's bind returned, which a session has to be opened under. */
 const decodeBoundGeneration = Schema.decodeUnknownOption(
   Schema.Struct({ generation: Schema.Number }),
@@ -321,6 +309,8 @@ const make = Effect.gen(function* () {
   const weave = yield* HqAgentConnections.HqAgentConnections;
   const buildSpec = yield* ForgeSpecOfThread.ForgeSpecOfThread;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const environment = yield* ServerEnvironment.ServerEnvironment;
+  const environmentId = yield* environment.getEnvironmentId;
   const wakeups = yield* Queue.unbounded<void>();
   // Dependency waits are scheduling state, not failed delivery attempts on the stored record.
   const blockedWaits = new Map<string, { count: number; nextAttemptAt: number }>();
@@ -596,6 +586,30 @@ const make = Effect.gen(function* () {
     );
 
   /**
+   * Whether a bind refused for the Spec's status can still succeed. A status past the bindable ones
+   * says it cannot; a status still being shaped or already bindable, and a status T3 could not read,
+   * all leave the refusal worth retrying.
+   */
+  const bindMayStillSucceed = Effect.fn("HqForgeRecords.bindMayStillSucceed")(function* (
+    specId: string,
+  ) {
+    const status = yield* weave.observe("weave_forge_read", { itemId: specId }).pipe(
+      Effect.map((read) =>
+        Option.getOrNull(
+          Option.flatMap(decodeForgeItemStatus(read.value), (item) =>
+            Option.fromNullishOr(item.status),
+          ),
+        ),
+      ),
+      Effect.orElseSucceed(() => null),
+    );
+    return status === null || !PAST_BINDABLE_STATUSES.has(status);
+  });
+
+  /** The reference a lead reports itself under, which is the session T3 opens and adopts. */
+  const leadSessionRefOf = (threadId: ThreadId) => `${environmentId}/${threadId}`;
+
+  /**
    * One record's trip to Weave. Anything Weave could still accept is reported as a retry rather
    * than raised, so the queue decides how long to wait.
    */
@@ -672,8 +686,13 @@ const make = Effect.gen(function* () {
       case "session": {
         const record = decodeSessionPayload(payload.value);
         if (Option.isNone(record)) return refused("record_payload_invalid");
+        // Derived when sent, so a row queued by an earlier build also adopts the lead's own session.
+        const startSession: Record<string, unknown> = {
+          ...record.value.startSession,
+          sessionRef: leadSessionRefOf(row.threadId),
+        };
         // A workspace queued with no repository takes the Spec's own, which only Weave can say.
-        const queued = record.value.startSession.workspaces;
+        const queued = startSession.workspaces;
         let workspaces = queued;
         if (
           Array.isArray(queued) &&
@@ -690,12 +709,20 @@ const make = Effect.gen(function* () {
           );
         }
         const bound = yield* call("weave_forge_bind", underSpec(record.value.bind));
+        if (
+          bound._tag === "refused" &&
+          bound.code === "bind_status_invalid" &&
+          specId !== null &&
+          (yield* bindMayStillSucceed(specId))
+        ) {
+          return retry("spec_not_bindable");
+        }
         if (bound._tag !== "delivered") return bound;
         // The session is opened under the generation the bind returned, which only Weave knows.
         const generation = decodeBoundGeneration(bound.value);
         const started = yield* call("weave_forge_start_session", {
           ...underSpec({
-            ...record.value.startSession,
+            ...startSession,
             ...(workspaces === undefined ? {} : { workspaces }),
           }),
           ...(Option.isSome(generation) ? { generation: generation.value.generation } : {}),
@@ -707,7 +734,7 @@ const make = Effect.gen(function* () {
         const existing = yield* call("weave_forge_sessions", underSpec({}));
         if (existing._tag !== "delivered") return existing;
         const sessions = Array.isArray(existing.value) ? existing.value : [];
-        const sessionRef = record.value.startSession.sessionRef;
+        const sessionRef = startSession.sessionRef;
         const named = sessions.filter(
           (session) =>
             Predicate.isObject(session) &&
@@ -787,18 +814,17 @@ const make = Effect.gen(function* () {
    * note, since writing to the Spec would end its independence of it, and a row parked only
    * because the record it names was refused is told by that record's note.
    */
-  const noteRefusal = (row: Row, code: string) =>
-    Effect.gen(function* () {
-      if (row.specId === null || row.kind === "end") return;
-      if (code === "lead_session_parked" || code === "session_parked") return;
-      const agent = yield* agentOf(row.threadId);
-      if (Option.isNone(agent) || agent.value.role.endsWith("-reviewer")) return;
-      yield* weave.callAs(agent.value, "weave_forge_record_contribution", {
-        itemId: row.specId,
-        clientRef: `refused:${row.createdAt}:${row.kind}:${row.recordKey.slice(-120)}`,
-        note: `Weave refused this thread's ${row.kind} record with ${code}, so it is parked in T3 and not sent. What it carried stays unreported. Thread: t3-thread://v1/${row.threadId}`,
-      });
-    }).pipe(Effect.ignore);
+  const noteRefusal = Effect.fn("HqForgeRecords.noteRefusal")(function* (row: Row, code: string) {
+    if (row.specId === null || row.kind === "end") return;
+    if (code === "lead_session_parked" || code === "session_parked") return;
+    const agent = yield* agentOf(row.threadId);
+    if (Option.isNone(agent) || agent.value.role.endsWith("-reviewer")) return;
+    yield* weave.callAs(agent.value, "weave_forge_record_contribution", {
+      itemId: row.specId,
+      clientRef: `refused:${row.createdAt}:${row.kind}:${row.recordKey.slice(-120)}`,
+      note: `Weave refused this thread's ${row.kind} record with ${code}, so it is parked in T3 and not sent. What it carried stays unreported. Thread: t3-thread://v1/${row.threadId}`,
+    });
+  });
 
   /**
    * One row's trip to Weave, and whether nothing else of its thread has to wait for it: a
@@ -838,7 +864,7 @@ const make = Effect.gen(function* () {
             code: outcome.code,
           },
         );
-        yield* noteRefusal(row, outcome.code);
+        yield* noteRefusal(row, outcome.code).pipe(Effect.ignore);
         return true;
       }
       yield* sql`UPDATE hq_build_records
@@ -954,13 +980,14 @@ const make = Effect.gen(function* () {
         ),
       ),
     );
-    // What an earlier server parked for a session it could not adopt is deliverable now: the
-    // session itself, and the helper and usage rows its refusal parked with it. So is a row a
-    // Weave error that passes parked, or that an earlier build sent in a shape Weave refuses.
+    // What an earlier server parked for a session it could not adopt, or for a Spec that was not
+    // bindable yet, is deliverable now: the session itself, and the helper and usage rows its
+    // refusal parked with it. So is a row a Weave error that passes parked, or that an earlier
+    // build sent in a shape Weave refuses.
     yield* sql`UPDATE hq_build_records
       SET status = 'pending', attempts = 0, last_error = NULL
       WHERE status = 'parked' AND (
-        (kind = 'session' AND last_error = 'session_reference_conflict')
+        (kind = 'session' AND last_error IN ('session_reference_conflict', 'bind_status_invalid'))
         OR last_error IN (
           'lead_session_parked', 'session_parked', 'action_execution_failed', 'invalid_action_input'))`.pipe(
       Effect.catchCause((cause) => Effect.logWarning("Could not reopen parked records", cause)),

@@ -1,5 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import { ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
@@ -11,6 +11,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ForgeSpecOfThread from "./ForgeSpecOfThread.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
@@ -31,6 +32,7 @@ const unresolvedHelper = ThreadId.make("thread-unresolved-helper");
 /** A root thread with a Ticket link, which Weave has to be read for. */
 const unresolvedLead = ThreadId.make("thread-unresolved-lead");
 const model = "claude-opus-5-5";
+const leadSessionRef = "environment-hq/thread-lead";
 const RETRY_CAP_MS = 5 * 60 * 1_000;
 
 const usage = {
@@ -111,6 +113,14 @@ const harness = Effect.gen(function* () {
     Layer.provide(ForgeSpecOfThread.layer),
     Layer.provide(Layer.succeed(HqAgentConnections.HqAgentConnections, connections)),
     Layer.provide(projections),
+    Layer.provide(
+      Layer.succeed(
+        ServerEnvironment.ServerEnvironment,
+        ServerEnvironment.ServerEnvironment.of({
+          getEnvironmentId: Effect.succeed(EnvironmentId.make("environment-hq")),
+        } as ServerEnvironment.ServerEnvironment["Service"]),
+      ),
+    ),
     Layer.provide(Layer.succeedContext(database)),
   );
   const boot = Effect.service(HqForgeRecords.HqForgeRecords).pipe(Effect.provide(openQueue));
@@ -282,11 +292,130 @@ it.effect("a lead's session opens under the generation its bind returned", () =>
       hq.toolCalls.map(({ name, args }) => ({ name, args })),
       [
         { name: "weave_forge_bind", args: leadSession.bind },
-        { name: "weave_forge_start_session", args: { ...leadSession.startSession, generation: 3 } },
+        {
+          name: "weave_forge_start_session",
+          args: { ...leadSession.startSession, sessionRef: leadSessionRef, generation: 3 },
+        },
       ],
     );
     assert.deepStrictEqual(yield* records.outstanding(), []);
   }),
+);
+
+it.effect("a session whose Spec is not bindable yet waits instead of parking", () =>
+  Effect.gen(function* () {
+    const { hq, boot } = yield* harness;
+    const records = yield* boot;
+    let specStatus = "shaping";
+    hq.tools.call = (name) => {
+      if (name === "weave_forge_bind")
+        return specStatus === "shaping"
+          ? { status: "failed", code: "bind_status_invalid" }
+          : { status: "succeeded", value: { generation: 3 } };
+      if (name === "weave_forge_read")
+        return {
+          status: "succeeded",
+          value: { id: "spec-1", kind: "spec", status: specStatus },
+        };
+      return { status: "succeeded", value: {} };
+    };
+    yield* records.enqueue(leadSession);
+
+    yield* records.deliverDue;
+
+    // The Spec can still reach Ready, so the session and what names it wait rather than being lost.
+    assert.deepStrictEqual(
+      (yield* records.outstanding()).map((record) => [record.status, record.lastError]),
+      [["pending", "spec_not_bindable"]],
+    );
+    assert.strictEqual(
+      hq.toolCalls.some(({ name }) => name === "weave_forge_start_session"),
+      false,
+    );
+
+    specStatus = "ready";
+    yield* TestClock.adjust(Duration.millis(1_000));
+    yield* records.deliverDue;
+
+    assert.deepStrictEqual(yield* records.outstanding(), []);
+    assert.strictEqual(
+      hq.toolCalls.some(({ name }) => name === "weave_forge_start_session"),
+      true,
+    );
+  }),
+);
+
+it.effect.each([
+  ["could not be read", null],
+  ["is already bindable", "ready"],
+] as const)("a bind refused while the Spec's status %s still waits", ([, status]) =>
+  Effect.gen(function* () {
+    const { hq, boot } = yield* harness;
+    const records = yield* boot;
+    hq.tools.call = (name) =>
+      name === "weave_forge_bind"
+        ? { status: "failed", code: "bind_status_invalid" }
+        : name === "weave_forge_read"
+          ? status === null
+            ? { status: "failed", code: "build_item_unavailable" }
+            : { status: "succeeded", value: { id: "spec-1", kind: "spec", status } }
+          : { status: "succeeded", value: {} };
+    yield* records.enqueue(leadSession);
+
+    yield* records.deliverDue;
+
+    // Only a status that has passed the bindable ones says the refusal is permanent.
+    assert.deepStrictEqual(
+      (yield* records.outstanding()).map((record) => [record.status, record.lastError]),
+      [["pending", "spec_not_bindable"]],
+    );
+  }),
+);
+
+it.effect("a session whose Spec has already passed the bindable statuses is parked", () =>
+  Effect.gen(function* () {
+    const { hq, boot } = yield* harness;
+    const records = yield* boot;
+    hq.tools.call = (name) =>
+      name === "weave_forge_bind"
+        ? { status: "failed", code: "bind_status_invalid" }
+        : name === "weave_forge_read"
+          ? { status: "succeeded", value: { id: "spec-1", kind: "spec", status: "landed" } }
+          : { status: "succeeded", value: {} };
+    yield* records.enqueue(leadSession);
+
+    yield* records.deliverDue;
+
+    assert.deepStrictEqual(
+      (yield* records.outstanding()).map((record) => [record.status, record.lastError]),
+      [["parked", "bind_status_invalid"]],
+    );
+  }),
+);
+
+it.effect(
+  "a session parked because its Spec was not bindable yet is retried when the queue starts",
+  () =>
+    Effect.gen(function* () {
+      const { hq, boot, sql } = yield* harness;
+      const before = yield* boot;
+      yield* before.enqueue(leadSession);
+      yield* sql`UPDATE hq_build_records SET status = 'parked', attempts = 1, last_error = 'bind_status_invalid'`;
+
+      const after = yield* boot;
+      // Hold the queue's first call open, so what start reopened is visible before it is sent.
+      hq.state.toolCallsHang = true;
+      yield* Effect.scoped(after.start());
+
+      assert.deepStrictEqual(
+        (yield* after.outstanding()).map((record) => [
+          record.status,
+          record.attempts,
+          record.lastError,
+        ]),
+        [["pending", 0, null]],
+      );
+    }),
 );
 
 it.effect.each(["helper", "usage"] as const)(
@@ -779,7 +908,14 @@ it.effect(
           .map(({ name, args }) => ({ name, args })),
         [
           { name: "weave_forge_bind", args: { specId: "spec-4" } },
-          { name: "weave_forge_start_session", args: { specId: "spec-4", harness: "t3code" } },
+          {
+            name: "weave_forge_start_session",
+            args: {
+              specId: "spec-4",
+              harness: "t3code",
+              sessionRef: "environment-hq/thread-unresolved-lead",
+            },
+          },
         ],
       );
       assert.deepStrictEqual(yield* records.outstanding(), []);
@@ -946,7 +1082,7 @@ it.effect("a session the lead already started itself is adopted, not parked", ()
               status: "succeeded",
               value: [
                 { id: "other", harness: "t3code", sessionRef: "another-thread" },
-                { id: "session-own", harness: "t3code", sessionRef: leadThread },
+                { id: "session-own", harness: "t3code", sessionRef: leadSessionRef },
               ],
             }
           : { status: "succeeded", value: {} };
@@ -987,7 +1123,7 @@ it.effect("a session parked as a reference conflict is tried again when the queu
         : name === "weave_forge_sessions"
           ? {
               status: "succeeded",
-              value: [{ id: "s-1", harness: "t3code", sessionRef: leadThread }],
+              value: [{ id: "s-1", harness: "t3code", sessionRef: leadSessionRef }],
             }
           : { status: "succeeded", value: {} };
     // Parked by a server that did not yet adopt the lead's own session.
@@ -1020,6 +1156,62 @@ it.effect("a session parked as a reference conflict is tried again when the queu
       hq.toolCalls.some(({ name }) => name === "weave_forge_start_session"),
       true,
     );
+  }),
+);
+
+it.effect("a parked legacy session sends the lead's current reference and adopts its session", () =>
+  Effect.gen(function* () {
+    const { hq, boot, sql } = yield* harness;
+    const before = yield* boot;
+    // A row queued by a build that stored the bare thread id.
+    yield* before.enqueue({
+      kind: "session",
+      threadId: leadThread,
+      specId: "spec-1",
+      origin,
+      bind: { specId: "spec-1" },
+      startSession: { harness: "t3code", sessionRef: leadThread },
+    });
+    yield* before.enqueue({
+      kind: "helper",
+      recordKey: `helper:${helperThread}:run-1`,
+      threadId: helperThread,
+      leadThreadId: leadThread,
+      specId: "spec-1",
+      origin,
+      args: { workId: "work-1" },
+    });
+    yield* sql`UPDATE hq_build_records SET status = 'parked', attempts = 1, last_error = 'bind_status_invalid'
+      WHERE kind = 'session'`;
+
+    const after = yield* boot;
+    const adopted = yield* Deferred.make<void>();
+    hq.tools.call = (name) => {
+      if (name === "weave_forge_bind") return { status: "succeeded", value: { generation: 2 } };
+      if (name === "weave_forge_start_session")
+        return { status: "failed", code: "session_reference_conflict" };
+      if (name === "weave_forge_sessions")
+        return {
+          status: "succeeded",
+          value: [{ id: "lead-session", harness: "t3code", sessionRef: leadSessionRef }],
+        };
+      if (name === "weave_forge_record_helper") {
+        Deferred.doneUnsafe(adopted, Effect.void);
+        return { status: "succeeded", value: {} };
+      }
+      return { status: "succeeded", value: {} };
+    };
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* after.start();
+        yield* Deferred.await(adopted);
+      }),
+    );
+
+    const started = hq.toolCalls.find(({ name }) => name === "weave_forge_start_session");
+    assert.strictEqual(started?.args.sessionRef, leadSessionRef);
+    const helper = hq.toolCalls.find(({ name }) => name === "weave_forge_record_helper");
+    assert.strictEqual(helper?.args.parentSessionId, "lead-session");
   }),
 );
 
@@ -1118,10 +1310,10 @@ it.effect("adopts the lead's session that is still running when it started sever
                 {
                   id: "ended",
                   harness: "t3code",
-                  sessionRef: leadThread,
+                  sessionRef: leadSessionRef,
                   endedAt: "2026-10-25T00:00:00.000Z",
                 },
-                { id: "running", harness: "t3code", sessionRef: leadThread, endedAt: null },
+                { id: "running", harness: "t3code", sessionRef: leadSessionRef, endedAt: null },
               ],
             }
           : { status: "succeeded", value: {} };
@@ -1157,7 +1349,9 @@ it.effect("a helper whose lead's session Weave refused is parked, so its end can
     hq.tools.call = (name) =>
       name === "weave_forge_bind"
         ? { status: "failed", code: "bind_status_invalid" }
-        : { status: "succeeded", value: {} };
+        : name === "weave_forge_read"
+          ? { status: "succeeded", value: { id: "spec-1", kind: "spec", status: "landed" } }
+          : { status: "succeeded", value: {} };
     yield* records.enqueue({
       kind: "session",
       threadId: leadThread,
@@ -1221,7 +1415,16 @@ it.effect("a session delivered with the Spec it resolved is found by the helper 
       hq.toolCalls
         .filter(({ name }) => name === "weave_forge_start_session")
         .map(({ name, args }) => ({ name, args })),
-      [{ name: "weave_forge_start_session", args: { specId: "spec-4", harness: "t3code" } }],
+      [
+        {
+          name: "weave_forge_start_session",
+          args: {
+            specId: "spec-4",
+            harness: "t3code",
+            sessionRef: "environment-hq/thread-unresolved-lead",
+          },
+        },
+      ],
     );
 
     // A helper queued against that Spec finds the session its row resolved to, which the row must

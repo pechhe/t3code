@@ -58,14 +58,9 @@ const isoOf = (at: DateTime.Utc | null | undefined): string | null =>
   at == null ? null : DateTime.formatIso(at);
 
 /**
- * Records in Weave what T3 itself knows about a thread's work (Spec #4395): the lead's Forge
- * session, every delegated helper at any depth, and a reviewer's own run times. No agent makes
- * these calls, so a person never depends on a model remembering to report.
- *
- * A lead's session is queued when its thread links a Forge item, because the link is what says
- * which Spec the work counts toward. A helper's or reviewer's record is queued from
- * `recordCompletion`, which the agent lifecycle reactor calls before it queues the thread's own
- * end: a record has to reach Weave while the thread is still the agent that made it.
+ * Records in Weave what T3 itself knows about a thread's work: the lead's Forge session, every
+ * delegated helper at any depth, and a reviewer's own run times. A lead's session is queued when
+ * its thread links a Forge item, a helper's from `recordCompletion` while it can still act.
  */
 export class HqForgeRecordingReactor extends Context.Service<
   HqForgeRecordingReactor,
@@ -91,8 +86,7 @@ const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
 
   /**
-   * The session reference Weave files a helper's run under. A lead's is its bare thread id, which is
-   * how a lead reports itself to Forge, so the session T3 opens and the one the lead starts are one.
+   * The session reference Weave files a helper's work under.
    */
   const helperSessionRefOf = (threadId: ThreadId, runId: string) =>
     boundedRef(crypto, `t3:${environmentId}/${threadId}/${runId}`, SESSION_REF_MAX_LENGTH);
@@ -167,7 +161,6 @@ const make = Effect.gen(function* () {
       startSession: {
         ...(specId === undefined ? {} : { specId }),
         harness: "t3code",
-        sessionRef: thread.id,
         modelRef: thread.modelSelection.model,
         workspaces,
       },

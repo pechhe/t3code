@@ -1,6 +1,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
-import { ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -9,6 +9,7 @@ import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ForgeSpecOfThread from "./ForgeSpecOfThread.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
@@ -59,6 +60,14 @@ const harness = Effect.gen(function* () {
             modelSelection: { model: "claude-opus-5-5" },
           } as never),
       }),
+    ),
+    Layer.provide(
+      Layer.succeed(
+        ServerEnvironment.ServerEnvironment,
+        ServerEnvironment.ServerEnvironment.of({
+          getEnvironmentId: Effect.succeed(EnvironmentId.make("environment-hq")),
+        } as ServerEnvironment.ServerEnvironment["Service"]),
+      ),
     ),
     Layer.provide(Layer.succeedContext(database)),
   );
@@ -161,7 +170,11 @@ it.effect("records what a linked thread's request spent, as Weave's usage tool t
       },
       {
         name: "weave_forge_start_session",
-        args: { specId: "spec-1", modelRef: "claude-opus-5-5" },
+        args: {
+          specId: "spec-1",
+          modelRef: "claude-opus-5-5",
+          sessionRef: "environment-hq/thread-lead",
+        },
         agentId: "agent-1",
       },
       {

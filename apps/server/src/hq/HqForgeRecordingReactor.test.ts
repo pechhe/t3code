@@ -244,7 +244,6 @@ it.effect("a root thread that links a Forge item queues its session, and the sam
       assert.deepStrictEqual(sessions[0]!.startSession, {
         specId: "spec-1",
         harness: "t3code",
-        sessionRef: "thread-lead",
         modelRef: model,
         workspaces: [
           { repository: "pechhe/t3code", host: "agent-host", workspaceRef: worktreePath },
@@ -652,7 +651,6 @@ it.effect(
         assert.deepStrictEqual(session?.bind, {});
         assert.deepStrictEqual(session?.startSession, {
           harness: "t3code",
-          sessionRef: "thread-lead",
           modelRef: model,
           workspaces: [
             { repository: "pechhe/t3code", host: "agent-host", workspaceRef: worktreePath },
