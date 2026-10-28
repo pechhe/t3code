@@ -64,11 +64,12 @@ its revision and the role names, or the reason the policy is refused.
 - Claude reader roles use a restricted native tool list with no shell or T3
   tools. Claude writers require the destination owner's trusted-writer opt-in
   and a Full access child within the caller's permission ceiling. Codex writers
-  keep their workspace sandbox with network access disabled. No other provider
-  enforces a managed task's read-only or sandbox policy: a role whose model is
-  served by Pi, OpenCode, Cursor, Grok, Muse or Antigravity runs with that
-  account's own permissions, so give such a model a writer role unless you
-  accept that a reader could change source.
+  keep their workspace sandbox with network access disabled. Read-only tasks
+  (a reader role or `readOnly: true`) require the provider snapshot to declare
+  read-only source enforcement. Claude, Codex, OpenCode, Grok and Pi currently
+  declare it; Pi also disables user extensions for these tasks. Dispatch skips
+  other providers with `read-only-unenforced` and refuses when none qualify,
+  including explicit model choices and resumes. Writer tasks are unchanged.
 - The `phi` tool profile gives a reader its own browser endpoint serving only
   Phi's operations on the task's own tabs; `implementation-phi` gives a writer
   the same, and only `ui-worker` may hold it, to check what it built. Either
@@ -155,9 +156,9 @@ its revision and the role names, or the reason the policy is refused.
   before scopes existed admits only reviews that declare none, so the two kinds
   of review are never pooled.
 - Reviews always use fresh independent context. Their read-only source access is
-  enforced natively on Codex and Claude; a reviewer on another provider runs under
-  that account's own permissions, so keep `preferOtherAuthorProvider` in mind when
-  the list can choose one. Keep `authorModel` truthful: among accounts with allowance the default
+  required by dispatch through the provider's enforcement declaration, including
+  explicit choices and resumes. Keep `preferOtherAuthorProvider` in mind when
+  the list can choose another provider. Keep `authorModel` truthful: among accounts with allowance the default
   never picks the author's model first, and `preferOtherAuthorProvider` moves other providers ahead, but an
   explicit `target.model` may select the author's model when the reviewer list,
   task classification, tools, source binding and caller permissions allow it.

@@ -343,6 +343,7 @@ it.layer(
             }),
           ),
         );
+        assert.strictEqual(status.readOnlySourceAccess, "enforced");
         assert.strictEqual(status.status, "ready");
         assert.strictEqual(status.installed, true);
         assert.strictEqual(status.version, "1.0.0");
@@ -2139,6 +2140,7 @@ it.layer(
 
           assert.notStrictEqual(ghost, undefined);
           assert.strictEqual(ghost?.driver, "ghostDriver");
+          assert.strictEqual(ghost?.readOnlySourceAccess, undefined);
           assert.strictEqual(ghost?.availability, "unavailable");
           assert.strictEqual(Object.hasOwn(ghost ?? {}, "setup"), false);
           assert.match(ghost?.unavailableReason ?? "", /ghostDriver/);
@@ -2302,6 +2304,7 @@ it.layer(
           }),
           { ANTHROPIC_BASE_URL: "" },
         );
+        assert.strictEqual(status.readOnlySourceAccess, "enforced");
         assert.strictEqual(status.status, "error");
         assert.strictEqual(status.auth.status, "unauthenticated");
       }).pipe(

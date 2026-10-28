@@ -105,6 +105,32 @@ const fixture = Effect.gen(function* () {
 });
 
 it.layer(testLayer)("ManagedAgentService", (it) => {
+  it.effect("refuses resume when the recorded read-only provider no longer enforces it", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const accepted = yield* f.prepare({
+        request: request({ workspacePath: f.workspacePath, readOnly: true }),
+      });
+      const error = yield* f.service
+        .validate({
+          workspacePath: f.workspacePath,
+          providers: [
+            { ...codex, readOnlySourceAccess: undefined },
+            { ...claude, readOnlySourceAccess: undefined },
+          ],
+          ceiling: "full-access",
+          binding: accepted.binding,
+          selection: accepted.binding.effective,
+        })
+        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config), Effect.flip);
+      expect(error.reason).toBe("selection");
+      expect(error.cause).toMatchObject({
+        candidates: expect.arrayContaining([
+          expect.objectContaining({ reason: "read-only-unenforced" }),
+        ]),
+      });
+    }),
+  );
   it.effect(
     "admits trusted Claude only with destination opt-in and full caller and child access",
     () =>

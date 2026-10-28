@@ -93,6 +93,7 @@ export function provider(
 ) {
   return decodeProvider({
     driver,
+    readOnlySourceAccess: ["codex", "claudeAgent", "pi"].includes(driver) ? "enforced" : undefined,
     instanceId,
     enabled: true,
     installed: true,

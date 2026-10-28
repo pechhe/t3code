@@ -132,6 +132,21 @@ export interface CatalogModel {
   readonly efforts: ReadonlyArray<string>;
 }
 
+/**
+ * Installed providers that do not declare read-only enforcement, by name: dispatch never places a
+ * reader there, so a model of theirs serves only writer jobs.
+ */
+export function readOnlyUnenforcedProviders(providers: ReadonlyArray<ServerProvider>): string[] {
+  const names = new Set<string>();
+  for (const provider of providers) {
+    if (provider.poolMembers !== undefined || provider.readOnlySourceAccess === "enforced")
+      continue;
+    if (!provider.enabled || provider.status === "disabled") continue;
+    names.add(provider.displayName ?? provider.driver);
+  }
+  return [...names].toSorted((left, right) => left.localeCompare(right));
+}
+
 /** Every model an installed account offers, with its effort settings when it has any. */
 export function catalogModels(providers: ReadonlyArray<ServerProvider>): CatalogModel[] {
   const models = new Map<string, CatalogModel>();

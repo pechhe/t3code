@@ -50,6 +50,7 @@ import { grokProbeEnvironment } from "./probeEnvironment.ts";
 
 const GROK_PRESENTATION = {
   toolCallGuard: "blocking",
+  readOnlySourceAccess: "enforced",
   displayName: "Grok",
   supportsConversationRollback: false,
   showInteractionModeToggle: false,

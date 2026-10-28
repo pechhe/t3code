@@ -122,6 +122,7 @@ describe("PiProvider", () => {
       const snapshot = yield* checkPiProviderStatus(settings).pipe(
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, piProbeSpawner("0.84.3")),
       );
+      assert.equal(snapshot.readOnlySourceAccess, "enforced");
       assert.equal(snapshot.status, "ready");
       assert.equal(snapshot.auth.status, "unknown");
       assert.deepEqual(

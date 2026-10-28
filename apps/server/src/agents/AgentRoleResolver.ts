@@ -208,9 +208,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     const alias = entry.model;
     const binding = snapshot.manifest.models[alias]!;
     const effort = large?.model === alias ? large.effort : entry.effort;
-    // Every installed provider may serve a role. Only Codex and Claude enforce a managed
-    // task's read-only source access natively, so a role on another provider runs with the
-    // account's own permissions; the policy editor says so where a model is chosen.
+    // Writers may use any installed provider; readers require declared enforcement.
     if (!readOnly && binding.driverKind === "claudeAgent") {
       const refusal = !input.allowTrustedClaudeWriters
         ? "trusted-claude-disabled"
@@ -244,6 +242,10 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       }
       if (provider.auth.status !== "authenticated") {
         skip("not-signed-in");
+        continue;
+      }
+      if (readOnly && provider.readOnlySourceAccess !== "enforced") {
+        skip("read-only-unenforced");
         continue;
       }
       const model = provider.models.find((candidate) => candidate.slug === binding.model);

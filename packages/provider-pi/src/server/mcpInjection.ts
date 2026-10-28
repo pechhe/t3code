@@ -254,7 +254,7 @@ export function buildPiRpcLaunch(input: {
   readonly ephemeral?: boolean;
   readonly disableExtensions?: boolean;
   readonly disableTools?: boolean;
-  /** A read-only managed session: Pi's mutating built-ins (shell, edit, write) are withheld. */
+  /** A read-only managed session: mutating built-ins and user extensions are withheld. */
   readonly readOnlyTools?: boolean;
   readonly runtimeMode?: "approval-required" | "auto-accept-edits" | "auto" | "full-access";
 }): {
@@ -265,7 +265,7 @@ export function buildPiRpcLaunch(input: {
   const hasT3Extension = input.disableExtensions !== true && input.extensionPath !== undefined;
   const hasT3Mcp = hasT3Extension && input.mcpSession !== undefined;
   const extensionSafeArgs =
-    input.disableExtensions === true
+    input.disableExtensions === true || input.readOnlyTools === true
       ? withoutExplicitExtensions(input.launchArgs)
       : input.launchArgs;
   const launchArgs =
@@ -282,7 +282,9 @@ export function buildPiRpcLaunch(input: {
         : []),
     ...launchArgs,
     // Restrictions must follow launch args so user flags cannot re-enable unattended tools/extensions.
-    ...(input.disableExtensions === true ? ["--no-extensions"] : []),
+    ...(input.disableExtensions === true || input.readOnlyTools === true
+      ? ["--no-extensions"]
+      : []),
     ...(input.disableTools === true
       ? ["--no-tools"]
       : input.readOnlyTools === true

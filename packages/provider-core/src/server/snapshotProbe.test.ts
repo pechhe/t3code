@@ -10,6 +10,7 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import {
+  buildServerProvider,
   isCommandMissingCause,
   parseGenericCliVersion,
   providerModelsFromSettings,
@@ -33,6 +34,24 @@ const OPENCODE_CUSTOM_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabil
       currentValue: "build",
     },
   ],
+});
+
+it("preserves a declared read-only boundary and leaves unknown providers unenforced", () => {
+  const snapshot = (readOnlySourceAccess?: "enforced") =>
+    buildServerProvider({
+      presentation: { displayName: "Test", toolCallGuard: "blocking", readOnlySourceAccess },
+      enabled: true,
+      checkedAt: "2026-10-27T00:00:00.000Z",
+      models: [],
+      probe: {
+        installed: true,
+        version: "1.0.0",
+        status: "ready",
+        auth: { status: "authenticated" },
+      },
+    });
+  expect(snapshot("enforced").readOnlySourceAccess).toBe("enforced");
+  expect(snapshot().readOnlySourceAccess).toBeUndefined();
 });
 
 describe("providerModelsFromSettings", () => {

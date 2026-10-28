@@ -177,6 +177,7 @@ describe("checkCursorProviderStatus", () => {
         ),
       );
 
+      expect(provider.readOnlySourceAccess).toBeUndefined();
       expect(provider).toMatchObject({
         status: "ready",
         auth: {

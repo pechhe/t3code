@@ -8,6 +8,7 @@ import {
   ensureModel,
   listModel,
   offersFast,
+  readOnlyUnenforcedProviders,
   removeEntry,
   replaceEntry,
   roleGroups,
@@ -112,6 +113,22 @@ const provider = (overrides: object = {}) =>
   });
 
 describe("delegation settings", () => {
+  it("names only enabled providers that do not declare read-only enforcement", () => {
+    expect(
+      readOnlyUnenforcedProviders([
+        provider({ readOnlySourceAccess: "enforced" }),
+        provider({ driver: "cursor", instanceId: "cursor", displayName: "Cursor" }),
+        provider({ driver: "muse", instanceId: "muse", displayName: "Muse", enabled: false }),
+        provider({ driver: "grok", instanceId: "grok" }),
+        provider({ driver: "cursor", instanceId: "cursor-2", displayName: "Cursor" }),
+        provider({ instanceId: "pool", poolMembers: ["claude"] }),
+      ]),
+    ).toEqual(["Cursor", "grok"]);
+    expect(readOnlyUnenforcedProviders([provider({ readOnlySourceAccess: "enforced" })])).toEqual(
+      [],
+    );
+  });
+
   it("shows roles that share a list as one job, in page order", () => {
     expect(roleGroups(manifest()).map((group) => group.roles)).toEqual([
       ["implementation-worker", "ticket-reviewer"],

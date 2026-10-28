@@ -30,6 +30,7 @@ import {
   listModel,
   modelLabel,
   moveEntry,
+  readOnlyUnenforcedProviders,
   removeEntry,
   replaceEntry,
   ROLE_DESCRIPTIONS,
@@ -270,16 +271,18 @@ function PolicyEditor({
     if (failures.length === 0) onSaved();
     else onError(failures.join("; "));
   };
+  const unenforced = readOnlyUnenforcedProviders(data.providers);
   return (
     <>
       {groups.map((group) => (
         <FallbackAlert key={group.list} group={group} manifest={draft} providers={data.providers} />
       ))}
-      <p className="px-3 text-xs text-muted-foreground sm:px-4">
-        Any installed model can serve a job. Only Codex and Claude enforce a reader&apos;s read-only
-        source access, so another provider&apos;s model runs with its account&apos;s own
-        permissions.
-      </p>
+      {unenforced.length > 0 ? (
+        <p className="px-3 text-xs text-muted-foreground sm:px-4">
+          {unenforced.join(", ")} cannot keep a reader read-only, so their models serve only writer
+          jobs; a reader job skips them.
+        </p>
+      ) : null}
       <SettingsSection
         id="delegation"
         title="Jobs"

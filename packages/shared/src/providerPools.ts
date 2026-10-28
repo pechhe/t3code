@@ -295,6 +295,7 @@ export const withPoolSnapshots = (
       nativeSessions: _nativeSessions,
       setup: _setup,
       updateState: _updateState,
+      readOnlySourceAccess: _readOnlySourceAccess,
       displayName: _displayName,
       accentColor: _accentColor,
       ...shared
@@ -302,6 +303,14 @@ export const withPoolSnapshots = (
     return [
       {
         ...shared,
+        ...(pool.members.every((member) =>
+          providers.some(
+            (provider) =>
+              provider.instanceId === member && provider.readOnlySourceAccess === "enforced",
+          ),
+        )
+          ? { readOnlySourceAccess: "enforced" as const }
+          : {}),
         instanceId: pool.instanceId,
         driver: pool.driver,
         ...(pool.displayName === undefined ? {} : { displayName: pool.displayName }),

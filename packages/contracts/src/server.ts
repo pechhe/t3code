@@ -227,6 +227,7 @@ export const ServerProvider = Schema.Struct({
   // Always present on a current snapshot; a client that finds it missing must treat
   // the driver as unguarded rather than as guarded by omission.
   toolCallGuard: Schema.optional(Schema.Literals(["blocking", "observe-only"])),
+  readOnlySourceAccess: Schema.optional(Schema.Literals(["enforced"])),
   supportsTextGeneration: Schema.optional(Schema.Boolean),
   setup: Schema.optional(
     Schema.Struct({

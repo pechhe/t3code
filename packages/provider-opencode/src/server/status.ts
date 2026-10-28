@@ -27,6 +27,7 @@ import * as OpenCodeServerOwner from "./OpenCodeServerOwner.ts";
 
 const OPENCODE_PRESENTATION = {
   toolCallGuard: "observe-only",
+  readOnlySourceAccess: "enforced",
   displayName: "OpenCode",
   showInteractionModeToggle: false,
 } as const;

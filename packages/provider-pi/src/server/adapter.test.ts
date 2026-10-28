@@ -1556,7 +1556,7 @@ describe("PiAdapterV2", () => {
               settings: {
                 enabled: true,
                 binaryPath: "pi",
-                launchArgs: "--tools read,bash",
+                launchArgs: "--tools read,bash --extension /user/extension.ts -e /user/other.ts",
                 customModels: [],
                 autoCompactWindow: "",
               },
@@ -1606,7 +1606,18 @@ describe("PiAdapterV2", () => {
           ),
           ["--exclude-tools", "bash,edit,write"],
         );
+        assert.include(readOnly, "--no-extensions");
+        assert.notInclude(readOnly, "/user/extension.ts");
+        assert.notInclude(readOnly, "/user/other.ts");
+        const extensions = readOnly?.flatMap((arg, index) =>
+          arg === "--extension" ? [readOnly[index + 1]] : [],
+        );
+        assert.lengthOf(extensions, 1);
+        assert.isTrue(extensions?.[0]?.endsWith("pi-t3-mcp-extension.ts"));
         for (const args of [writer, ordinary]) {
+          assert.notInclude(args, "--no-extensions");
+          assert.include(args, "/user/extension.ts");
+          assert.include(args, "/user/other.ts");
           assert.notInclude(args, "--exclude-tools");
           assert.include(args, "read,bash");
         }

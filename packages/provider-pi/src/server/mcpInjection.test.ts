@@ -157,7 +157,16 @@ describe("pi T3 MCP injection", () => {
 
   it("withholds mutating built-ins after any user tool selection for a read-only session", () => {
     const launch = buildPiRpcLaunch({
-      launchArgs: ["--tools", "read,bash", "--exclude-tools=grep", "--provider", "anthropic"],
+      launchArgs: [
+        "--tools",
+        "read,bash",
+        "--exclude-tools=grep",
+        "--provider",
+        "anthropic",
+        "--extension=./user.ts",
+        "-e",
+        "./other.ts",
+      ],
       environment: {},
       mcpSession,
       extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
@@ -165,6 +174,10 @@ describe("pi T3 MCP injection", () => {
     });
     assert.notInclude(launch.args, "read,bash");
     assert.notInclude(launch.args, "--exclude-tools=grep");
+    assert.notInclude(launch.args, "--extension=./user.ts");
+    assert.notInclude(launch.args, "./other.ts");
+    assert.include(launch.args, "--no-extensions");
+    assert.deepEqual(launch.args.slice(-2), ["--extension", "/tmp/cache/pi-t3-mcp-extension.ts"]);
     const excluded = launch.args.indexOf("--exclude-tools");
     assert.deepEqual(launch.args.slice(excluded, excluded + 2), [
       "--exclude-tools",

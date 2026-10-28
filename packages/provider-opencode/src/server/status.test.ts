@@ -559,6 +559,7 @@ it.layer(layerTest)("checkOpenCodeProviderStatus", (it) => {
         "gpt-5.4": { id: "gpt-5.4", name: "GPT-5.4", variants: {} },
       };
       const ready = yield* checkProvider(settings);
+      NodeAssert.equal(ready.readOnlySourceAccess, "enforced");
       NodeAssert.equal(ready.status, "ready");
       NodeAssert.equal(ready.auth.status, "authenticated");
       NodeAssert.deepEqual(

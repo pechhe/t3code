@@ -58,6 +58,46 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       );
     }),
   );
+  it.effect("read-only dispatch skips providers without enforcement and explains refusals", () =>
+    Effect.gen(function* () {
+      const resolver = yield* Resolver.AgentRoleResolver;
+      const unenforced = { ...claude, readOnlySourceAccess: undefined };
+      const reader = request({
+        role: "ticket-reviewer",
+        sourceRevision: "candidate",
+        review: changeReview,
+      });
+      const base = input({ providers: [unenforced, codex], request: reader });
+      const preview = yield* resolver.preview(base);
+      expect(preview.selection?.instanceId).toBe(codex.instanceId);
+      expect(preview.candidates).toContainEqual(
+        expect.objectContaining({
+          alias: "sonnet",
+          providerInstanceId: claude.instanceId,
+          reason: "read-only-unenforced",
+        }),
+      );
+      for (const value of [
+        { ...base, providers: [unenforced] },
+        { ...base, selection: { model: claudeModel } },
+        {
+          ...base,
+          providers: [{ ...codex, readOnlySourceAccess: undefined }],
+          request: request({ readOnly: true }),
+        },
+      ]) {
+        const error = yield* refusal(value);
+        expect(error.candidates).toContainEqual(
+          expect.objectContaining({ reason: "read-only-unenforced" }),
+        );
+        expect(error.message).toContain("read-only-unenforced");
+      }
+      expect(
+        (yield* resolve(input({ providers: [{ ...codex, readOnlySourceAccess: undefined }] })))
+          .instanceId,
+      ).toBe(codex.instanceId);
+    }),
+  );
   it.effect("a reviewer prefers another provider than the author's, without refusing", () =>
     Effect.gen(function* () {
       const original = snapshot();

@@ -251,6 +251,7 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
         });
         yield* harness.initialize;
         const snapshot = yield* harness.provider.snapshot.getSnapshot;
+        expect(snapshot.readOnlySourceAccess).toBeUndefined();
         expect(snapshot).toMatchObject({
           installed: true,
           status: "warning",

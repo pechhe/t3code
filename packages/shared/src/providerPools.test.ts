@@ -368,6 +368,26 @@ describe("pool policy", () => {
 });
 
 describe("withPoolSnapshots", () => {
+  it("declares read-only enforcement only when every configured member enforces it", () => {
+    const enforcing = ["a", "b", "c"].map((name) => ({
+      ...account(name, []),
+      readOnlySourceAccess: "enforced" as const,
+    }));
+    const snapshot = (providers: ReadonlyArray<ServerProvider>) =>
+      withPoolSnapshots(providers, [pool], NOW).at(-1);
+    expect(snapshot(enforcing)?.readOnlySourceAccess).toBe("enforced");
+    expect(snapshot(enforcing.slice(0, 2))?.readOnlySourceAccess).toBeUndefined();
+    expect(
+      snapshot([
+        enforcing[0]!,
+        enforcing[1]!,
+        { ...enforcing[2]!, readOnlySourceAccess: undefined },
+      ])?.readOnlySourceAccess,
+    ).toBeUndefined();
+    expect(
+      snapshot([account("a", []), account("b", []), account("c", [])])?.readOnlySourceAccess,
+    ).toBeUndefined();
+  });
   it("presents a pool as the member a turn would use, without account details", () => {
     const providers = [
       account("a", [{ usedPercent: 10, resetsAt: at(4) }]),

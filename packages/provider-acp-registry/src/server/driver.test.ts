@@ -115,6 +115,7 @@ describe("acpRegistrySnapshotReadiness", () => {
         skills: [],
       },
     });
+    expect(snapshot.readOnlySourceAccess).toBeUndefined();
     expect(snapshot.auth.status).toBe("unknown");
     expect(snapshot.setup?.canAuthenticate).toBe(true);
     expect(

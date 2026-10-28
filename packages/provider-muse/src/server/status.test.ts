@@ -87,6 +87,7 @@ it.layer(NodeServices.layer)("Muse status", (it) => {
           undefined,
           async () => host,
         );
+        expect(snapshot.readOnlySourceAccess).toBeUndefined();
         expect(snapshot.status).toBe("ready");
         expect(snapshot.message).toBeUndefined();
         expect(snapshot.slashCommands).toEqual([COMPACT_SLASH_COMMAND]);
