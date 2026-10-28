@@ -1,3 +1,6 @@
+import * as ProcessRunner from "../processRunner.ts";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import { checkoutRoot, repositoryWriteRoots } from "../agents/workspaceIdentity.ts";
 import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
@@ -256,6 +259,7 @@ export const layer: Layer.Layer<
   | ContextHandoffService.ContextHandoffServiceV2
   | IdAllocator.IdAllocatorV2
   | FileSystem.FileSystem
+  | ChildProcessSpawner.ChildProcessSpawner
   | Path.Path
   | ServerConfig.ServerConfig
   | ServerSettings.ServerSettingsService
@@ -276,6 +280,7 @@ export const layer: Layer.Layer<
     const idAllocator = yield* IdAllocator.IdAllocatorV2;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
+    const processes = yield* ProcessRunner.make();
     const serverConfig = yield* ServerConfig.ServerConfig;
     const serverSettings = yield* ServerSettings.ServerSettingsService;
     const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
@@ -710,19 +715,26 @@ export const layer: Layer.Layer<
               threadId: projection.thread.id,
               worktreePath: restored.workspacePath,
             });
+          } else {
+            // No archive, or SlipJay could not restore it: leave the path missing so the run
+            // fails visibly, instead of a checkout that silently lacks the thread's own files.
+            yield* Effect.logWarning(
+              "provider turn start could not restore a released SlipJay workspace",
+              {
+                threadId: projection.thread.id,
+                worktreePath,
+                reason: restored.kind === "unavailable" ? restored.reason : "unknown",
+              },
+            );
           }
-          // No archive, or SlipJay could not restore it: leave the path missing so the run
-          // fails visibly, instead of a checkout that silently lacks the thread's own files.
-          yield* Effect.logWarning(
-            "provider turn start could not restore a released SlipJay workspace",
-            {
-              threadId: projection.thread.id,
-              worktreePath,
-              reason: restored.kind === "unavailable" ? restored.reason : "unknown",
-            },
-          );
         }
-        if (!exists && branch !== null && (yield* isManagedWorktreePath(worktreePath))) {
+        // A delegated task's workspace belongs to the work that assigned it: never recreated.
+        if (
+          !exists &&
+          branch !== null &&
+          projection.thread.agentTask === undefined &&
+          (yield* isManagedWorktreePath(worktreePath))
+        ) {
           const project = yield* projects.getById(projection.thread.projectId).pipe(
             Effect.map(Option.getOrUndefined),
             Effect.orElseSucceed(() => undefined),
@@ -786,11 +798,44 @@ export const layer: Layer.Layer<
           return;
         }
       }
+      let invalidWorkspace = false;
+      if (projection.thread.agentTask !== undefined && worktreePath !== null) {
+        const project = yield* projects.getById(projection.thread.projectId);
+        if (Option.isSome(project)) {
+          // The repository a directory belongs to, and where it sits in that checkout.
+          const locate = Effect.fn("ProviderTurnStartService.workspaceIdentity")(function* (
+            directory: string,
+          ) {
+            const checkout = yield* checkoutRoot(directory);
+            return {
+              offset: path.relative(checkout, yield* fileSystem.realPath(directory)),
+              stores: yield* repositoryWriteRoots(checkout),
+            };
+          });
+          const identity = (directory: string) =>
+            locate(directory).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+              Effect.provideService(ProcessRunner.ProcessRunner, processes),
+              Effect.orElseSucceed(() => null),
+            );
+          const expected = yield* identity(project.value.workspaceRoot);
+          // Scratch and non-repository projects have no repository identity to preserve.
+          if (expected !== null) {
+            const actual = yield* identity(worktreePath);
+            invalidWorkspace =
+              actual === null ||
+              actual.offset !== expected.offset ||
+              !actual.stores.some((store) => expected.stores.includes(store));
+          }
+        }
+      }
       // A provider never starts in a missing directory: it would run somewhere
       // else or fail without saying why. The run fails with the reason instead.
       if (
         worktreePath !== null &&
-        !(yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => true)))
+        (invalidWorkspace ||
+          !(yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => true))))
       ) {
         const now = yield* DateTime.now;
         yield* settleRunBeforeStart({
@@ -801,10 +846,10 @@ export const layer: Layer.Layer<
           itemProviderThreadId: providerThread.id,
           item: {
             type: "error",
-            title: "Workspace missing",
+            title: invalidWorkspace ? "Workspace invalid" : "Workspace missing",
             failure: makeProviderFailure({
               class: "validation_error",
-              message: `The thread's workspace ${worktreePath} no longer exists.${
+              message: `The thread's workspace ${worktreePath} ${invalidWorkspace ? "could not be confirmed as a checkout of the project's repository" : "no longer exists"}.${
                 projection.thread.agentTask === undefined
                   ? ""
                   : " T3 does not replace a delegated task's workspace, which belongs to the work that assigned it: ask its lead to assign the work again in a workspace of its own."
