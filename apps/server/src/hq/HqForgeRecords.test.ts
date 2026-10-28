@@ -1113,6 +1113,85 @@ it.effect("a session the lead already started itself is adopted, not parked", ()
   }),
 );
 
+it.effect("a session the lead started itself under another harness is adopted", () =>
+  Effect.gen(function* () {
+    const { hq, boot } = yield* harness;
+    const records = yield* boot;
+    hq.tools.call = (name) =>
+      name === "weave_forge_start_session"
+        ? { status: "failed", code: "session_active" }
+        : name === "weave_forge_sessions"
+          ? {
+              status: "succeeded",
+              value: [{ id: "session-own", harness: "t3", sessionRef: leadSessionRef }],
+            }
+          : { status: "succeeded", value: {} };
+    yield* records.enqueue({
+      kind: "session",
+      threadId: leadThread,
+      specId: "spec-1",
+      origin,
+      bind: { specId: "spec-1" },
+      startSession: { harness: "t3code", sessionRef: leadThread },
+    });
+    yield* records.enqueue({
+      kind: "usage",
+      recordKey: `usage:${leadThread}:turn-1`,
+      threadId: leadThread,
+      specId: "spec-1",
+      origin,
+      args: { harness: "t3code" },
+    });
+
+    yield* records.deliverDue;
+
+    assert.deepStrictEqual((yield* records.outstanding()).length, 0);
+    const sent = hq.toolCalls.find(({ name }) => name === "weave_forge_record_usage");
+    assert.strictEqual(sent?.args.sessionId, "session-own");
+  }),
+);
+
+it.effect("a session the lead has already ended is adopted once the Spec cannot be bound", () =>
+  Effect.gen(function* () {
+    const { hq, boot } = yield* harness;
+    const records = yield* boot;
+    hq.tools.call = (name) =>
+      name === "weave_forge_bind"
+        ? { status: "failed", code: "bind_status_invalid" }
+        : name === "weave_forge_read"
+          ? { status: "succeeded", value: { status: "landed" } }
+          : name === "weave_forge_sessions"
+            ? {
+                status: "succeeded",
+                value: [
+                  {
+                    id: "session-own",
+                    harness: "t3",
+                    sessionRef: leadSessionRef,
+                    endedAt: "2026-10-28T20:46:07.842Z",
+                  },
+                ],
+              }
+            : { status: "succeeded", value: {} };
+    yield* records.enqueue({
+      kind: "session",
+      threadId: leadThread,
+      specId: "spec-1",
+      origin,
+      bind: { specId: "spec-1" },
+      startSession: { harness: "t3code", sessionRef: leadThread },
+    });
+
+    yield* records.deliverDue;
+
+    assert.deepStrictEqual((yield* records.outstanding()).length, 0);
+    assert.strictEqual(
+      hq.toolCalls.some(({ name }) => name === "weave_forge_start_session"),
+      false,
+    );
+  }),
+);
+
 it.effect("a session parked as a reference conflict is tried again when the queue starts", () =>
   Effect.gen(function* () {
     const { hq, boot } = yield* harness;

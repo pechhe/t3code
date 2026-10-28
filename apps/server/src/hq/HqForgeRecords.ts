@@ -708,6 +708,28 @@ const make = Effect.gen(function* () {
               : workspace,
           );
         }
+        // The lead may have opened this very session itself (its reference is its thread's), with
+        // details or a harness of its own, so Weave will neither bind for T3 nor replay it: that
+        // session is the one its turns count toward, whether it is still running or has ended.
+        const adoptLeadsOwn = Effect.fn("HqForgeRecords.adoptLeadsOwn")(function* (
+          refusal: DeliveryOutcome,
+        ) {
+          const existing = yield* call("weave_forge_sessions", underSpec({}));
+          if (existing._tag !== "delivered") return existing;
+          const sessions = Array.isArray(existing.value) ? existing.value : [];
+          const sessionRef = startSession.sessionRef;
+          const named = sessions.filter(
+            (session) =>
+              Predicate.isObject(session) &&
+              typeof sessionRef === "string" &&
+              sessionRef !== "" &&
+              session.sessionRef === sessionRef &&
+              typeof session.id === "string",
+          );
+          // A session still running is the one to count toward when the lead has started several.
+          const own = named.find((session) => session.endedAt == null) ?? named[0];
+          return own === undefined ? refusal : delivered({ session: { id: own.id } });
+        });
         const bound = yield* call("weave_forge_bind", underSpec(record.value.bind));
         if (
           bound._tag === "refused" &&
@@ -717,6 +739,7 @@ const make = Effect.gen(function* () {
         ) {
           return retry("spec_not_bindable");
         }
+        if (bound._tag === "refused") return yield* adoptLeadsOwn(bound);
         if (bound._tag !== "delivered") return bound;
         // The session is opened under the generation the bind returned, which only Weave knows.
         const generation = decodeBoundGeneration(bound.value);
@@ -727,26 +750,10 @@ const make = Effect.gen(function* () {
           }),
           ...(Option.isSome(generation) ? { generation: generation.value.generation } : {}),
         });
-        if (started._tag !== "refused" || started.code !== "session_reference_conflict")
-          return started;
-        // The lead started this very session itself (its reference is its thread id), with details
-        // of its own, so Weave will not replay it: that session is the one its turns count toward.
-        const existing = yield* call("weave_forge_sessions", underSpec({}));
-        if (existing._tag !== "delivered") return existing;
-        const sessions = Array.isArray(existing.value) ? existing.value : [];
-        const sessionRef = startSession.sessionRef;
-        const named = sessions.filter(
-          (session) =>
-            Predicate.isObject(session) &&
-            session.harness === "t3code" &&
-            typeof sessionRef === "string" &&
-            sessionRef !== "" &&
-            session.sessionRef === sessionRef &&
-            typeof session.id === "string",
-        );
-        // A session still running is the one to count toward when the lead has started several.
-        const own = named.find((session) => session.endedAt == null) ?? named[0];
-        return own === undefined ? started : delivered({ session: { id: own.id } });
+        return started._tag === "refused" &&
+          (started.code === "session_reference_conflict" || started.code === "session_active")
+          ? yield* adoptLeadsOwn(started)
+          : started;
       }
       case "helper": {
         const record = decodeHelperPayload(payload.value);
@@ -987,7 +994,8 @@ const make = Effect.gen(function* () {
     yield* sql`UPDATE hq_build_records
       SET status = 'pending', attempts = 0, last_error = NULL
       WHERE status = 'parked' AND (
-        (kind = 'session' AND last_error IN ('session_reference_conflict', 'bind_status_invalid'))
+        (kind = 'session' AND last_error IN (
+          'session_reference_conflict', 'session_active', 'bind_status_invalid'))
         OR last_error IN (
           'lead_session_parked', 'session_parked', 'action_execution_failed', 'invalid_action_input'))`.pipe(
       Effect.catchCause((cause) => Effect.logWarning("Could not reopen parked records", cause)),
