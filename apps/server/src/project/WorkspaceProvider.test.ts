@@ -414,15 +414,78 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
 
     it.effect("neither releases nor starts again while SlipJay still runs the start", () =>
       Effect.gen(function* () {
-        const { intents, service, named } = yield* harness({
+        let state: ReturnType<typeof output> = attempt({ status: "preparing" });
+        const { intents, service, named, commands } = yield* harness({
+          start: () => failure("timed out"),
+          "attempt show": () => state,
+        });
+        const error = yield* Effect.flip(service.allocate(request));
+        const attemptId = attemptIdOf(commands);
+        // The caller sees the attempt, that it still runs, and how to retry it safely.
+        expect(error.detail).toBe(
+          `timed out. SlipJay attempt ${attemptId} is still running and may yet complete. T3 keeps the attempt: retry the same request to reconcile it rather than start another checkout.`,
+        );
+        expect(named("start")).toHaveLength(1);
+        expect(named("attempt release")).toEqual([]);
+        expect((yield* intents.list).map((row) => row.attemptId)).toEqual([attemptId]);
+
+        // The same owner's retry names the same attempt and starts nothing.
+        const retried = yield* Effect.flip(service.allocate(request));
+        expect(retried.detail).toContain(`SlipJay attempt ${attemptId} is still running`);
+        expect(named("start")).toHaveLength(1);
+
+        // Once SlipJay finishes it, the retry adopts that checkout.
+        state = attempt({ status: "ready", workspacePath: "/ws", owned: true });
+        const allocation = yield* service.allocate(request);
+        expect(allocation).toMatchObject({ attemptId, workspacePath: "/ws" });
+        expect(named("start")).toHaveLength(1);
+      }).pipe(Effect.provide(layerIntents)),
+    );
+
+    it.effect("tells a caller whose retry would not adopt to check the attempt instead", () =>
+      Effect.gen(function* () {
+        const { intents, service, commands } = yield* harness({
           start: () => failure("timed out"),
           "attempt show": () => attempt({ status: "preparing" }),
         });
-        yield* Effect.flip(service.allocate(request));
-        expect(named("start")).toHaveLength(1);
-        expect(named("attempt release")).toEqual([]);
-        expect(yield* intents.list).toHaveLength(1);
+        const error = yield* Effect.flip(
+          service.allocate({ ...request, owner: { kind: "mcp", ref: "call-1" } }),
+        );
+        const attemptId = attemptIdOf(commands);
+        expect(error.detail).toBe(
+          `timed out. SlipJay attempt ${attemptId} is still running and may yet complete. T3 keeps the attempt and settles it when it finishes; check it with \`slipjay attempt show ${attemptId}\` before asking again, since a new request starts another checkout.`,
+        );
+        expect((yield* intents.list).map((row) => row.attemptId)).toEqual([attemptId]);
       }).pipe(Effect.provide(layerIntents)),
+    );
+
+    it.effect(
+      "says the attempt's state is unknown, and keeps it, when SlipJay will not report it",
+      () =>
+        Effect.gen(function* () {
+          let state: ReturnType<typeof output> = failure("database is locked");
+          const { intents, service, named, commands } = yield* harness({
+            start: () => failure("timed out"),
+            "attempt show": () => state,
+            "attempt release": () => released(),
+          });
+          const error = yield* Effect.flip(service.allocate(request));
+          const attemptId = attemptIdOf(commands);
+          expect(error.detail).toBe(
+            `timed out. SlipJay could not report the state of attempt ${attemptId}, which may still be running. T3 keeps the attempt: retry the same request to reconcile it rather than start another checkout.`,
+          );
+          expect(named("attempt release")).toEqual([]);
+          expect((yield* intents.list).map((row) => row.attemptId)).toEqual([attemptId]);
+
+          // When it later fails, the startup sweep settles it as before.
+          state = attempt({ status: "failed" });
+          yield* service.reconcile({
+            isBound: () => Effect.succeed(false),
+            retryable: () => Effect.succeed(false),
+          });
+          expect(named("attempt release").map((command) => command.args[3])).toEqual([attemptId]);
+          expect(yield* intents.list).toEqual([]);
+        }).pipe(Effect.provide(layerIntents)),
     );
   });
 

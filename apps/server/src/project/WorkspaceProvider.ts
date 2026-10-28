@@ -92,6 +92,9 @@ type AttemptState =
   | { readonly kind: "failed" }
   | { readonly kind: "ready"; readonly workspacePath: string; readonly owned: boolean | null };
 
+/** An attempt's state as a caller read it: `unknown` when SlipJay would not describe it. */
+type AttemptReading = AttemptState | { readonly kind: "unknown" };
+
 /** What opened a workspace allocation, recorded with its intent so a stranded one can be traced. */
 export interface WorkspaceOwner {
   readonly kind: "thread-launch" | "terminal" | "mcp";
@@ -107,22 +110,10 @@ export class WorkspaceProvider extends Context.Service<
       input: VcsRemoveWorktreeInput,
     ) => Effect.Effect<void, WorkspaceProviderError | GitCommandError>;
     /**
-     * Allocates a SlipJay workspace named after `task`. An `issue` to `resume` returns that
-     * Build item's existing workspace when it has one, with `created` false: the caller must
-     * not release a checkout it did not create. `created` is null when SlipJay did not say,
-     * which callers must neither release nor describe as new. An `issue` to `attach` always gets a new
-     * checkout, which takes the item only when no other workspace holds it. `issue` in the
-     * result is the item the workspace belongs to; when the attach failed it is null and
-     * `attachFailure` says why, since the checkout is still usable.
-     *
-     * The start is recorded as an intent before SlipJay runs, under `attemptId`. A start that
-     * fails, times out or loses its receipt is settled against SlipJay's own attempt record
-     * rather than retried: its checkout is used when it finished, and released when it did
-     * not. The caller owns the intent from the receipt on, and ends it with `settled` once
-     * the checkout is bound or released; `reconcile` settles whatever a crash left behind.
-     *
-     * A thread-launch owner that retries after a crash adopts the checkout its earlier
-     * attempt finished instead of starting a second one.
+     * Allocates a SlipJay workspace for `task`; `created` false or null means the caller must
+     * not release it. A start that fails or loses its receipt is settled against SlipJay's
+     * attempt record, not retried; one still running fails naming its attempt, and the same
+     * thread-launch owner's retry reconciles that attempt instead of starting another.
      */
     readonly allocate: (input: {
       readonly projectRoot: string;
@@ -148,11 +139,8 @@ export class WorkspaceProvider extends Context.Service<
      */
     readonly abandon: (attemptId: string) => Effect.Effect<void>;
     /**
-     * Settles the allocations an earlier run left unfinished. A checkout whose start finished
-     * and that `isBound` says nothing holds is released; one SlipJay refuses to release stays
-     * recorded with the reason. A finished thread launch whose thread `retryable` says can
-     * still retry its failed preparation is kept for that retry to adopt (see `allocate`).
-     * Allocations this process is still making are left alone.
+     * Settles allocations an earlier run left: releases a finished, unbound checkout unless
+     * SlipJay refuses or its launching thread can still retry, and leaves this process's own.
      */
     readonly reconcile: (input: {
       readonly isBound: (workspacePath: string) => Effect.Effect<boolean>;
@@ -166,7 +154,7 @@ export class WorkspaceProvider extends Context.Service<
   }
 >()("t3/project/WorkspaceProvider") {}
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -324,13 +312,52 @@ export const make = Effect.gen(function* () {
       Effect.map((project): WorkspaceProviderKind => (project ? "slipjay" : "git-worktree")),
     );
 
+  // A start that has not settled: the caller learns its attempt and that retrying the same
+  // request reconciles it. The intent stays for that retry or the startup sweep.
+  const unsettled = (
+    root: string,
+    attemptId: string,
+    state: "running" | "unknown",
+    owner: WorkspaceOwner,
+    cause?: WorkspaceProviderError,
+  ) =>
+    Effect.logWarning("Workspace allocation attempt has not settled", {
+      attemptId,
+      state,
+      owner: `${owner.kind}:${owner.ref}`,
+    }).pipe(
+      Effect.andThen(
+        Effect.fail(
+          new WorkspaceProviderError({
+            operation: "allocate",
+            projectRoot: root,
+            ...(cause?.exitCode === undefined ? {} : { exitCode: cause.exitCode }),
+            detail: `${cause?.detail ? `${cause.detail}. ` : ""}${
+              state === "running"
+                ? `SlipJay attempt ${attemptId} is still running and may yet complete`
+                : `SlipJay could not report the state of attempt ${attemptId}, which may still be running`
+            }. T3 keeps the attempt${
+              // Only a thread launch's retry adopts its earlier attempt; any other new request starts another.
+              owner.kind === "thread-launch"
+                ? ": retry the same request to reconcile it rather than start another checkout."
+                : ` and settles it when it finishes; check it with \`slipjay attempt show ${attemptId}\` before asking again, since a new request starts another checkout.`
+            }`,
+          }),
+        ),
+      ),
+    );
+
   // The receipt of a start that did not return one, read from SlipJay's attempt record. A
   // finished checkout is used rather than started again; one that did not finish is released.
   // `cause` is why the start looked failed, and is what the caller sees when nothing was made.
-  const settleStart = (root: string, attemptId: string, cause: WorkspaceProviderError) =>
+  const settleStart = (
+    root: string,
+    attemptId: string,
+    owner: WorkspaceOwner,
+    cause: WorkspaceProviderError,
+  ) =>
     attemptState(root, attemptId).pipe(
-      // An attempt SlipJay will not describe may still be running: keep the intent for the sweep.
-      Effect.orElseSucceed((): AttemptState => ({ kind: "running" })),
+      Effect.orElseSucceed((): AttemptReading => ({ kind: "unknown" })),
       Effect.flatMap(
         (
           state,
@@ -346,8 +373,9 @@ export const make = Effect.gen(function* () {
             case "failed":
               return releaseAttempt(root, attemptId).pipe(Effect.andThen(Effect.fail(cause)));
             case "running":
+            case "unknown":
               return Effect.sync(() => live.delete(attemptId)).pipe(
-                Effect.andThen(Effect.fail(cause)),
+                Effect.andThen(unsettled(root, attemptId, state.kind, owner, cause)),
               );
           }
         },
@@ -385,14 +413,8 @@ export const make = Effect.gen(function* () {
           ),
         );
         for (const row of earlier) {
-          const stillRunning = new WorkspaceProviderError({
-            operation: "allocate",
-            projectRoot: root,
-            detail: "An earlier start for this thread has not finished; retry once it has.",
-          });
-          // An attempt SlipJay will not describe may still be running.
           const state = yield* attemptState(root, row.attemptId).pipe(
-            Effect.orElseSucceed((): AttemptState => ({ kind: "running" })),
+            Effect.orElseSucceed((): AttemptReading => ({ kind: "unknown" })),
           );
           switch (state.kind) {
             case "ready":
@@ -409,7 +431,8 @@ export const make = Effect.gen(function* () {
               yield* releaseAttempt(root, row.attemptId);
               break;
             case "running":
-              return yield* stillRunning;
+            case "unknown":
+              return yield* unsettled(root, row.attemptId, state.kind, owner);
           }
         }
         return null;
@@ -476,7 +499,7 @@ export const make = Effect.gen(function* () {
                 ),
               ),
             ),
-            Effect.catch((error) => settleStart(root, attemptId, error)),
+            Effect.catch((error) => settleStart(root, attemptId, owner, error)),
           ));
         // Resuming would hand over a workspace that may be another thread's. Attaching
         // refuses an item another workspace holds, so this checkout only ever belongs to
