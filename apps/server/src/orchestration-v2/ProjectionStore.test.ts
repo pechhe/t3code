@@ -586,6 +586,102 @@ it.effect.each([
   }).pipe(Effect.provide(layer)),
 );
 
+it.effect(
+  "full reads include provider threads the thread's nodes own and filter turn items by type in order",
+  () =>
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const threadId = yield* addRolledBackRecoveryCandidate("owned-provider-thread");
+      const otherThreadId = yield* addRolledBackRecoveryCandidate("owned-provider-thread:other");
+      const initial = yield* store.getThreadProjection(threadId);
+      const run = initial.runs[0]!;
+      const ownerNodeId = run.rootNodeId!;
+      const at = initial.updatedAt;
+      yield* store.apply({
+        id: EventId.make("event:owned-provider-thread:node"),
+        type: "node.updated",
+        threadId,
+        runId: run.id,
+        nodeId: ownerNodeId,
+        driver,
+        occurredAt: at,
+        payload: {
+          id: ownerNodeId,
+          threadId,
+          runId: run.id,
+          rootNodeId: ownerNodeId,
+          parentNodeId: null,
+          kind: "root_turn",
+          status: "completed",
+          countsForRun: true,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          runtimeRequestId: null,
+          checkpointScopeId: null,
+          startedAt: at,
+          completedAt: at,
+        },
+      });
+      const providerThread = (suffix: string, owner: NodeId | null) =>
+        store.apply({
+          id: EventId.make(`event:owned-provider-thread:${suffix}`),
+          type: "provider-thread.updated",
+          threadId: otherThreadId,
+          occurredAt: at,
+          payload: {
+            id: ProviderThreadId.make(`provider-thread:owned:${suffix}`),
+            driver,
+            providerInstanceId,
+            providerSessionId: null,
+            appThreadId: otherThreadId,
+            ownerNodeId: owner,
+            nativeThreadRef: null,
+            nativeConversationHeadRef: null,
+            status: "idle",
+            firstRunOrdinal: null,
+            lastRunOrdinal: null,
+            handoffIds: [],
+            forkedFrom: null,
+            createdAt: at,
+            updatedAt: at,
+          },
+        });
+      yield* providerThread("owned", ownerNodeId);
+      yield* providerThread("unowned", null);
+      assert.deepEqual(
+        (yield* store.getThreadRecords(threadId, ["providerThreads"])).providerThreads.map(
+          (thread) => thread.id,
+        ),
+        [ProviderThreadId.make("provider-thread:owned:owned")],
+      );
+
+      const command = initial.turnItems[0]!;
+      for (const [suffix, ordinal] of [
+        ["late", 9],
+        ["early", 0],
+      ] as const) {
+        yield* store.apply({
+          id: EventId.make(`event:owned-provider-thread:item:${suffix}`),
+          type: "turn-item.updated",
+          threadId,
+          occurredAt: at,
+          payload: { ...command, id: TurnItemId.make(`item:typed:${suffix}`), ordinal },
+        });
+      }
+      const typed = (types: ReadonlyArray<typeof command.type>) =>
+        store
+          .getThreadRecords(threadId, ["turnItems"], { turnItemTypes: types })
+          .pipe(Effect.map(({ turnItems }) => turnItems.map((item) => item.id)));
+      assert.deepEqual(yield* typed([command.type, "secret_request"]), [
+        TurnItemId.make("item:typed:early"),
+        command.id,
+        TurnItemId.make("item:typed:late"),
+      ]);
+      assert.deepEqual(yield* typed(["secret_request"]), []);
+    }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect.each([
   ["memory", ProjectionStore.layerMemory],
   ["SQL", layerTest],

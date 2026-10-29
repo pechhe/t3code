@@ -37,6 +37,7 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const rows = yield* sql<{ thread_id: string }>`
         SELECT thread_id FROM orchestration_v2_projection_threads
+          INDEXED BY orchestration_v2_projection_threads_watching_idx
         WHERE deleted_at IS NULL
           AND json_array_length(payload_json, '$.threadWatches') > 0`;
       for (const row of rows) {
