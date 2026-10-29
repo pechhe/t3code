@@ -701,6 +701,159 @@ describe("OrchestratorMcpService", () => {
     }),
   );
 
+  it.effect("lets the thread that owns a running managed task steer it, and refuses others", () =>
+    Effect.gen(function* () {
+      const parentId = ThreadId.make("thread:managed-steer-parent");
+      const childId = ThreadId.make("thread:managed-steer-child");
+      const taskId = NodeId.make("node:managed-steer-task");
+      const parentShell = liveThreadShell(parentId);
+      const childShell = liveThreadShell(childId);
+      let parent = {
+        ...idleThreadProjection(parentShell),
+        runs: [
+          {
+            id: RunId.make("run:managed-steer-parent"),
+            status: "running",
+            ordinal: 1,
+            providerInstanceId: ProviderInstanceId.make("codex"),
+          } as never,
+        ],
+        subagents: [
+          {
+            id: taskId,
+            threadId: parentId,
+            childThreadId: childId,
+            origin: "app_owned",
+            status: "running",
+            result: null,
+          } as never,
+        ],
+      } as unknown as OrchestrationV2ThreadProjection;
+      let child = {
+        ...idleThreadProjection(childShell),
+        thread: {
+          ...idleThreadProjection(childShell).thread,
+          agentTask: { role: "worker" },
+          lineage: {
+            rootThreadId: parentId,
+            parentThreadId: parentId,
+            relationshipToParent: "subagent",
+          },
+        },
+        runs: [
+          {
+            id: RunId.make("run:managed-steer-child"),
+            status: "running",
+            ordinal: 1,
+            providerInstanceId: ProviderInstanceId.make("codex"),
+          } as never,
+        ],
+      } as unknown as OrchestrationV2ThreadProjection;
+      const sent: Array<Record<string, unknown>> = [];
+      const dependencies = Layer.mergeAll(
+        Layer.merge(
+          NodeServices.layer,
+          Layer.mock(Experiments.ExperimentService)({
+            assignForTask: () => Effect.succeed([]),
+            assignments: () => Effect.succeed([]),
+          }),
+        ),
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadShell: (threadId) =>
+            Effect.succeed(
+              threadId === parentId ? parentShell : threadId === childId ? childShell : null,
+            ),
+          getThreadRecords: (threadId) => Effect.succeed(threadId === parentId ? parent : child),
+          getProjectThreadRecords: ({ threadId }) =>
+            Effect.succeed(threadId === parentId ? parent : child),
+          sendToThread: (input) =>
+            Effect.sync(() => {
+              sent.push(input as unknown as Record<string, unknown>);
+              return {
+                run: { id: RunId.make("run:managed-steer-child"), status: "running" },
+                delivery: "steered",
+              } as never;
+            }),
+        }),
+        ServerSettings.layerTest(),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+          list: () => Effect.succeed([]),
+        }),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+      );
+      const caller = (threadId: ThreadId): McpInvocationScope => ({
+        environmentId: EnvironmentId.make("environment:managed-steer"),
+        requestNamespace: "mcp-managed-steer",
+        thread: {
+          threadId,
+          providerSessionId: "parent",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+        },
+        client: undefined,
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 1,
+      });
+
+      const outcomes = yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        const steered = yield* service.sendToThread(caller(parentId), {
+          threadId: childId,
+          message: "Also cover the empty case.",
+          mode: "steer",
+          clientRequestId: "owner-steer",
+        } as never);
+        parent = { ...parent, subagents: [] };
+        const notOwner = yield* service
+          .sendToThread(caller(parentId), {
+            threadId: childId,
+            message: "Not mine to steer.",
+            mode: "steer",
+            clientRequestId: "not-owner-steer",
+          } as never)
+          .pipe(Effect.flip);
+        parent = {
+          ...parent,
+          subagents: [
+            {
+              id: taskId,
+              threadId: parentId,
+              childThreadId: childId,
+              origin: "app_owned",
+              status: "running",
+              result: null,
+            } as never,
+          ],
+        };
+        child = {
+          ...child,
+          runs: child.runs.map((run) => ({ ...run, status: "completed" })),
+        } as unknown as OrchestrationV2ThreadProjection;
+        const finished = yield* service
+          .sendToThread(caller(parentId), {
+            threadId: childId,
+            message: "Continue the managed task instead.",
+            mode: "auto",
+            clientRequestId: "finished-send",
+          } as never)
+          .pipe(Effect.flip);
+        return { steered, notOwner, finished } as const;
+      }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(dependencies))));
+
+      assert.equal(outcomes.steered.delivery, "steered");
+      assert.equal(outcomes.steered.threadId, childId);
+      assert.equal(sent.length, 1);
+      assert.equal(sent[0]!.mode, "steer");
+      assert.equal(outcomes.notOwner.code, "invalid_request");
+      assert.include(outcomes.notOwner.message, "followup");
+      assert.equal(outcomes.finished.code, "invalid_request");
+      assert.include(outcomes.finished.message, "followup");
+    }),
+  );
+
   it.effect("reports a restart-cut child as working until its continuation settles", () =>
     Effect.gen(function* () {
       const parentThreadId = ThreadId.make("thread:mcp-restart-parent");

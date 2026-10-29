@@ -683,6 +683,26 @@ function pendingTaskApproval(
   return approval;
 }
 
+/** A caller may steer a running task it delegated; a finished one continues through delegate_task. */
+function ownsRunningManagedTask(
+  parent: Pick<OrchestrationV2ThreadProjection, "thread" | "subagents"> | undefined,
+  target: Pick<OrchestrationV2ThreadProjection, "thread" | "runs">,
+): boolean {
+  return (
+    parent !== undefined &&
+    target.thread.agentTask !== undefined &&
+    target.thread.lineage.parentThreadId === parent.thread.id &&
+    target.thread.lineage.relationshipToParent === "subagent" &&
+    ThreadManagementService.latestActiveRun(target) !== undefined &&
+    parent.subagents.some(
+      (task) =>
+        task.origin === "app_owned" &&
+        task.threadId === parent.thread.id &&
+        task.childThreadId === target.thread.id,
+    )
+  );
+}
+
 function directAppOwnedChildTasks(
   parent: Pick<OrchestrationV2ThreadProjection, "thread" | "subagents">,
   target: Pick<OrchestrationV2ThreadProjection, "thread" | "runs">,
@@ -4145,10 +4165,10 @@ const make = Effect.gen(function* () {
     }),
     sendToThread: Effect.fn("OrchestratorMcpService.sendToThread")(function* (scope, input) {
       const { parent, limits, target } = yield* loadScopedThread(scope, input.threadId);
-      if (target.thread.agentTask !== undefined)
+      if (target.thread.agentTask !== undefined && !ownsRunningManagedTask(parent, target))
         return yield* failure(
           "invalid_request",
-          "Use delegate_task with followup to continue a managed task, or a fresh managed task for a new independent review round.",
+          "Use delegate_task with followup to continue a finished managed task, or a fresh managed task for a new independent review round.",
         );
       yield* assertLiveCallerForOtherThread(scope, parent, target);
       yield* resolveRuntimeMode(limits.runtimeMode, target.thread.runtimeMode);
