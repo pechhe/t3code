@@ -794,3 +794,15 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** none known as of v0.1.3-nightly.20261025.3669; upstreamable.
 - **Retire when:** upstream's `toURL` or its server middleware honours `x-forwarded-proto` for DPoP verification.
 - **Decision:** `retain` (new, 2026-10-29).
+
+### claude-missing-transcript-resume
+
+- **Kind:** temporary workaround (upstreamable bug fix)
+- **Why:** Claude Code deletes old transcripts itself (its periodic cleanup) and a person can remove them, but T3 resumed a Claude thread natively whenever its transcript was absent, so every next turn and retry failed with `No conversation found with session ID` and the thread was stuck. Upstream's check (#19637) only treated a transcript that holds no conversation as unresumable.
+- **Requirements:** `resumeThread` fails, so `ProviderTurnStartService`'s existing `provider_resume_fallback` starts a fresh session with a `full_thread_summary` handoff from T3's own history, when no `<session>.jsonl` is in any project folder of the config folder this instance's CLI uses (`CLAUDE_CONFIG_DIR`, else `~/.claude`), including when that folder has no `projects` folder; a copy in another account's folder counts as missing. Any other read error (permissions, I/O) leaves the resume to the CLI. A live query that holds the native thread still resumes natively, and a transcript with a conversation resumes natively. No second recovery path.
+- **Integration points:** `hasUnresumableClaudeTranscript` and `resumeThread` in `Adapters/ClaudeAdapterV2.ts`; the resume fallback in `ProviderTurnStartService`.
+- **Proof:** Adapters/ClaudeAdapterV2.test.ts ("ClaudeAdapterV2 resumeThread"); ProviderTurnStartService.test.ts ("Claude resume without a transcript").
+- **Upstream:** none known as of v0.1.3-nightly.20261025.3669; upstreamable.
+- **Retire when:** upstream's Claude adapter treats a missing transcript as unresumable.
+- **Decision:** `retain` (new, 2026-10-29, T3-308).
+- **Owner:** T3-308 (Forge #5588).

@@ -20,17 +20,23 @@ import {
   RunId,
   ThreadId,
   ProjectId,
+  ClaudeSettings,
+  TurnItemId,
   type OrchestrationV2ProviderTurnTokenUsage,
   type OrchestrationV2ThreadProjection,
+  type OrchestrationV2TurnItem,
   OrchestrationV2DomainEvent,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Crypto from "effect/Crypto";
 
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
@@ -45,7 +51,10 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import type * as ClaudeAgentSdk from "@anthropic-ai/claude-agent-sdk";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
+import * as ClaudeAdapterV2 from "./Adapters/ClaudeAdapterV2.ts";
 import * as EventSink from "./EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
@@ -315,6 +324,10 @@ function makeLocalCommandHarness(input: {
   readonly openFailure?: unknown;
   readonly ensureThreadFailure?: unknown;
   readonly historyReadFailureAfterFallback?: unknown;
+  /** The opened provider session, whose resume decides between native resume and a fallback. */
+  readonly resumeSession?: ProviderAdapter.ProviderAdapterV2SessionRuntime;
+  /** The thread's stored history; a resume fallback summarises it into a handoff. */
+  readonly history?: ReadonlyArray<OrchestrationV2TurnItem>;
   readonly interruptOpen?: boolean;
   readonly interruptRunBeforeOpenFailure?: boolean;
   readonly writeFailure?: unknown;
@@ -434,6 +447,7 @@ function makeLocalCommandHarness(input: {
             ? null
             : "feature/restore",
       worktreePath: input.worktreePath ?? null,
+      lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
       ...(input.delegated === true ? { agentTask: { role: "implementation-worker" } } : {}),
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
@@ -675,46 +689,48 @@ function makeLocalCommandHarness(input: {
   const open = vi.fn(() =>
     input.interruptOpen === true
       ? Effect.interrupt
-      : "historyReadFailureAfterFallback" in input
-        ? Effect.succeed(resumeFallbackSession as never)
-        : "ensureThreadFailure" in input
-          ? Effect.succeed({ driver: providerThread.driver, ensureThread } as never)
-          : "openFailure" in input
-            ? Effect.sync(() => {
-                if (input.interruptRunBeforeOpenFailure === true) interruptRun();
-              }).pipe(
-                Effect.andThen(
-                  Effect.fail(
-                    new ProviderSessionManager.ProviderSessionOpenError({
-                      instanceId: newInstanceId,
-                      providerSessionId,
-                      cause: input.openFailure,
-                    }),
+      : input.resumeSession !== undefined
+        ? Effect.succeed(input.resumeSession as never)
+        : "historyReadFailureAfterFallback" in input
+          ? Effect.succeed(resumeFallbackSession as never)
+          : "ensureThreadFailure" in input
+            ? Effect.succeed({ driver: providerThread.driver, ensureThread } as never)
+            : "openFailure" in input
+              ? Effect.sync(() => {
+                  if (input.interruptRunBeforeOpenFailure === true) interruptRun();
+                }).pipe(
+                  Effect.andThen(
+                    Effect.fail(
+                      new ProviderSessionManager.ProviderSessionOpenError({
+                        instanceId: newInstanceId,
+                        providerSessionId,
+                        cause: input.openFailure,
+                      }),
+                    ),
                   ),
-                ),
-              )
-            : input.deliverTurn === true ||
-                input.failReadsAfterRunning === true ||
-                input.previousTurn !== undefined
-              ? Effect.succeed({
-                  driver: providerThread.driver,
-                  startTurn,
-                  providerSession: {
-                    id: providerSessionId,
+                )
+              : input.deliverTurn === true ||
+                  input.failReadsAfterRunning === true ||
+                  input.previousTurn !== undefined
+                ? Effect.succeed({
                     driver: providerThread.driver,
-                    providerInstanceId: newInstanceId,
-                    status: "ready",
-                    cwd: "/tmp/native-account-command",
-                    model: null,
-                    capabilities: CodexProviderCapabilitiesV2,
-                    createdAt: now,
-                    updatedAt: now,
-                    lastError: null,
-                  },
-                  ensureThread: () => Effect.succeed(providerThread),
-                  resumeThread: () => Effect.succeed(projection.providerThreads[0]),
-                } as never)
-              : Effect.die("A local command must not open a native session."),
+                    startTurn,
+                    providerSession: {
+                      id: providerSessionId,
+                      driver: providerThread.driver,
+                      providerInstanceId: newInstanceId,
+                      status: "ready",
+                      cwd: "/tmp/native-account-command",
+                      model: null,
+                      capabilities: CodexProviderCapabilitiesV2,
+                      createdAt: now,
+                      updatedAt: now,
+                      lastError: null,
+                    },
+                    ensureThread: () => Effect.succeed(providerThread),
+                    resumeThread: () => Effect.succeed(projection.providerThreads[0]),
+                  } as never)
+                : Effect.die("A local command must not open a native session."),
   );
   const startRootRun = vi.fn<
     (input: RunExecutionService.RunExecutionServiceV2StartRootRunInput) => Effect.Effect<void>
@@ -829,12 +845,23 @@ function makeLocalCommandHarness(input: {
     Layer.provide(
       Layer.mergeAll(
         // A cross-account compaction writes a real handoff; the other scenarios never do.
-        input.summariser === undefined
+        input.summariser === undefined && input.history === undefined
           ? Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({
               prepareProviderHandoff: () => Effect.die("history read must fail first"),
             })
           : ContextHandoffService.layer.pipe(Layer.provide(IdAllocator.layer)),
-        Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
+        Layer.mock(EventSink.EventSinkV2)({
+          writeIfRunCurrent,
+          // A resume fallback records its handoff unconditionally.
+          write: ({ events: incoming }) =>
+            Effect.sync(() => {
+              for (const event of incoming) {
+                events.push(event);
+                projection = ProjectionStore.applyToProjection(projection, event);
+              }
+              return [];
+            }),
+        }),
         IdAllocator.layer,
         Layer.succeed(HostProcess.Environment, input.processEnvironment ?? process.env),
         NodeChildProcessSpawner.layer.pipe(Layer.provide(NodeServices.layer)),
@@ -874,12 +901,14 @@ function makeLocalCommandHarness(input: {
               ),
             }),
           getTurnStartHistory: () =>
-            Effect.fail(
-              new ProjectionStore.ProjectionStoreReadError({
-                threadId,
-                cause: input.historyReadFailureAfterFallback,
-              }),
-            ),
+            input.history !== undefined
+              ? Effect.succeed(input.history)
+              : Effect.fail(
+                  new ProjectionStore.ProjectionStoreReadError({
+                    threadId,
+                    cause: input.historyReadFailureAfterFallback,
+                  }),
+                ),
         }),
         Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({
           open,
@@ -2157,3 +2186,199 @@ for (const previousMessages of [[], ["/compact", " /COMPACT "]]) {
       }),
   );
 }
+
+const DEFAULT_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({});
+const claudeResumeLayer = Layer.mergeAll(
+  IdAllocator.layer,
+  McpProviderSessions.layer,
+  NodeServices.layer,
+);
+
+describe("Claude resume without a transcript", () => {
+  const earlierTurn = (text: string): OrchestrationV2TurnItem => {
+    const now = DateTime.makeUnsafe("2026-09-04T11:00:00Z");
+    return {
+      id: TurnItemId.make("turn-item-earlier"),
+      threadId: ThreadId.make("thread-native-account-command"),
+      runId: null,
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      ordinal: 1,
+      status: "completed",
+      title: null,
+      startedAt: now,
+      completedAt: now,
+      updatedAt: now,
+      messageId: MessageId.make("message-earlier"),
+      text,
+      createdBy: "user",
+      creationSource: "server",
+      type: "user_message",
+      inputIntent: "turn_start",
+      attachments: [],
+    };
+  };
+
+  /** Starts the next turn of a Claude thread whose native session is `existing-session`. */
+  const startClaudeContinuation = Effect.fn("test.startClaudeContinuation")(function* (
+    prepareConfigDir: (
+      configDir: string,
+    ) => Effect.Effect<void, PlatformError.PlatformError, FileSystem.FileSystem | Path.Path>,
+  ) {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const configDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-claude-pruned-" });
+    // The CLI behind whichever native session the turn opens: what it was sent, and its replies.
+    const prompts: Array<string> = [];
+    const replies = yield* Queue.unbounded<ClaudeAgentSdk.SDKMessage>();
+    yield* prepareConfigDir(configDir);
+    const adapter = yield* ClaudeAdapterV2.makeClaudeAdapterV2({
+      instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
+      settings: DEFAULT_CLAUDE_SETTINGS,
+      environment: { CLAUDE_CONFIG_DIR: configDir },
+      attachmentsDir: configDir,
+      fileSystem,
+      path: yield* Path.Path,
+      crypto: yield* Crypto.Crypto,
+      idAllocator: yield* IdAllocator.IdAllocatorV2,
+      queryRunner: {
+        allocateSessionId: Effect.succeed("replacement-session"),
+        open: () =>
+          Effect.succeed({
+            messages: Stream.fromQueue(replies),
+            offer: (message) =>
+              Effect.sync(() => {
+                prompts.push(JSON.stringify(message.message.content));
+              }),
+            setModel: () => Effect.void,
+            applyFlagSettings: () => Effect.void,
+            setPermissionMode: () => Effect.void,
+            backgroundTasks: () => Effect.succeed(false),
+            stopTask: () => Effect.void,
+            interrupt: Effect.void,
+            close: Queue.shutdown(replies),
+          }),
+        forkSession: () => Effect.die("unused"),
+        subagentLaunchToolUseId: () => Effect.succeed(null),
+        assertComplete: Effect.void,
+      },
+    });
+    const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      cwd: "/tmp/native-account-command",
+    });
+    const resumeSession = yield* adapter.openSession({
+      threadId: ThreadId.make("thread-native-account-command"),
+      providerSessionId: ProviderSessionId.make("new-provider-session"),
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("claudeAgent"),
+        model: "claude-sonnet-5-5",
+      },
+      runtimePolicy,
+    });
+    const terminal = yield* resumeSession.events.pipe(
+      Stream.filter((event) => event.type === "turn.terminal"),
+      Stream.runHead,
+      Effect.forkScoped,
+    );
+    const harness = makeLocalCommandHarness({
+      text: "Continue",
+      claude: { usages: [] },
+      nativeSession: true,
+      deliverTurn: true,
+      resumeSession,
+      history: [earlierTurn("Remember the launch codename is Bluebird.")],
+    });
+    yield* harness.start;
+    // The CLI answers the turn it was sent.
+    const nativeSessionId =
+      harness.startRootRun.mock.calls[0]?.[0].providerThread.nativeThreadRef?.nativeId;
+    yield* Queue.offer(replies, {
+      type: "result",
+      subtype: "success",
+      duration_ms: 10,
+      duration_api_ms: 10,
+      is_error: false,
+      num_turns: 1,
+      result: "Bluebird.",
+      stop_reason: "end_turn",
+      total_cost_usd: 0,
+      usage: {
+        input_tokens: 1,
+        output_tokens: 1,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+      modelUsage: {},
+      permission_denials: [],
+      uuid: "00000000-0000-4000-8000-000000000308",
+      session_id: nativeSessionId,
+      terminal_reason: "completed",
+    } as unknown as ClaudeAgentSdk.SDKMessage);
+    return { harness, prompts, terminal: Option.getOrUndefined(yield* Fiber.join(terminal)) };
+  });
+
+  const writeTranscript = (configDir: string, sessionId: string) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const projectDir = path.join(configDir, "projects", "-tmp-native-account-command");
+      yield* fileSystem.makeDirectory(projectDir, { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(projectDir, `${sessionId}.jsonl`),
+        `{"type":"user","message":{"role":"user","content":"hello"},"sessionId":"${sessionId}"}\n`,
+      );
+    });
+
+  for (const [name, prepare] of [
+    // Claude's cleanup removed this session's transcript; other sessions' remain.
+    ["the transcript is gone", (dir: string) => writeTranscript(dir, "another-session")],
+    ["the account has no projects folder", () => Effect.void],
+  ] as const) {
+    effectIt.effect(`starts a fresh session with the thread's history when ${name}`, () =>
+      Effect.gen(function* () {
+        const { harness, prompts, terminal } = yield* startClaudeContinuation(prepare);
+
+        const transfer = harness.events.find((event) => event.type === "context-transfer.updated");
+        expect(transfer?.payload).toMatchObject({
+          type: "provider_handoff",
+          status: "resolved_portable",
+        });
+        expect(String(transfer?.payload.id)).toContain("provider_resume_fallback");
+        const handoff = harness.projection().contextHandoffs[0];
+        expect(handoff).toMatchObject({
+          strategy: "full_thread_summary",
+          transferId: transfer?.payload.id,
+        });
+        expect(JSON.stringify(handoff)).toContain("Bluebird");
+        expect(harness.startRootRun).toHaveBeenCalledTimes(1);
+        const started = harness.startRootRun.mock.calls[0]![0];
+        expect(started.providerThread.nativeThreadRef?.nativeId).toBe("replacement-session");
+        // The replacement session's first prompt carries the earlier turn, and the turn completes.
+        expect(prompts).toHaveLength(1);
+        expect(prompts[0]).toContain("Bluebird");
+        expect(prompts[0]).toContain("Continue");
+        expect(terminal).toMatchObject({ status: "completed", failure: null });
+      }).pipe(Effect.scoped, Effect.provide(claudeResumeLayer)),
+    );
+  }
+
+  effectIt.effect("resumes the native session with no handoff while its transcript remains", () =>
+    Effect.gen(function* () {
+      const { harness, prompts, terminal } = yield* startClaudeContinuation((dir) =>
+        writeTranscript(dir, "existing-session"),
+      );
+
+      expect(harness.events.some((event) => event.type === "context-transfer.updated")).toBe(false);
+      expect(harness.projection().contextHandoffs).toEqual([]);
+      const started = harness.startRootRun.mock.calls[0]![0];
+      expect(started.providerThread.nativeThreadRef?.nativeId).toBe("existing-session");
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0]).not.toContain("Bluebird");
+      expect(terminal).toMatchObject({ status: "completed", failure: null });
+    }).pipe(Effect.scoped, Effect.provide(claudeResumeLayer)),
+  );
+});

@@ -10615,42 +10615,58 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         });
         yield* Effect.addFinalizer(() => closeSession());
 
-        // Metadata-only transcripts cannot be resumed or recreated; fail resumeThread to trigger a fresh session and handoff.
-        const hasEmptyClaudeTranscript = Effect.fn("ClaudeAdapterV2.hasEmptyClaudeTranscript")(
-          function* (nativeThreadId: string) {
-            const configuredDir = adapterOptions.environment.CLAUDE_CONFIG_DIR?.trim() ?? "";
-            const projectsDir = path.join(
-              configuredDir.length > 0
-                ? path.resolve(session.cwd, configuredDir)
-                : path.join(yield* HostProcess.HomeDirectory, ".claude"),
-              "projects",
+        // Missing transcripts (Claude's cleanup prunes old ones) and metadata-only ones cannot be
+        // resumed; fail resumeThread to trigger a fresh session and handoff. Other read errors fail.
+        const hasUnresumableClaudeTranscript = Effect.fn(
+          "ClaudeAdapterV2.hasUnresumableClaudeTranscript",
+        )(function* (nativeThreadId: string) {
+          const configuredDir = adapterOptions.environment.CLAUDE_CONFIG_DIR?.trim() ?? "";
+          // The folder the CLI for this instance reads; another account's copy cannot be resumed.
+          const projectsDir = path.join(
+            configuredDir.length > 0
+              ? path.resolve(session.cwd, configuredDir)
+              : path.join(yield* HostProcess.HomeDirectory, ".claude"),
+            "projects",
+          );
+          const projects = yield* fileSystem.readDirectory(projectsDir).pipe(
+            Effect.catchIf(
+              (error) => error.reason._tag === "NotFound",
+              () => Effect.succeed<ReadonlyArray<string>>([]),
+            ),
+          );
+          // Any message in any transcript copy means Claude may still resume it.
+          for (const project of projects) {
+            const projectDir = path.join(projectsDir, project);
+            const transcriptPath = path.join(projectDir, `${nativeThreadId}.jsonl`);
+            const exists = yield* fileSystem.exists(transcriptPath).pipe(
+              // Stray files beside the project dirs fail with ENOTDIR; other errors still fail.
+              Effect.catch((error) =>
+                fileSystem
+                  .stat(projectDir)
+                  .pipe(
+                    Effect.flatMap((info) =>
+                      info.type === "Directory" ? Effect.fail(error) : Effect.succeed(false),
+                    ),
+                  ),
+              ),
             );
-            // Any message in any transcript copy means Claude may still resume it.
-            let found = false;
-            for (const project of yield* fileSystem.readDirectory(projectsDir)) {
-              const transcriptPath = path.join(projectsDir, project, `${nativeThreadId}.jsonl`);
-              // Stray files beside the project dirs fail with ENOTDIR.
-              if (
-                !(yield* fileSystem.exists(transcriptPath).pipe(Effect.orElseSucceed(() => false)))
-              ) {
-                continue;
-              }
-              const conversationLine = yield* fileSystem
-                .stream(transcriptPath)
-                .pipe(
-                  Stream.decodeText,
-                  Stream.splitLines,
-                  Stream.filter(isClaudeConversationLine),
-                  Stream.runHead,
-                );
-              if (Option.isSome(conversationLine)) {
-                return false;
-              }
-              found = true;
+            if (!exists) {
+              continue;
             }
-            return found;
-          },
-        );
+            const conversationLine = yield* fileSystem
+              .stream(transcriptPath)
+              .pipe(
+                Stream.decodeText,
+                Stream.splitLines,
+                Stream.filter(isClaudeConversationLine),
+                Stream.runHead,
+              );
+            if (Option.isSome(conversationLine)) {
+              return false;
+            }
+          }
+          return true;
+        });
 
         const runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime = {
           instanceId: adapterOptions.instanceId,
@@ -10735,7 +10751,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 // A live process holds the conversation even before saving it.
                 (yield* Ref.get(queryContext))?.nativeThreadId !== nativeThreadId &&
                 // An unreadable transcript leaves the resume to the CLI.
-                (yield* hasEmptyClaudeTranscript(nativeThreadId).pipe(
+                (yield* hasUnresumableClaudeTranscript(nativeThreadId).pipe(
                   Effect.orElseSucceed(() => false),
                 ))
               ) {
