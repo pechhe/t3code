@@ -1785,7 +1785,7 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError(threadManagementFailure));
     const childRun = delegatedTaskRun(childControls, task);
     const terminalRun = latestTerminalResultRun(childControls, childRun);
-    const progress = delegatedTaskProgress(childControls);
+    const progress = delegatedTaskProgress(childControls, yield* DateTime.now);
     const taskResultRun =
       childRun?.delegatedTaskId === task.id
         ? childControls.runs
@@ -4099,7 +4099,7 @@ const make = Effect.gen(function* () {
             watchedThreadRecords.filter,
           )
           .pipe(Effect.mapError(threadManagementFailure));
-        const decision = decideThreadWatch(watched);
+        const decision = decideThreadWatch(watched, yield* DateTime.now);
         if (decision !== undefined && "resultRun" in decision) {
           const resultRecords = yield* threadManagement
             .getThreadRecords(target.thread.id, ["messages", "turnItems"], {

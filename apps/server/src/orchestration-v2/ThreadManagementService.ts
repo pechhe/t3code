@@ -1114,9 +1114,15 @@ const make = Effect.gen(function* () {
     const outcome = orchestrator
       .getThreadRecords(input.threadId, watchedThreadRecords.fields, watchedThreadRecords.filter)
       .pipe(
-        // Settling ends the thread's own pull request watches; they do not hold it open.
-        Effect.map((state) =>
-          decideThreadWatch({ ...state, thread: { ...state.thread, pullRequests: [] } }),
+        Effect.flatMap((state) =>
+          Effect.gen(function* () {
+            // Settling ends the thread's own pull request watches; they do not hold it open.
+            const now = yield* DateTime.now;
+            return decideThreadWatch(
+              { ...state, thread: { ...state.thread, pullRequests: [] } },
+              now,
+            );
+          }),
         ),
       );
     const settles = (decision: ThreadWatchDecision | undefined) =>

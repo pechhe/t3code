@@ -22,6 +22,7 @@ import * as Effect from "effect/Effect";
 
 import {
   makeSubagentChildThread,
+  abandonedBackgroundWorkNote,
   delegatedTaskProgress,
   subagentResultForRun,
   makeSubagentConversationArtifacts,
@@ -30,6 +31,10 @@ import {
 } from "@t3tools/provider-core/server/subagentProjection";
 
 import { emptyProjection } from "./ProjectionStore.ts";
+
+const evaluationTime = DateTime.makeUnsafe("2026-07-24T09:20:00.000Z");
+const progressOf = (projection: Parameters<typeof delegatedTaskProgress>[0]) =>
+  delegatedTaskProgress(projection, evaluationTime);
 
 const parentThreadId = ThreadId.make("thread:subagent-snoozed-parent");
 const childThreadId = ThreadId.make("thread:subagent-awake-child");
@@ -156,7 +161,7 @@ it("reports the run that ended last, not the highest ordinal", () => {
     ordinal,
     completedAt: DateTime.makeUnsafe(completedAt),
   });
-  const progress = delegatedTaskProgress({
+  const progress = progressOf({
     ...projection,
     runs: [
       { ...run, status: "cancelled" },
@@ -172,7 +177,7 @@ it("reports the run that ended last, not the highest ordinal", () => {
 it("holds a Spec lead's result while it watches, but not a leaf's", () => {
   const { projection } = taskFixture();
   const watching = (role: AgentRole) =>
-    delegatedTaskProgress({
+    progressOf({
       ...projection,
       thread: {
         ...projection.thread,
@@ -187,27 +192,27 @@ it("holds a Spec lead's result while it watches, but not a leaf's", () => {
 it("waits for nested work and retains the report across monitor acknowledgements", () => {
   const { projection, run } = taskFixture();
   assert.equal(
-    delegatedTaskProgress({ ...projection, subagents: [{ status: "running" }] }).state,
+    progressOf({ ...projection, subagents: [{ status: "running" }] }).state,
     "waiting_for_children",
   );
   assert.equal(
-    delegatedTaskProgress({ ...projection, subagents: [{ status: "completed" }] }).state,
+    progressOf({ ...projection, subagents: [{ status: "completed" }] }).state,
     "result_available",
   );
   assert.equal(
-    delegatedTaskProgress({ ...projection, subagents: [{ status: "idle" }] }).state,
+    progressOf({ ...projection, subagents: [{ status: "idle" }] }).state,
     "result_available",
   );
   for (const state of ["pending", "claimed"] as const) {
     assert.equal(
-      delegatedTaskProgress({
+      progressOf({
         ...projection,
         subagents: [{ status: "idle", completionDelivery: { state, observedByRunId: null } }],
       }).state,
       "result_available",
     );
     assert.equal(
-      delegatedTaskProgress({
+      progressOf({
         ...projection,
         subagents: [{ status: "completed", completionDelivery: { state, observedByRunId: null } }],
       }).state,
@@ -216,7 +221,7 @@ it("waits for nested work and retains the report across monitor acknowledgements
   }
   for (const state of ["acknowledged", "delivered", "disposed"] as const) {
     assert.equal(
-      delegatedTaskProgress({
+      progressOf({
         ...projection,
         subagents: [{ status: "completed", completionDelivery: { state, observedByRunId: null } }],
       }).state,
@@ -224,7 +229,7 @@ it("waits for nested work and retains the report across monitor acknowledgements
     );
   }
   assert.equal(
-    delegatedTaskProgress({
+    progressOf({
       ...projection,
       providerThreads: [
         {
@@ -242,9 +247,9 @@ it("waits for nested work and retains the report across monitor acknowledgements
     status: "queued" as const,
     startedAt: null,
   };
-  assert.equal(delegatedTaskProgress({ ...projection, runs: [run, pending] }).state, "working");
+  assert.equal(progressOf({ ...projection, runs: [run, pending] }).state, "working");
   const cancelled = { ...run, status: "cancelled" as const };
-  const held = delegatedTaskProgress({
+  const held = progressOf({
     ...projection,
     runs: [cancelled, { ...pending, queueHeld: true }],
   });
@@ -265,7 +270,7 @@ it("waits for nested work and retains the report across monitor acknowledgements
     ordinal: 3,
     now: childCreatedAt,
   });
-  const progress = delegatedTaskProgress({
+  const progress = progressOf({
     ...projection,
     runs: [run, report, monitor],
     messages: [
@@ -295,12 +300,9 @@ it("holds the result for pending background work and pull request watches, not t
     input: "vp test run",
   };
   // A background command the thread will be woken by delays its parent's delivery.
+  assert.equal(progressOf({ ...projection, turnItems: [command] }).state, "waiting_for_children");
   assert.equal(
-    delegatedTaskProgress({ ...projection, turnItems: [command] }).state,
-    "waiting_for_children",
-  );
-  assert.equal(
-    delegatedTaskProgress({
+    progressOf({
       ...projection,
       turnItems: [{ ...command, status: "completed" as const }],
     }).state,
@@ -328,7 +330,7 @@ it("holds the result for pending background work and pull request watches, not t
     wakes: 0,
   };
   assert.equal(
-    delegatedTaskProgress({
+    progressOf({
       ...projection,
       thread: { ...projection.thread, pullRequests: [{ ...pullRequest, watch }] },
     }).state,
@@ -346,7 +348,116 @@ it("holds the result for pending background work and pull request watches, not t
       },
     ],
   };
-  assert.equal(delegatedTaskProgress({ ...projection, thread: watcher }).state, "result_available");
+  assert.equal(progressOf({ ...projection, thread: watcher }).state, "result_available");
+});
+
+it("bounds how long a managed task waits on an awaited command, and names what it abandons", () => {
+  const { projection, run } = taskFixture();
+  const managed = {
+    ...projection,
+    thread: {
+      ...projection.thread,
+      agentTask: { role: "scout" } as AgentTaskBinding,
+    },
+  };
+  const poll = {
+    id: TurnItemId.make("background-poll"),
+    type: "command_execution" as const,
+    status: "running" as const,
+    title: null,
+    runId: run.id,
+    input: 'while pgrep -f "check" >/dev/null; do sleep 5; done',
+  };
+  // A command the child did not await is a dev server or watchdog: it publishes the result.
+  assert.equal(progressOf({ ...managed, turnItems: [poll] }).state, "result_available");
+  const awaited = {
+    ...managed,
+    providerThreads: [
+      {
+        id: ProviderThreadId.make("provider-thread:managed"),
+        pendingBackgroundTasks: [
+          {
+            taskId: "bmtw1af16",
+            description: 'while pgrep -f "check" >/dev/null; do sleep 5; done',
+            kind: "command" as const,
+            awaited: true as const,
+          },
+        ],
+      },
+    ],
+  };
+  // Within the grace period the child ended its turn to wait on it, so the result waits too.
+  const held = progressOf(awaited);
+  assert.equal(held.state, "waiting_for_children");
+  // While it waits, nothing has been abandoned.
+  assert.deepEqual(held.abandonedBackgroundWork, []);
+  const expired = delegatedTaskProgress(
+    awaited,
+    DateTime.addDuration(childCreatedAt, "15 minutes"),
+  );
+  assert.equal(expired.state, "result_available");
+  assert.deepEqual(expired.abandonedBackgroundWork, [
+    {
+      taskId: "bmtw1af16",
+      description: 'while pgrep -f "check" >/dev/null; do sleep 5; done',
+      kind: "command",
+      awaited: true,
+    },
+  ]);
+  assert.equal(
+    abandonedBackgroundWorkNote(expired.abandonedBackgroundWork),
+    'Abandoned background work: bmtw1af16 (while pgrep -f "check" >/dev/null; do sleep 5; done).',
+  );
+  // Work that will produce the task's result still holds it, whatever the clock says.
+  for (const at of [childCreatedAt, DateTime.addDuration(childCreatedAt, "1 hour")]) {
+    assert.equal(
+      delegatedTaskProgress({ ...managed, subagents: [{ status: "running" }] }, at).state,
+      "waiting_for_children",
+    );
+  }
+  const pullRequest = {
+    host: "github.com",
+    repository: "t3tools/t3code",
+    number: 7,
+    url: "https://github.com/t3tools/t3code/pull/7",
+    source: "agent" as const,
+    linkedAt: "2026-07-24T09:00:00.000Z",
+    snapshot: null,
+    stack: null,
+    watch: {
+      startedAt: "2026-07-24T09:00:00.000Z",
+      headSha: null,
+      failedChecks: [],
+      passed: false,
+      passedChecks: [],
+      remarksThrough: "2026-07-24T09:00:00.000Z",
+      remarkIds: [],
+      conflicting: false,
+      wakes: 0,
+    },
+  };
+  assert.equal(
+    delegatedTaskProgress(
+      {
+        ...managed,
+        thread: { ...managed.thread, pullRequests: [pullRequest] },
+      },
+      DateTime.addDuration(childCreatedAt, "1 hour"),
+    ).state,
+    "waiting_for_children",
+  );
+  assert.equal(
+    progressOf({
+      ...managed,
+      providerThreads: [
+        {
+          id: ProviderThreadId.make("provider-thread:managed-review"),
+          pendingBackgroundTasks: [{ taskId: "review", kind: "subagent" }],
+        },
+      ],
+    }).state,
+    "waiting_for_children",
+  );
 });
 
 it("exposes the provider failure rather than a progress message from the failed run", () => {

@@ -87,7 +87,10 @@ const RUN_ENDED: ReadonlySet<OrchestrationV2Run["status"]> = new Set([
 ]);
 
 /** The first outcome that applies, in precedence order, or none while the thread still works. */
-export function decideThreadWatch(state: WatchedThreadState): ThreadWatchDecision | undefined {
+export function decideThreadWatch(
+  state: WatchedThreadState,
+  now: DateTime.Utc,
+): ThreadWatchDecision | undefined {
   if (state.thread.archivedAt !== null || state.thread.deletedAt !== null) {
     return { kind: "archived" };
   }
@@ -102,7 +105,7 @@ export function decideThreadWatch(state: WatchedThreadState): ThreadWatchDecisio
   // leaves out a monitor run and a run a held queue has not started, either of which would otherwise
   // report an older run's result while the thread still works.
   if (state.runs.some((entry) => !RUN_ENDED.has(entry.status))) return undefined;
-  const progress = delegatedTaskProgress(state);
+  const progress = delegatedTaskProgress(state, now);
   if (progress.state !== "result_available" || progress.resultRun === undefined) return undefined;
   const status = runOutcome(progress.resultRun);
   return {

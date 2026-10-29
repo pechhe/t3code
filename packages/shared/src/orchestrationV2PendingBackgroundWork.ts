@@ -7,6 +7,8 @@ import type {
   ThreadId,
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
 import * as Predicate from "effect/Predicate";
 
@@ -64,10 +66,12 @@ const PULL_REQUEST_WATCH_TASK_PREFIX = "pull-request-watch:";
 export function ownBackgroundWork<Task extends Pick<PendingBackgroundWorkTask, "taskId">>(
   tasks: ReadonlyArray<Task>,
 ): ReadonlyArray<Task> {
-  return tasks.filter(
-    (task) =>
-      !task.taskId.startsWith(THREAD_WATCH_TASK_PREFIX) &&
-      !task.taskId.startsWith(PULL_REQUEST_WATCH_TASK_PREFIX),
+  return tasks.filter((task) => !isWatchBackgroundTask(task.taskId));
+}
+
+function isWatchBackgroundTask(taskId: string): boolean {
+  return (
+    taskId.startsWith(THREAD_WATCH_TASK_PREFIX) || taskId.startsWith(PULL_REQUEST_WATCH_TASK_PREFIX)
   );
 }
 
@@ -133,6 +137,59 @@ export function backgroundWorkHoldsCompletion(
 ): boolean {
   return tasks.some(
     (task) => task.awaited === true || backgroundWorkKindHoldsCompletion(task.kind),
+  );
+}
+
+/**
+ * How long an awaited command or monitor a managed task left running holds its result after the
+ * result run ended. A check or build the child ended its turn to wait on is worth reporting with the
+ * result, but a poll loop or watchdog can outlive the task, so it holds only this long.
+ */
+export const DELEGATED_COMPLETION_GRACE = Duration.minutes(15);
+
+/**
+ * What a delegated task's result still waits for at `now`. Work that will produce it — its own
+ * subagents, opaque background tasks and watches — holds indefinitely. An awaited command or monitor
+ * holds only until the grace period after `endedAt`; a command the child did not await is a dev
+ * server or a watchdog and never holds.
+ */
+export function delegatedCompletionHold(
+  tasks: ReadonlyArray<Pick<PendingBackgroundWorkTask, "taskId" | "kind" | "awaited">>,
+  options: {
+    readonly now: DateTime.Utc;
+    readonly endedAt: DateTime.Utc | null | undefined;
+  },
+): { readonly indefinite: boolean; readonly until: DateTime.Utc | null } {
+  const graceEnd =
+    options.endedAt == null
+      ? null
+      : DateTime.addDuration(options.endedAt, DELEGATED_COMPLETION_GRACE);
+  let indefinite = false;
+  let until: DateTime.Utc | null = null;
+  for (const task of tasks) {
+    if (
+      isWatchBackgroundTask(task.taskId) ||
+      (task.kind !== "command" && task.kind !== "monitor")
+    ) {
+      indefinite = true;
+    } else if (task.awaited === true) {
+      // A run without an end time cannot have outlived the grace, so the hold is open-ended.
+      if (graceEnd === null) indefinite = true;
+      else if (until === null || DateTime.toEpochMillis(graceEnd) > DateTime.toEpochMillis(until)) {
+        until = graceEnd;
+      }
+    }
+  }
+  return { indefinite, until };
+}
+
+/** The own commands and monitors a result abandons by publishing while they still run. */
+export function abandonedBackgroundWork<
+  Task extends Pick<PendingBackgroundWorkTask, "taskId" | "kind">,
+>(tasks: ReadonlyArray<Task>): ReadonlyArray<Task> {
+  return tasks.filter(
+    (task) =>
+      !isWatchBackgroundTask(task.taskId) && (task.kind === "command" || task.kind === "monitor"),
   );
 }
 

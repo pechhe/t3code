@@ -8,6 +8,7 @@ import {
 import { turnItemUpdateCanEndBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
@@ -130,7 +131,7 @@ const make = Effect.gen(function* () {
         watchedThreadRecords.fields,
         watchedThreadRecords.filter,
       );
-      if (decideThreadWatch(watched) === undefined) return;
+      if (decideThreadWatch(watched, yield* DateTime.now) === undefined) return;
       const uuid = yield* crypto.randomUUIDv4();
       yield* engine.dispatch({
         type: "thread.thread-watch.fire",

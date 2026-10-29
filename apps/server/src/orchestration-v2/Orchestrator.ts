@@ -48,6 +48,7 @@ import {
   type OrchestrationV2DelegatedCompletionDelivery,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ExecutionNode,
+  type OrchestrationV2PendingBackgroundTask,
   type OrchestrationV2ProviderThread,
   type OrchestrationV2ProviderTurn,
   type OrchestrationV2Run,
@@ -82,6 +83,7 @@ import {
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Schedule from "effect/Schedule";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -165,12 +167,14 @@ import { ProviderSwitchServiceV2 } from "./ProviderSwitchService.ts";
 import { isAutomaticCompletionRun, queuedRunsInDeliveryOrder } from "./QueuedRunOrder.ts";
 import { RuntimePolicyV2 } from "./RuntimePolicy.ts";
 import {
+  abandonedBackgroundWorkNote,
   endOrphanedNativeSubagent,
   endRunlessRootTurns,
   makeSubagentChildThread,
   subagentResultForRun,
   delegatedTaskProgress,
   delegatedTaskProgressTurnItems,
+  delegatedTaskRunHold,
   subagentThreadTitle,
 } from "@t3tools/provider-core/server/subagentProjection";
 import {
@@ -336,6 +340,8 @@ export interface OrchestratorV2DispatchResult {
 export interface OrchestratorV2Shape {
   readonly resumeQueuedRuns: Effect.Effect<number, OrchestratorV2Error>;
   readonly recoverDelegatedTasks: Effect.Effect<void>;
+  /** Publish any managed child's result whose awaited work has outlived its grace. */
+  readonly sweepDelegatedTaskResults: Effect.Effect<void>;
   readonly recoverDelegatedTask: (threadId: ThreadId, sourceRunId: RunId) => Effect.Effect<void>;
   readonly delegatedTaskResultPending: (
     childThreadId: ThreadId,
@@ -2962,7 +2968,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ),
         );
     const watched = yield* readWatched(watchedThreadRecords.fields, watchedThreadRecords.filter);
-    const decision = decideThreadWatch(watched);
+    const decision = decideThreadWatch(watched, yield* DateTime.now);
     if (decision === undefined) return;
     if (
       decision.kind !== "archived" &&
@@ -11897,6 +11903,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         readonly syncRunId?: RunId;
         readonly task: OrchestrationV2Subagent;
         readonly resultRun?: OrchestrationV2Run;
+        /** Background work still running when the result publishes. */
+        readonly abandonedBackgroundWork?: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
       },
     ) {
       const childThreadId = childControls.thread.id;
@@ -12037,6 +12045,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
       const now = yield* DateTime.now;
       const result = subagentResultForRun(childProjection, { ...childRun, status: outcome });
+      const abandonedNote = abandonedBackgroundWorkNote(options.abandonedBackgroundWork ?? []);
       const parentRun =
         task.runId === null
           ? undefined
@@ -12049,7 +12058,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...task,
         providerThreadId: childRun.providerThreadId,
         status: terminalStatus,
-        result: result.text,
+        result: abandonedNote === undefined ? result.text : `${result.text}\n\n${abandonedNote}`,
         completedAt: now,
         updatedAt: now,
       };
@@ -12230,7 +12239,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       childControls.thread.forkedFrom?.type !== "node"
     )
       return;
-    const progress = delegatedTaskProgress(childControls);
+    const now = yield* DateTime.now;
+    const progress = delegatedTaskProgress(childControls, now);
     const parent = yield* projectionStore.getThreadRecords(parentThreadId, [
       "subagents",
       "contextTransfers",
@@ -12239,8 +12249,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (
         task.origin !== "app_owned" ||
         task.childThreadId !== childThreadId ||
-        (task.id === childControls.thread.forkedFrom.nodeId &&
-          progress.state !== "result_available") ||
         (task.result !== null &&
           parent.contextTransfers.some(
             (transfer) =>
@@ -12248,10 +12256,29 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ))
       )
         continue;
+      const taskRuns = childControls.runs.filter((run) => run.delegatedTaskId === task.id);
+      const taskRun =
+        taskRuns.length === 0
+          ? task.id === childControls.thread.forkedFrom.nodeId
+            ? progress.resultRun
+            : undefined
+          : taskRuns.toSorted((a, b) => b.ordinal - a.ordinal)[0];
+      // The original task publishes only the thread's available result; a follow-up publishes its
+      // own run's result once the work that run left behind, inside its grace, is done.
+      const hold =
+        taskRun === undefined || delegatedTaskTerminalStatus(runOutcome(taskRun)) === null
+          ? undefined
+          : delegatedTaskRunHold(childControls, taskRun, now);
+      if (
+        progress.state !== "result_available" &&
+        (task.id === childControls.thread.forkedFrom.nodeId || hold?.held === true)
+      )
+        continue;
       yield* finalizeAppOwnedSubagentTask(childControls, {
         ...options,
         task,
         ...(progress.resultRun === undefined ? {} : { resultRun: progress.resultRun }),
+        abandonedBackgroundWork: hold?.abandonedBackgroundWork ?? [],
       });
     }
 
@@ -13433,7 +13460,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     Effect.forkDetach,
   );
 
-  const recoverDelegatedTasks = Effect.gen(function* () {
+  const sweepDelegatedTaskResults = Effect.gen(function* () {
     yield* projectionStore.getRecoveryThreadIds("subagent-results").pipe(
       Effect.tap((threadIds) =>
         Effect.annotateCurrentSpan("recovery.subagentResultThreads", threadIds.length),
@@ -13464,6 +13491,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }),
       ),
     );
+  });
+
+  // An awaited command the child ended its turn for can run past its grace without any event, so
+  // nothing else would publish the result the task already has.
+  yield* sweepDelegatedTaskResults.pipe(
+    Effect.repeat(Schedule.spaced("1 minute")),
+    Effect.forkDetach,
+  );
+
+  const recoverDelegatedTasks = Effect.gen(function* () {
+    yield* sweepDelegatedTaskResults;
     yield* projectionStore.getRecoveryThreadIds("delegated-completions").pipe(
       Effect.tap((threadIds) =>
         Effect.annotateCurrentSpan("recovery.delegatedCompletionThreads", threadIds.length),
@@ -13549,7 +13587,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         if (run === undefined || delegatedTaskTerminalStatus(run.status) === null) return true;
         return yield* childAwaitsRestartContinuation(runs, run);
       }
-      const progress = delegatedTaskProgress(child);
+      const progress = delegatedTaskProgress(child, yield* DateTime.now);
       if (progress.state !== "result_available") return true;
       if (progress.resultRun === undefined) return false;
       return yield* childAwaitsRestartContinuation(child.runs, progress.resultRun);
@@ -13588,6 +13626,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   return OrchestratorV2.of({
     resumeQueuedRuns,
     recoverDelegatedTasks,
+    sweepDelegatedTaskResults,
     recoverDelegatedTask,
     delegatedTaskResultPending,
     restartContinuationPending: (run) =>
@@ -13763,6 +13802,7 @@ const layerUnavailable: Layer.Layer<OrchestratorV2> = Layer.succeed(
       }),
     ),
     recoverDelegatedTasks: Effect.void,
+    sweepDelegatedTaskResults: Effect.void,
     recoverDelegatedTask: () => Effect.void,
     delegatedTaskResultPending: () => Effect.succeed(false),
     restartContinuationPending: () => Effect.succeed(false),
