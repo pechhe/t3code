@@ -12,8 +12,8 @@ import {
 } from "../shared.ts";
 
 const AUTH_ERROR_TEXT = "Failed to authenticate. API Error: 401 Invalid authentication credentials";
-const AUTH_FAILURE_TEXT =
-  "Claude could not authenticate. For subscription login, run `claude auth login` on this environment's machine, then start a new thread. For API-key authentication, check this instance's configured credentials.";
+const AUTH_FAILURE_PATTERN =
+  /^Claude could not authenticate\. For subscription login, run `claude auth login` on this environment's machine from "[^"]+", with CLAUDE_CONFIG_DIR set to "[^"]+", then start a new thread\. For API-key authentication, check this instance's configured credentials\.$/;
 
 export function assertClaudeResultIsErrorOutput(
   result: OrchestratorV2ScenarioResult,
@@ -46,7 +46,7 @@ export function assertClaudeResultIsErrorOutput(
   );
   assert.isDefined(errorItem);
   if (errorItem?.type !== "error") throw new Error("expected error item");
-  assert.equal(errorItem.failure.message, AUTH_FAILURE_TEXT);
+  assert.match(errorItem.failure.message, AUTH_FAILURE_PATTERN);
   assert.equal(errorItem.failure.code, "api_error_401");
   assert.equal(errorItem.failure.class, "provider_error");
 

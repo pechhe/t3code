@@ -677,6 +677,45 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       }),
   );
 
+  it.effect("admits a UI worker without Phi only when the checked route is unreachable", () =>
+    Effect.gen(function* () {
+      const policy = snapshot();
+      const base = input({
+        snapshot: {
+          ...policy,
+          manifest: {
+            ...policy.manifest,
+            roles: {
+              ...policy.manifest.roles,
+              "ui-worker": {
+                ...policy.manifest.roles["ui-worker"],
+                toolProfile: "implementation-phi",
+              },
+            },
+          },
+        },
+        providers: [claude],
+        allowTrustedClaudeWriters: true,
+        request: request({ role: "ui-worker", taskClass: "ui" }),
+      });
+      for (const refusal of [null, "phi-unreachable"] as const) {
+        const admitted = yield* resolve({ ...base, browser: { refusal } });
+        expect(admitted.instanceId).toBe(claude.instanceId);
+      }
+      expect((yield* refusal(base)).reason).toBe("unsupported-tools");
+      for (const reason of ["browser-access-off", "phi-disabled", "phi-skill-missing"] as const) {
+        expect((yield* refusal({ ...base, browser: { refusal: reason } })).reason).toBe(reason);
+      }
+      expect(
+        (yield* refusal({
+          ...base,
+          request: { ...base.request, readOnly: true },
+          browser: { refusal: "phi-unreachable" },
+        })).reason,
+      ).toBe("phi-unreachable");
+    }),
+  );
+
   it.effect("follows the list order whichever provider asks", () =>
     Effect.gen(function* () {
       for (const callerModel of [undefined, claudeModel, codexModel]) {

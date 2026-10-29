@@ -1333,7 +1333,42 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       yield* f.validate(writer.binding).pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
 
       availability = "unreachable";
-      expect((yield* launch(false).pipe(Effect.flip)).message).toContain("phi-unreachable");
+      const degraded = yield* launch(false);
+      expect(degraded.binding).toMatchObject({
+        sourceAccess: "scoped-write",
+        toolProfile: "implementation",
+      });
+      expect(degraded.brief).toContain("Phi is unavailable");
+      expect(degraded.brief).toContain("headless Chromium on the VPS");
+      expect(degraded.brief).toContain("ui-verifier");
+      const discovered = yield* f.service
+        .roles({
+          providers: [codex, claude],
+          ceiling: "full-access",
+          request: { taskClass: "ui" },
+        })
+        .pipe(
+          Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+          Effect.provideService(PhiBrowser.PhiBrowser, phi),
+        );
+      expect(discovered.roles.find((role) => role.role === "ui-worker")).toMatchObject({
+        toolProfile: "implementation",
+        refusal: null,
+        selection: expect.anything(),
+      });
+      yield* f.validate(degraded.binding).pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
+      availability = "available";
+      yield* f.validate(degraded.binding).pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
+      const resumed = yield* f
+        .prepare({
+          request: request({ role: "ui-worker", taskClass: "ui", workspacePath: f.workspacePath }),
+          recordedBinding: degraded.binding,
+        })
+        .pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
+      expect(resumed.binding.toolProfile).toBe("implementation");
+      expect(resumed.brief).toContain("Phi is unavailable");
+      availability = "unreachable";
+      expect((yield* launch(true).pipe(Effect.flip)).message).toContain("phi-unreachable");
     }).pipe(Effect.provide(Settings.layerTest())),
   );
 

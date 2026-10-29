@@ -1031,6 +1031,39 @@ const writeReplayTaskOutputFiles = Effect.fn("ClaudeReplay.writeTaskOutputFiles"
   return tmpRoot;
 });
 
+const encodeReplaySessionLine = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+
+// The SDK replay replaces Claude's process, including its on-disk conversation writes.
+const writeReplaySessionTranscripts = Effect.fn("ClaudeReplay.writeSessionTranscripts")(function* (
+  transcript: ClaudeAgentSdkReplayTranscript,
+) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const configDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "claude-replay-config-" });
+  const projectDir = path.join(configDir, "projects", "replay-project");
+  yield* fileSystem.makeDirectory(projectDir, { recursive: true });
+  const sessions = new Map<string, Array<string>>();
+  for (const entry of transcript.entries) {
+    if (entry.type !== "emit_inbound" || !isClaudeSdkReplayMessage(entry.frame)) continue;
+    const frame = entry.frame;
+    if (
+      (frame.type !== "user" && frame.type !== "assistant") ||
+      typeof frame.session_id !== "string"
+    )
+      continue;
+    const lines = sessions.get(frame.session_id) ?? [];
+    lines.push(yield* encodeReplaySessionLine(frame));
+    sessions.set(frame.session_id, lines);
+  }
+  for (const [sessionId, lines] of sessions) {
+    yield* fileSystem.writeFileString(
+      path.join(projectDir, `${sessionId}.jsonl`),
+      `${lines.join("\n")}\n`,
+    );
+  }
+  return configDir;
+});
+
 function layerClaudeProviderAdapterRegistryReplay(
   transcript: ClaudeAgentSdkReplayTranscript,
   options: {
@@ -1043,15 +1076,21 @@ function layerClaudeProviderAdapterRegistryReplay(
     makeReplayServerConfig(transcript.scenario).pipe(Effect.orDie),
   ).pipe(Layer.provide(NodeServices.layer));
   return Layer.unwrap(
-    writeReplayTaskOutputFiles(transcript).pipe(
+    Effect.all({
+      tmpRoot: writeReplayTaskOutputFiles(transcript),
+      configDir: writeReplaySessionTranscripts(transcript),
+    }).pipe(
       Effect.orDie,
-      Effect.map((tmpRoot) =>
+      Effect.map(({ tmpRoot, configDir }) =>
         ProviderAdapterRegistry.layerFromDrivers({
           drivers: [ClaudeAdapterV2.ClaudeAdapterV2Driver],
           configMap: {
             [ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID]: {
               driver: ClaudeAdapterV2.CLAUDE_PROVIDER,
-              environment: [{ name: "CLAUDE_CODE_TMPDIR", value: tmpRoot, sensitive: false }],
+              environment: [
+                { name: "CLAUDE_CODE_TMPDIR", value: tmpRoot, sensitive: false },
+                { name: "CLAUDE_CONFIG_DIR", value: configDir, sensitive: false },
+              ],
             },
           },
         }),

@@ -646,9 +646,12 @@ const make = Effect.gen(function* () {
             sourceAccess:
               input.request.readOnly === true ? ("read-only" as const) : policy.sourceAccess,
             toolProfile:
-              input.request.readOnly === true
-                ? readOnlyToolProfile(policy.toolProfile)
-                : policy.toolProfile,
+              browser?.refusal === "phi-unreachable" &&
+              Resolver.canImplementWithoutPhi(context.request, policy.toolProfile)
+                ? "implementation"
+                : input.request.readOnly === true
+                  ? readOnlyToolProfile(policy.toolProfile)
+                  : policy.toolProfile,
             executionRequirement: context.request.executionRequirement,
             ...(result.executionBoundary === undefined
               ? {}
@@ -696,6 +699,10 @@ const make = Effect.gen(function* () {
         input.projectId,
         input.recordedBinding === undefined ? "launch" : "resume",
       );
+      const withoutPhi =
+        Resolver.canImplementWithoutPhi(context.request, role.toolProfile) &&
+        (browser?.refusal === "phi-unreachable" ||
+          input.recordedBinding?.toolProfile === "implementation");
       const selection = yield* resolver
         .resolve({
           ...input,
@@ -723,15 +730,18 @@ const make = Effect.gen(function* () {
           policyRevision: snapshot.sourceRevision,
           briefHash: brief.hash,
           sourceAccess: input.request.readOnly === true ? "read-only" : role.sourceAccess,
-          toolProfile:
-            input.request.readOnly === true
+          toolProfile: withoutPhi
+            ? "implementation"
+            : input.request.readOnly === true
               ? readOnlyToolProfile(role.toolProfile)
               : role.toolProfile,
           requested: selection,
           assigned: null,
           effective: selection,
         },
-        brief: brief.text,
+        brief: withoutPhi
+          ? `${brief.text}\nPhi is unavailable for this task; you have plain implementation tools and no Phi tools. Check your work with headless Chromium on the VPS. The owner or an independent ui-verifier must check it in a real browser later. This overrides the brief's Phi preview requirement for this implementation task.\n`
+          : brief.text,
       };
     }),
     validate: Effect.fn("ManagedAgentService.validate")(function* (input) {
@@ -779,10 +789,12 @@ const make = Effect.gen(function* () {
         recordedRole === undefined ||
         input.binding.sourceAccess !==
           (input.binding.readOnly === true ? "read-only" : recordedRole.sourceAccess) ||
-        input.binding.toolProfile !==
-          (input.binding.readOnly === true
-            ? readOnlyToolProfile(recordedRole.toolProfile)
-            : recordedRole.toolProfile)
+        ((input.binding.toolProfile !== "implementation" ||
+          !Resolver.canImplementWithoutPhi(input.binding, recordedRole.toolProfile)) &&
+          input.binding.toolProfile !==
+            (input.binding.readOnly === true
+              ? readOnlyToolProfile(recordedRole.toolProfile)
+              : recordedRole.toolProfile))
       )
         return yield* new ManagedAgentError({ reason: "policy" });
       if (snapshot.briefs[input.binding.role]?.hash !== input.binding.briefHash)
@@ -801,7 +813,8 @@ const make = Effect.gen(function* () {
       // A task accepted inside a workspace sandbox keeps it: a recorded boundary narrower than
       // today's default still validates, and only a broader one than policy allows is refused.
       const keepsNarrowerSandbox =
-        input.binding.executionBoundary === "workspace-sandbox" && boundary === "trusted-host-access";
+        input.binding.executionBoundary === "workspace-sandbox" &&
+        boundary === "trusted-host-access";
       if (
         input.binding.executionBoundary !== undefined &&
         input.binding.executionBoundary !== boundary &&

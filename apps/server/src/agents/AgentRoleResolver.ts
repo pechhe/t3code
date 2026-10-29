@@ -1,5 +1,6 @@
 import type {
   AgentPolicySnapshot,
+  AgentToolProfile,
   AgentTaskRequest,
   ModelSelection,
   ProviderInstanceId,
@@ -90,6 +91,12 @@ export type BrowserRefusal =
   | "phi-skill-missing"
   | "phi-unreachable";
 
+export const canImplementWithoutPhi = (
+  request: Pick<AgentTaskRequest, "role" | "readOnly">,
+  toolProfile: AgentToolProfile,
+) =>
+  request.role === "ui-worker" && request.readOnly !== true && toolProfile === "implementation-phi";
+
 export class AgentRoleResolver extends Context.Service<
   AgentRoleResolver,
   {
@@ -173,12 +180,17 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
           "review.priorReview.sourceRevision equals the pinned sourceRevision, so there is nothing new to review; omit priorReview for a full review",
       });
   }
-  // A Phi role browses only over its pinned Phi endpoint, never another browser, so it starts
-  // only once the caller has checked that route.
+  // Only UI implementation can proceed without an unreachable Phi route.
   if (usesPhi(role.toolProfile)) {
     if (input.browser === undefined)
       return yield* new AgentRoleError({ reason: "unsupported-tools" });
-    if (input.browser.refusal !== null)
+    if (
+      input.browser.refusal !== null &&
+      !(
+        input.browser.refusal === "phi-unreachable" &&
+        canImplementWithoutPhi(request, role.toolProfile)
+      )
+    )
       return yield* new AgentRoleError({ reason: input.browser.refusal });
   }
   // A Spec lead has a top-level thread's permissions: no narrower boundary, and none of the
