@@ -18,6 +18,7 @@ import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ThreadManagementService from "../ThreadManagementService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import type * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 import * as McpSessionRegistryTestkit from "../../mcp/McpSessionRegistry.testkit.ts";
 import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
@@ -273,6 +274,8 @@ export function layerWithRegistry<Error>(
       MigrationError | PlatformError.PlatformError | SqlError
     >;
     readonly runEffectWorker?: boolean;
+    readonly configureMcp?: boolean;
+    readonly mcpSessionRegistryLayer?: Layer.Layer<McpSessionRegistry.McpSessionRegistry>;
     readonly runContinuationWorker?: boolean;
     readonly recoverOnStartup?: boolean;
     readonly continueThreadsAfterServerUpdate?: boolean;
@@ -365,7 +368,7 @@ export function layerWithRegistry<Error>(
     Layer.provide(Layer.merge(layerEventSinkProvided, layerStores)),
   );
   const layerProviderSessionManagerProvided = ProviderSessionManager.layerWithOptions({
-    configureMcp: false,
+    configureMcp: options.configureMcp ?? false,
   }).pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -374,7 +377,7 @@ export function layerWithRegistry<Error>(
         layerEventSinkProvided,
         IdAllocator.layer,
         McpProviderSessions.layer,
-        McpSessionRegistryTestkit.layer,
+        options.mcpSessionRegistryLayer ?? McpSessionRegistryTestkit.layer,
         layerProviderEventIngestorProvided,
         layerStores,
       ),

@@ -7,6 +7,7 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   CommandId,
   EnvironmentId,
+  EventId,
   MessageId,
   NodeId,
   ORCHESTRATOR_MCP_RUNNING_TASK_NEXT,
@@ -30,6 +31,10 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
+import * as Stream from "effect/Stream";
+import * as EventSink from "../orchestration-v2/EventSink.ts";
+import * as ProviderSessionManager from "../orchestration-v2/ProviderSessionManager.ts";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as Schema from "effect/Schema";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
@@ -2923,6 +2928,222 @@ describe("OrchestratorMcpService provider resolution", () => {
       }),
     );
   });
+
+  it.live("delegates after an account handoff returns to an already attached session", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const name = "mcp-account-handoff";
+        const cwd = yield* checkpointWorkspace(name);
+        const alternate = ProviderInstanceId.make("codex-handoff");
+        const driver = ProviderDriverKind.make("codex");
+        const mcpRegistry = yield* McpSessionRegistry.__testing.make().pipe(
+          Effect.provideService(
+            HttpServer.HttpServer,
+            HttpServer.HttpServer.of({
+              address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 43123),
+              serve: (() => Effect.void) as HttpServer.HttpServer["Service"]["serve"],
+            }),
+          ),
+          Effect.provideService(
+            ServerEnvironment.ServerEnvironment,
+            ServerEnvironment.ServerEnvironment.of({
+              getEnvironmentId: Effect.succeed(scope.environmentId),
+              getDescriptor: Effect.die("unused"),
+            }),
+          ),
+          Effect.provide(NodeServices.layer),
+        );
+        const opened: ProviderInstanceId[] = [];
+        const layerRegistry = ProviderAdapterRegistry.layerFromAdapters(
+          [codexInstanceId, alternate].map((instanceId) => ({
+            instanceId,
+            driver,
+            getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
+            planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" as const }),
+            openSession: (input) =>
+              Effect.gen(function* () {
+                opened.push(instanceId);
+                const now = yield* DateTime.now;
+                return {
+                  instanceId,
+                  driver,
+                  providerSessionId: input.providerSessionId,
+                  providerSession: {
+                    id: input.providerSessionId,
+                    driver,
+                    providerInstanceId: instanceId,
+                    status: "ready" as const,
+                    cwd,
+                    model: "gpt-5.4",
+                    capabilities: CodexProviderCapabilitiesV2,
+                    createdAt: now,
+                    updatedAt: now,
+                    lastError: null,
+                  },
+                  events: Stream.never,
+                  ensureThread: () => Effect.die("unused"),
+                  resumeThread: ({ providerThread }) => Effect.succeed(providerThread),
+                  startTurn: () => Effect.void,
+                  steerTurn: () => Effect.void,
+                  interruptTurn: () => Effect.void,
+                  unloadThread: () => Effect.void,
+                  respondToRuntimeRequest: () => Effect.void,
+                  readThreadSnapshot: () => Effect.die("unused"),
+                  rollbackThread: () => Effect.die("unused"),
+                  forkThread: () => Effect.die("unused"),
+                };
+              }),
+          })),
+        );
+        const databaseLayer = SqlitePersistence.layerMemory;
+        const runtimeLayer = ProviderReplayHarness.layerWithRegistry(
+          { name, runtimePolicyOverride: { cwd } },
+          layerRegistry,
+          {
+            databaseLayer,
+            runEffectWorker: false,
+            configureMcp: true,
+            mcpSessionRegistryLayer: Layer.succeed(
+              McpSessionRegistry.McpSessionRegistry,
+              mcpRegistry,
+            ),
+          },
+        );
+        const settingsLayer = ServerSettings.layerTest({
+          providerInstances: {
+            [codexInstanceId]: { driver: "codex", enabled: true },
+            [alternate]: { driver: "codex", enabled: true },
+          },
+        });
+        const threadsLayer = ThreadManagementService.layer.pipe(
+          Layer.provideMerge(runtimeLayer),
+          Layer.provide(
+            LegacyV1ThreadImporter.layer.pipe(
+              Layer.provide(runtimeLayer),
+              Layer.provide(databaseLayer),
+            ),
+          ),
+          Layer.provide(CommandReceiptStore.layer.pipe(Layer.provide(databaseLayer))),
+          Layer.provide(settingsLayer),
+        );
+        const testLayer = layerOrchestratorService.pipe(
+          Layer.provideMerge(threadsLayer),
+          Layer.provide(
+            Layer.mergeAll(
+              NodeServices.layer,
+              settingsLayer,
+              layerRegistry,
+              Layer.mock(Experiments.ExperimentService)({
+                assignForTask: () => Effect.succeed([]),
+                assignments: () => Effect.succeed([]),
+              }),
+              providerRegistryLayer(
+                [codexInstanceId, alternate].map((instanceId) =>
+                  providerSnapshot({ instanceId, driver, model: "gpt-5.4" }),
+                ),
+              ),
+              Layer.mock(ProjectService.ProjectService)({}),
+              Layer.mock(SecretRequests.SecretRequests)({}),
+              Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+              Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+            ),
+          ),
+        );
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+          const sink = yield* EventSink.EventSinkV2;
+          const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const credentials = yield* McpProviderSessions.McpProviderSessions;
+          yield* orchestrator.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(`${name}:create`),
+            threadId: parentThreadId,
+            projectId,
+            title: name,
+            modelSelection: { instanceId: codexInstanceId, model: "gpt-5.4" },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: cwd,
+            createdBy: "user",
+            creationSource: "web",
+          });
+          let previous: OrchestrationV2ThreadProjection["runs"][number] | undefined;
+          let staleScope: McpInvocationScope | undefined;
+          for (const [step, instanceId] of [
+            codexInstanceId,
+            alternate,
+            codexInstanceId,
+          ].entries()) {
+            if (previous !== undefined) {
+              const now = yield* DateTime.now;
+              yield* sink.write({
+                events: [
+                  {
+                    id: EventId.make(`${name}:complete:${step}`),
+                    type: "run.updated",
+                    threadId: parentThreadId,
+                    occurredAt: now,
+                    payload: { ...previous, status: "completed", completedAt: now },
+                  },
+                ],
+              });
+            }
+            yield* orchestrator.dispatch({
+              type: "message.dispatch",
+              commandId: CommandId.make(`${name}:${step}`),
+              threadId: parentThreadId,
+              messageId: MessageId.make(`${name}:${step}`),
+              text: "Continue",
+              attachments: [],
+              modelSelection: { instanceId, model: "gpt-5.4" },
+              dispatchMode: { type: "start_immediately" },
+              createdBy: "user",
+              creationSource: "server",
+            });
+            const projection = yield* orchestrator.getThreadProjection(parentThreadId);
+            previous = projection.runs.at(-1)!;
+            assert.equal(previous.providerInstanceId, instanceId);
+            const providerThread = projection.providerThreads.find(
+              (thread) => thread.id === previous?.providerThreadId,
+            )!;
+            yield* manager.open({
+              threadId: parentThreadId,
+              providerSessionId: providerThread.providerSessionId!,
+              modelSelection: previous.modelSelection,
+              runtimePolicy: { cwd, runtimeMode: "full-access", interactionMode: "default" },
+            });
+            const config = (yield* credentials.read(parentThreadId))!;
+            const caller = (yield* mcpRegistry.resolve(
+              config.authorizationHeader.replace(/^Bearer\s+/, ""),
+            ))!;
+            if (step === 1) {
+              assert.isNotEmpty(projection.contextHandoffs);
+              staleScope = caller;
+            }
+            if (step === 2) {
+              assert.equal(
+                (yield* mcp
+                  .delegateTask(staleScope!, { task: "Stale account", mode: "async" })
+                  .pipe(Effect.flip)).code,
+                "parent_not_active",
+              );
+              const delegated = yield* mcp.delegateTask(caller, {
+                task: "Verify ownership",
+                mode: "async",
+                clientRequestId: name,
+              });
+              assert.equal(delegated.providerInstanceId, codexInstanceId);
+              assert.isDefined(delegated.childThreadId);
+              assert.equal(caller.thread?.providerInstanceId, previous.providerInstanceId);
+            }
+          }
+          assert.deepEqual(opened, [codexInstanceId, alternate]);
+        }).pipe(Effect.provide(testLayer.pipe(Layer.provideMerge(McpProviderSessions.layer))));
+      }),
+    ),
+  );
 
   it.live.each([
     { name: "parent instance", parentEnabled: true, model: "gpt-5.4" },

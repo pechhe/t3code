@@ -1472,9 +1472,13 @@ export const layerWithOptions = (
               Effect.tap((runtime) => Effect.sync(() => (attachedTo = runtime))),
               Effect.uninterruptible,
             );
-            if (attached !== undefined) {
+            // An account switch can replace the thread's credential while this session stays attached.
+            const mcpConfig = yield* mcpSessions.read(input.threadId);
+            if (
+              attached !== undefined ||
+              mcpConfig?.providerInstanceId !== input.providerInstanceId
+            ) {
               const prepared = yield* prepareMcpSession(input.threadId, input.providerInstanceId);
-              yield* prepareHqConnection(input.threadId);
               preparedForCleanup = prepared;
               if (prepared.mcpCredentialId !== undefined) {
                 const mcpCredentialId = prepared.mcpCredentialId;
@@ -1489,6 +1493,9 @@ export const layerWithOptions = (
                   return updated;
                 });
               }
+            }
+            if (attached !== undefined) {
+              yield* prepareHqConnection(input.threadId);
               const entry = (yield* Ref.get(sessions)).get(sessionKey(input.providerSessionId));
               if (entry !== undefined) {
                 yield* withActivityError(
