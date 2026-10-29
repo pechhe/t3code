@@ -7,7 +7,13 @@ import type {
   ServerProvider,
   AgentPolicyPreview,
 } from "@t3tools/contracts";
-import { AgentPolicyCandidate, isReviewerRole, REVIEWER_SCOPE, usesPhi } from "@t3tools/contracts";
+import {
+  AgentPolicyCandidate,
+  isReviewerRole,
+  managedExecution,
+  REVIEWER_SCOPE,
+  usesPhi,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -188,6 +194,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         "a lead runs with a top-level thread's permissions, so it cannot be read-only or sandboxed",
     });
   const readOnly = role.sourceAccess === "read-only" || request.readOnly === true;
+  const admission = managedExecution({ readOnly, requested: request.executionRequirement });
   if (!readOnly && !specLead && input.ceiling === "approval-required")
     return yield* new AgentRoleError({ reason: "unsupported-permissions" });
   const list = snapshot.manifest.lists[role.list] ?? [];
@@ -226,7 +233,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         ? "trusted-claude-disabled"
         : (input.runtimeMode ?? input.ceiling) !== "full-access"
           ? "trusted-claude-requires-full-access"
-          : request.executionRequirement !== "trusted-host-allowed"
+          : admission.executionRequirement !== "trusted-host-allowed"
             ? "sandbox-required"
             : undefined;
       if (refusal !== undefined) {
@@ -408,14 +415,8 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     });
   return {
     selection: chosen.selection,
-    executionRequirement: readOnly
-      ? "sandbox-required"
-      : (request.executionRequirement ?? "sandbox-required"),
-    executionBoundary: readOnly
-      ? ("read-only" as const)
-      : specLead || chosen.provider.driver === "claudeAgent"
-        ? ("trusted-host-access" as const)
-        : ("workspace-sandbox" as const),
+    executionRequirement: admission.executionRequirement,
+    executionBoundary: admission.executionBoundary,
     refusal: null,
     candidates: diagnostics.map((candidate) =>
       candidate.reason !== "eligible"

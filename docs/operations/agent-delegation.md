@@ -62,17 +62,21 @@ its revision and the role names, or the reason the policy is refused.
   effective selections when it is accepted. Editing the policy later does not
   change accepted work; it can only revoke authority at launch or resume.
 - Claude reader roles use a restricted native tool list with no shell or T3
-  tools. Claude writers require the destination owner's trusted-writer opt-in
-  and a Full access child within the caller's permission ceiling. Codex writers
-  keep their workspace sandbox with network access disabled. Read-only tasks
-  (a reader role or `readOnly: true`) require the provider snapshot to declare
-  read-only source enforcement. Claude, Codex, OpenCode, Grok, Pi, Muse and
-  Antigravity currently declare it; Pi also disables user extensions for these
-  tasks, Muse runs the task with its shell and write tools disabled, and
+  tools. Every writer role runs with host access on every provider, so it can
+  reach the network and the repository store it commits to; a Codex writer is
+  sandboxed only when the caller sets `executionRequirement: "sandbox-required"`.
+  Claude writers additionally require the destination owner's trusted-writer
+  opt-in and a Full access child within the caller's permission ceiling.
+  Read-only tasks (a reader role or `readOnly: true`) require the provider
+  snapshot to declare read-only source enforcement. Claude, Codex, OpenCode,
+  Grok, Pi, Muse and Antigravity currently declare it; Pi also disables user
+  extensions for these tasks, Muse runs the task with its shell and write tools
+  disabled, and
   Antigravity asks for permission on every edit and command so the task's
   read-only policy can refuse it. Dispatch skips
   other providers with `read-only-unenforced` and refuses when none qualify,
-  including explicit model choices and resumes. Writer tasks are unchanged.
+  including explicit model choices and resumes; that rule only chooses reader
+  accounts.
 - The `phi` tool profile gives a reader its own browser endpoint serving only
   Phi's operations on the task's own tabs; `implementation-phi` gives a writer
   the same, and only `ui-worker` may hold it, to check what it built. Either
@@ -80,7 +84,9 @@ its revision and the role names, or the reason the policy is refused.
   drops writing but never the browser, so `implementation-phi` narrows to `phi`.
 - The `web-research` tool profile, which only a read-only role may use, adds web
   search and page fetching to a reader: Claude's `WebSearch` and `WebFetch`, and
-  Codex's live web search. Neither gains a shell or network access for commands.
+  Codex's live web search; other providers get T3's `web_search` and `web_fetch`. Every
+  read-only task may use the network, and a Codex reader's shell commands can reach it,
+  but no reader can write source.
   `researcher` is the one optional role: a policy that leaves it out does not
   offer it, so older policies and recorded snapshots stay valid.
 - While a readable policy is configured, a delegation or reviewer trial is
@@ -105,16 +111,16 @@ its revision and the role names, or the reason the policy is refused.
   thread need not have a workspace binding. Its child thread launches, resumes
   and checkpoints in that workspace, and a finished writer reports the revision
   its run handed back, even after later work changes that workspace. A Codex
-  writer's sandbox also writes the repository store (and, for jj, the git
-  directory behind it) shared by every workspace of the repository, so it can
-  commit and read its own history, whether it runs in an `isolated` workspace or
-  the lead's own; a reviewer's stays read-only. A `lead` writer shares the lead's
-  checkout, so a lead runs no jj command that moves its working copy while that
-  writer is running.
-- A Codex writer's sandbox also writes one temp directory per task, outside its
-  workspace, and that thread's shell is given it as `TMPDIR`; a build's temp
-  files therefore never land in the checkout the task reports. Task threads share
-  one Codex app-server, so the directory travels in each thread's own shell
+  writer that a caller explicitly sandboxes also writes the repository store
+  (and, for jj, the git directory behind it) shared by every workspace of the
+  repository, so it can commit and read its own history in its `isolated`
+  workspace, and its sandbox allows the network; a reviewer still only reads. A
+  `lead` writer shares the lead's checkout, so a lead runs no jj command that
+  moves its working copy while that writer is running.
+- An explicitly sandboxed Codex writer's sandbox also writes one temp directory
+  per task, outside its workspace, and that thread's shell is given it as
+  `TMPDIR`; a build's temp files therefore never land in the checkout the task
+  reports. Task threads share one Codex app-server, so the directory travels in each thread's own shell
   configuration rather than the app-server's environment, and one task never
   inherits another's. It is made for the task's turn and goes when that turn
   ends, unless a process the task started still runs or another of its turns is

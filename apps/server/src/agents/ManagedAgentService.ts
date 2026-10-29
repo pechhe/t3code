@@ -23,6 +23,7 @@ import {
   type ServerProvider,
   type ThreadId,
   isReviewerRole,
+  managedExecution,
   readOnlyToolProfile,
   REVIEWER_SCOPE,
   usesPhi,
@@ -255,23 +256,23 @@ const make = Effect.gen(function* () {
       return yield* new ManagedAgentError({ reason: "policy" });
     const trustedEnabled = configured?.delegation.allowTrustedClaudeWriters === true;
     // Boundary-less historical bindings never carry consent to the broader route.
-    // A Spec lead runs on the host like the top-level thread it stands in for.
-    const requirement = readOnly
-      ? "sandbox-required"
-      : request.role === "lead"
-        ? (request.executionRequirement ?? "trusted-host-allowed")
-        : ((legacy && (!("executionBoundary" in request) || request.executionBoundary === undefined)
-            ? undefined
-            : request.executionRequirement) ??
-          (!legacy && trustedEnabled && mode === "full-access"
-            ? "trusted-host-allowed"
-            : "sandbox-required"));
+    const requirement = managedExecution({
+      readOnly,
+      requested:
+        request.role === "lead"
+          ? request.executionRequirement
+          : legacy && (!("executionBoundary" in request) || request.executionBoundary === undefined)
+            ? "sandbox-required"
+            : legacy
+              ? (request.executionRequirement ?? "sandbox-required")
+              : request.executionRequirement,
+    });
 
     return {
       ceiling: input.ceiling,
       runtimeMode: mode,
       allowTrustedClaudeWriters: trustedEnabled,
-      request: { ...request, executionRequirement: requirement },
+      request: { ...request, executionRequirement: requirement.executionRequirement },
     };
   });
   /**
@@ -709,18 +710,14 @@ const make = Effect.gen(function* () {
       yield* store
         .save(snapshot)
         .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause })));
+      const admission = managedExecution({
+        readOnly: context.request.readOnly === true || role.sourceAccess === "read-only",
+        requested: context.request.executionRequirement,
+      });
       return {
         binding: input.recordedBinding ?? {
           ...context.request,
-          executionBoundary:
-            context.request.readOnly === true || role.sourceAccess === "read-only"
-              ? "read-only"
-              : context.request.role === "lead"
-                ? "trusted-host-access"
-                : input.providers.find((p) => p.instanceId === selection.instanceId)?.driver ===
-                    "claudeAgent"
-                  ? "trusted-host-access"
-                  : "workspace-sandbox",
+          executionBoundary: admission.executionBoundary,
           requestFingerprint: input.requestFingerprint,
           policyHash: snapshot.hash,
           policyRevision: snapshot.sourceRevision,
@@ -797,15 +794,18 @@ const make = Effect.gen(function* () {
         input.binding.sourceAccess === "read-only",
       );
       const provider = input.providers.find((p) => p.instanceId === input.selection.instanceId);
-      const boundary =
-        input.binding.sourceAccess === "read-only"
-          ? "read-only"
-          : input.binding.role === "lead" || provider?.driver === "claudeAgent"
-            ? "trusted-host-access"
-            : "workspace-sandbox";
+      const boundary = managedExecution({
+        readOnly: input.binding.sourceAccess === "read-only",
+        requested: input.binding.executionRequirement,
+      }).executionBoundary;
+      // A task accepted inside a workspace sandbox keeps it: a recorded boundary narrower than
+      // today's default still validates, and only a broader one than policy allows is refused.
+      const keepsNarrowerSandbox =
+        input.binding.executionBoundary === "workspace-sandbox" && boundary === "trusted-host-access";
       if (
         input.binding.executionBoundary !== undefined &&
-        input.binding.executionBoundary !== boundary
+        input.binding.executionBoundary !== boundary &&
+        !keepsNarrowerSandbox
       )
         return yield* new ManagedAgentError({ reason: "selection" });
       const browser = yield* browserRoute(recordedRole.toolProfile, input.projectId, "resume");

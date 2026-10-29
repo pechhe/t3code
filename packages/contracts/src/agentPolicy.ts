@@ -405,10 +405,20 @@ export const AgentExecutionBoundary = Schema.Literals([
   "trusted-host-access",
 ]);
 export type AgentExecutionBoundary = typeof AgentExecutionBoundary.Type;
-/**
- * The boundary a managed task is admitted with. Codex and Claude enforce it natively; any
- * other provider runs under its account's own permissions, whatever boundary is recorded.
- */
+/** A reader only reads; every writer runs on the host unless its request requires a sandbox. */
+export function managedExecution(input: {
+  readonly readOnly: boolean;
+  readonly requested?: AgentExecutionRequirement | undefined;
+}): {
+  readonly executionRequirement: AgentExecutionRequirement;
+  readonly executionBoundary: AgentExecutionBoundary;
+} {
+  if (input.readOnly)
+    return { executionRequirement: "sandbox-required", executionBoundary: "read-only" };
+  return input.requested === "sandbox-required"
+    ? { executionRequirement: "sandbox-required", executionBoundary: "workspace-sandbox" }
+    : { executionRequirement: "trusted-host-allowed", executionBoundary: "trusted-host-access" };
+}
 
 /** A coherent work identity survives new launch attempts and transport retries. */
 const agentTaskRequestFields = {

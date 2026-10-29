@@ -240,11 +240,8 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
             .validate({ ...accepted.binding, executionBoundary: undefined })
             .pipe(Effect.flip)).reason,
         ).toBe("selection");
-        expect(
-          (yield* f
-            .validate({ ...accepted.binding, executionBoundary: "workspace-sandbox" })
-            .pipe(Effect.flip)).reason,
-        ).toBe("selection");
+        // A task accepted inside a workspace sandbox before writers ran on the host resumes there.
+        yield* f.validate({ ...accepted.binding, executionBoundary: "workspace-sandbox" });
         yield* settings.updateSettings({ delegation: { allowTrustedClaudeWriters: false } });
         expect((yield* f.validate(accepted.binding).pipe(Effect.flip)).reason).toBe("selection");
         expect(
@@ -268,9 +265,11 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         const writer = yield* f.prepare({
           selection: { instanceId: codex.instanceId, model: codexModel },
         });
-        expect(writer.binding.executionBoundary).toBe("workspace-sandbox");
+        expect(writer.binding.executionBoundary).toBe("trusted-host-access");
         yield* settings.updateSettings({ delegation: { allowTrustedClaudeWriters: false } });
         yield* f.validate(writer.binding);
+        // A Codex writer accepted in a workspace sandbox before this default changed still resumes.
+        yield* f.validate({ ...writer.binding, executionBoundary: "workspace-sandbox" });
         const fallback = yield* f
           .validate(writer.binding, {
             instanceId: claude.instanceId,
@@ -369,7 +368,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           });
           expect(resolved.cwd).toBe(f.workspacePath);
           expect(resolved.managedAgent).toBe(true);
-          expect(resolved.sandboxPolicy).toEqual({ type: "readOnly", networkAccess: false });
+          expect(resolved.sandboxPolicy).toEqual({ type: "readOnly", networkAccess: true });
           // The runtime must not turn its resolved cwd into explicit writer authority.
           const denied = yield* runtime
             .resolve({
@@ -815,111 +814,117 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
     }),
   );
 
-  it.effect("launches a root-bound lead's isolated writer through the real runtime guard", () =>
-    Effect.gen(function* () {
-      const f = yield* fixture;
-      const store = `${f.root}/repo-store`;
-      yield* f.fs.makeDirectory(store);
-      const workspace = (name: string) =>
-        Effect.gen(function* () {
-          const path = `${f.root}/${name}`;
-          yield* f.fs.makeDirectory(`${path}/.jj`, { recursive: true });
-          yield* f.fs.writeFileString(`${path}/.jj/repo`, store);
-          return path;
+  it.effect(
+    "launches a root-bound lead's explicitly sandboxed writer through the real runtime guard",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        const store = `${f.root}/repo-store`;
+        yield* f.fs.makeDirectory(store);
+        const workspace = (name: string) =>
+          Effect.gen(function* () {
+            const path = `${f.root}/${name}`;
+            yield* f.fs.makeDirectory(`${path}/.jj`, { recursive: true });
+            yield* f.fs.writeFileString(`${path}/.jj/repo`, store);
+            return path;
+          });
+        const projectRoot = yield* workspace("main");
+        const allocated = yield* workspace("allocated");
+        // jj keeps its commits in a git directory the store points at, shared by every workspace.
+        const gitDirectory = `${f.root}/git-directory`;
+        yield* f.fs.makeDirectory(gitDirectory);
+        yield* f.fs.makeDirectory(`${store}/store`);
+        yield* f.fs.writeFileString(`${store}/store/git_target`, "../../git-directory\n");
+        const accepted = yield* f.prepare({
+          workspacePath: null,
+          projectRoot,
+          owner: "lead-thread",
+          request: request({
+            workspacePath: allocated,
+            workspaceAssignment: "isolated",
+            executionRequirement: "sandbox-required",
+          }),
         });
-      const projectRoot = yield* workspace("main");
-      const allocated = yield* workspace("allocated");
-      // jj keeps its commits in a git directory the store points at, shared by every workspace.
-      const gitDirectory = `${f.root}/git-directory`;
-      yield* f.fs.makeDirectory(gitDirectory);
-      yield* f.fs.makeDirectory(`${store}/store`);
-      yield* f.fs.writeFileString(`${store}/store/git_target`, "../../git-directory\n");
-      const accepted = yield* f.prepare({
-        workspacePath: null,
-        projectRoot,
-        owner: "lead-thread",
-        request: request({ workspacePath: allocated, workspaceAssignment: "isolated" }),
-      });
-      const runtimeLayer = RuntimePolicy.layerFromProjectStore.pipe(
-        Layer.provide(
-          Layer.mergeAll(
-            Layer.mock(Projects.ProjectStoreV2)({
-              get: () => Effect.succeed(Option.some({ workspaceRoot: projectRoot } as never)),
-            }),
-            Layer.mock(Providers.ProviderInstanceRegistry)({
-              getInstance: () =>
-                Effect.succeed({
-                  snapshot: { getSnapshot: Effect.succeed(codex) },
-                } as ProviderInstance),
-            }),
+        const runtimeLayer = RuntimePolicy.layerFromProjectStore.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.mock(Projects.ProjectStoreV2)({
+                get: () => Effect.succeed(Option.some({ workspaceRoot: projectRoot } as never)),
+              }),
+              Layer.mock(Providers.ProviderInstanceRegistry)({
+                getInstance: () =>
+                  Effect.succeed({
+                    snapshot: { getSnapshot: Effect.succeed(codex) },
+                  } as ProviderInstance),
+              }),
+            ),
           ),
-        ),
-        Layer.provide(
-          ServerConfig.layerTest(projectRoot, { prefix: "t3-managed-policy-" }).pipe(
-            Layer.provide(NodeServices.layer),
+          Layer.provide(
+            ServerConfig.layerTest(projectRoot, { prefix: "t3-managed-policy-" }).pipe(
+              Layer.provide(NodeServices.layer),
+            ),
           ),
-        ),
-        Layer.provide(NodeServices.layer),
-      );
-      yield* Effect.gen(function* () {
-        const runtime = yield* RuntimePolicy.RuntimePolicyV2;
-        const settings = yield* Settings.ServerSettingsService;
-        const projectId = ProjectId.make("isolated-writer-project");
-        yield* settings.updateSettings({
-          projectSettingsOverrides: {
-            [projectId]: { providerInstances: { [codex.instanceId]: { enabled: true } } },
-          },
-        });
-        // The child thread is bound to the helper's own workspace, as the orchestrator creates it.
-        const thread = {
-          projectId,
-          worktreePath: allocated,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          agentTask: accepted.binding,
-        } as OrchestrationV2AppThread;
-        const resolved = yield* runtime.resolve({
-          thread,
-          modelSelection: accepted.binding.effective,
-        });
-        expect(resolved.managedAgent).toBe(true);
-        expect(resolved.cwd).toBe(allocated);
-        // It can commit: the sandbox also writes the shared store, its git directory and one
-        // temp root of its own outside the workspace.
-        expect(resolved.sandboxTempRoot).toMatch(/\/sandbox-tmp\/\d+-[0-9a-f]{16}$/);
-        expect(resolved.sandboxPolicy).toMatchObject({
-          type: "workspaceWrite",
-          writableRoots: [
-            allocated,
-            yield* f.fs.realPath(store),
-            gitDirectory,
-            resolved.sandboxTempRoot,
-          ],
-        });
-        // A writer in the lead's own workspace commits there too, so it shares the same roots.
-        expect(
-          yield* f.service.repositoryRoots({ ...accepted.binding, workspaceAssignment: "lead" }),
-        ).toEqual([yield* f.fs.realPath(store), gitDirectory]);
-        expect(
-          yield* f.service.repositoryRoots({ ...accepted.binding, sourceAccess: "read-only" }),
-        ).toEqual([]);
-        // A helper bound to the project's main checkout is still refused.
-        const main = yield* runtime
-          .resolve({
-            thread: {
-              ...thread,
-              worktreePath: projectRoot,
-              agentTask: { ...accepted.binding, workspacePath: projectRoot },
+          Layer.provide(NodeServices.layer),
+        );
+        yield* Effect.gen(function* () {
+          const runtime = yield* RuntimePolicy.RuntimePolicyV2;
+          const settings = yield* Settings.ServerSettingsService;
+          const projectId = ProjectId.make("isolated-writer-project");
+          yield* settings.updateSettings({
+            projectSettingsOverrides: {
+              [projectId]: { providerInstances: { [codex.instanceId]: { enabled: true } } },
             },
+          });
+          // The child thread is bound to the helper's own workspace, as the orchestrator creates it.
+          const thread = {
+            projectId,
+            worktreePath: allocated,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            agentTask: accepted.binding,
+          } as OrchestrationV2AppThread;
+          const resolved = yield* runtime.resolve({
+            thread,
             modelSelection: accepted.binding.effective,
-          })
-          .pipe(Effect.flip);
-        expect(main.cause).toMatchObject({ reason: "workspace" });
-      }).pipe(
-        Effect.provide(runtimeLayer.pipe(Layer.provideMerge(Settings.layerTest()))),
-        Effect.provideService(ConfigProvider.ConfigProvider, f.config),
-      );
-    }),
+          });
+          expect(resolved.managedAgent).toBe(true);
+          expect(resolved.cwd).toBe(allocated);
+          // It can commit: the sandbox also writes the shared store, its git directory and one
+          // temp root of its own outside the workspace.
+          expect(resolved.sandboxTempRoot).toMatch(/\/sandbox-tmp\/\d+-[0-9a-f]{16}$/);
+          expect(resolved.sandboxPolicy).toMatchObject({
+            type: "workspaceWrite",
+            writableRoots: [
+              allocated,
+              yield* f.fs.realPath(store),
+              gitDirectory,
+              resolved.sandboxTempRoot,
+            ],
+          });
+          // A writer in the lead's own workspace commits there too, so it shares the same roots.
+          expect(
+            yield* f.service.repositoryRoots({ ...accepted.binding, workspaceAssignment: "lead" }),
+          ).toEqual([yield* f.fs.realPath(store), gitDirectory]);
+          expect(
+            yield* f.service.repositoryRoots({ ...accepted.binding, sourceAccess: "read-only" }),
+          ).toEqual([]);
+          // A helper bound to the project's main checkout is still refused.
+          const main = yield* runtime
+            .resolve({
+              thread: {
+                ...thread,
+                worktreePath: projectRoot,
+                agentTask: { ...accepted.binding, workspacePath: projectRoot },
+              },
+              modelSelection: accepted.binding.effective,
+            })
+            .pipe(Effect.flip);
+          expect(main.cause).toMatchObject({ reason: "workspace" });
+        }).pipe(
+          Effect.provide(runtimeLayer.pipe(Layer.provideMerge(Settings.layerTest()))),
+          Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+        );
+      }),
   );
 
   it.effect("binds an isolated helper only to a separate workspace of the lead's repository", () =>

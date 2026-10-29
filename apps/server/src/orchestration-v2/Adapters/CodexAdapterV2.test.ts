@@ -221,6 +221,48 @@ describe("CodexAdapterV2 runtime policy", () => {
     }),
   );
 
+  it.effect(
+    "carries a managed writer's network access into Codex and withholds it from a reader",
+    () =>
+      Effect.gen(function* () {
+        const build = (sandboxPolicy: unknown) =>
+          CodexAdapterV2.buildCodexTurnStartParams({
+            nativeThreadId: "native-managed-sandbox",
+            codexInput: [{ type: "text", text: "test" }],
+            runtimePolicy: {
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              cwd: "/workspace",
+              managedAgent: true,
+              approvalPolicy: "never",
+              sandboxPolicy,
+            },
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5.4",
+            },
+          });
+
+        const writer = yield* build({
+          type: "workspaceWrite",
+          writableRoots: ["/workspace"],
+          networkAccess: true,
+          excludeTmpdirEnvVar: true,
+          excludeSlashTmp: true,
+        });
+        assert.deepEqual(writer.sandboxPolicy, {
+          type: "workspaceWrite",
+          writableRoots: ["/workspace"],
+          networkAccess: true,
+          excludeTmpdirEnvVar: true,
+          excludeSlashTmp: true,
+        });
+
+        const reader = yield* build({ type: "readOnly", networkAccess: false });
+        assert.deepEqual(reader.sandboxPolicy, { type: "readOnly", networkAccess: false });
+      }),
+  );
+
   it.effect("sends MCP app model context as untrusted Codex context", () =>
     Effect.gen(function* () {
       const policy = { runtimeMode: "full-access", interactionMode: "default", cwd: null } as const;

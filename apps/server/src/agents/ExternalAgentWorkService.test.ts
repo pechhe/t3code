@@ -974,20 +974,20 @@ it.effect(
         expect(retry.agentTask!.executionRequirement).toBe(pinned.executionRequirement);
         expect(retry.agentTask!.executionBoundary).toBe(pinned.executionBoundary);
         yield* f.cancel(owner, retry.taskId);
-        const widening = yield* f
+        const changed = yield* f
           .submit(
             owner,
             f.submitInput(session, {
-              clientRequestId: "attempt-widening",
+              clientRequestId: "attempt-changed-requirement",
               agentTask: request({
                 workspacePath: f.workspacePath,
-                attemptId: "attempt-widening",
-                executionRequirement: "trusted-host-allowed",
+                attemptId: "attempt-changed-requirement",
+                executionRequirement: "sandbox-required",
               }),
             }),
           )
           .pipe(Effect.flip);
-        expect(widening.reason).toBe("conflict");
+        expect(changed.reason).toBe("conflict");
         expect(retry.assignmentIds).toEqual(first.assignmentIds);
       }),
     ),

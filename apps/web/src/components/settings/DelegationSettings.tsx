@@ -890,7 +890,7 @@ function PermissionsSection() {
         serverScoped
         settingKeys={["delegation"]}
         {...searchableSetting("delegation-trusted-claude-writers")}
-        description="With Full access, Claude helpers can edit, run commands and use the network outside their workspace. Off, they only read. Codex helpers stay sandboxed either way."
+        description="With Full access, Claude helpers can edit, run commands and use the network outside their workspace. Off, they only read. Helpers on other providers run with host access either way."
         control={
           <Switch
             aria-label="Let Claude helpers write with full access"

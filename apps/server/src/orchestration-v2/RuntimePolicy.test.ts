@@ -314,65 +314,67 @@ it.layer(layerTest)("managed RuntimePolicyV2", (it) => {
       assert.equal(result.managedAgent, true);
       assert.equal(result.approvalPolicy, "never");
       assert.equal(result.interactionMode, "default");
-      assert.deepEqual(result.sandboxPolicy, { type: "readOnly", networkAccess: false });
+      assert.deepEqual(result.sandboxPolicy, { type: "readOnly", networkAccess: true });
     }),
   );
-  it.effect("gives a sandboxed writer the shared store and a temp root outside its workspace", () =>
-    Effect.gen(function* () {
-      const policy = yield* RuntimePolicy.RuntimePolicyV2;
-      const now = yield* DateTime.now;
-      const writer: AgentTaskBinding = {
-        ...managedBinding,
-        role: "implementation-worker",
-        sourceAccess: "scoped-write",
-        toolProfile: "implementation",
-        executionBoundary: "workspace-sandbox",
-      };
-      const environment = {
-        validate: () => Effect.void,
-        repositoryRoots: () => Effect.succeed(["/repo/store", "/repo/git"]),
-      };
-      const resolve = (binding: AgentTaskBinding) =>
-        policy
-          .resolve({
-            thread: {
-              ...makeThread({ now, worktreePath: managedBinding.workspacePath }),
-              agentTask: binding,
-            },
-            modelSelection,
-          })
-          .pipe(
-            Effect.provide(
-              Layer.mergeAll(
-                ServerSettings.layerTest(),
-                Layer.mock(ManagedAgent.ManagedAgentService)(environment),
+  it.effect(
+    "gives an explicitly sandboxed writer the shared store, a temp root outside its workspace and the network",
+    () =>
+      Effect.gen(function* () {
+        const policy = yield* RuntimePolicy.RuntimePolicyV2;
+        const now = yield* DateTime.now;
+        const writer: AgentTaskBinding = {
+          ...managedBinding,
+          role: "implementation-worker",
+          sourceAccess: "scoped-write",
+          toolProfile: "implementation",
+          executionBoundary: "workspace-sandbox",
+        };
+        const environment = {
+          validate: () => Effect.void,
+          repositoryRoots: () => Effect.succeed(["/repo/store", "/repo/git"]),
+        };
+        const resolve = (binding: AgentTaskBinding) =>
+          policy
+            .resolve({
+              thread: {
+                ...makeThread({ now, worktreePath: managedBinding.workspacePath }),
+                agentTask: binding,
+              },
+              modelSelection,
+            })
+            .pipe(
+              Effect.provide(
+                Layer.mergeAll(
+                  ServerSettings.layerTest(),
+                  Layer.mock(ManagedAgent.ManagedAgentService)(environment),
+                ),
               ),
-            ),
-          );
-      const result = yield* resolve(writer);
-      assert.match(result.sandboxTempRoot ?? "", /\/sandbox-tmp\/\d+-[0-9a-f]{16}$/);
-      assert.deepEqual(result.sandboxPolicy, {
-        type: "workspaceWrite",
-        writableRoots: [
-          managedBinding.workspacePath,
-          "/repo/store",
-          "/repo/git",
-          result.sandboxTempRoot,
-        ],
-        networkAccess: false,
-        excludeTmpdirEnvVar: true,
-        excludeSlashTmp: true,
-      });
-      // Every turn of the task names the same root, so its session keeps one TMPDIR.
-      assert.equal((yield* resolve(writer)).sandboxTempRoot, result.sandboxTempRoot);
-      // A trusted writer runs unsandboxed, and a reviewer only reads.
-      const trusted = yield* resolve({ ...writer, executionBoundary: "trusted-host-access" });
-      assert.deepEqual(trusted.sandboxPolicy, { type: "dangerFullAccess" });
-      assert.isUndefined(trusted.sandboxTempRoot);
-      const reviewer = yield* resolve({ ...writer, sourceAccess: "read-only" });
-      assert.deepEqual(reviewer.sandboxPolicy, { type: "readOnly", networkAccess: false });
-      assert.isUndefined(reviewer.sandboxTempRoot);
-    }),
+            );
+        const result = yield* resolve(writer);
+        assert.match(result.sandboxTempRoot ?? "", /\/sandbox-tmp\/\d+-[0-9a-f]{16}$/);
+        assert.deepEqual(result.sandboxPolicy, {
+          type: "workspaceWrite",
+          writableRoots: [
+            managedBinding.workspacePath,
+            "/repo/store",
+            "/repo/git",
+            result.sandboxTempRoot,
+          ],
+          networkAccess: true,
+          excludeTmpdirEnvVar: true,
+          excludeSlashTmp: true,
+        });
+        // Every turn of the task names the same root, so its session keeps one TMPDIR.
+        assert.equal((yield* resolve(writer)).sandboxTempRoot, result.sandboxTempRoot);
+        // A trusted writer runs unsandboxed, and a reviewer only reads.
+        const trusted = yield* resolve({ ...writer, executionBoundary: "trusted-host-access" });
+        assert.deepEqual(trusted.sandboxPolicy, { type: "dangerFullAccess" });
+        assert.isUndefined(trusted.sandboxTempRoot);
+        const reviewer = yield* resolve({ ...writer, sourceAccess: "read-only" });
+        assert.deepEqual(reviewer.sandboxPolicy, { type: "readOnly", networkAccess: true });
+        assert.isUndefined(reviewer.sandboxTempRoot);
+      }),
   );
   it.effect(
     "validates each advisor consultation at its current revision while retaining the initial binding",
@@ -411,7 +413,7 @@ it.layer(layerTest)("managed RuntimePolicyV2", (it) => {
         assert.equal(validated?.sourceRevision, "next-source");
         assert.equal(initial.sourceRevision, "pinned-source");
         assert.deepEqual(validated?.effective, initial.effective);
-        assert.deepEqual(result.sandboxPolicy, { type: "readOnly", networkAccess: false });
+        assert.deepEqual(result.sandboxPolicy, { type: "readOnly", networkAccess: true });
       }),
   );
 

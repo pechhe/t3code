@@ -272,7 +272,7 @@ export const layerFromProjectStore: Layer.Layer<
             approvalPolicy: "never",
             sandboxPolicy:
               input.thread.agentTask.sourceAccess === "read-only"
-                ? { type: "readOnly", networkAccess: false }
+                ? { type: "readOnly", networkAccess: true }
                 : input.thread.agentTask.executionBoundary === "trusted-host-access"
                   ? { type: "dangerFullAccess" }
                   : {
@@ -282,7 +282,9 @@ export const layerFromProjectStore: Layer.Layer<
                         ...repositoryRoots,
                         ...(sandboxTempRoot === undefined ? [] : [sandboxTempRoot]),
                       ],
-                      networkAccess: false,
+                      // An explicitly sandboxed writer still reaches the network for DNS,
+                      // credentials and installs; its writes stay inside writableRoots.
+                      networkAccess: true,
                       excludeTmpdirEnvVar: true,
                       excludeSlashTmp: true,
                     },

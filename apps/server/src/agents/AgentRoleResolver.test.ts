@@ -682,7 +682,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
   );
 
   it.effect(
-    "admits trusted Claude writers only with opt-in, full access and an explicit requirement",
+    "admits trusted Claude writers with opt-in and full access, and only behind an explicit sandbox otherwise",
     () =>
       Effect.gen(function* () {
         const resolver = yield* Resolver.AgentRoleResolver;
@@ -695,18 +695,27 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         expect(admitted.selection?.model).toBe(claudeModel);
         expect(admitted.executionRequirement).toBe("trusted-host-allowed");
         expect(admitted.executionBoundary).toBe("trusted-host-access");
+        // A writer request no longer has to ask for host access; that is the default.
+        const byDefault = yield* resolver.preview({ ...trusted, request: request() });
+        expect(byDefault.selection?.model).toBe(claudeModel);
+        expect(byDefault.executionBoundary).toBe("trusted-host-access");
         for (const denied of [
           { ...trusted, allowTrustedClaudeWriters: false },
           { ...trusted, ceiling: "auto" as const },
           { ...trusted, ceiling: "auto-accept-edits" as const },
           { ...trusted, ceiling: "approval-required" as const },
           { ...trusted, request: request({ executionRequirement: "sandbox-required" }) },
-          { ...trusted, request: request() },
         ]) {
           expect((yield* resolver.preview(denied)).selection).toBeNull();
         }
         const codexWriter = yield* resolver.preview({ ...trusted, providers: [codex] });
-        expect(codexWriter.executionBoundary).toBe("workspace-sandbox");
+        expect(codexWriter.executionBoundary).toBe("trusted-host-access");
+        const sandboxedWriter = yield* resolver.preview({
+          ...trusted,
+          providers: [codex],
+          request: request({ executionRequirement: "sandbox-required" }),
+        });
+        expect(sandboxedWriter.executionBoundary).toBe("workspace-sandbox");
         const reader = yield* resolver.preview({
           ...trusted,
           request: request({ readOnly: true, executionRequirement: "sandbox-required" }),
