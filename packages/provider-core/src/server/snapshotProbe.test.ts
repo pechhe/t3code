@@ -39,7 +39,11 @@ const OPENCODE_CUSTOM_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabil
 it("preserves a declared read-only boundary and leaves unknown providers unenforced", () => {
   const snapshot = (readOnlySourceAccess?: "enforced") =>
     buildServerProvider({
-      presentation: { displayName: "Test", toolCallGuard: "blocking", readOnlySourceAccess },
+      presentation: {
+        displayName: "Test",
+        toolCallGuard: "blocking",
+        ...(readOnlySourceAccess === undefined ? {} : { readOnlySourceAccess }),
+      },
       enabled: true,
       checkedAt: "2026-10-27T00:00:00.000Z",
       models: [],
@@ -52,6 +56,29 @@ it("preserves a declared read-only boundary and leaves unknown providers unenfor
     });
   expect(snapshot("enforced").readOnlySourceAccess).toBe("enforced");
   expect(snapshot().readOnlySourceAccess).toBeUndefined();
+});
+
+it("preserves declared web research support without granting it to unknown providers", () => {
+  const snapshot = (supportsWebResearch?: boolean) =>
+    buildServerProvider({
+      presentation: {
+        displayName: "Test",
+        toolCallGuard: "blocking",
+        ...(supportsWebResearch === undefined ? {} : { supportsWebResearch }),
+      },
+      enabled: true,
+      checkedAt: "2026-10-27T00:00:00.000Z",
+      models: [],
+      probe: {
+        installed: true,
+        version: "1.0.0",
+        status: "ready",
+        auth: { status: "authenticated" },
+      },
+    });
+  expect(snapshot(true).supportsWebResearch).toBe(true);
+  expect(snapshot(false).supportsWebResearch).toBe(false);
+  expect(snapshot().supportsWebResearch).toBeUndefined();
 });
 
 describe("providerModelsFromSettings", () => {

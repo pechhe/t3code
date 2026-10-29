@@ -51,6 +51,7 @@ import {
 const PI_PRESENTATION = {
   toolCallGuard: "blocking",
   readOnlySourceAccess: "enforced",
+  supportsWebResearch: false,
   displayName: "Pi",
   showInteractionModeToggle: false,
   supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],

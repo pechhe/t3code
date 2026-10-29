@@ -98,6 +98,88 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       ).toBe(codex.instanceId);
     }),
   );
+  it.effect(
+    "web-research skips Pi, refuses unsupported selections, and leaves source readers eligible",
+    () =>
+      Effect.gen(function* () {
+        const resolver = yield* Resolver.AgentRoleResolver;
+        const original = snapshot();
+        const pi = provider("pi", "pi-test", ["deepseek-test"]);
+        const policy: AgentPolicySnapshot = {
+          ...original,
+          manifest: {
+            ...original.manifest,
+            models: {
+              ...original.manifest.models,
+              pi: { driverKind: ProviderDriverKind.make("pi"), model: "deepseek-test" },
+            },
+            lists: {
+              ...original.manifest.lists,
+              research: [
+                { model: "pi" },
+                { model: "sol", effort: "medium" },
+                { model: "sonnet", effort: "medium" },
+              ],
+            },
+            roles: {
+              ...original.manifest.roles,
+              researcher: {
+                list: "research",
+                brief: "roles/researcher.md",
+                sourceAccess: "read-only",
+                toolProfile: "web-research",
+                taskClasses: ["non-ui"],
+              },
+              scout: {
+                list: "research",
+                brief: "roles/scout.md",
+                sourceAccess: "read-only",
+                toolProfile: "source-reader",
+                taskClasses: ["non-ui"],
+              },
+            },
+          },
+        };
+        const value = input({
+          snapshot: policy,
+          request: request({ role: "researcher" }),
+          providers: [pi, codex, claude],
+        });
+        const preview = yield* resolver.preview(value);
+        expect(preview.selection?.instanceId).toBe(codex.instanceId);
+        expect(preview.candidates).toContainEqual(
+          expect.objectContaining({
+            providerInstanceId: pi.instanceId,
+            reason: "web-research-unsupported",
+          }),
+        );
+        expect((yield* resolver.resolve(value)).instanceId).toBe(codex.instanceId);
+        expect((yield* resolver.resolve({ ...value, providers: [pi, claude] })).instanceId).toBe(
+          claude.instanceId,
+        );
+        const unsupported = { ...value, providers: [pi] };
+        const refused = yield* resolver.preview(unsupported);
+        expect(refused.selection).toBeNull();
+        expect(refused.refusal).toContain("web-research-unsupported");
+        expect((yield* refusal(unsupported)).message).toContain("web-research-unsupported");
+        expect(
+          (yield* refusal({ ...value, selection: { instanceId: pi.instanceId } })).message,
+        ).toContain("web-research-unsupported");
+        expect(
+          (yield* resolver.resolve({
+            ...value,
+            providers: [pi],
+            request: request({ role: "scout" }),
+          })).instanceId,
+        ).toBe(pi.instanceId);
+        expect(
+          (yield* resolver.preview({
+            ...value,
+            providers: [{ ...codex, supportsWebResearch: undefined }],
+          })).refusal,
+        ).toContain("web-research-unsupported");
+      }),
+  );
   it.effect("a reviewer prefers another provider than the author's, without refusing", () =>
     Effect.gen(function* () {
       const original = snapshot();

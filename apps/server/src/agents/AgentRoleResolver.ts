@@ -260,6 +260,10 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         skip("read-only-unenforced");
         continue;
       }
+      if (role.toolProfile === "web-research" && provider.supportsWebResearch !== true) {
+        skip("web-research-unsupported");
+        continue;
+      }
       const model = provider.models.find((candidate) => candidate.slug === binding.model);
       if (model === undefined) {
         skip("model-unavailable");

@@ -228,6 +228,8 @@ export const ServerProvider = Schema.Struct({
   // the driver as unguarded rather than as guarded by omission.
   toolCallGuard: Schema.optional(Schema.Literals(["blocking", "observe-only"])),
   readOnlySourceAccess: Schema.optional(Schema.Literals(["enforced"])),
+  /** True only when managed web-research sessions receive both web search and page fetch. */
+  supportsWebResearch: Schema.optional(Schema.Boolean),
   supportsTextGeneration: Schema.optional(Schema.Boolean),
   setup: Schema.optional(
     Schema.Struct({

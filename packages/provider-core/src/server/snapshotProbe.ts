@@ -91,6 +91,7 @@ export interface ServerProviderPresentation {
   readonly supportsConversationRollback?: boolean;
   readonly toolCallGuard: "blocking" | "observe-only";
   readonly readOnlySourceAccess?: "enforced";
+  readonly supportsWebResearch?: boolean;
 }
 
 export type ServerProviderDraft = Omit<ServerProvider, "instanceId" | "driver">;
@@ -249,6 +250,7 @@ export function buildServerProvider(input: {
       : {}),
     toolCallGuard: input.presentation.toolCallGuard,
     readOnlySourceAccess: input.presentation.readOnlySourceAccess,
+    supportsWebResearch: input.presentation.supportsWebResearch,
     ...(input.presentation.badgeLabel ? { badgeLabel: input.presentation.badgeLabel } : {}),
     ...(typeof input.presentation.showInteractionModeToggle === "boolean"
       ? { showInteractionModeToggle: input.presentation.showInteractionModeToggle }
