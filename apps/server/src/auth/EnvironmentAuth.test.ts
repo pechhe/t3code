@@ -713,6 +713,47 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
     ),
   );
 
+  it.effect("accepts a proof signed for https behind a TLS-terminating proxy", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const sessions = yield* SessionStore.SessionStore;
+      const key = makeDpopKey();
+      const exchanged = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
+        "desktop-bootstrap-token",
+        ["orchestration:read"],
+        requestMetadata,
+        { proofKeyThumbprint: key.thumbprint },
+      );
+      const session = yield* sessions.verify(exchanged.access_token);
+      const host = "box.example.com";
+      const rpc = yield* serverAuth.issueWebSocketTicket(session, { use: "rpc" });
+      const iat = Math.floor((yield* DateTime.now).epochMilliseconds / 1_000);
+      const proof = key.sign({
+        method: "GET",
+        url: `https://${host}/ws`,
+        token: rpc.ticket,
+        iat,
+      });
+      const upgrade = (headers: Record<string, string>) =>
+        serverAuth.authenticateWebSocketUpgrade(
+          {
+            method: "GET",
+            url: `/ws?orchestrationProtocol=2&wsTicket=${rpc.ticket}&dpop=${proof}`,
+            cookies: {},
+            headers: { host, ...headers },
+          } as never,
+          "rpc",
+        );
+
+      const direct = yield* Effect.flip(upgrade({}));
+      expect(direct._tag).toBe("ServerAuthInvalidCredentialError");
+      const proxied = yield* upgrade({ "x-forwarded-proto": "https" });
+      expect(proxied.sessionId).toBe(session.sessionId);
+    }).pipe(
+      Effect.provide(layerEnvironmentAuth({ desktopBootstrapToken: "desktop-bootstrap-token" })),
+    ),
+  );
+
   it.effect("rejects a replayed proof on a bound RPC socket ticket", () =>
     Effect.gen(function* () {
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;

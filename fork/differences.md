@@ -783,3 +783,14 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** none known.
 - **Retire when:** upstream annotates these tools equivalently.
 - **Owner:** none (requested by Henry directly).
+
+### dpop-forwarded-proto
+
+- **Kind:** temporary workaround (upstreamable bug fix)
+- **Why:** The T3 Connect tunnel (and Tailscale serve) terminates TLS, and effect 4.0.6's `HttpServerRequest.toURL` ignores `x-forwarded-proto`, so the server compared a client's DPoP proof, signed for `https://`, against an `http://` URL. Every phone sign-in over the tunnel failed with "The environment credential is invalid" (`url_mismatch`).
+- **Requirements:** DPoP proof verification, on HTTP requests and WebSocket upgrades, compares against the request URL with its scheme upgraded to https when `x-forwarded-proto` says https, never downgraded. The MCP OAuth metadata uses the same helper.
+- **Integration points:** `auth/forwardedUrl` (`forwardedRequestUrl`), used by `auth/dpop` and `auth/McpOAuth`.
+- **Proof:** apps/server/src/auth/forwardedUrl.test.ts; apps/server/src/auth/EnvironmentAuth.test.ts ("accepts a proof signed for https behind a TLS-terminating proxy").
+- **Upstream:** none known as of v0.1.3-nightly.20261025.3669; upstreamable.
+- **Retire when:** upstream's `toURL` or its server middleware honours `x-forwarded-proto` for DPoP verification.
+- **Decision:** `retain` (new, 2026-10-29).
