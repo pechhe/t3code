@@ -82,11 +82,11 @@ its revision and the role names, or the reason the policy is refused.
   the same, and only `ui-worker` may hold it, to check what it built. Either
   starts only once the project allows Phi and Phi answers. A read-only request
   drops writing but never the browser, so `implementation-phi` narrows to `phi`.
-- The `web-research` tool profile, which only a read-only role may use, adds web
-  search and page fetching to a reader: Claude's `WebSearch` and `WebFetch`, and
-  Codex's live web search; other providers get T3's `web_search` and `web_fetch`. Every
-  read-only task may use the network, and a Codex reader's shell commands can reach it,
-  but no reader can write source.
+- The `web-research` tool profile, which only a read-only role may use, gives a
+  reader web search and page fetching: Claude and Codex use their own native web
+  tools, and any other provider gets T3's `web_search` and `web_fetch` through
+  Executor's Tavily. Every read-only task may use the network, and a Codex reader's
+  shell commands can reach it, but no reader can write source.
   `researcher` is the one optional role: a policy that leaves it out does not
   offer it, so older policies and recorded snapshots stay valid.
 - While a readable policy is configured, a delegation or reviewer trial is

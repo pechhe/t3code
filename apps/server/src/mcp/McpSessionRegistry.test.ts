@@ -6,6 +6,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
+import * as Queue from "effect/Queue";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
@@ -205,16 +206,13 @@ it.effect(
   () =>
     Effect.gen(function* () {
       let timestamp = 1000;
-      const released: Array<string> = [];
+      const released = yield* Queue.unbounded<string>();
       const phi = PhiBrowser.PhiBrowser.of({
         availability: () => Effect.succeed("available"),
         hasTab: () => Effect.succeed(false),
         invoke: () => Effect.die("unused"),
         list: () => Effect.succeed([]),
-        releaseSession: (id) =>
-          Effect.sync(() => {
-            released.push(id);
-          }),
+        releaseSession: (id) => Queue.offer(released, id).pipe(Effect.asVoid),
       });
       const registry = yield* makeRegistry(() => timestamp).pipe(
         Effect.provideService(PhiBrowser.PhiBrowser, phi),
@@ -226,26 +224,18 @@ it.effect(
         capabilities: new Set(["preview"]),
       });
       const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
-      const waitForReleases = (count: number) =>
-        Effect.gen(function* () {
-          for (let attempt = 0; attempt < 50 && released.length < count; attempt += 1) {
-            yield* Effect.yieldNow;
-          }
-        });
 
       timestamp += 101;
       expect(yield* registry.resolve(token)).toBeUndefined();
       expect(yield* registry.resolve(token)).toBeUndefined();
-      yield* waitForReleases(1);
-      expect(released).toEqual([issued.config.providerSessionId]);
+      expect(yield* Queue.take(released)).toBe(issued.config.providerSessionId);
 
       // The expired record stays so a trusted turn can restore it; expiring again releases again.
       yield* registry.touch(threadId);
       expect((yield* registry.resolve(token))?.thread.threadId).toBe(threadId);
       timestamp += 101;
       expect(yield* registry.resolve(token)).toBeUndefined();
-      yield* waitForReleases(2);
-      expect(released).toEqual([issued.config.providerSessionId, issued.config.providerSessionId]);
+      expect(yield* Queue.take(released)).toBe(issued.config.providerSessionId);
     }),
 );
 
@@ -412,5 +402,31 @@ it.effect.each(["provider-session", "thread", "all"] as const)(
       }[revocation];
       yield* registry.touch(threadId);
       expect(yield* registry.resolve(token)).toBeUndefined();
+    }),
+);
+
+it.effect.each([
+  { toolProfile: "web-research" as const, webResearchTools: true, expected: true },
+  { toolProfile: "web-research" as const, webResearchTools: false, expected: false },
+  { toolProfile: "source-reader" as const, webResearchTools: true, expected: false },
+])(
+  "binds supplied web tools to the research profile ($toolProfile, $webResearchTools)",
+  ({ toolProfile, webResearchTools, expected }) =>
+    Effect.gen(function* () {
+      const registry = yield* makeRegistry(() => 1000);
+      const issued = yield* registry.issue({
+        threadId: ThreadId.make("web"),
+        providerInstanceId: ProviderInstanceId.make("pi"),
+        delegated: true,
+        toolProfile,
+        webResearchTools,
+      });
+      const invocation = yield* registry.resolve(
+        issued.config.authorizationHeader.replace(/^Bearer\s+/, ""),
+      );
+      expect(invocation?.webResearchTools).toBe(expected);
+      expect(invocation?.endpointKey).toBe(
+        toolProfile === "web-research" ? "child-research" : "child-reader",
+      );
     }),
 );

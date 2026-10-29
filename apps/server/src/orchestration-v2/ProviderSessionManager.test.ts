@@ -3778,3 +3778,17 @@ it.effect(
       assert.isFalse(denied?.capabilities?.has("device"));
     }),
 );
+
+it("a web-research session gets T3's web family unless its provider researches natively", () => {
+  const pi = { nativeWebResearch: false };
+  const claude = { nativeWebResearch: true };
+  const codex = { nativeWebResearch: true };
+  assert.isTrue(ProviderSessionManager.usesT3WebTools("web-research", pi));
+  assert.isFalse(ProviderSessionManager.usesT3WebTools("web-research", claude));
+  assert.isFalse(ProviderSessionManager.usesT3WebTools("web-research", codex));
+  // A provider the registry cannot name declares no native tools, so the role still researches.
+  assert.isTrue(ProviderSessionManager.usesT3WebTools("web-research", undefined));
+  assert.isTrue(ProviderSessionManager.usesT3WebTools("web-research", {}));
+  // Only the web-research profile asks for the family.
+  assert.isFalse(ProviderSessionManager.usesT3WebTools("source-reader", pi));
+});

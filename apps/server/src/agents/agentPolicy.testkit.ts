@@ -94,7 +94,7 @@ export function provider(
 ) {
   return decodeProvider({
     driver,
-    supportsWebResearch: ["codex", "claudeAgent"].includes(driver),
+    nativeWebResearch: ["codex", "claudeAgent"].includes(driver),
     readOnlySourceAccess: ["codex", "claudeAgent", "pi"].includes(driver) ? "enforced" : undefined,
     instanceId,
     enabled: true,

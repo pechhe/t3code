@@ -1,3 +1,6 @@
+import { WebToolkit } from "./toolkits/web/tools.ts";
+import * as WebHandlers from "./toolkits/web/handlers.ts";
+import * as WebResearch from "./WebResearch.ts";
 import { ExperimentsToolkit } from "./toolkits/experiments/tools.ts";
 import * as ExperimentsHandlers from "./toolkits/experiments/handlers.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
@@ -1141,6 +1144,13 @@ const layerSessionToolkitServices = Layer.mergeAll(
   WorkspaceProvider.layer,
   WorktreeMcpService.layer.pipe(Layer.provide(WorkspaceProvider.layer)),
   HtmlRender.layer,
+  WebResearch.layer.pipe(
+    Layer.provide(
+      WebResearch.layerExecutor.pipe(
+        Layer.provide(WebResearch.layerCredentials.pipe(Layer.provide(ProcessRunner.layer))),
+      ),
+    ),
+  ),
 );
 
 const layerSessionOrchestrator = (families: ReadonlySet<ToolFamily>) =>
@@ -1186,6 +1196,7 @@ export const layerSessionToolkits = (families: ReadonlySet<ToolFamily>) =>
     layerSessionHtml(),
     layerSessionPreview(families),
     layerSessionDevice(families),
+    families.has("web") ? toolkitRegistration(WebToolkit, WebHandlers.layer) : Layer.empty,
     families.has("workspace") ? layerAttachmentToolkit : Layer.empty,
     families.has("workspace") ? layerEnvironmentToolkit : Layer.empty,
     families.has("workspace")

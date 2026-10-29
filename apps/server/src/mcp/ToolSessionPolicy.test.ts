@@ -39,6 +39,7 @@ import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import { ThreadToolkit } from "./toolkits/thread/tools.ts";
 import { WorkspaceToolkit } from "./toolkits/workspace/tools.ts";
+import { WebToolkit } from "./toolkits/web/tools.ts";
 import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import { MANAGED_BROWSER_TOOL_NAMES } from "./toolkits/managedBrowser/toolNames.ts";
 
@@ -57,6 +58,7 @@ const tools = [
   ...Object.values(ProjectToolkit.tools),
   ...Object.values(PullRequestsToolkit.tools),
   ...Object.values(ThreadToolkit.tools),
+  ...Object.values(WebToolkit.tools),
   ...Object.values(WorktreeToolkit.tools),
 ];
 
@@ -96,7 +98,8 @@ const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> =
   ["browser/preview", session("phi", "browser"), 32_800],
   ["ui-verifier", session("phi", "ui-verifier"), 120_000],
   ["ui-worker", session("implementation-phi", "ui-worker"), 115_000],
-  ["researcher", session("web-research", "researcher"), 105_000],
+  // 82,359 measured; the web family's `web_search` and `web_fetch` now count on this endpoint.
+  ["researcher", session("web-research", "researcher"), 82_400],
   ["scout", session("source-reader", "scout"), 90_000],
   ["delegated browser", session("phi", "browser", true), 40_000],
   ["delegated ui-verifier", session("phi", "ui-verifier", true), 40_000],
@@ -105,7 +108,8 @@ const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> =
     session("implementation", "implementation-worker", true),
     45_000,
   ],
-  ["delegated researcher", session("web-research", "researcher", true), 25_000],
+  // 18,638 measured; those two web tools are all this child adds to its leaf listing.
+  ["delegated researcher", session("web-research", "researcher", true), 18_700],
   ["delegated scout", session("source-reader", "scout", true), 15_000],
   ["delegated reviewer", session("source-reader", "ticket-reviewer", true), 15_000],
 ];

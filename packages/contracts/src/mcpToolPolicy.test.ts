@@ -15,3 +15,21 @@ describe("Weave connection aliases", () => {
     },
   );
 });
+
+describe("web research tools", () => {
+  it.each(["web_search", "web_fetch"])("lists %s only for research profiles", (name) => {
+    expect(toolFamily(name)).toBe("web");
+    for (const delegated of [true, false]) {
+      expect(isToolListedForSession(name, { toolProfile: "web-research", delegated })).toBe(true);
+      for (const toolProfile of [
+        "source-reader",
+        "implementation",
+        "phi",
+        "implementation-phi",
+      ] as const) {
+        expect(isToolListedForSession(name, { toolProfile, delegated })).toBe(false);
+      }
+    }
+    expect(isToolListedForSession(name, undefined)).toBe(false);
+  });
+});

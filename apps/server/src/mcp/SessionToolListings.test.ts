@@ -1,3 +1,4 @@
+import * as WebResearch from "./WebResearch.ts";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { SESSION_TOOL_ENDPOINTS, toolFamily, type SessionEndpointKey } from "@t3tools/contracts";
@@ -52,6 +53,7 @@ import * as McpToolAccessTestkit from "./McpToolAccess.testkit.ts";
  * without any other test noticing.
  */
 const serviceMocks = Layer.mergeAll(
+  Layer.mock(WebResearch.WebResearch)({}),
   Layer.mock(OrchestratorMcpService.OrchestratorMcpService)({}),
   Layer.mock(ThreadMetadataMcpService.ThreadMetadataMcpService)({}),
   Layer.mock(ThreadDirectory.ThreadDirectory)({}),
@@ -122,6 +124,10 @@ it.effect("registers only the tool families each session endpoint declares", () 
         names.filter((name) => !families.has(toolFamily(name))),
         key,
       ).toEqual([]);
+      expect(names.includes("web_search"), key).toBe(
+        key === "research" || key === "child-research",
+      );
+      expect(names.includes("web_fetch"), key).toBe(key === "research" || key === "child-research");
       if (key === "child-research" || key === "research") {
         expect(names).toContain("t3_experiments_list");
         expect(names.includes("t3_work_enroll")).toBe(key === "research");

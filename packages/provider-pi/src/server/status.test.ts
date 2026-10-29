@@ -123,7 +123,7 @@ describe("PiProvider", () => {
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, piProbeSpawner("0.84.3")),
       );
       assert.equal(snapshot.readOnlySourceAccess, "enforced");
-      assert.equal(snapshot.supportsWebResearch, false);
+      assert.equal(snapshot.nativeWebResearch, false);
       assert.equal(snapshot.status, "ready");
       assert.equal(snapshot.auth.status, "unknown");
       assert.deepEqual(

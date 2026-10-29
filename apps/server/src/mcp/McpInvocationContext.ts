@@ -65,6 +65,7 @@ export interface McpInvocationScope {
   /** The thread's listing profile; absent on external client credentials, which keep the full list. */
   readonly toolProfile?: AgentToolProfile;
   readonly agentRole?: AgentRole;
+  readonly webResearchTools?: boolean;
   /**
    * Namespaces idempotency keys so two callers reusing a clientRequestId cannot collide. It names
    * the caller (thread or client session), never the transient MCP connection.

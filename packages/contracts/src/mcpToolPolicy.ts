@@ -19,7 +19,8 @@ export type ToolFamily =
   | "work"
   | "inspection"
   | "leaf"
-  | "report";
+  | "report"
+  | "web";
 
 export interface SessionToolProfile {
   readonly toolProfile?: AgentToolProfile | undefined;
@@ -40,11 +41,8 @@ const SCHEDULING_TOOLS = new Set([
 ]);
 
 /**
- * Workspace moves and project discovery an ordinary thread is told to use: the
- * orchestration instructions name `t3_worktree_handoff` and `create_threads`,
- * and a No project chat is told to move itself with `t3_thread_move_to_project`
- * after reading `t3_project_list`. They stay reachable from every profile that
- * includes `control`.
+ * The orchestration instructions tell an ordinary thread to move its workspace and
+ * discover projects with these, so every profile that includes `control` lists them.
  */
 const CONTROL_EXTRA_TOOLS = new Set([
   "create_threads",
@@ -101,6 +99,7 @@ const PULL_REQUEST_TOOLS = new Set([
  * every tool again when a family gains one.
  */
 export const toolFamily = (name: string): ToolFamily => {
+  if (name === "web_search" || name === "web_fetch") return "web";
   if (REPORT_TOOLS.has(name)) return "report";
   if (LEAF_TOOLS.has(name)) return "leaf";
   if (SCHEDULING_TOOLS.has(name)) return "scheduling";
@@ -168,6 +167,7 @@ const IMPLEMENTATION_PHI: ReadonlySet<ToolFamily> = new Set([
   "report",
 ]);
 const RESEARCH: ReadonlySet<ToolFamily> = new Set([
+  "web",
   "control",
   "workspace",
   "scheduling",
@@ -185,7 +185,7 @@ const RESEARCH: ReadonlySet<ToolFamily> = new Set([
  * nothing that belongs to the thread that delegated it.
  */
 const CHILD_READER: ReadonlySet<ToolFamily> = new Set(["leaf", "report"]);
-const CHILD_RESEARCH: ReadonlySet<ToolFamily> = new Set(["leaf", "report", "experiments"]);
+const CHILD_RESEARCH: ReadonlySet<ToolFamily> = new Set(["leaf", "report", "experiments", "web"]);
 const CHILD_PREVIEW: ReadonlySet<ToolFamily> = new Set(["leaf", "report", "preview"]);
 const CHILD_PREVIEW_DEVICE: ReadonlySet<ToolFamily> = new Set([
   "leaf",

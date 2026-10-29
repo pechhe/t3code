@@ -31,6 +31,7 @@ export interface McpCredentialRequest {
   readonly browserToolsAvailable?: boolean;
   readonly toolProfile?: AgentToolProfile;
   readonly agentRole?: AgentRole;
+  readonly webResearchTools?: boolean;
   /** A delegated child thread lists only its own work family and the leaf tools. */
   readonly delegated?: boolean;
   readonly browserBackends?: import("@t3tools/contracts").AgentBrowserBackends;
@@ -210,6 +211,8 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         !managedBrowser &&
         (families === undefined || families.has(toolFamily("t3_background_wait")));
       const scope: McpInvocationContext.McpThreadInvocationScope = {
+        webResearchTools:
+          request.toolProfile === "web-research" && request.webResearchTools === true,
         environmentId,
         // A retry after a reconnect or server restart arrives on a fresh credential, so request
         // identity follows the thread, which both share.

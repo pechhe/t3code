@@ -1,8 +1,10 @@
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
   isOrchestrationV2WorkActive,
+  type AgentToolProfile,
   ModelSelection,
   DEFAULT_AGENT_BROWSER_BACKENDS,
   OrchestrationV2DomainEvent,
@@ -66,6 +68,16 @@ const busyTurnPrefix = (providerThreadId: ProviderThreadId) => `${providerThread
 const busyTurnKey = (providerThreadId: ProviderThreadId, runOrdinal: number) =>
   `${busyTurnPrefix(providerThreadId)}${runOrdinal}`;
 const UNLOAD_THREAD_TIMEOUT_MS = 10 * 1000;
+
+/**
+ * A web-research task gets T3's `web` family unless its provider already has web
+ * tools of its own. An unknown provider counts as having none, so the role still
+ * researches rather than failing closed on a snapshot the registry could not give.
+ */
+export const usesT3WebTools = (
+  toolProfile: AgentToolProfile | undefined,
+  provider: { readonly nativeWebResearch?: boolean | undefined } | undefined,
+): boolean => toolProfile === "web-research" && provider?.nativeWebResearch !== true;
 
 export const ProviderSessionReleaseReason = Schema.Literals([
   "idle_timeout",
@@ -312,6 +324,7 @@ export const layerWithOptions = (
     ProviderSessionManagerV2,
     Effect.gen(function* () {
       const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
+      const providerSnapshots = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
       const fileSystem = yield* FileSystem.FileSystem;
       const mcpSessionRegistry = yield* McpSessionRegistry.McpSessionRegistry;
       const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
@@ -533,6 +546,12 @@ export const layerWithOptions = (
                   Effect.map(isLeafSubagentThread),
                   Effect.orElseSucceed(() => false),
                 );
+                const provider = Option.isSome(providerSnapshots)
+                  ? (yield* providerSnapshots.value.getProviders).find(
+                      (item) => item.instanceId === providerInstanceId,
+                    )
+                  : undefined;
+                const webResearchTools = usesT3WebTools(toolProfile, provider);
                 const existing = yield* mcpSessions.read(threadId);
                 if (existing !== undefined) {
                   // Reserve before async validation so release cannot revoke between validation and reservation.
@@ -559,6 +578,7 @@ export const layerWithOptions = (
                       (managedBrowser || browserToolsAvailable) &&
                     resolved.capabilities.has("device") ===
                       (!managedBrowser && deviceToolsAvailable) &&
+                    resolved.webResearchTools === webResearchTools &&
                     resolved.toolProfile === toolProfile &&
                     resolved.agentRole === agentRole &&
                     // A credential issued while the lineage read failed is replaced once it works.
@@ -576,6 +596,7 @@ export const layerWithOptions = (
                   threadId,
                   providerInstanceId,
                   browserToolsAvailable,
+                  webResearchTools,
                   capabilities,
                   ...(toolProfile === undefined ? {} : { toolProfile }),
                   ...(agentRole === undefined ? {} : { agentRole }),

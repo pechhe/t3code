@@ -78,7 +78,7 @@ const CODEX_DISCOVERY_MARGIN_MS = 250;
 const CODEX_PRESENTATION = {
   toolCallGuard: "blocking",
   readOnlySourceAccess: "enforced",
-  supportsWebResearch: true,
+  nativeWebResearch: true,
   displayName: "Codex",
   showInteractionModeToggle: true,
   reportsContextWindow: true,

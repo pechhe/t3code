@@ -58,13 +58,13 @@ it("preserves a declared read-only boundary and leaves unknown providers unenfor
   expect(snapshot().readOnlySourceAccess).toBeUndefined();
 });
 
-it("preserves declared web research support without granting it to unknown providers", () => {
-  const snapshot = (supportsWebResearch?: boolean) =>
+it("reports native web research only when a provider declares it", () => {
+  const snapshot = (nativeWebResearch?: boolean) =>
     buildServerProvider({
       presentation: {
         displayName: "Test",
         toolCallGuard: "blocking",
-        ...(supportsWebResearch === undefined ? {} : { supportsWebResearch }),
+        ...(nativeWebResearch === undefined ? {} : { nativeWebResearch }),
       },
       enabled: true,
       checkedAt: "2026-10-27T00:00:00.000Z",
@@ -76,9 +76,9 @@ it("preserves declared web research support without granting it to unknown provi
         auth: { status: "authenticated" },
       },
     });
-  expect(snapshot(true).supportsWebResearch).toBe(true);
-  expect(snapshot(false).supportsWebResearch).toBe(false);
-  expect(snapshot().supportsWebResearch).toBeUndefined();
+  expect(snapshot(true).nativeWebResearch).toBe(true);
+  expect(snapshot(false).nativeWebResearch).toBe(false);
+  expect(snapshot().nativeWebResearch).toBeUndefined();
 });
 
 describe("providerModelsFromSettings", () => {
