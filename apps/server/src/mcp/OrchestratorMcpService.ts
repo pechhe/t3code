@@ -2781,9 +2781,7 @@ const make = Effect.gen(function* () {
           parent.subagents.some(
             (task) =>
               task.childThreadId === current.childThreadId &&
-              (task.status === "cancelled" ||
-                task.status === "interrupted" ||
-                task.completionDelivery?.state === "disposed"),
+              task.completionDelivery?.state === "disposed",
           ) ||
           child.thread.archivedAt !== null
         )

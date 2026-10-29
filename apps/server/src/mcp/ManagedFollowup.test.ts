@@ -316,6 +316,25 @@ it.effect(
             })),
           };
         }
+        // A server restart cancels the child's run and publishes that outcome; the task
+        // stays open, so its lead continues the same conversation instead of a fresh one.
+        child = { ...child, runs: child.runs.map((run) => ({ ...run, status: "cancelled" })) };
+        parent = {
+          ...parent,
+          subagents: parent.subagents.map((task) => ({
+            ...task,
+            status: "cancelled",
+            result: "Child task ended with status cancelled.",
+            completionDelivery: { state: "claimed", observedByRunId: null },
+          })),
+        };
+        const beforeRestart = sends;
+        const afterRestart = yield* service.delegateTask(scope, {
+          ...input,
+          clientRequestId: "restart-cancelled",
+        });
+        expect(afterRestart.childThreadId).toBe(childId);
+        expect(sends).toBe(beforeRestart + 1);
         child = { ...child, thread: { ...child.thread, agentTask: binding } };
         parent = {
           ...parent,
