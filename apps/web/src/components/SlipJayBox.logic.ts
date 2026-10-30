@@ -1,5 +1,6 @@
 import type {
   SlipJayRunnerDeploy,
+  SlipJayRunnerEnvironment,
   SlipJayRunnerOperation,
   SlipJayRunnerOverview,
   SlipJayRunnerRelease,
@@ -188,35 +189,8 @@ export function resolveEnvironmentRows(
   deploys: ReadonlyArray<SlipJayRunnerDeploy> = [],
 ): SlipJayEnvironmentRow[] {
   const age = (iso: string) => formatElapsedDurationLabel(iso, now);
-  const { live, latestAttempt } = release.production;
-  const attemptNote =
-    latestAttempt === null
-      ? null
-      : `${
-          latestAttempt.status === "running"
-            ? `Deploying ${sha7(latestAttempt.commitId)} · ${age(latestAttempt.at)}`
-            : `Last attempt ${sha7(latestAttempt.commitId)} ${
-                latestAttempt.status === "failed" ? "failed" : "rolled back"
-              } ${age(latestAttempt.at)} ago`
-        }${latestAttempt.reason ? ` (${latestAttempt.reason})` : ""}`;
   const rows: SlipJayEnvironmentRow[] = [
-    live === null
-      ? {
-          key: "production",
-          name: "Production",
-          sha: "none",
-          tone: "dim",
-          status: "nothing deployed",
-          note: attemptNote,
-        }
-      : {
-          key: "production",
-          name: "Production",
-          sha: sha7(live.commitId),
-          tone: live.healthy === false ? "bad" : "ok",
-          status: `live · ${live.healthy === null ? "" : live.healthy ? "healthy · " : "unhealthy · "}${age(live.deployedAt)}`,
-          note: attemptNote,
-        },
+    environmentRow("production", "Production", release.production, age),
   ];
   const { images } = release;
   if (images !== null) {
@@ -254,7 +228,16 @@ export function resolveEnvironmentRows(
       note: null,
     });
   } else {
-    rows.push(stagingRow(deploys, age));
+    rows.push(
+      release.staging === undefined
+        ? stagingRowFromDeploys(deploys, age)
+        : environmentRow(
+            "staging",
+            "Staging",
+            release.staging ?? { live: null, latestAttempt: null },
+            age,
+          ),
+    );
   }
   return rows;
 }
@@ -273,8 +256,37 @@ export function resolveBoxFooter(overview: SlipJayRunnerOverview): {
   };
 }
 
-/** Staging as its latest deploy: a failed one is the row's state only when no deploy succeeded before it. */
-function stagingRow(
+/** An environment as what is live there; a newer attempt is only ever the note under it. */
+function environmentRow(
+  key: "production" | "staging",
+  name: string,
+  { live, latestAttempt }: SlipJayRunnerEnvironment,
+  age: (iso: string) => string,
+): SlipJayEnvironmentRow {
+  const attemptNote =
+    latestAttempt === null
+      ? null
+      : `${
+          latestAttempt.status === "running"
+            ? `Deploying ${sha7(latestAttempt.commitId)} · ${age(latestAttempt.at)}`
+            : `Last attempt ${sha7(latestAttempt.commitId)} ${
+                latestAttempt.status === "failed" ? "failed" : "rolled back"
+              } ${age(latestAttempt.at)} ago`
+        }${latestAttempt.reason ? ` (${latestAttempt.reason})` : ""}`;
+  return live === null
+    ? { key, name, sha: "none", tone: "dim", status: "nothing deployed", note: attemptNote }
+    : {
+        key,
+        name,
+        sha: sha7(live.commitId),
+        tone: live.healthy === false ? "bad" : "ok",
+        status: `live · ${live.healthy === null ? "" : live.healthy ? "healthy · " : "unhealthy · "}${age(live.deployedAt)}`,
+        note: attemptNote,
+      };
+}
+
+/** Staging from the latest staging deploy, for a runner that does not report `release.staging`. A failed one is the row's state only when no deploy succeeded before it. */
+function stagingRowFromDeploys(
   deploys: ReadonlyArray<SlipJayRunnerDeploy>,
   age: (iso: string) => string,
 ): SlipJayEnvironmentRow {

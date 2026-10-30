@@ -237,7 +237,7 @@ describe("the SlipJay box", () => {
     expect(resolveBoxFooter(overview()).queue).toBe("no queue");
   });
 
-  it("shows staging from its latest deploy when staging is not skipped", () => {
+  it("falls back to the latest deploys when the runner does not report release.staging", () => {
     const now = Date.parse("2026-10-30T13:00:00Z");
     const deploy = (
       status: string,
@@ -279,5 +279,57 @@ describe("the SlipJay box", () => {
       tone: "dim",
       status: "nothing deployed",
     });
+  });
+
+  it("builds staging from release.staging like production: live A stays the state beside a failed B", () => {
+    const now = Date.parse("2026-10-30T13:00:00Z");
+    const staging = (value: NonNullable<SlipJayRunnerRelease["staging"]> | null) =>
+      resolveEnvironmentRows(release({ stagingSkipped: false, staging: value }), now, []).find(
+        (row) => row.key === "staging",
+      );
+    expect(
+      staging({
+        live: { commitId: "aaaaaaa1", deployedAt: "2026-10-30T10:00:00Z", healthy: true },
+        latestAttempt: {
+          commitId: "bbbbbbb2",
+          status: "failed",
+          at: "2026-10-30T12:30:00Z",
+          reason: "health check",
+        },
+      }),
+    ).toMatchObject({
+      sha: "aaaaaaa",
+      tone: "ok",
+      status: "live · healthy · 3h",
+      note: "Last attempt bbbbbbb failed 30m ago (health check)",
+    });
+    expect(
+      staging({
+        live: { commitId: "aaaaaaa1", deployedAt: "2026-10-30T10:00:00Z", healthy: null },
+        latestAttempt: null,
+      }),
+    ).toMatchObject({ sha: "aaaaaaa", tone: "ok", status: "live · 3h", note: null });
+    expect(
+      staging({
+        live: null,
+        latestAttempt: {
+          commitId: "bbbbbbb2",
+          status: "running",
+          at: "2026-10-30T12:50:00Z",
+          reason: null,
+        },
+      }),
+    ).toMatchObject({
+      sha: "none",
+      tone: "dim",
+      status: "nothing deployed",
+      note: "Deploying bbbbbbb · 10m",
+    });
+    expect(staging(null)).toMatchObject({ tone: "dim", status: "nothing deployed" });
+  });
+
+  it("keeps the skipped row even when release.staging is reported", () => {
+    const rows = resolveEnvironmentRows(release({ staging: { live: null, latestAttempt: null } }));
+    expect(rows.at(-1)).toMatchObject({ status: "skipped (development mode)", tone: "dim" });
   });
 });

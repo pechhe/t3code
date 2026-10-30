@@ -333,6 +333,29 @@ export const SlipJayRunnerDeploy = Schema.Struct({
 });
 export type SlipJayRunnerDeploy = typeof SlipJayRunnerDeploy.Type;
 
+/** One environment the runner deploys: what it serves, and a newer attempt that is not live. */
+export const SlipJayRunnerEnvironment = Schema.Struct({
+  /** What it serves: its latest successful deploy. */
+  live: Schema.NullOr(
+    Schema.Struct({
+      commitId: Schema.String,
+      deployedAt: Schema.String,
+      /** Null when the runner has no health signal. */
+      healthy: Schema.NullOr(Schema.Boolean),
+    }),
+  ),
+  /** The newest deploy attempt when it is not what is live: running, failed or rolled back. */
+  latestAttempt: Schema.NullOr(
+    Schema.Struct({
+      commitId: Schema.String,
+      status: Schema.Literals(["running", "failed", "rolled_back"]),
+      at: Schema.String,
+      reason: Schema.NullOr(Schema.String),
+    }),
+  ),
+});
+export type SlipJayRunnerEnvironment = typeof SlipJayRunnerEnvironment.Type;
+
 /** Where a repository's integration branch stands against production, as the runner reports it. */
 export const SlipJayRunnerRelease = Schema.Struct({
   /** The branch landings publish to, such as `develop`. */
@@ -341,26 +364,9 @@ export const SlipJayRunnerRelease = Schema.Struct({
   candidate: Schema.NullOr(Schema.Struct({ commitId: Schema.String, landedAt: Schema.String })),
   /** The process level skips staging (`development`). */
   stagingSkipped: Schema.Boolean,
-  production: Schema.Struct({
-    /** What production serves: its latest successful deploy. */
-    live: Schema.NullOr(
-      Schema.Struct({
-        commitId: Schema.String,
-        deployedAt: Schema.String,
-        /** Null when the runner has no health signal. */
-        healthy: Schema.NullOr(Schema.Boolean),
-      }),
-    ),
-    /** The newest deploy attempt when it is not what is live: running, failed or rolled back. */
-    latestAttempt: Schema.NullOr(
-      Schema.Struct({
-        commitId: Schema.String,
-        status: Schema.Literals(["running", "failed", "rolled_back"]),
-        at: Schema.String,
-        reason: Schema.NullOr(Schema.String),
-      }),
-    ),
-  }),
+  production: SlipJayRunnerEnvironment,
+  /** Null when staging is skipped or not declared; absent from a runner older than SlipJay's staging report. */
+  staging: Schema.optionalKey(Schema.NullOr(SlipJayRunnerEnvironment)),
   /** The release images of the candidate; null for a repository that builds none. */
   images: Schema.NullOr(
     Schema.Struct({
