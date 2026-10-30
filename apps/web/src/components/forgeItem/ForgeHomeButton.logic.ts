@@ -1,4 +1,10 @@
-import type { ForgeHome, ForgeHomeNeed, ForgeHomeState } from "@t3tools/contracts";
+import type {
+  ForgeHome,
+  ForgeHomeInboxGroup,
+  ForgeHomeLandingStage,
+  ForgeHomeNeed,
+  ForgeHomeState,
+} from "@t3tools/contracts";
 
 /** The amber count on the Forge button: Needs you. Nothing, rather than 0, when none. */
 export const buildButtonCount = (state: ForgeHomeState | null | undefined): number =>
@@ -14,15 +20,25 @@ export const latestForgeHomeState = (
   return (polled.readAt ?? "") > (decided.readAt ?? "") ? polled : decided;
 };
 
-/** Inbox's two groups, as Weave's Inbox shows them (YS-260): Specs to accept, then what waits on you. */
+/** Weave's Forge Inbox groups, in its order. Forge files each entry in one (`need.group`) and words it. */
 export const forgeInboxGroups = [
-  { key: "accept", label: "To accept" },
-  { key: "waiting", label: "Waiting on you" },
+  { key: "accept", label: "Accept" },
+  { key: "answer", label: "Answer" },
+  { key: "review", label: "Review" },
 ] as const;
-export type ForgeInboxGroup = (typeof forgeInboxGroups)[number]["key"];
+export type ForgeInboxGroup = ForgeHomeInboxGroup;
 
-export const forgeInboxGroupOf = (need: ForgeHomeNeed): ForgeInboxGroup =>
-  need.kind === "acceptance" ? "accept" : "waiting";
+export const forgeInboxGroupOf = (need: ForgeHomeNeed): ForgeInboxGroup => need.group;
+
+/** How a recently landed row's stage chip is styled: in production dark, waiting amber, the rest quiet. */
+export const recentLandingTone = (
+  stage: ForgeHomeLandingStage,
+): "production" | "waiting" | "quiet" =>
+  stage === "in_production"
+    ? "production"
+    : stage === "waiting_audit" || stage === "waiting_images" || stage === "waiting_deploy"
+      ? "waiting"
+      : "quiet";
 
 /** One entry per need: a Spec once, a hold by its id, since one Spec can hold more than one question. */
 export const buildInboxKey = (need: ForgeHomeNeed) =>
@@ -53,25 +69,4 @@ export const buildInboxSelection = (
     entries[Math.min(chosen.index, entries.length - 1)] ??
     null
   );
-};
-
-/** Why an entry is in the Inbox: a few words for its row, and a line under its title. */
-export const buildInboxReason = (need: ForgeHomeNeed): { label: string; detail: string } => {
-  switch (need.kind) {
-    case "acceptance":
-      return { label: "To accept", detail: "Live on staging and reviewed" };
-    case "hold":
-      return need.holdKind === "decision"
-        ? { label: "Your call", detail: "The agent is waiting for your decision" }
-        : { label: "Question", detail: "The agent is waiting for information" };
-    case "decision":
-      return { label: "Decision", detail: "A Proposed Decision to accept or supersede" };
-    case "arc_review":
-      return {
-        label: "Review date",
-        detail: "The Arc reached its review date: continue with a new one, or close it",
-      };
-    case "arc_check_in":
-      return { label: "Check in", detail: need.detail ?? "The Arc is due a check-in" };
-  }
 };

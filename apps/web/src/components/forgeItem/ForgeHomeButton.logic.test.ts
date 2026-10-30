@@ -7,6 +7,7 @@ import {
   buildInboxKey,
   buildInboxSelection,
   latestForgeHomeState,
+  recentLandingTone,
 } from "./ForgeHomeButton.logic";
 
 const state = (status: ForgeHomeState["status"], count: number | null): ForgeHomeState => ({
@@ -14,12 +15,18 @@ const state = (status: ForgeHomeState["status"], count: number | null): ForgeHom
   origin: null,
   buildUrl: null,
   home:
-    count === null ? null : { needsYou: [], capabilities: { answer: false, notes: false }, count },
+    count === null
+      ? null
+      : { needsYou: [], recentlyLanded: [], capabilities: { answer: false, notes: false }, count },
   readAt: null,
 });
 
 const need = (over: Partial<ForgeHomeAcceptanceNeed> = {}): ForgeHomeAcceptanceNeed => ({
   kind: "acceptance",
+  group: "accept",
+  reasonLabel: "To accept",
+  reasonDetail: "Live on staging and reviewed",
+  since: null,
   spec: { id: "i", number: 1, title: "t", status: "landed" },
   url: "u",
   repositories: [],
@@ -43,7 +50,7 @@ describe("the Forge button", () => {
     expect(buildButtonCount(state("unavailable", 2))).toBe(2);
   });
 
-  it("lists Specs to accept before what waits on you, keeping HQ's order in each", () => {
+  it("lists Accept, then Answer, by each entry's group, keeping HQ's order in each", () => {
     const hold = (id: string, spec: string): ForgeHomeNeed => ({
       kind: "hold",
       spec: { id: spec, number: 2, title: "t", status: "in_progress" },
@@ -51,10 +58,14 @@ describe("the Forge button", () => {
       holdId: id,
       holdKind: "decision",
       question: "Which?",
+      group: "answer",
+      reasonLabel: "Your call",
+      reasonDetail: "Which?",
       since: null,
     });
     const entries = buildInboxEntries({
       needsYou: [hold("h1", "s2"), need(), hold("h2", "s2")],
+      recentlyLanded: [],
       count: 3,
       capabilities: { answer: true, notes: true },
     });
@@ -68,6 +79,7 @@ describe("the Forge button", () => {
         need({ spec: { id: "a", number: 1, title: "a", status: "landed" } }),
         need({ spec: { id: "b", number: 2, title: "b", status: "landed" } }),
       ],
+      recentlyLanded: [],
       count: 2,
       capabilities: { answer: true, notes: true },
     });
@@ -90,7 +102,12 @@ describe("the Forge button", () => {
         origin: null,
         buildUrl: null,
         readAt,
-        home: { needsYou: [], capabilities: { answer: false, notes: false }, count },
+        home: {
+          needsYou: [],
+          recentlyLanded: [],
+          capabilities: { answer: false, notes: false },
+          count,
+        },
       }) as ForgeHomeState;
     const decided = at("2026-10-20T20:00:01.000Z", 0);
     expect(latestForgeHomeState(decided, at("2026-10-20T20:00:00.000Z", 1))).toBe(decided);
@@ -98,5 +115,13 @@ describe("the Forge button", () => {
     expect(latestForgeHomeState(decided, later)).toBe(later);
     expect(buildButtonCount(latestForgeHomeState(decided, later))).toBe(2);
     expect(latestForgeHomeState(null, later)).toBe(later);
+  });
+
+  it("styles a landing's stage by how far it is from production", () => {
+    expect(recentLandingTone("in_production")).toBe("production");
+    expect(recentLandingTone("waiting_audit")).toBe("waiting");
+    expect(recentLandingTone("waiting_deploy")).toBe("waiting");
+    expect(recentLandingTone("landed")).toBe("quiet");
+    expect(recentLandingTone("accepted")).toBe("quiet");
   });
 });

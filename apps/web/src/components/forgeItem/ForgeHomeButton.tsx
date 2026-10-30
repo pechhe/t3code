@@ -4,22 +4,36 @@ import type {
   ForgeHomeHoldNeed,
   ForgeHomeNeed,
   ForgeHomeOtherNeed,
+  ForgeHomeRecentLanding,
   ForgeHomeRow,
   ForgeHomeState,
   EnvironmentId,
   ThreadId,
 } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { CheckIcon, ChevronRightIcon, ExternalLinkIcon, MinusIcon, XIcon } from "lucide-react";
+import {
+  ArrowUpIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  CircleDotIcon,
+  ExternalLinkIcon,
+  EyeIcon,
+  HelpCircleIcon,
+  MinusIcon,
+  XIcon,
+} from "lucide-react";
 import { type KeyboardEvent, type Ref, useImperativeHandle, useRef, useState } from "react";
 
+import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Kbd } from "~/components/ui/kbd";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Textarea } from "~/components/ui/textarea";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import { forgeWorkItems, useForgeHome } from "~/state/forgeWorkItems";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { ForgeItemLabel } from "./ForgeItemLabel";
 import {
   buildButtonCount,
@@ -27,16 +41,34 @@ import {
   forgeInboxGroupOf,
   forgeInboxGroups,
   buildInboxKey,
-  buildInboxReason,
   buildInboxSelection,
   latestForgeHomeState,
+  recentLandingTone,
+  type ForgeInboxGroup,
 } from "./ForgeHomeButton.logic";
 
 /**
- * T3's Forge button (YS-260): the Inbox Weave's Forge shows, in a popover. A narrow list of what
- * needs the person (To accept, then Waiting on you) beside the selected item: a Spec's acceptance,
- * or an agent's question, decided in one composer. ↑ ↓ move, ⌘↵ submits, O opens it in Weave.
+ * T3's Forge button (YS-260, T3-327): the Inbox Weave's Forge shows, in a popover. A list of what
+ * needs the person (Accept, Answer, Review, as Forge files each entry), then what landed recently,
+ * beside the selected item: a Spec's acceptance, or an agent's question, decided in one composer.
+ * ↑ ↓ move, ⌘↵ submits, O opens it in Weave.
  */
+
+/** Weave's Forge mark (its `build` area mark): a four-point sparkle in Forge's orange. */
+function ForgeMark() {
+  return (
+    <svg
+      viewBox="0 0 14 14"
+      aria-hidden
+      className="size-3.5 shrink-0 overflow-visible text-forge dark:text-forge-light"
+    >
+      <path
+        fill="currentColor"
+        d="M7 .8C7.6 5 9 6.4 13.2 7 9 7.6 7.6 9 7 13.2 6.4 9 5 7.6.8 7 5 6.4 6.4 5 7 .8Z"
+      />
+    </svg>
+  );
+}
 
 const failureMessage = (result: Parameters<typeof squashAtomCommandFailure>[0]) => {
   const error = squashAtomCommandFailure(result);
@@ -340,7 +372,7 @@ function QuestionView({
   );
 }
 
-/** A Proposed Decision or an Arc's prompt: its actions stay on its page in Weave. */
+/** A Proposed or challenged Decision, or an Arc's prompt: its actions stay on its page in Weave. */
 function OtherView({ need }: { need: ForgeHomeOtherNeed }) {
   const actions =
     need.kind === "arc_review"
@@ -350,7 +382,9 @@ function OtherView({ need }: { need: ForgeHomeOtherNeed }) {
         ]
       : need.kind === "arc_check_in"
         ? [{ label: "Check in", act: "check-in" }]
-        : [{ label: "Accept or supersede", act: null }];
+        : need.kind === "decision_challenge"
+          ? [{ label: "Open the challenged Decision", act: null }]
+          : [{ label: "Accept or supersede", act: null }];
   return (
     <div className="flex flex-wrap gap-2">
       {actions.map(({ label, act }, index) => (
@@ -382,17 +416,17 @@ function InboxPane({
 }) {
   const { need } = props;
   return (
-    <article className="flex flex-col gap-4 px-5 pt-4 pb-6" aria-label={need.spec.title}>
+    <article className="flex min-w-0 flex-col gap-4 px-5 pt-4 pb-6" aria-label={need.spec.title}>
       <header className="flex flex-col gap-1.5">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <ForgeItemLabel item={need.spec} className="tabular-nums" />
+          <ForgeItemLabel item={need.spec} className="shrink-0 whitespace-nowrap tabular-nums" />
           {need.kind === "acceptance" && need.repositories.length > 0 ? (
-            <span className="truncate">{need.repositories.join(", ")}</span>
+            <span className="min-w-0 flex-1 truncate">{need.repositories.join(", ")}</span>
           ) : null}
           <Button
             size="xs"
             variant="ghost"
-            className="ms-auto"
+            className="ms-auto shrink-0 whitespace-nowrap"
             render={<a href={need.url} target="_blank" rel="noreferrer" />}
           >
             Open in Weave
@@ -400,8 +434,13 @@ function InboxPane({
             <Kbd>O</Kbd>
           </Button>
         </div>
-        <h2 className="m-0 text-base leading-snug font-semibold text-balance">{need.spec.title}</h2>
-        <p className="m-0 text-xs text-muted-foreground">{buildInboxReason(need).detail}</p>
+        <h2 className="m-0 truncate text-base leading-snug font-semibold">
+          <Tooltip>
+            <TooltipTrigger render={<span />}>{need.spec.title}</TooltipTrigger>
+            <TooltipPopup side="top">{need.spec.title}</TooltipPopup>
+          </Tooltip>
+        </h2>
+        <p className="m-0 text-xs text-muted-foreground">{need.reasonDetail}</p>
       </header>
       {need.kind === "acceptance" ? (
         <AcceptanceView
@@ -422,6 +461,84 @@ function InboxPane({
         <OtherView need={need} />
       )}
     </article>
+  );
+}
+
+const GROUP_BADGE = {
+  accept: "success",
+  answer: "info",
+  review: "secondary",
+} as const satisfies Record<ForgeInboxGroup, "success" | "info" | "secondary">;
+
+function GroupIcon({ group }: { group: ForgeInboxGroup }) {
+  const Icon = group === "accept" ? CheckIcon : group === "answer" ? HelpCircleIcon : EyeIcon;
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "mt-px flex size-4.5 shrink-0 items-center justify-center rounded-sm",
+        group === "accept" && "bg-success/16 text-success-foreground",
+        group === "answer" && "bg-info/16 text-info-foreground",
+        group === "review" && "bg-muted text-muted-foreground",
+      )}
+    >
+      <Icon className="size-3" />
+    </span>
+  );
+}
+
+const STAGE_CHIP = {
+  production: "bg-foreground text-background",
+  waiting: "bg-warning/8 text-warning-foreground dark:bg-warning/16",
+  quiet: "bg-muted text-muted-foreground",
+} as const;
+
+/** A Spec that landed recently: how far it has got to production. It opens the Spec's Forge page. */
+function RecentLandingRow({ landing }: { landing: ForgeHomeRecentLanding }) {
+  const tone = recentLandingTone(landing.stage);
+  return (
+    <a
+      href={landing.url}
+      target="_blank"
+      rel="noreferrer"
+      className="flex w-full items-start gap-2 rounded-md px-1.5 py-1.5 text-xs hover:bg-accent/60 focus-visible:outline-2 focus-visible:outline-ring"
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "mt-px flex size-4.5 shrink-0 items-center justify-center rounded-sm",
+          tone === "production"
+            ? "bg-foreground text-background"
+            : "bg-muted text-muted-foreground",
+        )}
+      >
+        {tone === "production" ? (
+          <ArrowUpIcon className="size-3" />
+        ) : (
+          <CircleDotIcon className="size-3" />
+        )}
+      </span>
+      <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+        <ForgeItemLabel
+          item={landing.spec}
+          className="shrink-0 text-muted-foreground tabular-nums"
+        />
+        <span className="min-w-0 flex-1 truncate">{landing.spec.title}</span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5">
+        <span
+          className={cn(
+            "inline-flex h-4 items-center whitespace-nowrap rounded-sm px-1 text-3xs font-medium leading-none",
+            STAGE_CHIP[tone],
+          )}
+        >
+          {landing.stageLabel}
+        </span>
+        <span className="w-7 text-end text-2xs text-muted-foreground tabular-nums">
+          {formatRelativeTimeLabel(landing.at)}
+        </span>
+      </span>
+    </a>
   );
 }
 
@@ -479,15 +596,27 @@ function Inbox(props: {
 
   return (
     <div
-      className="flex h-[min(36rem,75vh)] w-[min(52rem,calc(100vw-2rem))] text-sm"
+      className="flex h-[min(52rem,calc(100dvh-6rem))] w-[min(68rem,calc(100vw-2rem))] text-sm"
       onKeyDown={onKeyDown}
       // The popover's own focus lands here, so the keys work as soon as it opens.
       tabIndex={-1}
     >
-      <nav aria-label="Inbox" className="flex w-64 shrink-0 flex-col border-e bg-muted/32">
+      <nav
+        aria-label="Inbox"
+        className="flex w-[clamp(15rem,46%,32rem)] min-w-0 shrink-0 flex-col border-e bg-muted/32"
+      >
         <header className="flex items-baseline justify-between px-3 pt-3 pb-1.5">
-          <h2 className="m-0 text-sm font-semibold">Inbox</h2>
-          <span className="text-xs text-muted-foreground tabular-nums">{entries.length}</span>
+          <h2 className="m-0 text-sm font-semibold">Forge</h2>
+          {props.buildUrl === null ? null : (
+            <a
+              href={props.buildUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+            >
+              Open Inbox in Weave ↗
+            </a>
+          )}
         </header>
         <div ref={list} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1.5 pb-2">
           {entries.length === 0 ? (
@@ -498,7 +627,7 @@ function Inbox(props: {
               if (shown.length === 0) return null;
               return (
                 <section key={group.key} className="flex flex-col">
-                  <h3 className="m-0 flex justify-between px-1.5 pt-2.5 pb-1 text-2xs font-medium text-muted-foreground">
+                  <h3 className="m-0 flex justify-between px-1.5 pt-2.5 pb-1 text-2xs font-medium text-muted-foreground uppercase tracking-wider">
                     {group.label}
                     <span className="tabular-nums">{shown.length}</span>
                   </h3>
@@ -513,26 +642,49 @@ function Inbox(props: {
                         aria-current={current ? "true" : undefined}
                         onClick={() => choose(need)}
                         className={cn(
-                          "flex w-full items-baseline gap-2 rounded-md px-1.5 py-1.5 text-start text-xs hover:bg-accent/60",
+                          "flex w-full items-start gap-2 rounded-md px-1.5 py-1.5 text-start text-xs hover:bg-accent/60",
                           current && "bg-accent text-accent-foreground",
                         )}
                       >
-                        <ForgeItemLabel
-                          item={need.spec}
-                          className="shrink-0 text-muted-foreground tabular-nums"
-                        />
-                        <span className="min-w-0 flex-1 truncate">{need.spec.title}</span>
-                        {group.key === "waiting" ? (
-                          <span className="shrink-0 text-2xs text-muted-foreground">
-                            {buildInboxReason(need).label}
+                        <GroupIcon group={need.group} />
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="flex min-w-0 items-baseline gap-1.5">
+                            <ForgeItemLabel
+                              item={need.spec}
+                              className="shrink-0 text-muted-foreground tabular-nums"
+                            />
+                            <span className="min-w-0 flex-1 truncate">{need.spec.title}</span>
                           </span>
-                        ) : null}
+                          <span className="truncate text-muted-foreground">
+                            {need.reasonDetail}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          <Badge size="sm" variant={GROUP_BADGE[need.group]}>
+                            {need.reasonLabel}
+                          </Badge>
+                          {need.since === null ? null : (
+                            <span className="w-7 text-end text-2xs text-muted-foreground tabular-nums">
+                              {formatRelativeTimeLabel(need.since)}
+                            </span>
+                          )}
+                        </span>
                       </button>
                     );
                   })}
                 </section>
               );
             })
+          )}
+          {home.recentlyLanded.length === 0 ? null : (
+            <section className="flex flex-col">
+              <h3 className="m-0 px-1.5 pt-3 pb-1 text-2xs font-medium text-muted-foreground uppercase tracking-wider">
+                Recently landed
+              </h3>
+              {home.recentlyLanded.map((landing) => (
+                <RecentLandingRow key={landing.spec.id} landing={landing} />
+              ))}
+            </section>
           )}
         </div>
         <footer className="flex flex-col gap-1.5 border-t px-3 py-2 text-2xs text-muted-foreground">
@@ -549,16 +701,6 @@ function Inbox(props: {
             <span>
               <Kbd>⌘↵</Kbd> submit
             </span>
-            {props.buildUrl === null ? null : (
-              <a
-                href={props.buildUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="ms-auto hover:text-foreground hover:underline"
-              >
-                Forge ↗
-              </a>
-            )}
           </span>
         </footer>
       </nav>
@@ -620,6 +762,7 @@ export function ForgeHomeButton(props: {
           />
         }
       >
+        <ForgeMark />
         Forge
         {count === 0 ? null : (
           <span className="rounded-full bg-warning px-1.5 text-2xs font-semibold leading-4 text-black">

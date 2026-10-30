@@ -314,6 +314,10 @@ export const SlipJayRunnerOperation = Schema.Struct({
   submittedBy: Schema.String,
   /** The Build item its submitter named; absent before SlipJay 3.40 or for a chore. */
   spec: Schema.optional(Schema.Number),
+  /** The first line of the landing's commit description, which names a chore that has no Spec. */
+  title: Schema.optional(Schema.String),
+  /** The 1-based screening lane a landing occupies while it screens. */
+  lane: Schema.optional(Schema.Number),
 });
 export type SlipJayRunnerOperation = typeof SlipJayRunnerOperation.Type;
 
@@ -329,6 +333,86 @@ export const SlipJayRunnerDeploy = Schema.Struct({
 });
 export type SlipJayRunnerDeploy = typeof SlipJayRunnerDeploy.Type;
 
+/** Where a repository's integration branch stands against production, as the runner reports it. */
+export const SlipJayRunnerRelease = Schema.Struct({
+  /** The branch landings publish to, such as `develop`. */
+  integrationBranch: Schema.String,
+  /** The latest published landing: what would release next. */
+  candidate: Schema.NullOr(Schema.Struct({ commitId: Schema.String, landedAt: Schema.String })),
+  /** The process level skips staging (`development`). */
+  stagingSkipped: Schema.Boolean,
+  production: Schema.Struct({
+    /** What production serves: its latest successful deploy. */
+    live: Schema.NullOr(
+      Schema.Struct({
+        commitId: Schema.String,
+        deployedAt: Schema.String,
+        /** Null when the runner has no health signal. */
+        healthy: Schema.NullOr(Schema.Boolean),
+      }),
+    ),
+    /** The newest deploy attempt when it is not what is live: running, failed or rolled back. */
+    latestAttempt: Schema.NullOr(
+      Schema.Struct({
+        commitId: Schema.String,
+        status: Schema.Literals(["running", "failed", "rolled_back"]),
+        at: Schema.String,
+        reason: Schema.NullOr(Schema.String),
+      }),
+    ),
+  }),
+  /** The release images of the candidate; null for a repository that builds none. */
+  images: Schema.NullOr(
+    Schema.Struct({
+      commitId: Schema.String,
+      status: Schema.Literals(["built", "building", "failed", "none"]),
+      at: Schema.NullOr(Schema.String),
+      reason: Schema.NullOr(Schema.String),
+    }),
+  ),
+  /** The nightly audit promotion waits on; null for a repository without one. */
+  audit: Schema.NullOr(
+    Schema.Struct({
+      latest: Schema.NullOr(
+        Schema.Struct({
+          status: Schema.Literals(["green", "failed"]),
+          commitId: Schema.NullOr(Schema.String),
+          finishedAt: Schema.String,
+        }),
+      ),
+      nextRunAt: Schema.NullOr(Schema.String),
+    }),
+  ),
+  /** What the candidate waits on before production carries it. */
+  waitingOn: Schema.Struct({
+    kind: Schema.Literals([
+      "up_to_date",
+      "paused",
+      "images",
+      "audit",
+      "verification",
+      "deploy",
+      "approval",
+      "failed",
+    ]),
+    /** SlipJay's own sentence on why, such as the audit hold reason. */
+    detail: Schema.NullOr(Schema.String),
+  }),
+});
+export type SlipJayRunnerRelease = typeof SlipJayRunnerRelease.Type;
+
+/** One repository the runner serves. */
+export const SlipJayRunnerRepository = Schema.Struct({
+  repo: Schema.String,
+  /** Configured screening lanes; 0 when landings screen one at a time. */
+  screeningLanes: Schema.Number,
+  /** Landings published and screens failed since the runner's local midnight. */
+  today: Schema.Struct({ landed: Schema.Number, failedScreens: Schema.Number }),
+  /** Null for a repository that does not release. */
+  release: Schema.NullOr(SlipJayRunnerRelease),
+});
+export type SlipJayRunnerRepository = typeof SlipJayRunnerRepository.Type;
+
 /** The runner this server follows, from the latest `slipjay watch --json` snapshot. */
 export const SlipJayRunnerOverview = Schema.Struct({
   /** False until the watch connects, and while it is reconnecting: the rest is the last known state. */
@@ -341,6 +425,8 @@ export const SlipJayRunnerOverview = Schema.Struct({
   deploy: Schema.Array(SlipJayRunnerOperation),
   /** The latest staging deploy of each repository and the recent production deploys, newest first. */
   deploys: Schema.Array(SlipJayRunnerDeploy),
+  /** Per-repository release state; empty from a runner older than SlipJay's `repositories` snapshot. */
+  repositories: Schema.Array(SlipJayRunnerRepository),
 });
 export type SlipJayRunnerOverview = typeof SlipJayRunnerOverview.Type;
 

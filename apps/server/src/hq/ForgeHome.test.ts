@@ -760,10 +760,14 @@ it.effect(
       const state = yield* service.read;
       assert.deepStrictEqual(state.home?.capabilities, { answer: false, notes: false });
       assert.strictEqual(state.home?.count, 2);
+      assert.deepStrictEqual(state.home?.recentlyLanded, []);
       const needs = state.home!.needsYou;
       assert.deepStrictEqual(needs[0]?.kind === "acceptance" && needs[0].resolvedFindings, []);
       assert.deepStrictEqual(needs[1], {
         kind: "hold",
+        group: "answer",
+        reasonLabel: "Answer",
+        reasonDetail: "Choose a route",
         spec: { ...item(2), ref: null },
         url: `${origin}/forge/2`,
         holdId: null,
@@ -783,6 +787,182 @@ it.effect(
       yield* service.read;
       assert.strictEqual(hq.calls.filter((c) => c.body.action === "notes").length, 3);
     }),
+);
+
+it.effect("lists challenged Decisions once in Answer, including when nested in an acceptance", () =>
+  Effect.gen(function* () {
+    for (const nestedFirst of [true, false]) {
+      const { hq, service } = yield* connected;
+      const inbox = {
+        group: "answer" as const,
+        label: "Decision challenged",
+        detail: "Explain the choice",
+        since: "2026-10-30",
+      };
+      const challenge = {
+        kind: "decision_challenge",
+        decision: item(6, "Challenged choice"),
+        challengedAt: "2026-10-29",
+        inbox,
+      };
+      const nested = { ...acceptance, decisions: [item(6)] };
+      hq.answer = (body) => ({
+        status: 200,
+        json: {
+          status: "succeeded",
+          value:
+            body.action === "notes"
+              ? []
+              : {
+                  needsYou: nestedFirst ? [nested, challenge] : [challenge, nested],
+                },
+        },
+      });
+      const home = (yield* service.read).home!;
+      assert.strictEqual(home.count, 2);
+      const needs = home.needsYou.filter((need) => need.spec.id === "item-6");
+      assert.strictEqual(needs.length, 1);
+      assert.deepStrictEqual(needs[0], {
+        kind: "decision_challenge",
+        spec: { ...item(6, "Challenged choice"), ref: null },
+        url: `${origin}/forge/6`,
+        group: inbox.group,
+        reasonLabel: inbox.label,
+        reasonDetail: inbox.detail,
+        detail: inbox.detail,
+        since: inbox.since,
+      });
+    }
+  }),
+);
+
+it.effect("falls back to the challenge timestamp and Answer group without Inbox metadata", () =>
+  Effect.gen(function* () {
+    const { hq, service } = yield* connected;
+    hq.answer = (body) => ({
+      status: 200,
+      json: {
+        status: "succeeded",
+        value:
+          body.action === "notes"
+            ? []
+            : {
+                needsYou: [
+                  { kind: "decision_challenge", decision: item(6), challengedAt: "2026-10-29" },
+                ],
+              },
+      },
+    });
+    const home = (yield* service.read).home!;
+    assert.strictEqual(home.count, 1);
+    assert.strictEqual(home.needsYou[0]?.kind, "decision_challenge");
+    assert.strictEqual(home.needsYou[0]?.group, "answer");
+    assert.strictEqual(home.needsYou[0]?.since, "2026-10-29");
+  }),
+);
+
+it.effect("logs an unreadable need even when nested Decisions increase the displayed count", () =>
+  Effect.gen(function* () {
+    const { hq, service, logs } = yield* connected;
+    hq.answer = (body) => ({
+      status: 200,
+      json: {
+        status: "succeeded",
+        value:
+          body.action === "notes"
+            ? []
+            : {
+                needsYou: [
+                  { ...acceptance, decisions: [item(6), item(7)] },
+                  { kind: "future_need" },
+                ],
+              },
+      },
+    });
+    const home = (yield* service.read.pipe(
+      Effect.provide(
+        Logger.layer(
+          [Logger.make(({ message }) => void logs.push(NodeUtil.inspect(message, { depth: 10 })))],
+          { mergeWithExisting: false },
+        ),
+      ),
+    )).home!;
+    assert.strictEqual(home.count, 3);
+    assert.isTrue(logs.some((log) => log.includes("Forge Home has needs T3 could not read")));
+  }),
+);
+
+it.effect("uses Weave's Inbox reasons and recently landed stages", () =>
+  Effect.gen(function* () {
+    const { hq, service } = yield* connected;
+    const inbox = {
+      group: "review",
+      label: "Weave reason",
+      detail: "Weave detail",
+      since: "2026-10-30",
+    };
+    const landed = {
+      id: "landed",
+      number: 327,
+      ref: "T3-327",
+      title: "One Forge Inbox",
+      project: "pechhe/t3code",
+    };
+    hq.answer = (body) => ({
+      status: 200,
+      json: {
+        status: "succeeded",
+        value:
+          body.action === "notes"
+            ? []
+            : {
+                needsYou: [
+                  { ...acceptance, inbox },
+                  {
+                    kind: "hold",
+                    item: item(2),
+                    hold: { kind: "decision", note: "Choose", openedAt: "old" },
+                    inbox,
+                  },
+                  { kind: "decision", decision: item(3), inbox },
+                  { kind: "arc_review", arc: item(4), inbox },
+                  { kind: "arc_check_in", arc: item(5), inbox },
+                ],
+                recentlyLanded: [
+                  {
+                    spec: landed,
+                    stage: "waiting_audit",
+                    label: "Waiting on audit",
+                    at: "2026-10-30T12:00:00Z",
+                  },
+                ],
+              },
+      },
+    });
+    const home = (yield* service.read).home!;
+    assert.strictEqual(home.count, 5);
+    for (const need of home.needsYou) {
+      assert.deepStrictEqual(
+        [need.group, need.reasonLabel, need.reasonDetail, need.since],
+        [inbox.group, inbox.label, inbox.detail, inbox.since],
+      );
+    }
+    assert.deepStrictEqual(home.recentlyLanded, [
+      {
+        spec: {
+          id: landed.id,
+          number: landed.number,
+          ref: landed.ref,
+          title: landed.title,
+          status: "landed",
+        },
+        url: `${origin}/forge/327`,
+        stage: "waiting_audit",
+        stageLabel: "Waiting on audit",
+        at: "2026-10-30T12:00:00Z",
+      },
+    ]);
+  }),
 );
 
 it.effect("decodes Inbox holds, resolved findings, decisions and Arc actions", () =>
@@ -829,6 +1009,14 @@ it.effect("decodes Inbox holds, resolved findings, decisions and Arc actions", (
     assert.deepStrictEqual(home.capabilities, { answer: true, notes: true });
     // A Decision nested in two Specs' cards is listed once, after the first.
     assert.strictEqual(home.count, 7);
+    assert.deepStrictEqual(home.recentlyLanded, []);
+    assert.deepStrictEqual(
+      home.needsYou.map((need) => need.group),
+      ["accept", "review", "answer", "review", "accept", "review", "review"],
+    );
+    assert.strictEqual(home.needsYou[0]?.reasonDetail, acceptance.spec.reviewSummary);
+    assert.strictEqual(home.needsYou[2]?.since, "2026-10-20");
+    assert.strictEqual(home.needsYou[6]?.since, "2026-10-19");
     assert.deepStrictEqual(
       home.needsYou[0]?.kind === "acceptance" && home.needsYou[0].resolvedFindings,
       [{ title: "Fixed route" }],

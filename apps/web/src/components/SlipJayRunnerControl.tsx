@@ -20,6 +20,7 @@ import type {
   SlipJayRunnerDeploy,
   SlipJayRunnerOperation,
   SlipJayRunnerOverview,
+  SlipJayRunnerRepository,
   ThreadId,
 } from "@t3tools/contracts";
 import { XIcon } from "lucide-react";
@@ -36,6 +37,15 @@ import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { vcsEnvironment } from "~/state/vcs";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
+import {
+  resolveBoxFooter,
+  resolveEnvironmentRows,
+  resolveReleaseSteps,
+  resolveReleaseWaiting,
+  resolveScreeningLanes,
+  resolveSlipJayPublishLane,
+  type SlipJayTone,
+} from "./SlipJayBox.logic";
 import { SlipJayLandingDetails } from "./SlipJayLandingDetails";
 import { SlipJayLandingLogDialog } from "./SlipJayLandingLogDialog";
 import { SlipJayReleaseDialog } from "./SlipJayReleaseDialog";
@@ -167,6 +177,8 @@ export function SlipJayRunnerControl({
       : [...overview.serial, ...overview.deploy, ...overview.deploys].map((entry) => entry.repo),
   );
   const showRepository = repositories.size > 1;
+  const releasing =
+    overview?.repositories.filter((repository) => repository.release !== null) ?? [];
   const withoutLanding = (operations: ReadonlyArray<SlipJayRunnerOperation>) =>
     landing === null
       ? operations
@@ -195,7 +207,7 @@ export function SlipJayRunnerControl({
             threadsByWorkspace={threadsByWorkspace}
           />
         ) : null}
-        <PopoverPopup side="bottom" align="end" width="lg" padding="compact">
+        <PopoverPopup side="bottom" align="end" width="lg" padding="compact" className="w-[26rem]">
           <div className="flex flex-col gap-3 text-sm">
             {overview == null ? null : (
               <div className="flex items-center gap-2 border-b pb-2">
@@ -234,64 +246,77 @@ export function SlipJayRunnerControl({
             ) : null}
             {overview == null ? null : (
               <>
-                <RunnerLane
-                  title="Landing"
+                <LandingsSection
                   environmentId={environmentId}
                   lookupRef={threadRef}
+                  overview={overview}
                   operations={withoutLanding(overview.serial)}
                   threadsByWorkspace={threadsByWorkspace}
                   showRepository={showRepository}
                   open={open}
                   onOpenThread={openThread}
                 />
-                <RunnerLane
-                  title="Deploys"
-                  environmentId={environmentId}
-                  lookupRef={threadRef}
-                  operations={overview.deploy}
-                  threadsByWorkspace={threadsByWorkspace}
-                  showRepository={showRepository}
-                  open={open}
-                  onOpenThread={openThread}
-                />
-              </>
-            )}
-            {overview != null && (overview.deploys.length > 0 || release !== null) ? (
-              <RunnerSection title="Environments">
-                {latestDeploys(overview.deploys).map((deploy) => (
-                  <div
-                    key={deploy.operationId}
-                    className="flex min-w-0 items-baseline gap-2 px-1 text-xs"
-                  >
-                    <span className="shrink-0 font-medium text-sm capitalize">
-                      {deploy.environment}
-                    </span>
-                    {showRepository ? (
-                      <span className="min-w-0 truncate text-muted-foreground">
-                        {repositoryName(deploy.repo)}
-                      </span>
-                    ) : null}
-                    <span className="ms-auto shrink-0 font-mono text-muted-foreground">
-                      {deploy.commitId.slice(0, 7)}
-                    </span>
-                    <span
-                      className={cn(
-                        "shrink-0 tabular-nums",
-                        deploy.status === "deployed" ? "text-muted-foreground" : "text-destructive",
-                      )}
-                    >
-                      {deploy.status === "deployed" ? "" : `${deploy.status} `}
-                      {deploy.finishedAt === undefined
-                        ? ""
-                        : formatRelativeTimeLabel(deploy.finishedAt)}
-                    </span>
-                  </div>
+                {overview.deploy.length === 0 ? null : (
+                  <RunnerLane
+                    title="Deploys"
+                    environmentId={environmentId}
+                    lookupRef={threadRef}
+                    operations={overview.deploy}
+                    threadsByWorkspace={threadsByWorkspace}
+                    showRepository={showRepository}
+                    open={open}
+                    onOpenThread={openThread}
+                  />
+                )}
+                {releasing.map((repository) => (
+                  <ReleaseBlock
+                    key={repository.repo}
+                    repository={repository}
+                    deploys={overview.deploys}
+                    label={releasing.length > 1 ? repositoryName(repository.repo) : null}
+                    open={open}
+                  />
                 ))}
+                {overview.repositories.length === 0 && overview.deploys.length > 0 ? (
+                  <RunnerSection title="Environments">
+                    {latestDeploys(overview.deploys).map((deploy) => (
+                      <div
+                        key={deploy.operationId}
+                        className="flex min-w-0 items-baseline gap-2 px-1 text-xs"
+                      >
+                        <span className="shrink-0 font-medium text-sm capitalize">
+                          {deploy.environment}
+                        </span>
+                        {showRepository ? (
+                          <span className="min-w-0 truncate text-muted-foreground">
+                            {repositoryName(deploy.repo)}
+                          </span>
+                        ) : null}
+                        <span className="ms-auto shrink-0 font-mono text-muted-foreground">
+                          {deploy.commitId.slice(0, 7)}
+                        </span>
+                        <span
+                          className={cn(
+                            "shrink-0 tabular-nums",
+                            deploy.status === "deployed"
+                              ? "text-muted-foreground"
+                              : "text-destructive",
+                          )}
+                        >
+                          {deploy.status === "deployed" ? "" : `${deploy.status} `}
+                          {deploy.finishedAt === undefined
+                            ? ""
+                            : formatRelativeTimeLabel(deploy.finishedAt)}
+                        </span>
+                      </div>
+                    ))}
+                  </RunnerSection>
+                ) : null}
                 {release !== null ? (
                   <Button
                     size="xs"
                     variant="outline"
-                    className="mx-1 mt-1 self-start"
+                    className="mx-1 self-start"
                     disabled={releaseStatus == null || !hasRelease}
                     onClick={() => {
                       setOpen(false);
@@ -301,8 +326,9 @@ export function SlipJayRunnerControl({
                     {hasRelease ? `Release ${release.name}…` : "Nothing to release"}
                   </Button>
                 ) : null}
-              </RunnerSection>
-            ) : null}
+                <BoxFooter overview={overview} />
+              </>
+            )}
           </div>
         </PopoverPopup>
       </Popover>
@@ -620,6 +646,203 @@ function RunnerTag({
   );
 }
 
+const TONE_TEXT: Record<SlipJayTone, string> = {
+  ok: "text-success-foreground",
+  warn: "text-warning-foreground",
+  bad: "text-destructive-foreground",
+  run: "text-slipjay-light dark:text-slipjay-light",
+  dim: "text-muted-foreground",
+};
+
+const TONE_CHIP: Record<SlipJayTone, string> = {
+  ok: "bg-success/8 text-success-foreground dark:bg-success/16",
+  warn: "bg-warning/8 text-warning-foreground dark:bg-warning/16",
+  bad: "bg-destructive/8 text-destructive-foreground dark:bg-destructive/16",
+  run: "bg-slipjay/12 text-slipjay dark:bg-slipjay/24 dark:text-slipjay-light",
+  dim: "bg-muted text-muted-foreground",
+};
+
+/** Screening lanes as bars, the landings in flight as tickets, then the publish lane. */
+function LandingsSection({
+  environmentId,
+  lookupRef,
+  overview,
+  operations,
+  threadsByWorkspace,
+  showRepository,
+  open,
+  onOpenThread,
+}: {
+  environmentId: EnvironmentId;
+  lookupRef: ScopedThreadRef;
+  overview: SlipJayRunnerOverview;
+  operations: ReadonlyArray<SlipJayRunnerOperation>;
+  threadsByWorkspace: ReadonlyMap<string, { id: ThreadId; title: string }>;
+  showRepository: boolean;
+  open: boolean;
+  onOpenThread: (threadId: ThreadId) => void;
+}) {
+  const now = useNow(open && overview.serial.length > 0);
+  const { lanes, busy } = resolveScreeningLanes(overview);
+  const publish = resolveSlipJayPublishLane(overview);
+  return (
+    <section className="flex flex-col gap-1.5">
+      <h3 className="flex items-baseline justify-between px-1 font-mono font-semibold text-2xs text-muted-foreground uppercase tracking-widest">
+        Landings
+        <span className="font-normal normal-case tracking-normal">
+          screening {busy}/{lanes.length} {lanes.length === 1 ? "lane" : "lanes"}
+        </span>
+      </h3>
+      <div className="flex gap-1 px-1" aria-hidden>
+        {lanes.map((isBusy, index) => (
+          <span
+            key={`lane-${index + 1}`}
+            className={cn("h-1.5 flex-1 rounded-full", isBusy ? "bg-slipjay" : "bg-muted")}
+          />
+        ))}
+      </div>
+      {operations.length === 0 ? (
+        <span className="px-1 text-muted-foreground text-xs">No landings in flight</span>
+      ) : (
+        operations.map((operation) => (
+          <RunnerOperationRow
+            key={operation.operationId}
+            environmentId={environmentId}
+            lookupRef={lookupRef}
+            operation={operation}
+            thread={
+              operation.workspaceName === undefined
+                ? undefined
+                : threadsByWorkspace.get(operation.workspaceName)
+            }
+            showRepository={showRepository}
+            now={now}
+            onOpenThread={onOpenThread}
+          />
+        ))
+      )}
+      <div className="flex items-baseline gap-2 px-1 pt-1 text-xs">
+        <span className="w-24 shrink-0 text-muted-foreground">Publish lane</span>
+        {publish.kind === "idle" ? (
+          <span className="text-muted-foreground">idle</span>
+        ) : publish.kind === "held" ? (
+          <span className={TONE_TEXT.warn}>held</span>
+        ) : (
+          <span className="min-w-0 truncate">
+            publishing <PublishingRef operation={publish.operation} lookupRef={lookupRef} />
+            {" · "}
+            <span className="font-mono tabular-nums">
+              {resolveSlipJayOperationElapsed(publish.operation, false, now) ?? ""}
+            </span>
+          </span>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PublishingRef({
+  operation,
+  lookupRef,
+}: {
+  operation: SlipJayRunnerOperation;
+  lookupRef: ScopedThreadRef;
+}) {
+  const spec = useSlipJaySpec(null, operation.spec, lookupRef);
+  if (spec !== null) return <SlipJaySpecLink spec={spec} className="font-mono" />;
+  return <span>{operation.title ?? "a chore"}</span>;
+}
+
+/** One repository's release: what is next for production, what it waits on, and the environments. */
+function ReleaseBlock({
+  repository,
+  deploys,
+  label,
+  open,
+}: {
+  repository: SlipJayRunnerRepository;
+  deploys: ReadonlyArray<SlipJayRunnerDeploy>;
+  label: string | null;
+  open: boolean;
+}) {
+  const release = repository.release;
+  const now = useNow(open);
+  if (release === null) return null;
+  const waiting = resolveReleaseWaiting(release);
+  const steps = resolveReleaseSteps(release);
+  const rows = resolveEnvironmentRows(
+    release,
+    now,
+    deploys.filter((deploy) => deploy.repo === repository.repo),
+  );
+  return (
+    <>
+      <RunnerSection title={label === null ? "Release" : `Release · ${label}`}>
+        <div className="flex flex-col gap-1.5 rounded-lg border p-2.5 text-xs">
+          <div className="flex items-baseline gap-1.5">
+            <span className="font-mono">{release.integrationBranch}</span>
+            {release.candidate === null ? null : (
+              <span className="font-mono text-muted-foreground">
+                {release.candidate.commitId.slice(0, 7)}
+              </span>
+            )}
+            <span className="text-muted-foreground">→ Production</span>
+          </div>
+          <div className={TONE_TEXT[waiting.tone]}>{waiting.text}</div>
+          {steps.length === 0 ? null : (
+            <div className="flex flex-wrap gap-1.5">
+              {steps.map((step) => (
+                <span
+                  key={step.key}
+                  className={cn("rounded-sm px-1.5 py-0.5 text-2xs", TONE_CHIP[step.tone])}
+                >
+                  {step.label}
+                </span>
+              ))}
+            </div>
+          )}
+          {waiting.detail ? (
+            <p className="m-0 text-2xs text-muted-foreground">{waiting.detail}</p>
+          ) : null}
+        </div>
+      </RunnerSection>
+      <RunnerSection title={label === null ? "Environments" : `Environments · ${label}`}>
+        {rows.map((row) => (
+          <div key={row.key} className="flex flex-col px-1 text-xs">
+            <div className="flex min-w-0 items-baseline gap-2">
+              <span
+                className={cn(
+                  "w-24 shrink-0 text-sm",
+                  row.tone === "dim" && "text-muted-foreground",
+                )}
+              >
+                {row.name}
+              </span>
+              <span className="font-mono text-muted-foreground">{row.sha}</span>
+              <span className={cn("ms-auto min-w-0 truncate text-end", TONE_TEXT[row.tone])}>
+                {row.status}
+              </span>
+            </div>
+            {row.note === null ? null : (
+              <span className="ms-26 text-2xs text-muted-foreground">{row.note}</span>
+            )}
+          </div>
+        ))}
+      </RunnerSection>
+    </>
+  );
+}
+
+function BoxFooter({ overview }: { overview: SlipJayRunnerOverview }) {
+  const { today, queue } = resolveBoxFooter(overview);
+  return (
+    <div className="flex justify-between border-t pt-2 text-2xs text-muted-foreground">
+      {overview.repositories.length === 0 ? <span /> : <span>{today}</span>}
+      <span>{queue}</span>
+    </div>
+  );
+}
+
 function RunnerSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-1.5">
@@ -709,31 +932,57 @@ function RunnerOperationRow({
   const stage = SLIPJAY_LANDING_STAGES.indexOf(
     operation.stage as (typeof SLIPJAY_LANDING_STAGES)[number],
   );
+  const chore = isLanding && spec === null;
   const title = isLanding
-    ? (spec?.title ?? thread?.title ?? resolveSlipJayOperationLabel(operation))
+    ? (spec?.title ?? operation.title ?? thread?.title ?? resolveSlipJayOperationLabel(operation))
     : resolveSlipJayOperationLabel(operation);
   const elapsed = resolveSlipJayOperationElapsed(operation, !running, now);
   const detail = [
     resolveSlipJayQueueLabel(operation) ?? operation.stage,
     ...(elapsed === null ? [] : [elapsed]),
+    ...(operation.lane === undefined ? [] : [`lane ${operation.lane}`]),
   ].join(" · ");
   const source = [
-    ...(thread === undefined && operation.workspaceName === undefined
-      ? [operation.submittedBy]
-      : []),
+    ...(operation.workspaceName === undefined
+      ? thread === undefined
+        ? [operation.submittedBy]
+        : []
+      : [operation.workspaceName]),
     ...(showRepository ? [repositoryName(operation.repo)] : []),
   ].join(" · ");
+  const titleClass = "min-w-0 flex-1 truncate font-medium";
   const heading = (
     <span className="flex min-w-0 items-center gap-1.5">
-      {spec === null ? null : (
+      {spec === null ? (
+        chore ? (
+          <span className="shrink-0 rounded-sm border px-1 text-2xs text-muted-foreground">
+            chore
+          </span>
+        ) : null
+      ) : (
         <SlipJaySpecLink spec={spec} className="shrink-0 font-mono text-slipjay text-xs" />
       )}
-      {thread === undefined ? (
-        <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
+      {spec?.url ? (
+        <a
+          href={spec.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(
+            titleClass,
+            "rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-ring",
+          )}
+        >
+          {title}
+        </a>
+      ) : thread === undefined ? (
+        <span className={titleClass}>{title}</span>
       ) : (
         <button
           type="button"
-          className="min-w-0 flex-1 cursor-pointer truncate rounded-sm text-start font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+          className={cn(
+            titleClass,
+            "cursor-pointer rounded-sm text-start hover:underline focus-visible:outline-2 focus-visible:outline-ring",
+          )}
           onClick={() => onOpenThread(thread.id)}
         >
           {title}
@@ -742,10 +991,6 @@ function RunnerOperationRow({
       {spec?.held ? (
         <Badge size="sm" variant="warning">
           Held
-        </Badge>
-      ) : spec?.status ? (
-        <Badge size="sm" variant="secondary">
-          {spec.status}
         </Badge>
       ) : null}
     </span>
@@ -768,7 +1013,18 @@ function RunnerOperationRow({
             <SlipJayStageDots tone="running" completed={stage} current={stage} />
           ) : null}
           <span className="shrink-0 font-mono tabular-nums">{detail}</span>
-          {source === "" ? null : <span className="ms-auto min-w-0 truncate">{source}</span>}
+          {source === "" ? null : thread !== undefined && spec?.url ? (
+            <button
+              type="button"
+              aria-label={`Open the thread that submitted ${source}`}
+              className="ms-auto min-w-0 cursor-pointer truncate rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+              onClick={() => onOpenThread(thread.id)}
+            >
+              {source}
+            </button>
+          ) : (
+            <span className="ms-auto min-w-0 truncate">{source}</span>
+          )}
         </span>
       </span>
       {operation.status === "queued" ? (

@@ -1,5 +1,5 @@
 /**
- * Forge Home as T3's Forge button shows it (pechhe/yardsmith Specs #4070, #4367). The server reads
+ * Forge Home as T3's Forge button shows it. The server reads
  * it from Weave through T3's Weave connection, as the person, and trims it to what the dropdown draws.
  */
 import * as Schema from "effect/Schema";
@@ -38,7 +38,20 @@ export const ForgeHomeCheck = Schema.Struct({
 });
 export type ForgeHomeCheck = typeof ForgeHomeCheck.Type;
 
+/** Where Weave's Forge Inbox files an entry, and the words it gives the reason; both come from Forge. */
+export const ForgeHomeInboxGroup = Schema.Literals(["accept", "answer", "review"]);
+export type ForgeHomeInboxGroup = typeof ForgeHomeInboxGroup.Type;
+
+const inboxFields = {
+  group: ForgeHomeInboxGroup,
+  reasonLabel: Schema.String,
+  reasonDetail: Schema.String,
+  /** When it started waiting on the person, where Forge knows. */
+  since: Schema.NullOr(Schema.String),
+};
+
 export const ForgeHomeAcceptanceNeed = Schema.Struct({
+  ...inboxFields,
   kind: Schema.Literal("acceptance"),
   spec: ForgeHomeItem,
   url: Schema.String,
@@ -55,18 +68,19 @@ export const ForgeHomeAcceptanceNeed = Schema.Struct({
 export type ForgeHomeAcceptanceNeed = typeof ForgeHomeAcceptanceNeed.Type;
 
 export const ForgeHomeHoldNeed = Schema.Struct({
+  ...inboxFields,
   kind: Schema.Literal("hold"),
   spec: ForgeHomeItem,
   url: Schema.String,
   holdId: Schema.NullOr(Schema.String),
   holdKind: Schema.String,
   question: Schema.String,
-  since: Schema.NullOr(Schema.String),
 });
 export type ForgeHomeHoldNeed = typeof ForgeHomeHoldNeed.Type;
 
 export const ForgeHomeOtherNeed = Schema.Struct({
-  kind: Schema.Literals(["decision", "arc_review", "arc_check_in"]),
+  ...inboxFields,
+  kind: Schema.Literals(["decision", "decision_challenge", "arc_review", "arc_check_in"]),
   spec: ForgeHomeItem,
   url: Schema.String,
   detail: Schema.NullOr(Schema.String),
@@ -80,8 +94,32 @@ export const ForgeHomeNeed = Schema.Union([
 ]);
 export type ForgeHomeNeed = typeof ForgeHomeNeed.Type;
 
+export const ForgeHomeLandingStage = Schema.Literals([
+  "landed",
+  "waiting_audit",
+  "waiting_images",
+  "waiting_deploy",
+  "in_production",
+  "accepted",
+]);
+export type ForgeHomeLandingStage = typeof ForgeHomeLandingStage.Type;
+
+/** A recently landed Spec and how far it has gone towards production. */
+export const ForgeHomeRecentLanding = Schema.Struct({
+  spec: ForgeHomeItem,
+  url: Schema.String,
+  stage: ForgeHomeLandingStage,
+  /** Forge's words for the stage, such as "Waiting on audit". */
+  stageLabel: Schema.String,
+  /** When it reached its stage. */
+  at: Schema.String,
+});
+export type ForgeHomeRecentLanding = typeof ForgeHomeRecentLanding.Type;
+
 export const ForgeHome = Schema.Struct({
   needsYou: Schema.Array(ForgeHomeNeed),
+  /** Newest first; empty from a Weave that predates it. */
+  recentlyLanded: Schema.Array(ForgeHomeRecentLanding),
   count: Schema.Int,
   capabilities: Schema.Struct({ answer: Schema.Boolean, notes: Schema.Boolean }),
 });

@@ -5,6 +5,8 @@
  */
 import {
   ForgeHomeError,
+  ForgeHomeInboxGroup,
+  ForgeHomeLandingStage,
   type ForgeHome as ForgeHomeView,
   type ForgeHomeDecideInput,
   type ForgeHomeDecideResult,
@@ -50,7 +52,7 @@ import {
 } from "./ForgeWorkItems.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
 
-/** Where #4070 kept a separate decision token; removed at startup now the Weave connection decides. */
+/** Where older T3 versions kept a separate decision token; removed at startup now the Weave connection decides. */
 const RETIRED_STORE_NAME = "hq-build-decisions";
 /** A delivery that fails is tried again after this, doubling to the Forge re-read cap. */
 const DELIVERY_RETRY_MS = 5_000;
@@ -70,7 +72,15 @@ const HqCard = Schema.Struct({
   published: Schema.Array(Schema.Struct({ repository: Schema.String, revision: Schema.String })),
   reviewRunId: Schema.String,
 });
+const HqInbox = Schema.Struct({
+  group: ForgeHomeInboxGroup,
+  label: Schema.String,
+  detail: Schema.String,
+  since: Schema.NullOr(Schema.String),
+});
+const inboxField = { inbox: Schema.optional(HqInbox) };
 const HqAcceptance = Schema.Struct({
+  ...inboxField,
   kind: Schema.Literal("acceptance"),
   spec: Schema.Struct({
     ...HqItem.fields,
@@ -83,7 +93,7 @@ const HqAcceptance = Schema.Struct({
           evidence: Schema.NullOr(Schema.String),
         }),
       ),
-      // A Weave server from before #4070's review fixes sends no checks; its card shows none.
+      // An older Weave server sends no checks; its card shows none.
       checks: Schema.optional(
         Schema.Array(Schema.Struct({ label: Schema.String, met: Schema.NullOr(Schema.Boolean) })),
       ),
@@ -105,6 +115,7 @@ const HqAcceptance = Schema.Struct({
   decisions: Schema.optional(Schema.Array(HqItem)),
 });
 const HqHoldNeed = Schema.Struct({
+  ...inboxField,
   kind: Schema.Literal("hold"),
   item: HqItem,
   hold: Schema.Struct({
@@ -114,14 +125,36 @@ const HqHoldNeed = Schema.Struct({
     openedAt: Schema.optional(Schema.NullOr(Schema.String)),
   }),
 });
-const HqDecisionNeed = Schema.Struct({ kind: Schema.Literal("decision"), decision: HqItem });
+const HqDecisionNeed = Schema.Struct({
+  ...inboxField,
+  kind: Schema.Literals(["decision", "decision_challenge"]),
+  decision: HqItem,
+  challengedAt: Schema.optional(Schema.NullOr(Schema.String)),
+});
 const HqArcNeed = Schema.Struct({
+  ...inboxField,
   kind: Schema.Literals(["arc_review", "arc_check_in"]),
   arc: HqItem,
   since: Schema.optional(Schema.NullOr(Schema.String)),
 });
 const HqHome = Schema.Struct({
   needsYou: Schema.Array(Schema.Unknown),
+  recentlyLanded: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        spec: Schema.Struct({
+          id: Schema.String,
+          number: Schema.Int,
+          ref: Schema.optionalKey(Schema.NullOr(Schema.String)),
+          title: Schema.String,
+          project: Schema.NullOr(Schema.String),
+        }),
+        stage: ForgeHomeLandingStage,
+        label: Schema.String,
+        at: Schema.String,
+      }),
+    ),
+  ),
 });
 const decodeHome = Schema.decodeUnknownOption(HqHome);
 const decodeAcceptance = Schema.decodeUnknownOption(HqAcceptance);
@@ -148,6 +181,18 @@ const itemOf = (item: typeof HqItem.Type): ForgeHomeItem => ({
   ref: item.ref ? item.ref : null,
   title: item.title,
   status: item.status,
+});
+
+const inboxOf = (
+  inbox: typeof HqInbox.Type | undefined,
+  group: ForgeHomeNeed["group"],
+  detail: string | null = null,
+  since: string | null = null,
+) => ({
+  group: inbox?.group ?? group,
+  reasonLabel: inbox?.label ?? { accept: "Accept", answer: "Answer", review: "Review" }[group],
+  reasonDetail: inbox?.detail ?? detail ?? "",
+  since: inbox === undefined ? since : inbox.since,
 });
 
 const refusalMessages: Record<string, string> = {
@@ -254,7 +299,7 @@ const decodeNotes = (value: unknown) =>
   );
 
 /**
- * The T3 thread a Forge lead session names (Spec #4070): harness `t3code` or `t3`, with a bare thread
+ * The T3 thread a Forge lead session names: harness `t3code` or `t3`, with a bare thread
  * id (how T3 leads report themselves) or `<environment>/<thread>` (how T3 reports a delivered note).
  * Null for any other harness or form; `environmentId` is null for a bare thread id, meaning this
  * environment.
@@ -362,18 +407,40 @@ const make = Effect.gen(function* () {
     home: typeof HqHome.Type,
     origin: string,
     supported: { answer: boolean; notes: boolean },
-  ): ForgeHomeView => {
+  ): { view: ForgeHomeView; unreadKinds: ReadonlyArray<string> } => {
+    const unreadKinds: string[] = [];
+    const challenges = new Map(
+      home.needsYou.flatMap((raw) => {
+        const need = decodeDecisionNeed(raw);
+        return Option.isSome(need) && need.value.kind === "decision_challenge"
+          ? [[need.value.decision.id, need.value] as const]
+          : [];
+      }),
+    );
     // A Proposed Decision Weave nests in its Specs' cards is listed once, after the first of them.
     const listed = new Set<string>();
-    const decisionNeed = (item: typeof HqItem.Type): ReadonlyArray<ForgeHomeNeed> => {
+    const decisionNeed = (
+      item: typeof HqItem.Type,
+      need?: typeof HqDecisionNeed.Type,
+    ): ReadonlyArray<ForgeHomeNeed> => {
       if (listed.has(item.id)) return [];
       listed.add(item.id);
+      const decision = challenges.get(item.id) ?? need;
+      const target = decision?.decision ?? item;
+      const kind = decision?.kind ?? "decision";
+      const detail = kind === "decision_challenge" ? (decision?.inbox?.detail ?? null) : null;
       return [
         {
-          kind: "decision",
-          spec: itemOf(item),
-          url: forgeItemUrl(origin, item.number),
-          detail: null,
+          ...inboxOf(
+            decision?.inbox,
+            kind === "decision_challenge" ? "answer" : "review",
+            detail,
+            decision?.challengedAt ?? null,
+          ),
+          kind,
+          spec: itemOf(target),
+          url: forgeItemUrl(origin, target.number),
+          detail,
         },
       ];
     };
@@ -384,6 +451,7 @@ const make = Effect.gen(function* () {
         const card = spec.card ?? null;
         return [
           {
+            ...inboxOf(acceptance.value.inbox, "accept", spec.reviewSummary ?? null),
             kind: "acceptance",
             spec: itemOf(spec),
             url: forgeItemUrl(origin, spec.number),
@@ -397,44 +465,67 @@ const make = Effect.gen(function* () {
               title: finding.summary,
             })),
           },
-          ...(acceptance.value.decisions ?? []).flatMap(decisionNeed),
+          ...(acceptance.value.decisions ?? []).flatMap((item) => decisionNeed(item)),
         ];
       }
       const hold = decodeHoldNeed(raw);
       if (Option.isSome(hold))
         return [
           {
+            ...inboxOf(
+              hold.value.inbox,
+              "answer",
+              hold.value.hold.note,
+              hold.value.hold.openedAt ?? null,
+            ),
             kind: "hold",
             spec: itemOf(hold.value.item),
             url: forgeItemUrl(origin, hold.value.item.number),
             holdId: hold.value.hold.id ?? null,
             holdKind: hold.value.hold.kind,
             question: hold.value.hold.note,
-            since: hold.value.hold.openedAt ?? null,
           },
         ];
       const decision = decodeDecisionNeed(raw);
-      if (Option.isSome(decision)) return decisionNeed(decision.value.decision);
+      if (Option.isSome(decision)) return decisionNeed(decision.value.decision, decision.value);
       const arc = decodeArcNeed(raw);
-      if (Option.isSome(arc))
+      if (Option.isSome(arc)) {
+        const detail =
+          arc.value.kind === "arc_review"
+            ? "Review date reached: continue or close"
+            : `No check-in since ${arc.value.since ?? "unknown"}`;
         return [
           {
+            ...inboxOf(arc.value.inbox, "review", detail, arc.value.since ?? null),
             kind: arc.value.kind,
             spec: itemOf(arc.value.arc),
             // Each action adds its own `?act=`.
             url: forgeItemUrl(origin, arc.value.arc.number),
-            detail:
-              arc.value.kind === "arc_review"
-                ? "Review date reached: continue or close"
-                : `No check-in since ${arc.value.since ?? "unknown"}`,
+            detail,
           },
         ];
+      }
+      unreadKinds.push(
+        typeof raw === "object" && raw !== null && "kind" in raw
+          ? String(raw.kind).slice(0, 80)
+          : "?",
+      );
       return [];
     });
     return {
-      needsYou,
-      count: needsYou.length,
-      capabilities: { answer: supported.answer, notes: supported.notes },
+      unreadKinds,
+      view: {
+        needsYou,
+        recentlyLanded: (home.recentlyLanded ?? []).map((landing) => ({
+          spec: itemOf({ ...landing.spec, status: "landed" }),
+          url: forgeItemUrl(origin, landing.spec.number),
+          stage: landing.stage,
+          stageLabel: landing.label,
+          at: landing.at,
+        })),
+        count: needsYou.length,
+        capabilities: { answer: supported.answer, notes: supported.notes },
+      },
     };
   };
 
@@ -478,15 +569,11 @@ const make = Effect.gen(function* () {
         const supported = yield* probe().pipe(
           Effect.orElseSucceed(() => ({ answer: false, notes: false })),
         );
-        const view = viewOf(value.value, origin, supported);
-        // Weave counts every need; one T3 cannot read would otherwise vanish from the cards silently.
-        const dropped = value.value.needsYou.length - view.needsYou.length;
-        if (dropped > 0)
+        const { view, unreadKinds } = viewOf(value.value, origin, supported);
+        if (unreadKinds.length > 0)
           yield* Effect.logWarning("Forge Home has needs T3 could not read", {
-            dropped,
-            kinds: value.value.needsYou.map((need) =>
-              typeof need === "object" && need !== null && "kind" in need ? String(need.kind) : "?",
-            ),
+            dropped: unreadKinds.length,
+            kinds: unreadKinds,
           });
         const fingerprint = fingerprintOf(view);
         cached = {
@@ -987,7 +1074,7 @@ const make = Effect.gen(function* () {
     }),
   );
 
-  // #4070's separate decision token is retired: the Weave connection decides now.
+  // The separate decision token is retired: the Weave connection decides now.
   yield* store
     .remove(RETIRED_STORE_NAME)
     .pipe(

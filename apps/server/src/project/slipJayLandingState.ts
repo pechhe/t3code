@@ -1,6 +1,8 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import { SlipJayRunnerRepository } from "@t3tools/contracts";
+
 import type {
   SlipJayRunnerDeploy,
   SlipJayRunnerOperation,
@@ -95,6 +97,8 @@ const WatchOperation = Schema.Struct({
   submittedBy: Schema.optional(Schema.String),
   environment: Schema.optional(Schema.String),
   spec: Schema.optional(Schema.Number),
+  title: Schema.optional(Schema.String),
+  lane: Schema.optional(Schema.Number),
 });
 type WatchOperation = typeof WatchOperation.Type;
 const decodeWatchOperation = Schema.decodeUnknownOption(WatchOperation);
@@ -122,6 +126,7 @@ const WatchEnvelope = Schema.Union([
         // snapshot that landing tracking depends on.
         deploy: Schema.optional(Schema.Array(Schema.Unknown)),
       }),
+      repositories: Schema.optional(Schema.Array(SlipJayRunnerRepository)),
       paused: Schema.optional(Schema.Unknown),
       lastStagingDeploys: Schema.optional(Schema.Array(Schema.Unknown)),
       recentProductionDeploys: Schema.optional(Schema.Array(Schema.Unknown)),
@@ -481,6 +486,7 @@ export const emptyRunnerOverview: SlipJayRunnerOverview = {
   serial: [],
   deploy: [],
   deploys: [],
+  repositories: [],
 };
 
 /**
@@ -532,6 +538,8 @@ const runnerOperation = (operation: WatchOperation, host: string): SlipJayRunner
     ...(operation.environment === undefined ? {} : { environment: operation.environment }),
     ...(workspaceName === undefined ? {} : { workspaceName }),
     ...(operation.spec === undefined ? {} : { spec: operation.spec }),
+    ...(operation.title === undefined ? {} : { title: operation.title }),
+    ...(operation.lane === undefined ? {} : { lane: operation.lane }),
   };
 };
 
@@ -570,5 +578,6 @@ export function runnerOverviewFromSnapshot(
       runnerOperation(operation, host),
     ),
     deploys,
+    repositories: snapshot.repositories ?? [],
   };
 }

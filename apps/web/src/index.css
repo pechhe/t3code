@@ -176,6 +176,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
   /* SlipJay's identity colours, the same on every theme: jay blue while a landing runs,
      red when it fails, mint once it lands. */
+  --color-forge: oklch(0.54 0.16 45);
+  --color-forge-light: oklch(0.75 0.17 50);
   --color-slipjay: #2b6ce0;
   --color-slipjay-light: #9fc0ff;
   --color-slipjay-failed: #e0483b;

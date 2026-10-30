@@ -336,6 +336,57 @@ describe("runnerOverviewFromSnapshot", () => {
     return envelope.snapshot;
   };
 
+  it("passes through repository release state and screening lane names", () => {
+    const release = {
+      integrationBranch: "develop",
+      candidate: { commitId: "candidate", landedAt: "2026-10-30T12:00:00Z" },
+      stagingSkipped: false,
+      production: {
+        live: { commitId: "live", deployedAt: "2026-10-29T12:00:00Z", healthy: true },
+        latestAttempt: {
+          commitId: "candidate",
+          status: "failed",
+          at: "2026-10-30T13:00:00Z",
+          reason: "Health check failed",
+        },
+      },
+      images: { commitId: "candidate", status: "built", at: null, reason: null },
+      audit: {
+        latest: { status: "green", commitId: "live", finishedAt: "2026-10-30T05:00:00Z" },
+        nextRunAt: "2026-10-31T05:00:00Z",
+      },
+      waitingOn: { kind: "audit", detail: "Waiting for tonight's audit" },
+    };
+    const repositories = [
+      { repo: REPO, screeningLanes: 3, today: { landed: 4, failedScreens: 2 }, release },
+      {
+        repo: "pechhe/agent-config",
+        screeningLanes: 0,
+        today: { landed: 0, failedScreens: 0 },
+        release: null,
+      },
+    ];
+    const overview = runnerOverviewFromSnapshot(
+      snapshotOf({
+        seq: 1,
+        lanes: {
+          serial: [{ id: "op_screen", repo: REPO, stage: "checks", title: "Fix export", lane: 2 }],
+        },
+        repositories,
+      }),
+      HOST,
+    );
+    expect(overview.repositories).toEqual(repositories);
+    expect(overview.serial[0]).toMatchObject({ title: "Fix export", lane: 2 });
+    const old = runnerOverviewFromSnapshot(
+      snapshotOf({ seq: 2, lanes: { serial: [{ id: "op_old", repo: REPO, stage: "queued" }] } }),
+      HOST,
+    );
+    expect(old.repositories).toEqual([]);
+    expect(old.serial[0]).not.toHaveProperty("title");
+    expect(old.serial[0]).not.toHaveProperty("lane");
+  });
+
   it("names this host's submitting workspace, by name or by path, and no other", () => {
     expect(submittingWorkspace(`${HOST}:ys-calendar-fix`, HOST)).toBe("ys-calendar-fix");
     expect(submittingWorkspace(`${HOST}:/Users/h/.slipjay/workspaces/ys-spare/`, HOST)).toBe(
