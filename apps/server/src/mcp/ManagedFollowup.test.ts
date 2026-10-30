@@ -1,14 +1,7 @@
 import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import {
-  EnvironmentId,
-  ThreadId,
-  RunId,
-  NodeId,
-  type AgentTaskBinding,
-  type OrchestrationV2ThreadProjection,
-} from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, RunId, NodeId, type AgentTaskBinding } from "@t3tools/contracts";
 import { derive } from "@t3tools/provider-core/server/IdAllocator";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -39,8 +32,13 @@ it.effect(
       const parentId = ThreadId.make("advisor-parent");
       const childId = ThreadId.make("advisor-child");
       const originalId = NodeId.make("advisor-original");
+      const childWorkspace = "/child-workspace";
       const binding: AgentTaskBinding = {
-        ...request({ role: "advisor", sourceRevision: "revision-one" }),
+        ...request({
+          role: "advisor",
+          sourceRevision: "revision-one",
+          workspacePath: childWorkspace,
+        }),
         policyHash: snapshot().hash,
         policyRevision: "policy",
         briefHash: "b".repeat(64),
@@ -54,7 +52,8 @@ it.effect(
       let parent = idleThreadProjection(liveThreadShell(parentId));
       parent = {
         ...parent,
-        thread: { ...parent.thread, worktreePath: binding.workspacePath },
+        // The lead has moved to a fresh checkout since this task was dispatched.
+        thread: { ...parent.thread, worktreePath: "/lead-moved" },
         runs: [
           {
             id: RunId.make("parent-running"),
@@ -116,6 +115,9 @@ it.effect(
           validate: (input) =>
             Effect.gen(function* () {
               expect(input.binding.sourceRevision).toBe("revision-two");
+              expect(input.binding.workspacePath).toBe(childWorkspace);
+              expect(input.workspacePath).toBe("/lead-moved");
+              expect(input.retainsWorkspace).toBe(true);
               validations++;
               if (revoked) return yield* new Managed.ManagedAgentError({ reason: "revoked" });
             }),

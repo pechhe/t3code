@@ -22,6 +22,7 @@ import {
   type RuntimeMode,
   type ServerProvider,
   type ThreadId,
+  isLeafAgentTask,
   isReviewerRole,
   managedExecution,
   readOnlyToolProfile,
@@ -127,6 +128,11 @@ type Authority = {
   readonly occupants?: ReadonlyArray<WorkspaceOccupant>;
   /** The accountable lead requesting the work, in the same terms as an occupant's owner. */
   readonly owner?: string;
+  /**
+   * The binding continues in the workspace its task was already given, so the caller's
+   * current checkout does not have to be it.
+   */
+  readonly retainsWorkspace?: boolean;
 };
 const decodeExternalSession = Schema.decodeUnknownEffect(
   Schema.fromJsonString(AgentExternalSession),
@@ -337,20 +343,21 @@ const make = Effect.gen(function* () {
     // source, so it may use any workspace of the lead's repository, including one a
     // root-bound lead allocated for itself. Writers and unpinned readers keep the binding.
     const pinnedReader = !writes && request.sourceRevision !== undefined;
-    // A root-bound lead works from the project's main checkout: read-only work may use it,
-    // and an isolated helper may use another workspace of its repository. Only a writer
-    // sharing the lead's own checkout needs a lead bound to an allocated workspace.
-    const lead =
-      authority.workspacePath ??
-      (assignment === "isolated" || (!writes && (pinnedReader || assignment === "lead"))
-        ? authority.projectRoot
-        : undefined);
+    const retained = authority.retainsWorkspace === true;
     const expected = request.workspacePath;
+    // A follow-up keeps the workspace its task was assigned, even after the lead moves to a
+    // fresh checkout; the thread's own turn start restores or replaces a released one.
+    const lead = retained
+      ? expected
+      : (authority.workspacePath ??
+        (assignment === "isolated" || (!writes && (pinnedReader || assignment === "lead"))
+          ? authority.projectRoot
+          : undefined));
     if (!path.isAbsolute(expected))
       return yield* refuse(`workspacePath must be absolute, got ${expected}`);
     // Another project holds no checkout of the caller's, so only pinned readers and isolated
     // writers go there.
-    if (authority.foreignProject === true && assignment === "lead" && !pinnedReader)
+    if (authority.foreignProject === true && assignment === "lead" && !pinnedReader && !retained)
       return yield* refuse(
         'this thread has no workspace of its own in that project; pin sourceRevision for read-only work there, or pass workspaceAssignment "isolated" with a separately allocated workspace',
       );
@@ -388,7 +395,7 @@ const make = Effect.gen(function* () {
           return yield* refuse(occupied);
       }
     } else if (assignment === "lead") {
-      if (expected !== lead)
+      if (expected !== lead && !retained)
         return yield* refuse(
           `a task sharing the lead's workspace must use ${lead}; pin sourceRevision for read-only work elsewhere, or pass workspaceAssignment "isolated" with a separately allocated workspace`,
         );
@@ -398,17 +405,19 @@ const make = Effect.gen(function* () {
       // repository, or a workspace another thread is already writing in.
       const ownCheckout =
         "an isolated task needs its own allocated workspace, not the lead's or the project's main checkout";
-      if (expected === lead || expected === authority.projectRoot)
-        return yield* refuse(ownCheckout);
-      // A lead or project registered in a subdirectory still owns the checkout containing it.
-      // A root in no resolvable checkout contains none; the repository check below still holds.
-      const owned = yield* local(
-        Effect.forEach(
-          authority.projectRoot === undefined ? [lead] : [lead, authority.projectRoot],
-          (root) => checkoutRoot(root).pipe(Effect.orElseSucceed(() => undefined)),
-        ),
-      );
-      if (owned.includes(expected)) return yield* refuse(ownCheckout);
+      if (!retained) {
+        if (expected === lead || expected === authority.projectRoot)
+          return yield* refuse(ownCheckout);
+        // A lead or project registered in a subdirectory still owns the checkout containing it.
+        // A root in no resolvable checkout contains none; the repository check below still holds.
+        const owned = yield* local(
+          Effect.forEach(
+            authority.projectRoot === undefined ? [lead] : [lead, authority.projectRoot],
+            (root) => checkoutRoot(root).pipe(Effect.orElseSucceed(() => undefined)),
+          ),
+        );
+        if (owned.includes(expected)) return yield* refuse(ownCheckout);
+      }
       yield* sameRepository();
       // Only live work holds a workspace: SlipJay reassigns workspaces whose earlier threads
       // stay unarchived. Another lead's live thread keeps it; under this lead, only the same
@@ -426,6 +435,11 @@ const make = Effect.gen(function* () {
         return yield* refuse(occupied);
     }
     const missing = `${expected} does not exist`;
+    if (retained && !isLeafAgentTask(request)) {
+      const exists = yield* fs.exists(expected).pipe(Effect.orElseSucceed(() => true));
+      // A released SlipJay workspace comes back at turn start; only a leaf refuses it here.
+      if (!exists) return;
+    }
     const actual = yield* fs
       .realPath(expected)
       .pipe(Effect.mapError((cause) => refuse(missing, cause)));

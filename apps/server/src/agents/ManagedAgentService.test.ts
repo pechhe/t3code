@@ -1103,6 +1103,48 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
     }),
   );
 
+  it.effect("keeps a follow-up in its task's workspace after the lead moves", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const store = `${f.root}/repo-store`;
+      yield* f.fs.makeDirectory(store);
+      const workspace = (name: string) =>
+        Effect.gen(function* () {
+          const path = `${f.root}/${name}`;
+          yield* f.fs.makeDirectory(`${path}/.jj`, { recursive: true });
+          yield* f.fs.writeFileString(`${path}/.jj/repo`, store);
+          return path;
+        });
+      const assigned = yield* workspace("assigned");
+      const moved = yield* workspace("moved");
+      const accepted = yield* f.prepare({
+        workspacePath: assigned,
+        request: request({ role: "lead", workspacePath: assigned }),
+      });
+      const validate = (binding: AgentTaskBinding, retainsWorkspace?: boolean) =>
+        f.service
+          .validate({
+            workspacePath: moved,
+            providers: [codex, claude],
+            ceiling: "full-access",
+            binding,
+            selection: binding.effective,
+            ...(retainsWorkspace === true ? { retainsWorkspace: true } : {}),
+          })
+          .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+
+      // A new dispatch sharing the lead's workspace still follows the lead.
+      expect((yield* validate(accepted.binding).pipe(Effect.flip)).reason).toBe("workspace");
+      yield* validate(accepted.binding, true);
+      // A released workspace is the turn start's to restore, but never a leaf's.
+      yield* f.fs.remove(assigned, { recursive: true });
+      yield* validate(accepted.binding, true);
+      expect(
+        (yield* validate({ ...accepted.binding, role: "advisor" }, true).pipe(Effect.flip)).reason,
+      ).toBe("workspace");
+    }),
+  );
+
   it.effect("keeps the source a finished isolated writer handed back", () =>
     Effect.gen(function* () {
       const f = yield* fixture;

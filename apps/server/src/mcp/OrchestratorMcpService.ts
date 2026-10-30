@@ -2831,6 +2831,7 @@ const make = Effect.gen(function* () {
               workspacePath: leadCheckout ?? null,
               owner: threadOwner(parent.thread),
               projectRoot: (yield* requireProject(taskProjectId)).workspaceRoot,
+              retainsWorkspace: true,
               ...(foreign ? { foreignProject: true } : {}),
               occupants: yield* occupantsEverywhere,
             })
