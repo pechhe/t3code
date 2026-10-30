@@ -188,8 +188,13 @@ it.effect("shares 36 frames evenly among videos and retains endpoints", () => {
   const h = harness();
   return Effect.gen(function* () {
     const service = yield* VideoFrames.VideoFrames;
-    const frames = yield* service.framesForMessage(Array.from({ length: 5 }, (_, i) => video(i)));
+    const { frames, guide } = yield* service.framesForMessage(
+      Array.from({ length: 5 }, (_, i) => video(i)),
+    );
     expect(frames).toHaveLength(36);
+    expect(guide.split("\n")).toHaveLength(5);
+    expect(guide).toContain(`(attachment ${video(0).id}) is attached as timestamped frames`);
+    expect(guide).toContain("t3_video_frames");
     for (let i = 0; i < 5; i++) {
       const group = frames.filter((f) => f.videoAttachmentId === video(i).id);
       expect(group).toHaveLength(i === 0 ? 8 : 7);
@@ -246,17 +251,17 @@ it.effect("drops middle frames evenly to fit the image bytes remaining", () => {
       sizeBytes: PROVIDER_SEND_TURN_MAX_TOTAL_IMAGE_BYTES / 8 - 512,
     };
     const images = Array.from({ length: 8 }, (_, i) => ({ ...image, id: `image-${i}` }));
-    const frames = yield* service.framesForMessage([video(), ...images]);
+    const { frames } = yield* service.framesForMessage([video(), ...images]);
     expect(frames.map((f) => f.timestampMs)).toEqual([0, 4000, 7000, 11000]);
     expect(frames.reduce((sum, f) => sum + f.sizeBytes, image.sizeBytes * 8)).toBe(
       PROVIDER_SEND_TURN_MAX_TOTAL_IMAGE_BYTES,
     );
-    expect(
-      yield* service.framesForMessage([
-        video(),
-        ...images.map((a) => ({ ...a, sizeBytes: PROVIDER_SEND_TURN_MAX_TOTAL_IMAGE_BYTES / 8 })),
-      ]),
-    ).toEqual([]);
+    const full = yield* service.framesForMessage([
+      video(),
+      ...images.map((a) => ({ ...a, sizeBytes: PROVIDER_SEND_TURN_MAX_TOTAL_IMAGE_BYTES / 8 })),
+    ]);
+    expect(full.frames).toEqual([]);
+    expect(full.guide).toContain("no frames fit in this message");
   }).pipe(Effect.provide(h.layer));
 });
 
@@ -268,15 +273,19 @@ it.effect("is unavailable when ffprobe is missing even though ffmpeg runs", () =
   }).pipe(Effect.provide(h.layer));
 });
 
-it.effect("returns typed ffmpeg absence and omits frames from messages", () => {
-  const h = harness({ missing: true });
+it.effect("tells the agent ffmpeg is missing, and uses it once it is installed", () => {
+  const options = { missing: true };
+  const h = harness(options);
   return Effect.gen(function* () {
     const service = yield* VideoFrames.VideoFrames;
     expect(
       yield* service.framesForVideo({ attachment: video(), maxFrames: 2 }).pipe(Effect.flip),
     ).toBeInstanceOf(VideoFrames.FfmpegUnavailable);
-    expect(yield* service.framesForMessage([video()])).toEqual([]);
-    expect(h.calls).toHaveLength(1);
+    const missing = yield* service.framesForMessage([video()]);
+    expect(missing.frames).toEqual([]);
+    expect(missing.guide).toContain("ffmpeg is not installed on the T3 server");
+    options.missing = false;
+    expect((yield* service.framesForMessage([video()])).frames).toHaveLength(12);
   }).pipe(Effect.provide(h.layer));
 });
 
@@ -284,7 +293,9 @@ it.effect("omits an extraction failure without failing the message", () => {
   const h = harness({ failVideo: true });
   return Effect.gen(function* () {
     const service = yield* VideoFrames.VideoFrames;
-    expect(yield* service.framesForMessage([video()])).toEqual([]);
+    const { frames, guide } = yield* service.framesForMessage([video()]);
+    expect(frames).toEqual([]);
+    expect(guide).toContain("its frames could not be sampled");
   }).pipe(Effect.provide(h.layer));
 });
 

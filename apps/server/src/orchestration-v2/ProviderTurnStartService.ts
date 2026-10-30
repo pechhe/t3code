@@ -1946,7 +1946,9 @@ export const layer: Layer.Layer<
         replaced === null
           ? session
           : makeDeliverySession(session, startWithHandoffs);
-      const videoFrames = yield* videoFramesService.framesForMessage(message.attachments);
+      const { frames: videoFrames, guide: videoGuide } = yield* videoFramesService.framesForMessage(
+        message.attachments,
+      );
       const compaction =
         compactionPlan.kind === "provider"
           ? { modelSelection: compactionPlan.modelSelection }
@@ -1990,7 +1992,7 @@ export const layer: Layer.Layer<
         loadRunInterruptReason: runControls.loadRunInterruptReason,
         message: {
           messageId: message.id,
-          text: userText,
+          text: videoGuide === "" ? userText : `${userText}\n\n${videoGuide}`,
           attachments: message.attachments,
           ...(videoFrames.length === 0 ? {} : { videoFrames }),
           createdBy: message.createdBy,

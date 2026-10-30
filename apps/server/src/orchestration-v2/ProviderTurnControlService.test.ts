@@ -287,7 +287,9 @@ it.effect(
       );
       const layerControl = ProviderTurnControlService.layer.pipe(
         Layer.provide(
-          Layer.mock(VideoFrames.VideoFrames)({ framesForMessage: () => Effect.succeed([]) }),
+          Layer.mock(VideoFrames.VideoFrames)({
+            framesForMessage: () => Effect.succeed({ frames: [], guide: "" }),
+          }),
         ),
         Layer.provide(Layer.merge(layerProjection, layerSessionManager)),
       );

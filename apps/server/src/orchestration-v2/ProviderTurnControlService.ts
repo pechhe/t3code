@@ -350,11 +350,13 @@ export const layer: Layer.Layer<
               cause: "The persisted steering message or target run is missing.",
             });
           }
-          const videoFrames = yield* videoFramesService.framesForMessage(message.attachments);
-          const text = projectComposerContextForProvider({
+          const { frames: videoFrames, guide: videoGuide } =
+            yield* videoFramesService.framesForMessage(message.attachments);
+          const userText = projectComposerContextForProvider({
             text: message.text,
             records: message.context?.records ?? [],
           });
+          const text = videoGuide === "" ? userText : `${userText}\n\n${videoGuide}`;
           yield* loaded.session.value
             .steerTurn({
               threadId: input.threadId,

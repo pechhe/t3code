@@ -402,7 +402,9 @@ export function layerWithRegistry<Error>(
   );
   const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pipe(
     Layer.provide(
-      Layer.mock(VideoFrames.VideoFrames)({ framesForMessage: () => Effect.succeed([]) }),
+      Layer.mock(VideoFrames.VideoFrames)({
+        framesForMessage: () => Effect.succeed({ frames: [], guide: "" }),
+      }),
     ),
     Layer.provide(
       Layer.mergeAll(
@@ -423,7 +425,9 @@ export function layerWithRegistry<Error>(
   );
   const layerProviderTurnControlServiceProvided = ProviderTurnControlService.layer.pipe(
     Layer.provide(
-      Layer.mock(VideoFrames.VideoFrames)({ framesForMessage: () => Effect.succeed([]) }),
+      Layer.mock(VideoFrames.VideoFrames)({
+        framesForMessage: () => Effect.succeed({ frames: [], guide: "" }),
+      }),
     ),
     Layer.provide(Layer.merge(layerStores, layerProviderSessionManagerProvided)),
   );

@@ -100,9 +100,11 @@ export class VideoFrames extends Context.Service<
       { readonly videoName: string; readonly frames: ReadonlyArray<ProviderAdapterV2VideoFrame> },
       FramesForVideoError | VideoAttachmentNotInThread
     >;
-    readonly framesForMessage: (
-      attachments: ReadonlyArray<ChatAttachment>,
-    ) => Effect.Effect<ReadonlyArray<ProviderAdapterV2VideoFrame>>;
+    /** `guide` tells the agent, per video, what it received or why it cannot see it. */
+    readonly framesForMessage: (attachments: ReadonlyArray<ChatAttachment>) => Effect.Effect<{
+      readonly frames: ReadonlyArray<ProviderAdapterV2VideoFrame>;
+      readonly guide: string;
+    }>;
   }
 >()("t3/videoFrames/VideoFrames") {}
 
@@ -158,6 +160,19 @@ const MAX_CHANGE_DETECTION_MS = 120_000;
 const CHANGES_FILE = ".changes.json";
 const SHOWINFO_PTS_TIME = /Parsed_showinfo.*\spts_time:([0-9.]+)/;
 
+type VideoOutcome = "sampled" | "ffmpeg-unavailable" | "failed";
+
+function videoGuideLine(attachment: ChatAttachment, hasFrames: boolean, outcome: VideoOutcome) {
+  const video = `Video ${JSON.stringify(attachment.name)} (attachment ${attachment.id})`;
+  if (outcome === "ffmpeg-unavailable")
+    return `[${video} cannot be viewed: ffmpeg is not installed on the T3 server, so no frames were taken. Ask the user to describe it or to install ffmpeg there.]`;
+  if (outcome === "failed")
+    return `[${video} cannot be viewed: its frames could not be sampled. Ask the user to describe it.]`;
+  if (!hasFrames)
+    return `[${video}: no frames fit in this message. Call t3_video_frames with this attachment and a startMs-endMs range to see it.]`;
+  return `[${video} is attached as timestamped frames, in order, spread across it and concentrated where the screen changed. Read them as one recording of what the user did and saw. To see a moment closely, call t3_video_frames with this attachment and a narrow startMs-endMs range around it.]`;
+}
+
 function evenly<T>(items: ReadonlyArray<T>, count: number): Array<T> {
   if (count <= 0) return [];
   if (items.length <= count) return [...items];
@@ -174,11 +189,20 @@ const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const runner = yield* ProcessRunner.ProcessRunner;
   const env = yield* HostProcess.Environment;
-  const available = yield* Effect.cached(
-    ffmpegAvailable.pipe(
-      Effect.provideService(ProcessRunner.ProcessRunner, runner),
-      Effect.provideService(HostProcess.Environment, env),
-    ),
+  // Only a found install is remembered, so installing ffmpeg needs no server restart.
+  let ffmpegFound = false;
+  const available = Effect.suspend(() =>
+    ffmpegFound
+      ? Effect.succeed(true)
+      : ffmpegAvailable.pipe(
+          Effect.provideService(ProcessRunner.ProcessRunner, runner),
+          Effect.provideService(HostProcess.Environment, env),
+          Effect.tap((found) =>
+            Effect.sync(() => {
+              ffmpegFound = found;
+            }),
+          ),
+        ),
   );
   // Per video, so one slow extraction never delays other threads' turns.
   const locks = new Map<string, Semaphore.Semaphore>();
@@ -464,9 +488,17 @@ const make = Effect.gen(function* () {
         PROVIDER_SEND_TURN_MAX_TOTAL_IMAGE_BYTES -
           attachments.reduce((sum, a) => sum + (a.type === "image" ? a.sizeBytes : 0), 0),
       );
-      if (budget === 0) return [];
       const videos = attachments.filter((a) => a.type === "file" && videoMimeType(a) !== null);
-      const groups = yield* Effect.forEach(videos, (attachment, i) =>
+      if (budget === 0)
+        return {
+          frames: [],
+          guide: videos
+            .map((attachment) => videoGuideLine(attachment, false, "sampled"))
+            .join("\n"),
+        };
+      const failed = (outcome: VideoOutcome) =>
+        Effect.succeed({ frames: [] as ReadonlyArray<ProviderAdapterV2VideoFrame>, outcome });
+      const sampled = yield* Effect.forEach(videos, (attachment, i) =>
         framesForVideo({
           attachment,
           maxFrames: Math.min(
@@ -474,18 +506,20 @@ const make = Effect.gen(function* () {
             Math.floor(36 / videos.length) + (i < 36 % videos.length ? 1 : 0),
           ),
         }).pipe(
+          Effect.map((frames) => ({ frames, outcome: "sampled" as VideoOutcome })),
           Effect.catchTags({
-            FfmpegUnavailable: () => Effect.succeed([]),
-            NotASampleableVideo: () => Effect.succeed([]),
-            VideoRangeInvalid: () => Effect.succeed([]),
+            FfmpegUnavailable: () => failed("ffmpeg-unavailable"),
+            NotASampleableVideo: () => failed("failed"),
+            VideoRangeInvalid: () => failed("failed"),
             VideoFramesError: (error) =>
               Effect.logWarning("Omitting video frames", {
                 attachmentId: attachment.id,
                 stage: error.stage,
-              }).pipe(Effect.as([])),
+              }).pipe(Effect.andThen(failed("failed"))),
           }),
         ),
       );
+      const groups = sampled.map((video) => video.frames);
       const counts = groups.map((group) => group.length);
       let selected = groups;
       while (selected.flat().reduce((sum, frame) => sum + frame.sizeBytes, 0) > budget) {
@@ -495,7 +529,14 @@ const make = Effect.gen(function* () {
         counts[index]! -= 1;
         selected = groups.map((group, i) => evenly(group, counts[i]!));
       }
-      return selected.flat();
+      return {
+        frames: selected.flat(),
+        guide: videos
+          .map((attachment, i) =>
+            videoGuideLine(attachment, selected[i]!.length > 0, sampled[i]!.outcome),
+          )
+          .join("\n"),
+      };
     }),
   });
 });

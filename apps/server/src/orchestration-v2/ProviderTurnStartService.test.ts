@@ -155,7 +155,9 @@ function startWithMissingWorktree(
   );
   const layer = ProviderTurnStart.layer.pipe(
     Layer.provide(
-      Layer.mock(VideoFrames.VideoFrames)({ framesForMessage: () => Effect.succeed([]) }),
+      Layer.mock(VideoFrames.VideoFrames)({
+        framesForMessage: () => Effect.succeed({ frames: [], guide: "" }),
+      }),
     ),
     Layer.provide(
       Layer.mergeAll(

@@ -314,7 +314,7 @@ it.effect.each(storageCases)(
           messageId,
         });
         yield* reply.respond({ threadId, providerSessionId, requestId, decision: "accept" });
-        assert.deepEqual(calls, ["interrupt", "Use the smaller fix.", "reply"]);
+        assert.deepEqual(calls, ["interrupt", "Use the smaller fix.\n\n[Video guide]", "reply"]);
         const wrongSession = ProviderSessionId.make("session:wrong");
         assert.equal(
           (yield* Effect.exit(
@@ -348,24 +348,32 @@ it.effect.each(storageCases)(
           payload: { ...turn, status: "completed", completedAt: now },
         });
         yield* control.interrupt({ threadId, providerThreadId, providerTurnId, providerSessionId });
-        assert.deepEqual(calls, ["interrupt", "Use the smaller fix.", "reply", "interrupt"]);
+        assert.deepEqual(calls, [
+          "interrupt",
+          "Use the smaller fix.\n\n[Video guide]",
+          "reply",
+          "interrupt",
+        ]);
       }).pipe(
         Effect.provide(
           Layer.merge(ProviderTurnControlService.layer, RuntimeRequestService.layer).pipe(
             Layer.provide(
               Layer.mock(VideoFrames.VideoFrames)({
-                // A steered message must carry frames just like a started turn.
+                // A steered message must carry frames and their guide just like a started turn.
                 framesForMessage: () =>
-                  Effect.succeed([
-                    {
-                      videoAttachmentId: "thread-video",
-                      videoName: "clip.mp4",
-                      timestampMs: 0,
-                      path: "/frames/0.jpg",
-                      mimeType: "image/jpeg" as const,
-                      sizeBytes: 10,
-                    },
-                  ]),
+                  Effect.succeed({
+                    frames: [
+                      {
+                        videoAttachmentId: "thread-video",
+                        videoName: "clip.mp4",
+                        timestampMs: 0,
+                        path: "/frames/0.jpg",
+                        mimeType: "image/jpeg" as const,
+                        sizeBytes: 10,
+                      },
+                    ],
+                    guide: "[Video guide]",
+                  }),
               }),
             ),
             Layer.provide(layerSessions),
