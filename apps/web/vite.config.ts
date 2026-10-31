@@ -73,10 +73,14 @@ const buildSourcemap: boolean | "hidden" =
       ? "hidden"
       : true;
 
+// Vitest runs project groups in ascending order, so a unit file's lazy import never waits behind
+// the browser pool's chromium run and transforms; T3-319 measured that wait pushing these files
+// from ~2 s to over the 15 s limit on loaded runners.
 const unitTestProject = {
   extends: true,
   test: {
     name: "unit",
+    sequence: { groupOrder: 0 },
     include: ["src/**/*.test.{ts,tsx}"],
     exclude: ["src/**/*.browser.test.{ts,tsx}"],
     hookTimeout: 15_000,
@@ -98,6 +102,7 @@ const browserTestProject = {
   optimizeDeps: { include: ["vite-plus/test/browser", "@base-ui/react/autocomplete"] },
   test: {
     name: "browser",
+    sequence: { groupOrder: 1 },
     include: ["src/**/*.browser.test.{ts,tsx}"],
     hookTimeout: 15_000,
     testTimeout: 15_000,
