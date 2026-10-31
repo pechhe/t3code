@@ -67,3 +67,24 @@ it.effect("shows the result page without completing anything", () =>
     yield* Effect.promise(dispose);
   }),
 );
+
+it.effect("completes Weave's form POST hand-back", () =>
+  Effect.gen(function* () {
+    const completed: Array<Parameters<HqSignIn.HqSignIn["Service"]["complete"]>[0]> = [];
+    const { handler, dispose } = makeHandler(completed);
+    const response = yield* Effect.promise(() =>
+      handler(
+        new Request("http://127.0.0.1:3773/oauth/hq/callback", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ code: "secret-code", state: "the-state" }),
+        }),
+      ),
+    );
+    assert.strictEqual(response.status, 303, yield* Effect.promise(() => response.clone().text()));
+    assert.strictEqual(response.headers.get("location"), "/oauth/hq/callback?result=connected");
+    assert.strictEqual(completed[0]?.code, "secret-code");
+    assert.strictEqual(completed[0]?.state, "the-state");
+    yield* Effect.promise(dispose);
+  }),
+);
