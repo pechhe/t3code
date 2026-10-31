@@ -3153,6 +3153,36 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
     }),
   );
 
+  it.effect("reads pending shell turn items through the partial pending index", () =>
+    Effect.gen(function* () {
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const sql = yield* SqlClient.SqlClient;
+      const { projectId } = yield* assertProjectScopedShells("sql-shell-pending-index");
+      const { statements, tracer } = traceSqlStatements();
+      yield* projectionStore
+        .getShellSnapshot({ projectId, location: "active" })
+        .pipe(Effect.withTracer(tracer));
+
+      const pendingQuery = statements.find((statement) =>
+        statement.includes("owning_provider_instance_id"),
+      );
+      assert.isDefined(pendingQuery);
+      const plan = yield* sql.unsafe<{ readonly detail: string }>(
+        `EXPLAIN QUERY PLAN ${pendingQuery}`,
+      );
+      assert.isTrue(
+        plan.some(({ detail }) =>
+          detail.includes("orchestration_v2_projection_turn_items_shell_pending_idx"),
+        ),
+      );
+      assert.isFalse(
+        plan.some(({ detail }) =>
+          detail.includes("orchestration_v2_projection_turn_items_thread_type_idx"),
+        ),
+      );
+    }),
+  );
+
   it.effect(
     "counts each shell's own runless and live-run items, skipping rolled back and missing runs",
     () =>
