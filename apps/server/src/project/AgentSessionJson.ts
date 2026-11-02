@@ -53,7 +53,9 @@ export function createTranscriptJsonReader(
       options: ParserOptions,
     ) => (input: string | typeof none) => Many<Token> | typeof none;
   };
-  const tokenize = jsonParser({ packValues: false });
+  const tokenize = jsonParser({ packValues: false }) as (
+    input: string | typeof none,
+  ) => Many<Token> | typeof none;
   const assembler = new Assembler();
   let key: string | null = null;
   let value = "";

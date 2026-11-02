@@ -29,12 +29,12 @@ allowBuilds:
   workerd: false
 
 catalog:
-  "@clerk/backend": 3.26.3
-  "@clerk/clerk-js": 6.41.0
-  "@clerk/electron": 0.1.5
+  "@clerk/backend": 3.26.5
+  "@clerk/clerk-js": 6.42.1
+  "@clerk/electron": 0.1.8
   "@clerk/electron-passkeys": 0.0.3
   "@clerk/expo": 4.14.0
-  "@clerk/react": 6.18.2
+  "@clerk/react": 6.18.4
   "@clerk/shared": 4.42.0
   # Must match the version alchemy depends on: the relay overrides its
   # Cloudflare retry policy through this package's Retry service.
@@ -62,7 +62,7 @@ catalog:
   "@types/ws": 8.18.2
   effect: 4.0.6
   electron-webauthn: 1.4.0
-  jose: 6.2.13
+  jose: 6.2.14
   lightningcss: 1.33.0
   objc-js: 1.6.0
   plist: 5.0.0
@@ -78,7 +78,7 @@ catalog:
   yaml: ^2.9.1
   # Markdown pipeline: the server counts find matches with the same parser the
   # web renders with, so both must resolve to one version.
-  mdast-util-directive: 3.1.1
+  mdast-util-directive: 3.2.0
   micromark-extension-directive: 4.0.0
   micromark-util-character: 2.1.1
   micromark-util-types: 2.0.3
