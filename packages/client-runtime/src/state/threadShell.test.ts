@@ -6,6 +6,7 @@ import {
   RuntimeRequestId,
   ThreadId,
   type OrchestrationV2ShellSnapshot,
+  type OrchestrationV2Subagent,
   type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -22,6 +23,7 @@ import {
   createEnvironmentThreadShellAtoms,
   deriveSubagentLiveState,
   directSubagentUnder,
+  finishedPanelSubagents,
   subagentPanelChildIds,
   subagentActivityLabel,
 } from "./threadShell.ts";
@@ -513,6 +515,62 @@ describe("subagent live state", () => {
       shell("two", parent, "implementation-worker"),
     );
     expect(subagentActivityLabel(activity!)).toBe("2 implementers");
+  });
+
+  describe("finished panel subagents", () => {
+    const record = (
+      childThreadId: string,
+      status: OrchestrationV2Subagent["status"],
+      completedAt: string | null,
+      origin: OrchestrationV2Subagent["origin"] = "app_owned",
+    ) =>
+      ({
+        childThreadId: ThreadId.make(childThreadId),
+        status,
+        origin,
+        completedAt: completedAt === null ? null : DateTime.makeUnsafe(completedAt),
+      }) as OrchestrationV2Subagent;
+    const since = DateTime.makeUnsafe("2026-11-04T12:00:00.000Z");
+    const live = [ThreadId.make("live")];
+    const ids = (subagents: ReadonlyArray<OrchestrationV2Subagent>) =>
+      subagents.map((subagent) => subagent.childThreadId);
+
+    it("lists what finished since the user last wrote, newest first", () => {
+      const finished = finishedPanelSubagents({
+        subagents: [
+          record("before", "completed", "2026-11-04T11:00:00.000Z"),
+          record("older", "completed", "2026-11-04T12:01:00.000Z"),
+          record("newer", "failed", "2026-11-04T12:02:00.000Z"),
+          record("native", "completed", "2026-11-04T12:03:00.000Z", "provider_native"),
+          record("live", "completed", "2026-11-04T12:04:00.000Z"),
+          record("running", "running", null),
+        ],
+        liveIds: live,
+        since,
+        parentBusy: false,
+      });
+      expect(ids(finished)).toEqual(["newer", "older"]);
+    });
+
+    it("judges a child by its latest record", () => {
+      const finished = finishedPanelSubagents({
+        subagents: [
+          record("again", "completed", "2026-11-04T12:01:00.000Z"),
+          record("again", "running", null),
+        ],
+        liveIds: live,
+        since,
+        parentBusy: false,
+      });
+      expect(finished).toEqual([]);
+    });
+
+    it("clears once the thread has settled, and holds while the thread still runs", () => {
+      const subagents = [record("done", "completed", "2026-11-04T12:01:00.000Z")];
+      const settled = { subagents, liveIds: [], since };
+      expect(finishedPanelSubagents({ ...settled, parentBusy: false })).toEqual([]);
+      expect(ids(finishedPanelSubagents({ ...settled, parentBusy: true }))).toEqual(["done"]);
+    });
   });
 
   it("orders the panel by role and leaves provider-native subagents out", () => {

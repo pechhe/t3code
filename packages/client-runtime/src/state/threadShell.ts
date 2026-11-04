@@ -2,6 +2,7 @@ import type {
   AgentRole,
   EnvironmentId,
   OrchestrationV2ShellSnapshot,
+  OrchestrationV2Subagent,
   ProjectId,
   ScopedProjectRef,
   ScopedThreadRef,
@@ -94,6 +95,13 @@ export function pendingSubagentRequestsByThread(
   }
   return requests.size === 0 ? EMPTY_SUBAGENT_REQUESTS : requests;
 }
+
+const FINISHED_SUBAGENT_STATUSES: ReadonlySet<OrchestrationV2Subagent["status"]> = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "interrupted",
+]);
 
 export type SubagentStatus = "approval" | "input" | "working" | "waiting";
 
@@ -219,6 +227,35 @@ export function isSubagentDoer(role: AgentRole | undefined): boolean {
     role === "ui-worker" ||
     role === "chore-worker"
   );
+}
+
+/**
+ * Delegated subagents that finished since the user last wrote, newest first. They stay visible
+ * while the thread has work in progress, and clear once it has settled.
+ */
+export function finishedPanelSubagents(input: {
+  readonly subagents: ReadonlyArray<OrchestrationV2Subagent>;
+  readonly liveIds: ReadonlyArray<ThreadId>;
+  readonly since: DateTime.Utc | null;
+  readonly parentBusy: boolean;
+}): ReadonlyArray<OrchestrationV2Subagent> {
+  if (input.liveIds.length === 0 && !input.parentBusy) return [];
+  const sinceMs = input.since === null ? null : DateTime.toEpochMillis(input.since);
+  const latestByChild = new Map<ThreadId, OrchestrationV2Subagent>();
+  for (const subagent of input.subagents) {
+    if (subagent.origin === "app_owned" && subagent.childThreadId !== null) {
+      latestByChild.set(subagent.childThreadId, subagent);
+    }
+  }
+  const finished = [...latestByChild.entries()].flatMap(([childThreadId, subagent]) =>
+    FINISHED_SUBAGENT_STATUSES.has(subagent.status) &&
+    subagent.completedAt !== null &&
+    !input.liveIds.includes(childThreadId) &&
+    (sinceMs === null || DateTime.toEpochMillis(subagent.completedAt) > sinceMs)
+      ? [{ subagent, completedMs: DateTime.toEpochMillis(subagent.completedAt) }]
+      : [],
+  );
+  return finished.sort((a, b) => b.completedMs - a.completedMs).map((entry) => entry.subagent);
 }
 
 /** A thread's delegated subagents in panel order: leads, then other doers, then helpers. */

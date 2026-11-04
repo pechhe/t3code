@@ -66,6 +66,7 @@ import {
   goalBannerItem,
 } from "./ThreadActivityBanners";
 import { Button } from "../ui/button";
+import { finishedPanelSubagents } from "@t3tools/client-runtime/state/threads";
 import { SubagentPanel, type SubagentPanelRequest } from "./SubagentPanel";
 import type { useLocalDispatchState } from "./useLocalDispatchState";
 const RELATED_THREAD_SHELL_WAIT_MS = 1_000;
@@ -563,12 +564,22 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         onToggle: () => setBackgroundWorkExpanded((current) => !current),
       })
     : null;
+  const finishedSubagents = finishedPanelSubagents({
+    subagents,
+    liveIds: liveSubagentIds,
+    since:
+      activeThreadShell?.source.latestUserAuthoredMessageAt ??
+      activeThreadShell?.source.latestUserMessageAt ??
+      null,
+    parentBusy: isWorking,
+  });
   const renderSubagentPanel = (request: SubagentPanelRequest | null) =>
-    activeThreadRef !== null && liveSubagentIds.length > 0 ? (
+    activeThreadRef !== null && (liveSubagentIds.length > 0 || finishedSubagents.length > 0) ? (
       <SubagentPanel
         threadRef={activeThreadRef}
         subagentIds={liveSubagentIds}
         subagents={subagents}
+        finished={finishedSubagents}
         canOperate={canOperateThread}
         onOpenThread={onOpenRelatedThreadStable}
         request={request}

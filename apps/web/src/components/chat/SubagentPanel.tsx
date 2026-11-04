@@ -11,14 +11,15 @@ import { resolveSubagentMetadata } from "@t3tools/client-runtime/state/subagent-
 import { formatTokens } from "@t3tools/shared/usageFormat";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
-import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { CheckIcon, ChevronRightIcon, CircleXIcon } from "lucide-react";
 import { useState, type ComponentProps, type ReactNode } from "react";
 
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { cn } from "~/lib/utils";
-import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "~/state/server";
+import { useClientSettings } from "~/hooks/useSettings";
 import { useSubagentStatus, useThreadShell } from "~/state/entities";
 import { environmentThreadShells, threadEnvironment } from "~/state/threads";
+import { formatDayAwareTimestamp } from "~/timestampFormat";
 import { useOrchestrationCommand } from "~/state/use-orchestration-command";
 import { AgentRoleChip } from "../AgentRoleChip";
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
@@ -30,10 +31,12 @@ import {
   ComposerDelegatedRequestSource,
   DelegatedRequestContext,
 } from "./ComposerDelegatedRequestSource";
-import { SubagentTooltipContent } from "./SubagentTooltipContent";
 import { SUBAGENT_STATUS_PRESENTATION } from "./subagentStatusPresentation";
+import { useSettledFinished } from "./useSettledFinished";
 
 const COLLAPSED_STORAGE_KEY = "t3code:subagent-panel-collapsed";
+const FINISHED_OPEN_STORAGE_KEY = "t3code:subagent-panel-finished-open";
+const HOVER_CARD_DELAY_MS = 200;
 
 function oneLine(text: string): string {
   return text
@@ -73,38 +76,28 @@ function subagentModel(
   return subagent?.model ?? selectedModel ?? null;
 }
 
-// Providers are read only while a row's card is open, so a row carries no extra subscription.
-function SubagentRowCard(props: {
-  readonly threadRef: ScopedThreadRef;
-  readonly subagent: OrchestrationV2Subagent | undefined;
-  readonly latestMessage: string;
-}) {
-  const shell = useThreadShell(props.threadRef)?.source;
-  const providers =
-    useAtomValue(serverEnvironment.providersValueAtom(props.threadRef.environmentId)) ??
-    EMPTY_SERVER_PROVIDERS;
-  if (shell === undefined) return null;
+function SubagentSummaryCard({ text }: { readonly text: string }) {
   return (
-    <SubagentTooltipContent
-      title={shell.title}
-      model={subagentModel(props.subagent, shell.modelSelection.model)}
-      providerInstanceId={shell.providerInstanceId}
-      origin="app_owned"
-      modelSelection={shell.modelSelection}
-      provider={providers.find((provider) => provider.instanceId === shell.providerInstanceId)}
-      providers={providers}
-      startedAt={shell.activityRunStartedAt ? DateTime.formatIso(shell.activityRunStartedAt) : null}
-      totalTokens={props.subagent?.totalTokens}
-      status={props.subagent?.status ?? "running"}
-      childThread={shell}
-      footer={
-        props.latestMessage === "" ? undefined : (
-          <p className="line-clamp-8 border-t border-border/60 pt-2 pl-0.5 text-xs/4 text-foreground/85">
-            {props.latestMessage}
-          </p>
-        )
-      }
-    />
+    <ThreadHoverCardPopup side="top" align="start">
+      <p className="line-clamp-8 px-1 py-1.5 text-xs/4 text-foreground/85">
+        {text === "" ? "No update yet." : oneLine(text)}
+      </p>
+    </ThreadHoverCardPopup>
+  );
+}
+
+function Reveal(props: { readonly open: boolean; readonly children: ReactNode }) {
+  return (
+    <div
+      className={cn(
+        "grid transition-[grid-template-rows] duration-150 ease-out motion-reduce:transition-none",
+        props.open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+      )}
+    >
+      <div inert={!props.open} className="min-h-0 overflow-hidden">
+        {props.children}
+      </div>
+    </div>
   );
 }
 
@@ -136,6 +129,7 @@ function SubagentRow(props: {
   const role = shell?.source.agentTask?.role;
   const message = shell?.source.latestVisibleMessage;
   const text = message?.role === "assistant" ? message.text.trim() : "";
+  const summary = text || (props.subagent?.progress?.trim() ?? "");
   // A request opens below, so its context waits here until asked for.
   const asking = status === "approval" || status === "input";
   const askedThroughThisRow =
@@ -158,6 +152,7 @@ function SubagentRow(props: {
         {role ? <AgentRoleChip role={role} className="flex-none" /> : null}
         <Tooltip>
           <TooltipTrigger
+            delay={HOVER_CARD_DELAY_MS}
             render={
               <SubagentRowLink
                 aria-label={`Open ${title}`}
@@ -167,13 +162,7 @@ function SubagentRow(props: {
           >
             {role ? agentTaskTopic(title, role) : title}
           </TooltipTrigger>
-          <ThreadHoverCardPopup side="top" align="start">
-            <SubagentRowCard
-              threadRef={threadRef}
-              subagent={props.subagent}
-              latestMessage={oneLine(text)}
-            />
-          </ThreadHoverCardPopup>
+          <SubagentSummaryCard text={summary} />
         </Tooltip>
         <span className="hidden flex-none text-muted-foreground tabular-nums sm:inline">
           {modelLabel}
@@ -205,8 +194,8 @@ function SubagentRow(props: {
           </Button>
         </span>
       </div>
-      {!asking && isSubagentDoer(role) && text !== "" ? (
-        <p className="mt-0.5 truncate text-muted-foreground">{oneLine(text).slice(0, 400)}</p>
+      {!asking && isSubagentDoer(role) && summary !== "" ? (
+        <p className="mt-0.5 truncate text-muted-foreground">{oneLine(summary).slice(0, 400)}</p>
       ) : null}
       {asking && contextOpen && askedThroughThisRow === null ? (
         <div className="relative z-1 mt-1.5">
@@ -235,9 +224,11 @@ function SubagentRow(props: {
 function PanelSummary({
   threadRef,
   subagentIds,
+  recentCount,
 }: {
   readonly threadRef: ScopedThreadRef;
   readonly subagentIds: ReadonlyArray<ThreadId>;
+  readonly recentCount: number;
 }) {
   const working = useAtomValue(
     environmentThreadShells.subagentLiveStateAtom(threadRef.environmentId),
@@ -245,7 +236,7 @@ function PanelSummary({
   );
   return (
     <>
-      {subagentIds.length} subagents
+      {subagentIds.length + recentCount} subagents
       {working > 0 ? (
         <>
           <ComposerBanner.Separator />
@@ -253,6 +244,128 @@ function PanelSummary({
         </>
       ) : null}
     </>
+  );
+}
+
+const FINISHED_OUTCOME: Record<
+  string,
+  { readonly label: string; readonly className: string; readonly icon: typeof CheckIcon | null }
+> = {
+  completed: { label: "Done", className: "text-muted-foreground", icon: CheckIcon },
+  failed: { label: "Failed", className: "text-destructive", icon: CircleXIcon },
+  cancelled: { label: "Stopped", className: "text-muted-foreground", icon: null },
+  interrupted: { label: "Stopped", className: "text-muted-foreground", icon: null },
+};
+
+function FinishedSubagentRow(props: {
+  readonly threadRef: ScopedThreadRef;
+  readonly subagent: OrchestrationV2Subagent;
+  readonly onOpenThread: (threadId: ThreadId) => void;
+}) {
+  const { threadRef, subagent } = props;
+  const shell = useThreadShell(threadRef);
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const title = shell?.title ?? subagent.title ?? "";
+  const role = shell?.source.agentTask?.role;
+  const message = shell?.source.latestVisibleMessage;
+  const summary = message?.role === "assistant" ? message.text.trim() : (subagent.result ?? "");
+  const outcome = FINISHED_OUTCOME[subagent.status] ?? FINISHED_OUTCOME.completed!;
+  const OutcomeIcon = outcome.icon;
+  const startedAt = subagent.startedAt === null ? null : DateTime.formatIso(subagent.startedAt);
+  const completedAt =
+    subagent.completedAt === null ? null : DateTime.formatIso(subagent.completedAt);
+  const dim = "opacity-55 group-hover/subagent:opacity-100";
+  return (
+    <div className="group/subagent relative px-3 py-1.5 not-first:border-t not-first:border-border/70">
+      <div className="flex min-w-0 items-center gap-2">
+        {role ? <AgentRoleChip role={role} className={cn("flex-none", dim)} /> : null}
+        <Tooltip>
+          <TooltipTrigger
+            delay={HOVER_CARD_DELAY_MS}
+            render={
+              <SubagentRowLink
+                aria-label={`Open ${title}`}
+                onClick={() => props.onOpenThread(threadRef.threadId)}
+              />
+            }
+          >
+            <span className={cn("font-normal", dim)}>
+              {role ? agentTaskTopic(title, role) : title}
+            </span>
+          </TooltipTrigger>
+          <SubagentSummaryCard text={summary} />
+        </Tooltip>
+        <span className={cn("hidden flex-none text-muted-foreground tabular-nums sm:inline", dim)}>
+          {resolveSubagentMetadata({ model: subagent.model }).modelLabel}
+          {subagent.totalTokens === undefined ? null : ` · ${formatTokens(subagent.totalTokens)}`}
+        </span>
+        <span
+          className={cn("inline-flex flex-none items-center gap-1 tabular-nums", outcome.className)}
+        >
+          {OutcomeIcon ? <OutcomeIcon aria-hidden className="size-3" /> : null}
+          {outcome.label}
+          {startedAt === null ? null : (
+            <AgentElapsed agent={{ status: subagent.status, startedAt, completedAt }} />
+          )}
+        </span>
+        <ChevronRightIcon
+          aria-hidden
+          className="size-3.5 flex-none text-muted-foreground/60 group-hover/subagent:text-foreground"
+        />
+        <span
+          className={cn(
+            "w-[3.25rem] flex-none text-center text-muted-foreground tabular-nums",
+            dim,
+          )}
+        >
+          {completedAt === null ? null : formatDayAwareTimestamp(completedAt, timestampFormat)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function FinishedSubagents(props: {
+  readonly threadRef: ScopedThreadRef;
+  readonly settled: ReadonlyArray<OrchestrationV2Subagent>;
+  readonly onOpenThread: (threadId: ThreadId) => void;
+}) {
+  const [open, setOpen] = useLocalStorage(FINISHED_OPEN_STORAGE_KEY, false, Schema.Boolean);
+  const failed = props.settled.filter((subagent) => subagent.status === "failed").length;
+  return (
+    <Reveal open={props.settled.length > 0}>
+      <div className="border-t border-border/70">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+          className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-1.5 text-start text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        >
+          <ChevronRightIcon
+            aria-hidden
+            className={cn("size-3.5 transition-transform duration-150", open && "rotate-90")}
+          />
+          {props.settled.length} finished
+          {failed > 0 ? (
+            <span className="text-destructive tabular-nums">· {failed} failed</span>
+          ) : null}
+        </button>
+        <Reveal open={open}>
+          <div className="grid max-h-[min(12rem,30dvh)] grid-cols-[minmax(0,1fr)] overflow-y-auto border-t border-border/70">
+            {props.settled.map((subagent) =>
+              subagent.childThreadId === null ? null : (
+                <FinishedSubagentRow
+                  key={subagent.childThreadId}
+                  threadRef={scopeThreadRef(props.threadRef.environmentId, subagent.childThreadId)}
+                  subagent={subagent}
+                  onOpenThread={props.onOpenThread}
+                />
+              ),
+            )}
+          </div>
+        </Reveal>
+      </div>
+    </Reveal>
   );
 }
 
@@ -273,16 +386,35 @@ export function SubagentPanel(props: {
   readonly threadRef: ScopedThreadRef;
   readonly subagentIds: ReadonlyArray<ThreadId>;
   readonly subagents: ReadonlyArray<OrchestrationV2Subagent>;
+  readonly finished: ReadonlyArray<OrchestrationV2Subagent>;
   readonly canOperate: boolean;
   readonly onOpenThread: (threadId: ThreadId) => void;
   readonly request: SubagentPanelRequest | null;
   readonly stopAll: ReactNode;
 }) {
-  const { threadRef, subagentIds, subagents, canOperate, onOpenThread, request, stopAll } = props;
+  const {
+    threadRef,
+    subagentIds,
+    subagents,
+    finished,
+    canOperate,
+    onOpenThread,
+    request,
+    stopAll,
+  } = props;
   const [collapsed, setCollapsed] = useLocalStorage(COLLAPSED_STORAGE_KEY, false, Schema.Boolean);
-  const several = subagentIds.length > 1;
+  const header = subagentIds.length + finished.length > 1;
+  const open = !(header && collapsed);
+  const settledIds = useSettledFinished(
+    threadRef,
+    finished.flatMap((subagent) => subagent.childThreadId ?? []),
+    open,
+  );
+  const isSettled = (subagent: OrchestrationV2Subagent) =>
+    subagent.childThreadId !== null && settledIds.has(subagent.childThreadId);
+  const recentCount = finished.filter((subagent) => !isSettled(subagent)).length;
   const askingRow = request?.rowThreadId;
-  const quiet = several && collapsed ? [] : subagentIds.filter((id) => id !== askingRow);
+  const quiet = subagentIds.filter((id) => id !== askingRow);
   const row = (threadId: ThreadId) => (
     <SubagentRow
       key={threadId}
@@ -298,41 +430,64 @@ export function SubagentPanel(props: {
       data-subagent-panel="true"
       className="mb-2 overflow-hidden rounded-xl border border-border/70 bg-card text-xs/4 shadow-xs"
     >
-      {several ? (
-        <div className="flex min-w-0 items-center gap-1.5 py-1 ps-3 pe-2 font-medium">
-          <ComposerBanner.Dot className="text-muted-foreground" />
+      {header ? (
+        <div className="flex min-w-0 items-center gap-1 py-1 ps-1.5 pe-2 font-medium">
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-expanded={open}
+            aria-label={open ? "Collapse subagents" : "Show subagents"}
+            onClick={() => setCollapsed((current) => !current)}
+          >
+            <ChevronRightIcon
+              className={cn("size-3.5 transition-transform duration-150", open && "rotate-90")}
+            />
+          </Button>
           <span className="min-w-0 truncate">
-            <PanelSummary threadRef={threadRef} subagentIds={subagentIds} />
+            <PanelSummary
+              threadRef={threadRef}
+              subagentIds={subagentIds}
+              recentCount={recentCount}
+            />
           </span>
-          <span className="ms-auto flex flex-none items-center gap-0.5 font-normal">
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-expanded={!collapsed}
-              aria-label={collapsed ? "Show subagents" : "Collapse subagents"}
-              onClick={() => setCollapsed((current) => !current)}
-            >
-              <ChevronDownIcon className={cn("size-3.5", collapsed && "rotate-180")} />
-            </Button>
-            {stopAll}
-          </span>
+          <span className="ms-auto flex flex-none items-center gap-0.5 font-normal">{stopAll}</span>
         </div>
       ) : null}
-      {quiet.length > 0 ? (
-        <div
-          className={cn(
-            "grid max-h-[min(15rem,35dvh)] grid-cols-[minmax(0,1fr)] overflow-y-auto",
-            several && "border-t border-border/70",
-          )}
-        >
-          {quiet.map(row)}
-        </div>
-      ) : null}
+      <Reveal open={open}>
+        {quiet.length > 0 || recentCount > 0 ? (
+          <div
+            className={cn(
+              "grid max-h-[min(15rem,35dvh)] grid-cols-[minmax(0,1fr)] overflow-y-auto",
+              header && "border-t border-border/70",
+            )}
+          >
+            {quiet.map(row)}
+            {finished.map((subagent) =>
+              subagent.childThreadId === null ? null : (
+                <Reveal key={subagent.childThreadId} open={!isSettled(subagent)}>
+                  <div className={cn((quiet.length > 0 || !header) && "border-t border-border/70")}>
+                    <FinishedSubagentRow
+                      threadRef={scopeThreadRef(threadRef.environmentId, subagent.childThreadId)}
+                      subagent={subagent}
+                      onOpenThread={onOpenThread}
+                    />
+                  </div>
+                </Reveal>
+              ),
+            )}
+          </div>
+        ) : null}
+        <FinishedSubagents
+          threadRef={threadRef}
+          settled={finished.filter(isSettled)}
+          onOpenThread={onOpenThread}
+        />
+      </Reveal>
       {askingRow === undefined ? null : (
         <div
           className={cn(
             "grid grid-cols-[minmax(0,1fr)]",
-            (several || quiet.length > 0) && "border-t border-border/70",
+            (header || quiet.length > 0) && "border-t border-border/70",
           )}
         >
           {row(askingRow)}
