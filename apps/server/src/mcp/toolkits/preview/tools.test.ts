@@ -43,3 +43,21 @@ it("keeps a select result when preview_interact encodes it", () => {
   const encoded = Schema.encodeSync(tool.successSchema)({ selected: ["b", "c"] });
   expect(encoded).toEqual({ selected: ["b", "c"] });
 });
+
+it("keeps the action, URL and title a Phi interaction reports when preview_interact encodes it", () => {
+  const tool = PreviewToolkit.tools.preview_interact;
+  const encoded = Schema.encodeSync(tool.successSchema)({
+    tabId: "phi-tab",
+    backend: "phi",
+    action: "click",
+    url: "https://example.com/next",
+    title: "Next page",
+  });
+  expect(encoded).toEqual({
+    tabId: "phi-tab",
+    backend: "phi",
+    action: "click",
+    url: "https://example.com/next",
+    title: "Next page",
+  });
+});

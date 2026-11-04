@@ -234,7 +234,7 @@ const PreviewInteractTool = browserTool(
       }),
     }),
     success: Schema.Struct({
-      ...presentationFields,
+      ...PreviewActionResult.fields,
       selected: Schema.optional(
         Schema.Array(Schema.String).annotate({
           description: "The values now selected for action=select.",
