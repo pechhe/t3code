@@ -271,6 +271,7 @@ function SidebarThreadTooltip({
     .filter((instanceId) => instanceId !== modelInstanceId)
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
+  const workflowChip = visibleThreadWorkflow(thread.workflow);
   return (
     <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
       <ThreadHoverCard
@@ -283,13 +284,16 @@ function SidebarThreadTooltip({
           ) : null
         }
       >
-        {projectDisplayName ? (
+        {projectDisplayName || workflowChip ? (
           <div className="flex min-w-0 items-center gap-2">
-            {project ? (
+            {project && projectDisplayName ? (
               <ProjectChip project={project} label={projectDisplayName} />
-            ) : (
+            ) : projectDisplayName ? (
               <div className="min-w-0 truncate text-foreground/75">{projectDisplayName}</div>
-            )}
+            ) : null}
+            {workflowChip ? (
+              <ThreadWorkflowChip kind={workflowChip.kind} className="shrink-0" />
+            ) : null}
           </div>
         ) : null}
         {environmentLabel ? (
@@ -664,7 +668,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     wokeAtDate !== null &&
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
     thread.settledOverride !== "settled";
-  const workflowChip = visibleThreadWorkflow(thread.workflow);
   // Background work always recedes when it is not selected: an unread parent
   // completion must not pull a still-working thread back into the foreground.
   // Ready and action-required rows keep their unread and wake prominence.
@@ -1330,12 +1333,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 <span className="min-w-0 truncate text-secondary-label text-xs">
                   {props.projectDisplayName}
                 </span>
-              ) : null}
-              {workflowChip ? (
-                <ThreadWorkflowChip
-                  kind={workflowChip.kind}
-                  className={cn("shrink-0", shouldRecede && "opacity-70")}
-                />
               ) : null}
               <span className="flex-1" />
               {sortable?.isDragging ? (

@@ -59,6 +59,7 @@ export function SubagentTooltipContent(props: {
   status: OrchestrationV2TurnItemStatus;
   result?: string | null | undefined;
   progress?: string | null | undefined;
+  footer?: ReactNode;
 }) {
   const { modelLabel, workspace: metadata } = resolveSubagentMetadata(props);
   // A finished agent's result is already in the chat; the card keeps live progress and failures.
@@ -137,7 +138,10 @@ export function SubagentTooltipContent(props: {
         ? CheckIcon
         : CircleDashedIcon;
   return (
-    <ThreadHoverCard title={(role && agentTaskTopic(props.title, role)) || props.title}>
+    <ThreadHoverCard
+      title={(role && agentTaskTopic(props.title, role)) || props.title}
+      footer={props.footer}
+    >
       <div className="flex min-w-0 items-center gap-2">
         {driver ? (
           <ProviderInstanceIcon

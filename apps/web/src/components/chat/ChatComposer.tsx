@@ -239,7 +239,7 @@ import { type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
 import { useComposerPoolAccount } from "./ComposerPoolAccount";
 import { type DeviceReasoningDialHandle } from "./device/DeviceReasoningDial";
 import { ComposerDelegatedRequestSource } from "./ComposerDelegatedRequestSource";
-import type { SpecLeadCardRequest } from "./SpecLeadCards";
+import type { SubagentPanelRequest } from "./SubagentPanel";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
@@ -416,8 +416,9 @@ export interface ChatComposerProps {
   /** The subagent whose request this composer is answering, when it isn't the thread's own. */
   delegatedRequestThreadId: ThreadId | null;
   /** The asker has a card above, which already names it and offers its context. */
-  delegatedRequestShownOnCard: boolean;
-  renderAboveComposer: (request: SpecLeadCardRequest | null) => ReactNode;
+  /** The panel row a delegated request opens in; null when it opens above the composer instead. */
+  delegatedRequestPanelRowId: ThreadId | null;
+  renderAboveComposer: (request: SubagentPanelRequest | null) => ReactNode;
   onOpenRelatedThread: (threadId: ThreadId) => void;
   maxFileAttachmentBytes: number | null;
   routeKind: "server" | "draft";
@@ -2765,7 +2766,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       onDismiss={onDismissActivePendingUserInput}
     />
   ) : null;
-  const requestShownOnCard = props.delegatedRequestShownOnCard && pendingRequestPanel !== null;
+  const requestPanelRowId = pendingRequestPanel === null ? null : props.delegatedRequestPanelRowId;
   const composerControls = (
     <ComposerControlsBar
       environmentId={environmentId}
@@ -3776,8 +3777,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           )
         : null}
       {props.renderAboveComposer(
-        requestShownOnCard && delegatedRequestThreadId !== null
-          ? { threadId: delegatedRequestThreadId, panel: pendingRequestPanel }
+        requestPanelRowId !== null && delegatedRequestRef !== null
+          ? {
+              rowThreadId: requestPanelRowId,
+              askerRef: delegatedRequestRef,
+              kind: activePendingApproval ? "approval" : "input",
+              panel: pendingRequestPanel,
+              onOpenThread: onOpenRelatedThread,
+            }
           : null,
       )}
       <ComposerBanner.Dock>
@@ -3795,7 +3802,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </ComposerBanner.Root>
             </ComposerBanner.Attachment>
           ) : null}
-          {requestShownOnCard ? null : showComposerTopDrawer &&
+          {requestPanelRowId !== null ? null : showComposerTopDrawer &&
             (!isTasksDrawerOpen || hasBlockingComposerTopDrawer) ? (
             <ComposerBanner.Attachment>
               <ComposerBanner.Root
@@ -3804,7 +3811,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 density={activePendingApproval ? "spacious" : "default"}
               >
                 {delegatedRequestRef !== null &&
-                !props.delegatedRequestShownOnCard &&
                 (activePendingApproval || pendingUserInputs.length > 0) ? (
                   <ComposerDelegatedRequestSource
                     threadRef={delegatedRequestRef}

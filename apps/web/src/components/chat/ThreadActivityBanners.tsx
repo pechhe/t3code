@@ -27,7 +27,7 @@ import {
 } from "./BackgroundWorkStrip";
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { SubagentStatusText } from "./SpecLeadCards";
+import { SubagentStatusText } from "./SubagentPanel";
 
 /** Subagents waiting on the user, unless the parent is itself waiting on them. */
 export function childInputBannerItem(input: {
@@ -107,8 +107,8 @@ export function goalBannerItem(input: {
 export function backgroundWorkBannerItem(input: {
   readonly threadId: ThreadId;
   readonly tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
-  /** Spec leads shown as cards above the composer, so they leave this strip. */
-  readonly leadIds: ReadonlyArray<ThreadId>;
+  /** Subagents with a row in the panel above the composer, so they leave this strip. */
+  readonly panelSubagentIds: ReadonlyArray<ThreadId>;
   readonly stopDisabled: boolean;
   readonly stopping: boolean;
   readonly onStop: () => Promise<void>;
@@ -120,7 +120,7 @@ export function backgroundWorkBannerItem(input: {
     (task) =>
       task.kind !== "subagent" ||
       task.childThreadId === undefined ||
-      !input.leadIds.includes(task.childThreadId),
+      !input.panelSubagentIds.includes(task.childThreadId),
   );
   const presentation = presentPendingBackgroundWork(others);
   const stop = (

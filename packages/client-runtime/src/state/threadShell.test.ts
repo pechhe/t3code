@@ -21,6 +21,8 @@ import {
   childThreadInputsTitle,
   createEnvironmentThreadShellAtoms,
   deriveSubagentLiveState,
+  directSubagentUnder,
+  subagentPanelChildIds,
   subagentActivityLabel,
 } from "./threadShell.ts";
 
@@ -505,6 +507,43 @@ describe("subagent live state", () => {
     },
   } as const;
 
+  it("names an implementer briefly in a row's status", () => {
+    const activity = activityOf(
+      shell("one", parent, "implementation-worker"),
+      shell("two", parent, "implementation-worker"),
+    );
+    expect(subagentActivityLabel(activity!)).toBe("2 implementers");
+  });
+
+  it("orders the panel by role and leaves provider-native subagents out", () => {
+    const threads = [
+      shell("advisor", parent, "advisor"),
+      shell("implementer", parent, "implementation-worker"),
+      shell("native", parent, null, { creationSource: "provider" }),
+      shell("lead", parent, "lead"),
+      shell("unroled", parent, null),
+      shell("below", ThreadId.make("lead"), "implementation-worker"),
+    ];
+    expect(subagentPanelChildIds(threads, parent)).toEqual([
+      "lead",
+      "implementer",
+      "unroled",
+      "advisor",
+    ]);
+  });
+
+  it("finds the direct child a descendant's request came through", () => {
+    const lead = ThreadId.make("lead");
+    const below = ThreadId.make("below");
+    const { parents } = deriveSubagentLiveState([
+      shell("lead", parent, "lead"),
+      shell("below", lead, "implementation-worker", question),
+    ]);
+    expect(directSubagentUnder(parents, parent, below)).toBe(lead);
+    expect(directSubagentUnder(parents, parent, lead)).toBe(lead);
+    expect(directSubagentUnder(parents, ThreadId.make("elsewhere"), below)).toBeNull();
+  });
+
   it("speaks for a working lead over a working advisor, with the lead's timer", () => {
     const activity = activityOf(shell("advisor", parent, "advisor"), shell("lead", parent, "lead"));
     expect(activity).toEqual({
@@ -513,7 +552,7 @@ describe("subagent live state", () => {
       count: 1,
       startedAt: DateTime.formatIso(startedAt),
     });
-    expect(subagentActivityLabel(activity!)).toBe("Lead working");
+    expect(subagentActivityLabel(activity!)).toBe("Lead");
   });
 
   it("does not let a waiting lead hide an advisor that is working", () => {
@@ -521,7 +560,7 @@ describe("subagent live state", () => {
       shell("lead", parent, "lead", { blockedOnThreadWait: true }),
       shell("advisor", parent, "advisor"),
     );
-    expect(subagentActivityLabel(activity!)).toBe("Advisor working");
+    expect(subagentActivityLabel(activity!)).toBe("Advisor");
   });
 
   it("counts several working leads and drops the timer they do not share", () => {
@@ -531,7 +570,7 @@ describe("subagent live state", () => {
       shell("c", parent, "lead", { blockedOnThreadWait: true }),
     );
     expect(activity?.startedAt).toBeNull();
-    expect(subagentActivityLabel(activity!)).toBe("2 leads working");
+    expect(subagentActivityLabel(activity!)).toBe("2 leads");
   });
 
   it("lets a question outrank work and names who asks", () => {
@@ -545,7 +584,7 @@ describe("subagent live state", () => {
   it("raises a lead by what the helpers under it are doing", () => {
     const lead = shell("lead", parent, "lead", { blockedOnThreadWait: true });
     const working = activityOf(lead, shell("reviewer", lead.id, "spec-reviewer"));
-    expect(subagentActivityLabel(working!)).toBe("Lead working");
+    expect(subagentActivityLabel(working!)).toBe("Lead");
     const asking = activityOf(lead, shell("reviewer", lead.id, "spec-reviewer", question));
     expect(subagentActivityLabel(asking!)).toBe("Lead input");
   });

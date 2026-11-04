@@ -12,6 +12,7 @@ import {
   type EnvironmentThreadStatus,
   type ThreadHistoryMeta,
   type ThreadWatcher,
+  directSubagentUnder,
 } from "@t3tools/client-runtime/state/threads";
 import {
   arrayElementsEqual,
@@ -163,12 +164,29 @@ export function useChildThreadInputs(ref: ScopedThreadRef | null) {
 }
 
 const NO_THREAD_IDS_ATOM = Atom.make<ReadonlyArray<ThreadId>>(Object.freeze([])).pipe(
-  Atom.withLabel("web-lead-child-ids:empty"),
+  Atom.withLabel("web-subagent-panel-child-ids:empty"),
 );
 
-export function useLeadChildIds(ref: ScopedThreadRef | null) {
+export function useSubagentPanelChildIds(ref: ScopedThreadRef | null) {
   return useAtomValue(
-    ref === null ? NO_THREAD_IDS_ATOM : environmentThreadShells.leadChildIdsAtom(ref),
+    ref === null ? NO_THREAD_IDS_ATOM : environmentThreadShells.subagentPanelChildIdsAtom(ref),
+  );
+}
+
+const NO_SUBAGENT_PARENTS_ATOM = Atom.make<{
+  readonly parents: ReadonlyMap<ThreadId, ThreadId>;
+}>({ parents: new Map() }).pipe(Atom.withLabel("web-subagent-parents:empty"));
+
+/** Which direct child of `ref` a descendant's request came through. */
+export function useDirectSubagentUnder(ref: ScopedThreadRef | null, threadId: ThreadId | null) {
+  return useAtomValue(
+    ref === null || threadId === null
+      ? NO_SUBAGENT_PARENTS_ATOM
+      : environmentThreadShells.subagentLiveStateAtom(ref.environmentId),
+    ({ parents }) =>
+      ref === null || threadId === null
+        ? null
+        : directSubagentUnder(parents, ref.threadId, threadId),
   );
 }
 

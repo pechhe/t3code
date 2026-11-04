@@ -67,6 +67,7 @@ import {
   useThreadProjection,
   useThreadRelationshipShells,
   useThreadWatchers,
+  useThreadShell,
 } from "../../state/entities";
 import { useEnvironmentProviders } from "../../state/environments";
 import { threadEnvironment } from "../../state/threads";
@@ -285,6 +286,7 @@ export function ThreadRelationshipsPanel(props: {
   const archivedShells = archived.snapshots.find(
     (entry) => entry.environmentId === props.environmentId,
   )?.snapshot.threads;
+  const currentShell = useThreadShell(ref);
   const currentThread =
     projection?.thread ??
     relationshipShells.find((thread) => thread.id === props.threadId) ??
@@ -390,23 +392,36 @@ export function ThreadRelationshipsPanel(props: {
   const graphThreadIds = new Set(relationshipRows.map((row) => row.threadId));
   const earlierWatched = watched.filter((row) => !graphThreadIds.has(row.threadId));
 
+  // Subagents this thread is waiting on have a live row above its composer, not a second one here.
+  const inSubagentPanel = new Set(
+    (currentShell?.source.pendingBackgroundTasks ?? []).flatMap((task) =>
+      task.kind === "subagent" &&
+      task.childThreadId !== undefined &&
+      graph.nodes.get(task.childThreadId)?.thread?.creationSource !== "provider"
+        ? [task.childThreadId]
+        : [],
+    ),
+  );
   const {
     related = [],
     active = [],
     previous = [],
     advisors = [],
-  } = groupBy(relationshipRows, ({ edge, threadId }) => {
-    if (edge.kind !== "subagent" || isParentThreadRelationship(edge, props.threadId))
-      return "related";
-    const child = graph.nodes.get(threadId)?.thread;
-    if (child?.advisorClosedAt !== undefined) return "previous";
-    if (child?.agentTask?.role === "advisor") return "advisors";
-    return ["completed", "failed", "error", "cancelled", "interrupted", "idle"].includes(
-      edge.status ?? "",
-    )
-      ? "previous"
-      : "active";
-  });
+  } = groupBy(
+    relationshipRows.filter(({ threadId }) => !inSubagentPanel.has(threadId)),
+    ({ edge, threadId }) => {
+      if (edge.kind !== "subagent" || isParentThreadRelationship(edge, props.threadId))
+        return "related";
+      const child = graph.nodes.get(threadId)?.thread;
+      if (child?.advisorClosedAt !== undefined) return "previous";
+      if (child?.agentTask?.role === "advisor") return "advisors";
+      return ["completed", "failed", "error", "cancelled", "interrupted", "idle"].includes(
+        edge.status ?? "",
+      )
+        ? "previous"
+        : "active";
+    },
+  );
   // Watches sit after the agents doing this thread's work and before its advisors: they are
   // live, but nothing this thread started and nothing it can stop.
   const [leadingGroups, trailingGroups] = [

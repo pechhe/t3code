@@ -65,7 +65,7 @@ import {
   latestExecutedRun,
   latestRootProviderFailure,
 } from "@t3tools/shared/orchestrationV2ThreadError";
-import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
+import type { OrchestrationV2Subagent, UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
@@ -270,6 +270,7 @@ import {
   useQuietThreadShell,
   useThreadCheckpointSummaries,
   useDelegatedThreadRequests,
+  useDirectSubagentUnder,
 } from "../state/entities";
 import { useEnvironmentShellHasSnapshot } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
@@ -389,6 +390,7 @@ import {
   makeThreadErrorSetter,
 } from "./ChatView.logic";
 
+const EMPTY_SUBAGENTS: ReadonlyArray<OrchestrationV2Subagent> = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_MODELS: ServerProvider["models"] = [];
 const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
@@ -1356,6 +1358,10 @@ export default function ChatView(props: ChatViewProps) {
     composerRef,
     setThreadError,
   });
+  const delegatedRequestRowId = useDirectSubagentUnder(
+    isServerThread ? routeThreadRef : null,
+    delegatedRequestThreadId,
+  );
   const activeProposedPlan = (() => {
     if (!latestRunSettled) {
       return null;
@@ -2518,8 +2524,8 @@ export default function ChatView(props: ChatViewProps) {
     activeBranchMismatchKey,
     backgroundWorkBanner,
     childInputBanner,
-    liveLeadIds,
-    renderSpecLeadCards,
+    liveSubagentIds,
+    renderSubagentPanel,
     goalBanner,
     handleSwitchCheckoutToThread,
     handleSwitchCheckoutToThreadStable,
@@ -2532,6 +2538,7 @@ export default function ChatView(props: ChatViewProps) {
     threadStatusLine,
     shortcuts: threadLifecycleShortcuts,
   } = useThreadLifecycle({
+    subagents: serverProjection?.subagents ?? EMPTY_SUBAGENTS,
     environmentId,
     routeThreadKey,
     currentRouteThreadKeyRef,
@@ -3854,11 +3861,13 @@ export default function ChatView(props: ChatViewProps) {
                                 supportsQuestionAttachments && delegatedRequestThreadId === null
                               }
                               delegatedRequestThreadId={delegatedRequestThreadId}
-                              delegatedRequestShownOnCard={
-                                delegatedRequestThreadId !== null &&
-                                liveLeadIds.includes(delegatedRequestThreadId)
+                              delegatedRequestPanelRowId={
+                                delegatedRequestRowId !== null &&
+                                liveSubagentIds.includes(delegatedRequestRowId)
+                                  ? delegatedRequestRowId
+                                  : null
                               }
-                              renderAboveComposer={renderSpecLeadCards}
+                              renderAboveComposer={renderSubagentPanel}
                               onOpenRelatedThread={onOpenRelatedThreadStable}
                               maxFileAttachmentBytes={maxFileAttachmentBytes}
                               routeKind={routeKind}

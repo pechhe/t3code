@@ -8,7 +8,7 @@ import { InlineButton } from "../ui/button";
 import { ForgeMentionChip } from "../forgeItem/ForgeMentionChip";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { ComposerBanner } from "./ComposerBanner";
-import { SubagentStatusText } from "./SpecLeadCards";
+import { SubagentStatusText } from "./SubagentPanel";
 import { threadRelationshipStatusLabel } from "./ThreadRelationshipIcon";
 
 const KIND_LABELS: Record<PendingBackgroundWorkItem["group"], string> = {

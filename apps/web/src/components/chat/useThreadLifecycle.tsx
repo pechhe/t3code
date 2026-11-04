@@ -21,6 +21,7 @@ import {
   type ThreadId,
   ProviderInteractionMode,
   RuntimeMode,
+  OrchestrationV2Subagent,
 } from "@t3tools/contracts";
 import { effectiveSnoozed, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
 import { useAcknowledgeThreadWoke, useThreadActions } from "../../hooks/useThreadActions";
@@ -48,7 +49,7 @@ import { threadEnvironment } from "../../state/threads";
 import { vcsEnvironment } from "../../state/vcs";
 import {
   useChildThreadInputs,
-  useLeadChildIds,
+  useSubagentPanelChildIds,
   readThreadShell,
   waitForThreadShell,
 } from "../../state/entities";
@@ -65,7 +66,7 @@ import {
   goalBannerItem,
 } from "./ThreadActivityBanners";
 import { Button } from "../ui/button";
-import { SpecLeadCards, type SpecLeadCardRequest } from "./SpecLeadCards";
+import { SubagentPanel, type SubagentPanelRequest } from "./SubagentPanel";
 import type { useLocalDispatchState } from "./useLocalDispatchState";
 const RELATED_THREAD_SHELL_WAIT_MS = 1_000;
 
@@ -89,6 +90,7 @@ interface ThreadLifecycleInput {
   readonly runtimeMode: RuntimeMode;
   readonly isWorking: boolean;
   readonly pendingBackgroundTasks: Parameters<typeof backgroundWorkBannerItem>[0]["tasks"];
+  readonly subagents: ReadonlyArray<OrchestrationV2Subagent>;
   readonly activePendingApproval: PendingThreadRequests["activePendingApproval"];
   readonly activePendingUserInput: PendingThreadRequests["activePendingUserInput"];
   readonly localCheckoutBranchMismatch: {
@@ -139,6 +141,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     runtimeMode,
     isWorking,
     pendingBackgroundTasks,
+    subagents,
     activePendingApproval,
     activePendingUserInput,
     localCheckoutBranchMismatch,
@@ -457,7 +460,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   const openPrLink = useOpenPrLink(activeThreadRef ?? undefined);
   const openPrLinkStable = useStableCallback(openPrLink);
   const childThreadInputs = useChildThreadInputs(activeThreadRef);
-  const leadChildIds = useLeadChildIds(activeThreadRef);
+  const panelChildIds = useSubagentPanelChildIds(activeThreadRef);
   const childInputBanner = childInputBannerItem({
     childThreadInputs,
     parentAwaitingUser: Boolean(
@@ -538,7 +541,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         })
       : null;
 
-  const liveLeadIds = leadChildIds.filter((threadId) =>
+  const liveSubagentIds = panelChildIds.filter((threadId) =>
     pendingBackgroundTasks.some(
       (task) => task.kind === "subagent" && task.childThreadId === threadId,
     ),
@@ -547,7 +550,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     ? backgroundWorkBannerItem({
         threadId: activeThread.id,
         tasks: activeBackgroundTasks,
-        leadIds: liveLeadIds,
+        panelSubagentIds: liveSubagentIds,
         stopDisabled: !canOperateThread || isStoppingBackgroundWork,
         stopping: isStoppingBackgroundWork,
         onStop: handleStopBackgroundWorkStable,
@@ -560,11 +563,12 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         onToggle: () => setBackgroundWorkExpanded((current) => !current),
       })
     : null;
-  const renderSpecLeadCards = (request: SpecLeadCardRequest | null) =>
-    activeThreadRef !== null && liveLeadIds.length > 0 ? (
-      <SpecLeadCards
+  const renderSubagentPanel = (request: SubagentPanelRequest | null) =>
+    activeThreadRef !== null && liveSubagentIds.length > 0 ? (
+      <SubagentPanel
         threadRef={activeThreadRef}
-        leadIds={liveLeadIds}
+        subagentIds={liveSubagentIds}
+        subagents={subagents}
         canOperate={canOperateThread}
         onOpenThread={onOpenRelatedThreadStable}
         request={request}
@@ -652,8 +656,8 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     activeBranchMismatchKey,
     backgroundWorkBanner,
     childInputBanner,
-    liveLeadIds,
-    renderSpecLeadCards,
+    liveSubagentIds,
+    renderSubagentPanel,
     goalBanner,
     handleSwitchCheckoutToThread,
     handleSwitchCheckoutToThreadStable,

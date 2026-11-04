@@ -111,6 +111,8 @@ export interface SubagentLiveState {
   /** Each subagent's own status, raised by anything below it: a lead waiting on a working reviewer is working. */
   readonly statuses: ReadonlyMap<ThreadId, SubagentStatus>;
   readonly activity: ReadonlyMap<ThreadId, SubagentActivity>;
+  /** Parent of each subagent with a status, for finding which child of a thread a request came through. */
+  readonly parents: ReadonlyMap<ThreadId, ThreadId>;
 }
 
 const SUBAGENT_STATUS_RANK: Record<SubagentStatus, number> = {
@@ -149,11 +151,13 @@ export function deriveSubagentLiveState(
       current = parentId === null ? undefined : byId.get(parentId);
     }
   }
+  const parents = new Map<ThreadId, ThreadId>();
   const childrenByParent = new Map<ThreadId, OrchestrationV2ThreadShell[]>();
   for (const threadId of statuses.keys()) {
     const child = byId.get(threadId);
     const parentId = child?.lineage.parentThreadId ?? null;
     if (child === undefined || parentId === null) continue;
+    parents.set(threadId, parentId);
     const siblings = childrenByParent.get(parentId);
     if (siblings) siblings.push(child);
     else childrenByParent.set(parentId, [child]);
@@ -185,27 +189,87 @@ export function deriveSubagentLiveState(
           : null,
     });
   }
-  return { statuses, activity };
+  return { statuses, activity, parents };
 }
 
-const SUBAGENT_ACTIVITY_VERB: Record<SubagentStatus, string> = {
-  approval: "approval",
-  input: "input",
-  working: "working",
-  waiting: "waiting",
+/** The direct child of `ancestorId` that `threadId` sits under, or is. */
+export function directSubagentUnder(
+  parents: ReadonlyMap<ThreadId, ThreadId>,
+  ancestorId: ThreadId,
+  threadId: ThreadId,
+): ThreadId | null {
+  const seen = new Set<ThreadId>();
+  let current = threadId;
+  while (!seen.has(current)) {
+    seen.add(current);
+    const parent = parents.get(current);
+    if (parent === undefined) return null;
+    if (parent === ancestorId) return current;
+    current = parent;
+  }
+  return null;
+}
+
+/** Roles that carry the work and report progress worth reading; the rest answer and finish. */
+export function isSubagentDoer(role: AgentRole | undefined): boolean {
+  return (
+    role === undefined ||
+    role === "lead" ||
+    role === "implementation-worker" ||
+    role === "ui-worker" ||
+    role === "chore-worker"
+  );
+}
+
+/** A thread's delegated subagents in panel order: leads, then other doers, then helpers. */
+export function subagentPanelChildIds(
+  threads: ReadonlyArray<OrchestrationV2ThreadShell>,
+  parentId: ThreadId,
+): ReadonlyArray<ThreadId> {
+  const rank = (thread: OrchestrationV2ThreadShell) =>
+    thread.agentTask?.role === "lead" ? 0 : isSubagentDoer(thread.agentTask?.role) ? 1 : 2;
+  return threads
+    .filter(
+      (thread) =>
+        thread.lineage.relationshipToParent === "subagent" &&
+        thread.lineage.parentThreadId === parentId &&
+        !isProviderNativeSubagentThread(thread),
+    )
+    .map((thread, index) => ({ id: thread.id, rank: rank(thread), index }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.id);
+}
+
+// The row's spinner and colour already say a subagent is working, so only the other states need a word.
+const SUBAGENT_ACTIVITY_SUFFIX: Record<SubagentStatus, string> = {
+  approval: " approval",
+  input: " input",
+  working: "",
+  waiting: " waiting",
 };
 
-/** "Lead working", "2 leads working", "Advisor input": short enough for a sidebar row. */
+function subagentActivityNoun(role: AgentRole | null): string {
+  switch (role) {
+    case null:
+      return "Agent";
+    case "lead":
+      return "Lead";
+    case "implementation-worker":
+      return "Implementer";
+    case "ticket-reviewer":
+    case "spec-reviewer":
+      return "Reviewer";
+    default:
+      return AGENT_ROLE_TITLE_LABEL[role];
+  }
+}
+
+/** "Lead", "4 implementers", "Advisor input": short enough for a sidebar row beside its timer. */
 export function subagentActivityLabel(activity: SubagentActivity): string {
-  const noun =
-    activity.role === "lead"
-      ? "Lead"
-      : activity.role === null
-        ? "Agent"
-        : AGENT_ROLE_TITLE_LABEL[activity.role];
-  const verb = SUBAGENT_ACTIVITY_VERB[activity.status];
-  if (activity.count === 1) return `${noun} ${verb}`;
-  return `${activity.count} ${noun.toLowerCase()}s ${verb}`;
+  const noun = subagentActivityNoun(activity.role);
+  const suffix = SUBAGENT_ACTIVITY_SUFFIX[activity.status];
+  if (activity.count === 1) return `${noun}${suffix}`;
+  return `${activity.count} ${noun.toLowerCase()}s${suffix}`;
 }
 
 export function childThreadInputsTitle(
@@ -445,23 +509,19 @@ export function createEnvironmentThreadShellAtoms(input: {
     }).pipe(Atom.withLabel(`environment-subagent-activity:${key}`));
   });
 
-  // The cards above the composer exist per lead, so only a change of leads re-renders the thread.
-  const leadChildIdsAtomFamily = Atom.family((key: string) => {
+  // The panel above the composer has a row per subagent, so only a change of subagents re-renders the thread.
+  const subagentPanelChildIdsAtomFamily = Atom.family((key: string) => {
     const ref = parseThreadKey(key);
     let previous: ReadonlyArray<ThreadId> = [];
     return Atom.make((get) => {
-      const next = get(environmentThreadsAtom(ref.environmentId))
-        .filter(
-          (thread) =>
-            thread.lineage.relationshipToParent === "subagent" &&
-            thread.lineage.parentThreadId === ref.threadId &&
-            thread.agentTask?.role === "lead",
-        )
-        .map((thread) => thread.id);
+      const next = subagentPanelChildIds(
+        get(environmentThreadsAtom(ref.environmentId)),
+        ref.threadId,
+      );
       if (arrayElementsEqual(previous, next)) return previous;
       previous = next;
       return next;
-    }).pipe(Atom.withLabel(`environment-lead-child-ids:${key}`));
+    }).pipe(Atom.withLabel(`environment-subagent-panel-child-ids:${key}`));
   });
 
   // Child approvals and questions are hidden with their sidebar rows. Read their
@@ -661,7 +721,8 @@ export function createEnvironmentThreadShellAtoms(input: {
     childThreadInputsAtom: (ref: ScopedThreadRef) => childThreadInputsAtomFamily(threadKey(ref)),
     subagentLiveStateAtom,
     subagentActivityAtom: (ref: ScopedThreadRef) => subagentActivityAtomFamily(threadKey(ref)),
-    leadChildIdsAtom: (ref: ScopedThreadRef) => leadChildIdsAtomFamily(threadKey(ref)),
+    subagentPanelChildIdsAtom: (ref: ScopedThreadRef) =>
+      subagentPanelChildIdsAtomFamily(threadKey(ref)),
     sideChatThreadIdAtom: (ref: ScopedThreadRef) => sideChatThreadIdAtomFamily(threadKey(ref)),
     threadWatchersAtom: (ref: ScopedThreadRef) => threadWatchersAtomFamily(threadKey(ref)),
   };
