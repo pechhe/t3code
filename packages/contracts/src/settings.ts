@@ -1091,6 +1091,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "defaultProjectScripts",
   "enableAgentBrowserAccess",
   "agentBrowserBackends",
+  "agentBrowserLoopbackAllow",
   "enableAgentDeviceAccess",
   "textGenerationModelSelection",
   "threadTitleInstructions",
@@ -1129,6 +1130,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
   defaultProjectScripts: Schema.optionalKey(Schema.Array(ProjectScript)),
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   agentBrowserBackends: Schema.optionalKey(AgentBrowserBackends),
+  agentBrowserLoopbackAllow: Schema.optionalKey(Schema.Array(Schema.String)),
   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
   textGenerationModelSelection: Schema.optionalKey(ModelSelection),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),
@@ -1284,6 +1286,9 @@ export const ServerSettings = Schema.Struct({
   enableAgentBrowserAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   agentBrowserBackends: AgentBrowserBackends.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_AGENT_BROWSER_BACKENDS)),
+  ),
+  agentBrowserLoopbackAllow: Schema.Array(Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
   ),
   phiBrowserSkillDirectory: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   projectAgentBrowserAccessOverrides: Schema.Record(ProjectId, Schema.Boolean).pipe(
@@ -1764,6 +1769,7 @@ export const ServerSettingsPatch = Schema.Struct({
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   agentBrowserBackends: Schema.optionalKey(AgentBrowserBackends),
+  agentBrowserLoopbackAllow: Schema.optionalKey(Schema.Array(Schema.String)),
   phiBrowserSkillDirectory: Schema.optionalKey(Schema.String),
   projectAgentBrowserAccessOverrides: Schema.optionalKey(
     Schema.Record(ProjectId, Schema.NullOr(Schema.Boolean)),

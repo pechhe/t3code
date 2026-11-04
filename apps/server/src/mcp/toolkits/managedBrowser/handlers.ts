@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect";
 import type {
   PreviewAutomationResizeResult,
+  PreviewAutomationRecordingStatus,
+  PreviewAutomationSetColorSchemeResult,
   PreviewAutomationSnapshot,
   PreviewAutomationStatus,
   PreviewAutomationSelectResult,
@@ -10,12 +12,17 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import { unavailable } from "../../threadAccess.ts";
-import { invokeTargeted, normalizePreviewOpenInput } from "../preview/handlers.ts";
+import {
+  claimPreviewRecording,
+  invoke,
+  invokeTargeted,
+  normalizePreviewOpenInput,
+} from "../preview/handlers.ts";
 import { ManagedBrowserSnapshotToolkit, ManagedBrowserToolkit } from "./tools.ts";
 
 const scope = McpInvocationContext.requireThreadMcpCapability("preview");
 
-/** Phi's own tabs for this task's thread. The integrated browser is not part of this endpoint. */
+/** Only the task's selected backend and owned tabs are reachable from this endpoint. */
 export const layer = McpToolAccess.toLayer(ManagedBrowserToolkit, {
   preview_open: McpToolAccess.asManagedBrowser((input) =>
     invokeTargeted<PreviewAutomationStatus>("open", normalizePreviewOpenInput(input)),
@@ -49,6 +56,24 @@ export const layer = McpToolAccess.toLayer(ManagedBrowserToolkit, {
   ),
   preview_resize: McpToolAccess.asManagedBrowser((input) =>
     invokeTargeted<PreviewAutomationResizeResult>("resize", input, input.timeoutMs),
+  ),
+  preview_set_appearance: McpToolAccess.asManagedBrowser((input) =>
+    invokeTargeted<PreviewAutomationSetColorSchemeResult>("setColorScheme", input),
+  ),
+  preview_recording_start: McpToolAccess.asManagedBrowser((input) =>
+    invokeTargeted<PreviewAutomationRecordingStatus>("recordingStart", input),
+  ),
+  preview_recording_stop: McpToolAccess.asManagedBrowser((input) =>
+    Effect.gen(function* () {
+      const caller = yield* scope;
+      const response = yield* invoke<unknown>(
+        "recordingStop",
+        { transferToEnvironment: true },
+        120_000,
+        input.tabId,
+      );
+      return yield* claimPreviewRecording(caller.thread.threadId, response.result);
+    }),
   ),
   preview_handoff: McpToolAccess.asManagedBrowser((input) =>
     invokeTargeted<object>("handoff", input),

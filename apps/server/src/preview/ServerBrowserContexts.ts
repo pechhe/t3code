@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off - Owns Playwright resources outside the Effect runtime.
+// @effect-diagnostics nodeBuiltinImport:off globalTimers:off - Owns Playwright resources outside the Effect runtime.
 import { INCOGNITO_BROWSER_PROFILE_ID } from "@t3tools/contracts";
 import { constVoid } from "effect/Function";
 import * as NodeFSP from "node:fs/promises";
@@ -7,12 +7,27 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import type { Browser, BrowserContext, CDPSession } from "playwright-core";
 
+import { ManagedBrowserProxy } from "./ManagedBrowserProxy.ts";
 import { sandboxDisabled } from "./PreviewBrowserHost.ts";
 
 // Playwright needs its files on disk. createRequire also resolves it from a Node SEA executable.
 const requirePlaywright = NodeModule.createRequire(import.meta.url);
 const loadPlaywright = () =>
   requirePlaywright("playwright-core") as typeof import("playwright-core");
+
+const managedStart = async <A>(operation: Promise<A>, message: string) => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), 5_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 interface Options {
   readonly profilesDir: string;
@@ -72,6 +87,12 @@ export class ServerBrowserContexts {
   private readonly contexts = new Map<string, Promise<BrowserContext>>();
   private readonly clearing = new Map<string, Promise<void>>();
   private browser: Promise<Browser> | undefined;
+  private readonly managedContexts = new Set<BrowserContext>();
+  private readonly proxies = new Map<BrowserContext, ManagedBrowserProxy>();
+  private readonly managedPolicies = new Map<
+    BrowserContext,
+    { readonly policy: () => Promise<ReadonlyArray<string> | null>; readonly initial: string }
+  >();
   private closing: Promise<void> | undefined;
 
   constructor(options: Options) {
@@ -164,6 +185,96 @@ export class ServerBrowserContexts {
     );
   }
 
+  async managedContext(options: {
+    readonly serverPort: number;
+    readonly policy: () => Promise<ReadonlyArray<string> | null>;
+  }) {
+    if (this.closing) throw new Error("The preview browser is closed.");
+    const initial = await options.policy();
+    if (initial === null) throw new Error("Managed browser access was revoked for this project.");
+    const proxy = await ManagedBrowserProxy.start(options);
+    let browser: Browser | undefined;
+    try {
+      const launch = await managedStart(
+        this.launchOptions(),
+        "Managed browser not ready within 5 seconds. Run t3 browser setup.",
+      );
+      const { chromium } = loadPlaywright();
+      browser = await this.launch(launch, () =>
+        chromium.launch({
+          ...launch,
+          timeout: 10_000,
+          proxy: { server: "per-context" },
+          args: [
+            ...launch.args,
+            "--proxy-bypass-list=<-loopback>",
+            "--disable-quic",
+            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+          ],
+        }),
+      );
+      const context = await managedStart(
+        browser.newContext({
+          viewport: { width: 1280, height: 800 },
+          deviceScaleFactor: 2,
+          proxy: { ...proxy.configuration, bypass: "<-loopback>" },
+          serviceWorkers: "block",
+        }),
+        "Managed browser context could not start within 5 seconds.",
+      );
+      this.managedContexts.add(context);
+      this.proxies.set(context, proxy);
+      this.managedPolicies.set(context, {
+        policy: options.policy,
+        initial: JSON.stringify(initial),
+      });
+      const managedBrowser = browser;
+      context.once("close", () => {
+        this.managedContexts.delete(context);
+        this.proxies.delete(context);
+        this.managedPolicies.delete(context);
+        void proxy.close();
+        void managedBrowser.close();
+        this.options.onContextClose?.(context);
+      });
+      browser.once("disconnected", () => {
+        void context.close();
+        void proxy.close();
+      });
+      const current = await options.policy();
+      if (this.closing || current === null || JSON.stringify(current) !== JSON.stringify(initial)) {
+        await context.close();
+        throw new Error(
+          this.closing
+            ? "The preview browser is closed."
+            : "Managed browser access was revoked while the browser started.",
+        );
+      }
+      return context;
+    } catch (error) {
+      await browser?.close();
+      await proxy.close();
+      throw error;
+    }
+  }
+
+  async refreshManagedPolicies() {
+    await Promise.all(
+      [...this.managedPolicies].map(async ([context, entry]) => {
+        const current = await entry.policy();
+        if (current === null || JSON.stringify(current) !== entry.initial) await context.close();
+      }),
+    );
+  }
+
+  networkRefusalCount(context: BrowserContext) {
+    return this.proxies.get(context)?.refusalCount ?? 0;
+  }
+
+  networkRefusals(context: BrowserContext) {
+    return this.proxies.get(context)?.refusals ?? [];
+  }
+
   private profileDirectory(profileId: string) {
     const encoded = encodeURIComponent(profileId);
     return NodePath.join(
@@ -218,7 +329,10 @@ export class ServerBrowserContexts {
 
   private async dispose() {
     await Promise.allSettled(
-      [...this.contexts.values()].map(async (pending) => (await pending).close()),
+      [
+        ...this.contexts.values(),
+        ...[...this.managedContexts].map((context) => Promise.resolve(context)),
+      ].map(async (pending) => (await pending).close()),
     );
     const browser = await this.browser?.catch(() => undefined);
     await browser?.close().catch(constVoid);

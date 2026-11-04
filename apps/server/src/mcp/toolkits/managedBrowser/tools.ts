@@ -6,12 +6,7 @@ import { PreviewSnapshotToolkit, PreviewStandardToolkit } from "../preview/tools
 const preview = PreviewStandardToolkit.tools;
 const controls = PreviewControlsToolkit.tools;
 
-/**
- * Everything a managed browser task can call: the operations Phi supports, its bounded
- * handoff, and listing or closing its own tabs. There is no evaluate, upload or recording, and
- * no orchestration, thread, worktree or settings tool. The `/mcp/browser`
- * endpoint registers this and nothing else, so what is not here is not listed or callable.
- */
+/** The task's own browser tools; no page evaluation, file upload or control-plane authority. */
 export const ManagedBrowserToolkit = Toolkit.make(
   preview.preview_open,
   preview.preview_status,
@@ -19,6 +14,9 @@ export const ManagedBrowserToolkit = Toolkit.make(
   preview.preview_interact,
   preview.preview_wait_for,
   preview.preview_resize,
+  preview.preview_set_appearance,
+  preview.preview_recording_start,
+  preview.preview_recording_stop,
   preview.preview_handoff,
   preview.preview_resume,
   controls.t3_preview_list,

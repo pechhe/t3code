@@ -228,6 +228,37 @@ const withFixture = (
     Effect.provideService(HostProcess.Platform, options.platform ?? "darwin"),
   );
 
+it.effect("reports interaction and wait outcomes with URL and title read after the action", () =>
+  withFixture(({ browser, calls }) =>
+    Effect.gen(function* () {
+      const opened = (yield* browser.invoke({
+        scope,
+        operation: "open",
+        input: { url: "https://example.com" },
+      })) as PreviewAutomationStatus;
+      for (const operation of ["press", "waitFor"] as const) {
+        const before = calls.length;
+        const result = yield* browser.invoke({
+          scope,
+          tabId: opened.tabId!,
+          operation,
+          input: operation === "press" ? { key: "Enter" } : { text: "Fixture" },
+        });
+        expect(result).toMatchObject({
+          action: operation,
+          url: "https://example.com/",
+          title: "Fixture",
+          backend: "phi",
+        });
+        expect(calls.slice(before).map((call) => call.action.operation)).toEqual([
+          operation,
+          "status",
+        ]);
+      }
+    }),
+  ),
+);
+
 it.effect("starts the service while old-resource recovery waits for Phi", () =>
   withFixture(
     ({ browser, cleanupStarted, finishCleanup }) =>
@@ -552,6 +583,11 @@ it.effect("serves a Phi tab through the production broker boundary", () =>
         tabId: opened.tabId!,
       });
       expect(snapshot.title).toBe("Fixture");
+      expect(snapshot.captureStatus).toEqual({
+        console: false,
+        network: false,
+        actionTimeline: false,
+      });
       expect(snapshot.screenshot.mimeType).toBe("image/png");
       // The state leads the text, so a bound that cuts a long page's end cannot take it. It is
       // keyed to the ref the agent can use, and a ref the scan did not list is dropped.

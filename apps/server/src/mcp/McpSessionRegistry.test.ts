@@ -1,7 +1,10 @@
+import * as PreviewManager from "../preview/Manager.ts";
+import * as Stream from "effect/Stream";
 import * as PhiBrowser from "../preview/PhiBrowser.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import * as Layer from "effect/Layer";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import { HttpServer } from "effect/http";
@@ -284,26 +287,29 @@ it.effect("denies a revoked credential at once while its Phi cleanup is still bl
   }),
 );
 
-it.effect("mints a managed browser credential for the narrow endpoint, pinned to Phi", () =>
-  Effect.gen(function* () {
-    const registry = yield* makeRegistry(() => 1_000);
-    const issued = yield* registry.issue({
-      threadId: ThreadId.make("thread-managed-browser"),
-      providerInstanceId: ProviderInstanceId.make("claudeAgent"),
-      managedBrowser: true,
-      // Settings that would route a general task to the integrated browser change nothing.
-      browserBackends: { enabled: ["integrated"], default: "integrated" },
-      capabilities: new Set(["orchestration", "worktree", "device"]),
-    });
-    expect(issued.config.endpoint).toBe("http://127.0.0.1:43123/mcp/browser");
-    expect(issued.config.managedBrowser).toBe(true);
-    const resolved = yield* registry.resolve(
-      issued.config.authorizationHeader.replace(/^Bearer\s+/, ""),
-    );
-    expect(resolved?.capabilities).toEqual(new Set(["preview"]));
-    expect(resolved?.managedBrowser).toBe(true);
-    expect(resolved?.browserBackends).toEqual({ enabled: ["phi"], default: "phi" });
-  }),
+it.effect(
+  "mints a managed browser credential for the narrow endpoint, pinned to its selection",
+  () =>
+    Effect.gen(function* () {
+      const registry = yield* makeRegistry(() => 1_000);
+      const issued = yield* registry.issue({
+        threadId: ThreadId.make("thread-managed-browser"),
+        providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+        managedBrowser: true,
+        taskBrowser: { backend: "phi", phiLane: "agents" },
+        // Settings that would route a general task to the integrated browser change nothing.
+        browserBackends: { enabled: ["integrated"], default: "integrated" },
+        capabilities: new Set(["orchestration", "worktree", "device"]),
+      });
+      expect(issued.config.endpoint).toBe("http://127.0.0.1:43123/mcp/browser");
+      expect(issued.config.managedBrowser).toBe(true);
+      const resolved = yield* registry.resolve(
+        issued.config.authorizationHeader.replace(/^Bearer\s+/, ""),
+      );
+      expect(resolved?.capabilities).toEqual(new Set(["preview"]));
+      expect(resolved?.managedBrowser).toBe(true);
+      expect(resolved?.browserBackends).toEqual({ enabled: ["phi"], default: "phi" });
+    }),
 );
 
 it.effect("closes a thread's browser tabs and leaves its credential valid", () =>
@@ -429,4 +435,94 @@ it.effect.each([
         toolProfile === "web-research" ? "child-research" : "child-reader",
       );
     }),
+);
+
+it.effect.each(["cancel", "expiry", "task-end"] as const)(
+  "releases only the integrated task's tabs on %s",
+  (reason) =>
+    Effect.gen(function* () {
+      const manager = yield* PreviewManager.PreviewManager;
+      const events = yield* manager.subscribeEvents;
+      let timestamp = 1000;
+      const registry = yield* makeRegistry(() => timestamp);
+      const threadId = ThreadId.make("integrated-cleanup");
+      const issued = yield* registry.issue({
+        threadId,
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        managedBrowser: true,
+      });
+      const owner = `${environmentId}\u0000${issued.config.providerSessionId}\u0000${threadId}`;
+      const owned = yield* manager.open({ threadId, automationOwner: owner, runtime: "server" });
+      const foreign = yield* manager.open({
+        threadId,
+        automationOwner: "another-session",
+        runtime: "server",
+      });
+      const ordinaryCredential = yield* registry.issue({
+        threadId,
+        providerInstanceId: ProviderInstanceId.make("codex"),
+      });
+      const ordinary = yield* manager.open({
+        threadId,
+        runtime: "server",
+        automationOwner: `${environmentId}\u0000${ordinaryCredential.config.providerSessionId}\u0000${threadId}`,
+      });
+      if (reason === "cancel") yield* registry.revokeThread(threadId);
+      else if (reason === "task-end") yield* registry.releaseThreadBrowser(threadId);
+      else {
+        timestamp += 101;
+        expect(
+          yield* registry.resolve(issued.config.authorizationHeader.replace(/^Bearer\s+/, "")),
+        ).toBeUndefined();
+      }
+      const event = yield* Stream.fromSubscription(events).pipe(
+        Stream.filter((event) => event.type === "closed"),
+        Stream.take(1),
+        Stream.runCollect,
+      );
+      expect(event[0]?.tabId).toBe(owned.tabId);
+      expect((yield* manager.list({ threadId })).sessions.map((tab) => tab.tabId)).toEqual([
+        foreign.tabId,
+        ordinary.tabId,
+      ]);
+    }).pipe(Effect.provide(PreviewManager.layer.pipe(Layer.provideMerge(NodeServices.layer)))),
+);
+
+it.effect("releases an integrated task without depending on Phi cleanup", () =>
+  Effect.gen(function* () {
+    const calls: string[] = [];
+    const manager = yield* PreviewManager.PreviewManager;
+    const events = yield* manager.subscribeEvents;
+    const phi = PhiBrowser.PhiBrowser.of({
+      availability: () => Effect.succeed("unreachable"),
+      hasTab: () => Effect.succeed(false),
+      invoke: () => Effect.die("unused"),
+      list: () => Effect.succeed([]),
+      releaseSession: (session) =>
+        Effect.sync(() => {
+          calls.push(session);
+        }),
+    });
+    const registry = yield* makeRegistry(() => 1000).pipe(
+      Effect.provideService(PhiBrowser.PhiBrowser, phi),
+    );
+    const threadId = ThreadId.make("independent-integrated-cleanup");
+    const issued = yield* registry.issue({
+      threadId,
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      managedBrowser: true,
+    });
+    yield* manager.open({
+      threadId,
+      runtime: "server",
+      automationOwner: `${environmentId}\u0000${issued.config.providerSessionId}\u0000${threadId}`,
+    });
+    yield* registry.releaseThreadBrowser(threadId);
+    yield* Stream.fromSubscription(events).pipe(
+      Stream.filter((event) => event.type === "closed"),
+      Stream.take(1),
+      Stream.runDrain,
+    );
+    expect(calls).toEqual([]);
+  }).pipe(Effect.provide(PreviewManager.layer.pipe(Layer.provideMerge(NodeServices.layer)))),
 );

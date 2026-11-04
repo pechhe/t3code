@@ -11,6 +11,7 @@ const decodeManifest = Schema.decodeUnknownSync(AgentPolicyManifest);
 const encodeManifest = Schema.encodeSync(AgentPolicyManifest);
 const decodeManifestExit = Schema.decodeUnknownExit(AgentPolicyManifest);
 const decodeSnapshot = Schema.decodeUnknownSync(AgentPolicySnapshot);
+const encodeRequest = Schema.encodeSync(AgentTaskRequest);
 const decodeRequest = Schema.decodeUnknownSync(AgentTaskRequest);
 
 const role = (pool: string, effort: Record<string, object>, extra: object = {}) => ({
@@ -298,5 +299,22 @@ describe("agentTaskTopic", () => {
     expect(agentTaskTopic("Advisor · Smoke edit", "implementation-worker")).toBe(
       "Advisor · Smoke edit",
     );
+  });
+});
+
+it("retains typed browser selection through the task request wire round trip", () => {
+  const input = {
+    role: "browser",
+    taskClass: "ui",
+    workId: "work",
+    attemptId: "one",
+    workspacePath: "/workspace",
+    browser: { backend: "phi", phiLane: "agents" },
+  };
+  const decoded = decodeRequest(input);
+  expect(decoded.browser).toEqual(input.browser);
+  expect(decodeRequest(encodeRequest(decoded)).browser).toEqual(input.browser);
+  expect(decodeRequest({ ...input, browser: { backend: "integrated" } }).browser).toEqual({
+    backend: "integrated",
   });
 });

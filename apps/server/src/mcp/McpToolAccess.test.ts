@@ -154,6 +154,12 @@ const childCaller = (
   ...threadCaller(threadId),
   capabilities: new Set(["orchestration", "preview"] as const),
   toolProfile,
+  ...(role === "browser" || role === "ui-verifier"
+    ? {
+        taskBrowser: { backend: "phi" as const },
+        browserBackends: { enabled: ["phi" as const], default: "phi" as const },
+      }
+    : {}),
   agentRole: role,
 });
 

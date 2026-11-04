@@ -57,9 +57,11 @@ export interface McpInvocationScope {
   readonly phiBrowserSkillDirectory?: string;
   /**
    * Set on the credential of a managed browser task. It reaches only the narrow
-   * `/mcp/browser` endpoint, pinned to Phi, and is refused by the general `/mcp` endpoint.
+   * `/mcp/browser` endpoint, pinned to the selected backend, and is refused by the general `/mcp` endpoint.
    */
   readonly managedBrowser?: true;
+  readonly managedProjectId?: import("@t3tools/contracts").ProjectId;
+  readonly taskBrowser?: import("@t3tools/contracts").AgentTaskBrowser;
   /** The session tool endpoint this credential may use; absent on external client credentials. */
   readonly endpointKey?: string;
   /** The thread's listing profile; absent on external client credentials, which keep the full list. */

@@ -34,6 +34,7 @@ const scope = (managedBrowser: boolean): McpInvocationContext.McpInvocationScope
   client: undefined,
   capabilities: new Set(["preview"]),
   issuedAt: 1,
+  taskBrowser: { backend: "phi" },
   ...(managedBrowser ? { managedBrowser: true as const } : {}),
 });
 const task = (toolProfile: "phi" | "source-reader") =>
@@ -207,5 +208,31 @@ it.effect("refuses protected actions once access is revoked but still lets a tab
       expect(refused).not.toBe("allowed");
       expect(yield* check({ checkSettings: false, settings })).toBe("allowed");
     }
+  }),
+);
+
+it.effect("checks integrated access independently from Phi on every call", () =>
+  Effect.gen(function* () {
+    const caller = callerFor({ role: "browser", toolProfile: "phi" });
+    const integrated: Caller = {
+      ...caller,
+      scope: { ...caller.scope, taskBrowser: { backend: "integrated" } },
+    };
+    expect(
+      yield* projectMessage(
+        assertProjectBrowserAccess(integrated).pipe(Effect.provide(ServerSettings.layerTest())),
+      ),
+    ).toBe("allowed");
+    expect(
+      yield* projectMessage(
+        assertProjectBrowserAccess(integrated).pipe(
+          Effect.provide(
+            ServerSettings.layerTest({
+              agentBrowserBackends: { enabled: ["phi"], default: "phi" },
+            }),
+          ),
+        ),
+      ),
+    ).toBe("Integrated browsing was turned off for this project.");
   }),
 );

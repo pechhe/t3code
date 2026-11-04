@@ -8,6 +8,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import { it } from "@effect/vitest";
 import {
   type BrowserRecordingFrameRate,
+  ProjectId,
   EnvironmentId,
   PreviewTabId,
   ProviderInstanceId,
@@ -49,6 +50,9 @@ vi.mock("./ServerBrowserContexts.ts", () => ({
       const context = makeContext(this.onClose);
       contexts.push(context);
       return context as unknown as BrowserContext;
+    }
+    async managedContext() {
+      return this.contextFor("default", "managed");
     }
     async scratchPage() {
       return makeEncoderPage() as unknown as Page;
@@ -1251,4 +1255,37 @@ it.live(
         });
       }),
     ).pipe(Effect.provide(layer)),
+);
+
+it.live("reports a managed browser crash as a refusal and releases its context", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { broker } = yield* ready;
+      const manager = yield* Manager.PreviewManager;
+      const managed = {
+        ...asSession("managed-crash"),
+        managedBrowser: true as const,
+        managedProjectId: ProjectId.make("managed-crash-project"),
+      };
+      const opened = yield* broker.invoke<PreviewAutomationStatus>({
+        scope: managed,
+        operation: "open",
+        input: {},
+      });
+      const tabId = PreviewTabId.make(opened.tabId!);
+      const events = yield* manager.subscribeEvents;
+      const crashed = contexts.at(-1)!;
+      yield* Effect.promise(() => crashed.page.emitAsync("crash"));
+      yield* Stream.fromSubscription(events).pipe(
+        Stream.filter((event) => event.type === "closed" && event.tabId === tabId),
+        Stream.take(1),
+        Stream.runDrain,
+      );
+      const refused = yield* broker
+        .invoke<PreviewAutomationStatus>({ scope: managed, tabId, operation: "status", input: {} })
+        .pipe(Effect.flip);
+      expect(refused.message).toContain("crashed or disconnected");
+      expect(crashed.close).toHaveBeenCalled();
+    }),
+  ).pipe(Effect.provide(layer)),
 );

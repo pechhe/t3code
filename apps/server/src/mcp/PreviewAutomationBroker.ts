@@ -559,7 +559,9 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
                 .filter(
                   (host) =>
                     host.environmentId === input.scope.environmentId &&
-                    supportsOperation(host, input.operation),
+                    supportsOperation(host, input.operation) &&
+                    (input.scope.managedBrowser !== true ||
+                      host.clientId === SERVER_BROWSER_AUTOMATION_CLIENT_ID),
                 )
                 .sort(
                   (left, right) =>
@@ -577,7 +579,13 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       }
       // First open may install Chromium for ten minutes; keep it alive without replaying effects.
       const timeoutMs =
-        input.timeoutMs ?? (input.operation === "open" && connection.preferred ? 660_000 : 15_000);
+        input.scope.managedBrowser === true
+          ? Math.min(
+              input.timeoutMs ?? 15_000,
+              input.operation === "recordingStop" ? 120_000 : 15_000,
+            )
+          : (input.timeoutMs ??
+            (input.operation === "open" && connection.preferred ? 660_000 : 15_000));
       const canReuseAssignedTab =
         assigned !== undefined &&
         assigned.connectionId === connection.connectionId &&
@@ -652,6 +660,9 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
             tabId: requestContext.tabId,
             tabIdExplicit: input.tabId !== undefined,
             agentSessionId: hostAssignmentKey(input.scope),
+            ...(input.scope.managedBrowser === true && input.scope.managedProjectId !== undefined
+              ? { managedBrowser: { projectId: input.scope.managedProjectId } }
+              : {}),
             operation: input.operation,
             input: input.input,
             timeoutMs,
@@ -761,6 +772,29 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
     ) {
       return yield* new PreviewAutomationBackendError({ backend, reason: "conflicting-binding" });
     }
+    if (input.scope.managedBrowser === true && backend === "integrated") {
+      if (input.scope.managedProjectId === undefined)
+        return yield* new PreviewAutomationBackendError({ backend, reason: "unavailable" });
+      if (openInput && "profileId" in openInput && openInput.profileId !== undefined)
+        return yield* new PreviewAutomationBackendError({ backend, reason: "unsupported" });
+      if (input.tabId !== undefined) {
+        const sessions = Option.isSome(previewManager)
+          ? (yield* previewManager.value.list({ threadId: input.scope.thread.threadId })).sessions
+          : [];
+        const target = sessions.find((tab) => tab.tabId === input.tabId);
+        if (target !== undefined && target.automationOwner !== hostAssignmentKey(input.scope))
+          return yield* new PreviewAutomationBackendError({
+            backend,
+            reason: "conflicting-binding",
+          });
+      }
+    }
+    if (backend === "phi" && input.scope.managedBrowser === true && openInput) {
+      input = {
+        ...input,
+        input: { ...openInput, phiLane: input.scope.taskBrowser?.phiLane ?? "shadow" },
+      };
+    }
     let result: A;
     if (backend === "phi") {
       if (Option.isNone(phiBrowser))
@@ -792,7 +826,14 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
         });
       const result = yield* previewManager.value.list({ threadId: scope.thread.threadId });
       const phiTabs = Option.isSome(phiBrowser) ? yield* phiBrowser.value.list(scope) : [];
-      const sessions = [...result.sessions, ...phiTabs];
+      const sessions = [...result.sessions, ...phiTabs].filter(
+        (tab) =>
+          scope.managedBrowser !== true ||
+          tab.automationOwner === hostAssignmentKey(scope) ||
+          ("backend" in tab &&
+            tab.backend === "phi" &&
+            tab.automationOwner === scope.thread.providerSessionId),
+      );
       const end = cursor + limit;
       return {
         ...result,
@@ -811,6 +852,10 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
           reason: "unavailable",
         });
       const { sessions } = yield* previewManager.value.list({ threadId: scope.thread.threadId });
+      if (scope.managedBrowser === true) {
+        yield* invokeBackend({ scope, tabId, operation: "close", input: {} });
+        return;
+      }
       if (sessions.some((session) => session.tabId === tabId && session.runtime === "server")) {
         yield* invokeBackend({ scope, tabId, operation: "close", input: {} });
       } else yield* previewManager.value.close({ threadId: scope.thread.threadId, tabId });

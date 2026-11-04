@@ -49,7 +49,7 @@ export function normalizePreviewOpenInput(
   };
 }
 
-const invoke = Effect.fn("PreviewToolkit.invoke")(function* <A>(
+export const invoke = Effect.fn("PreviewToolkit.invoke")(function* <A>(
   operation: PreviewAutomationOperation,
   input: unknown,
   timeoutMs?: number,

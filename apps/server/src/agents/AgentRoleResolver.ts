@@ -31,6 +31,7 @@ export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentR
     "unsupported-tools",
     "browser-access-off",
     "phi-disabled",
+    "integrated-disabled",
     "phi-skill-missing",
     "phi-unreachable",
     "unsupported-permissions",
@@ -87,6 +88,7 @@ type ResolutionInput = {
 
 export type BrowserRefusal =
   | "browser-access-off"
+  | "integrated-disabled"
   | "phi-disabled"
   | "phi-skill-missing"
   | "phi-unreachable";
@@ -180,6 +182,12 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
           "review.priorReview.sourceRevision equals the pinned sourceRevision, so there is nothing new to review; omit priorReview for a full review",
       });
   }
+  if (request.role === "ui-worker" && request.browser?.backend === "integrated")
+    return yield* new AgentRoleError({
+      reason: "unsupported-options",
+      detail:
+        "Use browser or ui-verifier for managed headless browsing; ui-worker keeps its Phi tools.",
+    });
   // Only UI implementation can proceed without an unreachable Phi route.
   if (usesPhi(role.toolProfile)) {
     if (input.browser === undefined)

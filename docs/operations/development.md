@@ -371,3 +371,35 @@ Add `--signed` after configuring the platform credentials in the
 - Upload PR evidence to GitHub. Never commit PR-only screenshots or assets such as `.github/pr-assets/`.
 - One request is one PR. Split it only when the maintainer asks. Outside contributions follow the stricter [one problem per PR](../../CONTRIBUTING.md#solve-one-underlying-problem-per-pr) rule.
 - When babysitting: call `watch_pull_request` and end your turn. T3 Code wakes you on checks, comments, or conflicts. Do not poll or sleep. Verify each bot finding against the source, fix real ones, dismiss false positives with a written reason. Stay quiet when nothing is new. Stop when the bots are green on the latest commit.
+
+## Managed headless browser access
+
+Managed `browser` and `ui-verifier` tasks default to the server's integrated Chromium.
+Select `agentTask.browser: { backend: "phi", phiLane: "agents" }` explicitly when a task
+needs a logged-in Phi Space or a page the owner will use. `agent_roles` accepts the same
+`browser` selection to check its availability. A task's credential keeps that selection
+through retries and continuations.
+
+Integrated tasks start with empty, ephemeral storage and no private-network access.
+Configure `agentBrowserLoopbackAllow` in server settings or a project's settings override
+to permit previews, for example `["yardsmith.localhost:3201", "weave.localhost:3202",
+"localhost:3100-3199"]`. Entries match an exact hostname and port or inclusive port range;
+an empty list permits no private destinations. The T3 listening port and proxy's own port
+remain denied even if an entry includes them. Changing the allow list also closes active
+managed contexts, so an established tunnel cannot outlive a revocation.
+
+Each managed context uses its own authenticated forward proxy. It validates every DNS
+answer and connects to that numeric address, preventing a second lookup from rebinding
+an allowed public hostname to a private address. HTTP redirects, subresources, popups,
+fetch and WebSockets pass through this boundary; HTTPS uses CONNECT. Service workers
+are blocked, QUIC is disabled and WebRTC disables non-proxied UDP. Ordinary integrated
+profiles keep their existing networking and storage. This boundary is browser networking,
+not an operating-system sandbox for a provider process.
+
+Managed integrated open requests have a 15-second response deadline plus the broker's host-response
+grace (currently 5 seconds), rather than the ordinary first-install allowance. Executable
+readiness and context creation each have a 5-second bound and Chromium launch a 10-second bound; run `t3 browser setup`
+on the host before dispatching verification. Missing/disconnected hosts refuse immediately.
+An unavailable browser never falls back to Phi. Credential expiry is swept at least once
+per minute; cancellation, task cleanup and project access revocation release browser
+resources without waiting for another action.

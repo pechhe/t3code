@@ -681,6 +681,7 @@ const make = Effect.gen(function* () {
             ),
             interactiveElements: [],
             accessibilityTree: null,
+            captureStatus: { console: false, network: false, actionTimeline: false },
             consoleEntries: [],
             networkEntries: [],
             actionTimeline: [],
@@ -718,6 +719,25 @@ const make = Effect.gen(function* () {
         if (["navigate", "handoff", "resume"].includes(request.operation))
           references.delete(binding.tabId);
         setCurrent();
+        if (
+          ["click", "type", "hover", "select", "drag", "press", "scroll", "waitFor"].includes(
+            request.operation,
+          )
+        ) {
+          const after = yield* run(binding, { operation: "status" }, request.timeoutMs);
+          const observed = yield* decodeStatus(after.result).pipe(
+            Effect.mapError((cause) => failure("invalid-response", cause)),
+          );
+          const page = observed.tabs.find((tab) => tab.targetId === binding!.targetId);
+          if (page === undefined) return yield* failure("invalid-response");
+          return {
+            tabId: binding.tabId,
+            backend: "phi",
+            action: request.operation,
+            url: page.url,
+            title: page.title,
+          };
+        }
         return request.operation === "navigate"
           ? status({ ...binding, url: action.url ?? binding.url })
           : { tabId: binding.tabId, backend: "phi" };

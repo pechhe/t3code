@@ -171,7 +171,8 @@ const childInvocation = (child: DelegatedChild): McpInvocationContext.McpInvocat
   capabilities: new Set(["orchestration", "preview"] as const),
   // The credential's scope carries the project settings it was issued under, so a child's
   // actions default to the integrated browser unless the declaration pins them to Phi.
-  browserBackends: projectBrowserBackends,
+  browserBackends: { enabled: ["phi"], default: "phi" },
+  taskBrowser: { backend: "phi" },
   toolProfile: child.toolProfile,
   agentRole: child.role,
 });
@@ -595,7 +596,7 @@ it.effect.each([browserChild, verifierChild])(
   },
 );
 
-it.effect("defaults a browser child to Phi and refuses an explicit integrated backend", () => {
+it.effect("pins a Phi-selecting browser child and refuses an explicit integrated backend", () => {
   const phiCalls: Array<{ operation: string; browserBackends: unknown }> = [];
   return Effect.scoped(
     Effect.gen(function* () {
@@ -959,6 +960,23 @@ it.effect(
         { type: "text", text: "MCP credential does not grant the pull-requests capability." },
       ]);
     }).pipe(Effect.provide(layerPullRequestsTest)),
+);
+
+it.effect("preserves not-captured telemetry in the snapshot MCP presentation", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const captureStatus = { console: false, network: false, actionTimeline: false };
+      yield* serveSnapshots("mcp-uncaptured", { ...snapshotResult, captureStatus });
+      const result = yield* callSnapshot({ includeImage: false });
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).toMatchObject({
+        captureStatus,
+        consoleEntries: [],
+        networkEntries: [],
+        actionTimeline: [],
+      });
+    }),
+  ).pipe(Effect.provide(layerTest)),
 );
 
 it.effect("bounds large ARIA trees without dropping every server locator", () =>

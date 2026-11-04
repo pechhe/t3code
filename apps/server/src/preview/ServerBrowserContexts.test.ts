@@ -21,6 +21,7 @@ const makeContext = () => {
   let closed = false;
   return {
     on: vi.fn((event: string, listener: () => void) => events.on(event, listener)),
+    once: vi.fn((event: string, listener: () => void) => events.once(event, listener)),
     pages: vi.fn(() => []),
     close: vi.fn(async () => {
       if (!closed) {
@@ -37,6 +38,7 @@ const makeBrowser = () => {
   return {
     contexts,
     on: vi.fn((event: string, listener: () => void) => events.on(event, listener)),
+    once: vi.fn((event: string, listener: () => void) => events.once(event, listener)),
     newContext: vi.fn(async () => {
       const context = makeContext();
       contexts.push(context);
@@ -224,4 +226,134 @@ describe("ServerBrowserContexts", () => {
     expect(browser.close).toHaveBeenCalledTimes(1);
     expect(browser.contexts[0]?.close).toHaveBeenCalled();
   });
+});
+
+it("gives each managed context a dedicated proxied launch, credentials and ephemeral storage", async () => {
+  const first = makeBrowser();
+  const second = makeBrowser();
+  launches.launch
+    .mockResolvedValueOnce(first as unknown as Browser)
+    .mockResolvedValueOnce(second as unknown as Browser);
+  const pool = new ServerBrowserContexts(options());
+  try {
+    const a = await pool.managedContext({ serverPort: 3000, policy: async () => [] });
+    const b = await pool.managedContext({ serverPort: 3000, policy: async () => [] });
+    expect(a).not.toBe(b);
+    expect(launches.persistent).not.toHaveBeenCalled();
+    for (const call of launches.launch.mock.calls) {
+      expect(call[0]).toMatchObject({
+        proxy: { server: "per-context" },
+        chromiumSandbox: true,
+        timeout: 10_000,
+      });
+      expect(call[0]?.args).toEqual(
+        expect.arrayContaining([
+          "--proxy-bypass-list=<-loopback>",
+          "--disable-quic",
+          "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+        ]),
+      );
+    }
+    expect(first.newContext.mock.calls[0]).toEqual([
+      expect.objectContaining({
+        serviceWorkers: "block",
+        proxy: expect.objectContaining({
+          username: expect.any(String),
+          password: expect.any(String),
+        }),
+      }),
+    ]);
+    await a.close();
+    expect(first.close).toHaveBeenCalled();
+    expect(second.close).not.toHaveBeenCalled();
+  } finally {
+    await pool.close();
+  }
+});
+
+it("refuses a failed managed launch and disposes its proxy without falling back", async () => {
+  launches.launch.mockRejectedValueOnce(new Error("fixture launch failed"));
+  const pool = new ServerBrowserContexts(options());
+  try {
+    await expect(pool.managedContext({ serverPort: 3000, policy: async () => [] })).rejects.toThrow(
+      "fixture launch failed",
+    );
+    expect(launches.launch).toHaveBeenCalledTimes(1);
+    expect(launches.persistent).not.toHaveBeenCalled();
+  } finally {
+    await pool.close();
+  }
+});
+
+it("refuses a browser that is not ready after five seconds without launching Chromium", async () => {
+  vi.useFakeTimers();
+  const started = Promise.withResolvers<void>();
+  const pool = new ServerBrowserContexts({
+    ...options(),
+    executable: () => {
+      started.resolve();
+      return new Promise<string>(() => {});
+    },
+  });
+  try {
+    const opening = expect(
+      pool.managedContext({ serverPort: 3000, policy: async () => [] }),
+    ).rejects.toThrow("not ready within 5 seconds");
+    await started.promise;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await opening;
+    expect(launches.launch).not.toHaveBeenCalled();
+  } finally {
+    await pool.close();
+    vi.useRealTimers();
+  }
+});
+
+it("closes a managed context whose access is revoked while Chromium starts", async () => {
+  const browser = makeBrowser();
+  const launch = Promise.withResolvers<Browser>();
+  const started = Promise.withResolvers<void>();
+  let policy: ReadonlyArray<string> | null = [];
+  launches.launch.mockImplementationOnce(() => {
+    started.resolve();
+    return launch.promise;
+  });
+  const pool = new ServerBrowserContexts(options());
+  try {
+    const opening = expect(
+      pool.managedContext({ serverPort: 3000, policy: async () => policy }),
+    ).rejects.toThrow("revoked");
+    await started.promise;
+    policy = null;
+    launch.resolve(browser as unknown as Browser);
+    await opening;
+    expect(browser.contexts[0]?.close).toHaveBeenCalled();
+    expect(browser.close).toHaveBeenCalled();
+  } finally {
+    await pool.close();
+  }
+});
+
+it("bounds a stalled context start and closes the managed browser", async () => {
+  vi.useFakeTimers();
+  const started = Promise.withResolvers<void>();
+  const browser = makeBrowser();
+  browser.newContext.mockImplementationOnce(() => {
+    started.resolve();
+    return new Promise<BrowserContext>(() => {});
+  });
+  launches.launch.mockResolvedValueOnce(browser as unknown as Browser);
+  const pool = new ServerBrowserContexts(options());
+  try {
+    const opening = expect(
+      pool.managedContext({ serverPort: 3000, policy: async () => [] }),
+    ).rejects.toThrow("context could not start within 5 seconds");
+    await started.promise;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await opening;
+    expect(browser.close).toHaveBeenCalled();
+  } finally {
+    await pool.close();
+    vi.useRealTimers();
+  }
 });

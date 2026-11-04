@@ -281,18 +281,15 @@ const make = Effect.gen(function* () {
       request: { ...request, executionRequirement: requirement.executionRequirement },
     };
   });
-  /**
-   * Whether a Phi role may start: the project still allows agent browsing and Phi, the skill is
-   * installed and Phi answers. Discovery accepts a recent answer; a launch asks Phi now; a
-   * resumed task is checked by its own tools on every call, so a brief outage cannot strand it.
-   */
+  /** Phi availability is checked only for Phi selections; task tools recheck project access on every call. */
   const browserRoute = Effect.fn("ManagedAgentService.browserRoute")(function* (
     toolProfile: AgentToolProfile,
     projectId: ProjectId | undefined,
     when: "discovery" | "launch" | "resume",
+    request: Pick<AgentTaskRequest, "role" | "browser">,
   ) {
     if (!usesPhi(toolProfile)) return undefined;
-    if (when === "resume") return { refusal: null };
+
     const settings = yield* Effect.serviceOption(Settings.ServerSettingsService);
     const configured = Option.isSome(settings)
       ? yield* settings.value.getSettings.pipe(Effect.orElseSucceed(() => undefined))
@@ -306,6 +303,16 @@ const make = Effect.gen(function* () {
           }
         : resolveProjectSettings(configured, projectId).settings;
     if (!effective.enableAgentBrowserAccess) return { refusal: "browser-access-off" as const };
+    const backend =
+      request.browser?.backend ??
+      (request.role === "browser" || request.role === "ui-verifier" ? "integrated" : "phi");
+    if (backend === "integrated")
+      return {
+        refusal: effective.agentBrowserBackends.enabled.includes("integrated")
+          ? null
+          : ("integrated-disabled" as const),
+      };
+    if (when === "resume") return { refusal: null };
     if (!effective.agentBrowserBackends.enabled.includes("phi"))
       return { refusal: "phi-disabled" as const };
     const phi = yield* Effect.serviceOption(PhiBrowser.PhiBrowser);
@@ -626,7 +633,12 @@ const make = Effect.gen(function* () {
             false,
             policy.sourceAccess === "read-only" || input.request.readOnly === true,
           );
-          const browser = yield* browserRoute(policy.toolProfile, input.projectId, "discovery");
+          const browser = yield* browserRoute(
+            policy.toolProfile,
+            input.projectId,
+            "discovery",
+            context.request,
+          );
           const result = yield* resolver.preview({
             ...context,
             snapshot,
@@ -712,6 +724,7 @@ const make = Effect.gen(function* () {
         role.toolProfile,
         input.projectId,
         input.recordedBinding === undefined ? "launch" : "resume",
+        context.request,
       );
       const withoutPhi =
         Resolver.canImplementWithoutPhi(context.request, role.toolProfile) &&
@@ -738,6 +751,9 @@ const make = Effect.gen(function* () {
       return {
         binding: input.recordedBinding ?? {
           ...context.request,
+          ...(context.request.role === "browser" || context.request.role === "ui-verifier"
+            ? { browser: context.request.browser ?? { backend: "integrated" as const } }
+            : {}),
           executionBoundary: admission.executionBoundary,
           requestFingerprint: input.requestFingerprint,
           policyHash: snapshot.hash,
@@ -835,7 +851,12 @@ const make = Effect.gen(function* () {
         !keepsNarrowerSandbox
       )
         return yield* new ManagedAgentError({ reason: "selection" });
-      const browser = yield* browserRoute(recordedRole.toolProfile, input.projectId, "resume");
+      const browser = yield* browserRoute(
+        recordedRole.toolProfile,
+        input.projectId,
+        "resume",
+        input.binding,
+      );
       yield* resolver
         .resolve({ ...input, ...context, snapshot, ...(browser === undefined ? {} : { browser }) })
         .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "selection", cause })));

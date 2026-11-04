@@ -663,3 +663,16 @@ describe("pool shared settings", () => {
     });
   });
 });
+
+it("defaults managed private-network access to empty and preserves environment/project allow lists", () => {
+  expect(decodeServerSettings({}).agentBrowserLoopbackAllow).toEqual([]);
+  const projectId = ProjectId.make("browser-project");
+  const patch = {
+    agentBrowserLoopbackAllow: ["localhost:3100-3199"],
+    projectSettingsOverrides: {
+      [projectId]: { agentBrowserLoopbackAllow: ["yardsmith.localhost:3201"] },
+    },
+  };
+  expect(decodeServerSettingsPatch(patch)).toMatchObject(patch);
+  expect(decodeServerSettings(patch)).toMatchObject(patch);
+});

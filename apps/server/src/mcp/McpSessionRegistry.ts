@@ -1,3 +1,4 @@
+import * as PreviewManager from "../preview/Manager.ts";
 import * as PhiBrowser from "../preview/PhiBrowser.ts";
 import * as Option from "effect/Option";
 import {
@@ -16,6 +17,7 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
+import * as Schedule from "effect/Schedule";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
@@ -37,10 +39,11 @@ export interface McpCredentialRequest {
   readonly browserBackends?: import("@t3tools/contracts").AgentBrowserBackends;
   readonly phiBrowserSkillDirectory?: string;
   /**
-   * A managed browser task's credential: the preview capability only, pinned to Phi, and valid
+   * A managed browser task's credential: the preview capability only, pinned to its selected backend, and valid
    * only on the narrow `/mcp/browser` endpoint. Nothing the task's settings say can move it.
    */
   readonly managedBrowser?: boolean;
+  readonly taskBrowser?: import("@t3tools/contracts").AgentTaskBrowser;
   readonly capabilities?: ReadonlySet<McpInvocationContext.McpCapability>;
   readonly subagent?: boolean;
 }
@@ -94,8 +97,6 @@ export interface McpSessionRegistryOptions {
  */
 const DEFAULT_LIVENESS_WINDOW_MS = 24 * 60 * 60 * 1_000;
 
-const MANAGED_BROWSER_BACKENDS = { enabled: ["phi"], default: "phi" } as const;
-
 /** The only endpoint a managed browser task's credential reaches. */
 export const MANAGED_BROWSER_MCP_PATH = "/mcp/browser";
 
@@ -120,6 +121,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
 ) {
   const crypto = yield* Crypto.Crypto;
   const phi = yield* Effect.serviceOption(PhiBrowser.PhiBrowser);
+  const previews = yield* Effect.serviceOption(PreviewManager.PreviewManager);
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const environmentId = yield* environment.getEnvironmentId;
   const httpServer = yield* HttpServer.HttpServer;
@@ -129,13 +131,40 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   // credential waits on it. Phi keeps its journal until each close succeeds, and releases every
   // session again when the server stops, so a cancelled fiber orphans nothing.
   const cleanups = yield* FiberSet.make<void, never>();
-  const releasePhiSessions = (sessions: ReadonlyArray<string>) =>
-    Option.isSome(phi) && sessions.length > 0
-      ? FiberSet.run(
+  const releaseBrowserSessions = (
+    sessions: ReadonlyArray<McpInvocationContext.McpThreadInvocationScope>,
+  ) =>
+    sessions.length === 0
+      ? Effect.void
+      : FiberSet.run(
           cleanups,
-          Effect.forEach(sessions, (id) => phi.value.releaseSession(id), { discard: true }),
-        ).pipe(Effect.asVoid)
-      : Effect.void;
+          Effect.forEach(
+            sessions,
+            (scope) =>
+              Effect.gen(function* () {
+                const session = scope.thread;
+                const integrated =
+                  scope.managedBrowser === true && scope.browserBackends?.default === "integrated";
+                if (Option.isSome(phi) && !integrated)
+                  yield* phi.value.releaseSession(session.providerSessionId);
+                if (Option.isSome(previews) && integrated) {
+                  const { sessions: tabs } = yield* previews.value.list({
+                    threadId: session.threadId,
+                  });
+                  const owner = `${environmentId}\u0000${session.providerSessionId}\u0000${session.threadId}`;
+                  yield* Effect.forEach(
+                    tabs.filter((tab) => tab.automationOwner === owner),
+                    (tab) =>
+                      previews.value
+                        .close({ threadId: ThreadId.make(tab.threadId), tabId: tab.tabId })
+                        .pipe(Effect.ignore),
+                    { discard: true },
+                  );
+                }
+              }),
+            { discard: true },
+          ),
+        ).pipe(Effect.asVoid);
   const currentTimeMillis = options.now ? Effect.sync(options.now) : Clock.currentTimeMillis;
   const livenessWindowMs = options.livenessWindowMs ?? DEFAULT_LIVENESS_WINDOW_MS;
   const origin = mcpEndpointOrigin(httpServer.address);
@@ -157,21 +186,27 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   // resources are released once it expires. A touch that restores it clears the mark.
   const expireDead = Effect.fn("McpSessionRegistry.expireDead")(function* (timestamp: number) {
     const expired = yield* SynchronizedRef.modify(state, ({ records }) => {
-      const sessions: Array<string> = [];
+      const sessions: Array<McpInvocationContext.McpThreadInvocationScope> = [];
       const next = new Map(records);
       for (const [hash, record] of records) {
         if (record.browserReleased === true || timestamp - record.lastAliveAt <= livenessWindowMs) {
           continue;
         }
         next.set(hash, { ...record, browserReleased: true });
-        sessions.push(record.scope.thread.providerSessionId);
+        sessions.push(record.scope);
       }
       return sessions.length === 0
         ? ([sessions, { records }] as const)
         : ([sessions, { records: next }] as const);
     });
-    yield* releasePhiSessions(expired);
+    yield* releaseBrowserSessions(expired);
   });
+
+  yield* currentTimeMillis.pipe(
+    Effect.flatMap(expireDead),
+    Effect.repeat(Schedule.spaced(Math.min(livenessWindowMs, 60_000))),
+    Effect.forkScoped,
+  );
 
   const issue: McpSessionRegistryShape["issue"] = Effect.fn("McpSessionRegistry.issue")(
     function* (request) {
@@ -193,7 +228,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
               delegated: request.delegated,
             })
           : "control";
-      // A managed browser task lists Phi's operations only; every other session
+      // A managed browser task lists the narrow browser operations; every other session
       // reads its families from the one policy table, so an adapter can tell a
       // child what its own listing carries.
       const families =
@@ -239,7 +274,14 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         ...(request.agentRole === undefined ? {} : { agentRole: request.agentRole }),
         ...(endpointKey === undefined ? {} : { endpointKey }),
         ...(managedBrowser
-          ? { managedBrowser: true as const, browserBackends: MANAGED_BROWSER_BACKENDS }
+          ? {
+              managedBrowser: true as const,
+              taskBrowser: request.taskBrowser ?? { backend: "integrated" as const },
+              browserBackends: {
+                enabled: [request.taskBrowser?.backend ?? ("integrated" as const)],
+                default: request.taskBrowser?.backend ?? ("integrated" as const),
+              },
+            }
           : request.browserBackends === undefined
             ? {}
             : { browserBackends: request.browserBackends }),
@@ -318,13 +360,13 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       const sessions = yield* SynchronizedRef.modify(state, ({ records }) => {
         const removed = Array.from(records.values())
           .filter(predicate)
-          .map((record) => record.scope.thread.providerSessionId);
+          .map((record) => record.scope);
         return [
           removed,
           { records: new Map(Array.from(records).filter(([, record]) => !predicate(record))) },
         ] as const;
       });
-      yield* releasePhiSessions(sessions);
+      yield* releaseBrowserSessions(sessions);
     });
 
   return McpSessionRegistry.of({
@@ -342,10 +384,10 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     releaseThreadBrowser: Effect.fn("McpSessionRegistry.releaseThreadBrowser")(
       function* (threadId) {
         const { records } = yield* SynchronizedRef.get(state);
-        yield* releasePhiSessions(
+        yield* releaseBrowserSessions(
           Array.from(records.values())
             .filter((record) => record.scope.thread.threadId === threadId)
-            .map((record) => record.scope.thread.providerSessionId),
+            .map((record) => record.scope),
         );
       },
     ),

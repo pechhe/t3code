@@ -87,7 +87,7 @@ const AgentSessionAttachTool = Tool.make("agent_session_attach", {
   .annotate(Tool.Idempotent, true);
 const AgentRolesTool = Tool.make("agent_roles", {
   description:
-    "The first step of delegation: the roles this caller can delegate to, the model and effort each resolves to under the configured policy, and each refusal, without starting a model. Accounts out of usage are passed over for the next model with allowance and named in usageLimited; if all are limited, the one resetting soonest serves. Pass model to see what each role resolves to for it, which must be in its model list. Reviewers put the author's model last but still need fresh context and read-only authority. Discovery does not authorise a launch.",
+    "Discover eligible delegation roles, model/effort choices and refusal causes without launching. Pass model to check a choice in each role's pool; usageLimited reports exhausted accounts. Browser/ui-verifier default to integrated; pass browser.backend='phi' to check Phi availability. Discovery grants no launch authority.",
   parameters: AgentRolesInput,
   success: AgentRolesResult,
   failure: OrchestratorMcpFailure,
@@ -113,7 +113,7 @@ const OrchestratorCapabilitiesTool = Tool.make("orchestrator_capabilities", {
 
 const DelegateTaskTool = Tool.make("delegate_task", {
   description:
-    "Start one child agent with only `task`: no parent history. Call `agent_roles` first, then pass `agentTask` (role, taskClass, workId, attemptId, workspacePath) and a stable `clientRequestId`; `title` is the topic only. With a role policy, `agentTask` is required and an unfillable role is blocked, not substituted. A reviewer also needs `sourceRevision` (the full commit id) and review scope. `workspaceAssignment: 'isolated'` gives a simultaneous writer its own workspace and returns a handoff revision; `'lead'` (default) uses the caller's. Role `lead` takes its Spec as `forgeItem`. Pass a `target` for a model and options, or `followup` with a `taskId` to continue that conversation. External main agents pass the `externalSessionKey`. Keep `taskId` for `task_status` and `task_cancel`.",
+    "Start one child agent with only `task`: no parent history. Call `agent_roles` first. Supply agentTask (role, taskClass, workId, attemptId, workspacePath) and clientRequestId. Browser/ui-verifier default to integrated; select browser.backend='phi' and optional phiLane explicitly. Reviewers need sourceRevision and review scope. Isolated workspaceAssignment returns a handoff. Pass `followup` with a `taskId` to continue that conversation.",
   parameters: OrchestratorMcpDelegateTaskWireInput,
   success: OrchestratorMcpDelegateTaskResult,
   failure: OrchestratorMcpFailure,

@@ -1,4 +1,5 @@
 import {
+  DEFAULT_AGENT_BROWSER_BACKENDS,
   isLeafAgentTask,
   OrchestratorMcpFailure,
   type ProviderInteractionMode,
@@ -134,10 +135,8 @@ export const actsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A,
   );
 
 /**
- * The scope one preview action runs in. A browser or ui-verifier child drives Phi as its whole job,
- * so those operations are not leaf writes for it, and its own tab is Phi's whatever the project's
- * default backend is; a child whose listing carries no browser stays a leaf. Closing a tab skips
- * the settings check so cleanup survives revoked access.
+ * A browser task uses its pinned backend; children without browser tools remain leaf-restricted.
+ * Closing skips the settings check so cleanup survives revoked access.
  */
 const previewActionScope = Effect.fn("mcp.previewActionScope")(function* (
   caller: Caller,
@@ -150,7 +149,11 @@ const previewActionScope = Effect.fn("mcp.previewActionScope")(function* (
   if (options.checkSettings) yield* assertProjectBrowserAccess(caller);
   return {
     ...caller.scope,
-    browserBackends: PHI_ONLY_BROWSER_BACKENDS,
+    browserBackends:
+      caller.scope.browserBackends ??
+      (caller.caller?.agentTask?.role === "ui-worker"
+        ? PHI_ONLY_BROWSER_BACKENDS
+        : DEFAULT_AGENT_BROWSER_BACKENDS),
   } satisfies McpInvocationContext.McpInvocationScope;
 });
 
@@ -162,9 +165,8 @@ const previewCaller = (options: { readonly checkSettings: boolean }) =>
   );
 
 /**
- * A preview read on the caller's own browser, pinned to Phi for a browser or ui-verifier
- * credential so a read cannot strand the child's later action. Reads skip the leaf, liveness and
- * settings checks, so a revoked child can still find its owned tab to close.
+ * Preview reads keep the credential's backend. Legacy reads retain their cleanup access;
+ * the managed endpoint checks settings on reads as well as actions.
  */
 export const readsAsPreviewCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare((params: P) =>
@@ -174,7 +176,14 @@ export const readsAsPreviewCaller = <P, A, E, R>(handle: (params: P) => Effect.E
           handle(params),
           McpInvocationContext.McpInvocationContext,
           listsBrowserFamily(scope)
-            ? { ...scope, browserBackends: PHI_ONLY_BROWSER_BACKENDS }
+            ? {
+                ...scope,
+                browserBackends:
+                  scope.browserBackends ??
+                  (scope.agentRole === "ui-worker"
+                    ? PHI_ONLY_BROWSER_BACKENDS
+                    : DEFAULT_AGENT_BROWSER_BACKENDS),
+              }
             : scope,
         ),
       ),
@@ -212,13 +221,18 @@ export const cleansUpAsPreviewCaller = <P, A, E, R>(
 
 /**
  * A managed browser task's own tab tools, on the `/mcp/browser` endpoint only. The credential,
- * the task's Phi pin and the project's browser settings are checked on every call.
+ * the task's backend pin and the project's browser settings are checked on every call.
  */
 export const asManagedBrowser = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare((params: P) =>
     assertManagedBrowserCaller({ checkSettings: true }).pipe(
       Effect.tap(assertLiveCaller),
-      Effect.flatMap(() => handle(params)),
+      Effect.flatMap((caller) =>
+        Effect.provideService(handle(params), McpInvocationContext.McpInvocationContext, {
+          ...caller.scope,
+          managedProjectId: caller.caller!.projectId,
+        }),
+      ),
     ),
   );
 
@@ -229,7 +243,12 @@ export const cleansUpAsManagedBrowser = <P, A, E, R>(
   declare((params: P) =>
     assertManagedBrowserCaller({ checkSettings: false }).pipe(
       Effect.tap(assertLiveCaller),
-      Effect.flatMap(() => handle(params)),
+      Effect.flatMap((caller) =>
+        Effect.provideService(handle(params), McpInvocationContext.McpInvocationContext, {
+          ...caller.scope,
+          managedProjectId: caller.caller!.projectId,
+        }),
+      ),
     ),
   );
 

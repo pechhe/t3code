@@ -2,6 +2,7 @@
 // Screencasts ignore emulated device scale; real 2x keeps captures sharp.
 // --disable-gpu uses cheaper software compositing while preserving SwiftShader WebGL.
 import {
+  type ProjectId,
   BUILT_IN_BROWSER_PROFILES,
   DEFAULT_BROWSER_PROFILE_ID,
   DEFAULT_BROWSER_RECORDING_FRAME_RATE,
@@ -44,12 +45,16 @@ import {
   SERVER_BROWSER_AUTOMATION_CLIENT_ID,
   type PreviewAppearancePreference,
 } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import * as ServerSettings from "../serverSettings.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { normalizePreviewUrl } from "@t3tools/shared/preview";
 import { resolvePreviewViewport } from "@t3tools/shared/previewViewport";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
+import { HttpServer } from "effect/http";
+import * as NetAddress from "effect/net/NetAddress";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import { constVoid } from "effect/Function";
@@ -70,6 +75,7 @@ import type {
   FileChooser,
   Frame,
   Page,
+  Response as BrowserResponse,
 } from "playwright-core";
 
 import { PENDING_ATTACHMENT_THREAD_SEGMENT } from "../attachmentStore.ts";
@@ -82,6 +88,7 @@ import * as PreviewManager from "./Manager.ts";
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
 import * as PreviewBrowser from "./PreviewBrowser.ts";
 import * as PreviewBrowserHost from "./PreviewBrowserHost.ts";
+import { MANAGED_BROWSER_DENIAL_HEADER } from "./ManagedBrowserProxy.ts";
 import { presentAsChrome, ServerBrowserContexts } from "./ServerBrowserContexts.ts";
 import { BrowserControlInterrupted, SessionControl } from "./SessionControl.ts";
 import { installPdfDocumentNavigation, isPdfAssetUrl } from "./PdfDocumentNavigation.ts";
@@ -459,8 +466,30 @@ const make = Effect.gen(function* () {
   const launchServices = yield* Effect.context<ChildProcessSpawner.ChildProcessSpawner>();
   const setupCommand = yield* resolveRootCliCommand(PreviewBrowserHost.SETUP_SUBCOMMAND);
 
+  const httpServer = yield* Effect.serviceOption(HttpServer.HttpServer);
+  const serverPort =
+    Option.isSome(httpServer) && NetAddress.isInetAddress(httpServer.value.address)
+      ? httpServer.value.address.port
+      : config.port;
+  const settingsService = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+  const settingsChanges = Option.isSome(settingsService)
+    ? yield* settingsService.value.subscribeChanges
+    : Stream.empty;
+  let managedSettings = Option.isSome(settingsService)
+    ? yield* settingsService.value.getSettings.pipe(Effect.orElseSucceed(() => undefined))
+    : undefined;
+  const managedSessions = new Map<string, ProjectId>();
+  const managedPolicy = (projectId: ProjectId) => {
+    if (managedSettings === undefined) return null;
+    const settings = resolveProjectSettings(managedSettings, projectId).settings;
+    return settings.enableAgentBrowserAccess &&
+      settings.agentBrowserBackends.enabled.includes("integrated")
+      ? settings.agentBrowserLoopbackAllow
+      : null;
+  };
   const tabs = new Map<string, ServerTab>();
   const pendingTabs = new Map<string, Promise<ServerTab>>();
+  const crashedManagedTabs = new Map<string, string>();
 
   const closedPendingTabs = new Set<string>();
   const adoptedPages = new Map<string, { readonly page: Page; readonly openerTabId: string }>();
@@ -484,7 +513,7 @@ const make = Effect.gen(function* () {
       ),
     onContextClose: (context) => {
       for (const tab of tabs.values()) {
-        if (tab.page.context() === context) dropTab(tab, true);
+        if (tab.page.context() === context) dropUnexpectedTab(tab);
       }
     },
   });
@@ -674,6 +703,15 @@ const make = Effect.gen(function* () {
     }
   };
 
+  const dropUnexpectedTab = (tab: ServerTab) => {
+    if (!tab.closing && tab.control.agentId !== null && managedSessions.has(tab.control.agentId)) {
+      crashedManagedTabs.set(tabKey(tab.threadId, tab.tabId), tab.control.agentId);
+      if (crashedManagedTabs.size > 256)
+        crashedManagedTabs.delete(crashedManagedTabs.keys().next().value!);
+    }
+    dropTab(tab, true);
+  };
+
   const desktopRenders = (snapshot: PreviewSessionSnapshot) =>
     desktopChannel.available
       ? Effect.runPromise(
@@ -706,11 +744,24 @@ const make = Effect.gen(function* () {
     }
   };
 
+  const assertAllowedNavigation = (response: BrowserResponse | null) => {
+    const denied = response?.headers()[MANAGED_BROWSER_DENIAL_HEADER];
+    if (denied)
+      throw new ServerBrowserPage.ServerBrowserOperationError(
+        "PreviewAutomationExecutionError",
+        denied,
+      );
+  };
+
   const createTab = async (snapshot: PreviewSessionSnapshot): Promise<ServerTab> => {
     const adopted = adoptedPages.get(tabKey(snapshot.threadId, snapshot.tabId));
     adoptedPages.delete(tabKey(snapshot.threadId, snapshot.tabId));
+    const managedProject =
+      snapshot.automationOwner === undefined
+        ? undefined
+        : managedSessions.get(snapshot.automationOwner);
     const desktop =
-      adopted === undefined && (await desktopRenders(snapshot))
+      managedProject === undefined && adopted === undefined && (await desktopRenders(snapshot))
         ? await connectDesktop(snapshot)
         : null;
     const isolatedContext =
@@ -721,10 +772,15 @@ const make = Effect.gen(function* () {
     const context =
       adopted?.page.context() ??
       desktop?.page.context() ??
-      (await contexts.contextFor(
-        snapshot.profileId ?? "default",
-        isolatedContext ? tabKey(snapshot.threadId, snapshot.tabId) : undefined,
-      ));
+      (managedProject === undefined
+        ? await contexts.contextFor(
+            snapshot.profileId ?? "default",
+            isolatedContext ? tabKey(snapshot.threadId, snapshot.tabId) : undefined,
+          )
+        : await contexts.managedContext({
+            serverPort,
+            policy: async () => managedPolicy(managedProject),
+          }));
     if (adopted?.page.isClosed()) throw new Error("The popup closed before it opened.");
     if (!desktop) await prepareContext(context);
     const page = adopted?.page ?? desktop?.page ?? (await context.newPage());
@@ -849,7 +905,7 @@ const make = Effect.gen(function* () {
         url: ServerBrowserPage.withoutDataPayload(response.url()),
         method: response.request().method(),
         status: response.status(),
-        failed: false,
+        failed: response.status() >= 400,
         timestamp: new Date().toISOString(),
       });
     });
@@ -877,8 +933,8 @@ const make = Effect.gen(function* () {
       if (isolatedContext) await context.close().catch(constVoid);
       throw new ServerBrowserTabNotFoundError({ threadId: tab.threadId, tabId: tab.tabId });
     }
-    page.on("close", () => dropTab(tab, true));
-    page.on("crash", () => dropTab(tab, true));
+    page.on("close", () => dropUnexpectedTab(tab));
+    page.on("crash", () => dropUnexpectedTab(tab));
     tabs.set(key, tab);
     reportLiveTabs();
     // Existing desktop and popup PDFs can start loading before interception attaches.
@@ -891,9 +947,14 @@ const make = Effect.gen(function* () {
         (desktop || adopted) && page.url() === snapshot.navStatus.url
           ? page.reload(options)
           : page.goto(snapshot.navStatus.url, options)
-      ).then(constVoid, (cause: unknown) => {
-        throw ServerBrowserPage.toOperationError(cause, NAVIGATION_TIMEOUT_MS);
-      });
+      ).then(
+        (response) => {
+          if (managedProject !== undefined) assertAllowedNavigation(response);
+        },
+        (cause: unknown) => {
+          throw ServerBrowserPage.toOperationError(cause, NAVIGATION_TIMEOUT_MS);
+        },
+      );
 
       if (tab.control.agentId !== null) tab.control.track(tab.initialNavigation);
       else void tab.initialNavigation.catch(constVoid);
@@ -1217,6 +1278,12 @@ const make = Effect.gen(function* () {
     if (existing) return Promise.resolve(existing);
     const opening = createTab(snapshot)
       .catch((cause: unknown) => {
+        if (snapshot.automationOwner !== undefined && managedSessions.has(snapshot.automationOwner))
+          runFork(
+            manager
+              .close({ threadId: ThreadId.make(snapshot.threadId), tabId: snapshot.tabId })
+              .pipe(Effect.ignore),
+          );
         runFork(
           Effect.logWarning(
             isHostSetupError(cause) ? cause.message : "server preview tab failed to start",
@@ -1355,7 +1422,7 @@ const make = Effect.gen(function* () {
         url: null,
         title: null,
         loading: false,
-        ...profileStatus(),
+        ...(managedSessions.has(agentSessionId ?? "") ? {} : profileStatus()),
       };
     }
     const url = tab.page.url();
@@ -1379,7 +1446,12 @@ const make = Effect.gen(function* () {
       viewportSetting: tab.setting,
       ...(viewport ? { viewport } : {}),
       tabs: [...tabs.values()]
-        .filter((candidate) => candidate.threadId === tab.threadId)
+        .filter(
+          (candidate) =>
+            candidate.threadId === tab.threadId &&
+            (!managedSessions.has(agentSessionId ?? "") ||
+              candidate.control.agentId === agentSessionId),
+        )
         .map((candidate) => ({
           tabId: candidate.tabId,
           url: candidate.page.url() === "about:blank" ? null : candidate.page.url(),
@@ -1389,7 +1461,7 @@ const make = Effect.gen(function* () {
           visible: candidate.viewers.size > 0,
           ...(candidate.profileId === undefined ? {} : { profileId: candidate.profileId }),
         })),
-      ...profileStatus(),
+      ...(managedSessions.has(agentSessionId ?? "") ? {} : profileStatus()),
       downloads: tab.downloads.map(({ fileName, path, sizeBytes, url, completedAt }) => ({
         fileName,
         path,
@@ -1417,15 +1489,20 @@ const make = Effect.gen(function* () {
     readiness: "load" | "domContentLoaded" | "none",
     timeout: number,
   ) => {
-    const navigation = tab.page.goto(url, {
-      timeout,
-      waitUntil:
-        readiness === "domContentLoaded"
-          ? "domcontentloaded"
-          : readiness === "none"
-            ? "commit"
-            : "load",
-    });
+    const navigation = tab.page
+      .goto(url, {
+        timeout,
+        waitUntil:
+          readiness === "domContentLoaded"
+            ? "domcontentloaded"
+            : readiness === "none"
+              ? "commit"
+              : "load",
+      })
+      .then((response) => {
+        if (managedSessions.has(tab.control.agentId ?? "")) assertAllowedNavigation(response);
+        return response;
+      });
     if (readiness === "none") {
       tab.control.track(navigation);
       return;
@@ -1665,6 +1742,14 @@ const make = Effect.gen(function* () {
   const requireTab = async (request: PreviewAutomationRequest) => {
     if (!request.agentSessionId)
       throw new BrowserControlInterrupted("The agent session is missing. Reconnect the provider.");
+    if (
+      request.tabId !== undefined &&
+      crashedManagedTabs.get(tabKey(request.threadId, request.tabId)) === request.agentSessionId
+    )
+      throw new ServerBrowserPage.ServerBrowserOperationError(
+        "PreviewAutomationExecutionError",
+        "The managed browser crashed or disconnected. Open a new tab to continue.",
+      );
     const owned = [...tabs.values()].filter(
       (tab) => tab.threadId === request.threadId && tab.control.agentId === request.agentSessionId,
     );
@@ -1685,7 +1770,10 @@ const make = Effect.gen(function* () {
         "No server preview tab is open for this thread. Call preview_open first.",
       );
     }
-    if (!READ_OPERATIONS.has(request.operation) && !tab.control.agentMayAct(request.agentSessionId))
+    if (
+      (request.managedBrowser !== undefined && tab.control.agentId !== request.agentSessionId) ||
+      (!READ_OPERATIONS.has(request.operation) && !tab.control.agentMayAct(request.agentSessionId))
+    )
       throw new BrowserControlInterrupted(
         "This tab belongs to another agent session. You can read it, but open your own tab to act.",
         "agentMismatch",
@@ -1709,6 +1797,30 @@ const make = Effect.gen(function* () {
     deadlineMs: number,
   ): Promise<unknown> => {
     const input = request.input;
+    if (request.managedBrowser !== undefined) {
+      if (!request.agentSessionId)
+        throw new BrowserControlInterrupted("The managed agent session is missing.");
+      managedSessions.set(request.agentSessionId, request.managedBrowser.projectId);
+      if (request.operation !== "open" && request.tabId !== undefined) await requireTab(request);
+      if (request.operation === "status" && request.tabId === undefined) {
+        const own = [...tabs.values()].find(
+          (tab) =>
+            tab.threadId === request.threadId && tab.control.agentId === request.agentSessionId,
+        );
+        return statusWithTitle(own, request.agentSessionId);
+      }
+      if (["evaluate", "upload", "dialog", "handoff", "resume"].includes(request.operation))
+        throw new BrowserControlInterrupted(
+          "This operation is not available to a managed integrated task.",
+        );
+      if (
+        request.operation === "open" &&
+        (input as PreviewAutomationOpenInput).profileId !== undefined
+      )
+        throw new BrowserControlInterrupted(
+          "Managed integrated tasks cannot select a persistent browser profile.",
+        );
+    }
     switch (request.operation) {
       case "status":
         return statusWithTitle(
@@ -1762,13 +1874,25 @@ const make = Effect.gen(function* () {
               : "The requested server preview tab does not exist.",
           );
         }
+        if (
+          request.managedBrowser !== undefined &&
+          found &&
+          found.control.agentId !== request.agentSessionId
+        )
+          throw new BrowserControlInterrupted(
+            "This tab belongs to another managed task.",
+            "agentMismatch",
+          );
         // Reusing another session's tab requires explicit tabId; reading it grants no implicit takeover.
         const existing =
           found && (request.tabIdExplicit || found.control.agentId === request.agentSessionId)
             ? found
             : undefined;
         const navigationTimeout = Math.min(request.timeoutMs, NAVIGATION_TIMEOUT_MS);
-        const profileId = existing ? undefined : resolveOpenProfile(open.profileId);
+        const profileId =
+          existing || request.managedBrowser !== undefined
+            ? undefined
+            : resolveOpenProfile(open.profileId);
         if (!existing) {
           closeIdleAgentTabs();
           assertTabCapacity(request.agentSessionId);
@@ -2017,10 +2141,53 @@ const make = Effect.gen(function* () {
 
   const handleRequest = (connectionId: string, request: PreviewAutomationRequest) =>
     Effect.tryPromise({
-      try: () =>
-        runOperation(request, performance.now() + request.timeoutMs).finally(() =>
-          markUsed(request),
-        ),
+      try: async () => {
+        const ownedContexts = () => [
+          ...new Set(
+            [...tabs.values()]
+              .filter((tab) => tab.control.agentId === request.agentSessionId)
+              .map((tab) => tab.page.context()),
+          ),
+        ];
+        const refusals = () => [
+          ...new Set(
+            [...tabs.values()]
+              .filter((tab) => tab.control.agentId === request.agentSessionId)
+              .flatMap((tab) => contexts.networkRefusals?.(tab.page.context()) ?? []),
+          ),
+        ];
+        const before = new Map(
+          ownedContexts().map((context) => [context, contexts.networkRefusalCount?.(context) ?? 0]),
+        );
+        const newlyBlocked = () =>
+          request.managedBrowser === undefined
+            ? []
+            : ownedContexts()
+                .filter(
+                  (context) =>
+                    (contexts.networkRefusalCount?.(context) ?? 0) > (before.get(context) ?? 0),
+                )
+                .flatMap((context) => contexts.networkRefusals(context));
+        try {
+          const result = await runOperation(request, performance.now() + request.timeoutMs);
+          const blocked = request.managedBrowser === undefined ? [] : refusals();
+          return blocked.length > 0
+            ? {
+                ...asRecord(result),
+                networkRefusals: blocked.slice(-10).map((message) => message.slice(0, 500)),
+              }
+            : result;
+        } catch (error) {
+          if (newlyBlocked().length > 0)
+            throw new ServerBrowserPage.ServerBrowserOperationError(
+              "PreviewAutomationExecutionError",
+              newlyBlocked().at(-1)!,
+            );
+          throw error;
+        } finally {
+          markUsed(request);
+        }
+      },
       catch: ServerBrowserPage.toOperationError,
     }).pipe(
       Effect.match({
@@ -2471,6 +2638,34 @@ const make = Effect.gen(function* () {
         );
         if (snapshot) yield* Effect.promise(() => ensureTab(snapshot).catch(constVoid));
       }).pipe(Effect.ignore),
+    ),
+    Effect.forkScoped,
+  );
+  yield* settingsChanges.pipe(
+    Stream.runForEach((settings) =>
+      Effect.promise(async () => {
+        const previous = managedSettings;
+        managedSettings = settings;
+        const revoked = [...tabs.values()].filter((tab) => {
+          const project =
+            tab.control.agentId === null ? undefined : managedSessions.get(tab.control.agentId);
+          return (
+            project !== undefined &&
+            (managedPolicy(project) === null ||
+              (previous !== undefined &&
+                JSON.stringify(
+                  resolveProjectSettings(previous, project).settings.agentBrowserLoopbackAllow,
+                ) !== JSON.stringify(managedPolicy(project))))
+          );
+        });
+        await Promise.all(
+          revoked.map(async (tab) => {
+            dropTab(tab, true);
+            await tab.page.context().close().catch(constVoid);
+          }),
+        );
+        await contexts.refreshManagedPolicies?.();
+      }),
     ),
     Effect.forkScoped,
   );

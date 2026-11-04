@@ -1,7 +1,7 @@
 import { BrowserBackend, PhiBrowserLane } from "./browserBackend.ts";
 import { Schema } from "effect";
 
-import { EnvironmentId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { EnvironmentId, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   PREVIEW_VIEWPORT_MAX_AREA,
   PreviewRenderedViewportSize,
@@ -77,6 +77,7 @@ export const PreviewAutomationProfile = Schema.Struct({
 export type PreviewAutomationProfile = typeof PreviewAutomationProfile.Type;
 
 export const PreviewAutomationStatus = Schema.Struct({
+  networkRefusals: Schema.optional(Schema.Array(Schema.String)),
   backend: Schema.optional(BrowserBackend),
   connected: Schema.optional(Schema.Boolean),
   connectionMessage: Schema.optional(Schema.String),
@@ -535,12 +536,20 @@ export const PreviewAutomationActionEvent = Schema.Struct({
 export type PreviewAutomationActionEvent = typeof PreviewAutomationActionEvent.Type;
 
 export const PreviewAutomationSnapshot = Schema.Struct({
+  networkRefusals: Schema.optional(Schema.Array(Schema.String)),
   url: Schema.String,
   title: Schema.String,
   loading: Schema.Boolean,
   visibleText: Schema.String,
   interactiveElements: Schema.Array(PreviewAutomationElement),
   accessibilityTree: Schema.Unknown,
+  captureStatus: Schema.optional(
+    Schema.Struct({
+      console: Schema.Boolean,
+      network: Schema.Boolean,
+      actionTimeline: Schema.Boolean,
+    }),
+  ),
   consoleEntries: Schema.Array(PreviewAutomationConsoleEntry),
   networkEntries: Schema.Array(PreviewAutomationNetworkEntry),
   actionTimeline: Schema.Array(PreviewAutomationActionEvent),
@@ -613,6 +622,7 @@ export const PreviewAutomationRequest = Schema.Struct({
   tabIdExplicit: Schema.optional(Schema.Boolean),
   /** Supplied by the broker from authenticated scope, never from tool input. */
   agentSessionId: Schema.optional(Schema.String),
+  managedBrowser: Schema.optional(Schema.Struct({ projectId: ProjectId })),
   operation: PreviewAutomationOperation,
   input: Schema.Unknown,
   timeoutMs: Schema.Int.check(Schema.isGreaterThan(0)),

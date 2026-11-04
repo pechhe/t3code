@@ -1245,6 +1245,54 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
     }),
   );
 
+  it.effect(
+    "defaults browser tasks to integrated without probing Phi and preserves the selection on retry/resume",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        const settings = yield* Settings.ServerSettingsService;
+        const discover = () =>
+          f.service
+            .roles({
+              providers: [codex, claude],
+              ceiling: "full-access",
+              request: { taskClass: "ui" },
+            })
+            .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+        const found = yield* discover();
+        for (const role of ["browser", "ui-verifier"] as const)
+          expect(found.roles.find((entry) => entry.role === role)?.refusal).toBeNull();
+        const accepted = yield* f.prepare({
+          request: request({
+            role: "ui-verifier",
+            taskClass: "ui",
+            workspacePath: f.workspacePath,
+          }),
+        });
+        expect(accepted.binding.browser).toEqual({ backend: "integrated" });
+        yield* f.validate(accepted.binding);
+        const retry = yield* f.prepare({
+          request: request({
+            role: "ui-verifier",
+            taskClass: "ui",
+            workspacePath: f.workspacePath,
+            browser: { backend: "phi" },
+          }),
+          recordedBinding: accepted.binding,
+        });
+        expect(retry.binding.browser).toEqual({ backend: "integrated" });
+        yield* settings.updateSettings({
+          agentBrowserBackends: { enabled: ["phi"], default: "phi" },
+        });
+        expect((yield* discover()).roles.find((entry) => entry.role === "browser")?.refusal).toBe(
+          "integrated-disabled",
+        );
+        expect((yield* f.validate(accepted.binding).pipe(Effect.flip)).message).toContain(
+          "integrated-disabled",
+        );
+      }).pipe(Effect.provide(Settings.layerTest())),
+  );
+
   it.effect("starts a Phi role only on a checked route, and says which check refused it", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
@@ -1262,12 +1310,17 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
             return availability;
           }),
       });
-      const browserRequest = request({ role: "browser", taskClass: "ui", readOnly: false });
+      const browserRequest = request({
+        role: "browser",
+        taskClass: "ui",
+        readOnly: false,
+        browser: { backend: "phi" },
+      });
       const discover = f.service
         .roles({
           providers: [codex, claude],
           ceiling: "full-access",
-          request: { taskClass: "ui" },
+          request: { taskClass: "ui", browser: { backend: "phi" } },
         })
         .pipe(
           Effect.provideService(ConfigProvider.ConfigProvider, f.config),
@@ -1313,7 +1366,12 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       const readOnlyVerifier = yield* f
         .prepare({
           request: {
-            ...request({ role: "ui-verifier", taskClass: "ui", readOnly: true }),
+            ...request({
+              role: "ui-verifier",
+              taskClass: "ui",
+              readOnly: true,
+              browser: { backend: "phi" },
+            }),
             workspacePath: f.workspacePath,
           },
           providers: [codex, claude],

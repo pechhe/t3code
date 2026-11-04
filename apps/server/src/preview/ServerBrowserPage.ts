@@ -585,6 +585,30 @@ const capture = async (
     // Mask text before truncating so a value crossing the cut cannot leak its prefix.
     visibleText: mask(visibleText).slice(0, MAX_VISIBLE_TEXT_LENGTH),
     accessibilityTree,
+    interactiveElements: accessibilityTree.split("\n").flatMap((line) => {
+      const role =
+        /^\s*- (button|link|textbox|searchbox|checkbox|radio|combobox|spinbutton|menuitem|option|switch|slider|tab|treeitem)\b/.exec(
+          line,
+        )?.[1];
+      const ref = /\[ref=([^\]]+)\]/.exec(line)?.[1];
+      const box = /\[box=(-?\d+),(-?\d+),(\d+),(\d+)\]/.exec(line);
+      if (!role || !ref || !box) return [];
+      const quotedName = /^\s*- \w+ ("(?:[^"\\]|\\.)*")/.exec(line)?.[1];
+      const name = quotedName === undefined ? "" : (JSON.parse(quotedName) as string);
+      return [
+        {
+          tag: "unknown",
+          role,
+          name,
+          selector: `aria-ref=${ref}`,
+          x: Number(box[1]),
+          y: Number(box[2]),
+          width: Number(box[3]),
+          height: Number(box[4]),
+        },
+      ];
+    }),
+    captureStatus: { console: true, network: true, actionTimeline: true },
     consoleEntries: [...input.consoleEntries],
     networkEntries: [...input.networkEntries],
     actionTimeline: [...input.actionTimeline],

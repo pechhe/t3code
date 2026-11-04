@@ -18,11 +18,7 @@ import { type Caller, loadCaller } from "./threadAccess.ts";
 const refuse = (message: string) =>
   new OrchestratorMcpFailure({ code: "capability_denied", message });
 
-/**
- * A task whose whole job is one browser works on Phi alone. Its credential is pinned to that one
- * backend, so an integrated tab, or a project whose default is integrated, can never route its
- * actions elsewhere; `McpSessionRegistry` pins a `/mcp/browser` credential the same way.
- */
+/** The UI worker keeps its existing Phi-only browser alongside source writing. */
 export const PHI_ONLY_BROWSER_BACKENDS: AgentBrowserBackends = {
   enabled: ["phi"],
   default: "phi",
@@ -52,7 +48,7 @@ export const drivesOwnBrowser = ({ caller }: Caller) =>
   });
 
 /**
- * The calling thread's project still allowing agent browsing, and still allowing Phi. Resolved on
+ * The calling thread's project still allowing agent browsing and its selected backend. Resolved on
  * every call rather than at session start, so a credential that outlives a settings change cannot
  * keep acting on its own.
  */
@@ -70,15 +66,19 @@ export const assertProjectBrowserAccess = Effect.fn("mcp.assertProjectBrowserAcc
     return yield* refuse("Browser access could not be confirmed; managed browsing is paused.");
   if (!resolved.enableAgentBrowserAccess)
     return yield* refuse("Agent browser access was turned off for this project.");
-  if (!resolved.agentBrowserBackends.enabled.includes("phi"))
-    return yield* refuse("Phi browsing was turned off for this project.");
+  const backend =
+    caller.scope.taskBrowser?.backend ?? caller.scope.browserBackends?.default ?? "integrated";
+  if (!resolved.agentBrowserBackends.enabled.includes(backend))
+    return yield* refuse(
+      `${backend === "phi" ? "Phi" : "Integrated"} browsing was turned off for this project.`,
+    );
   return caller;
 });
 
 /**
  * A managed browser task's authority, checked on every call rather than at session start: the
- * credential must be one minted for a Phi-pinned task, still owned by that task's thread, and
- * the project's browser settings must still allow Phi. Closing a tab skips the settings check
+ * credential must be one minted for a browser task, still owned by that task's thread, and
+ * the project's browser settings must still allow its selected backend. Closing a tab skips the settings check
  * so cleanup survives revoked access.
  */
 export const assertManagedBrowserCaller = Effect.fn("mcp.assertManagedBrowserCaller")(

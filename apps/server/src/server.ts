@@ -1195,7 +1195,7 @@ const layerMakeServer = Layer.unwrap(
       Layer.provideMerge(layerRuntimeServices),
       Layer.provideMerge(
         Layer.mergeAll(
-          McpSessionRegistry.layer,
+          McpSessionRegistry.layer.pipe(Layer.provide(PreviewManager.layer)),
           Layer.mergeAll(HqSignIn.layer, HqAgentConnections.agentMcpServersLayer).pipe(
             Layer.provideMerge(HqAgentConnections.layer),
           ),

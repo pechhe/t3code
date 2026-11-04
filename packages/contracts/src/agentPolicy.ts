@@ -3,6 +3,7 @@ import * as SchemaGetter from "effect/SchemaGetter";
 import { EnvironmentId, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
+import { BrowserBackend, PhiBrowserLane } from "./browserBackend.ts";
 import { ModelSelection } from "./modelSelection.ts";
 
 export const AgentRole = Schema.Literals([
@@ -421,7 +422,14 @@ export function managedExecution(input: {
 }
 
 /** A coherent work identity survives new launch attempts and transport retries. */
+export const AgentTaskBrowser = Schema.Struct({
+  backend: BrowserBackend,
+  phiLane: Schema.optional(PhiBrowserLane),
+});
+export type AgentTaskBrowser = typeof AgentTaskBrowser.Type;
+
 const agentTaskRequestFields = {
+  browser: Schema.optional(AgentTaskBrowser),
   executionRequirement: Schema.optional(AgentExecutionRequirement),
   workUnitId: Schema.optional(TrimmedNonEmptyString),
   role: AgentRole,
@@ -528,6 +536,7 @@ export const AgentExternalSession = Schema.Struct({
 export type AgentExternalSession = typeof AgentExternalSession.Type;
 
 export const AgentRolesInput = Schema.Struct({
+  browser: Schema.optional(AgentTaskBrowser),
   executionRequirement: Schema.optional(AgentExecutionRequirement),
   runtimeMode: Schema.optional(RuntimeMode),
   externalSessionKey: Schema.optional(Sha256),

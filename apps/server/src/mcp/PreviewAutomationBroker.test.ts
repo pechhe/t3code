@@ -2,6 +2,7 @@ import * as PhiBrowser from "../preview/PhiBrowser.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
+  ProjectId,
   EnvironmentId,
   PreviewAutomationClientDisconnectedError,
   PreviewAutomationMalformedResponseError,
@@ -16,6 +17,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
+import * as TestClock from "effect/testing/TestClock";
 import * as Fiber from "effect/Fiber";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
@@ -1126,6 +1128,46 @@ it.effect("keeps each thread's current tab when threads share a provider session
         ["thread-2", "tab-thread-2"],
       ]);
       expect(routed[0]!.agentSessionId).not.toBe(routed[1]!.agentSessionId);
+    }),
+  ),
+);
+
+it.effect("bounds managed headless startup and refuses a missing or disconnected host", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const managed = {
+        ...scope,
+        managedBrowser: true as const,
+        managedProjectId: ProjectId.make("managed-project"),
+      };
+      const noHost = yield* broker
+        .invoke<object>({ scope: managed, operation: "open", input: {} })
+        .pipe(Effect.flip);
+      expect(noHost._tag).toBe("PreviewAutomationNoAvailableHostError");
+      const delivered = yield* Deferred.make<RoutedRequest>();
+      const requests = requestsFrom(
+        yield* broker.connect(makeHost({ clientId: SERVER_BROWSER_AUTOMATION_CLIENT_ID }), {
+          preferred: true,
+        }),
+      );
+      const host = yield* Stream.runForEach(requests, (request) =>
+        Deferred.succeed(delivered, request),
+      ).pipe(Effect.forkScoped);
+      const pending = yield* broker
+        .invoke<object>({ scope: managed, operation: "open", input: {}, timeoutMs: 660_000 })
+        .pipe(Effect.flip, Effect.forkScoped);
+      const request = yield* Deferred.await(delivered);
+      expect(request.timeoutMs).toBe(15_000);
+      expect(request.managedBrowser).toEqual({ projectId: managed.managedProjectId });
+      yield* TestClock.adjust("25 seconds");
+      expect((yield* Fiber.join(pending))._tag).toBe("PreviewAutomationTimeoutError");
+      yield* Fiber.interrupt(host);
+      expect(
+        (yield* broker
+          .invoke<object>({ scope: managed, operation: "open", input: {} })
+          .pipe(Effect.flip))._tag,
+      ).toBe("PreviewAutomationNoAvailableHostError");
     }),
   ),
 );

@@ -356,11 +356,18 @@ export const layerWithOptions = (
           return yield* Effect.gen(function* () {
             const settings = yield* serverSettings.value.getSettings;
             const thread = yield* projectionStore.getThread(threadId);
-            // A ui-worker drives Phi beside its writing, so it keeps the narrow
-            // browser endpoint. The browser and ui-verifier roles use the general
-            // endpoint whose listing includes the preview family.
+            // Browser roles and UI workers use the narrow endpoint, pinned to their task's backend.
             const managedBrowser =
-              thread.agentTask?.role === "ui-worker" && usesPhi(thread.agentTask?.toolProfile);
+              usesPhi(thread.agentTask?.toolProfile) &&
+              ["ui-worker", "browser", "ui-verifier"].includes(thread.agentTask?.role ?? "");
+            const selectedBrowser = thread.agentTask?.browser ?? {
+              backend:
+                thread.agentTask?.role === "ui-worker" ? ("phi" as const) : ("integrated" as const),
+            };
+            const pinnedBackends = {
+              enabled: [selectedBrowser.backend],
+              default: selectedBrowser.backend,
+            };
             // A leaf task is delegated: it lists only what its own role can use, and is told
             // so (see sessionEndpointKey and the child instructions). A Spec lead lists what a
             // top-level thread does.
@@ -381,9 +388,14 @@ export const layerWithOptions = (
                 : Option.none();
               if (Option.isNone(project))
                 return {
-                  browser: browserOverridden ? false : settings.enableAgentBrowserAccess,
+                  browser:
+                    !browserOverridden &&
+                    settings.enableAgentBrowserAccess &&
+                    (!managedBrowser ||
+                      settings.agentBrowserBackends.enabled.includes(selectedBrowser.backend)),
                   device: deviceOverridden ? false : settings.enableAgentDeviceAccess,
-                  browserBackends: settings.agentBrowserBackends,
+                  browserBackends: managedBrowser ? pinnedBackends : settings.agentBrowserBackends,
+                  taskBrowser: selectedBrowser,
                   phiBrowserSkillDirectory: settings.phiBrowserSkillDirectory,
                   managedBrowser,
                   toolProfile,
@@ -393,8 +405,12 @@ export const layerWithOptions = (
             }
             const effective = resolveProjectSettings(settings, thread.projectId).settings;
             return {
-              browser: effective.enableAgentBrowserAccess,
-              browserBackends: effective.agentBrowserBackends,
+              browser:
+                effective.enableAgentBrowserAccess &&
+                (!managedBrowser ||
+                  effective.agentBrowserBackends.enabled.includes(selectedBrowser.backend)),
+              browserBackends: managedBrowser ? pinnedBackends : effective.agentBrowserBackends,
+              taskBrowser: selectedBrowser,
               phiBrowserSkillDirectory: settings.phiBrowserSkillDirectory,
               device: effective.enableAgentDeviceAccess,
               managedBrowser,
@@ -528,11 +544,8 @@ export const layerWithOptions = (
                   agentRole,
                   delegated,
                 } = accessSettings;
-                // A managed browser task whose project no longer allows Phi gets no credential.
-                if (
-                  managedBrowser &&
-                  !(browserToolsAvailable && browserBackends?.enabled.includes("phi") === true)
-                )
+                // A managed browser task whose project revoked its selected backend gets no credential.
+                if (managedBrowser && !browserToolsAvailable)
                   return yield* mcpSessions.clear(threadId).pipe(
                     Effect.andThen(mcpSessionRegistry.revokeThread(threadId)),
                     Effect.as<PreparedMcpCredential>({
@@ -604,7 +617,14 @@ export const layerWithOptions = (
                   ...(toolProfile === undefined ? {} : { toolProfile }),
                   ...(agentRole === undefined ? {} : { agentRole }),
                   ...(delegated ? { delegated: true } : {}),
-                  ...(managedBrowser ? { managedBrowser: true } : {}),
+                  ...(managedBrowser
+                    ? {
+                        managedBrowser: true,
+                        ...("taskBrowser" in accessSettings
+                          ? { taskBrowser: accessSettings.taskBrowser }
+                          : {}),
+                      }
+                    : {}),
                   ...(browserBackends === undefined ? {} : { browserBackends }),
                   ...(phiBrowserSkillDirectory === undefined ? {} : { phiBrowserSkillDirectory }),
                   subagent,

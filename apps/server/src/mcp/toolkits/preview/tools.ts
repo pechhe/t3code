@@ -38,7 +38,15 @@ const PreviewToolFailure = Schema.Union([PreviewAutomationError, OrchestratorMcp
 
 const presentationFields = { toolIcon: Schema.optional(ToolActivityIcon) };
 
-const PreviewActionResult = Schema.Struct(presentationFields);
+const PreviewActionResult = Schema.Struct({
+  networkRefusals: Schema.optional(Schema.Array(Schema.String)),
+  ...presentationFields,
+  tabId: Schema.optional(Schema.String),
+  backend: Schema.optional(Schema.String),
+  action: Schema.optional(Schema.String),
+  url: Schema.optional(Schema.String),
+  title: Schema.optional(Schema.String),
+});
 
 const browserTool = <T extends Tool.Any>(tool: T): T =>
   tool.annotate(Tool.OpenWorld, true).annotate(Tool.Destructive, true) as T;
