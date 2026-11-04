@@ -1,6 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - Real local HTTP fixtures and Chromium verify the managed browser service boundary.
 import * as NodeHttp from "node:http";
 import * as NodeNet from "node:net";
+import { HttpServer } from "effect/http";
+import * as NetAddress from "effect/net/NetAddress";
 import { chromium } from "playwright-core";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -29,6 +31,7 @@ import * as Manager from "./Manager.ts";
 import * as PreviewBrowser from "./PreviewBrowser.ts";
 import * as ServerBrowser from "./ServerBrowser.ts";
 import type { McpThreadInvocationScope } from "../mcp/McpInvocationContext.ts";
+import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 
 const scope: McpThreadInvocationScope = {
   environmentId: EnvironmentId.make("managed-integration"),
@@ -296,4 +299,96 @@ it.live.each(["access", "backend", "allow-list"] as const)(
         }).pipe(Effect.provide(runtime));
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("closes the tab, context and recording of an integrated task whose credential expires", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const server = NodeHttp.createServer((_request, response) => {
+        response.setHeader("Content-Type", "text/html");
+        response.end("<title>Expiry fixture</title><p>still here</p>");
+      });
+      yield* Effect.promise(
+        () =>
+          new Promise<void>((resolve) => {
+            server.listen(0, "127.0.0.1", () => resolve());
+          }),
+      );
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          server.closeAllConnections();
+          server.close();
+        }),
+      );
+      const port = (server.address() as NodeNet.AddressInfo).port;
+      const runtime = ServerBrowser.layer.pipe(
+        Layer.provideMerge(dependencies),
+        Layer.provideMerge(
+          ServerSettings.layerTest({ agentBrowserLoopbackAllow: [`127.0.0.1:${port}`] }),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        yield* ServerBrowser.ServerBrowser;
+        const broker = yield* Broker.PreviewAutomationBroker;
+        const manager = yield* Manager.PreviewManager;
+        yield* Effect.yieldNow;
+        let timestamp = 1000;
+        const registry = yield* McpSessionRegistry.__testing
+          .make({ now: () => timestamp, livenessWindowMs: 100 })
+          .pipe(
+            Effect.provideService(
+              HttpServer.HttpServer,
+              HttpServer.HttpServer.of({
+                address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 43123),
+                serve: (() => Effect.void) as HttpServer.HttpServer["Service"]["serve"],
+              }),
+            ),
+          );
+        const issued = yield* registry.issue({
+          threadId: ThreadId.make("expiry-thread"),
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          managedBrowser: true,
+        });
+        const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
+        const issuedScope = yield* registry.resolve(token);
+        expect(issuedScope?.managedBrowser).toBe(true);
+        // The provider session manager adds the project once it has resolved it.
+        const taskScope = {
+          ...issuedScope!,
+          managedProjectId: ProjectId.make("project-managed-integration"),
+        };
+        const opened = yield* broker.invoke<PreviewAutomationStatus>({
+          scope: taskScope,
+          operation: "open",
+          input: { url: `http://127.0.0.1:${port}/` },
+        });
+        const tabId = PreviewTabId.make(opened.tabId!);
+        yield* broker.invoke({ scope: taskScope, tabId, operation: "recordingStart", input: {} });
+        expect(
+          (yield* manager.list({ threadId: taskScope.thread.threadId })).sessions.map(
+            (tab) => tab.tabId,
+          ),
+        ).toEqual([opened.tabId]);
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const events = yield* manager.subscribeEvents;
+        // The credential's session stops showing signs of life.
+        timestamp += 101;
+        expect(yield* registry.resolve(token)).toBeUndefined();
+        const closed = yield* Stream.fromSubscription(events).pipe(
+          Stream.filter((event) => event.type === "closed"),
+          Stream.take(1),
+          Stream.runCollect,
+        );
+        expect(closed).toHaveLength(1);
+        expect((yield* manager.list({ threadId: taskScope.thread.threadId })).sessions).toEqual(
+          [],
+        );
+        const artifacts = yield* fs
+          .readDirectory(config.browserArtifactsDir)
+          .pipe(Effect.orElseSucceed(() => []));
+        expect(artifacts).toEqual([]);
+      }).pipe(Effect.provide(runtime));
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
 );
