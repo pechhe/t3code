@@ -1397,9 +1397,9 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
             claimedBy: "threadB",
           });
 
-          // Hourly runs, even with a redispatch interval of zero, leave it alone, and
-          // a newer upstream tag waits behind it.
-          const zero = { T3FORK_REDISPATCH_SECONDS: "0" };
+          // Hourly runs leave a claim that is still making progress alone, and a newer
+          // upstream tag waits behind it.
+          const zero = { T3FORK_REDISPATCH_SECONDS: "3600" };
           await run(f, [], zero);
           await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
           await run(f, [], zero);
@@ -1417,21 +1417,21 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
     );
 
     it(
-      "notifies once when a quiet claim holds back a newer upstream tag",
+      "supersedes a quiet claim with a newer upstream tag, which is sent as the new claim",
       async () => {
         await withFixture(async (f) => {
           await seedRepos(f);
           await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
           await run(f, ["attempt", OLD_TAG, "claim", "threadA"]);
           await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
-          const env = { T3FORK_REDISPATCH_SECONDS: "0" };
-          await run(f, [], env);
-          await run(f, [], env);
+          await run(f, [], { T3FORK_REDISPATCH_SECONDS: "0" });
           expect(await attemptOf(f, OLD_TAG)).toMatchObject({
-            phase: "claimed",
-            quietNotified: true,
+            phase: "superseded",
+            supersededBy: NEW_TAG,
           });
-          expect((await nightlyLog(f)).match(/has made no progress/g)).toHaveLength(1);
+          expect(await attemptOf(f, NEW_TAG)).toMatchObject({ phase: "dispatched" });
+          expect((await run(f, ["attempt", NEW_TAG, "claim", "threadB"])).code).toBe(0);
+          expect((await run(f, ["attempt", OLD_TAG, "claim", "threadA"])).code).toBe(3);
         });
       },
       TIMEOUT,
@@ -2176,7 +2176,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
           await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
           await run(f, ["attempt", OLD_TAG, "claim", "threadA"]);
           await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
-          await run(f, [], zero);
+          await run(f, [], { T3FORK_REDISPATCH_SECONDS: "3600" });
           expect(await curlCalls(f)).toEqual([]);
           expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "claimed" });
         });

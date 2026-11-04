@@ -537,8 +537,10 @@ clear_unavailable() {
 
 # The one hold rule: what an unlanded attempt holds, whatever asks. "decision" is an
 # owner decision (nothing takes it over, only its holder's thread or retry); "claim"
-# is a claim on a published release (a claim on an unpublished release is stale: its
-# build cannot run, so a complete newer release supersedes it); "blocked" is any other
+# is a claim on a published release that has made progress within REDISPATCH_SECONDS
+# (a claim on an unpublished release is stale: its build cannot run; a claim that has
+# gone quiet is abandoned: in both a newer complete release supersedes it and becomes
+# the claim); "blocked" is any other
 # block, which stays its holder's but yields to --take-over. Newer tags are held back
 # by "decision" and "claim"; a claim on the same tag is refused by all three.
 hold_of() {
@@ -546,13 +548,19 @@ hold_of() {
   case "$(json_get "$file" .phase)" in
     claimed)
       release_gap "$(json_get "$file" .tag)" >/dev/null || rc=$?
-      [ "$rc" -ne 1 ] && echo claim
+      [ "$rc" -ne 1 ] && ! claim_is_quiet "$file" && echo claim
       ;;
     blocked)
       if [ "$(json_get "$file" .blocked.kind)" = owner-decision ]; then echo decision; else echo blocked; fi
       ;;
   esac
   return 0
+}
+
+claim_is_quiet() {
+  local quiet
+  quiet="$(json_get "$1" .updatedEpoch)"
+  [ $(($(now) - ${quiet:-0})) -ge "$REDISPATCH_SECONDS" ]
 }
 
 holds_back() {
