@@ -1,0 +1,1661 @@
+{
+  "schema": "semantic-lint-pilot-results-v1",
+  "split": "heldout",
+  "sourceRevision": "fc12f2a6586e",
+  "rule": {
+    "id": "semantic-lint-pilot",
+    "version": "1"
+  },
+  "baselineVersion": "1",
+  "corpusDigest": "ea909165d6aec2dc90b13ca85ff2df02fec970f9acce4da3e357c824fede4464",
+  "runAt": "2026-11-04T21:11:35.762Z",
+  "engines": ["jev", "luna"],
+  "records": [
+    {
+      "caseId": "h-comment-1",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.95
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "b6d3edaa5801a9688e9ec3b381646bff9e2339dd0bda2570874e067599f4a4c3",
+      "latencyMs": 563,
+      "inputTokens": 394,
+      "costUsd": 0.000016548,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-comment-1",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 1
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "dfa55311d05c684325f23ea9f7469885d0028806a522d703747bc6afd8fc1c1c",
+      "latencyMs": 225,
+      "inputTokens": 272,
+      "costUsd": 0.000027200000000000004,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-comment-2",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.97
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "cbe910aa566641e686d036df44cccd3052b4996c8d081f7a12a1d002b995701c",
+      "latencyMs": 172,
+      "inputTokens": 460,
+      "costUsd": 0.00001932,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-comment-2",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.96
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "87aca50eb598f32bc5da99b359a3128bf37c90224f71b05f582ac9196154c125",
+      "latencyMs": 245,
+      "inputTokens": 344,
+      "costUsd": 0.000034399999999999996,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-comment-3",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.97
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "ba01a0a6903818d0c3c39a2181bcaa66a6eb7fb1f09cef6ad4650734a71cc39e",
+      "latencyMs": 214,
+      "inputTokens": 411,
+      "costUsd": 0.000017262000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-comment-3",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 1
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "3ea78979f7db1ed7ecb3903840d683b30f6dd81957d73cd8477c4004b1f4e29d",
+      "latencyMs": 130,
+      "inputTokens": 282,
+      "costUsd": 0.000028200000000000004,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-comment-4",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.02
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "2dbbd8c73ac1f17a9c3aed31c83f549687ccb6f452542f441610230092b61022",
+      "latencyMs": 165,
+      "inputTokens": 422,
+      "costUsd": 0.000017724000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-comment-4",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "5adbf17a5ee496ca284fa7bfa66357780e0a98aa8030a49554615c7a675fc024",
+      "latencyMs": 198,
+      "inputTokens": 300,
+      "costUsd": 0.00003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-comment-5",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.04
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "ece36a285950b58ef9d158347e9ec941c05b786de7f960c2d746183ecc66e5ae",
+      "latencyMs": 164,
+      "inputTokens": 409,
+      "costUsd": 0.000017178,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-comment-5",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "681ca573506db3587f9188f21d9590f0a1cfd95746752d1938064ef986118972",
+      "latencyMs": 302,
+      "inputTokens": 288,
+      "costUsd": 0.000028800000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-comment-6",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.13
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "2157e1e193bdfce648c1e938400a02834117036699adef5686f0566bc5a75480",
+      "latencyMs": 120,
+      "inputTokens": 434,
+      "costUsd": 0.000018228000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-comment-6",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "81266fee7080d289a94c1b63a70e077586eb288eb676c2ac79bec29d773e0e32",
+      "latencyMs": 157,
+      "inputTokens": 305,
+      "costUsd": 0.0000305,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-comment-7",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.16
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "bfc0ddba309834609d222c87840feb44424215081ef1ce3f0471019e664dd8de",
+      "latencyMs": 208,
+      "inputTokens": 458,
+      "costUsd": 0.000019236,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-comment-7",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.04
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "bd5c1edfe82e1142e36766668e9a2b4e74002a4c0e740a6e22b1c2bf965c13f5",
+      "latencyMs": 154,
+      "inputTokens": 327,
+      "costUsd": 0.0000327,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-name-1",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.94
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "219562bffc041943acd55816da5a0314ec25c7ebc8425c07b482a3267fff742c",
+      "latencyMs": 184,
+      "inputTokens": 427,
+      "costUsd": 0.000017934,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-name-1",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 1
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "428fffbddcc78e9a443b050a2e98fa01f2036167ae10d2861434dd61baf0d643",
+      "latencyMs": 170,
+      "inputTokens": 302,
+      "costUsd": 0.000030200000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-name-2",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.87
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "33afaf11faa2b2e67f0b82b00848dd94dfa77ae2bd80858b8c5bafcb75605c09",
+      "latencyMs": 147,
+      "inputTokens": 429,
+      "costUsd": 0.000018018,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-name-2",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.85
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "fc811f69fce4baad509e5fbc9fba9a2bd4757cb30dee6c345e52d2968017621c",
+      "latencyMs": 397,
+      "inputTokens": 303,
+      "costUsd": 0.0000303,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-name-3",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.85
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "3e7a551598e9f7bbcd6fda48500af79c9806185dc01150f6ed650b8a4f31746e",
+      "latencyMs": 165,
+      "inputTokens": 413,
+      "costUsd": 0.000017346,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-name-3",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.7
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "125ad2dd584adade6093b20db17aabfae560b23203321d7c4d426418e47d9aee",
+      "latencyMs": 238,
+      "inputTokens": 292,
+      "costUsd": 0.0000292,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-name-4",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.06
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "c5172a336dc5ea351ad5ba0e0db4bc8fc43e7fb4b3cbdeb38897f424b19c6d82",
+      "latencyMs": 208,
+      "inputTokens": 394,
+      "costUsd": 0.000016548,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-name-4",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "b02074a58cc3ad48c05c18fbbf2162313710d1eb71035a248e6115bddb734108",
+      "latencyMs": 306,
+      "inputTokens": 271,
+      "costUsd": 0.0000271,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-name-5",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.07
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "fd3a07aca5c06a1047762cb55775a9d33d9546ab675bdffe7f62b3b7f5f2cc17",
+      "latencyMs": 145,
+      "inputTokens": 432,
+      "costUsd": 0.000018144,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-name-5",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "1c8581e117619a819c6e9878cb0fbc855b46d6bf3544a820cbd467f2f3307bf2",
+      "latencyMs": 327,
+      "inputTokens": 307,
+      "costUsd": 0.0000307,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-name-6",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.33
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "8c8fe94f149f09bae79e222afc3620e957e044c31fe184f6c71ca4773d98f2e0",
+      "latencyMs": 187,
+      "inputTokens": 425,
+      "costUsd": 0.00001785,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-name-6",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "2ed403620bb63ba17bd6c3b2a48e5be85679000a424e680fa9a34a9380b236cf",
+      "latencyMs": 736,
+      "inputTokens": 303,
+      "costUsd": 0.0000303,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-name-7",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.83
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "ba7b5881954041a5f8074067c9c88f600302d863a52126ab3e101a8061a73b9e",
+      "latencyMs": 135,
+      "inputTokens": 431,
+      "costUsd": 0.000018102,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-name-7",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.93
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "c644d137fbb98f1fd057ce5c039d36b2dc437cf6e720b383fb90e4669c5c6652",
+      "latencyMs": 155,
+      "inputTokens": 300,
+      "costUsd": 0.00003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-error-1",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.97
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "9891a283738891d05b3e272429ce20545fd7a7729d90c68cdac5f50171e3716c",
+      "latencyMs": 112,
+      "inputTokens": 384,
+      "costUsd": 0.000016128,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-error-1",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.99
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "e9a9b6a179051b44bf304675dd6a1e16b8cd121b0b293b0611a97b73012c7099",
+      "latencyMs": 143,
+      "inputTokens": 260,
+      "costUsd": 0.000026,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-error-2",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.97
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "29936ca98e926cb840f6ab95da3ce0c48db88d7650f8f0c700847734ec5a069b",
+      "latencyMs": 163,
+      "inputTokens": 383,
+      "costUsd": 0.000016086,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-error-2",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 1
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "a9aa20dbba4486e2432616effa74d31dc2405c9e25b5180f3fc15f69ce656dca",
+      "latencyMs": 299,
+      "inputTokens": 262,
+      "costUsd": 0.000026200000000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-error-3",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.97
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "a05f14b0833a54962ac32d0b13ae6163663f79b7ba9ccc377b6f7791f96dc56f",
+      "latencyMs": 124,
+      "inputTokens": 467,
+      "costUsd": 0.000019614000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-error-3",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.99
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "c72cc68867842000b2db49c0d8787b6c719eb1de45bd57cf7410b5a78fe53856",
+      "latencyMs": 502,
+      "inputTokens": 331,
+      "costUsd": 0.0000331,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-error-4",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.11
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "a6e791dd8534188719454cae6cbe4328baa793467f34712f323c7319aa934f6f",
+      "latencyMs": 163,
+      "inputTokens": 406,
+      "costUsd": 0.000017052,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-error-4",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "8ef9ef8f489d4b9a5ca72de4ea1d8f064e82af2ff107ed8b7a3bb9aa84207871",
+      "latencyMs": 199,
+      "inputTokens": 289,
+      "costUsd": 0.0000289,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-error-5",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.07
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "95d2f609e7eb13c8a69665c8802cd83bd9c53d3a02cd74f20086c993cb28cb6c",
+      "latencyMs": 148,
+      "inputTokens": 405,
+      "costUsd": 0.00001701,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-error-5",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "d8fa1851845215e65f726633d5df17e1d8952c4188162bebe4dd8bd4dc53e2a5",
+      "latencyMs": 333,
+      "inputTokens": 279,
+      "costUsd": 0.0000279,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-error-6",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.18
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "d0d7c8d2e5502be2d0e34e8eaf6fc4011dc207327601c606468e2cd154b9ab65",
+      "latencyMs": 187,
+      "inputTokens": 401,
+      "costUsd": 0.000016842000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-error-6",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "d588ba2799a08add5a224f2dda17773ef68ed4d4091f59a1ceaa3e0dc070ecc3",
+      "latencyMs": 147,
+      "inputTokens": 279,
+      "costUsd": 0.0000279,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-assert-1",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.98
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "91ac8921dd5f7c16afb625075fb2ed334efefb7c13bea9a7f9cf3d6e51b2f76c",
+      "latencyMs": 152,
+      "inputTokens": 404,
+      "costUsd": 0.000016968,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-assert-1",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 1
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "f83817a6820e58da881080425e5587c1770d50874369df0706ed95faa4cdc205",
+      "latencyMs": 262,
+      "inputTokens": 280,
+      "costUsd": 0.000028,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-assert-2",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.97
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "6fdff844dfd08cd5f4f96ea85c182eb6caed2d22e2c1b9c4fb634fc79f90557b",
+      "latencyMs": 172,
+      "inputTokens": 427,
+      "costUsd": 0.000017934,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-assert-2",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 1
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "d6551584511cbbbd2fb951075867c122abb4bfe14cff3444c059f828fbef4fd4",
+      "latencyMs": 188,
+      "inputTokens": 298,
+      "costUsd": 0.0000298,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-assert-3",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.98
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "2349f3e732a37726ccffdc16a24ac1b898b034ffbabab1691dc750797215da35",
+      "latencyMs": 176,
+      "inputTokens": 396,
+      "costUsd": 0.000016632000000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-assert-3",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 1
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "1adf3af0fc023398308aae4193d11530d706beebfa083b0fb87e30b3ce0a48e6",
+      "latencyMs": 203,
+      "inputTokens": 273,
+      "costUsd": 0.0000273,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-assert-4",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.24
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "b2789fb2133368f4fa4f167e7b6dcd793f5d5ef86f4c12b72e34060052329593",
+      "latencyMs": 142,
+      "inputTokens": 411,
+      "costUsd": 0.000017262000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-assert-4",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "057516b8c030b653a9833319e3387fc14cc0bf4691d0833167e94962ad1d02ac",
+      "latencyMs": 177,
+      "inputTokens": 283,
+      "costUsd": 0.0000283,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-assert-5",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.06
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "21df09a5786e7850b4b39806543f30468247f8de9e429bc4e0be6e0cbff29580",
+      "latencyMs": 345,
+      "inputTokens": 422,
+      "costUsd": 0.000017724000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-assert-5",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "1767e44cb29482871d5ae561ac91efb0c084b9cce614c50643606e3d6f9d3136",
+      "latencyMs": 222,
+      "inputTokens": 287,
+      "costUsd": 0.000028700000000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-assert-6",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.1
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "87c5b7076203a0505dd262264e0c7bca28f7b80f9a2e24cb939f600c47ad81d3",
+      "latencyMs": 160,
+      "inputTokens": 427,
+      "costUsd": 0.000017934,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-assert-6",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "657c27ddd81902afcbee5075f0f09b39b50e4ed8dd21c851747299b8181e90dc",
+      "latencyMs": 161,
+      "inputTokens": 308,
+      "costUsd": 0.0000308,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-assert-7",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.61
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "bfae1439639ce670ab966b2bad17ba66acda1324777f4ac1ee71600a5b2fdb9a",
+      "latencyMs": 158,
+      "inputTokens": 432,
+      "costUsd": 0.000018144,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-assert-7",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 1
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "520d9b6c9fd546b882d4215bee9be207eda9278387fd63d26b36b6984c3d3b30",
+      "latencyMs": 182,
+      "inputTokens": 309,
+      "costUsd": 0.0000309,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-smell-1",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.83
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "d1d56f8e8defdf7e2130f5a508a4fcac1cc3fd64c305c5b78c18c39b1b235f25",
+      "latencyMs": 200,
+      "inputTokens": 517,
+      "costUsd": 0.000021714000000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-smell-1",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.98
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "a92a98721c8c9c2280441eb21003299327794f2361ad15c290004fbbfc2c9507",
+      "latencyMs": 341,
+      "inputTokens": 400,
+      "costUsd": 0.00004,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-smell-2",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.97
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "21a976c7056cb602272ad562228423dbefc52043e53c21a0a254571f9f6e3c7e",
+      "latencyMs": 213,
+      "inputTokens": 462,
+      "costUsd": 0.000019404,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-smell-2",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.99
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "d3fd042088e0e56fc2214d4d306e225f4e378dd13070db43facc86b6ba8dcbff",
+      "latencyMs": 263,
+      "inputTokens": 334,
+      "costUsd": 0.0000334,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-smell-3",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.74
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "66f7736d54719e76139911295d938f6463d05262a52344999c67ab1f3b185cbb",
+      "latencyMs": 393,
+      "inputTokens": 499,
+      "costUsd": 0.000020958,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-smell-3",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.95
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "57b5e294898aaacc57c3d322dbe34dbf0274c24366a6a489f04455f4f1c55911",
+      "latencyMs": 222,
+      "inputTokens": 395,
+      "costUsd": 0.0000395,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-smell-4",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.1
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "9161598e470a708d6621cc4800810b16d256048c7b1889a0c7295caba21fe960",
+      "latencyMs": 138,
+      "inputTokens": 528,
+      "costUsd": 0.000022176000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-smell-4",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.01
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "46b346a9e0ce3c89987ea698784fad18f3d5105ee41929afce496fe47874bc0f",
+      "latencyMs": 281,
+      "inputTokens": 426,
+      "costUsd": 0.0000426,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-smell-5",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.1
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "62fff6e0cdd0091f090a56ca5b815076aa2b990a0ff24fad7eba517ebe674908",
+      "latencyMs": 151,
+      "inputTokens": 440,
+      "costUsd": 0.00001848,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-smell-5",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "bfa6213b959edf53c9468ae86377f90bf659f1d4ec98a022963ded8bcf204575",
+      "latencyMs": 276,
+      "inputTokens": 308,
+      "costUsd": 0.0000308,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-smell-6",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.08
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "fa2c23455ecfdec4136ef7727e40e0b1050a2931fac548cd15211b489d1d84dc",
+      "latencyMs": 132,
+      "inputTokens": 505,
+      "costUsd": 0.000021210000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-smell-6",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "5d8b2ba6616357f3ebb567fac37fec43db6a8731e9b4554aed2bd0680d013197",
+      "latencyMs": 356,
+      "inputTokens": 379,
+      "costUsd": 0.0000379,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-smell-7",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.37
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "eea0260258b5f55bfd398882197701dd6bb1590f750a511be7d97109e4b616d9",
+      "latencyMs": 167,
+      "inputTokens": 448,
+      "costUsd": 0.000018816000000000004,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "h-smell-7",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.03
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "1f4e74bf1dfd3302743ecb685dfcd262046c4ff39fa338ad19dcbdeb67c7b438",
+      "latencyMs": 309,
+      "inputTokens": 326,
+      "costUsd": 0.0000326,
+      "costStatus": "estimated"
+    }
+  ],
+  "systems": {
+    "baseline": {
+      "cases": 34,
+      "answered": 34,
+      "failed": 0,
+      "unanswered": 0,
+      "confusion": {
+        "tp": 13,
+        "fp": 3,
+        "fn": 2,
+        "tn": 14
+      },
+      "precision": {
+        "value": 0.8125,
+        "low": 0.5699064013154177,
+        "high": 0.9340852122641324
+      },
+      "recall": {
+        "value": 0.8666666666666667,
+        "low": 0.6211750079348376,
+        "high": 0.9626395301086407
+      },
+      "falseAlarmRate": {
+        "value": 0.17647058823529413,
+        "low": 0.0619101371254899,
+        "high": 0.41029929017375777
+      },
+      "auc": 0.8450980392156863,
+      "flaggedTotal": 16,
+      "flaggedPerTrueDefect": 1.2307692307692308,
+      "uncertainFlagged": 0,
+      "uncertainTotal": 2,
+      "misses": ["h-comment-2", "h-name-7"],
+      "falseAlarms": ["h-error-5", "h-assert-6", "h-smell-5"]
+    },
+    "jev": {
+      "cases": 34,
+      "answered": 34,
+      "failed": 0,
+      "unanswered": 0,
+      "confusion": {
+        "tp": 15,
+        "fp": 1,
+        "fn": 0,
+        "tn": 16
+      },
+      "precision": {
+        "value": 0.9375,
+        "low": 0.7167073163197013,
+        "high": 0.9888809426916687
+      },
+      "recall": {
+        "value": 1,
+        "low": 0.7961107336956521,
+        "high": 1
+      },
+      "falseAlarmRate": {
+        "value": 0.058823529411764705,
+        "low": 0.01046013064516424,
+        "high": 0.269825452035628
+      },
+      "auc": 1,
+      "flaggedTotal": 17,
+      "flaggedPerTrueDefect": 1.1333333333333333,
+      "uncertainFlagged": 1,
+      "uncertainTotal": 2,
+      "misses": [],
+      "falseAlarms": ["h-smell-3"]
+    },
+    "luna": {
+      "cases": 34,
+      "answered": 34,
+      "failed": 0,
+      "unanswered": 0,
+      "confusion": {
+        "tp": 15,
+        "fp": 1,
+        "fn": 0,
+        "tn": 16
+      },
+      "precision": {
+        "value": 0.9375,
+        "low": 0.7167073163197013,
+        "high": 0.9888809426916687
+      },
+      "recall": {
+        "value": 1,
+        "low": 0.7961107336956521,
+        "high": 1
+      },
+      "falseAlarmRate": {
+        "value": 0.058823529411764705,
+        "low": 0.01046013064516424,
+        "high": 0.269825452035628
+      },
+      "auc": 0.9882352941176471,
+      "flaggedTotal": 17,
+      "flaggedPerTrueDefect": 1.1333333333333333,
+      "uncertainFlagged": 1,
+      "uncertainTotal": 2,
+      "misses": [],
+      "falseAlarms": ["h-smell-3"]
+    }
+  },
+  "cost": {
+    "jev": {
+      "calls": 34,
+      "latencyMs": {
+        "mean": 187.44117647058823,
+        "p50": 164,
+        "max": 563
+      },
+      "unobservedAttempts": 0,
+      "inputTokens": 14703,
+      "knownInputTokens": 14703,
+      "costUsd": 0.000617526,
+      "knownCostUsd": 0.000617526,
+      "costKnownCalls": 34,
+      "costStatuses": ["estimated"],
+      "attempts": 34,
+      "failedAttempts": 0
+    },
+    "luna": {
+      "calls": 34,
+      "latencyMs": {
+        "mean": 259,
+        "p50": 225,
+        "max": 736
+      },
+      "unobservedAttempts": 0,
+      "inputTokens": 10502,
+      "knownInputTokens": 10502,
+      "costUsd": 0.0010501999999999998,
+      "knownCostUsd": 0.0010501999999999998,
+      "costKnownCalls": 34,
+      "costStatuses": ["estimated"],
+      "attempts": 34,
+      "failedAttempts": 0
+    }
+  },
+  "sensitivity": {
+    "adjudicated": {
+      "baseline": {
+        "cases": 34,
+        "answered": 34,
+        "failed": 0,
+        "unanswered": 0,
+        "confusion": {
+          "tp": 13,
+          "fp": 3,
+          "fn": 2,
+          "tn": 14
+        },
+        "precision": {
+          "value": 0.8125,
+          "low": 0.5699064013154177,
+          "high": 0.9340852122641324
+        },
+        "recall": {
+          "value": 0.8666666666666667,
+          "low": 0.6211750079348376,
+          "high": 0.9626395301086407
+        },
+        "falseAlarmRate": {
+          "value": 0.17647058823529413,
+          "low": 0.0619101371254899,
+          "high": 0.41029929017375777
+        },
+        "auc": 0.8450980392156863,
+        "flaggedTotal": 16,
+        "flaggedPerTrueDefect": 1.2307692307692308,
+        "uncertainFlagged": 0,
+        "uncertainTotal": 2,
+        "misses": ["h-comment-2", "h-name-7"],
+        "falseAlarms": ["h-error-5", "h-assert-6", "h-smell-5"]
+      },
+      "jev": {
+        "cases": 34,
+        "answered": 34,
+        "failed": 0,
+        "unanswered": 0,
+        "confusion": {
+          "tp": 15,
+          "fp": 1,
+          "fn": 0,
+          "tn": 16
+        },
+        "precision": {
+          "value": 0.9375,
+          "low": 0.7167073163197013,
+          "high": 0.9888809426916687
+        },
+        "recall": {
+          "value": 1,
+          "low": 0.7961107336956521,
+          "high": 1
+        },
+        "falseAlarmRate": {
+          "value": 0.058823529411764705,
+          "low": 0.01046013064516424,
+          "high": 0.269825452035628
+        },
+        "auc": 1,
+        "flaggedTotal": 17,
+        "flaggedPerTrueDefect": 1.1333333333333333,
+        "uncertainFlagged": 1,
+        "uncertainTotal": 2,
+        "misses": [],
+        "falseAlarms": ["h-smell-3"]
+      },
+      "luna": {
+        "cases": 34,
+        "answered": 34,
+        "failed": 0,
+        "unanswered": 0,
+        "confusion": {
+          "tp": 15,
+          "fp": 1,
+          "fn": 0,
+          "tn": 16
+        },
+        "precision": {
+          "value": 0.9375,
+          "low": 0.7167073163197013,
+          "high": 0.9888809426916687
+        },
+        "recall": {
+          "value": 1,
+          "low": 0.7961107336956521,
+          "high": 1
+        },
+        "falseAlarmRate": {
+          "value": 0.058823529411764705,
+          "low": 0.01046013064516424,
+          "high": 0.269825452035628
+        },
+        "auc": 0.9882352941176471,
+        "flaggedTotal": 17,
+        "flaggedPerTrueDefect": 1.1333333333333333,
+        "uncertainFlagged": 1,
+        "uncertainTotal": 2,
+        "misses": [],
+        "falseAlarms": ["h-smell-3"]
+      }
+    },
+    "agreementOnly": {
+      "baseline": {
+        "cases": 34,
+        "answered": 34,
+        "failed": 0,
+        "unanswered": 0,
+        "confusion": {
+          "tp": 13,
+          "fp": 3,
+          "fn": 2,
+          "tn": 13
+        },
+        "precision": {
+          "value": 0.8125,
+          "low": 0.5699064013154177,
+          "high": 0.9340852122641324
+        },
+        "recall": {
+          "value": 0.8666666666666667,
+          "low": 0.6211750079348376,
+          "high": 0.9626395301086407
+        },
+        "falseAlarmRate": {
+          "value": 0.1875,
+          "low": 0.06591478773586765,
+          "high": 0.4300935986845823
+        },
+        "auc": 0.8395833333333333,
+        "flaggedTotal": 16,
+        "flaggedPerTrueDefect": 1.2307692307692308,
+        "uncertainFlagged": 0,
+        "uncertainTotal": 3,
+        "misses": ["h-comment-2", "h-name-7"],
+        "falseAlarms": ["h-error-5", "h-assert-6", "h-smell-5"]
+      },
+      "jev": {
+        "cases": 34,
+        "answered": 34,
+        "failed": 0,
+        "unanswered": 0,
+        "confusion": {
+          "tp": 15,
+          "fp": 1,
+          "fn": 0,
+          "tn": 15
+        },
+        "precision": {
+          "value": 0.9375,
+          "low": 0.7167073163197013,
+          "high": 0.9888809426916687
+        },
+        "recall": {
+          "value": 1,
+          "low": 0.7961107336956521,
+          "high": 1
+        },
+        "falseAlarmRate": {
+          "value": 0.0625,
+          "low": 0.01111905730833121,
+          "high": 0.2832926836802987
+        },
+        "auc": 1,
+        "flaggedTotal": 17,
+        "flaggedPerTrueDefect": 1.1333333333333333,
+        "uncertainFlagged": 1,
+        "uncertainTotal": 3,
+        "misses": [],
+        "falseAlarms": ["h-smell-3"]
+      },
+      "luna": {
+        "cases": 34,
+        "answered": 34,
+        "failed": 0,
+        "unanswered": 0,
+        "confusion": {
+          "tp": 15,
+          "fp": 1,
+          "fn": 0,
+          "tn": 15
+        },
+        "precision": {
+          "value": 0.9375,
+          "low": 0.7167073163197013,
+          "high": 0.9888809426916687
+        },
+        "recall": {
+          "value": 1,
+          "low": 0.7961107336956521,
+          "high": 1
+        },
+        "falseAlarmRate": {
+          "value": 0.0625,
+          "low": 0.01111905730833121,
+          "high": 0.2832926836802987
+        },
+        "auc": 0.9875,
+        "flaggedTotal": 17,
+        "flaggedPerTrueDefect": 1.1333333333333333,
+        "uncertainFlagged": 1,
+        "uncertainTotal": 3,
+        "misses": [],
+        "falseAlarms": ["h-smell-3"]
+      }
+    },
+    "labelerA": {
+      "baseline": {
+        "cases": 34,
+        "answered": 34,
+        "failed": 0,
+        "unanswered": 0,
+        "confusion": {
+          "tp": 13,
+          "fp": 3,
+          "fn": 3,
+          "tn": 14
+        },
+        "precision": {
+          "value": 0.8125,
+          "low": 0.5699064013154177,
+          "high": 0.9340852122641324
+        },
+        "recall": {
+          "value": 0.8125,
+          "low": 0.5699064013154177,
+          "high": 0.9340852122641324
+        },
+        "falseAlarmRate": {
+          "value": 0.17647058823529413,
+          "low": 0.0619101371254899,
+          "high": 0.41029929017375777
+        },
+        "auc": 0.8180147058823529,
+        "flaggedTotal": 16,
+        "flaggedPerTrueDefect": 1.2307692307692308,
+        "uncertainFlagged": 0,
+        "uncertainTotal": 1,
+        "misses": ["h-comment-2", "h-name-7", "h-assert-7"],
+        "falseAlarms": ["h-error-5", "h-assert-6", "h-smell-5"]
+      },
+      "jev": {
+        "cases": 34,
+        "answered": 34,
+        "failed": 0,
+        "unanswered": 0,
+        "confusion": {
+          "tp": 16,
+          "fp": 1,
+          "fn": 0,
+          "tn": 16
+        },
+        "precision": {
+          "value": 0.9411764705882353,
+          "low": 0.730174547964372,
+          "high": 0.9895398693548358
+        },
+        "recall": {
+          "value": 1,
+          "low": 0.8063865817272802,
+          "high": 1
+        },
+        "falseAlarmRate": {
+          "value": 0.058823529411764705,
+          "low": 0.01046013064516424,
+          "high": 0.269825452035628
+        },
+        "auc": 0.9963235294117647,
+        "flaggedTotal": 17,
+        "flaggedPerTrueDefect": 1.0625,
+        "uncertainFlagged": 0,
+        "uncertainTotal": 1,
+        "misses": [],
+        "falseAlarms": ["h-smell-3"]
+      },
+      "luna": {
+        "cases": 34,
+        "answered": 34,
+        "failed": 0,
+        "unanswered": 0,
+        "confusion": {
+          "tp": 16,
+          "fp": 1,
+          "fn": 0,
+          "tn": 16
+        },
+        "precision": {
+          "value": 0.9411764705882353,
+          "low": 0.730174547964372,
+          "high": 0.9895398693548358
+        },
+        "recall": {
+          "value": 1,
+          "low": 0.8063865817272802,
+          "high": 1
+        },
+        "falseAlarmRate": {
+          "value": 0.058823529411764705,
+          "low": 0.01046013064516424,
+          "high": 0.269825452035628
+        },
+        "auc": 0.9889705882352942,
+        "flaggedTotal": 17,
+        "flaggedPerTrueDefect": 1.0625,
+        "uncertainFlagged": 0,
+        "uncertainTotal": 1,
+        "misses": [],
+        "falseAlarms": ["h-smell-3"]
+      }
+    },
+    "labelerB": {
+      "baseline": {
+        "cases": 34,
+        "answered": 34,
+        "failed": 0,
+        "unanswered": 0,
+        "confusion": {
+          "tp": 13,
+          "fp": 3,
+          "fn": 3,
+          "tn": 15
+        },
+        "precision": {
+          "value": 0.8125,
+          "low": 0.5699064013154177,
+          "high": 0.9340852122641324
+        },
+        "recall": {
+          "value": 0.8125,
+          "low": 0.5699064013154177,
+          "high": 0.9340852122641324
+        },
+        "falseAlarmRate": {
+          "value": 0.16666666666666666,
+          "low": 0.05836470400465757,
+          "high": 0.39222499638359243
+        },
+        "auc": 0.8229166666666666,
+        "flaggedTotal": 16,
+        "flaggedPerTrueDefect": 1.2307692307692308,
+        "uncertainFlagged": 0,
+        "uncertainTotal": 0,
+        "misses": ["h-comment-2", "h-name-7", "h-assert-4"],
+        "falseAlarms": ["h-error-5", "h-assert-6", "h-smell-5"]
+      },
+      "jev": {
+        "cases": 34,
+        "answered": 34,
+        "failed": 0,
+        "unanswered": 0,
+        "confusion": {
+          "tp": 15,
+          "fp": 2,
+          "fn": 1,
+          "tn": 16
+        },
+        "precision": {
+          "value": 0.8823529411764706,
+          "low": 0.6566315750229009,
+          "high": 0.967120919987079
+        },
+        "recall": {
+          "value": 0.9375,
+          "low": 0.7167073163197013,
+          "high": 0.9888809426916687
+        },
+        "falseAlarmRate": {
+          "value": 0.1111111111111111,
+          "low": 0.031018868453582787,
+          "high": 0.3280024486660421
+        },
+        "auc": 0.9861111111111112,
+        "flaggedTotal": 17,
+        "flaggedPerTrueDefect": 1.1333333333333333,
+        "uncertainFlagged": 0,
+        "uncertainTotal": 0,
+        "misses": ["h-assert-4"],
+        "falseAlarms": ["h-assert-7", "h-smell-3"]
+      },
+      "luna": {
+        "cases": 34,
+        "answered": 34,
+        "failed": 0,
+        "unanswered": 0,
+        "confusion": {
+          "tp": 15,
+          "fp": 2,
+          "fn": 1,
+          "tn": 16
+        },
+        "precision": {
+          "value": 0.8823529411764706,
+          "low": 0.6566315750229009,
+          "high": 0.967120919987079
+        },
+        "recall": {
+          "value": 0.9375,
+          "low": 0.7167073163197013,
+          "high": 0.9888809426916687
+        },
+        "falseAlarmRate": {
+          "value": 0.1111111111111111,
+          "low": 0.031018868453582787,
+          "high": 0.3280024486660421
+        },
+        "auc": 0.9097222222222222,
+        "flaggedTotal": 17,
+        "flaggedPerTrueDefect": 1.1333333333333333,
+        "uncertainFlagged": 0,
+        "uncertainTotal": 0,
+        "misses": ["h-assert-4"],
+        "falseAlarms": ["h-assert-7", "h-smell-3"]
+      }
+    }
+  }
+}
