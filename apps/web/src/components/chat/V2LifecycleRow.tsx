@@ -5,15 +5,20 @@ import {
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { AgentElapsed } from "./AgentElapsed";
 import { projectedSubagentsToRuntime } from "@t3tools/client-runtime/state/subagentRuntime";
-import { Fragment, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useThreadShell, useProject } from "../../state/entities";
+import { isSubagentDoer } from "@t3tools/client-runtime/state/threads";
+import { SubagentModelMeta } from "./SubagentModelMeta";
+import {
+  SUBAGENT_STATUS_PRESENTATION,
+  subagentFinishedOutcome,
+} from "./subagentStatusPresentation";
 import { SubagentTooltipContent } from "./SubagentTooltipContent";
 import { AgentRoleChip } from "../AgentRoleChip";
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { environmentThreadDetails } from "../../state/threads";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
-import { MiddleTruncate } from "../ui/middle-truncate";
 import * as DateTime from "effect/DateTime";
 import { WorkLogRow } from "./WorkLog";
 import {
@@ -22,11 +27,7 @@ import {
   type HandoffEndpoints,
   type HandoffTimelineRun,
 } from "@t3tools/client-runtime/handoff";
-import {
-  formatSubagentDisplayTitle,
-  resolveSubagentMetadata,
-} from "@t3tools/client-runtime/state/subagent-display";
-import { formatTokens } from "@t3tools/shared/usageFormat";
+import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
 import {
   AGENT_ROLE_TITLE_LABEL,
   agentTaskTopic,
@@ -76,6 +77,7 @@ import {
   subagentFollowUpVerb,
   subagentReturnStatus,
   subagentReturnVerb,
+  subagentSummaryLine,
 } from "./V2LifecycleRow.logic";
 import { Button, InlineButton } from "../ui/button";
 import { T3Wordmark } from "../T3Wordmark";
@@ -282,15 +284,6 @@ const SETTLED_SUBAGENT_STATUSES = new Set<OrchestrationV2TurnItem["status"]>([
 ]);
 
 const GENERIC_CHILD_END = /^Child task ended with status\b/i;
-
-function plainDetail(text: string): string {
-  return text
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/`/g, "")
-    .replace(/^[ \t]*[-*][ \t]+/gm, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 function isoOrNull(value: DateTime.Utc | null | undefined): string | null {
   return value ? DateTime.formatIso(value) : null;
@@ -582,34 +575,13 @@ function SubagentTimelineLink(props: {
   const settled = SETTLED_SUBAGENT_STATUSES.has(status);
   const rawDetail = settled ? result || progress : progress || result;
   const detail =
-    rawDetail && !GENERIC_CHILD_END.test(rawDetail) ? plainDetail(rawDetail) || null : null;
+    rawDetail && !GENERIC_CHILD_END.test(rawDetail) ? subagentSummaryLine(rawDetail) || null : null;
   const failed = status === "failed";
   const timing = {
     status: liveStatus,
     startedAt: isoOrNull(agent?.startedAt ?? props.startedAt),
     completedAt: isoOrNull(agent?.completedAt ?? props.completedAt),
   };
-  const agentModel = agent?.model ?? null;
-  // Selects the label string, so a provider status push alone doesn't re-render the card.
-  const modelLabel = useAtomValue(
-    serverEnvironment.providersValueAtom(props.parentRef.environmentId),
-    (providers) =>
-      agentModel === null
-        ? null
-        : resolveSubagentMetadata({
-            model: agentModel,
-            provider: providers?.find(
-              (provider) => provider.instanceId === props.providerInstanceId,
-            ),
-          }).modelLabel,
-  );
-  const meta: ReactNode[] = [];
-  if (modelLabel !== null) {
-    meta.push(modelLabel);
-  }
-  if (agent?.totalTokens !== undefined) {
-    meta.push(`${formatTokens(agent.totalTokens)} tokens`);
-  }
   if (followUpRound !== null && threadId !== null) {
     return (
       <SubagentFollowUpChip
@@ -626,69 +598,57 @@ function SubagentTimelineLink(props: {
       />
     );
   }
+  const outcome = settled ? subagentFinishedOutcome(status) : null;
+  const OutcomeIcon = outcome?.icon ?? null;
+  const showDetail = detail !== null && (failed || isSubagentDoer(role));
   const content = (
     <>
-      <EnvironmentSubagentAvatar
-        environmentId={props.parentRef.environmentId}
-        providerInstanceId={props.providerInstanceId}
-        driver={props.driver}
-        status={status}
-      />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          {role ? <AgentRoleChip role={role} className="shrink-0" /> : null}
-          {topic ? (
-            <span className="min-w-0 truncate text-xs font-medium text-foreground">{topic}</span>
-          ) : null}
-        </span>
+      <span className="flex min-w-0 items-center gap-2">
+        {role ? <AgentRoleChip role={role} className="flex-none" /> : null}
+        <span className="min-w-0 flex-1 truncate font-medium text-foreground">{topic}</span>
+        <SubagentModelMeta
+          environmentId={props.parentRef.environmentId}
+          providerInstanceId={props.providerInstanceId}
+          driver={props.driver}
+          model={agent?.model ?? null}
+          totalTokens={agent?.totalTokens}
+        />
         <span
           className={cn(
-            "block text-2xs leading-relaxed",
+            "inline-flex flex-none items-center gap-1 tabular-nums",
+            outcome?.className ??
+              (status === "running"
+                ? SUBAGENT_STATUS_PRESENTATION.working.className
+                : "text-muted-foreground"),
+          )}
+        >
+          {OutcomeIcon ? <OutcomeIcon aria-hidden className="size-3" /> : null}
+          {outcome?.label ??
+            (status === "running" ? SUBAGENT_STATUS_PRESENTATION.working.label : statusLabel)}
+          <SubagentElapsed agent={timing} />
+        </span>
+        {threadId !== null ? (
+          <ChevronRightIcon
+            aria-hidden
+            className="size-3.5 flex-none text-muted-foreground/60 transition-colors group-hover/subagent:text-foreground"
+          />
+        ) : null}
+      </span>
+      {showDetail ? (
+        <span
+          className={cn(
+            "mt-0.5 block truncate",
             failed ? "text-destructive" : "text-muted-foreground",
           )}
         >
-          {detail === null ? (
-            statusLabel
-          ) : detail.includes("/") && !detail.includes(" ") ? (
-            <MiddleTruncate value={detail} showTitle={false} className="flex" />
-          ) : (
-            <span className="block truncate">{detail}</span>
-          )}
+          {detail}
         </span>
-      </span>
-      {detail !== null && status !== "completed" ? (
-        <span
-          className={cn("shrink-0 text-xs", failed ? "text-destructive" : "text-muted-foreground")}
-        >
-          {statusLabel}
-        </span>
-      ) : null}
-      <span className="flex shrink-0 flex-col items-end text-xs text-muted-foreground tabular-nums">
-        <span>
-          <SubagentElapsed agent={timing} />
-        </span>
-        {meta.length > 0 ? (
-          <span className="text-3xs">
-            {meta.map((part, index) => (
-              <Fragment key={index}>
-                {index > 0 ? " · " : null}
-                {part}
-              </Fragment>
-            ))}
-          </span>
-        ) : null}
-      </span>
-      {threadId !== null ? (
-        <ChevronRightIcon
-          aria-hidden
-          className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover/subagent:text-foreground"
-        />
       ) : null}
     </>
   );
   // Return chips highlight their card by toggling `data-return-highlight` on `data-subagent-id`.
   const className =
-    "group/subagent flex w-full min-w-0 items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-[background-color,box-shadow] duration-300 data-return-highlight:bg-info/12 data-return-highlight:ring-1 data-return-highlight:ring-info/40 data-return-highlight:ring-inset";
+    "group/subagent block w-full min-w-0 rounded-md px-3 py-2 text-left text-xs/4 transition-[background-color,box-shadow] duration-300 data-return-highlight:bg-info/12 data-return-highlight:ring-1 data-return-highlight:ring-info/40 data-return-highlight:ring-inset";
   return (
     <Tooltip>
       <TooltipTrigger

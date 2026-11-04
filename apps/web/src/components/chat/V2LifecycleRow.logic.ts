@@ -2,6 +2,16 @@ import type { OrchestrationV2Notification, OrchestrationV2TurnItem } from "@t3to
 import { notificationChildThreadId } from "@t3tools/client-runtime/state/thread-execution";
 import * as DateTime from "effect/DateTime";
 
+/** A subagent's markdown report or progress as one line of plain text. */
+export function subagentSummaryLine(text: string): string {
+  return text
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^[ \t]*(?:[-*]|#{1,6}|>)[ \t]+/gm, "")
+    .replace(/[`*]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** One chip per subagent a notification names; a batched delegated-task notice names several. */
 export function notificationSubagentRefs(source: OrchestrationV2Notification["source"]) {
   const childThreadId = notificationChildThreadId(source);

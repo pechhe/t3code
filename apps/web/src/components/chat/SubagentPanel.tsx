@@ -7,11 +7,9 @@ import {
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
-import { resolveSubagentMetadata } from "@t3tools/client-runtime/state/subagent-display";
-import { formatTokens } from "@t3tools/shared/usageFormat";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
-import { CheckIcon, ChevronRightIcon, CircleXIcon } from "lucide-react";
+import { ChevronRightIcon } from "lucide-react";
 import { useState, type ComponentProps, type ReactNode } from "react";
 
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -31,20 +29,17 @@ import {
   ComposerDelegatedRequestSource,
   DelegatedRequestContext,
 } from "./ComposerDelegatedRequestSource";
-import { SUBAGENT_STATUS_PRESENTATION } from "./subagentStatusPresentation";
+import { SubagentModelMeta } from "./SubagentModelMeta";
+import {
+  SUBAGENT_STATUS_PRESENTATION,
+  subagentFinishedOutcome,
+} from "./subagentStatusPresentation";
 import { useSettledFinished } from "./useSettledFinished";
+import { subagentSummaryLine } from "./V2LifecycleRow.logic";
 
 const COLLAPSED_STORAGE_KEY = "t3code:subagent-panel-collapsed";
 const FINISHED_OPEN_STORAGE_KEY = "t3code:subagent-panel-finished-open";
 const HOVER_CARD_DELAY_MS = 200;
-
-function oneLine(text: string): string {
-  return text
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/[`*_#>]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 /** A subagent's live status and how long its run has gone, read from its shell alone. */
 export function SubagentStatusText({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
@@ -80,7 +75,7 @@ function SubagentSummaryCard({ text }: { readonly text: string }) {
   return (
     <ThreadHoverCardPopup side="top" align="start">
       <p className="line-clamp-8 px-1 py-1.5 text-xs/4 text-foreground/85">
-        {text === "" ? "No update yet." : oneLine(text)}
+        {text === "" ? "No update yet." : subagentSummaryLine(text)}
       </p>
     </ThreadHoverCardPopup>
   );
@@ -134,10 +129,6 @@ function SubagentRow(props: {
   const asking = status === "approval" || status === "input";
   const askedThroughThisRow =
     request !== null && request.askerRef.threadId !== threadRef.threadId ? request.askerRef : null;
-  const modelLabel = resolveSubagentMetadata({
-    model: subagentModel(props.subagent, shell?.source.modelSelection.model),
-  }).modelLabel;
-  const totalTokens = props.subagent?.totalTokens;
   const stop = async () => {
     setStopping(true);
     await interruptTurn({
@@ -164,10 +155,15 @@ function SubagentRow(props: {
           </TooltipTrigger>
           <SubagentSummaryCard text={summary} />
         </Tooltip>
-        <span className="hidden flex-none text-muted-foreground tabular-nums sm:inline">
-          {modelLabel}
-          {totalTokens === undefined ? null : ` · ${formatTokens(totalTokens)}`}
-        </span>
+        {shell ? (
+          <SubagentModelMeta
+            environmentId={threadRef.environmentId}
+            providerInstanceId={shell.source.providerInstanceId}
+            driver={props.subagent?.driver}
+            model={subagentModel(props.subagent, shell.source.modelSelection.model)}
+            totalTokens={props.subagent?.totalTokens}
+          />
+        ) : null}
         <SubagentStatusText threadRef={threadRef} />
         <ChevronRightIcon
           aria-hidden
@@ -195,7 +191,9 @@ function SubagentRow(props: {
         </span>
       </div>
       {!asking && isSubagentDoer(role) && summary !== "" ? (
-        <p className="mt-0.5 truncate text-muted-foreground">{oneLine(summary).slice(0, 400)}</p>
+        <p className="mt-0.5 truncate text-muted-foreground">
+          {subagentSummaryLine(summary).slice(0, 400)}
+        </p>
       ) : null}
       {asking && contextOpen && askedThroughThisRow === null ? (
         <div className="relative z-1 mt-1.5">
@@ -247,16 +245,6 @@ function PanelSummary({
   );
 }
 
-const FINISHED_OUTCOME: Record<
-  string,
-  { readonly label: string; readonly className: string; readonly icon: typeof CheckIcon | null }
-> = {
-  completed: { label: "Done", className: "text-muted-foreground", icon: CheckIcon },
-  failed: { label: "Failed", className: "text-destructive", icon: CircleXIcon },
-  cancelled: { label: "Stopped", className: "text-muted-foreground", icon: null },
-  interrupted: { label: "Stopped", className: "text-muted-foreground", icon: null },
-};
-
 function FinishedSubagentRow(props: {
   readonly threadRef: ScopedThreadRef;
   readonly subagent: OrchestrationV2Subagent;
@@ -269,7 +257,7 @@ function FinishedSubagentRow(props: {
   const role = shell?.source.agentTask?.role;
   const message = shell?.source.latestVisibleMessage;
   const summary = message?.role === "assistant" ? message.text.trim() : (subagent.result ?? "");
-  const outcome = FINISHED_OUTCOME[subagent.status] ?? FINISHED_OUTCOME.completed!;
+  const outcome = subagentFinishedOutcome(subagent.status);
   const OutcomeIcon = outcome.icon;
   const startedAt = subagent.startedAt === null ? null : DateTime.formatIso(subagent.startedAt);
   const completedAt =
@@ -295,10 +283,14 @@ function FinishedSubagentRow(props: {
           </TooltipTrigger>
           <SubagentSummaryCard text={summary} />
         </Tooltip>
-        <span className={cn("hidden flex-none text-muted-foreground tabular-nums sm:inline", dim)}>
-          {resolveSubagentMetadata({ model: subagent.model }).modelLabel}
-          {subagent.totalTokens === undefined ? null : ` · ${formatTokens(subagent.totalTokens)}`}
-        </span>
+        <SubagentModelMeta
+          environmentId={threadRef.environmentId}
+          providerInstanceId={subagent.providerInstanceId}
+          driver={subagent.driver}
+          model={subagent.model}
+          totalTokens={subagent.totalTokens}
+          className={dim}
+        />
         <span
           className={cn("inline-flex flex-none items-center gap-1 tabular-nums", outcome.className)}
         >

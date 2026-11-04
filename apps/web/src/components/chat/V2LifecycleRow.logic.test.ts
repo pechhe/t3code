@@ -9,10 +9,21 @@ import {
   subagentFollowUpVerb,
   subagentReturnStatus,
   subagentReturnVerb,
+  subagentSummaryLine,
 } from "./V2LifecycleRow.logic";
 
 const reviewerTaskId = NodeId.make("node:delegated-task:followup-2");
 const reviewerThreadId = ThreadId.make("thread:reviewer");
+
+describe("subagent summary line", () => {
+  it("reads a markdown report as plain text on one line and keeps identifiers intact", () => {
+    expect(
+      subagentSummaryLine(
+        "## Result\n**YS-884 falls outside the limits.**\n- see [the run](https://x.test/1)\n- `max_slip_days` is 3",
+      ),
+    ).toBe("Result YS-884 falls outside the limits. see the run max_slip_days is 3");
+  });
+});
 
 describe("subagent return chip refs", () => {
   it("names the round a delegated task reports, not the whole child conversation", () => {
