@@ -523,5 +523,10 @@
     "path": "apps/server/src/persistence/Migrations/**",
     "category": "append-only-history",
     "reason": "Historical migration names, schemas and migration fixtures are not rewritten."
+  },
+  {
+    "path": "apps/server/src/decisionEvaluations/failureTriage/corpusAuthentic.json",
+    "category": "captured-fixtures",
+    "reason": "Retained nightly-audit evidence lists real changed file paths under apps/server/src/hq; it is recorded data, not product terminology."
   }
 ]

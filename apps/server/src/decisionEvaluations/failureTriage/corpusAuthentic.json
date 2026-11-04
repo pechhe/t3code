@@ -1,0 +1,294 @@
+{
+  "2026-10-26": {
+    "check": "pnpm run test:audit (nightly audit of main; earlier steps install, server typecheck and web typecheck passed)",
+    "exitStatus": "nonzero_exit",
+    "failureKind": "timeout and assertion",
+    "failingTests": [
+      "test-landing.test.ts > tests the import graph cannot see > maps or reviews every test that reads or spawns by path",
+      "test-landing.test.ts > the dependency edges the selection relies on > treats everything a Vitest config imports as a complete-suite change",
+      "scripts/migrate-dev-db.test.ts > migrate-dev-db > keeps stopped and settled thread families and clears pending work",
+      "scripts/migrate-dev-db.test.ts > migrate-dev-db > keeps families whose only live-looking state is idle sessions and old markers",
+      "unit  src/composerDraftStore.snapShotOverlay.test.ts > composer drafts in the SnapShot overlay > saves a capture to its own draft without touching the main window's",
+      "unit  src/composerDraftStore.snapShotOverlay.test.ts > composer drafts in the SnapShot overlay > starts with the main window's model choices but none of its drafts",
+      "unit  src/localApi.test.ts > LocalApi > fails closed in a browser when no themed host is available",
+      "unit  src/hooks/useTheme.test.ts > project themes > paints the open project's theme over the user's mix, and falls back when it cannot",
+      "unit  src/lib/runtime.test.ts > web runtime relay telemetry policy > applies desktop opt-out before the first relay span",
+      "unit  src/lib/runtime.test.ts > web runtime relay telemetry policy > applies desktop enabled before the first relay span",
+      "\u2026 5 more"
+    ],
+    "firstError": "  error: {\n  _tag: 'GitCommandError',\n  operation: 'StorageCleanup.cleanupGit',\n  command: 'git worktree remove',\n  cwd: '/tmp/slipjay-b27aa991a9dd/cleanup-repo-nkalxS',\n  detail: \"fatal: '/tmp/slipjay-b27aa991a9dd/storage-cleanup-37qiGZ/worktrees/feature' contains modified or untracked files, use --force to delete it\"\n  }\n  }",
+    "outputTail": " FAIL  src/runHook.test.ts > rejects non-loopback HTTP before transmitting a setup credential\nAssertionError: expected 'node:internal/fs/promises:1345\\n  ret\u2026' to contain 'Use an HTTPS cache endpoint'\n- Expected\n+ Received\n- Use an HTTPS cache endpoint\n+ node:internal/fs/promises:1345\n+   return new FileHandle(await PromisePrototypeThen(\n+                         ^\n+\n+ Error: ENOENT: no such file or directory, open '[CHECKOUT]/.task-cache.json'\n+     at async open (node:internal/fs/promises:1345:25)\n+     at async Module.readFile (node:internal/fs/promises:1996:14)\n+     at async file://[CHECKOUT]/infra/task-cache/scripts/install.ts:69:3 {\n+   errno: -2,\n+   code: 'ENOENT',\n+   syscall: 'open',\n+   path: '[CHECKOUT]/.task-cache.json'\n+ }\n+\n+ Node.js v24.21.0\n+\n \u276f src/runHook.test.ts:491:20\n    489|       );\n    490|     });\n    491|     expect(output).toContain(\"Use an HTTPS cache endpoint\");\n       |                    ^\n    492|     expect(await NodeFSP.readdir(home)).toEqual([]);\n    493|   } finally {\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[3/3]\u23af",
+    "changedSincePreviousAudit": "unknown: no earlier audit in the supplied window",
+    "recentHistory": ["no earlier audit in the supplied window"],
+    "knownFlakeRegistry": "none supplied"
+  },
+  "2026-10-27": {
+    "check": "pnpm run test:audit (nightly audit of main; earlier steps install, server typecheck and web typecheck passed)",
+    "exitStatus": "nonzero_exit",
+    "failureKind": "assertion",
+    "failingTests": [
+      "keeps stopped and settled thread families and clears pending work",
+      "keeps families whose only live-looking state is idle sessions and old markers",
+      "shows dotted fields as dots wherever their value appears, keeping text values and refs"
+    ],
+    "firstError": "  error: {\n  _tag: 'GitCommandError',\n  operation: 'StorageCleanup.cleanupGit',\n  command: 'git worktree remove',\n  cwd: '/tmp/slipjay-b27aa991a9dd/cleanup-repo-0PLlx8',\n  detail: \"fatal: '/tmp/slipjay-b27aa991a9dd/storage-cleanup-coQMqJ/worktrees/feature' contains modified or untracked files, use --force to delete it\"\n  }\n  }",
+    "outputTail": " \u276f ../../node_modules/.pnpm/@vitest+browser-playwright@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@_24fcf40a34f3921843055762035a5dd2/node_modules/@vitest/browser-playwright/dist/index.js:1193:35\n \u276f RouteHandler._handleInternal ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61685:27\n \u276f RouteHandler._handleImpl ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61654:18\n \u276f RouteHandler.handle ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61648:16\n \u276f _BrowserContext._onRoute ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:63919:27\nCaused by: Error: [vitest] There was an error when mocking a module. If you are using \"vi.mock\" factory, make sure there are no top level variables inside, since this call is hoisted to top of the file. Read more: https://vitest.dev/api/vi.html#vi-mock\n \u276f createHelpfulError ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1405:32\n \u276f ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1387:10\n \u276f VitestBrowserClientMocker.resolveFactoryModule ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1704:10\n \u276f Proxy.resolveManualMock ../../node_modules/.pnpm/@vitest+browser@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@0.8.0_@type_d2791a5d0b9a85925a28b4a8ab0f1140/node_modules/@vitest/browser/dist/client.js?v=f5bb762a:417:20\n \u276f onMessage ../../node_modules/.pnpm/@vitest+browser@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@0.8.0_@type_d2791a5d0b9a85925a28b4a8ab0f1140/node_modules/@vitest/browser/dist/client.js?v=f5bb762a:156:14",
+    "changedSincePreviousAudit": {
+      "fileCount": 1486,
+      "firstFiles": [
+        ".repos/effect-smol/.agents/skills/changesets/SKILL.md",
+        ".repos/effect-smol/.agents/skills/changesets/authoring.md",
+        ".repos/effect-smol/.agents/skills/jsdocs/declarations.md",
+        ".repos/effect-smol/.agents/skills/pull-requests/SKILL.md",
+        ".repos/effect-smol/.changeset/config.json",
+        ".repos/effect-smol/.github/actions/deploy-website/action.yml",
+        ".repos/effect-smol/.github/actions/setup/action.yaml",
+        ".repos/effect-smol/.github/workflows/check.yml",
+        ".repos/effect-smol/.github/workflows/effect-bot.yml",
+        ".repos/effect-smol/.github/workflows/npm-promote.yml",
+        ".repos/effect-smol/.github/workflows/release-queue.yml",
+        ".repos/effect-smol/.github/workflows/release.yml",
+        ".repos/effect-smol/.oxlintrc.json",
+        ".repos/effect-smol/LLMS.md",
+        ".repos/effect-smol/MIGRATION.md"
+      ]
+    },
+    "recentHistory": ["nightly audit 2026-10-26 at ca46095930: failed (11 failing tests listed)"],
+    "knownFlakeRegistry": "none supplied"
+  },
+  "2026-10-28": {
+    "check": "pnpm run test:audit (nightly audit of main; earlier steps install, server typecheck and web typecheck passed)",
+    "exitStatus": "nonzero_exit",
+    "failureKind": "assertion",
+    "failingTests": [
+      "signs in with a pairing code and issues a token only /mcp accepts",
+      "signs in a hosted agent with an https callback that asked for a client secret",
+      "src/auth/McpOAuth.test.ts > derives discovery metadata from the origin the client reached",
+      "src/auth/McpOAuth.test.ts > registers loopback and https clients and never redirects for an unverified client",
+      "src/auth/McpOAuth.test.ts > denies and refuses codes bound to another client's key or without the scopes it grants",
+      "src/auth/McpOAuth.test.ts > one-click approves only access the browser session holds the scopes for"
+    ],
+    "firstError": "  error: {\n  _tag: 'ComposerDraftPersistenceError',\n  operation: 'write',\n  directory: 'composer-drafts',\n  fileName: 'drafts.json',\n  cause: Error: Draft storage unavailable",
+    "outputTail": " \u276f ../../node_modules/.pnpm/@vitest+browser-playwright@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@_24fcf40a34f3921843055762035a5dd2/node_modules/@vitest/browser-playwright/dist/index.js:1193:35\n \u276f RouteHandler._handleInternal ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61685:27\n \u276f RouteHandler._handleImpl ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61654:18\n \u276f RouteHandler.handle ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61648:16\n \u276f _BrowserContext._onRoute ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:63919:27\nCaused by: Error: [vitest] There was an error when mocking a module. If you are using \"vi.mock\" factory, make sure there are no top level variables inside, since this call is hoisted to top of the file. Read more: https://vitest.dev/api/vi.html#vi-mock\n \u276f createHelpfulError ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1405:32\n \u276f ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1387:10\n \u276f VitestBrowserClientMocker.resolveFactoryModule ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1704:10\n \u276f Proxy.resolveManualMock ../../node_modules/.pnpm/@vitest+browser@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@0.8.0_@type_d2791a5d0b9a85925a28b4a8ab0f1140/node_modules/@vitest/browser/dist/client.js?v=aa7656b0:417:20\n \u276f onMessage ../../node_modules/.pnpm/@vitest+browser@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@0.8.0_@type_d2791a5d0b9a85925a28b4a8ab0f1140/node_modules/@vitest/browser/dist/client.js?v=aa7656b0:156:14",
+    "changedSincePreviousAudit": {
+      "fileCount": 134,
+      "firstFiles": [
+        "AGENTS.md",
+        "apps/mobile/src/features/threads/useForgeMentions.ts",
+        "apps/mobile/src/features/threads/useThreadForgeMenu.ts",
+        "apps/server/scripts/migrate-dev-db.ts",
+        "apps/server/src/agents/AgentPolicyService.test.ts",
+        "apps/server/src/agents/AgentPolicyService.ts",
+        "apps/server/src/agents/AgentPolicyStore.ts",
+        "apps/server/src/agents/AgentRoleResolver.test.ts",
+        "apps/server/src/agents/AgentRoleResolver.ts",
+        "apps/server/src/agents/ManagedAgentService.test.ts",
+        "apps/server/src/agents/ManagedAgentService.ts",
+        "apps/server/src/agents/agentPolicy.testkit.ts",
+        "apps/server/src/hq/ForgeHome.test.ts",
+        "apps/server/src/hq/ForgeHome.ts",
+        "apps/server/src/hq/ForgeSpecOfThread.ts"
+      ]
+    },
+    "recentHistory": [
+      "nightly audit 2026-10-26 at ca46095930: failed (11 failing tests listed)",
+      "nightly audit 2026-10-27 at 903ed5737a: failed (3 failing tests listed)"
+    ],
+    "knownFlakeRegistry": "none supplied"
+  },
+  "2026-10-29": {
+    "check": "pnpm run test:audit (nightly audit of main; earlier steps install, server typecheck and web typecheck passed)",
+    "exitStatus": "nonzero_exit",
+    "failureKind": "timeout and assertion",
+    "failingTests": [
+      "unit  src/composerDraftStore.snapShotOverlay.test.ts > composer drafts in the SnapShot overlay > saves a capture to its own draft without touching the main window's",
+      "unit  src/composerDraftStore.snapShotOverlay.test.ts > composer drafts in the SnapShot overlay > starts with the main window's model choices but none of its drafts",
+      "unit  src/localApi.test.ts > LocalApi > fails closed in a browser when no themed host is available",
+      "unit  src/hooks/useTheme.test.ts > project themes > paints the open project's theme over the user's mix, and falls back when it cannot",
+      "unit  src/lib/runtime.test.ts > web runtime relay telemetry policy > applies desktop opt-out before the first relay span",
+      "unit  src/lib/runtime.test.ts > web runtime relay telemetry policy > applies desktop enabled before the first relay span"
+    ],
+    "firstError": "  error: {\n  _tag: 'GitCommandError',\n  operation: 'StorageCleanup.cleanupGit',\n  command: 'git worktree remove',\n  cwd: '/tmp/slipjay-b27aa991a9dd/cleanup-repo-IDl4Mi',\n  detail: \"fatal: '/tmp/slipjay-b27aa991a9dd/storage-cleanup-XyjeU7/worktrees/feature' contains modified or untracked files, use --force to delete it\"\n  }\n  }",
+    "outputTail": " \u276f src/hooks/useTheme.test.ts:30:3\n     28|\n     29| describe(\"project themes\", () => {\n     30|   it(\"paints the open project's theme over the user's mix, and falls b\u2026\n       |   ^\n     31|     vi.doMock(\"react\", () => ({\n     32|       useCallback: <A>(callback: A) => callback,\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[4/6]\u23af\n FAIL   unit  src/lib/runtime.test.ts > web runtime relay telemetry policy > applies desktop opt-out before the first relay span\nError: Test timed out in 15000ms.\nIf this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\".\n \u276f src/lib/runtime.test.ts:29:5\n     27|       exports: true,\n     28|     },\n     29|   ])(\"applies $surface before the first relay span\", async ({ desktopB\u2026\n       |     ^\n     30|     vi.resetModules();\n     31|     vi.stubEnv(\"T3CODE_TELEMETRY_ENABLED\", \"false\");\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[5/6]\u23af\n FAIL   unit  src/lib/runtime.test.ts > web runtime relay telemetry policy > applies desktop enabled before the first relay span\nAssertionError: expected \"vi.fn()\" to be called once, but got 2 times\n \u276f src/lib/runtime.test.ts:72:23\n     70|\n     71|     if (exports) {\n     72|       expect(fetchFn).toHaveBeenCalledOnce();\n       |                       ^\n     73|       expect(String(fetchFn.mock.calls[0]?.[0])).toBe(\"https://telemet\u2026\n     74|       const payload = new TextDecoder().decode(fetchFn.mock.calls[0]?.\u2026\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[6/6]\u23af",
+    "changedSincePreviousAudit": {
+      "fileCount": 88,
+      "firstFiles": [
+        "apps/server/package.json",
+        "apps/server/scripts/event-compaction-equivalence.ts",
+        "apps/server/scripts/probe-provider-resume.ts",
+        "apps/server/scripts/record-muse-msp-replay-fixture.ts",
+        "apps/server/src/agents/AgentRoleResolver.test.ts",
+        "apps/server/src/agents/AgentRoleResolver.ts",
+        "apps/server/src/agents/ManagedAgentService.ts",
+        "apps/server/src/agents/agentPolicy.testkit.ts",
+        "apps/server/src/auth/McpOAuth.ts",
+        "apps/server/src/hq/ForgeWorkItems.ts",
+        "apps/server/src/hq/HqForgeRecordingReactor.test.ts",
+        "apps/server/src/hq/HqForgeRecordingReactor.ts",
+        "apps/server/src/hq/HqForgeRecords.test.ts",
+        "apps/server/src/hq/HqForgeRecords.ts",
+        "apps/server/src/hq/HqForgeUsage.test.ts"
+      ]
+    },
+    "recentHistory": [
+      "nightly audit 2026-10-26 at ca46095930: failed (11 failing tests listed)",
+      "nightly audit 2026-10-27 at 903ed5737a: failed (3 failing tests listed)",
+      "nightly audit 2026-10-28 at 97541f9b80: failed (6 failing tests listed)"
+    ],
+    "knownFlakeRegistry": "none supplied"
+  },
+  "2026-10-30": {
+    "check": "pnpm run test:audit (nightly audit of main; earlier steps install, server typecheck and web typecheck passed)",
+    "exitStatus": "nonzero_exit",
+    "failureKind": "error",
+    "failingTests": [
+      "fails closed in a browser when no themed host is available",
+      "paints the open project's theme over the user's mix, and falls back when it cannot",
+      "applies desktop opt-out before the first relay span",
+      "applies desktop enabled before the first relay span",
+      "applies older desktop bridge before the first relay span",
+      "saves a capture to its own draft without touching the main window's",
+      "starts with the main window's model choices but none of its drafts",
+      "keeps an edited draft through revocation and saves it after access returns without remounting",
+      "keeps the selected hue when a grey color is echoed back from theme settings"
+    ],
+    "firstError": "  error: {\n  _tag: 'GitCommandError',\n  operation: 'StorageCleanup.cleanupGit',\n  command: 'git worktree remove',\n  cwd: '/tmp/slipjay-b27aa991a9dd/cleanup-repo-WqjCuS',\n  detail: \"fatal: '/tmp/slipjay-b27aa991a9dd/storage-cleanup-qa4DTc/worktrees/feature' contains modified or untracked files, use --force to delete it\"\n  }\n  }",
+    "outputTail": " \u276f ../../node_modules/.pnpm/@vitest+mocker@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@0.8.0_@types_efe671b96ee729a94fb0ceab2cd0fcd9/node_modules/@vitest/mocker/dist/chunk-registry.js:184:11\n \u276f process.processTicksAndRejections node:internal/process/task_queues:104:5\n \u276f ../../node_modules/.pnpm/@vitest+browser-playwright@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@_24fcf40a34f3921843055762035a5dd2/node_modules/@vitest/browser-playwright/dist/index.js:1193:35\n \u276f RouteHandler._handleInternal ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61685:27\n \u276f RouteHandler._handleImpl ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61654:18\n \u276f RouteHandler.handle ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61648:16\n \u276f _BrowserContext._onRoute ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:63919:27\nCaused by: Error: [vitest] There was an error when mocking a module. If you are using \"vi.mock\" factory, make sure there are no top level variables inside, since this call is hoisted to top of the file. Read more: https://vitest.dev/api/vi.html#vi-mock\n \u276f createHelpfulError ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1405:32\n \u276f ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1387:10\n \u276f VitestBrowserClientMocker.resolveFactoryModule ../../../../../../../../../__vitest_browser__/teste\u2026\nDiagnostic capture: incomplete; selected diagnostics and bounded output only.",
+    "changedSincePreviousAudit": {
+      "fileCount": 68,
+      "firstFiles": [
+        "apps/server/src/agents/AgentRoleResolver.test.ts",
+        "apps/server/src/agents/AgentRoleResolver.ts",
+        "apps/server/src/agents/ExternalAgentWorkService.test.ts",
+        "apps/server/src/agents/ManagedAgentService.test.ts",
+        "apps/server/src/agents/ManagedAgentService.ts",
+        "apps/server/src/agents/agentPolicy.testkit.ts",
+        "apps/server/src/auth/EnvironmentAuth.test.ts",
+        "apps/server/src/auth/McpOAuth.ts",
+        "apps/server/src/auth/dpop.ts",
+        "apps/server/src/auth/forwardedUrl.test.ts",
+        "apps/server/src/auth/forwardedUrl.ts",
+        "apps/server/src/mcp/ManagedFollowup.test.ts",
+        "apps/server/src/mcp/McpHttpServer.ts",
+        "apps/server/src/mcp/McpInvocationContext.ts",
+        "apps/server/src/mcp/McpSessionRegistry.test.ts"
+      ]
+    },
+    "recentHistory": [
+      "nightly audit 2026-10-27 at 903ed5737a: failed (3 failing tests listed)",
+      "nightly audit 2026-10-28 at 97541f9b80: failed (6 failing tests listed)",
+      "nightly audit 2026-10-29 at 966525adc4: failed (6 failing tests listed)"
+    ],
+    "knownFlakeRegistry": "none supplied"
+  },
+  "2026-10-31": {
+    "check": "pnpm run test:audit (nightly audit of main; earlier steps install, server typecheck and web typecheck passed)",
+    "exitStatus": "nonzero_exit",
+    "failureKind": "error",
+    "failingTests": [
+      "fails closed in a browser when no themed host is available",
+      "paints the open project's theme over the user's mix, and falls back when it cannot",
+      "applies desktop opt-out before the first relay span",
+      "applies desktop enabled before the first relay span",
+      "saves a capture to its own draft without touching the main window's",
+      "starts with the main window's model choices but none of its drafts"
+    ],
+    "firstError": "  error: {\n  _tag: 'GitCommandError',\n  operation: 'StorageCleanup.cleanupGit',\n  command: 'git worktree remove',\n  cwd: '/tmp/slipjay-b27aa991a9dd/cleanup-repo-rqeDrI',\n  detail: \"fatal: '/tmp/slipjay-b27aa991a9dd/storage-cleanup-PjMz7U/worktrees/feature' contains modified or untracked files, use --force to delete it\"\n  }\n  }",
+    "outputTail": " \u276f ../../node_modules/.pnpm/@vitest+browser-playwright@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@_24fcf40a34f3921843055762035a5dd2/node_modules/@vitest/browser-playwright/dist/index.js:1193:35\n \u276f RouteHandler._handleInternal ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61685:27\n \u276f RouteHandler._handleImpl ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61654:18\n \u276f RouteHandler.handle ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61648:16\n \u276f _BrowserContext._onRoute ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:63919:27\nCaused by: Error: [vitest] There was an error when mocking a module. If you are using \"vi.mock\" factory, make sure there are no top level variables inside, since this call is hoisted to top of the file. Read more: https://vitest.dev/api/vi.html#vi-mock\n \u276f createHelpfulError ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1405:32\n \u276f ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1387:10\n \u276f VitestBrowserClientMocker.resolveFactoryModule ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1704:10\n \u276f Proxy.resolveManualMock ../../node_modules/.pnpm/@vitest+browser@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@0.8.0_@type_d2791a5d0b9a85925a28b4a8ab0f1140/node_modules/@vitest/browser/dist/client.js?v=66ba5dc9:417:20\n \u276f onMessage ../../node_modules/.pnpm/@vitest+browser@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@0.8.0_@type_d2791a5d0b9a85925a28b4a8ab0f1140/node_modules/@vitest/browser/dist/client.js?v=66ba5dc9:156:14",
+    "changedSincePreviousAudit": {
+      "fileCount": 23,
+      "firstFiles": [
+        "apps/server/src/fleet/FleetSummaryService.test.ts",
+        "apps/server/src/hq/ForgeHome.test.ts",
+        "apps/server/src/hq/ForgeHome.ts",
+        "apps/server/src/orchestration-v2/ProjectionControlReads.test.ts",
+        "apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts",
+        "apps/server/src/orchestration-v2/ProviderTurnControlService.ts",
+        "apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts",
+        "apps/server/src/orchestration-v2/ProviderTurnStartService.ts",
+        "apps/server/src/orchestration-v2/testkit/ProviderReplayHarness.ts",
+        "apps/server/src/project/slipJayLandingState.test.ts",
+        "apps/server/src/project/slipJayLandingState.ts",
+        "apps/server/src/videoFrames/VideoFrames.test.ts",
+        "apps/server/src/videoFrames/VideoFrames.ts",
+        "apps/web/src/components/SlipJayBox.logic.test.ts",
+        "apps/web/src/components/SlipJayBox.logic.ts"
+      ]
+    },
+    "recentHistory": [
+      "nightly audit 2026-10-28 at 97541f9b80: failed (6 failing tests listed)",
+      "nightly audit 2026-10-29 at 966525adc4: failed (6 failing tests listed)",
+      "nightly audit 2026-10-30 at 11dc1214a7: failed (9 failing tests listed)"
+    ],
+    "knownFlakeRegistry": "none supplied"
+  },
+  "2026-11-02": {
+    "check": "pnpm run test:audit (nightly audit of main; earlier steps install, server typecheck and web typecheck passed)",
+    "exitStatus": "nonzero_exit",
+    "failureKind": "assertion",
+    "failingTests": [
+      "src/usage/UsageService.test.ts > UsageService > reports saved usage of a removed directory only for windows it reaches"
+    ],
+    "firstError": "  error: {\n  _tag: 'GitCommandError',\n  operation: 'StorageCleanup.cleanupGit',\n  command: 'git worktree remove',\n  cwd: '/tmp/slipjay-b27aa991a9dd/cleanup-repo-q7TQTd',\n  detail: \"fatal: '/tmp/slipjay-b27aa991a9dd/storage-cleanup-nzNqoB/worktrees/feature' contains modified or untracked files, use --force to delete it\"\n  }\n  }",
+    "outputTail": " \u276f ../../node_modules/.pnpm/@vitest+browser-playwright@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@_24fcf40a34f3921843055762035a5dd2/node_modules/@vitest/browser-playwright/dist/index.js:1193:35\n \u276f RouteHandler._handleInternal ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61685:27\n \u276f RouteHandler._handleImpl ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61654:18\n \u276f RouteHandler.handle ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61648:16\n \u276f _BrowserContext._onRoute ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:63919:27\nCaused by: Error: [vitest] There was an error when mocking a module. If you are using \"vi.mock\" factory, make sure there are no top level variables inside, since this call is hoisted to top of the file. Read more: https://vitest.dev/api/vi.html#vi-mock\n \u276f createHelpfulError ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1405:32\n \u276f ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1387:10\n \u276f VitestBrowserClientMocker.resolveFactoryModule ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1704:10\n \u276f Proxy.resolveManualMock ../../node_modules/.pnpm/@vitest+browser@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@0.8.0_@type_d2791a5d0b9a85925a28b4a8ab0f1140/node_modules/@vitest/browser/dist/client.js?v=66ba5dc9:417:20\n \u276f onMessage ../../node_modules/.pnpm/@vitest+browser@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@0.8.0_@type_d2791a5d0b9a85925a28b4a8ab0f1140/node_modules/@vitest/browser/dist/client.js?v=66ba5dc9:156:14",
+    "changedSincePreviousAudit": "none: the previous audit ran the identical commit",
+    "recentHistory": [
+      "nightly audit 2026-11-01 at 68a802bf08: passed (same commit as this audit)",
+      "nightly audit 2026-10-30 at 11dc1214a7: failed (9 failing tests listed)",
+      "nightly audit 2026-10-31 at e9ceb37f21: failed (6 failing tests listed)"
+    ],
+    "knownFlakeRegistry": "none supplied"
+  },
+  "2026-11-03": {
+    "check": "pnpm run test:audit (nightly audit of main; earlier steps install, server typecheck and web typecheck passed)",
+    "exitStatus": "nonzero_exit",
+    "failureKind": "assertion",
+    "failingTests": [
+      "src/usage/UsageService.test.ts > UsageService > reports saved usage of a removed directory only for windows it reaches"
+    ],
+    "firstError": "  error: {\n  _tag: 'GitCommandError',\n  operation: 'StorageCleanup.cleanupGit',\n  command: 'git worktree remove',\n  cwd: '/tmp/slipjay-b27aa991a9dd/cleanup-repo-OoPHNk',\n  detail: \"fatal: '/tmp/slipjay-b27aa991a9dd/storage-cleanup-nioSxm/worktrees/feature' contains modified or untracked files, use --force to delete it\"\n  }\n  }",
+    "outputTail": "stderr | src/components/chat/ThreadRelationshipsControl.agents.browser.test.tsx > lists a thread the current thread finished watching under Earlier with a Watched badge\nEach child in a list should have a unique \"key\" prop.\nCheck the render method of `ThreadLineageRowList`. It was passed a child from ThreadLineageGroup. See https://react.dev/link/warning-keys for more information.\nstderr | src/components/ChatMarkdown.permissions.browser.test.tsx > does not launch an editor after revocation during a native context menu\n[chat-markdown] action failed {\n  operation: 'open-file-in-editor',\n  target: '/work/docs/readme.md',\n} {\n  _id: 'Cause',\n  reasons: [\n    {\n      _tag: 'Fail',\n      error: [EnvironmentAuthorizationError: This connection cannot open an editor on this environment.],\n    },\n  ],\n}\nstderr | src/components/ChatMarkdown.permissions.browser.test.tsx > does not reveal a file after revocation during its workspace lookup\n[chat-markdown] action failed {\n  operation: 'reveal-file-in-file-manager',\n  target: '/work/readme.md',\n} {\n  _id: 'Cause',\n  reasons: [\n    {\n      _tag: 'Fail',\n      error: [Error: This connection cannot reveal files on this environment.],\n    },\n  ],\n}",
+    "changedSincePreviousAudit": {
+      "fileCount": 14,
+      "firstFiles": [
+        "apps/marketing/package.json",
+        "apps/server/package.json",
+        "apps/server/src/project/AgentSessionJson.ts",
+        "apps/web/package.json",
+        "infra/relay/package.json",
+        "infra/task-cache/package.json",
+        "oxlint-plugin-t3code/package.json",
+        "package.json",
+        "packages/client-runtime/package.json",
+        "packages/provider-cursor/package.json",
+        "packages/provider-opencode/package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml",
+        "scripts/package.json"
+      ]
+    },
+    "recentHistory": [
+      "nightly audit 2026-11-01 at 68a802bf08: passed",
+      "nightly audit 2026-11-02 at 68a802bf08: failed (1 failing test listed): the same test as this audit"
+    ],
+    "knownFlakeRegistry": "none supplied"
+  },
+  "2026-11-04": {
+    "check": "pnpm run test:audit (nightly audit of main; earlier steps install, server typecheck and web typecheck passed)",
+    "exitStatus": "nonzero_exit",
+    "failureKind": "diagnostics",
+    "failingTests": [],
+    "firstError": "  error: {\n  error: {\n  error: {\n  error: {\n  error: 'OrchestrationEffectExecutionError: \\n' +\n  at Object.<anonymous> ([CHECKOUT]/apps/mobile/src/lib/storage.test.ts:49:33)\n  at Object.Mock [as getFirstAsync] (file://[CHECKOUT]/node_modules/.pnpm/vitest@5.0.5_@types+node@24.12.4_@vitest+browser-playwright@5.0.5_@vitest+browser-previ_f40c29259216e121f129ccdac589e5af/node_modules/vitest/dist/chunks/spy.DDMXghXv.js:353:40)\n  at try ([CHECKOUT]/apps/mobile/src/persistence/mobile-database.ts:430:18)",
+    "outputTail": " \u276f ../../node_modules/.pnpm/@vitest+browser-playwright@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@_24fcf40a34f3921843055762035a5dd2/node_modules/@vitest/browser-playwright/dist/index.js:1193:35\n \u276f RouteHandler._handleInternal ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61685:27\n \u276f RouteHandler._handleImpl ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61654:18\n \u276f RouteHandler.handle ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:61648:16\n \u276f _BrowserContext._onRoute ../../node_modules/.pnpm/playwright-core@1.64.1/node_modules/playwright-core/lib/coreBundle.js:63919:27\nCaused by: Error: [vitest] There was an error when mocking a module. If you are using \"vi.mock\" factory, make sure there are no top level variables inside, since this call is hoisted to top of the file. Read more: https://vitest.dev/api/vi.html#vi-mock\n \u276f createHelpfulError ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1405:32\n \u276f ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1387:10\n \u276f VitestBrowserClientMocker.resolveFactoryModule ../../../../../../../../../__vitest_browser__/tester-BH7uPfyB.js:1704:10\n \u276f Proxy.resolveManualMock ../../node_modules/.pnpm/@vitest+browser@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@0.8.0_@type_d2791a5d0b9a85925a28b4a8ab0f1140/node_modules/@vitest/browser/dist/client.js?v=ee56e06c:417:20\n \u276f onMessage ../../node_modules/.pnpm/@vitest+browser@5.0.5_@voidzero-dev+vite-plus-core@1.4.0_@tsc-rs+typescript@0.8.0_@type_d2791a5d0b9a85925a28b4a8ab0f1140/node_modules/@vitest/browser/dist/client.js?v=ee56e06c:156:14",
+    "changedSincePreviousAudit": {
+      "fileCount": 1,
+      "firstFiles": ["apps/server/src/usage/UsageService.test.ts"]
+    },
+    "recentHistory": [
+      "nightly audit 2026-11-01 at 68a802bf08: passed",
+      "nightly audit 2026-11-02 at 68a802bf08: failed (1 failing test listed)",
+      "nightly audit 2026-11-03 at 08906267d3: failed (1 failing test listed)"
+    ],
+    "knownFlakeRegistry": "none supplied"
+  }
+}
