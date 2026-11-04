@@ -6,6 +6,15 @@ import * as Schema from "effect/Schema";
 
 import { IsoDateTime, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
+export const ForgeHomeNoteKind = Schema.Literals([
+  "send_back",
+  "answer",
+  "decision",
+  "gate_removal",
+  "batch_failure",
+]);
+export type ForgeHomeNoteKind = typeof ForgeHomeNoteKind.Type;
+
 /** A Spec as Forge Home names it; the label comes from `number` and `ref` as everywhere else. */
 export const ForgeHomeItem = Schema.Struct({
   id: Schema.String,

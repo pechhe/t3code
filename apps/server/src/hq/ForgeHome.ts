@@ -7,6 +7,7 @@ import {
   ForgeHomeError,
   ForgeHomeInboxGroup,
   ForgeHomeLandingStage,
+  ForgeHomeNoteKind,
   type ForgeHome as ForgeHomeView,
   type ForgeHomeDecideInput,
   type ForgeHomeDecideResult,
@@ -248,7 +249,7 @@ interface DeliveryRow {
   readonly reportedAt: string | null;
   /** The Weave that recorded the finding; only it is told how delivery went. */
   readonly hqOrigin: string;
-  readonly noteKind: "send_back" | "answer" | "decision" | "gate_removal";
+  readonly noteKind: ForgeHomeNoteKind;
   /** The Proposed Decision a `decision` note was sent back on (YS-277), as `#N “title”`. */
   readonly decisionLabel: string | null;
   readonly specProject: string | null;
@@ -260,7 +261,7 @@ interface DeliveryRow {
 const HqNote = Schema.Struct({
   id: Schema.String,
   note: Schema.String,
-  kind: Schema.Literals(["send_back", "answer", "decision", "gate_removal"]),
+  kind: ForgeHomeNoteKind,
   decision: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
@@ -669,13 +670,15 @@ const make = Effect.gen(function* () {
     const text =
       row.claimed === 0
         ? sendBackMessageText(row)
-        : row.noteKind === "answer"
-          ? `Your owner answered your hold on ${row.specLabel}: ${row.note}`
-          : row.noteKind === "gate_removal"
-            ? `${row.specLabel} was accepted. ${row.note}`
-            : row.noteKind === "decision"
-              ? `Your owner sent back ${row.decisionLabel ? `Decision ${row.decisionLabel}, which` : "a Decision that"} ${row.specLabel} proposed, to revise or drop: ${row.note}`
-              : `Your owner sent ${row.specLabel} back: ${row.note}`;
+        : row.noteKind === "batch_failure"
+          ? `A promotion batch check failed on ${row.specLabel}'s landing: ${row.note}`
+          : row.noteKind === "answer"
+            ? `Your owner answered your hold on ${row.specLabel}: ${row.note}`
+            : row.noteKind === "gate_removal"
+              ? `${row.specLabel} was accepted. ${row.note}`
+              : row.noteKind === "decision"
+                ? `Your owner sent back ${row.decisionLabel ? `Decision ${row.decisionLabel}, which` : "a Decision that"} ${row.specLabel} proposed, to revise or drop: ${row.note}`
+                : `Your owner sent ${row.specLabel} back: ${row.note}`;
     if (
       row.claimed !== 0 &&
       (target === fallbackId ||
@@ -931,7 +934,7 @@ const make = Effect.gen(function* () {
     readonly note: string;
     readonly lead: { readonly harness: string; readonly sessionRef: string } | null;
     readonly hqOrigin: string;
-    readonly noteKind?: "send_back" | "answer" | "decision" | "gate_removal";
+    readonly noteKind?: ForgeHomeNoteKind;
     readonly decisionLabel?: string | null;
     readonly specProject?: string | null;
     readonly specNumber?: number;

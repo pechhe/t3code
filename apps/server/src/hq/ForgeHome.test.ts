@@ -7,6 +7,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   type Project as T3Project,
+  type ForgeHomeNoteKind,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -688,7 +689,7 @@ const note = (
 ) => ({
   id,
   note: "Use the current route",
-  kind: "send_back" as "send_back" | "answer" | "decision" | "gate_removal",
+  kind: "send_back" as ForgeHomeNoteKind,
   spec: { id: "spec-1", number: 4530, ref: "YS-260", title: "Inbox", project: "pechhe/yardsmith" },
   decision: null as { number: number; ref: string | null; title: string } | null,
   leadThread: lead,
@@ -1274,6 +1275,64 @@ it.effect("delivers a gate-removal note as Forge's own job, not the owner's word
       "YS-260 was accepted. Remove its Spec gate and land it as a chore.",
     );
     assert.strictEqual(deliveries(hq).at(-1)?.state, "delivered");
+  }),
+);
+
+it.effect("delivers a batch-failure note to the lead with the full promotion failure", () =>
+  Effect.gen(function* () {
+    const { hq, world, service } = yield* connected;
+    const n = note("batch-failure");
+    n.kind = "batch_failure";
+    n.note = [
+      "Batch base abc123, head def456; culprit cde345, operation land-42.",
+      "Failing tests: promotion.test.ts > keeps the batch atomic",
+      "Output: expected 1, received 2",
+      "Fix the failure and resolve the blocking finding, or drop the landing.",
+    ].join("\n");
+    hq.answer = noteAnswer([n]);
+    yield* service.settleDeliveries;
+    yield* service.settleDeliveries;
+    assert.deepStrictEqual(world.sent, [
+      {
+        threadId: leadThread,
+        commandId: "build-send-back:batch-failure",
+        text: `A promotion batch check failed on YS-260's landing: ${n.note}`,
+      },
+    ]);
+    assert.strictEqual(world.launches.length, 0);
+    assert.deepStrictEqual(deliveries(hq), [
+      {
+        action: "delivery",
+        findingId: "batch-failure",
+        state: "delivered",
+        environmentId,
+        thread: { harness: "t3code", sessionRef: `${environmentId}/${leadThread}` },
+      },
+    ]);
+  }),
+);
+
+it.effect("batch-failure notes follow gate-removal fallback delivery for unavailable leads", () =>
+  Effect.gen(function* () {
+    for (const archived of [false, true]) {
+      for (const kind of ["gate_removal", "batch_failure"] as const) {
+        const { hq, world, service } = yield* connected;
+        world.projects = [project];
+        world.shell = archived ? { archivedAt: "2026-10-20", deletedAt: null } : null;
+        const n = note();
+        n.kind = kind;
+        hq.answer = noteAnswer([n]);
+        yield* service.settleDeliveries;
+        assert.strictEqual(world.sent.length, 0);
+        assert.strictEqual(world.launches.length, 1);
+        assert.strictEqual(world.launches[0]?.threadId, "build-note:note-1");
+        assert.deepStrictEqual(deliveries(hq)[0]?.thread, {
+          harness: "t3code",
+          sessionRef: `${environmentId}/build-note:note-1`,
+        });
+        assert.strictEqual(deliveries(hq)[0]?.state, "delivered");
+      }
+    }
   }),
 );
 
