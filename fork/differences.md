@@ -840,3 +840,13 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** closed pingdotgg/t3code#15663 routes coding models and does not supply this capability. Installed Effect Decision definitions are reused; its DecisionModel permits partial settled results and normalizes distributions, so local validation enforces the stricter foundation contract. Vendored TypeSafe/OpenAI mappings were consulted read-only; no provider package dependency or vendored import is added.
 - **Retire when:** upstream supplies equivalent shared decision semantics, bounds, provenance and invocation authorization.
 - **Owner:** Weave Forge T3-350 (#6365).
+
+### browser-decision-evaluation
+
+- **Kind:** durable extension (maintainer tooling, not shipped runtime behaviour)
+- **Requirement:** Maintainers can run the same synthetic browser journeys through Jev, GPT-6 Luna Decisions and a managed browser worker, with fixture-recorded outcomes independent of any model claim, and keep the paired evidence. Engines choose only among observed element labels through the shared `DecisionService`; they hold no credential, transport or provider logic, and the harness changes no browser permission, default or mandatory check.
+- **Integration points:** `apps/server/src/browserDecisionEval/*`, `apps/server/scripts/evaluate-browser-decisions.ts` and `serve-browser-fixtures.ts`; calls `DecisionService.decide` and `PreviewAutomationBroker.invoke` with a managed integrated scope.
+- **Proof:** `browserDecisionEval/*.test.ts` (adapter mapping and refusals, runner freshness, cancellation and grading, fixture outcomes, snapshot reduction); live results in `docs/operations/browser-decision-evaluation/`.
+- **Upstream:** none known.
+- **Retire when:** a decision-driven browser path ships and carries its own acceptance evidence, or the comparison is superseded.
+- **Owner:** Weave Forge T3-348 (#6361).
