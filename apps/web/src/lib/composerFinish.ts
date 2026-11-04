@@ -30,15 +30,6 @@ export const COMPOSER_FINISHES: ReadonlyArray<ComposerFinish> = [
   { id: DEFAULT_COMPOSER_FINISH_ID, label: "Match theme" },
   { id: "silver", label: "Silver", chassis: "light" },
   { id: "anodized", label: "Anodized black", chassis: "dark" },
-  { id: "vampire", label: "Vampire", chassis: "dark", metal: "#360202", screen: "#1e1515" },
-  {
-    id: "cyber",
-    label: "Cyber",
-    chassis: "dark",
-    metal: "#121712",
-    screen: "#000000",
-    screenText: "#05eb14",
-  },
   {
     id: "ghost",
     label: "Ghost",

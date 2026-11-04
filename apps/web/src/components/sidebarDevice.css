@@ -42,17 +42,17 @@
   --rail-a: color-mix(
     in srgb,
     var(--rail-metal-a),
-    var(--metal-dye, var(--rail-metal-a)) var(--metal-tint-amount, 0%)
+    var(--metal-dye-eff, var(--rail-metal-a)) var(--metal-tint-amount, 0%)
   );
   --rail-b: color-mix(
     in srgb,
     var(--rail-metal-b),
-    var(--metal-dye, var(--rail-metal-b)) var(--metal-tint-amount, 0%)
+    var(--metal-dye-eff, var(--rail-metal-b)) var(--metal-tint-amount, 0%)
   );
   --rail-c: color-mix(
     in srgb,
     var(--rail-metal-c),
-    var(--metal-dye, var(--rail-metal-c)) var(--metal-tint-amount, 0%)
+    var(--metal-dye-eff, var(--rail-metal-c)) var(--metal-tint-amount, 0%)
   );
 }
 

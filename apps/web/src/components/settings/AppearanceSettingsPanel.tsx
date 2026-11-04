@@ -21,6 +21,7 @@ import { readThemeHalvesRaw, useTheme } from "../../hooks/useTheme";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { ThemeModeSetting } from "./ThemeModeSetting";
 import { ThemeLibrary } from "./ThemeSettings";
 import {
   SettingResetButton,
@@ -50,10 +51,15 @@ export function AppearanceSettingsPanel() {
     refreshTheme,
     resolvedTheme,
     setAppearanceMode,
+    rotation,
+    rotationToday,
+    setOwnTheme,
+    setRotationFavourite,
     setTheme,
     setThemeHalf,
     theme,
     themeHalves,
+    themeMode,
   } = useTheme();
   const customThemes = useCustomThemes();
   const [isImportThemeOpen, setIsImportThemeOpen] = useState(false);
@@ -86,6 +92,7 @@ export function AppearanceSettingsPanel() {
   return (
     <SettingsPageContainer>
       <SettingsSection id="appearance" title="Colors & themes" variant="plain" hideTitle>
+        <ThemeModeSetting />
         <div id={searchableSetting("theme").id}>
           <ThemeLibrary
             appearanceMode={appearanceMode}
@@ -100,6 +107,16 @@ export function AppearanceSettingsPanel() {
             themeHalves={themeHalves}
             onImportOpenChange={setIsImportThemeOpen}
             readThemeHalvesRaw={readThemeHalvesRaw}
+            {...(themeMode === "rotation"
+              ? {
+                  rotation: {
+                    favourites: rotation.favourites,
+                    today: rotationToday.theme,
+                    onSetFavourite: setRotationFavourite,
+                    setOwnTheme,
+                  },
+                }
+              : {})}
           />
         </div>
       </SettingsSection>

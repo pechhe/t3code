@@ -16,7 +16,12 @@ import { themeChoiceAccent, type ThemeAppearance, type ThemeChoice } from "../th
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
-import { readUserThemeChoice, setActiveProjectTheme, useResolvedAppearance } from "./useTheme";
+import {
+  readUserThemeChoice,
+  setActiveProjectTheme,
+  useResolvedAppearance,
+  useThemeMode,
+} from "./useTheme";
 
 let cachedKeyMap: {
   projects: ReadonlyArray<EnvironmentProject>;
@@ -137,12 +142,14 @@ export function useProjectThemeSync(): void {
 
 /**
  * The accent of the theme a project paints in the current appearance, so its
- * chip wears its theme's colour; null for a project without a palette theme.
+ * chip wears its theme's colour; null for a project without a palette theme, and
+ * whenever the theme mode is not per-project, since then no project paints its own.
  */
 export function useProjectThemeAccent(
   project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot">,
 ): string | null {
   const choice = useProjectTheme(useLogicalProjectKey(project));
   const appearance = useResolvedAppearance();
-  return choice === null ? null : themeChoiceAccent(choice, appearance);
+  const themeMode = useThemeMode();
+  return choice === null || themeMode !== "project" ? null : themeChoiceAccent(choice, appearance);
 }

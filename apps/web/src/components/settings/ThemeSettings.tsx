@@ -5,13 +5,17 @@ import {
   PaintbrushIcon,
   PenLineIcon,
   PlusIcon,
+  StarIcon,
   SunIcon,
   Trash2Icon,
   UploadIcon,
 } from "lucide-react";
+import { BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
 import { useState, type ReactElement } from "react";
 import { useEnvironmentThemeDefinitions } from "../../hooks/useEnvironmentTheme";
+import { forgetRotationThemes } from "../../hooks/useTheme";
 import { cn } from "../../lib/utils";
+import { STANDARD_ROTATION_THEME } from "../../themeRotation";
 import {
   getThemeDefinition,
   singleAppearanceOf,
@@ -21,11 +25,6 @@ import {
   type ThemeAppearance,
   type ThemeDefinition,
   type ThemeHalves,
-  T3_CHAT_THEME,
-  EMBER_THEME,
-  GROVE_THEME,
-  IRIS_THEME,
-  OCEAN_THEME,
 } from "../../themePalette";
 import {
   AlertDialog,
@@ -52,14 +51,6 @@ import {
   type ThemeMode,
 } from "./ThemePreviewCircles";
 import { ThemeWireframe } from "./ThemeWireframe";
-
-const MAINTAINER_THEMES: ReadonlyArray<ThemeDefinition> = [
-  T3_CHAT_THEME,
-  GROVE_THEME,
-  OCEAN_THEME,
-  EMBER_THEME,
-  IRIS_THEME,
-];
 
 function collectionVariantLabels(themes: ReadonlyArray<ThemeDefinition>): ReadonlyArray<string> {
   if (themes.length === 0) return [];
@@ -105,6 +96,7 @@ function ThemeLibraryCard({
   onDuplicate,
   onDownload,
   onRemove,
+  favourite,
   variantNavigation,
 }: {
   theme: ThemeCardDefinition;
@@ -116,6 +108,8 @@ function ThemeLibraryCard({
   onDuplicate?: () => void;
   onDownload?: () => void;
   onRemove?: () => void;
+  /** In a daily rotation, whether the theme is one of the favourites the days walk through. */
+  favourite?: { isFavourite: boolean; onToggle: () => void } | undefined;
   variantNavigation?: {
     collectionLabel: string;
     options: ReadonlyArray<{
@@ -309,8 +303,37 @@ function ThemeLibraryCard({
                   </button>
                 </div>
               </div>
-              {onEdit || onDuplicate || onDownload || onRemove ? (
+              {favourite || onEdit || onDuplicate || onDownload || onRemove ? (
                 <div className="flex shrink-0 items-center gap-1">
+                  {favourite ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            aria-label={
+                              favourite.isFavourite
+                                ? `Remove ${theme.label} from the rotation`
+                                : `Add ${theme.label} to the rotation`
+                            }
+                            aria-pressed={favourite.isFavourite}
+                            size="icon-xs"
+                            variant="ghost"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              favourite.onToggle();
+                            }}
+                          >
+                            <StarIcon className={cn(favourite.isFavourite && "fill-current")} />
+                          </Button>
+                        }
+                      />
+                      <TooltipPopup>
+                        {favourite.isFavourite
+                          ? "In the daily rotation"
+                          : "Add to the daily rotation"}
+                      </TooltipPopup>
+                    </Tooltip>
+                  ) : null}
                   {onDuplicate ? (
                     <Tooltip>
                       <TooltipTrigger
@@ -423,9 +446,13 @@ function CustomThemeCollectionCard({
   onEdit,
   onDownload,
   onRemove,
+  favouriteFor,
 }: {
   themes: ReadonlyArray<ThemeDefinition>;
   activeModesFor: (themeId: string) => ReadonlyArray<ThemeMode>;
+  favouriteFor: (
+    theme: ThemeDefinition,
+  ) => { isFavourite: boolean; onToggle: () => void } | undefined;
   onUse: (theme: ThemeDefinition) => void;
   onUseMode: (theme: ThemeDefinition, mode: ThemeMode) => void;
   onDuplicate: (theme: ThemeDefinition) => void;
@@ -465,6 +492,7 @@ function CustomThemeCollectionCard({
       onDuplicate={() => onDuplicate(theme)}
       onEdit={() => onEdit(theme)}
       {...(onRemove ? { onRemove: () => onRemove(theme) } : {})}
+      favourite={favouriteFor(theme)}
       onUse={selectCollectionDefaults}
       onUseMode={(mode) => onUseMode(theme, mode)}
       theme={getThemeCardDefinition(theme)}
@@ -507,6 +535,7 @@ export function ThemeLibrary({
   setThemeHalf,
   readThemeHalvesRaw,
   scope = "app",
+  rotation,
 }: {
   theme: string;
   setTheme: (theme: string) => boolean;
@@ -526,6 +555,17 @@ export function ThemeLibrary({
    * and removing a theme stay device-wide, so they live in the app gallery.
    */
   scope?: "app" | "project";
+  /**
+   * Present in the daily-rotation theme mode: cards gain a favourite star, and
+   * choosing a theme sets today's instead of the device's own.
+   */
+  rotation?: {
+    favourites: ReadonlyArray<string>;
+    today: string | null;
+    onSetFavourite: (themeId: string, favourite: boolean) => void;
+    /** Sets the device's own theme, which a removed theme leaves behind, not today's. */
+    setOwnTheme: (theme: string) => boolean;
+  };
 }) {
   const openThemeEditor = useThemeEditorStore((store) => store.openThemeEditor);
   const environmentThemes = useEnvironmentThemeDefinitions();
@@ -585,8 +625,12 @@ export function ThemeLibrary({
     // Read raw halves before persistTheme clears them; themeHalves omits published themes not yet streamed
     // in.
     const storedHalves = readThemeHalvesRaw();
-    if (removesBase && !persistTheme(appearanceMode === "system" ? "system" : appearanceMode)) {
-      return;
+    if (removesBase) {
+      const ownTheme = appearanceMode === "system" ? "system" : appearanceMode;
+      if (!(rotation ? rotation.setOwnTheme(ownTheme) : setTheme(ownTheme))) {
+        notifyThemeSaveFailure();
+        return;
+      }
     }
     for (const appearance of ["light", "dark"] as const) {
       const half = storedHalves[appearance];
@@ -599,6 +643,7 @@ export function ThemeLibrary({
     }
     try {
       removeCustomThemes([...removedIds]);
+      forgetRotationThemes([...removedIds]);
     } catch {
       notifyThemeRemovalFailure();
       return;
@@ -651,16 +696,40 @@ export function ThemeLibrary({
   // appearance would change nothing on screen. Using it also switches to its appearance,
   // except for a project, which keeps the user's appearance mode.
   const pickSingleAppearanceTheme = (half: ThemeAppearance, themeId: string) => {
+    if (rotation) {
+      persistTheme(themeId);
+      return;
+    }
     assignHalf(half, themeId);
     if (scope === "app" && initialAppearance !== half) setMode(half);
   };
 
   const handlePairPick = (cardId: string | null) => (mode: ThemeMode) => {
+    if (rotation) {
+      persistTheme(cardId ?? "system");
+      return;
+    }
     if (mode === "system") return;
     assignHalf(mode, cardId);
   };
 
+  const rotationCardId = (cardId: string | null) => cardId ?? STANDARD_ROTATION_THEME;
+  const isRotationToday = (cardId: string | null) =>
+    rotation !== undefined && rotation.today === rotationCardId(cardId);
+  const favouriteFor = (cardId: string | null) =>
+    rotation
+      ? {
+          isFavourite: rotation.favourites.includes(rotationCardId(cardId)),
+          onToggle: () =>
+            rotation.onSetFavourite(
+              rotationCardId(cardId),
+              !rotation.favourites.includes(rotationCardId(cardId)),
+            ),
+        }
+      : undefined;
+
   const pickedModesFor = (cardId: string | null): ThemeMode[] => {
+    if (rotation) return [];
     const rings: ThemeMode[] = [];
     if (lightOwner === cardId) rings.push("light");
     if (darkOwner === cardId) rings.push("dark");
@@ -741,7 +810,8 @@ export function ThemeLibrary({
         {STANDARD_THEME_CARDS.map((standardTheme) => (
           <ThemeLibraryCard
             activeModes={pickedModesFor(null)}
-            isActive={false}
+            favourite={favouriteFor(null)}
+            isActive={isRotationToday(null)}
             key={standardTheme.id}
             onDuplicate={() =>
               openThemeEditor({
@@ -756,23 +826,24 @@ export function ThemeLibrary({
             theme={standardTheme}
           />
         ))}
-        {MAINTAINER_THEMES.map((maintainerTheme) => {
-          const card = getThemeCardDefinition(maintainerTheme);
+        {BUILT_IN_THEMES.map((builtInTheme) => {
+          const card = getThemeCardDefinition(builtInTheme);
           return (
             <ThemeLibraryCard
-              activeModes={pickedModesFor(maintainerTheme.id)}
-              isActive={false}
-              key={maintainerTheme.id}
+              activeModes={pickedModesFor(builtInTheme.id)}
+              favourite={favouriteFor(builtInTheme.id)}
+              isActive={isRotationToday(builtInTheme.id)}
+              key={builtInTheme.id}
               onDuplicate={() =>
                 openThemeEditor({
                   editingThemeId: null,
-                  seedThemeId: maintainerTheme.id,
-                  seedName: `${maintainerTheme.label} copy`,
+                  seedThemeId: builtInTheme.id,
+                  seedName: `${builtInTheme.label} copy`,
                   initialAppearance,
                 })
               }
-              onUse={() => persistTheme(maintainerTheme.id)}
-              onUseMode={handlePairPick(maintainerTheme.id)}
+              onUse={() => persistTheme(builtInTheme.id)}
+              onUseMode={handlePairPick(builtInTheme.id)}
               theme={card}
             />
           );
@@ -785,7 +856,8 @@ export function ThemeLibrary({
           .map((environmentTheme) => (
             <ThemeLibraryCard
               activeModes={pickedModesFor(environmentTheme.id)}
-              isActive={false}
+              favourite={favouriteFor(environmentTheme.id)}
+              isActive={isRotationToday(environmentTheme.id)}
               key={environmentTheme.id}
               onDuplicate={() =>
                 openThemeEditor({
@@ -807,6 +879,7 @@ export function ThemeLibrary({
         {customThemeCollections.map(([collectionId, themes]) => (
           <CustomThemeCollectionCard
             activeModesFor={pickedModesFor}
+            favouriteFor={(customTheme) => favouriteFor(customTheme.id)}
             key={collectionId}
             onDownload={(customTheme) =>
               downloadThemeFile(`${customTheme.id}.json`, serializeThemeFile(customTheme))

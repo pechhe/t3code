@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import { BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
 import indexHtml from "../index.html?raw";
 import {
   CUSTOM_THEMES_STORAGE_KEY,
@@ -9,10 +10,7 @@ import {
   isKnownThemePreference,
   resolveThemeAppearance,
   T3_CHAT_THEME,
-  EMBER_THEME,
   GROVE_THEME,
-  IRIS_THEME,
-  OCEAN_THEME,
   THEME_APPEARANCE_MODE_STORAGE_KEY,
   THEME_FOLLOW_SYSTEM_STORAGE_KEY,
   toCanonicalThemeColor,
@@ -285,7 +283,7 @@ describe("index.html boot script", () => {
   });
 
   it("keeps every built-in boot splash in sync with the real palettes", () => {
-    for (const theme of [T3_CHAT_THEME, GROVE_THEME, OCEAN_THEME, EMBER_THEME, IRIS_THEME]) {
+    for (const theme of BUILT_IN_THEMES) {
       expect(theme.appearance).toBe("light");
       for (const mode of ["light", "dark"] as const) {
         const colors = getThemeColorsForMode(theme, mode);
@@ -328,6 +326,46 @@ describe("index.html boot script", () => {
     expect(light.bootVariables["--boot-background"]).toBe(
       getThemeColorsForMode(T3_CHAT_THEME, "light")!.canvas,
     );
+  });
+
+  it("paints today's rotation theme, or a theme chosen for today", () => {
+    const now = new Date();
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const dateKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const base = {
+      [THEME_STORAGE_KEY]: "t3-chat",
+      [THEME_APPEARANCE_MODE_STORAGE_KEY]: "dark",
+      "t3code:theme-mode:v1": "rotation",
+    };
+    const splash = (storage: Record<string, string>) =>
+      runBootScript({ storage, prefersDark: true }).bootVariables["--boot-background"];
+    const groveDark = getThemeColorsForMode(GROVE_THEME, "dark")!.canvas;
+
+    expect(
+      splash({
+        ...base,
+        "t3code:theme-rotation:v1": JSON.stringify({ favourites: [GROVE_THEME.id] }),
+      }),
+    ).toBe(groveDark);
+    expect(
+      splash({
+        ...base,
+        "t3code:theme-rotation:v1": JSON.stringify({
+          favourites: ["t3-chat"],
+          override: { date: dateKey, theme: GROVE_THEME.id },
+        }),
+      }),
+    ).toBe(groveDark);
+    // Yesterday's override has lapsed; a rotation theme this device lacks leaves the user's own.
+    expect(
+      splash({
+        ...base,
+        "t3code:theme-rotation:v1": JSON.stringify({
+          favourites: ["gone-theme"],
+          override: { date: "2000-01-01", theme: GROVE_THEME.id },
+        }),
+      }),
+    ).toBe(getThemeColorsForMode(T3_CHAT_THEME, "dark")!.canvas);
   });
 
   it("paints the half's splash when the base theme no longer exists", () => {

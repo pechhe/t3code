@@ -18,8 +18,29 @@
   --device-screen-text: var(--theme-device-screen-text);
 }
 
+/* A palette theme with no device colours of its own gets metal dyed from its sidebar, so the
+   rail and composer sit in the theme instead of one fixed grey. The standard theme stays stock. */
+:root[data-composer-finish="auto"][data-theme-id] {
+  --metal-dye: var(--theme-metal-dye, var(--app-theme-sidebar));
+  --metal-tint-amount: var(--theme-metal-tint-amount, 60%);
+}
+
 :root {
   --engrave-active: var(--theme-engrave-active);
+}
+
+/* A finish's pigment is used as chosen. A theme's pigment gives the chassis its hue and a
+   little chroma, never its lightness: a mid-tone dye would turn anodized black into slate
+   and silver into mud. */
+:root {
+  --metal-dye-l: 0.86;
+  --metal-dye-eff: var(--metal-dye);
+}
+:root:is(.dark:not([data-composer-chassis="light"]), [data-composer-chassis="dark"]) {
+  --metal-dye-l: 0.22;
+}
+:root[data-composer-finish="auto"] {
+  --metal-dye-eff: oklch(from var(--metal-dye) var(--metal-dye-l) min(c, 0.07) h);
 }
 
 /* The shell, docked strips and app-wide Away key share the device palette. */
@@ -31,17 +52,17 @@
   --crt-body-top: color-mix(
     in srgb,
     var(--crt-metal-top),
-    var(--metal-dye, var(--crt-metal-top)) var(--metal-tint-amount, 0%)
+    var(--metal-dye-eff, var(--crt-metal-top)) var(--metal-tint-amount, 0%)
   );
   --crt-body: color-mix(
     in srgb,
     var(--crt-metal),
-    var(--metal-dye, var(--crt-metal)) var(--metal-tint-amount, 0%)
+    var(--metal-dye-eff, var(--crt-metal)) var(--metal-tint-amount, 0%)
   );
   --crt-body-bottom: color-mix(
     in srgb,
     var(--crt-metal-bottom),
-    var(--metal-dye, var(--crt-metal-bottom)) var(--metal-tint-amount, 0%)
+    var(--metal-dye-eff, var(--crt-metal-bottom)) var(--metal-tint-amount, 0%)
   );
   /* The same pigment laid over the round caps and knobs. */
   --metal-wash: color-mix(

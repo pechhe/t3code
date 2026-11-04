@@ -8,5 +8,15 @@
   "ember-light",
   "ember-dark",
   "iris-light",
-  "iris-dark"
+  "iris-dark",
+  "graphite-light",
+  "graphite-dark",
+  "lagoon-light",
+  "lagoon-dark",
+  "solstice-light",
+  "solstice-dark",
+  "fjord-light",
+  "fjord-dark",
+  "rosewater-light",
+  "rosewater-dark"
 ]

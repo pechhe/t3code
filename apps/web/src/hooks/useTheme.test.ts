@@ -74,3 +74,110 @@ describe("project themes", () => {
     expect(read()).toEqual(ownChoice);
   });
 });
+
+describe("theme mode", () => {
+  const mockReact = () =>
+    vi.doMock("react", () => ({
+      useCallback: <A>(callback: A) => callback,
+      useEffect: () => undefined,
+      useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
+    }));
+
+  async function readWith(storage: Record<string, string>, projectTheme: { theme: string } | null) {
+    mockReact();
+    const localStorage = createStorage();
+    for (const [key, value] of Object.entries(storage)) localStorage.setItem(key, value);
+    vi.stubGlobal("window", { localStorage, matchMedia: () => ({ matches: true }) });
+    const { setActiveProjectTheme, useTheme } = await import("./useTheme");
+    setActiveProjectTheme(projectTheme);
+    const { activeTheme, projectTheme: painted, rotationToday } = useTheme();
+    return { activeTheme, painted, rotationToday };
+  }
+
+  it("ignores the open project's theme unless themes are per project", async () => {
+    const storage = { "t3code:theme": "ocean" };
+    const project = { theme: "grove" };
+
+    expect((await readWith(storage, project)).activeTheme).toBe("grove");
+
+    vi.resetModules();
+    const single = await readWith({ ...storage, "t3code:theme-mode:v1": "single" }, project);
+    expect(single.activeTheme).toBe("ocean");
+    expect(single.painted).toBeNull();
+  });
+
+  it("paints today's favourite in a daily rotation, over a project's theme", async () => {
+    const { rotationDay } = await import("../themeRotation");
+    const favourites = ["ocean", "grove", "ember"];
+    const scheduled = rotationDay({ favourites, override: null }, new Date()).theme;
+
+    const day = await readWith(
+      {
+        "t3code:theme": "iris",
+        "t3code:theme-mode:v1": "rotation",
+        "t3code:theme-rotation:v1": JSON.stringify({ favourites }),
+      },
+      { theme: "iris" },
+    );
+    expect(day.activeTheme).toBe(scheduled);
+    expect(day.painted).toBeNull();
+    expect(day.rotationToday.overridden).toBe(false);
+  });
+
+  it("paints a theme chosen for today, and the user's own theme when there are no favourites", async () => {
+    const { localDateKey } = await import("../themeRotation");
+    vi.resetModules();
+    const chosen = await readWith(
+      {
+        "t3code:theme-mode:v1": "rotation",
+        "t3code:theme-rotation:v1": JSON.stringify({
+          favourites: ["ocean", "grove"],
+          override: { date: localDateKey(new Date()), theme: "ember" },
+        }),
+      },
+      null,
+    );
+    expect(chosen.activeTheme).toBe("ember");
+    expect(chosen.rotationToday.overridden).toBe(true);
+
+    vi.resetModules();
+    const empty = await readWith(
+      { "t3code:theme": "iris", "t3code:theme-mode:v1": "rotation" },
+      null,
+    );
+    expect(empty.activeTheme).toBe("iris");
+  });
+
+  it("forgets deleted themes, keeping today's theme unless it was the deleted one", async () => {
+    const { rotationDay } = await import("../themeRotation");
+    const favourites = ["ocean", "grove", "ember", "iris"];
+    const today = rotationDay({ favourites, override: null }, new Date()).theme!;
+
+    const forget = async (gone: ReadonlyArray<string>) => {
+      vi.resetModules();
+      mockReact();
+      const localStorage = createStorage();
+      localStorage.setItem("t3code:theme-mode:v1", "rotation");
+      localStorage.setItem("t3code:theme-rotation:v1", JSON.stringify({ favourites }));
+      vi.stubGlobal("window", { localStorage, matchMedia: () => ({ matches: true }) });
+      const { forgetRotationThemes } = await import("./useTheme");
+      forgetRotationThemes(gone);
+      return JSON.parse(localStorage.getItem("t3code:theme-rotation:v1")!) as {
+        favourites: string[];
+        override?: { date: string; theme: string };
+      };
+    };
+
+    const others = favourites.filter((id) => id !== today);
+    const afterOther = await forget([others[0]!]);
+    expect(afterOther.favourites).not.toContain(others[0]);
+    const todayAfterOther =
+      afterOther.override?.theme ??
+      rotationDay({ favourites: afterOther.favourites, override: null }, new Date()).theme;
+    expect(todayAfterOther).toBe(today);
+
+    const afterToday = await forget([today]);
+    expect(afterToday.favourites).not.toContain(today);
+    expect(afterToday.override).toBeUndefined();
+  });
+});

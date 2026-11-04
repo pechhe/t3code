@@ -267,6 +267,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "appearance",
   },
   {
+    id: "theme-mode",
+    title: "Theme mode",
+    to: "/settings/appearance",
+    searchTerms: ["one theme per project themes daily rotation favourite favorite today override"],
+    targetId: "appearance",
+  },
+  {
     id: "theme",
     title: "Themes",
     to: "/settings/appearance",

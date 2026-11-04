@@ -23,6 +23,8 @@
         const THEME_FOLLOW_SYSTEM_STORAGE_KEY = "t3code:theme-follow-system";
         const THEME_APPEARANCE_MODE_STORAGE_KEY = "t3code:theme-appearance-mode";
         const THEME_HALVES_STORAGE_KEY = "t3code:theme-halves:v1";
+        const THEME_MODE_STORAGE_KEY = "t3code:theme-mode:v1";
+        const THEME_ROTATION_STORAGE_KEY = "t3code:theme-rotation:v1";
         const SPLASH_COLORS = {
           light: {
             background: "#ffffff",
@@ -73,13 +75,13 @@
           grove: {
             light: {
               background: "oklch(0.972369 0.005497 157.15)",
-              foreground: "oklch(0.222003 0.03479 328.979)",
+              foreground: "oklch(0.222003 0.03479 157.15)",
               accent: "oklch(0.523295 0.112292 158.089)",
               chrome: "oklch(0.972369 0.005497 157.15)",
             },
             dark: {
               background: "oklch(0.260865 0.02152 162.75)",
-              foreground: "oklch(0.990339 0.008411 325.64)",
+              foreground: "oklch(0.990339 0.008411 162.75)",
               accent: "oklch(0.796228 0.133058 157.319)",
               chrome: "oklch(0.260865 0.02152 162.75)",
             },
@@ -87,13 +89,13 @@
           ocean: {
             light: {
               background: "oklch(0.974199 0.002856 241.597)",
-              foreground: "oklch(0.222003 0.03479 328.979)",
+              foreground: "oklch(0.222003 0.03479 241.597)",
               accent: "oklch(0.536684 0.120219 247.01)",
               chrome: "oklch(0.974199 0.002856 241.597)",
             },
             dark: {
               background: "oklch(0.242641 0.024125 250.573)",
-              foreground: "oklch(0.990339 0.008411 325.64)",
+              foreground: "oklch(0.990339 0.008411 250.573)",
               accent: "oklch(0.758933 0.105833 241.548)",
               chrome: "oklch(0.242641 0.024125 250.573)",
             },
@@ -101,13 +103,13 @@
           ember: {
             light: {
               background: "oklch(0.976527 0.002685 60.725)",
-              foreground: "oklch(0.222003 0.03479 328.979)",
+              foreground: "oklch(0.222003 0.03479 60.725)",
               accent: "oklch(0.552831 0.129438 44.656)",
               chrome: "oklch(0.976527 0.002685 60.725)",
             },
             dark: {
               background: "oklch(0.245899 0.019144 42.044)",
-              foreground: "oklch(0.990339 0.008411 325.64)",
+              foreground: "oklch(0.990339 0.008411 42.044)",
               accent: "oklch(0.762174 0.124117 52.082)",
               chrome: "oklch(0.245899 0.019144 42.044)",
             },
@@ -115,15 +117,85 @@
           iris: {
             light: {
               background: "oklch(0.976531 0.003855 303.226)",
-              foreground: "oklch(0.222003 0.03479 328.979)",
+              foreground: "oklch(0.222003 0.03479 303.226)",
               accent: "oklch(0.525348 0.15373 294.176)",
               chrome: "oklch(0.976531 0.003855 303.226)",
             },
             dark: {
               background: "oklch(0.225975 0.031062 293.741)",
-              foreground: "oklch(0.990339 0.008411 325.64)",
+              foreground: "oklch(0.990339 0.008411 293.741)",
               accent: "oklch(0.671712 0.169136 293.929)",
               chrome: "oklch(0.225975 0.031062 293.741)",
+            },
+          },
+          graphite: {
+            light: {
+              background: "oklch(0.975 0.003 75)",
+              foreground: "oklch(0.2 0.006 75)",
+              accent: "oklch(0.57 0.19 33)",
+              chrome: "oklch(0.975 0.003 75)",
+            },
+            dark: {
+              background: "oklch(0.2 0.004 265)",
+              foreground: "oklch(0.96 0.0028 265)",
+              accent: "oklch(0.72 0.16 35)",
+              chrome: "oklch(0.2 0.004 265)",
+            },
+          },
+          lagoon: {
+            light: {
+              background: "oklch(0.975 0.01 195)",
+              foreground: "oklch(0.23 0.035 195)",
+              accent: "oklch(0.5 0.1 190)",
+              chrome: "oklch(0.975 0.01 195)",
+            },
+            dark: {
+              background: "oklch(0.225 0.022 205)",
+              foreground: "oklch(0.965 0.00875 205)",
+              accent: "oklch(0.78 0.12 185)",
+              chrome: "oklch(0.225 0.022 205)",
+            },
+          },
+          solstice: {
+            light: {
+              background: "oklch(0.975 0.014 90)",
+              foreground: "oklch(0.27 0.04 220)",
+              accent: "oklch(0.5 0.1 220)",
+              chrome: "oklch(0.975 0.014 90)",
+            },
+            dark: {
+              background: "oklch(0.22 0.028 215)",
+              foreground: "oklch(0.965 0.0105 200)",
+              accent: "oklch(0.73 0.11 210)",
+              chrome: "oklch(0.22 0.028 215)",
+            },
+          },
+          fjord: {
+            light: {
+              background: "oklch(0.975 0.012 250)",
+              foreground: "oklch(0.3 0.04 250)",
+              accent: "oklch(0.5 0.085 235)",
+              chrome: "oklch(0.975 0.012 250)",
+            },
+            dark: {
+              background: "oklch(0.27 0.024 258)",
+              foreground: "oklch(0.95 0.00875 258)",
+              accent: "oklch(0.78 0.08 225)",
+              chrome: "oklch(0.27 0.024 258)",
+            },
+          },
+          rosewater: {
+            light: {
+              background: "oklch(0.975 0.009 25)",
+              foreground: "oklch(0.27 0.04 10)",
+              accent: "oklch(0.55 0.14 8)",
+              chrome: "oklch(0.975 0.009 25)",
+            },
+            dark: {
+              background: "oklch(0.215 0.022 345)",
+              foreground: "oklch(0.965 0.00875 10)",
+              accent: "oklch(0.76 0.1 8)",
+              chrome: "oklch(0.215 0.022 345)",
             },
           },
         };
@@ -142,6 +214,11 @@
           "ocean",
           "ember",
           "iris",
+          "graphite",
+          "lagoon",
+          "solstice",
+          "fjord",
+          "rosewater",
           "t3-chat-dark",
           "t3-grove",
           "t3-ocean",
@@ -217,8 +294,52 @@
           }
         };
 
+        // Mirrors themeRotation.ts: the favourite for today's local calendar day, or an override.
+        const rotationThemeToday = () => {
+          if (window.localStorage.getItem(THEME_MODE_STORAGE_KEY) !== "rotation") return null;
+          const rotation = JSON.parse(
+            window.localStorage.getItem(THEME_ROTATION_STORAGE_KEY) ?? "null",
+          );
+          if (!isRecord(rotation)) return null;
+          const now = new Date();
+          const pad = (value) => String(value).padStart(2, "0");
+          const dateKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+          const override = rotation.override;
+          if (
+            isRecord(override) &&
+            override.date === dateKey &&
+            typeof override.theme === "string"
+          ) {
+            return override.theme;
+          }
+          const favourites = Array.isArray(rotation.favourites)
+            ? rotation.favourites.filter((entry) => typeof entry === "string" && entry !== "")
+            : [];
+          if (favourites.length === 0) return null;
+          const dayNumber = Math.floor(
+            Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000,
+          );
+          return favourites[
+            ((dayNumber % favourites.length) + favourites.length) % favourites.length
+          ];
+        };
+
         try {
-          const storedTheme = window.localStorage.getItem("t3code:theme");
+          let storedTheme = window.localStorage.getItem("t3code:theme");
+          let rotatedTheme = false;
+          try {
+            const today = rotationThemeToday();
+            const candidate = today === "standard" ? "system" : today;
+            if (
+              typeof candidate === "string" &&
+              (candidate === "system" ||
+                BUILT_IN_THEME_MODES[candidate] !== undefined ||
+                findCustomTheme(candidate) !== null)
+            ) {
+              storedTheme = candidate;
+              rotatedTheme = true;
+            }
+          } catch {}
           const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           const LEGACY_THEME_IDS = {
             "t3-chat-dark": "t3-chat",
@@ -271,6 +392,7 @@
           let halfThemeId = null;
           let halfCustomTheme = null;
           try {
+            if (rotatedTheme) throw null;
             const halvesRaw = JSON.parse(
               window.localStorage.getItem(THEME_HALVES_STORAGE_KEY) ?? "null",
             );

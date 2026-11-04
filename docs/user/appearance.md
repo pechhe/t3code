@@ -21,6 +21,20 @@ Android uses **Material You Layout** by default unless you have turned it off in
 It changes shapes, spacing, and controls independently
 of the selected theme.
 
+## Theme mode
+
+**Settings → Appearance → Theme mode** chooses how this device picks its theme:
+
+- **One theme** paints the theme you pick everywhere.
+- **Per-project themes** lets each project have its own theme (below).
+- **Daily rotation** walks through your favourite themes, one per day.
+
+In a daily rotation, star the themes you like in the gallery and order them under **Theme mode**.
+The theme changes at local midnight. Pick any theme to keep it for today only; tomorrow the
+rotation carries on from where the calendar left it, and **Back to rotation** returns today to the
+schedule. Reordering or adding favourites never changes today's theme. Project themes are kept but
+not shown while the mode is not per-project. The mode and rotation are saved on each device.
+
 ## Project themes
 
 On web and desktop, open **Project settings** from a project's gear in the sidebar and pick a
@@ -36,6 +50,7 @@ theme's accent colour.
 
 While you are in a project with its own theme, **Change theme** in the command palette changes the
 project's theme; choose **App theme** there to remove it. Project themes are saved on each device.
+In a daily rotation it reads **Use theme today** instead.
 
 ## Math
 

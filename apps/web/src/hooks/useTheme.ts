@@ -26,6 +26,25 @@ import {
   type ThemeHalves,
   type ThemePreferenceMode,
 } from "../themePalette";
+import {
+  DEFAULT_THEME_MODE,
+  EMPTY_THEME_ROTATION,
+  isThemeMode,
+  msUntilNextLocalMidnight,
+  parseThemeRotation,
+  rotationDay,
+  serializeThemeRotation,
+  STANDARD_ROTATION_THEME,
+  THEME_MODE_STORAGE_KEY,
+  THEME_ROTATION_STORAGE_KEY,
+  withFavourite,
+  withFavouriteMoved,
+  withOverride,
+  withoutThemes,
+  type RotationDay,
+  type ThemeMode,
+  type ThemeRotation,
+} from "../themeRotation";
 
 type Theme = ThemePreference;
 type ThemeSnapshot = {
@@ -39,6 +58,9 @@ type ThemeSnapshot = {
   followSystem: boolean;
   appearanceMode: ThemePreferenceMode;
   themeHalves: ThemeHalves | null;
+  themeMode: ThemeMode;
+  rotation: ThemeRotation;
+  rotationToday: RotationDay;
 };
 
 type DesktopThemeBridge = Pick<DesktopBridge, "setTheme">;
@@ -54,7 +76,29 @@ const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = {
   followSystem: true,
   appearanceMode: "system",
   themeHalves: null,
+  themeMode: DEFAULT_THEME_MODE,
+  rotation: EMPTY_THEME_ROTATION,
+  rotationToday: { theme: null, scheduled: null, overridden: false, next: null },
 };
+
+function readThemeMode(): ThemeMode {
+  if (typeof window === "undefined") return DEFAULT_THEME_MODE;
+  try {
+    const raw = window.localStorage.getItem(THEME_MODE_STORAGE_KEY);
+    return isThemeMode(raw) ? raw : DEFAULT_THEME_MODE;
+  } catch {
+    return DEFAULT_THEME_MODE;
+  }
+}
+
+function readThemeRotation(): ThemeRotation {
+  if (typeof window === "undefined") return EMPTY_THEME_ROTATION;
+  try {
+    return parseThemeRotation(window.localStorage.getItem(THEME_ROTATION_STORAGE_KEY));
+  } catch {
+    return EMPTY_THEME_ROTATION;
+  }
+}
 
 export function readThemeHalves(): ThemeHalves | null {
   return readStoredThemeHalves();
@@ -161,7 +205,21 @@ function paintedThemeChoice(storedTheme: Theme): {
   projectTheme: ThemeChoice | null;
   themeHalves: ThemeHalves | null;
 } {
-  if (requestedProjectTheme !== null && isKnownThemePreference(requestedProjectTheme.theme)) {
+  const themeMode = readThemeMode();
+  if (themeMode === "rotation") {
+    const today = rotationDay(readThemeRotation(), new Date()).theme;
+    // The standard theme follows the appearance mode; a theme this device does not have
+    // yet (a published one still streaming in) leaves the user's own theme showing.
+    const rotated = today === STANDARD_ROTATION_THEME ? "system" : today;
+    if (rotated !== null && isKnownThemePreference(rotated)) {
+      return { theme: canonicalThemePreference(rotated), projectTheme: null, themeHalves: null };
+    }
+  }
+  if (
+    themeMode === "project" &&
+    requestedProjectTheme !== null &&
+    isKnownThemePreference(requestedProjectTheme.theme)
+  ) {
     return {
       theme: canonicalThemePreference(requestedProjectTheme.theme),
       projectTheme: requestedProjectTheme,
@@ -500,6 +558,9 @@ function getSnapshot(): ThemeSnapshot {
   const themeHalves = readStoredThemeHalves();
   const painted = paintedThemeChoice(theme);
   const projectTheme = painted.projectTheme;
+  const themeMode = readThemeMode();
+  const rotation = readThemeRotation();
+  const rotationToday = rotationDay(rotation, new Date());
 
   const resolvedTheme = resolveThemeAppearance(
     painted.theme,
@@ -518,7 +579,12 @@ function getSnapshot(): ThemeSnapshot {
     lastSnapshot.systemDark === systemDark &&
     lastSnapshot.followSystem === followSystem &&
     lastSnapshot.appearanceMode === appearanceMode &&
-    themeHalvesSignature(lastSnapshot.themeHalves) === themeHalvesSignature(themeHalves)
+    themeHalvesSignature(lastSnapshot.themeHalves) === themeHalvesSignature(themeHalves) &&
+    lastSnapshot.themeMode === themeMode &&
+    serializeThemeRotation(lastSnapshot.rotation) === serializeThemeRotation(rotation) &&
+    lastSnapshot.rotationToday.theme === rotationToday.theme &&
+    lastSnapshot.rotationToday.next === rotationToday.next &&
+    lastSnapshot.rotationToday.overridden === rotationToday.overridden
   ) {
     return lastSnapshot;
   }
@@ -532,6 +598,9 @@ function getSnapshot(): ThemeSnapshot {
     followSystem,
     appearanceMode,
     themeHalves,
+    themeMode,
+    rotation,
+    rotationToday,
   };
   return lastSnapshot;
 }
@@ -556,7 +625,12 @@ function handleStorageChange(e: StorageEvent) {
   } else if (e.key === THEME_FOLLOW_SYSTEM_STORAGE_KEY) {
     applyTheme(getStored(), { suppressTransitions: true });
     emitChange();
-  } else if (e.key === THEME_APPEARANCE_MODE_STORAGE_KEY || e.key === THEME_HALVES_STORAGE_KEY) {
+  } else if (
+    e.key === THEME_MODE_STORAGE_KEY ||
+    e.key === THEME_ROTATION_STORAGE_KEY ||
+    e.key === THEME_APPEARANCE_MODE_STORAGE_KEY ||
+    e.key === THEME_HALVES_STORAGE_KEY
+  ) {
     applyTheme(getStored(), { suppressTransitions: true });
     emitChange();
   } else if (e.key === CUSTOM_THEMES_STORAGE_KEY || e.key === null) {
@@ -570,6 +644,35 @@ function handleStorageChange(e: StorageEvent) {
 
 let removeWindowListeners: (() => void) | null = null;
 
+/** Repaints when the local day turns over, and when a sleeping machine wakes into a new day. */
+function startRotationClock(): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let paintedDay = new Date().toDateString();
+  const schedule = () => {
+    timer = setTimeout(rollOver, msUntilNextLocalMidnight(new Date()) + 1_000);
+  };
+  const rollOver = () => {
+    paintedDay = new Date().toDateString();
+    if (readThemeMode() === "rotation") {
+      applyTheme(getStored(), { animate: true });
+      emitChange();
+    }
+    schedule();
+  };
+  const onVisible = () => {
+    if (document.visibilityState !== "visible") return;
+    if (new Date().toDateString() === paintedDay) return;
+    if (timer !== null) clearTimeout(timer);
+    rollOver();
+  };
+  schedule();
+  document.addEventListener("visibilitychange", onVisible);
+  return () => {
+    if (timer !== null) clearTimeout(timer);
+    document.removeEventListener("visibilitychange", onVisible);
+  };
+}
+
 function subscribe(listener: () => void): () => void {
   if (typeof window === "undefined") return () => {};
   listeners.push(listener);
@@ -578,9 +681,11 @@ function subscribe(listener: () => void): () => void {
     const mq = typeof window.matchMedia === "function" ? window.matchMedia(MEDIA_QUERY) : null;
     mq?.addEventListener("change", handleSystemAppearanceChange);
     window.addEventListener("storage", handleStorageChange);
+    const stopRotationClock = startRotationClock();
     removeWindowListeners = () => {
       mq?.removeEventListener("change", handleSystemAppearanceChange);
       window.removeEventListener("storage", handleStorageChange);
+      stopRotationClock();
     };
   }
 
@@ -603,7 +708,19 @@ export function useRenderedAppearance() {
   return previewAppearance ?? resolvedTheme;
 }
 
+/** In a daily rotation a picked theme is today's theme; the schedule resumes tomorrow. */
 function setTheme(next: Theme): boolean {
+  if (typeof window === "undefined") return false;
+  if (readThemeMode() === "rotation") {
+    return setRotationOverride(
+      next === "system" || next === "light" || next === "dark" ? STANDARD_ROTATION_THEME : next,
+    );
+  }
+  return setOwnTheme(next);
+}
+
+/** The device's own theme, whatever the theme mode paints today. */
+function setOwnTheme(next: Theme): boolean {
   if (typeof window === "undefined") return false;
   try {
     // Save the current mode first; inferring it from the new theme can switch dark to light.
@@ -720,11 +837,102 @@ function clearThemeHalves(): boolean {
   return true;
 }
 
+function writeThemeKey(key: string, value: string): boolean {
+  try {
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch (cause) {
+    const error = new ThemeStorageError({ operation: "write", storageKey: key, cause });
+    console.error(error.message, {
+      operation: error.operation,
+      storageKey: error.storageKey,
+      ...safeErrorLogAttributes(error),
+    });
+    return false;
+  }
+}
+
+function setThemeMode(next: ThemeMode): boolean {
+  if (typeof window === "undefined") return false;
+  if (!writeThemeKey(THEME_MODE_STORAGE_KEY, next)) return false;
+  lastAppliedTheme = null;
+  applyTheme(getStored(), { animate: true });
+  emitChange();
+  return true;
+}
+
+function writeRotation(rotation: ThemeRotation): boolean {
+  if (typeof window === "undefined") return false;
+  if (!writeThemeKey(THEME_ROTATION_STORAGE_KEY, serializeThemeRotation(rotation))) return false;
+  applyTheme(getStored(), { animate: true });
+  emitChange();
+  return true;
+}
+
+/** Pins a theme for the rest of today, or with null hands the day back to the schedule. */
+function setRotationOverride(themeId: string | null): boolean {
+  return writeRotation(withOverride(readThemeRotation(), themeId, new Date()));
+}
+
+/**
+ * Edits the favourites without moving today's theme: reordering or adding shifts which
+ * favourite the calendar lands on, so an unpinned day is pinned to what it was showing.
+ */
+function editRotationFavourites(edit: (rotation: ThemeRotation) => ThemeRotation): boolean {
+  const now = new Date();
+  const before = readThemeRotation();
+  const todayBefore = rotationDay(before, now);
+  let after = edit(before);
+  if (
+    todayBefore.theme !== null &&
+    !todayBefore.overridden &&
+    rotationDay(after, now).scheduled !== todayBefore.theme
+  ) {
+    after = withOverride(after, todayBefore.theme, now);
+  }
+  return writeRotation(after);
+}
+
+/**
+ * Forgets themes that were deleted, so the rotation never schedules a theme it cannot
+ * paint. Today keeps what it showed unless that was a deleted theme.
+ */
+export function forgetRotationThemes(themeIds: ReadonlyArray<string>): boolean {
+  const before = readThemeRotation();
+  const after = withoutThemes(before, themeIds);
+  if (after === before) return true;
+  const now = new Date();
+  const todayBefore = rotationDay(before, now);
+  const keepsToday =
+    todayBefore.theme !== null &&
+    !themeIds.includes(todayBefore.theme) &&
+    !todayBefore.overridden &&
+    rotationDay(after, now).scheduled !== todayBefore.theme;
+  return writeRotation(keepsToday ? withOverride(after, todayBefore.theme, now) : after);
+}
+
+function setRotationFavourite(themeId: string, favourite: boolean): boolean {
+  return editRotationFavourites((rotation) => withFavourite(rotation, themeId, favourite));
+}
+
+function moveRotationFavourite(themeId: string, direction: -1 | 1): boolean {
+  return editRotationFavourites((rotation) => withFavouriteMoved(rotation, themeId, direction));
+}
+
 function refreshTheme({ preservePreview = false } = {}): void {
   if (typeof window === "undefined") return;
   lastAppliedTheme = null;
   applyTheme(getStored(), { suppressTransitions: true, preservePreview });
   emitChange();
+}
+
+/** The theme mode alone, for components rendered many times over. */
+export function useThemeMode(): ThemeMode {
+  return useSyncExternalStore(
+    subscribe,
+    () => getSnapshot().themeMode,
+    () => DEFAULT_THEME_MODE,
+  );
 }
 
 /** The painted appearance alone, for components rendered many times over. */
@@ -757,10 +965,15 @@ export function useTheme() {
   return {
     theme,
     setTheme,
+    setOwnTheme,
     setAppearanceMode,
     setFollowSystem,
     setThemeHalf,
     clearThemeHalves,
+    setThemeMode,
+    setRotationOverride,
+    setRotationFavourite,
+    moveRotationFavourite,
     refreshTheme,
     followSystem: snapshot.followSystem,
     appearanceMode: snapshot.appearanceMode,
@@ -768,5 +981,8 @@ export function useTheme() {
     themeHalves: snapshot.themeHalves,
     projectTheme: snapshot.projectTheme,
     activeTheme: snapshot.activeTheme,
+    themeMode: snapshot.themeMode,
+    rotation: snapshot.rotation,
+    rotationToday: snapshot.rotationToday,
   } as const;
 }

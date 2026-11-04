@@ -28,6 +28,7 @@ export function ProjectThemeSetting({ projectKey }: { projectKey: string }) {
     setAppearanceMode,
     resolvedTheme,
     refreshTheme,
+    themeMode,
   } = useTheme();
   const [isImportOpen, setIsImportOpen] = useState(false);
 
@@ -46,9 +47,11 @@ export function ProjectThemeSetting({ projectKey }: { projectKey: string }) {
       }
     >
       <p className="px-3 pb-1 text-xs text-muted-foreground sm:px-4">
-        {projectTheme === null
-          ? "Uses your app theme. Pick a theme, or one for light and one for dark, to give this project its own."
-          : "Shown while a thread or new thread in this project is open, on this device."}
+        {themeMode !== "project"
+          ? "Not shown right now: Theme mode in Appearance settings is set to one theme or a daily rotation. Anything you pick here is kept for when it is per project."
+          : projectTheme === null
+            ? "Uses your app theme. Pick a theme, or one for light and one for dark, to give this project its own."
+            : "Shown while a thread or new thread in this project is open, on this device."}
       </p>
       <ThemeLibrary
         appearanceMode={appearanceMode}

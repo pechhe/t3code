@@ -10,6 +10,7 @@ import { useUiStateStore } from "../uiStateStore";
 import { MonitorIcon, MoonIcon, PaletteIcon, SunIcon } from "lucide-react";
 
 import { useTheme } from "../hooks/useTheme";
+import { STANDARD_ROTATION_THEME } from "../themeRotation";
 import {
   ADDON_ICON_CLASS,
   ITEM_ICON_CLASS,
@@ -46,7 +47,11 @@ export function useCommandPaletteThemeItems() {
     setThemeHalf,
     projectTheme,
     activeTheme,
+    themeMode,
+    rotationToday,
+    setRotationOverride,
   } = useTheme();
+  const inRotation = themeMode === "rotation";
   const themeCards = useThemeCards();
   // Inside a project with its own theme, picking a theme changes what is on
   // screen: that project's theme, not the user's own one underneath it.
@@ -55,8 +60,11 @@ export function useCommandPaletteThemeItems() {
   const activeProjectKey = useActiveProjectKey();
   const setProjectTheme = useUiStateStore((store) => store.setProjectTheme);
   const themedProjectKey = projectTheme === null ? null : activeProjectKey;
-  const currentThemeCardId =
-    projectTheme === null
+  const currentThemeCardId = inRotation
+    ? rotationToday.theme === STANDARD_ROTATION_THEME
+      ? null
+      : rotationToday.theme
+    : projectTheme === null
       ? (themeHalves?.[resolvedTheme] ?? getThemeDefinition(theme)?.id ?? null)
       : (getThemeDefinition(activeTheme)?.id ?? null);
 
@@ -71,8 +79,27 @@ export function useCommandPaletteThemeItems() {
     groups: [
       {
         value: "themes",
-        label: themedProjectKey === null ? "Change theme" : "Change project theme",
+        label: inRotation
+          ? "Use theme today"
+          : themedProjectKey === null
+            ? "Change theme"
+            : "Change project theme",
         items: [
+          ...(inRotation && rotationToday.overridden
+            ? ([
+                {
+                  kind: "action",
+                  value: "theme:rotation",
+                  title: "Back to rotation",
+                  description: "Stop overriding today's theme",
+                  searchTerms: ["rotation", "theme", "appearance", "reset", "today"],
+                  icon: <PaletteIcon className={ITEM_ICON_CLASS} />,
+                  run: async () => {
+                    if (!setRotationOverride(null)) notifyThemeSaveFailure();
+                  },
+                },
+              ] satisfies CommandPaletteActionItem[])
+            : []),
           ...(themedProjectKey === null
             ? []
             : ([
@@ -90,7 +117,8 @@ export function useCommandPaletteThemeItems() {
             kind: "action",
             value: id === null ? "theme:standard" : `theme:palette:${id}`,
             title: label,
-            description: previews.length === 1 ? `For ${previews[0]!.mode} mode` : undefined,
+            description:
+              previews.length === 1 && !inRotation ? `For ${previews[0]!.mode} mode` : undefined,
             searchTerms: [label, "theme", "appearance"],
             icon: <PaletteIcon className={ITEM_ICON_CLASS} />,
             titleTrailingContent: (
@@ -111,6 +139,10 @@ export function useCommandPaletteThemeItems() {
               </span>
             ),
             run: async () => {
+              if (inRotation) {
+                if (!setTheme(id ?? "system")) notifyThemeSaveFailure();
+                return;
+              }
               if (themedProjectKey !== null) {
                 if (previews.length === 1 && id !== null) {
                   setProjectThemeHalf(themedProjectKey, previews[0]!.mode, id);
