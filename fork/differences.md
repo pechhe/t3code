@@ -830,3 +830,13 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Retire when:** upstream sets the variable itself or offers a setting for it.
 - **Decision:** `retain` (new, 2026-11-04).
 - **Owner:** none.
+
+### bounded-decisions
+
+- **Kind:** durable extension
+- **Requirement:** Agents and internal workflows can explicitly choose Jev or Luna Decisions for bounded mixed predicate, choice and rubric batches, preserving probability, provider confidence and continuous scores. Malformed correspondence invalidates the whole batch; refusals stay explicit, with no fallback or automatic retries. Credentials and trusted project/session identity stay server-side. Reader, research and review roles cannot invoke guessed tool names. One shared environment admission budget covers every MCP endpoint.
+- **Integration points:** `packages/contracts/src/decisions.ts`, the decision tool family in `mcpToolPolicy.ts`, `DecisionService`, local provider adapters, and MCP toolkit registration/authorization. No coding-provider enum, client payload or visible UI changes.
+- **Proof:** deterministic adapter, service, MCP handler and session-listing tests; small synthetic live verification is a separate acceptance gate for both engines.
+- **Upstream:** closed pingdotgg/t3code#15663 routes coding models and does not supply this capability. Installed Effect Decision definitions are reused; its DecisionModel permits partial settled results and normalizes distributions, so local validation enforces the stricter foundation contract. Vendored TypeSafe/OpenAI mappings were consulted read-only; no provider package dependency or vendored import is added.
+- **Retire when:** upstream supplies equivalent shared decision semantics, bounds, provenance and invocation authorization.
+- **Owner:** Weave Forge T3-350 (#6365).

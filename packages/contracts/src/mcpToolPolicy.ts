@@ -7,6 +7,7 @@ import type { AgentRole, AgentToolProfile } from "./agentPolicy.ts";
  * the caller may do.
  */
 export type ToolFamily =
+  | "decision"
   | "control"
   | "workspace"
   | "scheduling"
@@ -99,6 +100,7 @@ const PULL_REQUEST_TOOLS = new Set([
  * every tool again when a family gains one.
  */
 export const toolFamily = (name: string): ToolFamily => {
+  if (name === "t3_decide") return "decision";
   if (name === "web_search" || name === "web_fetch") return "web";
   if (REPORT_TOOLS.has(name)) return "report";
   if (LEAF_TOOLS.has(name)) return "leaf";
@@ -127,8 +129,15 @@ export const toolFamily = (name: string): ToolFamily => {
   return "control";
 };
 
-const CONTROL: ReadonlySet<ToolFamily> = new Set(["control", "scheduling", "worktree", "leaf"]);
+const CONTROL: ReadonlySet<ToolFamily> = new Set([
+  "decision",
+  "control",
+  "scheduling",
+  "worktree",
+  "leaf",
+]);
 const WORKSPACE: ReadonlySet<ToolFamily> = new Set([
+  "decision",
   "control",
   "workspace",
   "scheduling",
@@ -144,8 +153,9 @@ const WORKSPACE: ReadonlySet<ToolFamily> = new Set([
  * orchestrates nothing, so it lists no control, workspace, scheduling, worktree or project
  * tool; that listing is the child-preview one.
  */
-const PREVIEW: ReadonlySet<ToolFamily> = new Set(["preview", "leaf", "report"]);
+const PREVIEW: ReadonlySet<ToolFamily> = new Set(["decision", "preview", "leaf", "report"]);
 const PREVIEW_DEVICE: ReadonlySet<ToolFamily> = new Set([
+  "decision",
   "control",
   "workspace",
   "scheduling",
@@ -157,6 +167,7 @@ const PREVIEW_DEVICE: ReadonlySet<ToolFamily> = new Set([
   "report",
 ]);
 const IMPLEMENTATION_PHI: ReadonlySet<ToolFamily> = new Set([
+  "decision",
   "control",
   "workspace",
   "scheduling",
@@ -186,14 +197,16 @@ const RESEARCH: ReadonlySet<ToolFamily> = new Set([
  */
 const CHILD_READER: ReadonlySet<ToolFamily> = new Set(["leaf", "report"]);
 const CHILD_RESEARCH: ReadonlySet<ToolFamily> = new Set(["leaf", "report", "experiments", "web"]);
-const CHILD_PREVIEW: ReadonlySet<ToolFamily> = new Set(["leaf", "report", "preview"]);
+const CHILD_PREVIEW: ReadonlySet<ToolFamily> = new Set(["decision", "leaf", "report", "preview"]);
 const CHILD_PREVIEW_DEVICE: ReadonlySet<ToolFamily> = new Set([
+  "decision",
   "leaf",
   "report",
   "preview",
   "device",
 ]);
 const CHILD_IMPLEMENTATION: ReadonlySet<ToolFamily> = new Set([
+  "decision",
   "leaf",
   "report",
   "worktree",
@@ -281,4 +294,23 @@ export const sessionToolFamilies = (
 export const isToolListedForSession = (
   name: string,
   session: SessionToolProfile | undefined,
-): boolean => sessionToolFamilies(session).has(toolFamily(name));
+): boolean =>
+  (toolFamily(name) !== "decision" || canUseDecisions(session)) &&
+  sessionToolFamilies(session).has(toolFamily(name));
+
+export const canUseDecisions = (session: SessionToolProfile | undefined): boolean => {
+  if (session?.toolProfile === "source-reader" || session?.toolProfile === "web-research")
+    return false;
+  if (
+    ["scout", "advisor", "ticket-reviewer", "spec-reviewer", "researcher"].some(
+      (role) => role === session?.agentRole,
+    )
+  )
+    return false;
+  return (
+    session?.toolProfile === undefined ||
+    ["implementation", "implementation-phi", "phi"].some(
+      (profile) => profile === session.toolProfile,
+    )
+  );
+};

@@ -1,3 +1,5 @@
+import { DecisionToolkit } from "./toolkits/decisions/tools.ts";
+import * as DecisionService from "../decisions/DecisionService.ts";
 import { expect, it } from "@effect/vitest";
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -95,6 +97,7 @@ const listTools = (path: string, token: string) =>
 
 it("lists exactly the managed browser tools the adapters pre-approve", () => {
   const toolkit = [
+    ...Object.keys(DecisionToolkit.tools),
     ...Object.keys(ManagedBrowserToolkit.tools),
     ...Object.keys(ManagedBrowserSnapshotToolkit.tools),
   ];
@@ -115,7 +118,9 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
     Effect.gen(function* () {
       // Composed as the server composes them: the endpoints must not share one tool registry.
       const both = Layer.mergeAll(
-        McpHttpServer.layerManagedBrowserToolkit,
+        McpHttpServer.layerManagedBrowserToolkit.pipe(
+          Layer.provide(Layer.mock(DecisionService.DecisionService)({})),
+        ),
         McpHttpServer.layerPreviewToolkit,
       ).pipe(
         Layer.provideMerge(McpHttpServer.layerMcpTransport),

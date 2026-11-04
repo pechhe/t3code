@@ -1,3 +1,4 @@
+import { DecisionToolkit } from "./toolkits/decisions/tools.ts";
 import {
   isToolListedForSession,
   SESSION_TOOL_ENDPOINTS,
@@ -44,6 +45,7 @@ import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import { MANAGED_BROWSER_TOOL_NAMES } from "./toolkits/managedBrowser/toolNames.ts";
 
 const tools = [
+  ...Object.values(DecisionToolkit.tools),
   ...Object.values(OrchestratorToolkit.tools),
   ...Object.values(PreviewToolkit.tools),
   ...Object.values(DeviceToolkit.tools),
@@ -89,13 +91,11 @@ const session = (
 // child lists its own work family and the leaf tools only. A change that needs a higher
 // ceiling states the new number and what bought it.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
-  // 40,243 measured; `t3_background_wait`, which lets a Claude agent mark the commands it waits on
-  // as holding Working, took the last 249.
-  ["ordinary", undefined, 40_300],
+  // Bounded decisions adds 2,061 characters; the ordinary catalogue measures 42,304.
+  ["ordinary", undefined, 42_400],
   // The preview endpoint is a browser session's listing, so it carries no control plane.
-  // 32,741 measured; the ceiling moved by 100 for the theme guide's corrected code-variable
-  // names, which the html tools carry on this endpoint too.
-  ["browser/preview", session("phi", "browser"), 32_800],
+  // Bounded decisions adds the same 2,061 characters to the browser catalogue.
+  ["browser/preview", session("phi", "browser"), 34_900],
   ["ui-verifier", session("phi", "ui-verifier"), 120_000],
   ["ui-worker", session("implementation-phi", "ui-worker"), 115_000],
   // 82,359 measured; the web family's `web_search` and `web_fetch` now count on this endpoint.
@@ -125,6 +125,7 @@ it("lists a browser session only the families it uses", () => {
   // watch and the html tools to show the user a page, and report its outcome. A later
   // family added here fails this test rather than quietly raising the budget.
   expect([...SESSION_TOOL_ENDPOINTS.preview.families].sort()).toEqual([
+    "decision",
     "leaf",
     "preview",
     "report",
@@ -213,7 +214,9 @@ it("tells a narrow browser child about preview only, and that listing is all pre
   expect(narrowNamed.has("t3_worktree_handoff")).toBe(false);
 
   for (const name of MANAGED_BROWSER_TOOL_NAMES) {
-    expect(toolFamily(name), `${name} is a preview tool`).toBe("preview");
+    expect(toolFamily(name), `${name} has its explicit tool family`).toBe(
+      name === "t3_decide" ? "decision" : "preview",
+    );
   }
 });
 

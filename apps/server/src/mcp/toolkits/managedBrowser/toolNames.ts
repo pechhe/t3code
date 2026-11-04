@@ -3,6 +3,7 @@
  * these and nothing else; `McpManagedBrowser.test.ts` checks the list against the toolkit.
  */
 export const MANAGED_BROWSER_TOOL_NAMES = [
+  "t3_decide",
   "preview_open",
   "preview_status",
   "preview_navigate",

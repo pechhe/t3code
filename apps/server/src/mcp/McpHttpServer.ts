@@ -1,3 +1,6 @@
+import { DecisionToolkit } from "./toolkits/decisions/tools.ts";
+import * as DecisionHandlers from "./toolkits/decisions/handlers.ts";
+import * as DecisionService from "../decisions/DecisionService.ts";
 import { WebToolkit } from "./toolkits/web/tools.ts";
 import * as WebHandlers from "./toolkits/web/handlers.ts";
 import * as WebResearch from "./WebResearch.ts";
@@ -1189,6 +1192,9 @@ const layerSessionDevice = (families: ReadonlySet<ToolFamily>) =>
 /** The toolkits one endpoint serves, filtered by family. Exported for the endpoint test's registry. */
 export const layerSessionToolkits = (families: ReadonlySet<ToolFamily>) =>
   Layer.mergeAll(
+    families.has("decision")
+      ? toolkitRegistration(DecisionToolkit, DecisionHandlers.layer)
+      : Layer.empty,
     layerSessionOrchestrator(families),
     layerSessionThread(families),
     layerSessionProject(families),
@@ -1247,6 +1253,7 @@ export const layerMcpTransport = McpServer.layerHttp({
  */
 export const layerManagedBrowserToolkit = Layer.fresh(
   Layer.mergeAll(
+    toolkitRegistration(DecisionToolkit, DecisionHandlers.layer),
     toolkitRegistration(ManagedBrowserToolkit, ManagedBrowserHandlers.layer),
     imageToolRegistration(registerPreviewSnapshot(), ManagedBrowserHandlers.layerSnapshot),
   ).pipe(
@@ -1267,6 +1274,7 @@ const layerGuardToolkit = toolkitRegistration(GuardToolkit, GuardHandlers.layer)
 );
 
 const legacyLayer = Layer.mergeAll(
+  toolkitRegistration(DecisionToolkit, DecisionHandlers.layer),
   layerGuardToolkit,
   layerManagedBrowserToolkit,
   layerPreviewToolkit,
@@ -1288,4 +1296,6 @@ const legacyLayer = Layer.mergeAll(
   layerHtmlToolkit,
 ).pipe(Layer.provideMerge(layerMcpTransport));
 
-export const layer = Layer.mergeAll(legacyLayer, ...sessionEndpointLayers);
+export const layer = Layer.mergeAll(legacyLayer, ...sessionEndpointLayers).pipe(
+  Layer.provide(DecisionService.layer),
+);
