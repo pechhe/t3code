@@ -105,7 +105,10 @@ import {
   ThreadSearchPullRequestNumber,
 } from "../ThreadStatusIndicators";
 import { resolveSnoozePresets, type SnoozePreset } from "../Sidebar.snooze";
-import { useThreadShell } from "../../state/entities";
+import { useSubagentActivity, useThreadShell } from "../../state/entities";
+import { subagentActivityLabel } from "@t3tools/client-runtime/state/threads";
+import { AgentElapsed } from "../chat/AgentElapsed";
+import { SUBAGENT_STATUS_PRESENTATION } from "../chat/subagentStatusPresentation";
 import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";
 import { ThreadSearchMatchExcerpt } from "../ThreadSearchMatch";
 import { makeWorkspaceFileDropHandlers } from "../chat/workspaceFileDrop";
@@ -646,6 +649,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
+  const subagentActivity = useSubagentActivity(scopeThreadRef(thread.environmentId, thread.id));
+  // Own requests come first, so only a thread with none speaks for its subagent.
+  const delegatedRequestLabel =
+    !thread.hasPendingApprovals &&
+    !thread.hasPendingUserInput &&
+    subagentActivity !== null &&
+    (subagentActivity.status === "approval" || subagentActivity.status === "input")
+      ? subagentActivityLabel(subagentActivity)
+      : null;
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
   const isWoke =
@@ -670,57 +682,64 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           icon: "working" as const,
           className: "text-info",
         }
-      : status === "waiting"
+      : status === "waiting" && subagentActivity !== null
         ? {
-            label: backgroundWorkIsOnlyWatches(thread.pendingBackgroundTasks ?? [])
-              ? "Watching"
-              : "Waiting",
-            icon: "waiting" as const,
-            className: "text-muted-foreground",
+            label: subagentActivityLabel(subagentActivity),
+            icon:
+              subagentActivity.status === "working" ? ("working" as const) : ("waiting" as const),
+            className: SUBAGENT_STATUS_PRESENTATION[subagentActivity.status].className,
           }
-        : status === "approval"
+        : status === "waiting"
           ? {
-              label: "Approval",
-              icon: "approval" as const,
-              className: "text-warning-foreground",
+              label: backgroundWorkIsOnlyWatches(thread.pendingBackgroundTasks ?? [])
+                ? "Watching"
+                : "Waiting",
+              icon: "waiting" as const,
+              className: "text-muted-foreground",
             }
-          : status === "input"
+          : status === "approval"
             ? {
-                label: "Input",
-                icon: "input" as const,
-                className: "text-indigo-600 dark:text-indigo-300",
+                label: delegatedRequestLabel ?? "Approval",
+                icon: "approval" as const,
+                className: "text-warning-foreground",
               }
-            : status === "request"
+            : status === "input"
               ? {
-                  label: "Request",
-                  icon: "request" as const,
-                  className: "text-guest-foreground",
+                  label: delegatedRequestLabel ?? "Input",
+                  icon: "input" as const,
+                  className: "text-indigo-600 dark:text-indigo-300",
                 }
-              : status === "limited"
+              : status === "request"
                 ? {
-                    label: "Limited",
-                    icon: "failed" as const,
-                    className: "text-warning",
+                    label: "Request",
+                    icon: "request" as const,
+                    className: "text-guest-foreground",
                   }
-                : status === "failed"
+                : status === "limited"
                   ? {
-                      label: "Failed",
+                      label: "Limited",
                       icon: "failed" as const,
-                      className: "text-error",
+                      className: "text-warning",
                     }
-                  : isWoke
+                  : status === "failed"
                     ? {
-                        label: "Woke",
-                        icon: "woke" as const,
-                        className: "text-warning",
+                        label: "Failed",
+                        icon: "failed" as const,
+                        className: "text-error",
                       }
-                    : isUnread
+                    : isWoke
                       ? {
-                          label: "Done",
-                          icon: "done" as const,
-                          className: "text-success",
+                          label: "Woke",
+                          icon: "woke" as const,
+                          className: "text-warning",
                         }
-                      : null;
+                      : isUnread
+                        ? {
+                            label: "Done",
+                            icon: "done" as const,
+                            className: "text-success",
+                          }
+                        : null;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
@@ -1389,9 +1408,24 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                               <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
                             </span>
                           ) : status === "waiting" ? (
-                            <span aria-hidden>
-                              <WorkingDuration startedAt={thread.latestRun?.completedAt ?? null} />
-                            </span>
+                            subagentActivity === null ? (
+                              <span aria-hidden>
+                                <WorkingDuration
+                                  startedAt={thread.latestRun?.completedAt ?? null}
+                                />
+                              </span>
+                            ) : subagentActivity.startedAt === null ? null : (
+                              <span aria-hidden>
+                                <AgentElapsed
+                                  compact
+                                  agent={{
+                                    status: "running",
+                                    startedAt: subagentActivity.startedAt,
+                                    completedAt: null,
+                                  }}
+                                />
+                              </span>
+                            )
                           ) : null}
                         </span>
                       )

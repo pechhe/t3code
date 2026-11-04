@@ -26,6 +26,8 @@ import {
   type BackgroundWorkLinkHandlers,
 } from "./BackgroundWorkStrip";
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { SubagentStatusText } from "./SpecLeadCards";
 
 /** Subagents waiting on the user, unless the parent is itself waiting on them. */
 export function childInputBannerItem(input: {
@@ -105,6 +107,8 @@ export function goalBannerItem(input: {
 export function backgroundWorkBannerItem(input: {
   readonly threadId: ThreadId;
   readonly tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
+  /** Spec leads shown as cards above the composer, so they leave this strip. */
+  readonly leadIds: ReadonlyArray<ThreadId>;
   readonly stopDisabled: boolean;
   readonly stopping: boolean;
   readonly onStop: () => Promise<void>;
@@ -112,7 +116,24 @@ export function backgroundWorkBannerItem(input: {
   readonly expanded: boolean;
   readonly onToggle: () => void;
 }): ComposerBannerStackItem | null {
-  const presentation = presentPendingBackgroundWork(input.tasks);
+  const others = input.tasks.filter(
+    (task) =>
+      task.kind !== "subagent" ||
+      task.childThreadId === undefined ||
+      !input.leadIds.includes(task.childThreadId),
+  );
+  const presentation = presentPendingBackgroundWork(others);
+  const stop = (
+    <Button
+      size="xs"
+      variant="ghost"
+      disabled={input.stopDisabled}
+      onClick={() => void input.onStop()}
+    >
+      {input.stopping ? "Stopping..." : "Stop"}
+    </Button>
+  );
+  const { threadRef } = input.handlers;
   if (presentation === null) {
     return null;
   }
@@ -161,14 +182,12 @@ export function backgroundWorkBannerItem(input: {
             <ChevronDownIcon className={cn("size-3.5", !expanded && "rotate-180")} />
           </Button>
         ) : null}
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={input.stopDisabled}
-          onClick={() => void input.onStop()}
-        >
-          {input.stopping ? "Stopping..." : "Stop"}
-        </Button>
+        {!several && onlyItem?.childThreadId !== undefined && threadRef !== null ? (
+          <SubagentStatusText
+            threadRef={scopeThreadRef(threadRef.environmentId, onlyItem.childThreadId)}
+          />
+        ) : null}
+        {stop}
       </>
     ),
   };

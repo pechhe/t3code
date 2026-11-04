@@ -1,6 +1,6 @@
 [
   {
-    "path": "AGENTS.md",
+    "path": "docs/operations/development.md",
     "category": "compatibility-aliases",
     "reason": "Test data instructions retain the old connection-secret read fallback."
   },

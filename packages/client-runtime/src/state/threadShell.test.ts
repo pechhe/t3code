@@ -1,4 +1,5 @@
 import {
+  type AgentRole,
   EnvironmentId,
   ProjectId,
   RunId,
@@ -16,7 +17,12 @@ import { PrimaryConnectionTarget } from "../connection/model.ts";
 import { v2Now, v2ShellSnapshot, v2ThreadShell } from "./orchestrationV2TestFixtures.ts";
 import { applyShellStreamEvent } from "./shellReducer.ts";
 import { isThreadWorking } from "./threadInbox.ts";
-import { childThreadInputsTitle, createEnvironmentThreadShellAtoms } from "./threadShell.ts";
+import {
+  childThreadInputsTitle,
+  createEnvironmentThreadShellAtoms,
+  deriveSubagentLiveState,
+  subagentActivityLabel,
+} from "./threadShell.ts";
 
 const environmentId = EnvironmentId.make("environment-v2");
 const remoteEnvironmentId = EnvironmentId.make("remote-environment-v2");
@@ -469,5 +475,84 @@ describe("thread watchers", () => {
     expect(registry.get(watchers)).toEqual([]);
     dispose();
     registry.dispose();
+  });
+});
+
+describe("subagent live state", () => {
+  const startedAt = DateTime.makeUnsafe("2026-11-04T12:00:00.000Z");
+  const parent = ThreadId.make("parent");
+  const shell = (
+    id: string,
+    parentThreadId: ThreadId,
+    role: AgentRole | null,
+    overrides: Partial<OrchestrationV2ThreadShell> = {},
+  ): OrchestrationV2ThreadShell => ({
+    ...v2ThreadShell,
+    id: ThreadId.make(id),
+    lineage: { ...v2ThreadShell.lineage, parentThreadId, relationshipToParent: "subagent" },
+    ...(role === null ? {} : { agentTask: { role } as OrchestrationV2ThreadShell["agentTask"] }),
+    activityRunStatus: "running",
+    activityRunStartedAt: startedAt,
+    ...overrides,
+  });
+  const activityOf = (...threads: ReadonlyArray<OrchestrationV2ThreadShell>) =>
+    deriveSubagentLiveState(threads).activity.get(parent);
+  const question = {
+    pendingRuntimeRequest: {
+      id: RuntimeRequestId.make("request"),
+      kind: "user_input",
+      createdAt: startedAt,
+    },
+  } as const;
+
+  it("speaks for a working lead over a working advisor, with the lead's timer", () => {
+    const activity = activityOf(shell("advisor", parent, "advisor"), shell("lead", parent, "lead"));
+    expect(activity).toEqual({
+      status: "working",
+      role: "lead",
+      count: 1,
+      startedAt: DateTime.formatIso(startedAt),
+    });
+    expect(subagentActivityLabel(activity!)).toBe("Lead working");
+  });
+
+  it("does not let a waiting lead hide an advisor that is working", () => {
+    const activity = activityOf(
+      shell("lead", parent, "lead", { blockedOnThreadWait: true }),
+      shell("advisor", parent, "advisor"),
+    );
+    expect(subagentActivityLabel(activity!)).toBe("Advisor working");
+  });
+
+  it("counts several working leads and drops the timer they do not share", () => {
+    const activity = activityOf(
+      shell("a", parent, "lead"),
+      shell("b", parent, "lead"),
+      shell("c", parent, "lead", { blockedOnThreadWait: true }),
+    );
+    expect(activity?.startedAt).toBeNull();
+    expect(subagentActivityLabel(activity!)).toBe("2 leads working");
+  });
+
+  it("lets a question outrank work and names who asks", () => {
+    const activity = activityOf(
+      shell("lead", parent, "lead"),
+      shell("advisor", parent, "advisor", question),
+    );
+    expect(subagentActivityLabel(activity!)).toBe("Advisor input");
+  });
+
+  it("raises a lead by what the helpers under it are doing", () => {
+    const lead = shell("lead", parent, "lead", { blockedOnThreadWait: true });
+    const working = activityOf(lead, shell("reviewer", lead.id, "spec-reviewer"));
+    expect(subagentActivityLabel(working!)).toBe("Lead working");
+    const asking = activityOf(lead, shell("reviewer", lead.id, "spec-reviewer", question));
+    expect(subagentActivityLabel(asking!)).toBe("Lead input");
+  });
+
+  it("reports nothing once its subagents have stopped", () => {
+    expect(
+      activityOf(shell("lead", parent, "lead", { activityRunStatus: null, status: "completed" })),
+    ).toBeUndefined();
   });
 });

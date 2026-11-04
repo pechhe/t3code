@@ -269,6 +269,7 @@ import {
   useThreadHistory,
   useQuietThreadShell,
   useThreadCheckpointSummaries,
+  useDelegatedThreadRequests,
 } from "../state/entities";
 import { useEnvironmentShellHasSnapshot } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
@@ -1322,7 +1323,9 @@ export default function ChatView(props: ChatViewProps) {
     setLocalServerErrorsByThreadKey,
     setLocalDraftErrorsByDraftId,
   });
+  const delegatedRequests = useDelegatedThreadRequests(isServerThread ? routeThreadRef : null);
   const {
+    delegatedRequestThreadId,
     pendingApprovals,
     pendingUserInputs,
     activePendingApproval,
@@ -1345,6 +1348,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadId,
     activeThread,
     serverProjection,
+    delegatedRequests,
     supportsQuestionAttachments,
     composerDraftTarget,
     setComposerDraftPrompt,
@@ -2514,6 +2518,8 @@ export default function ChatView(props: ChatViewProps) {
     activeBranchMismatchKey,
     backgroundWorkBanner,
     childInputBanner,
+    liveLeadIds,
+    renderSpecLeadCards,
     goalBanner,
     handleSwitchCheckoutToThread,
     handleSwitchCheckoutToThreadStable,
@@ -3844,7 +3850,16 @@ export default function ChatView(props: ChatViewProps) {
                               environmentId={environmentId}
                               attachmentUploadsCapabilityKnown={attachmentUploadsCapabilityKnown}
                               supportsAttachmentUploads={supportsAttachmentUploads}
-                              supportsQuestionAttachments={supportsQuestionAttachments}
+                              supportsQuestionAttachments={
+                                supportsQuestionAttachments && delegatedRequestThreadId === null
+                              }
+                              delegatedRequestThreadId={delegatedRequestThreadId}
+                              delegatedRequestShownOnCard={
+                                delegatedRequestThreadId !== null &&
+                                liveLeadIds.includes(delegatedRequestThreadId)
+                              }
+                              renderAboveComposer={renderSpecLeadCards}
+                              onOpenRelatedThread={onOpenRelatedThreadStable}
                               maxFileAttachmentBytes={maxFileAttachmentBytes}
                               routeKind={routeKind}
                               routeThreadRef={routeThreadRef}

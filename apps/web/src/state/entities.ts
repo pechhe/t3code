@@ -28,6 +28,8 @@ import type {
 } from "@t3tools/contracts";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { Atom } from "effect/reactivity";
+import { derivePendingThreadRequests } from "@t3tools/client-runtime/state/thread-requests";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentProjects } from "./projects";
 import { environmentPresentations } from "./presentation";
@@ -157,6 +159,56 @@ export function useQuietThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
 export function useChildThreadInputs(ref: ScopedThreadRef | null) {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_SHELLS_ATOM : environmentThreadShells.childThreadInputsAtom(ref),
+  );
+}
+
+const NO_THREAD_IDS_ATOM = Atom.make<ReadonlyArray<ThreadId>>(Object.freeze([])).pipe(
+  Atom.withLabel("web-lead-child-ids:empty"),
+);
+
+export function useLeadChildIds(ref: ScopedThreadRef | null) {
+  return useAtomValue(
+    ref === null ? NO_THREAD_IDS_ATOM : environmentThreadShells.leadChildIdsAtom(ref),
+  );
+}
+
+const NO_PENDING_THREAD_REQUESTS_ATOM = Atom.make<ReturnType<
+  typeof derivePendingThreadRequests
+> | null>(null).pipe(Atom.withLabel("web-delegated-requests:empty"));
+
+/**
+ * The first subagent with an open question or permission, read from its detail only while one is
+ * open. Its shell says a request exists; the request's content lives in the thread's detail.
+ */
+export function useDelegatedThreadRequests(ref: ScopedThreadRef | null) {
+  const child = useChildThreadInputs(ref).find(
+    (thread) => thread.source.pendingRuntimeRequest !== null,
+  );
+  const childRef =
+    ref === null || child === undefined ? null : scopeThreadRef(ref.environmentId, child.id);
+  const requests = useAtomValue(
+    childRef === null
+      ? NO_PENDING_THREAD_REQUESTS_ATOM
+      : environmentThreadDetails.pendingRequestsAtom(childRef),
+  );
+  if (
+    childRef === null ||
+    requests === null ||
+    (requests.approvals.length === 0 && requests.userInputs.length === 0)
+  ) {
+    return null;
+  }
+  return { threadId: childRef.threadId, requests };
+}
+
+export function useSubagentActivity(ref: ScopedThreadRef) {
+  return useAtomValue(environmentThreadShells.subagentActivityAtom(ref));
+}
+
+export function useSubagentStatus(ref: ScopedThreadRef) {
+  return useAtomValue(
+    environmentThreadShells.subagentLiveStateAtom(ref.environmentId),
+    (state) => state.statuses.get(ref.threadId) ?? null,
   );
 }
 

@@ -86,6 +86,7 @@ function PendingRequestsProbe({
   const promptRef = useRef("");
   const composerRef = useRef(null);
   const state = usePendingThreadRequests({
+    delegatedRequests: null,
     environmentId,
     activeThreadId: projection.thread.id,
     activeThread: projection.thread,

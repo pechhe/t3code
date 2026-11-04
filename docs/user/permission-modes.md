@@ -40,6 +40,11 @@ approval for an action.
 While a Claude approval is pending, type a text reply to decline that request and give feedback
 directly to the agent that asked, including a subagent. Other pending requests stay unanswered.
 
+On web and desktop, a delegated subagent's question or approval opens in the thread that delegated
+it, so you can answer without leaving. A Spec lead's request opens in its card above the composer;
+another subagent's names who is asking. The thread's own requests come first. Attachments need the
+subagent's own thread, which **Open thread** or the Spec lead's card opens.
+
 Antigravity can still send native approval requests in **Full access**. It only offers remembered
 approvals for actions that support them.
 

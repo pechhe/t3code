@@ -210,6 +210,7 @@ import { encodeComposerContextFragment } from "@t3tools/shared/composerContextCl
 import type { ComposerContextRecord, ThreadPullRequestLink } from "@t3tools/contracts";
 import { threadContextAttachment } from "~/lib/threadContextAttachment";
 import { threadEnvironment } from "~/state/threads";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useOrchestrationCommand } from "~/state/use-orchestration-command";
 import { peerEnvironments } from "~/state/peers";
 import { unreadableThreadRefs } from "@t3tools/client-runtime/state/peers";
@@ -237,6 +238,8 @@ import { DeviceContextBar } from "./device/DeviceContextBar";
 import { type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
 import { useComposerPoolAccount } from "./ComposerPoolAccount";
 import { type DeviceReasoningDialHandle } from "./device/DeviceReasoningDial";
+import { ComposerDelegatedRequestSource } from "./ComposerDelegatedRequestSource";
+import type { SpecLeadCardRequest } from "./SpecLeadCards";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
@@ -410,6 +413,12 @@ export interface ChatComposerProps {
   attachmentUploadsCapabilityKnown: boolean;
   supportsAttachmentUploads: boolean;
   supportsQuestionAttachments: boolean;
+  /** The subagent whose request this composer is answering, when it isn't the thread's own. */
+  delegatedRequestThreadId: ThreadId | null;
+  /** The asker has a card above, which already names it and offers its context. */
+  delegatedRequestShownOnCard: boolean;
+  renderAboveComposer: (request: SpecLeadCardRequest | null) => ReactNode;
+  onOpenRelatedThread: (threadId: ThreadId) => void;
   maxFileAttachmentBytes: number | null;
   routeKind: "server" | "draft";
   routeThreadRef: ScopedThreadRef;
@@ -595,6 +604,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     attachmentUploadsCapabilityKnown,
     supportsAttachmentUploads,
     supportsQuestionAttachments,
+    delegatedRequestThreadId,
+    onOpenRelatedThread,
     maxFileAttachmentBytes,
     routeKind,
     routeThreadRef,
@@ -704,6 +715,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ...pendingApprovals.map((request) => request.requestId),
     ...incomingPendingUserInputs.map((request) => request.requestId),
   ]);
+  const delegatedRequestRef =
+    delegatedRequestThreadId === null
+      ? null
+      : scopeThreadRef(environmentId, delegatedRequestThreadId);
   const activePendingApproval =
     incomingPendingApproval && !heldRequestIds.has(incomingPendingApproval.requestId)
       ? incomingPendingApproval
@@ -728,7 +743,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     pendingUserInputs[0] && activePendingProgress?.activeQuestion
       ? questionAttachmentDraftId(
           environmentId,
-          activeThreadId!,
+          delegatedRequestThreadId ?? activeThreadId!,
           pendingUserInputs[0].requestId,
           activePendingProgress.activeQuestion.id,
         )
@@ -748,7 +763,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       requestKeys: questionRequest.questions.map((question) =>
         questionAttachmentDraftId(
           environmentId,
-          activeThreadId!,
+          delegatedRequestThreadId ?? activeThreadId!,
           questionRequest.requestId,
           question.id,
         ),
@@ -756,6 +771,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     });
   }, [
     activeThreadId,
+    delegatedRequestThreadId,
     environmentId,
     questionAttachmentTarget,
     questionRequest,
@@ -2709,6 +2725,47 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         ? { id: activeThread.id, modelSelection: activeThreadModelSelection }
         : undefined,
   });
+  const pendingRequestPanel = activePendingApproval ? (
+    <ComposerBanner.Row layout="approval" data-chat-composer-collapsed-controls="true">
+      <ComposerBanner.Icon>
+        <ShieldIcon />
+      </ComposerBanner.Icon>
+      <ComposerBanner.Content>
+        <ComposerPendingApprovalPanel
+          approval={activePendingApproval}
+          pendingCount={pendingApprovals.length}
+        />
+      </ComposerBanner.Content>
+      <ComposerBanner.Actions>
+        <ComposerPendingApprovalActions
+          requestId={activePendingApproval.requestId}
+          disabled={!canOperateThread}
+          isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
+          options={activePendingApproval.options}
+          canRespond={activePendingApproval.responseCapability === "live"}
+          onRespondToApproval={onRespondToApproval}
+        />
+      </ComposerBanner.Actions>
+    </ComposerBanner.Row>
+  ) : pendingUserInputs.length > 0 ? (
+    <ComposerPendingUserInputPanel
+      pendingUserInputs={pendingUserInputs}
+      cwd={gitCwd ?? undefined}
+      threadRef={delegatedRequestRef ?? routeThreadRef}
+      disabled={!canOperateThread}
+      respondingRequestIds={
+        activePendingIsResponding && activePendingUserInput
+          ? [...respondingRequestIds, activePendingUserInput.requestId]
+          : respondingRequestIds
+      }
+      answers={activePendingDraftAnswers}
+      questionIndex={activePendingQuestionIndex}
+      onToggleOption={onSelectActivePendingUserInputOption}
+      onAdvance={onAdvanceActivePendingUserInput}
+      onDismiss={onDismissActivePendingUserInput}
+    />
+  ) : null;
+  const requestShownOnCard = props.delegatedRequestShownOnCard && pendingRequestPanel !== null;
   const composerControls = (
     <ComposerControlsBar
       environmentId={environmentId}
@@ -3718,6 +3775,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             restingControlsHost,
           )
         : null}
+      {props.renderAboveComposer(
+        requestShownOnCard && delegatedRequestThreadId !== null
+          ? { threadId: delegatedRequestThreadId, panel: pendingRequestPanel }
+          : null,
+      )}
       <ComposerBanner.Dock>
         <ComposerBanner.Column>
           <ComposerBannerStack
@@ -3733,57 +3795,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </ComposerBanner.Root>
             </ComposerBanner.Attachment>
           ) : null}
-          {showComposerTopDrawer && (!isTasksDrawerOpen || hasBlockingComposerTopDrawer) ? (
+          {requestShownOnCard ? null : showComposerTopDrawer &&
+            (!isTasksDrawerOpen || hasBlockingComposerTopDrawer) ? (
             <ComposerBanner.Attachment>
               <ComposerBanner.Root
                 data-chat-composer-top-drawer="true"
                 variant={activePendingApproval ? "warning" : "info"}
                 density={activePendingApproval ? "spacious" : "default"}
               >
-                {activePendingApproval ? (
-                  <ComposerBanner.Row
-                    layout="approval"
-                    data-chat-composer-collapsed-controls="true"
-                  >
-                    <ComposerBanner.Icon>
-                      <ShieldIcon />
-                    </ComposerBanner.Icon>
-                    <ComposerBanner.Content>
-                      <ComposerPendingApprovalPanel
-                        approval={activePendingApproval}
-                        pendingCount={pendingApprovals.length}
-                      />
-                    </ComposerBanner.Content>
-                    <ComposerBanner.Actions>
-                      <ComposerPendingApprovalActions
-                        requestId={activePendingApproval.requestId}
-                        disabled={!canOperateThread}
-                        isResponding={respondingRequestIds.includes(
-                          activePendingApproval.requestId,
-                        )}
-                        options={activePendingApproval.options}
-                        canRespond={activePendingApproval.responseCapability === "live"}
-                        onRespondToApproval={onRespondToApproval}
-                      />
-                    </ComposerBanner.Actions>
-                  </ComposerBanner.Row>
-                ) : pendingUserInputs.length > 0 ? (
-                  <ComposerPendingUserInputPanel
-                    pendingUserInputs={pendingUserInputs}
-                    cwd={gitCwd ?? undefined}
-                    threadRef={routeThreadRef}
-                    disabled={!canOperateThread}
-                    respondingRequestIds={
-                      activePendingIsResponding && activePendingUserInput
-                        ? [...respondingRequestIds, activePendingUserInput.requestId]
-                        : respondingRequestIds
-                    }
-                    answers={activePendingDraftAnswers}
-                    questionIndex={activePendingQuestionIndex}
-                    onToggleOption={onSelectActivePendingUserInputOption}
-                    onAdvance={onAdvanceActivePendingUserInput}
-                    onDismiss={onDismissActivePendingUserInput}
+                {delegatedRequestRef !== null &&
+                !props.delegatedRequestShownOnCard &&
+                (activePendingApproval || pendingUserInputs.length > 0) ? (
+                  <ComposerDelegatedRequestSource
+                    threadRef={delegatedRequestRef}
+                    kind={activePendingApproval ? "approval" : "input"}
+                    onOpenThread={onOpenRelatedThread}
                   />
+                ) : null}
+                {activePendingApproval || pendingUserInputs.length > 0 ? (
+                  pendingRequestPanel
                 ) : !isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan ? (
                   <ComposerPlanFollowUpBanner
                     key={activeProposedPlan.id}

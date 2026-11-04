@@ -1,4 +1,8 @@
+import { useAtomValue } from "@effect/atom-react";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { subagentActivityLabel } from "@t3tools/client-runtime/state/threads";
 import * as Dialog from "../../components/ui/Dialog";
+import { environmentThreadShells } from "../../state/threads";
 import type { ThreadRowProviderInstance } from "./thread-provider-instance";
 import {
   THREAD_LIST_V2_MONO_FONT as MONO_FONT,
@@ -652,10 +656,23 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const isUnread = status === "ready" && threadHasUnseenCompletion(thread);
   const workingLabel = STATUS_LABEL_BY_STATUS[status];
   const showsWoke = status === "ready" && props.wokeAt !== null;
+  const subagentActivity = useAtomValue(
+    environmentThreadShells.subagentActivityAtom(scopeThreadRef(thread.environmentId, thread.id)),
+  );
+  const delegatedLabel =
+    status === "waiting" &&
+    (subagentActivity?.status === "working" || subagentActivity?.status === "waiting")
+      ? {
+          ...STATUS_LABEL_BY_STATUS[subagentActivity.status],
+          label: subagentActivityLabel(subagentActivity),
+        }
+      : undefined;
   const statusLabel =
+    delegatedLabel ??
     (status === "working" && workingLabel !== undefined && thread.goal?.status === "active"
       ? { ...workingLabel, label: "Goal" }
-      : workingLabel) ?? (isUnread ? DONE_STATUS_LABEL : undefined);
+      : workingLabel) ??
+    (isUnread ? DONE_STATUS_LABEL : undefined);
   const recede = shouldRecedeThreadRow({ status, selected });
   const timeLabel = props.timeLabel;
 

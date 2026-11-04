@@ -46,7 +46,12 @@ import { composerDraftHasUserContent, useComposerDraftStore } from "../../compos
 import { useEnvironmentScope } from "~/state/session";
 import { threadEnvironment } from "../../state/threads";
 import { vcsEnvironment } from "../../state/vcs";
-import { useChildThreadInputs, readThreadShell, waitForThreadShell } from "../../state/entities";
+import {
+  useChildThreadInputs,
+  useLeadChildIds,
+  readThreadShell,
+  waitForThreadShell,
+} from "../../state/entities";
 import { environmentShell } from "../../state/shell";
 import { ThreadStatusLine } from "./ThreadStatusLine";
 import { formatRelativeTimeLabel, formatRelativeTimeUntilLabel } from "../../timestampFormat";
@@ -59,6 +64,8 @@ import {
   childInputBannerItem,
   goalBannerItem,
 } from "./ThreadActivityBanners";
+import { Button } from "../ui/button";
+import { SpecLeadCards, type SpecLeadCardRequest } from "./SpecLeadCards";
 import type { useLocalDispatchState } from "./useLocalDispatchState";
 const RELATED_THREAD_SHELL_WAIT_MS = 1_000;
 
@@ -450,6 +457,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   const openPrLink = useOpenPrLink(activeThreadRef ?? undefined);
   const openPrLinkStable = useStableCallback(openPrLink);
   const childThreadInputs = useChildThreadInputs(activeThreadRef);
+  const leadChildIds = useLeadChildIds(activeThreadRef);
   const childInputBanner = childInputBannerItem({
     childThreadInputs,
     parentAwaitingUser: Boolean(
@@ -530,10 +538,16 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         })
       : null;
 
+  const liveLeadIds = leadChildIds.filter((threadId) =>
+    pendingBackgroundTasks.some(
+      (task) => task.kind === "subagent" && task.childThreadId === threadId,
+    ),
+  );
   const backgroundWorkBanner = activeThread
     ? backgroundWorkBannerItem({
         threadId: activeThread.id,
         tasks: activeBackgroundTasks,
+        leadIds: liveLeadIds,
         stopDisabled: !canOperateThread || isStoppingBackgroundWork,
         stopping: isStoppingBackgroundWork,
         onStop: handleStopBackgroundWorkStable,
@@ -546,6 +560,28 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         onToggle: () => setBackgroundWorkExpanded((current) => !current),
       })
     : null;
+  const renderSpecLeadCards = (request: SpecLeadCardRequest | null) =>
+    activeThreadRef !== null && liveLeadIds.length > 0 ? (
+      <SpecLeadCards
+        threadRef={activeThreadRef}
+        leadIds={liveLeadIds}
+        canOperate={canOperateThread}
+        onOpenThread={onOpenRelatedThreadStable}
+        request={request}
+        stopAll={
+          isWorking ? null : (
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={!canOperateThread || isStoppingBackgroundWork}
+              onClick={() => void handleStopBackgroundWorkStable()}
+            >
+              {isStoppingBackgroundWork ? "Stopping..." : "Stop all"}
+            </Button>
+          )
+        }
+      />
+    ) : null;
   // The relative times read the clock; nowMinute re-renders them on the minute.
   const snoozedUntil = activeThreadShell?.snoozedUntil ?? null;
   const settledAt = activeThreadShell?.settledAt ?? null;
@@ -616,6 +652,8 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     activeBranchMismatchKey,
     backgroundWorkBanner,
     childInputBanner,
+    liveLeadIds,
+    renderSpecLeadCards,
     goalBanner,
     handleSwitchCheckoutToThread,
     handleSwitchCheckoutToThreadStable,

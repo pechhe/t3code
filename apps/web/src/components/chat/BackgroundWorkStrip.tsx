@@ -6,7 +6,9 @@ import type { MouseEvent } from "react";
 import { useThreadRelationshipShells } from "~/state/entities";
 import { InlineButton } from "../ui/button";
 import { ForgeMentionChip } from "../forgeItem/ForgeMentionChip";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { ComposerBanner } from "./ComposerBanner";
+import { SubagentStatusText } from "./SpecLeadCards";
 import { threadRelationshipStatusLabel } from "./ThreadRelationshipIcon";
 
 const KIND_LABELS: Record<PendingBackgroundWorkItem["group"], string> = {
@@ -138,6 +140,14 @@ function BackgroundWorkRow({
       {item.watching?.kind === "thread" && handlers.threadRef !== null ? (
         <ComposerBanner.Actions>
           <WatchedThreadStatus threadRef={handlers.threadRef} threadId={item.watching.threadId} />
+        </ComposerBanner.Actions>
+      ) : item.childThreadId !== undefined && handlers.threadRef !== null ? (
+        <ComposerBanner.Actions>
+          <span className="text-3xs/4">
+            <SubagentStatusText
+              threadRef={scopeThreadRef(handlers.threadRef.environmentId, item.childThreadId)}
+            />
+          </span>
         </ComposerBanner.Actions>
       ) : null}
     </ComposerBanner.Row>

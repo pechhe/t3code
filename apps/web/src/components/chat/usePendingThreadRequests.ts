@@ -64,6 +64,7 @@ const usePendingUserInputAnswers = create<
 >(() => ({}));
 const usePendingUserInputQuestionIndex = create<Record<string, number>>(() => ({}));
 const NO_PENDING_REQUESTS = { approvals: [], userInputs: [] } as const;
+type PendingThreadRequests = ReturnType<typeof derivePendingThreadRequests>;
 const NO_PENDING_APPROVALS: ReturnType<typeof derivePendingApprovals> = [];
 const NO_PENDING_USER_INPUTS: ReturnType<typeof derivePendingUserInputs> = [];
 
@@ -100,11 +101,18 @@ function makePendingCustomAnswerSetter(input: {
   };
 }
 
+export interface DelegatedThreadRequests {
+  readonly threadId: ThreadId;
+  readonly requests: PendingThreadRequests;
+}
+
 export function usePendingThreadRequests(input: {
   readonly environmentId: EnvironmentId;
   readonly activeThreadId: ThreadId | null;
   readonly activeThread: { readonly id: ThreadId } | undefined;
   readonly serverProjection: ThreadStructure | null;
+  /** A subagent's open requests, answered here while this thread has none of its own. */
+  readonly delegatedRequests: DelegatedThreadRequests | null;
   readonly supportsQuestionAttachments: boolean;
   readonly composerDraftTarget: ScopedThreadRef | DraftId;
   readonly setComposerDraftPrompt: (target: ScopedThreadRef | DraftId, prompt: string) => void;
@@ -114,9 +122,10 @@ export function usePendingThreadRequests(input: {
 }) {
   const {
     environmentId,
-    activeThreadId,
+    activeThreadId: threadId,
     activeThread,
     serverProjection,
+    delegatedRequests,
     supportsQuestionAttachments,
     composerDraftTarget,
     setComposerDraftPrompt,
@@ -140,11 +149,19 @@ export function usePendingThreadRequests(input: {
   >([]);
   const setPendingUserInputAnswersByRequestId = usePendingUserInputAnswers.setState;
   const setPendingUserInputQuestionIndexByRequestId = usePendingUserInputQuestionIndex.setState;
-  const projectedThreadId = serverProjection?.thread.id;
-  const pendingRequests =
-    serverProjection !== null && serverProjection.thread.id === activeThreadId
+  const ownRequests =
+    serverProjection !== null && serverProjection.thread.id === threadId
       ? derivePendingThreadRequests(serverProjection)
       : NO_PENDING_REQUESTS;
+  const delegated =
+    ownRequests.approvals.length === 0 && ownRequests.userInputs.length === 0
+      ? delegatedRequests
+      : null;
+  const pendingRequests = delegated?.requests ?? ownRequests;
+  // Responses and drafts belong to the thread that asked; errors show where the user is.
+  const activeThreadId = delegated?.threadId ?? threadId;
+  const projectedThreadId = delegated?.threadId ?? serverProjection?.thread.id;
+  const questionThreadId = delegated?.threadId ?? activeThread?.id;
   // The projection changes on every streamed event, so shared empties keep the
   // composer and approval panel from re-rendering while nothing is pending.
   const pendingApprovals =
@@ -213,8 +230,8 @@ export function usePendingThreadRequests(input: {
   );
   useEffect(() => {
     // A thread shell can arrive before its requests; missing detail is not resolution.
-    if (!activeThread || projectedThreadId !== activeThread.id) return;
-    const questionThread = activeThread;
+    if (questionThreadId === undefined || projectedThreadId !== questionThreadId) return;
+    const questionThread = { id: questionThreadId };
     const currentRequests = pendingUserInputs;
     const pendingRequestIds = currentRequests.map((request) => request.requestId);
     usePendingUserInputAnswers.setState(
@@ -248,7 +265,7 @@ export function usePendingThreadRequests(input: {
       if (key.startsWith(prefix) && !retained.has(DraftId.make(key)))
         clearQuestionAttachmentDraft(DraftId.make(key));
     }
-  }, [environmentId, activeThread, projectedThreadId, pendingUserInputs]);
+  }, [environmentId, questionThreadId, projectedThreadId, pendingUserInputs]);
   const activePendingDraftAnswers =
     !activePendingUserInput || !activeThreadId
       ? EMPTY_PENDING_USER_INPUT_ANSWERS
@@ -319,7 +336,7 @@ export function usePendingThreadRequests(input: {
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       setThreadError(
-        activeThreadId,
+        threadId ?? activeThreadId,
         error instanceof Error ? error.message : "Failed to submit approval decision.",
       );
     }
@@ -359,7 +376,7 @@ export function usePendingThreadRequests(input: {
       const uploaded = getUploadedAttachments({ environmentId, images: attachments });
       if (!uploaded) {
         setThreadError(
-          activeThreadId,
+          threadId ?? activeThreadId,
           "Wait for attachments to finish uploading, or remove failed uploads.",
         );
         return;
@@ -385,7 +402,7 @@ export function usePendingThreadRequests(input: {
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       setThreadError(
-        activeThreadId,
+        threadId ?? activeThreadId,
         error instanceof Error ? error.message : "Failed to submit user input.",
       );
     }
@@ -407,7 +424,7 @@ export function usePendingThreadRequests(input: {
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       setThreadError(
-        activeThreadId,
+        threadId ?? activeThreadId,
         error instanceof Error ? error.message : "Failed to dismiss the question.",
       );
     }
@@ -523,6 +540,7 @@ export function usePendingThreadRequests(input: {
   );
 
   return {
+    delegatedRequestThreadId: delegated?.threadId ?? null,
     pendingApprovals,
     pendingUserInputs,
     activePendingApproval,
