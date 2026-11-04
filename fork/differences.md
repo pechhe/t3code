@@ -807,3 +807,15 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Retire when:** upstream's Claude adapter treats a missing transcript as unresumable.
 - **Decision:** `retain` (new, 2026-10-29, T3-308).
 - **Owner:** T3-308 (Forge #5588).
+
+### claude-full-access-no-prompts
+
+- **Kind:** deliberate behaviour change
+- **Why:** Claude's CLI forwards some commands to the permission callback even in `bypassPermissions` (a `sh -c` script with `rm` it cannot parse). Upstream shows these as approvals, so a full-access thread still stops for a person.
+- **Requirements:** in full access the Claude callback allows every such forwarded check; only an ask rule the user wrote (`matchedAskRule`) still asks. Plan mode and non-bypass modes are unchanged, and the SlipJay command guard still runs before the callback.
+- **Integration points:** `claudeFullAccessAutoAllows` and the `canUseTool` callback in `Adapters/ClaudeAdapterV2.ts`.
+- **Proof:** Adapters/ClaudeAdapterV2.test.ts ("auto-allows CLI safety checks in full access").
+- **Upstream:** upstream surfaces these asks (`fullAccessOverride: "provider_check"`); not proposed upstream.
+- **Retire when:** upstream offers a setting that makes full access skip the CLI's own checks.
+- **Decision:** `retain` (new, 2026-11-04).
+- **Owner:** none.

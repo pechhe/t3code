@@ -875,6 +875,19 @@ describe("ClaudeAdapterV2 context usage", () => {
 });
 
 describe("ClaudeAdapterV2 approval presentation", () => {
+  it("auto-allows CLI safety checks in full access but still asks on a user ask rule", () => {
+    assert.isTrue(
+      ClaudeAdapterV2.claudeFullAccessAutoAllows({ permissionMode: "bypassPermissions" }),
+    );
+    assert.isFalse(
+      ClaudeAdapterV2.claudeFullAccessAutoAllows({
+        permissionMode: "bypassPermissions",
+        matchedAskRule: { source: "userSettings", toolName: "Bash" },
+      }),
+    );
+    assert.isFalse(ClaudeAdapterV2.claudeFullAccessAutoAllows({ permissionMode: "default" }));
+  });
+
   it("marks asks that full access could not auto-allow and keeps the CLI's reason", () => {
     const presentation = ClaudeAdapterV2.claudeApprovalPresentation({
       permissionMode: "bypassPermissions",
@@ -3161,6 +3174,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 signal: new AbortController().signal,
                 toolUseID: `forwarded-before-${phase}`,
                 requestId: `request-forwarded-before-${phase}`,
+                matchedAskRule: { source: "userSettings", toolName: "Bash" },
               },
             ),
           ).pipe(Effect.forkScoped);
@@ -3226,6 +3240,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 signal: new AbortController().signal,
                 toolUseID: `forwarded-after-plan-${phase}`,
                 requestId: `request-after-plan-${phase}`,
+                matchedAskRule: { source: "userSettings", toolName: "Bash" },
               },
             ),
           ).pipe(Effect.forkScoped);
@@ -3916,6 +3931,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             signal: new AbortController().signal,
             toolUseID: id,
             requestId: "weather-request",
+            matchedAskRule: { source: "userSettings", toolName: toolName },
           },
         ),
       ).pipe(Effect.forkScoped);

@@ -3151,6 +3151,15 @@ export function claudeApprovalPresentation(input: {
   };
 }
 
+// Full access means no prompts: the CLI's own safety checks (an rm it cannot parse) are
+// allowed too. Only an ask rule the user wrote themselves still asks.
+export function claudeFullAccessAutoAllows(input: {
+  readonly permissionMode: PermissionMode;
+  readonly matchedAskRule?: Parameters<CanUseTool>[2]["matchedAskRule"];
+}): boolean {
+  return input.permissionMode === "bypassPermissions" && input.matchedAskRule === undefined;
+}
+
 export function permissionResultFromDecision(input: {
   readonly toolName: string;
   readonly decision: ProviderApprovalDecision;
@@ -9541,7 +9550,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             } satisfies PermissionResult;
           }
 
-          if (!requiresClaudeApproval(context)) {
+          if (
+            !requiresClaudeApproval(context) ||
+            claudeFullAccessAutoAllows({
+              permissionMode: context.queryPolicy.permissionMode,
+              matchedAskRule: callbackOptions.matchedAskRule,
+            })
+          ) {
             return {
               behavior: "allow",
               updatedInput: toolInput,
