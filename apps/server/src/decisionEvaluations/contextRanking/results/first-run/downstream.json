@@ -1,0 +1,515 @@
+{
+  "schema": "context-ranking-downstream-v1",
+  "bodyChars": 2000,
+  "rubric": [
+    {
+      "caseId": "h-cost-aggregation",
+      "question": "How should my evaluation summary treat the spend and tokens of model calls that failed and returned no usage, and what should it still report?",
+      "rubric": [
+        "Failed or unobserved calls have unknown spend, not zero.",
+        "A total that includes an unobserved call stays unknown.",
+        "The known part is reported separately."
+      ]
+    },
+    {
+      "caseId": "h-write-recommendation",
+      "question": "What does a thirty-case pilot on a corpus I wrote myself support, and how should I report it?",
+      "rubric": [
+        "No significance claim: with about thirty cases the intervals overlap, so report counts with intervals.",
+        "A single-author regular synthetic corpus supports revise at most, not adopt.",
+        "Report results under each labeler alone as well as the adjudicated labels."
+      ]
+    },
+    {
+      "caseId": "h-flaky-econnreset",
+      "question": "Should we put this test in the flake registry and quarantine it?",
+      "rubric": [
+        "Do not quarantine or dismiss on the symptom alone; investigate.",
+        "A registered flaky test that fails with a different error than its registered signature is not a known flake.",
+        "Read the change under test before blaming the environment, since an environment-looking failure can be caused by the change."
+      ]
+    },
+    {
+      "caseId": "h-rate-limited-run",
+      "question": "What limits must the run respect and how should it treat a failed call?",
+      "rubric": [
+        "The service admits 60 calls per minute.",
+        "At most 4 calls at once.",
+        "Use a fixed gap between calls and do not retry automatically.",
+        "A failed call is still recorded."
+      ]
+    },
+    {
+      "caseId": "h-single-label",
+      "question": "Why is my choice question with one allowed label rejected, and what should I change?",
+      "rubric": [
+        "A choice question needs at least two labels.",
+        "The foundation rejects a single-option question before encoding.",
+        "Add a second option, or use a predicate question instead."
+      ]
+    },
+    {
+      "caseId": "h-dev-pairing",
+      "question": "How do I get browser pairing working against copied test data without touching my running installation?",
+      "rubric": [
+        "Never open ~/.t3/userdata read-write or start a server on it; copy from it into an isolated home.",
+        "Do not set VITE_HTTP_URL or VITE_WS_URL in dev; Vite proxies through the browser origin.",
+        "Follow the isolated-home, setup-marker and pairing steps in the development guide."
+      ]
+    }
+  ],
+  "arms": {
+    "all": {
+      "cases": 6,
+      "met": 17,
+      "of": 19,
+      "fullMarkCases": 5,
+      "meanContextChars": 22966.333333333332
+    },
+    "lexical": {
+      "cases": 6,
+      "met": 14,
+      "of": 19,
+      "fullMarkCases": 2,
+      "meanContextChars": 5280.333333333333
+    },
+    "jev": {
+      "cases": 6,
+      "met": 15,
+      "of": 19,
+      "fullMarkCases": 3,
+      "meanContextChars": 6154.833333333333
+    }
+  },
+  "rows": [
+    {
+      "caseId": "h-dev-pairing",
+      "arm": "lexical",
+      "items": [
+        "finding:live-state-is-read-only",
+        "skill:test-t3-app",
+        "file:apps/server/src/hq/ForgeHome.ts",
+        "file:docs/user/remote-access.md",
+        "finding:no-baked-dev-origins"
+      ],
+      "contextChars": 6382,
+      "marks": [
+        0,
+        1,
+        0
+      ],
+      "met": 1,
+      "of": 3,
+      "answer": "**Answer:** Point the dev server at isolated state and pair with the URL it prints, not a copied-userdata server.\n\nRun `vp run dev` from the repo root and keep its terminal; it uses the worktree's ignored `.t3` state, so copy test data there (or an isolated home) rather than serving `~/.t3/userdata`. Read the actual ports and the complete startup pairing URL from the dev-runner output, open that URL once in the Browser panel (`preview_navigate`), then `preview_snapshot`. If the token was consumed or expired, run `node apps/server/src/bin.ts pair` for a fresh one and reuse the same tab. Never set `VITE_HTTP_URL` or `VITE_WS_URL` — Vite proxies `/api`, `/ws` and `/oauth` through the browser origin.\n\n**Gap:** the context never names the scratch home path or pairing rejection error, so I cannot say which step of yours failed; the dev-runner output would settle it."
+    },
+    {
+      "caseId": "h-flaky-econnreset",
+      "arm": "jev",
+      "items": [
+        "finding:registered-flake-different-error",
+        "file:docs/operations/testing.md",
+        "skill:diagnose-bug",
+        "skill:file-and-fix",
+        "finding:oom-kill-was-the-change"
+      ],
+      "contextChars": 6474,
+      "marks": [
+        1,
+        1,
+        0
+      ],
+      "met": 2,
+      "of": 3,
+      "answer": "No. There is no registered signature for this failure — ECONNRESET at roughly one run in ten is a new error, and a registered flaky test failing with a different error is not a known flake: it needs investigation, not a quarantine. Quarantining would also hide a likely real defect, which is the same mistake as dismissing a `Killed` exit as the machine when the change caused it. The repo's testing rules reinforce this: a test that needs a timeout or fixed sleep to pass is wrong, so a connection reset under load points at a race or resource leak in the code or harness. Treat it as a bug: reproduce it, capture the exact error and log line, and diagnose before any registry entry. Register it only if it proves genuinely environmental with an identical signature."
+    },
+    {
+      "caseId": "h-cost-aggregation",
+      "arm": "jev",
+      "items": [
+        "finding:unknown-cost-stays-unknown",
+        "finding:intervals-overlap",
+        "file:apps/server/src/hq/HqForgeRecordingReactor.ts",
+        "file:apps/server/src/hq/HqForgeRecords.ts",
+        "file:apps/server/src/decisionEvaluations/semanticLint/scoring.ts"
+      ],
+      "contextChars": 6498,
+      "marks": [
+        1,
+        1,
+        1
+      ],
+      "met": 3,
+      "of": 3,
+      "answer": "Treat a failed call's spend and tokens as **unknown, not zero**. Any total that includes one failed or unobserved call must be reported as unknown, and the cost summary should still report the known part separately (e.g. \"known spend: X across N calls; total unknown because M calls returned no usage\"). Don't substitute zero or estimate silently.\n\nSeparately, because the pilot is small (~30 cases, overlapping 95% intervals), report counts with intervals and avoid significance claims."
+    },
+    {
+      "caseId": "h-cost-aggregation",
+      "arm": "all",
+      "items": [
+        "finding:unknown-cost-stays-unknown",
+        "file:apps/server/src/decisionEvaluations/semanticLint/scoring.ts",
+        "finding:intervals-overlap",
+        "finding:decision-rate-limit",
+        "file:docs/operations/observability.md",
+        "file:apps/server/src/mcp/toolkits/orchestrator/tools.ts",
+        "file:docs/user/install.md",
+        "file:docs/internals/voice-input.md",
+        "file:apps/server/src/hq/HqForgeRecords.ts",
+        "file:docs/user/guest-links.md",
+        "file:docs/internals/terminal-runtime.md",
+        "file:docs/user/source-control.md",
+        "file:packages/contracts/src/forgeHome.ts",
+        "file:apps/server/src/hq/HqForgeRecordingReactor.ts",
+        "skill:contribution-triage",
+        "finding:record-fork-difference"
+      ],
+      "contextChars": 24458,
+      "marks": [
+        1,
+        1,
+        1
+      ],
+      "met": 3,
+      "of": 3,
+      "answer": "Treat a failed call's spend and tokens as **unknown, not zero**: its usage was never observed, so a total that includes it is itself unknown. Report the known portion separately and label the overall figure unknown rather than implying completeness or adding a zero.\n\nSo the summary should still report: the count of failed/unobserved calls alongside the successful ones; spend and tokens for the calls that returned usage, as the known part; the total marked unknown when any failed call is included; and, because the pilot is small, counts with confidence intervals and no significance claims. Don't silently drop failed calls from the denominators or present a partial sum as the full cost."
+    },
+    {
+      "caseId": "h-write-recommendation",
+      "arm": "all",
+      "items": [
+        "finding:intervals-overlap",
+        "finding:synthetic-too-regular",
+        "finding:label-sensitivity",
+        "finding:unknown-cost-stays-unknown",
+        "skill:shape",
+        "file:apps/server/src/decisionEvaluations/semanticLint/README.md",
+        "skill:code-review",
+        "file:docs/operations/agent-delegation.md",
+        "file:docs/user/html-renders.md",
+        "finding:unattended-asks-nothing",
+        "file:apps/server/src/orchestration-v2/ProjectionStore.ts",
+        "finding:prepared-deps-corruption",
+        "file:knip.jsonc",
+        "file:docs/user/guest-links.md",
+        "file:apps/server/src/provider/CodexProvider.ts",
+        "finding:pending-items-partial-index"
+      ],
+      "contextChars": 19561,
+      "marks": [
+        1,
+        1,
+        1
+      ],
+      "met": 3,
+      "of": 3,
+      "answer": "**Recommendation: revise.**\n\nThirty cases on a corpus you wrote yourself is too easy and too regular to support adoption, even if two models beat the baseline by a few cases. At that size the 95% intervals overlap, so the result is not evidence of a general advantage.\n\nReport it as: raw counts with confidence intervals, explicitly making no significance claim, and state that the corpus is single-author and synthetic, which caps the conclusion at \"revise\". Show results under the adjudicated labels and under each labeler alone; if the ranking flips under either labeler, say so and treat the ordering as not robust. The next step is a second pilot on real incidents or sanitized real diffs with hard negatives, labelled before any model runs."
+    },
+    {
+      "caseId": "h-flaky-econnreset",
+      "arm": "lexical",
+      "items": [
+        "finding:registered-flake-different-error",
+        "file:docs/operations/testing.md",
+        "skill:diagnose-bug",
+        "file:apps/server/src/orchestration-v2/CheckpointRollbackService.ts",
+        "finding:readonly-provider-only"
+      ],
+      "contextChars": 6488,
+      "marks": [
+        1,
+        1,
+        0
+      ],
+      "met": 2,
+      "of": 3,
+      "answer": "**No.** Quarantining is wrong here.\n\nThe registry only covers failures that match a known, registered signature. An ECONNRESET at roughly one run in ten is a different error from whatever is registered, and the standing rule is explicit: a registered test failing with a new error needs investigation, not a quarantine. Adding it would hide an intermittent connection or teardown fault rather than a flaky assertion.\n\nThe repository's testing guidance reinforces this: tests must await the specific persisted event or `Deferred`, or drain the effect worker — never a sleep or poll. An intermittent ECONNRESET is exactly the symptom of a test racing a socket or server teardown instead of awaiting its milestone.\n\nInvestigate the reset first, fix the wait, and only register a genuinely signature-matched flake."
+    },
+    {
+      "caseId": "h-cost-aggregation",
+      "arm": "lexical",
+      "items": [
+        "finding:unknown-cost-stays-unknown",
+        "finding:decision-rate-limit",
+        "file:apps/server/src/decisionEvaluations/semanticLint/scoring.ts",
+        "finding:intervals-overlap",
+        "file:apps/server/src/hq/HqForgeRecords.ts"
+      ],
+      "contextChars": 4626,
+      "marks": [
+        1,
+        1,
+        1
+      ],
+      "met": 3,
+      "of": 3,
+      "answer": "**Answer:** Treat a failed or unobserved model call's spend and tokens as unknown, never as zero. Any total that includes one stays unknown, and the known part is reported separately (e.g. \"known spend: $X across N of M calls\"). Do not silently exclude failures to make totals look complete.\n\n**Map of what to still report:**\n- Counts with 95% intervals, since ~30 cases give overlapping intervals — and make no significance claim.\n- The known portion of spend/tokens explicitly, labelled as partial.\n- That evaluation runs use a fixed gap between decision calls (60/minute, 4 concurrent limit) and never retry automatically, so a failed call is not silently retried and its usage remains genuinely unobserved.\n\n**Gap:** the context gives no per-call token accounting or pricing source, so actual figures must come from elsewhere."
+    },
+    {
+      "caseId": "h-rate-limited-run",
+      "arm": "all",
+      "items": [
+        "finding:decision-rate-limit",
+        "file:docs/operations/decisions.md",
+        "file:apps/server/src/decisions/DecisionService.ts",
+        "finding:one-choice-decision",
+        "file:apps/server/src/decisions/adapters.ts",
+        "finding:never-kill-by-name",
+        "file:docs/user/thread-sidebar.md",
+        "file:docs/user/devices.md",
+        "file:apps/server/src/persistence/Migrations.ts",
+        "file:apps/server/src/orchestration-v2/ProviderTurnStartService.ts",
+        "file:docs/user/guest-links.md",
+        "file:docs/user/keyboard-focus.md",
+        "file:apps/server/src/orchestration-v2/ForgeWatchReactor.ts",
+        "file:docs/internals/overview.md",
+        "file:apps/server/src/orchestration-v2/threadWatch.ts",
+        "file:packages/provider-core/src/server/snapshotProbe.ts"
+      ],
+      "contextChars": 25613,
+      "marks": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "met": 4,
+      "of": 4,
+      "answer": "**Limits:** 60 DecisionService calls a minute, 4 concurrent. Evaluation runs keep a fixed gap between calls and never retry automatically. Run the smoke check once per engine, keeping live evidence separate from offline tests; retain only engine, requested/resolved model, adapter/rule version, digest, latency, usage/cost and synthetic answers.\n\n**Failed call:** Don't retry it automatically, and still record it as part of the run's retained evidence alongside the successful calls; the context gives no explicit failure-record format, and it also never states a per-run cost cap beyond the model pricing (jev 0.042, luna 0.1) and server-fixed models. Successful schema checks don't prove accuracy or speed."
+    },
+    {
+      "caseId": "h-single-label",
+      "arm": "jev",
+      "items": [
+        "finding:one-choice-decision",
+        "file:packages/contracts/src/decisions.ts",
+        "file:apps/server/src/decisions/DecisionService.ts",
+        "finding:decision-rate-limit",
+        "file:apps/server/src/decisions/adapters.ts"
+      ],
+      "contextChars": 6500,
+      "marks": [
+        1,
+        1,
+        1
+      ],
+      "met": 3,
+      "of": 3,
+      "answer": "**Answer:** A `choice` question with one label is invalid to the classifier in the foundation: `Decision.classify` needs at least two criteria, so a single-option question passes your schema but throws at encoding (the foundation now rejects it before encoding, a412a7ae). Add a second option.\n\n**Map**\n\n- `packages/contracts/src/decisions.ts:20` — `choices` array is checked `isMinLength(2)` and `isMaxLength(64)`.\n- `apps/server/src/decisions/adapters.ts:24` — `choice` maps through `Decision.classify({ instructions, criteria })`.\n- `apps/server/src/decisions/DecisionService.ts` — decode/validate admits the request before it reaches the provider.\n- `packages/contracts/src/decisions.ts:6` — `DECISION_LIMITS.choices` is 64.\n\n**Patterns:** `option` is `{ label: id, description: text }`; `id` must match `/^[A-Za-z][A-Za-z0-9_-]{0,63}$/`. `score` levels likewise need 2–10.\n\n**Gaps:** The context is truncated (`encodeRequest` continues past `typ`), so the exact throw site and message are untraced; reading the remainder of `adapters.ts` would settle it."
+    },
+    {
+      "caseId": "h-single-label",
+      "arm": "lexical",
+      "items": [
+        "finding:one-choice-decision",
+        "finding:decision-rate-limit",
+        "finding:audit-cause-mutates",
+        "finding:unattended-asks-nothing",
+        "file:packages/contracts/src/decisions.ts"
+      ],
+      "contextChars": 2775,
+      "marks": [
+        1,
+        1,
+        1
+      ],
+      "met": 3,
+      "of": 3,
+      "answer": "A choice question must have at least two options. The `choice` variant's `choices` array is checked with `Schema.isMinLength(2), Schema.isMaxLength(64)` (`packages/contracts/src/decisions.ts`), while the `score` variant likewise needs two levels. Historically a single option slipped through the schema but the classifier threw; the foundation now rejects it before encoding (a412a7ae), so your one-label call fails at validation rather than downstream.\n\nTo fix it: add a second option, or, if you genuinely have a single label, model the question as a `predicate` (probability output) instead of a choice. Nothing in the limit settings—`DECISION_LIMITS` questions or choices caps, the 60-calls-a-minute admission and 4-concurrent limit—is involved."
+    },
+    {
+      "caseId": "h-dev-pairing",
+      "arm": "jev",
+      "items": [
+        "skill:test-t3-app",
+        "finding:no-baked-dev-origins",
+        "finding:live-state-is-read-only",
+        "file:docs/user/remote-access.md",
+        "file:docs/internals/environment-auth.md"
+      ],
+      "contextChars": 6385,
+      "marks": [
+        0,
+        1,
+        0
+      ],
+      "met": 1,
+      "of": 3,
+      "answer": "Start a dev server in the worktree against its own ignored `.t3` state, not your running installation: run `vp run dev` from the repository root and keep that terminal session. Take the actual ports and the complete startup pairing URL from the dev-runner output, then open that URL once in the Browser panel (`preview_navigate`). If the token was already consumed or has expired, run `node apps/server/src/bin.ts pair` for a fresh link and continue in the same tab. Never run against `~/.t3/userdata`, never symlink test data back to it, and never set `VITE_HTTP_URL` or `VITE_WS_URL` — Vite proxies `/api`, `/ws` and `/oauth` through the browser origin, and a baked-in localhost breaks pairing.\n\nThe context does not show how to point the dev server at your copied scratch home, so read `docs/operations/development.md` on isolated homes."
+    },
+    {
+      "caseId": "h-write-recommendation",
+      "arm": "jev",
+      "items": [
+        "finding:intervals-overlap",
+        "finding:synthetic-too-regular",
+        "finding:label-sensitivity",
+        "skill:shape",
+        "finding:unknown-cost-stays-unknown"
+      ],
+      "contextChars": 2710,
+      "marks": [
+        1,
+        1,
+        1
+      ],
+      "met": 3,
+      "of": 3,
+      "answer": "**Recommendation: revise — not adopt, not reject.**\n\nA thirty-case pilot on a corpus you wrote yourself can support at most a revise. One author's regular structure is not evidence of generalisation, and with ~30 cases the 95% intervals overlap, so a few-case lead is not a result: make no significance claim.\n\nHow to report it:\n- Report counts with intervals, and describe the gap as unresolved rather than a win.\n- Score under the adjudicated labels *and* under each labeler alone; if the ranking flips under one labeler, the ranking is not robust.\n- Keep real incidents and hard negatives in the held-out set before any adopt case.\n- Any failed or unobserved call has *unknown* spend, not zero; report the known part separately and label the total unknown.\n\nThat combination is a revise: the direction is worth pursuing, the evidence does not yet carry it."
+    },
+    {
+      "caseId": "h-dev-pairing",
+      "arm": "all",
+      "items": [
+        "file:docs/operations/development.md",
+        "finding:live-state-is-read-only",
+        "finding:no-baked-dev-origins",
+        "skill:test-t3-app",
+        "file:docs/user/remote-access.md",
+        "file:docs/internals/environment-auth.md",
+        "finding:never-kill-by-name",
+        "file:apps/server/src/hq/ForgeHome.ts",
+        "file:docs/user/activity-log.md",
+        "file:docs/user/composer.md",
+        "file:docs/operations/decisions.md",
+        "file:apps/server/src/orchestration-v2/ForgeWatchReactor.ts",
+        "file:apps/server/src/decisions/DecisionService.ts",
+        "finding:pending-items-partial-index",
+        "skill:t3-fork-rebase",
+        "file:docs/user/snap-shot.md"
+      ],
+      "contextChars": 24225,
+      "marks": [
+        0,
+        1,
+        0
+      ],
+      "met": 1,
+      "of": 3,
+      "answer": "Run the dev server in the scratch home so it keeps its own ignored `.t3` state, then pair from the browser with the **complete startup pairing URL** that the dev runner prints — the bare origin will not authenticate a new browser.\n\n```sh\nvp run dev          # prints ports and the pairing URL\n```\n\nIf that token was already consumed or expired, mint a fresh one:\n\n```sh\nnode apps/server/src/bin.ts pair\n```\n\nUse the same browser tab and navigate to that full URL once. Keep the copied state isolated: never point the server at `~/.t3/userdata`, never symlink back to it, and never set `VITE_HTTP_URL` or `VITE_WS_URL` (Vite proxies `/api`, `/ws`, `/oauth` through the browser origin, so baked-in localhost breaks pairing). Your running installation stays untouched."
+    },
+    {
+      "caseId": "h-rate-limited-run",
+      "arm": "lexical",
+      "items": [
+        "finding:decision-rate-limit",
+        "file:docs/operations/decisions.md",
+        "finding:one-choice-decision",
+        "file:docs/user/keyboard-focus.md",
+        "file:apps/server/src/decisions/adapters.ts"
+      ],
+      "contextChars": 4990,
+      "marks": [
+        1,
+        1,
+        1,
+        0
+      ],
+      "met": 3,
+      "of": 4,
+      "answer": "**Limits:** `DecisionService` admits **60 calls a minute and 4 at once**; evaluation runs use a **fixed gap between calls and never retry automatically**. For this pilot, invoke **once with each engine** (jev, then luna) — a small mixed smoke check, not a loop. Models are fixed server-side (`jev-1.14.0`, `gpt-6-luna`); credentials and endpoint/model overrides are never arguments. Retain only engine, requested/resolved model, adapter/rule version, digest, latency, usage/cost and the synthetic answers, and keep live evidence separate from offline tests. Note any choice question needs **two or more labels** — a single-option choice is rejected before encoding.\n\n**Failed call:** the context does not state how a failure should be recorded. It only says evaluation runs never retry automatically, so a failure is not re-attempted; the recording format for it is not covered here."
+    },
+    {
+      "caseId": "h-single-label",
+      "arm": "all",
+      "items": [
+        "finding:one-choice-decision",
+        "file:packages/contracts/src/decisions.ts",
+        "file:apps/server/src/decisions/DecisionService.ts",
+        "file:apps/server/src/decisions/adapters.ts",
+        "finding:decision-rate-limit",
+        "file:docs/user/updating.md",
+        "file:apps/server/src/orchestration-v2/threadWatch.ts",
+        "file:docs/user/composer.md",
+        "file:docs/internals/terminal-runtime.md",
+        "finding:unattended-asks-nothing",
+        "file:docs/internals/context-handoffs.md",
+        "file:apps/server/src/auth/dpop.ts",
+        "skill:file-and-fix",
+        "finding:audit-cause-mutates",
+        "file:scripts/fork-nightly.sh",
+        "finding:registered-flake-different-error"
+      ],
+      "contextChars": 22560,
+      "marks": [
+        1,
+        1,
+        1
+      ],
+      "met": 3,
+      "of": 3,
+      "answer": "**Why it fails:** a choice question with only one allowed label is rejected before encoding — the classifier throws on a single-option `classify`, so the foundation now rejects it up front (a412a7ae). Even though such a request can get past schema parsing, it never reaches the provider. The `DecisionQuestion` contract expects a choice to carry at least two labelled options.\n\n**What to change:** give the question at least two options. Each option needs a `label` matching `^[A-Za-z][A-Za-z0-9_-]{0,63}$` plus a non-empty `description` (1–8192 chars). If the decision genuinely has one outcome, model it as a `predicate` question returning a probability instead of a `choice`."
+    },
+    {
+      "caseId": "h-write-recommendation",
+      "arm": "lexical",
+      "items": [
+        "finding:intervals-overlap",
+        "finding:synthetic-too-regular",
+        "file:docs/operations/agent-delegation.md",
+        "skill:shape",
+        "skill:code-review"
+      ],
+      "contextChars": 6421,
+      "marks": [
+        1,
+        1,
+        0
+      ],
+      "met": 2,
+      "of": 3,
+      "answer": "**Recommendation: revise — not adopt.**\n\nA few cases' lead over baseline in ~30 cases gives 95% intervals that overlap, so it supports no significance claim and no adoption decision. Report it as raw counts with 95% intervals (including the baseline's), state plainly that the intervals overlap, and avoid any \"better\" or \"beats baseline\" claim. Because the corpus was written by you and has regular structure, it can recommend revise at most: keep it as a development set, reserve real incidents and hard negatives in a held-out set, and re-run before reconsidering adoption.\n\nReject is not supported either — the pilot is not evidence the models are worse."
+    },
+    {
+      "caseId": "h-flaky-econnreset",
+      "arm": "all",
+      "items": [
+        "finding:registered-flake-different-error",
+        "finding:oom-kill-was-the-change",
+        "skill:diagnose-bug",
+        "skill:bug-bash",
+        "skill:file-and-fix",
+        "file:docs/operations/testing.md",
+        "finding:no-continuous-repaint",
+        "file:apps/server/src/orchestration-v2/CheckpointRollbackService.ts",
+        "finding:readonly-provider-only",
+        "skill:code-review",
+        "file:docs/user/outside-agents.md",
+        "file:docs/operations/browser-decision-evaluation.md",
+        "finding:label-sensitivity",
+        "finding:no-ui-restyle",
+        "file:apps/server/src/mcp/McpHttpServer.ts",
+        "file:apps/server/src/orchestration-v2/ProviderTurnControlService.ts"
+      ],
+      "contextChars": 21381,
+      "marks": [
+        1,
+        1,
+        1
+      ],
+      "met": 3,
+      "of": 3,
+      "answer": "**No.** Quarantining is the wrong call. The context's rule is explicit: \"A test in the flake registry that fails with a different error than the registered signature needs investigation, not a quarantine.\" An ECONNRESET on roughly one run in ten is a connection being reset, not the registered flake signature, so it cannot be treated as a known flake and buried in the registry — that hides a real fault. The related lesson (\"A Killed exit was the change, not the machine\") points the same way: read what actually changed before dismissing a failure as environmental. Instead, investigate the reset — whether the change introduced it, and where the connection is torn down — and only register it once its signature is genuinely understood."
+    },
+    {
+      "caseId": "h-rate-limited-run",
+      "arm": "jev",
+      "items": [
+        "file:docs/operations/decisions.md",
+        "finding:decision-rate-limit",
+        "file:apps/server/src/decisions/adapters.ts",
+        "file:apps/server/src/decisions/DecisionService.ts",
+        "file:apps/server/src/orchestration-v2/threadWatch.ts"
+      ],
+      "contextChars": 8362,
+      "marks": [
+        1,
+        1,
+        1,
+        0
+      ],
+      "met": 3,
+      "of": 4,
+      "answer": "The run must keep within DecisionService's shared admission limits: 60 calls a minute and no more than 4 at once. Evaluation runs space calls with a fixed gap and never retry a failure automatically, so a failed call is not re-sent; the pilot invokes once per engine (`jev`, `luna`) for this small smoke check.\n\nOn recording a failure, the context is silent: it lists what a successful smoke check retains (engine, requested/resolved model, adapter/rule version, digest, latency, usage/cost and synthetic answers) and says successful schema checks establish interoperability only, but it never says how a failed call is recorded or whether it appears in that retained record. That detail is not available here; I would need the part of the run/report code that handles provider errors."
+    }
+  ]
+}

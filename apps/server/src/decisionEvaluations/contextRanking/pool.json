@@ -1,0 +1,1412 @@
+{
+  "builtFrom": "97202bdf4f9bce89c39c9db3aa1a371ae42ae083",
+  "items": [
+    {
+      "id": "skill:bug-bash",
+      "kind": "skill",
+      "title": "bug-bash",
+      "description": "Bug bash one area of a codebase: parallel read-only hunters, every finding verified by you, then fixed through `file-and-fix`.",
+      "bodyBytes": 2494
+    },
+    {
+      "id": "skill:code-review",
+      "kind": "skill",
+      "title": "code-review",
+      "description": "\"Two-axis review of a pinned change or a Spec: Standards (the repo's documented standards) and Spec (what the Issue asked for), by one independent reviewer role (`ticket-reviewer` for a change, `spec-reviewer` for a Spec). Use to review a branch, work in progress, \\\"review since X\\\", a candidate before `slipjay land` (a Spec's assembled landing, a later fix to it, or other work), or a Spec someon…",
+      "bodyBytes": 15342
+    },
+    {
+      "id": "skill:delivery-digest",
+      "kind": "skill",
+      "title": "delivery-digest",
+      "description": "Summarise in plain English what the user shipped, feature by feature, over a day or other window. Use for the daily digest, or when asked what got done, shipped or landed today, yesterday or this week.",
+      "bodyBytes": 3221
+    },
+    {
+      "id": "skill:dependency-updater",
+      "kind": "skill",
+      "title": "dependency-updater",
+      "description": "Aggressively update project dependencies, including compatible majors, adapt code/config where needed, and verify the resulting dependency set works together. Reads and maintains the repository's docs/dependencies.md stack file. Use for dependency upgrades, stale packages, vulnerabilities, or compatibility repair.",
+      "bodyBytes": 3866
+    },
+    {
+      "id": "skill:diagnose-bug",
+      "kind": "skill",
+      "title": "diagnose-bug",
+      "description": "Diagnose a bug with the read-only `advisor` role when your own diagnosis leaves the cause unexplained, or straight away when the bug is in code you wrote this session. Use for a bug report, a failing behaviour or \"why is X broken\", before designing a fix.",
+      "bodyBytes": 4075
+    },
+    {
+      "id": "skill:domain-modeling",
+      "kind": "skill",
+      "title": "domain-modeling",
+      "description": "Forge and sharpen a project's domain model. Use when the user wants to pin down domain terminology or a ubiquitous language, record an architectural decision, or when another skill needs to maintain the domain model.",
+      "bodyBytes": 1866
+    },
+    {
+      "id": "skill:file-and-fix",
+      "kind": "skill",
+      "title": "file-and-fix",
+      "description": "Hand a bug or chore you noticed, but that isn't your current task, to a cheap chore worker. It checks Forge for a duplicate, fixes it in its own workspace and hands back a commit for you to check and land; anything it can't fix, it records once. Use whenever you notice a defect while doing other work, before any `weave_forge_create` or `gh issue create`, and when Henry says \"file that\", \"log it\"…",
+      "bodyBytes": 4566
+    },
+    {
+      "id": "skill:github-issues",
+      "kind": "skill",
+      "title": "github-issues",
+      "description": "\"Shape and reconcile GitHub Specs and Tickets: hierarchy, blockers, labels and readiness, in repositories whose tracker is GitHub (references/tracker.md).\"",
+      "bodyBytes": 3541
+    },
+    {
+      "id": "skill:lead",
+      "kind": "skill",
+      "title": "lead",
+      "description": "Implement and own delivery of one Spec, or an Arc of Specs, end to end. Use when the user says \"lead\", \"work\", \"run spec N\", \"orchestrate\", \"clear the backlog\", or asks to build a shaped Spec or take an Arc to its outcome. Not for creating or revising intent (use `shape`).",
+      "bodyBytes": 11578
+    },
+    {
+      "id": "skill:phi-browser",
+      "kind": "skill",
+      "title": "phi-browser",
+      "description": "\"Browser work in Phi: opening pages, interacting with websites, scraping, screenshots and web-app checks. Use for browser tasks from Mac or VPS; follow global guidance for context selection and lifecycle.\"",
+      "bodyBytes": 38547
+    },
+    {
+      "id": "skill:prototype",
+      "kind": "skill",
+      "title": "prototype",
+      "description": "Build a disposable prototype to answer one design or behaviour question quickly. Prefer a small self-contained HTML prototype; use the real app only when app context is necessary to get trustworthy evidence.",
+      "bodyBytes": 1357
+    },
+    {
+      "id": "skill:reddit",
+      "kind": "skill",
+      "title": "reddit",
+      "description": "Find Reddit discussions, read threads and account activity, prepare drafts, and publish specifically authorised posts or replies through Henry's logged-in browser.",
+      "bodyBytes": 2934
+    },
+    {
+      "id": "skill:shape",
+      "kind": "skill",
+      "title": "shape",
+      "description": "Investigate, create or revise a Spec's intent instead of writing a plan file. Use when the user is working out what to build, asks to plan or scope work, edits an existing Spec, or enters plan mode, even without saying \"shape\". Not for implementing shaped work (use `lead`).",
+      "bodyBytes": 8695
+    },
+    {
+      "id": "skill:t3-fork-install",
+      "kind": "skill",
+      "title": "t3-fork-install",
+      "description": "Install a T3 Code change into Henry's desktop app, the fork build `T3 Peach.app`. Use when a task's work has landed on `t3peach`, when asked to install, ship to the app, or \"build it\" for T3 Code, and from `t3-fork-rebase` after a merge.",
+      "bodyBytes": 4056
+    },
+    {
+      "id": "skill:tickets",
+      "kind": "skill",
+      "title": "tickets",
+      "description": "Rare exception: break a Spec into Tickets only when separately owned work must land in a required order that one run cannot hold. Splitting a Spec is not a normal step; `shape` and `lead` do not run this by default.",
+      "bodyBytes": 1495
+    },
+    {
+      "id": "skill:unattended",
+      "kind": "skill",
+      "title": "unattended",
+      "description": "Stance for when the user is away: finish `shape` or `lead` work without asking. Use when the user says \"unattended\", \"hands-free\" or \"while I'm away\".",
+      "bodyBytes": 3049
+    },
+    {
+      "id": "skill:wait-what",
+      "kind": "skill",
+      "title": "wait-what",
+      "description": "\"Stop. That last message did not land: re-pitch it.\"",
+      "bodyBytes": 396
+    },
+    {
+      "id": "skill:writing-for-agents",
+      "kind": "skill",
+      "title": "writing-for-agents",
+      "description": "Writing documents for agents. Use when creating or editing skills, or modifying AGENTS.md or CLAUDE.md.",
+      "bodyBytes": 2735
+    },
+    {
+      "id": "skill:contribution-triage",
+      "kind": "skill",
+      "title": "contribution-triage",
+      "description": "Enforce T3 Code's PR contribution policy by closing ineligible submissions and triggering Macroscope review for eligible work within authorized scope. Supports explicit dry runs. Use for contribution moderation, not installation diagnostics or a full code review.",
+      "bodyBytes": 15326
+    },
+    {
+      "id": "skill:t3-fork-rebase",
+      "kind": "skill",
+      "title": "t3-fork-rebase",
+      "description": "Bring an upstream T3 Code nightly tag into the fork's `t3peach` branch: merge it, reconcile it against the fork's recorded differences, and land it through SlipJay. Run when the fork-nightly webhook starts a thread with a tag, or when asked to update the fork to a nightly.",
+      "bodyBytes": 10540
+    },
+    {
+      "id": "skill:test-t3-app",
+      "kind": "skill",
+      "title": "test-t3-app",
+      "description": "Test T3 Code's web and desktop UI through its built-in Browser panel against isolated development state. Use for browser verification, browser pairing recovery, and test fixtures. Use test-t3-mobile for native mobile verification.",
+      "bodyBytes": 1967
+    },
+    {
+      "id": "skill:test-t3-mobile",
+      "kind": "skill",
+      "title": "test-t3-mobile",
+      "description": "Test T3 Code's native iOS and Android app through its Device panel and returned AgentDevice command. Use for mobile verification, native-client builds, Metro launch, and mobile pairing against isolated development state.",
+      "bodyBytes": 3085
+    },
+    {
+      "id": "file:docs/internals/adding-a-provider.md",
+      "kind": "file",
+      "title": "docs/internals/adding-a-provider.md",
+      "description": "Adding a provider. A provider integration is judged by whether every T3 feature behaves honestly on it, not by whether a turn runs. This page lists the decisions and evidence a new driver needs. The [provider constraints](./providers.md) and the [capability system](../orchestration-v2/provider-capability-system.md) ex…",
+      "bodyBytes": 8667
+    },
+    {
+      "id": "file:docs/internals/assistant-citations.md",
+      "kind": "file",
+      "title": "docs/internals/assistant-citations.md",
+      "description": "Assistant citations. Citations carry the selected excerpt and source identity in ordinary message text. Drafts, clipboard copies, stashes, and sent messages keep that representation without a separate citation store. The saved quote remains usable when its source disappears or changes. The [shared format](../../packag…",
+      "bodyBytes": 1844
+    },
+    {
+      "id": "file:docs/internals/composer-context-references.md",
+      "kind": "file",
+      "title": "docs/internals/composer-context-references.md",
+      "description": "Composer context references. > For maintainers. Using T3 Code? See [docs/user](../user/).",
+      "bodyBytes": 13707
+    },
+    {
+      "id": "file:docs/internals/composer-editors.md",
+      "kind": "file",
+      "title": "docs/internals/composer-editors.md",
+      "description": "Composer coordinates and serialization. The draft store owns Markdown, while Tiptap owns the editing document. The rich-text setting changes the installed extensions, so toggling it remounts the editor from the stored draft. Plain mode must leave formatting markers literal. Rich mode preserves whitespace and chip sour…",
+      "bodyBytes": 2687
+    },
+    {
+      "id": "file:docs/internals/connection-runtime.md",
+      "kind": "file",
+      "title": "docs/internals/connection-runtime.md",
+      "description": "Connection runtime. Web, the desktop renderer, and mobile share one connection owner per environment in `packages/client-runtime`. Platform code supplies storage, credentials, network signals, and application lifecycle events. React views consume the runtime. Keeping retries and session lifetime here prevents competin…",
+      "bodyBytes": 6963
+    },
+    {
+      "id": "file:docs/internals/consistency-action-names.md",
+      "kind": "file",
+      "title": "docs/internals/consistency-action-names.md",
+      "description": "Action names agree across presentations. Proposed invariant: a command's visible label, tooltip, menu wording and accessible name describe the same action on the same object. An icon-only presentation must retain that meaning. This applies to shared web/Electron controls and corresponding React Native iOS/Android acti…",
+      "bodyBytes": 2317
+    },
+    {
+      "id": "file:docs/internals/context-handoffs.md",
+      "kind": "file",
+      "title": "docs/internals/context-handoffs.md",
+      "description": "Context handoffs. Portable provider and fork handoffs are textual summaries. They do not claim native provider context parity.",
+      "bodyBytes": 1215
+    },
+    {
+      "id": "file:docs/internals/devcontainer.md",
+      "kind": "file",
+      "title": "docs/internals/devcontainer.md",
+      "description": "Dev container. > For maintainers. Using T3 Code? See [docs/user](../user/).",
+      "bodyBytes": 3121
+    },
+    {
+      "id": "file:docs/internals/devices.md",
+      "kind": "file",
+      "title": "docs/internals/devices.md",
+      "description": "Devices. The environment server owns simulators and emulators the way it owns terminals: discovery, streaming, and agent access all run there, and every client reaches them through the environment connection. This is what makes the Device panel work over Tailscale and T3 Connect, including when an SSH host runs the de…",
+      "bodyBytes": 7154
+    },
+    {
+      "id": "file:docs/internals/effect-services.md",
+      "kind": "file",
+      "title": "docs/internals/effect-services.md",
+      "description": "Effect services. Server features are Effect services. Transports call them: WebSocket RPC handlers in [`ws.ts`](../../apps/server/src/ws.ts), HTTP routes, MCP tools, scheduled tasks, and the CLI. This page holds the rules for writing them. The [Effect Service Conventions](../../.macroscope/check-run-agents/effect-serv…",
+      "bodyBytes": 9776
+    },
+    {
+      "id": "file:docs/internals/environment-auth.md",
+      "kind": "file",
+      "title": "docs/internals/environment-auth.md",
+      "description": "Environment authentication. The environment issues its own sessions and enforces their capabilities. Cloud identity and relay credentials belong to a separate trust boundary, described in [T3 Connect](./t3-connect.md). A relay token is never an environment login.",
+      "bodyBytes": 10428
+    },
+    {
+      "id": "file:docs/internals/glossary.md",
+      "kind": "file",
+      "title": "docs/internals/glossary.md",
+      "description": "Glossary. Terms whose meaning matters across T3 Code. Architecture and lifecycle constraints belong in the [overview](./overview.md), not in these definitions.",
+      "bodyBytes": 6553
+    },
+    {
+      "id": "file:docs/internals/legacy-orchestration-migration.md",
+      "kind": "file",
+      "title": "docs/internals/legacy-orchestration-migration.md",
+      "description": "Legacy orchestration migration. Orchestration v2 snapshots `state.sqlite` into `statev2.sqlite` before opening writable persistence on its first launch. Only the copy receives v2 migrations; the original remains available to v1. Subsequent launches reuse the copy without refreshing it from v1. It creates v2 thread she…",
+      "bodyBytes": 3900
+    },
+    {
+      "id": "file:docs/internals/linux-snap-shot.md",
+      "kind": "file",
+      "title": "docs/internals/linux-snap-shot.md",
+      "description": "Linux window capture. Wayland only. Each capture picks one backend in `LinuxSnapShot.ts` (Hyprland helper, Niri IPC, KDE helper, Screenshot portal with active-window target, GNOME extension, then the Electron picker) and never falls back to another on failure, cancellation, or denial. A stale `NIRI_SOCKET` or a reacha…",
+      "bodyBytes": 6204
+    },
+    {
+      "id": "file:docs/internals/mobile-development.md",
+      "kind": "file",
+      "title": "docs/internals/mobile-development.md",
+      "description": "Mobile development lifecycle. The [connection runtime's HMR boundary](../../apps/mobile/src/lib/hot-swappable-atom-runtime.ts) keeps a stable atom runtime and replaces its Effect layer through a writable atom. It accepts the update only after installing the new layer. Otherwise importers retain the old behavior even t…",
+      "bodyBytes": 5909
+    },
+    {
+      "id": "file:docs/internals/mobile-navigation.md",
+      "kind": "file",
+      "title": "docs/internals/mobile-navigation.md",
+      "description": "Mobile navigation. Home and thread routes share the [root native stack](../../apps/mobile/src/Stack.tsx) so UIKit can animate the header within one navigation controller. The iPad sidebar has its own stack. Splitting Home and threads between controllers loses that continuous transition.",
+      "bodyBytes": 5285
+    },
+    {
+      "id": "file:docs/internals/model-manifest.md",
+      "kind": "file",
+      "title": "docs/internals/model-manifest.md",
+      "description": "Model manifest. The [bundled manifest](../../apps/server/src/provider/model-manifest.json) allows offline startup; fetching it from `main` lets model metadata change between releases. Failed fetches or invalid data preserve the last usable manifest. Remote data must pass both catalog-reference validation and the ownin…",
+      "bodyBytes": 2130
+    },
+    {
+      "id": "file:docs/internals/open-source-licenses.md",
+      "kind": "file",
+      "title": "docs/internals/open-source-licenses.md",
+      "description": "Open source license notices. License notices are generated independently for the client that ships them:",
+      "bodyBytes": 5110
+    },
+    {
+      "id": "file:docs/internals/overview.md",
+      "kind": "file",
+      "title": "docs/internals/overview.md",
+      "description": "Architecture. T3 Code keeps execution in the environment that owns the workspace. Web, desktop, and mobile clients control it over authenticated RPC. A remote client must never substitute its own filesystem, provider credentials, or machine state for the environment's. The desktop app bundles a server, but its rendere…",
+      "bodyBytes": 8848
+    },
+    {
+      "id": "file:docs/internals/performance-regressions.md",
+      "kind": "file",
+      "title": "docs/internals/performance-regressions.md",
+      "description": "Performance regression checks. The v2 transport has a focused regression command:",
+      "bodyBytes": 10492
+    },
+    {
+      "id": "file:docs/internals/product-analytics.md",
+      "kind": "file",
+      "title": "docs/internals/product-analytics.md",
+      "description": "Product analytics. The server owns analytics delivery, opt-out, and identity for every connected client. Clients do not load the PostHog browser SDK. Client-use events require an authenticated connection, so visiting the hosted app without connecting does not count as product use.",
+      "bodyBytes": 6326
+    },
+    {
+      "id": "file:docs/internals/providers.md",
+      "kind": "file",
+      "title": "docs/internals/providers.md",
+      "description": "Provider constraints. Orchestration records intent and state without knowing which provider runs a thread. Provider protocols, account ownership, permissions, and capabilities belong at the [adapter boundary](../../packages/provider-core/src/server/ProviderAdapter.ts). Normalize there instead of spreading provider che…",
+      "bodyBytes": 11408
+    },
+    {
+      "id": "file:docs/internals/pull-request-file-revisions.md",
+      "kind": "file",
+      "title": "docs/internals/pull-request-file-revisions.md",
+      "description": "Pull request file revisions. On a host that keeps no viewed-file record of its own, this environment keeps the marks and asks the host what version each marked file is at, so that a push can report a cleared file as changed. That version travels through four layers, and a missing entry means something different at eac…",
+      "bodyBytes": 4210
+    },
+    {
+      "id": "file:docs/internals/remote.md",
+      "kind": "file",
+      "title": "docs/internals/remote.md",
+      "description": "Remote architecture. Each connection joins a client to one environment over HTTP and WebSocket. The environment owns providers, execution, files, and durable state. Direct access, Tailscale, SSH, and T3 Connect change how the client reaches that server; they do not introduce another execution model. See [remote access…",
+      "bodyBytes": 8033
+    },
+    {
+      "id": "file:docs/internals/resource-telemetry.md",
+      "kind": "file",
+      "title": "docs/internals/resource-telemetry.md",
+      "description": "Resource telemetry. Process counters come from a [standalone Rust monitor](../../native/resource-monitor/src/main.rs) using `sysinfo`. Electron main supplies host power and Electron process metrics. Keeping native collection outside Node isolates collector crashes and avoids a Node/Electron addon ABI matrix. Desktop a…",
+      "bodyBytes": 3597
+    },
+    {
+      "id": "file:docs/internals/server-updates.md",
+      "kind": "file",
+      "title": "docs/internals/server-updates.md",
+      "description": "Server updates. A [stable launcher](../../apps/server/src/serviceLauncher.ts) owns the runtime selected by systemd or launchd. It is the only runtime writer of durable service state. Server children request updates over inherited IPC; they never rewrite their service definition or select their own replacement. Local s…",
+      "bodyBytes": 6663
+    },
+    {
+      "id": "file:docs/internals/t3-connect.md",
+      "kind": "file",
+      "title": "docs/internals/t3-connect.md",
+      "description": "T3 Connect. T3 Connect uses Clerk for cloud identity. The relay manages environment links, credentials for reaching environments, and managed tunnel allocations. After bootstrap, clients send application traffic through the environment's tunnel hostname; the relay Worker does not proxy their HTTP or WebSocket sessions…",
+      "bodyBytes": 10838
+    },
+    {
+      "id": "file:docs/internals/terminal-runtime.md",
+      "kind": "file",
+      "title": "docs/internals/terminal-runtime.md",
+      "description": "Terminal runtime. The environment server owns PTYs, session lifetime, and retained output. Every client, including the desktop renderer, attaches through the environment connection. This lets clients reconnect or share a running session. Renderer choices stay local to each client and do not change terminal contracts.",
+      "bodyBytes": 2535
+    },
+    {
+      "id": "file:docs/internals/voice-input.md",
+      "kind": "file",
+      "title": "docs/internals/voice-input.md",
+      "description": "Voice input. Transcription edits a composer draft. It does not submit an agent turn. Audio is temporary client input, and only normal message submission sends the resulting text. The current implementation transcribes locally on supported iOS devices; environment-backed transcription is not implemented.",
+      "bodyBytes": 1308
+    },
+    {
+      "id": "file:docs/internals/web-ui.md",
+      "kind": "file",
+      "title": "docs/internals/web-ui.md",
+      "description": "Web UI. Controls come from [`components/ui`](../../apps/web/src/components/ui). [AGENTS.md](../../AGENTS.md#architecture-and-implementation) says how to use and extend them.",
+      "bodyBytes": 4765
+    },
+    {
+      "id": "file:docs/operations/agent-delegation.md",
+      "kind": "file",
+      "title": "docs/operations/agent-delegation.md",
+      "description": "Managed agent delegation. `t3 agent` and the delegation tools resolve roles and models from a central agent policy kept outside T3 Code, in the agent-config repository (`roles/policy.json` and the role briefs in `roles/`). Nothing is enabled until the server is told where that checkout is.",
+      "bodyBytes": 14960
+    },
+    {
+      "id": "file:docs/operations/android-notifications.md",
+      "kind": "file",
+      "title": "docs/operations/android-notifications.md",
+      "description": "Android notifications. The Android app receives Firebase Cloud Messaging (FCM) data messages. The relay sends them directly through FCM HTTP v1; an Expo Push account is not required.",
+      "bodyBytes": 15692
+    },
+    {
+      "id": "file:docs/operations/background-verification.md",
+      "kind": "file",
+      "title": "docs/operations/background-verification.md",
+      "description": "Live background-work verification. Run from the repository root with installed dependencies (`vp` provides the pinned Node). This uses real provider CLI credentials and consumes model usage:",
+      "bodyBytes": 2890
+    },
+    {
+      "id": "file:docs/operations/browser-decision-evaluation.md",
+      "kind": "file",
+      "title": "docs/operations/browser-decision-evaluation.md",
+      "description": "Browser decision evaluation. Maintainer harness that compares bounded decision engines (Jev, GPT-6 Luna Decisions through `DecisionService`) with a managed browser worker on the same synthetic journeys. It changes no default, permission or gate.",
+      "bodyBytes": 6075
+    },
+    {
+      "id": "file:docs/operations/connect-setup.md",
+      "kind": "file",
+      "title": "docs/operations/connect-setup.md",
+      "description": "T3 Connect setup. Deployment and client configuration for T3 Connect. The [architecture note](../internals/t3-connect.md) explains the trust boundaries; the [relay README](../../infra/relay/README.md#deployment) owns relay provisioning instructions.",
+      "bodyBytes": 6421
+    },
+    {
+      "id": "file:docs/operations/decisions.md",
+      "kind": "file",
+      "title": "docs/operations/decisions.md",
+      "description": "Bounded decisions. Authorized agents call `t3_decide` with an explicit `engine` (`jev` or `luna`), a versioned rule, shared JSON/text evidence, and named questions. Internal workflows use `DecisionService.decide` with the same contract. The models are fixed server-side to `jev-1.14.0` and `gpt-6-luna`; credentials and…",
+      "bodyBytes": 4743
+    },
+    {
+      "id": "file:docs/operations/development.md",
+      "kind": "file",
+      "title": "docs/operations/development.md",
+      "description": "Development. Install `vp` using the [root README](../../README.md#install-vp). It provides the Node version pinned in `package.json` (Node 26), so no separate Node install is needed. From the repository root:",
+      "bodyBytes": 24383
+    },
+    {
+      "id": "file:docs/operations/mobile-app-store-screenshots.md",
+      "kind": "file",
+      "title": "docs/operations/mobile-app-store-screenshots.md",
+      "description": "Mobile app-store screenshot harness. > For maintainers. Using T3 Code? See [docs/user](../user/).",
+      "bodyBytes": 13453
+    },
+    {
+      "id": "file:docs/operations/mobile-screens-fork.md",
+      "kind": "file",
+      "title": "docs/operations/mobile-screens-fork.md",
+      "description": "Building the mobile Screens dependency. The mobile v5 stack uses a committed tarball from the [T3 Screens fork](https://github.com/PixPMusic/react-native-screens/tree/t3-v5.0.0-t3.43). The fork owns the integration changes; the app does not patch this package. Each archive includes compiled JavaScript, declarations, n…",
+      "bodyBytes": 1571
+    },
+    {
+      "id": "file:docs/operations/observability.md",
+      "kind": "file",
+      "title": "docs/operations/observability.md",
+      "description": "Observability. > For maintainers. Using T3 Code? See [docs/user](../user/).",
+      "bodyBytes": 27809
+    },
+    {
+      "id": "file:docs/operations/relay-observability.md",
+      "kind": "file",
+      "title": "docs/operations/relay-observability.md",
+      "description": "Relay observability. > For maintainers. Using T3 Code? See [docs/user](../user/).",
+      "bodyBytes": 9277
+    },
+    {
+      "id": "file:docs/operations/release.md",
+      "kind": "file",
+      "title": "docs/operations/release.md",
+      "description": "Release Checklist. > For maintainers. Using T3 Code? See [docs/user](../user/).",
+      "bodyBytes": 42549
+    },
+    {
+      "id": "file:docs/operations/testing.md",
+      "kind": "file",
+      "title": "docs/operations/testing.md",
+      "description": "Test authoring and focused verification. Read this before writing or changing tests, or choosing checks for a code change.",
+      "bodyBytes": 4283
+    },
+    {
+      "id": "file:docs/user/activity-log.md",
+      "kind": "file",
+      "title": "docs/user/activity-log.md",
+      "description": "Activity log. On web and desktop, consecutive tool calls appear as an expandable summary. Open it to inspect commands, tool inputs, status, and exit codes. Expand a tool call to see its output. A running command's output updates live, and long output shows only its most recent part. Use **Open diff** on a file change…",
+      "bodyBytes": 1185
+    },
+    {
+      "id": "file:docs/user/appearance.md",
+      "kind": "file",
+      "title": "docs/user/appearance.md",
+      "description": "Appearance and themes. On web and desktop, open **Settings → Appearance** to choose a theme and follow the system appearance or stay in light or dark mode. To use different themes for light and dark mode, select the corresponding preview within each theme. Appearance preferences are saved separately on each device or…",
+      "bodyBytes": 6475
+    },
+    {
+      "id": "file:docs/user/background-service.md",
+      "kind": "file",
+      "title": "docs/user/background-service.md",
+      "description": "Running T3 Code in the background. On Linux and macOS, T3 Code can run as a service for your user so you do not need to keep a terminal open.",
+      "bodyBytes": 8195
+    },
+    {
+      "id": "file:docs/user/browser-import.md",
+      "kind": "file",
+      "title": "docs/user/browser-import.md",
+      "description": "Import browser sessions. The desktop app can import cookies from another browser so you can reuse its signed-in sessions in the preview browser.",
+      "bodyBytes": 1108
+    },
+    {
+      "id": "file:docs/user/composer.md",
+      "kind": "file",
+      "title": "docs/user/composer.md",
+      "description": "Messages and context. Give the agent a task in the composer. Add files, quote a previous response, or include a skill when the task needs more context.",
+      "bodyBytes": 22617
+    },
+    {
+      "id": "file:docs/user/cursor.md",
+      "kind": "file",
+      "title": "docs/user/cursor.md",
+      "description": "Cursor. Cursor V2 runs through the official [`@cursor/sdk`](https://cursor.com/docs/api/sdk/typescript) TypeScript package. It does not use Cursor's ACP transport for V2 execution.",
+      "bodyBytes": 4736
+    },
+    {
+      "id": "file:docs/user/default-browser.md",
+      "kind": "file",
+      "title": "docs/user/default-browser.md",
+      "description": "Use T3 Code as your default browser. On macOS, the desktop app can be your default web browser. Links you open from other apps then open in T3 Code. When the thread on screen shows its browser panel, the link opens there as a new tab. Otherwise it starts a new thread without a project, with the browser panel maximized…",
+      "bodyBytes": 910
+    },
+    {
+      "id": "file:docs/user/devices.md",
+      "kind": "file",
+      "title": "docs/user/devices.md",
+      "description": "Devices. The Device panel shows a live iOS Simulator or Android Emulator next to a thread, so you can watch an agent verify mobile work and tap the device yourself. Agents get the same device through `device_*` tools and the `agent-device` command line, which T3 Code sets up for them.",
+      "bodyBytes": 7635
+    },
+    {
+      "id": "file:docs/user/forge-items.md",
+      "kind": "file",
+      "title": "docs/user/forge-items.md",
+      "description": "Forge items. When T3 Code is connected to Weave, a thread in any project can show the Forge Spec, Ticket or Arc it works on. The item's title and status sit in the thread header, between the workflow and the thread's title. Hover it to see a card with the item's current state from Forge: a Spec's Tickets and progress,…",
+      "bodyBytes": 2523
+    },
+    {
+      "id": "file:docs/user/guest-links.md",
+      "kind": "file",
+      "title": "docs/user/guest-links.md",
+      "description": "Guest links. A guest link lets a teammate follow one thread in their browser and ask the agent questions, with no account. They see your messages and the agent's replies as they stream. Each message they send waits until you send or dismiss it.",
+      "bodyBytes": 2743
+    },
+    {
+      "id": "file:docs/user/html-renders.md",
+      "kind": "file",
+      "title": "docs/user/html-renders.md",
+      "description": "Visual replies. Agents can answer with a page instead of only text: a chart, table, diagram, image collage, or mockup. Ask for one (\"show this as a chart\", \"make a collage of these screenshots\") and the agent builds a self-contained HTML page, which appears in the thread above its written reply. It works with every pr…",
+      "bodyBytes": 3064
+    },
+    {
+      "id": "file:docs/user/install.md",
+      "kind": "file",
+      "title": "docs/user/install.md",
+      "description": "Install T3 Code. T3 Code runs coding agents on your computer and lets you control them from its desktop, web, or mobile app. Set up the machine where the agents will work first.",
+      "bodyBytes": 9925
+    },
+    {
+      "id": "file:docs/user/keybindings.md",
+      "kind": "file",
+      "title": "docs/user/keybindings.md",
+      "description": "Keybindings. Customize shortcuts in **Settings → Keybindings** on web and desktop. That page also lists the command IDs and defaults available in your version.",
+      "bodyBytes": 9036
+    },
+    {
+      "id": "file:docs/user/keyboard-focus.md",
+      "kind": "file",
+      "title": "docs/user/keyboard-focus.md",
+      "description": "Keyboard focus. The command palette keeps focus while open. Closing it returns focus to the composer. While the palette or model picker is open, number shortcuts select its entries instead of switching threads. Model shortcuts work in Settings as well as the composer. See [Keybindings](./keybindings.md) to customize t…",
+      "bodyBytes": 514
+    },
+    {
+      "id": "file:docs/user/mobile-notifications.md",
+      "kind": "file",
+      "title": "docs/user/mobile-notifications.md",
+      "description": "Mobile notifications. Sign in to T3 Connect, link your environments, and enable **Device Notifications** in **Settings → Notifications** to receive alerts when an agent finishes, fails, needs approval, or asks for input. Tap a notification to open its thread. Your environment must have agent activity publishing enable…",
+      "bodyBytes": 1507
+    },
+    {
+      "id": "file:docs/user/open-source-licenses.md",
+      "kind": "file",
+      "title": "docs/user/open-source-licenses.md",
+      "description": "Open source licenses. T3 Code includes third-party software and adapted assets. To read their license and attribution notices:",
+      "bodyBytes": 671
+    },
+    {
+      "id": "file:docs/user/outside-agents.md",
+      "kind": "file",
+      "title": "docs/user/outside-agents.md",
+      "description": "Outside agents. Agents that T3 Code did not start can work with an environment through its MCP server. They can read projects and threads, start and message threads, and check which providers and models are available. This covers Claude Code or Codex in your own terminal, ChatGPT, and bots that support MCP. Each agent…",
+      "bodyBytes": 16501
+    },
+    {
+      "id": "file:docs/user/permission-modes.md",
+      "kind": "file",
+      "title": "docs/user/permission-modes.md",
+      "description": "Permission modes. Permission modes control when an agent needs your approval to act. Choose a mode in the message composer; it applies to that thread.",
+      "bodyBytes": 3249
+    },
+    {
+      "id": "file:docs/user/portable-handoffs.md",
+      "kind": "file",
+      "title": "docs/user/portable-handoffs.md",
+      "description": "Context in portable handoffs. T3 Code transfers conversation context when you switch providers, continue through a portable restart, or use a fork that the provider cannot resume itself.",
+      "bodyBytes": 2907
+    },
+    {
+      "id": "file:docs/user/project-settings.md",
+      "kind": "file",
+      "title": "docs/user/project-settings.md",
+      "description": "Settings and project overrides. On web and desktop, the \"Applying settings for …\" sentence at the top of Settings pages picks the project and environment a change applies to. Pages that only hold device preferences, such as Appearance, don't show it. They start at **All projects** and **All environments** and stay sel…",
+      "bodyBytes": 19587
+    },
+    {
+      "id": "file:docs/user/prompt-links.md",
+      "kind": "file",
+      "title": "docs/user/prompt-links.md",
+      "description": "Prompt links. A prompt link opens T3 Code with a prompt ready to send. Use one to share a prompt on social media, or to put a one-click fix in a pull request comment.",
+      "bodyBytes": 3026
+    },
+    {
+      "id": "file:docs/user/providers-acp.md",
+      "kind": "file",
+      "title": "docs/user/providers-acp.md",
+      "description": "ACP providers. T3 Code can run installed ACP commands or coding agents from the official [ACP Registry](https://agentclientprotocol.com/get-started/registry). Registry agents bring their own models, tools, and sign-in, while T3 Code provides projects, threads, checkpoints, and task delegation.",
+      "bodyBytes": 7971
+    },
+    {
+      "id": "file:docs/user/providers-antigravity.md",
+      "kind": "file",
+      "title": "docs/user/providers-antigravity.md",
+      "description": "Antigravity. T3 Code runs Google's official Antigravity ACP agent on your selected environment. It has its own sign-in, separate from the Antigravity IDE or CLI. Google controls which models and account access are available through this agent.",
+      "bodyBytes": 7533
+    },
+    {
+      "id": "file:docs/user/providers-claude.md",
+      "kind": "file",
+      "title": "docs/user/providers-claude.md",
+      "description": "Claude. T3 Code uses Claude Code's login and configuration. Start with the default provider for one account; [provider setup](./install.md#providers) covers installation and shared provider settings.",
+      "bodyBytes": 10640
+    },
+    {
+      "id": "file:docs/user/providers-codex.md",
+      "kind": "file",
+      "title": "docs/user/providers-codex.md",
+      "description": "Codex. Use your ChatGPT plan or an existing Codex CLI login to code in T3 Code.",
+      "bodyBytes": 5382
+    },
+    {
+      "id": "file:docs/user/providers-muse.md",
+      "kind": "file",
+      "title": "docs/user/providers-muse.md",
+      "description": "Muse Code. Muse Code is a beta integration and is disabled by default. Install [Muse Code](https://dev.meta.ai/docs/muse-code) on the machine hosting your environment, then run `muse login` as the account that runs T3 Code.",
+      "bodyBytes": 3156
+    },
+    {
+      "id": "file:docs/user/providers-opencode.md",
+      "kind": "file",
+      "title": "docs/user/providers-opencode.md",
+      "description": "OpenCode. Install and authenticate OpenCode on the machine running your environment, then enable it in **Settings > Providers**. See [provider setup](./install.md#providers). T3 Code requires OpenCode 1.14.19 or newer, including when you connect an existing OpenCode server.",
+      "bodyBytes": 3181
+    },
+    {
+      "id": "file:docs/user/providers-pi.md",
+      "kind": "file",
+      "title": "docs/user/providers-pi.md",
+      "description": "Pi. T3 Code can use your existing Pi coding agent installation while keeping Pi's models, auth, extensions, skills, context files, and native session history.",
+      "bodyBytes": 4754
+    },
+    {
+      "id": "file:docs/user/question-attachments.md",
+      "kind": "file",
+      "title": "docs/user/question-attachments.md",
+      "description": "Files in question answers. When an agent asks a question that accepts a custom answer, use **Attach files** or paste an image into the answer field. On mobile, use the attachment button to choose photos or files. You can send a file by itself, with a selected option, or with a typed answer.",
+      "bodyBytes": 1188
+    },
+    {
+      "id": "file:docs/user/remote-access.md",
+      "kind": "file",
+      "title": "docs/user/remote-access.md",
+      "description": "Remote access. Connect a phone, browser, or another desktop app to T3 Code running on a different machine. That machine must stay running and reachable while you work.",
+      "bodyBytes": 18059
+    },
+    {
+      "id": "file:docs/user/snap-shot.md",
+      "kind": "file",
+      "title": "docs/user/snap-shot.md",
+      "description": "SnapShots. A SnapShot captures the window you are working in and attaches it to your current draft. The attachment carries the app name and window title, and when available the app icon and the window's accessibility data (its controls, text, and their positions in the image). Agents can use that data to reason about…",
+      "bodyBytes": 5510
+    },
+    {
+      "id": "file:docs/user/source-control.md",
+      "kind": "file",
+      "title": "docs/user/source-control.md",
+      "description": "Source control. T3 Code integrates with GitHub, GitLab, Forgejo, Gitea, Bitbucket, Azure DevOps, and GitCafe to clone and publish repositories, create pull requests, and review changes.",
+      "bodyBytes": 21825
+    },
+    {
+      "id": "file:docs/user/t3-connect-troubleshooting.md",
+      "kind": "file",
+      "title": "docs/user/t3-connect-troubleshooting.md",
+      "description": "T3 Connect troubleshooting. A T3 Connect connection goes through four parts, in this order:",
+      "bodyBytes": 7560
+    },
+    {
+      "id": "file:docs/user/telemetry.md",
+      "kind": "file",
+      "title": "docs/user/telemetry.md",
+      "description": "Product usage data. The T3 Code server sends product usage events to T3 Code's own endpoint at `ingest.t3.codes`, associated with a hashed account or installation identifier. To count how many installations one person uses, the server also sends hashed account identifiers: your T3 Connect account, your OpenAI and Clau…",
+      "bodyBytes": 2837
+    },
+    {
+      "id": "file:docs/user/terminal.md",
+      "kind": "file",
+      "title": "docs/user/terminal.md",
+      "description": "Terminal history. Each terminal keeps up to 5,000 lines and 8 MiB of scrollback on its environment server. T3 Code removes the oldest output when either limit is reached. A long line can be shortened at the start. New terminal output is not truncated.",
+      "bodyBytes": 1552
+    },
+    {
+      "id": "file:docs/user/thread-migration.md",
+      "kind": "file",
+      "title": "docs/user/thread-migration.md",
+      "description": "Threads from older T3 Code versions. On your first V2 launch, T3 Code copies the V1 database, `state.sqlite`, into `statev2.sqlite` in the same data directory and migrates the copy. Your threads appear automatically, with full transcripts imported as needed. You do not need to run an import command.",
+      "bodyBytes": 3515
+    },
+    {
+      "id": "file:docs/user/thread-sidebar.md",
+      "kind": "file",
+      "title": "docs/user/thread-sidebar.md",
+      "description": "Working with threads. Use a new thread for a separate task. Choose **New worktree** when its code changes need a separate branch and working directory.",
+      "bodyBytes": 20161
+    },
+    {
+      "id": "file:docs/user/updating.md",
+      "kind": "file",
+      "title": "docs/user/updating.md",
+      "description": "Updating T3 Code. The app you use and the server running your agents can be on different machines. When a server is behind your web or desktop app, an update notice appears in the conversation and **Settings → Connections**. Update the machine named in that notice.",
+      "bodyBytes": 8489
+    },
+    {
+      "id": "file:docs/user/usage.md",
+      "kind": "file",
+      "title": "docs/user/usage.md",
+      "description": "Usage and limits. Open **Usage** from the sidebar or the command palette, or press `mod+u` on web and desktop when the terminal is not focused. Customize `usage.open` in **Settings → Keybindings**.",
+      "bodyBytes": 15874
+    },
+    {
+      "id": "file:docs/user/voice-bridge.md",
+      "kind": "file",
+      "title": "docs/user/voice-bridge.md",
+      "description": "Voice bridge. Ask T3 Code from FluidVoice's notch. FluidVoice's Command window already turns a dictated instruction into an OpenAI chat request; this bridge answers that request by starting a real T3 thread and streaming the agent's answer back into the same window.",
+      "bodyBytes": 5739
+    },
+    {
+      "id": "file:docs/user/welcome-wizard.md",
+      "kind": "file",
+      "title": "docs/user/welcome-wizard.md",
+      "description": "Welcome wizard. T3 Code shows a setup flow when you open a new installation. Existing workspaces skip this flow.",
+      "bodyBytes": 5018
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts",
+      "description": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts exports CLAUDE_PROVIDER, claudeAutoCompactWindow, claudeProviderTurnTokenUsage, CLAUDE_DEFAULT_INSTANCE_ID, spawnClaudeProcessGroup, ClaudeProviderCapabilitiesV2",
+      "bodyBytes": 465494
+    },
+    {
+      "id": "file:apps/server/src/auth/McpOAuth.ts",
+      "kind": "file",
+      "title": "apps/server/src/auth/McpOAuth.ts",
+      "description": "apps/server/src/auth/McpOAuth.ts exports McpOAuthUrls, requestUrls, protectedResourceMetadata, authorizationServerMetadata, redirectMatches, McpOAuthClient",
+      "bodyBytes": 20726
+    },
+    {
+      "id": "file:apps/server/src/auth/dpop.ts",
+      "kind": "file",
+      "title": "apps/server/src/auth/dpop.ts",
+      "description": "apps/server/src/auth/dpop.ts exports DPOP_REPLAY_MARKER_PREFIX, mapDpopReplayStoreError, verifyRequestDpopProof",
+      "bodyBytes": 4333
+    },
+    {
+      "id": "file:apps/server/src/auth/forwardedUrl.ts",
+      "kind": "file",
+      "title": "apps/server/src/auth/forwardedUrl.ts",
+      "description": "apps/server/src/auth/forwardedUrl.ts exports forwardedRequestUrl",
+      "bodyBytes": 704
+    },
+    {
+      "id": "file:apps/server/src/mcp/OrchestratorMcpService.ts",
+      "kind": "file",
+      "title": "apps/server/src/mcp/OrchestratorMcpService.ts",
+      "description": "apps/server/src/mcp/OrchestratorMcpService.ts exports OrchestratorMcpServiceShape, OrchestratorMcpService, isLiveCallerShell, threadNotFound, resolveRuntimeMode, resolveInteractionMode",
+      "bodyBytes": 181072
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/Orchestrator.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/Orchestrator.ts",
+      "description": "apps/server/src/orchestration-v2/Orchestrator.ts exports OrchestratorDispatchError, OrchestratorThreadAlreadyExistsError, OrchestratorCommandRejectedError, OrchestratorProjectionError, OrchestratorDomainEventStreamError, OrchestratorProvid…",
+      "bodyBytes": 523032
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/ThreadManagementService.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/ThreadManagementService.ts",
+      "description": "apps/server/src/orchestration-v2/ThreadManagementService.ts exports ThreadManagementSendMode, ThreadManagementProvenance, withCreationProvenance, ThreadManagementTerminalRunStatus, ThreadManagementSendInput, ThreadManagementSendResult",
+      "bodyBytes": 58347
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/ThreadWatchReactor.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/ThreadWatchReactor.ts",
+      "description": "apps/server/src/orchestration-v2/ThreadWatchReactor.ts exports ThreadWatchReactor, layer",
+      "bodyBytes": 7657
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/threadWatch.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/threadWatch.ts",
+      "description": "apps/server/src/orchestration-v2/threadWatch.ts exports WatchedThreadState, ThreadWatchDecision, threadWatchRefusal, watchedThreadRecords, decideThreadWatch, queuedThreadWatchWakes",
+      "bodyBytes": 15212
+    },
+    {
+      "id": "file:packages/provider-core/src/server/subagentProjection.ts",
+      "kind": "file",
+      "title": "packages/provider-core/src/server/subagentProjection.ts",
+      "description": "packages/provider-core/src/server/subagentProjection.ts exports subagentThreadTitle, makeSubagentChildThread, makeSubagentConversationArtifacts, subagentResultForRun, delegatedTaskProgressTurnItems, DelegatedTaskProjection",
+      "bodyBytes": 18176
+    },
+    {
+      "id": "file:packages/shared/src/orchestrationV2PendingBackgroundWork.ts",
+      "kind": "file",
+      "title": "packages/shared/src/orchestrationV2PendingBackgroundWork.ts",
+      "description": "packages/shared/src/orchestrationV2PendingBackgroundWork.ts exports PendingBackgroundWorkTask, turnItemUpdateCanEndBackgroundWork, ownBackgroundWork, backgroundWorkIsOnlyWatches, backgroundWorkName, deriveBlockedOnThreadWait",
+      "bodyBytes": 15363
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/ProjectionStore.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/ProjectionStore.ts",
+      "description": "apps/server/src/orchestration-v2/ProjectionStore.ts exports ProjectionStoreApplyEventError, ProjectionStoreSetupError, ProjectionStoreThreadNotFoundError, ProjectionStoreReadError, ProjectionStoreV2Error, ProjectionStoreV2Error",
+      "bodyBytes": 345015
+    },
+    {
+      "id": "file:apps/server/src/agents/ManagedAgentService.ts",
+      "kind": "file",
+      "title": "apps/server/src/agents/ManagedAgentService.ts",
+      "description": "apps/server/src/agents/ManagedAgentService.ts exports sourceRevisionGuidance, ManagedAgentError, WorkspaceOccupant, ManagedAgentService, layer",
+      "bodyBytes": 40556
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/ProviderSessionManager.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/ProviderSessionManager.ts",
+      "description": "apps/server/src/orchestration-v2/ProviderSessionManager.ts exports usesT3WebTools, ProviderSessionReleaseReason, ProviderSessionReleaseReason, ProviderSessionOpenError, ProviderSessionLookupError, ProviderSessionCloseError",
+      "bodyBytes": 114949
+    },
+    {
+      "id": "file:apps/server/src/hq/HqSignInRoute.ts",
+      "kind": "file",
+      "title": "apps/server/src/hq/HqSignInRoute.ts",
+      "description": "apps/server/src/hq/HqSignInRoute.ts exports layer",
+      "bodyBytes": 3095
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/ProviderTurnControlService.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/ProviderTurnControlService.ts",
+      "description": "apps/server/src/orchestration-v2/ProviderTurnControlService.ts exports ProviderTurnControlError, ProviderTurnControlServiceV2Shape, ProviderTurnControlServiceV2, layer",
+      "bodyBytes": 16854
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/ProviderTurnStartService.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/ProviderTurnStartService.ts",
+      "description": "apps/server/src/orchestration-v2/ProviderTurnStartService.ts exports SIDE_CHAT_NOTE, NO_PROJECT_NOTE, TurnWorkspace, replacedWorkspaceNote, unreplacedWorkspaceNote, replacedWorkspace",
+      "bodyBytes": 89500
+    },
+    {
+      "id": "file:apps/server/src/videoFrames/VideoFrames.ts",
+      "kind": "file",
+      "title": "apps/server/src/videoFrames/VideoFrames.ts",
+      "description": "apps/server/src/videoFrames/VideoFrames.ts exports FfmpegUnavailable, NotASampleableVideo, VideoAttachmentNotInThread, VideoRangeInvalid, VideoFramesError, VideoFrames",
+      "bodyBytes": 21654
+    },
+    {
+      "id": "file:scripts/fork-nightly.sh",
+      "kind": "file",
+      "title": "scripts/fork-nightly.sh",
+      "description": "scripts/fork-nightly.sh",
+      "bodyBytes": 54601
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/ProjectionMaintenance.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/ProjectionMaintenance.ts",
+      "description": "apps/server/src/orchestration-v2/ProjectionMaintenance.ts exports ProjectionVerificationV2, ProjectionMaintenanceError, ProjectionMaintenanceV2Shape, ProjectionMaintenanceV2, layer",
+      "bodyBytes": 20284
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/compactionCandidates.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/compactionCandidates.ts",
+      "description": "apps/server/src/orchestration-v2/compactionCandidates.ts exports SUPERSEDABLE_THREAD_EVENT_TYPES, READ_STATE_THREAD_EVENT_TYPES, compactableEventCondition",
+      "bodyBytes": 1718
+    },
+    {
+      "id": "file:apps/server/src/persistence/Migrations.ts",
+      "kind": "file",
+      "title": "apps/server/src/persistence/Migrations.ts",
+      "description": "apps/server/src/persistence/Migrations.ts exports migrationManifest, RunMigrationsOptions, runMigrations",
+      "bodyBytes": 17230
+    },
+    {
+      "id": "file:apps/server/src/agents/AgentRoleResolver.ts",
+      "kind": "file",
+      "title": "apps/server/src/agents/AgentRoleResolver.ts",
+      "description": "apps/server/src/agents/AgentRoleResolver.ts exports AgentRoleError, RequestedModel, BrowserRefusal, canImplementWithoutPhi, AgentRoleResolver, layer",
+      "bodyBytes": 19169
+    },
+    {
+      "id": "file:apps/server/src/provider/ClaudeProvider.ts",
+      "kind": "file",
+      "title": "apps/server/src/provider/ClaudeProvider.ts",
+      "description": "apps/server/src/provider/ClaudeProvider.ts exports buildClaudeCapabilitiesProbeQueryOptions, ClaudeCapabilitiesProbe, probeClaudeWorkspaceSnapshot, checkClaudeProviderStatus, makePendingClaudeProvider",
+      "bodyBytes": 24799
+    },
+    {
+      "id": "file:apps/server/src/provider/CodexProvider.ts",
+      "kind": "file",
+      "title": "apps/server/src/provider/CodexProvider.ts",
+      "description": "apps/server/src/provider/CodexProvider.ts exports CodexAppServerProviderSnapshot, codexPlanLabel, codexDefaultReasoningEffortOverride, mapCodexModelCapabilities, applyPreferredCodexDefaultModel, codexAppServerEnvironment",
+      "bodyBytes": 28786
+    },
+    {
+      "id": "file:apps/web/src/components/settings/DelegationSettings.logic.ts",
+      "kind": "file",
+      "title": "apps/web/src/components/settings/DelegationSettings.logic.ts",
+      "description": "apps/web/src/components/settings/DelegationSettings.logic.ts exports RolePolicy, rolePolicy, ROLE_DESCRIPTIONS, RoleGroup, roleGroups, unavailableReason",
+      "bodyBytes": 14540
+    },
+    {
+      "id": "file:apps/web/src/components/settings/DelegationSettings.tsx",
+      "kind": "file",
+      "title": "apps/web/src/components/settings/DelegationSettings.tsx",
+      "description": "apps/web/src/components/settings/DelegationSettings.tsx exports DelegationSettings, describeCheckout",
+      "bodyBytes": 33152
+    },
+    {
+      "id": "file:apps/server/src/hq/ForgeWorkItems.ts",
+      "kind": "file",
+      "title": "apps/server/src/hq/ForgeWorkItems.ts",
+      "description": "apps/server/src/hq/ForgeWorkItems.ts exports BUILD_REREAD_INTERVAL_MS, BUILD_MAX_REREAD_INTERVAL_MS, ForgeWorkItemReadOptions, fingerprintOf, Cadence, ReadCadence",
+      "bodyBytes": 31451
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/ForgeWatchReactor.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/ForgeWatchReactor.ts",
+      "description": "apps/server/src/orchestration-v2/ForgeWatchReactor.ts exports ForgeWatchReactor, layer",
+      "bodyBytes": 4996
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/LandingWatchReactor.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/LandingWatchReactor.ts",
+      "description": "apps/server/src/orchestration-v2/LandingWatchReactor.ts exports LandingWatchReactor, layer",
+      "bodyBytes": 8498
+    },
+    {
+      "id": "file:apps/server/src/mcp/toolkits/orchestrator/tools.ts",
+      "kind": "file",
+      "title": "apps/server/src/mcp/toolkits/orchestrator/tools.ts",
+      "description": "apps/server/src/mcp/toolkits/orchestrator/tools.ts exports OrchestratorToolkit",
+      "bodyBytes": 21147
+    },
+    {
+      "id": "file:packages/provider-core/src/server/orchestrationInstructions.ts",
+      "kind": "file",
+      "title": "packages/provider-core/src/server/orchestrationInstructions.ts",
+      "description": "packages/provider-core/src/server/orchestrationInstructions.ts exports T3_CODE_ORCHESTRATION_SECTIONS, T3_CODE_ORCHESTRATION_INSTRUCTIONS, T3_CODE_CHILD_SECTIONS, T3_CODE_CHILD_HTML_SECTION, T3_CODE_CHILD_PREVIEW_SECTION, t3ChildInstructio…",
+      "bodyBytes": 16780
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/RuntimePolicy.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/RuntimePolicy.ts",
+      "description": "apps/server/src/orchestration-v2/RuntimePolicy.ts exports RuntimePolicyResolveError, RuntimePolicyV2Error, RuntimePolicyV2Error, RuntimePolicyV2Override, RuntimePolicyV2Override, RuntimePolicyV2Shape",
+      "bodyBytes": 14366
+    },
+    {
+      "id": "file:packages/contracts/src/agentPolicy.ts",
+      "kind": "file",
+      "title": "packages/contracts/src/agentPolicy.ts",
+      "description": "packages/contracts/src/agentPolicy.ts exports AgentRole, AgentRole, AGENT_ROLE_TITLE_LABEL, agentTaskTopic, isLeafAgentTask, isLeafSubagentThread",
+      "bodyBytes": 24729
+    },
+    {
+      "id": "file:packages/contracts/src/server.ts",
+      "kind": "file",
+      "title": "packages/contracts/src/server.ts",
+      "description": "packages/contracts/src/server.ts exports ServerConfigIssue, ServerConfigIssue, ServerProviderState, ServerProviderState, ServerProviderAuthStatus, ServerProviderAuthStatus",
+      "bodyBytes": 37359
+    },
+    {
+      "id": "file:packages/provider-core/src/server/snapshotProbe.ts",
+      "kind": "file",
+      "title": "packages/provider-core/src/server/snapshotProbe.ts",
+      "description": "packages/provider-core/src/server/snapshotProbe.ts exports isWindowsCommandNotFound, DEFAULT_TIMEOUT_MS, AUTH_PROBE_TIMEOUT_MS, COMPACT_SLASH_COMMAND, CommandResult, ProviderCommandNotFoundError",
+      "bodyBytes": 10461
+    },
+    {
+      "id": "file:packages/provider-pi/src/server/status.ts",
+      "kind": "file",
+      "title": "packages/provider-pi/src/server/status.ts",
+      "description": "packages/provider-pi/src/server/status.ts exports MINIMUM_PI_VERSION, discoverPiCommandsForCwd, buildInitialPiProviderSnapshot, checkPiProviderStatus, enrichPiSnapshot",
+      "bodyBytes": 15417
+    },
+    {
+      "id": "file:apps/server/src/mcp/McpHttpServer.ts",
+      "kind": "file",
+      "title": "apps/server/src/mcp/McpHttpServer.ts",
+      "description": "apps/server/src/mcp/McpHttpServer.ts exports McpClientAuthenticator, MAX_SNAPSHOT_TEXT_BYTES, PreviewScreenshotSaveError, toolkitRegistration, layerHtmlToolkit, layerPreviewToolkit",
+      "bodyBytes": 51862
+    },
+    {
+      "id": "file:apps/server/src/mcp/McpInvocationContext.ts",
+      "kind": "file",
+      "title": "apps/server/src/mcp/McpInvocationContext.ts",
+      "description": "apps/server/src/mcp/McpInvocationContext.ts exports McpCapability, McpThreadCaller, McpClientCaller, clientRuntimeModeCeiling, isReadOnlyClient, McpInvocationScope",
+      "bodyBytes": 6069
+    },
+    {
+      "id": "file:apps/server/src/mcp/McpSessionRegistry.ts",
+      "kind": "file",
+      "title": "apps/server/src/mcp/McpSessionRegistry.ts",
+      "description": "apps/server/src/mcp/McpSessionRegistry.ts exports McpCredentialRequest, McpIssuedCredential, McpSessionRegistryShape, McpSessionRegistry, McpSessionRegistryOptions, MANAGED_BROWSER_MCP_PATH",
+      "bodyBytes": 17917
+    },
+    {
+      "id": "file:apps/server/src/mcp/WebResearch.ts",
+      "kind": "file",
+      "title": "apps/server/src/mcp/WebResearch.ts",
+      "description": "apps/server/src/mcp/WebResearch.ts exports WebResearchError, ExecutorCredentialSource, layerCredentials, ExecutorWebClient, layerExecutor, WebResearch",
+      "bodyBytes": 9759
+    },
+    {
+      "id": "file:apps/server/src/mcp/toolkits/web/handlers.ts",
+      "kind": "file",
+      "title": "apps/server/src/mcp/toolkits/web/handlers.ts",
+      "description": "apps/server/src/mcp/toolkits/web/handlers.ts exports layer",
+      "bodyBytes": 1468
+    },
+    {
+      "id": "file:apps/server/src/hq/HqAgentConnections.ts",
+      "kind": "file",
+      "title": "apps/server/src/hq/HqAgentConnections.ts",
+      "description": "apps/server/src/hq/HqAgentConnections.ts exports HqAgent, hqAgentRole, HqMcpConnection, HqObserveError, HqDecisionError, HqAgentCallRefused",
+      "bodyBytes": 51120
+    },
+    {
+      "id": "file:apps/server/src/orchestration-v2/CheckpointRollbackService.ts",
+      "kind": "file",
+      "title": "apps/server/src/orchestration-v2/CheckpointRollbackService.ts",
+      "description": "apps/server/src/orchestration-v2/CheckpointRollbackService.ts exports ROLLBACK_FAILED_MESSAGE, CheckpointRollbackExecutionError, rollbackFailureClientMessage, CheckpointRollbackServiceV2Shape, CheckpointRollbackServiceV2, layer",
+      "bodyBytes": 15386
+    },
+    {
+      "id": "file:apps/server/src/hq/ForgeHome.ts",
+      "kind": "file",
+      "title": "apps/server/src/hq/ForgeHome.ts",
+      "description": "apps/server/src/hq/ForgeHome.ts exports ForgeHome, leadThreadOf, layer",
+      "bodyBytes": 44397
+    },
+    {
+      "id": "file:packages/contracts/src/forgeHome.ts",
+      "kind": "file",
+      "title": "packages/contracts/src/forgeHome.ts",
+      "description": "packages/contracts/src/forgeHome.ts exports ForgeHomeNoteKind, ForgeHomeNoteKind, ForgeHomeItem, ForgeHomeItem, ForgeHomeCard, ForgeHomeCard",
+      "bodyBytes": 6652
+    },
+    {
+      "id": "file:apps/server/src/hq/HqForgeRecordingReactor.ts",
+      "kind": "file",
+      "title": "apps/server/src/hq/HqForgeRecordingReactor.ts",
+      "description": "apps/server/src/hq/HqForgeRecordingReactor.ts exports HqForgeRecordingReactor, layer",
+      "bodyBytes": 13437
+    },
+    {
+      "id": "file:apps/server/src/hq/HqForgeRecords.ts",
+      "kind": "file",
+      "title": "apps/server/src/hq/HqForgeRecords.ts",
+      "description": "apps/server/src/hq/HqForgeRecords.ts exports HqForgeRecordInput, HqForgeRecordKind, HqForgeRecordStatus, HqForgeRecord, HqForgeReviewerRun, HqForgeRecordError",
+      "bodyBytes": 48956
+    },
+    {
+      "id": "file:apps/server/src/project/WorkspaceProvider.ts",
+      "kind": "file",
+      "title": "apps/server/src/project/WorkspaceProvider.ts",
+      "description": "apps/server/src/project/WorkspaceProvider.ts exports WorkspaceProviderKind, WorkspaceProviderError, WorkspaceOwner, WorkspaceProvider, make, layer",
+      "bodyBytes": 27518
+    },
+    {
+      "id": "file:apps/server/scripts/probe-provider-resume.ts",
+      "kind": "file",
+      "title": "apps/server/scripts/probe-provider-resume.ts",
+      "description": "apps/server/scripts/probe-provider-resume.ts",
+      "bodyBytes": 9595
+    },
+    {
+      "id": "file:apps/server/src/decisions/DecisionService.ts",
+      "kind": "file",
+      "title": "apps/server/src/decisions/DecisionService.ts",
+      "description": "apps/server/src/decisions/DecisionService.ts exports DecisionService, layer",
+      "bodyBytes": 7677
+    },
+    {
+      "id": "file:apps/server/src/decisions/adapters.ts",
+      "kind": "file",
+      "title": "apps/server/src/decisions/adapters.ts",
+      "description": "apps/server/src/decisions/adapters.ts exports ADAPTER_VERSION, engines, encodeRequest, parseProviderJson, decodeResponse",
+      "bodyBytes": 9676
+    },
+    {
+      "id": "file:packages/contracts/src/decisions.ts",
+      "kind": "file",
+      "title": "packages/contracts/src/decisions.ts",
+      "description": "packages/contracts/src/decisions.ts exports DECISION_LIMITS, DecisionQuestion, DecisionQuestion, DecisionRequest, DecisionRequest, DecisionAnswer",
+      "bodyBytes": 3754
+    },
+    {
+      "id": "file:AGENTS.md",
+      "kind": "file",
+      "title": "AGENTS.md",
+      "description": "T3 Code. T3 Peach is Henry’s fork of T3 Code: a Node WebSocket server wrapping provider runtimes, with web, Electron desktop and React Native mobile clients. Preserve remote use, open-source forkability and performance; avoid excess WebSocket data, costly list rendering and continuously repainting animations, especial…",
+      "bodyBytes": 8079
+    },
+    {
+      "id": "file:fork/README.md",
+      "kind": "file",
+      "title": "fork/README.md",
+      "description": "T3peach fork. T3peach (`pechhe/t3code`, branch `t3peach`) is T3 Code with upstream's nightlies (`pingdotgg/t3code`) merged in, plus the fork's own features and fixes. These rules keep it gaining features and speed while staying cheap to update. They apply on top of the repository's `AGENTS.md`.",
+      "bodyBytes": 5351
+    },
+    {
+      "id": "file:fork/differences.md",
+      "kind": "file",
+      "title": "fork/differences.md",
+      "description": "Fork differences. This record lists the material, deliberate differences between the T3peach fork (pechhe/t3code, branch `t3peach`) and upstream (pingdotgg/t3code): capabilities, behaviour changes and temporary workarounds, with the requirements that must survive an upstream update. Every fork change that adds or chan…",
+      "bodyBytes": 290394
+    },
+    {
+      "id": "file:knip.jsonc",
+      "kind": "file",
+      "title": "knip.jsonc",
+      "description": "knip.jsonc",
+      "bodyBytes": 7377
+    },
+    {
+      "id": "file:docs/dependencies.md",
+      "kind": "file",
+      "title": "docs/dependencies.md",
+      "description": "Dependency stack. `pnpm-workspace.yaml` owns the catalog, overrides, install permissions, release-age exceptions and patches. Move each related entry together. Workspace manifests select `catalog:` entries; `pnpm-lock.yaml` is generated by pnpm. The root pins pnpm 12.15.0 and Node 26.12.1. Do not use a second lockfile…",
+      "bodyBytes": 8611
+    },
+    {
+      "id": "file:apps/server/src/decisionEvaluations/failureTriage/README.md",
+      "kind": "file",
+      "title": "apps/server/src/decisionEvaluations/failureTriage/README.md",
+      "description": "Failure triage pilot (T3-356). Advisory experiment: can the bounded decision engines (Jev, Luna) look at the evidence of one failed engineering check and say where to look first? It consumes the shared `DecisionService` from T3-350 and changes no retry, quarantine, dismissal, gate or default. Nothing here triggers an…",
+      "bodyBytes": 15886
+    },
+    {
+      "id": "file:apps/server/src/decisionEvaluations/semanticLint/README.md",
+      "kind": "file",
+      "title": "apps/server/src/decisionEvaluations/semanticLint/README.md",
+      "description": "Semantic lint pilot (T3-355). Advisory experiment: can the bounded decision engines (Jev, Luna) screen five semantic code-review questions that deterministic lints cannot see? It consumes the shared `DecisionService` from T3-350 and changes no production lint, default or UI.",
+      "bodyBytes": 7197
+    },
+    {
+      "id": "file:apps/server/src/decisionEvaluations/semanticLint/scoring.ts",
+      "kind": "file",
+      "title": "apps/server/src/decisionEvaluations/semanticLint/scoring.ts",
+      "description": "apps/server/src/decisionEvaluations/semanticLint/scoring.ts exports Outcome, Prediction, Interval, wilson, Confusion, confusion",
+      "bodyBytes": 6111
+    },
+    {
+      "id": "file:apps/server/src/decisionEvaluations/failureTriage/provenance.ts",
+      "kind": "file",
+      "title": "apps/server/src/decisionEvaluations/failureTriage/provenance.ts",
+      "description": "apps/server/src/decisionEvaluations/failureTriage/provenance.ts exports runDigests, scorerDigests, checkoutIdentity",
+      "bodyBytes": 2670
+    },
+    {
+      "id": "file:apps/server/src/decisionEvaluations/failureTriage/run.ts",
+      "kind": "file",
+      "title": "apps/server/src/decisionEvaluations/failureTriage/run.ts",
+      "description": "apps/server/src/decisionEvaluations/failureTriage/run.ts",
+      "bodyBytes": 3285
+    },
+    {
+      "id": "finding:one-choice-decision",
+      "kind": "finding",
+      "title": "Decision choice questions need two labels",
+      "description": "A choice question with a single option passes schema but the classifier throws; the foundation now rejects it before encoding (a412a7ae).",
+      "bodyBytes": 179
+    },
+    {
+      "id": "finding:unknown-cost-stays-unknown",
+      "kind": "finding",
+      "title": "Failed attempts keep cost unknown",
+      "description": "A failed or unobserved model call has unknown spend, not zero; any total that includes one stays unknown and reports the known part separately.",
+      "bodyBytes": 177
+    },
+    {
+      "id": "finding:label-sensitivity",
+      "kind": "finding",
+      "title": "Score against each labeler alone",
+      "description": "Report results under the adjudicated labels and under each labeler alone; a ranking that flips under one labeler is not robust.",
+      "bodyBytes": 160
+    },
+    {
+      "id": "finding:entrypoint-in-run-identity",
+      "kind": "finding",
+      "title": "Run identity must hash the entry point",
+      "description": "A retained run's identity must hash every executable source including the command-line entry point and provenance helper, or the result can describe different code.",
+      "bodyBytes": 203
+    },
+    {
+      "id": "finding:synthetic-too-regular",
+      "kind": "finding",
+      "title": "Regular synthetic corpora only support revise",
+      "description": "A corpus written by one author with regular structure can recommend revise at most; keep real incidents and hard negatives in the held-out set.",
+      "bodyBytes": 189
+    },
+    {
+      "id": "finding:audit-cause-mutates",
+      "kind": "finding",
+      "title": "slipjay audit cause writes state",
+      "description": "Only `slipjay audit status` is read-only. `slipjay audit cause` and the other setters change audit records and are out of scope for agents running an evaluation.",
+      "bodyBytes": 194
+    },
+    {
+      "id": "finding:prepared-deps-corruption",
+      "kind": "finding",
+      "title": "Prepared node_modules can miss vfile files",
+      "description": "A prepared workspace can lack vfile 6.0.3 files (SJ-194); repair the generated package locally with an integrity check, with no source or shared-store change.",
+      "bodyBytes": 201
+    },
+    {
+      "id": "finding:rescore-keeps-identity",
+      "kind": "finding",
+      "title": "A rescore keeps the original run identity",
+      "description": "Re-scoring retained records must not alter the run identity; it records the scorer digest that produced the new numbers.",
+      "bodyBytes": 162
+    },
+    {
+      "id": "finding:decision-rate-limit",
+      "kind": "finding",
+      "title": "Decision calls are limited to 60 a minute",
+      "description": "DecisionService admits 60 calls a minute and 4 at once; evaluation runs use a fixed gap between calls and never retry automatically.",
+      "bodyBytes": 174
+    },
+    {
+      "id": "finding:never-kill-by-name",
+      "kind": "finding",
+      "title": "Never kill a process by name match",
+      "description": "Your own agent's argv contains the path, so pkill -f or a pgrep pipeline can kill it; stop only a PID captured at spawn.",
+      "bodyBytes": 155
+    },
+    {
+      "id": "finding:live-state-is-read-only",
+      "kind": "finding",
+      "title": "~/.t3/userdata is the running installation",
+      "description": "Copy from it; never open it read-write, clean it up, or start a server against it, and never symlink test data back to it.",
+      "bodyBytes": 165
+    },
+    {
+      "id": "finding:no-baked-dev-origins",
+      "kind": "finding",
+      "title": "Never set VITE_HTTP_URL or VITE_WS_URL in dev",
+      "description": "Vite proxies /api, /ws and /oauth through the browser origin; a baked-in localhost breaks remote clients.",
+      "bodyBytes": 151
+    },
+    {
+      "id": "finding:landed-is-not-installed",
+      "kind": "finding",
+      "title": "Landed work is not running until installed",
+      "description": "A change landed on t3peach is not in the Nightly app until the t3-fork-install steps have run.",
+      "bodyBytes": 137
+    },
+    {
+      "id": "finding:chores-need-no-spec",
+      "kind": "finding",
+      "title": "Cleanups and bumps are chores",
+      "description": "A cleanup, dependency bump, dead-code removal or follow-up to just-landed work is done directly as a change, with no Spec, Ticket or Spec review.",
+      "bodyBytes": 175
+    },
+    {
+      "id": "finding:intervals-overlap",
+      "kind": "finding",
+      "title": "Small pilots make no significance claim",
+      "description": "With about thirty cases the 95% intervals overlap; report counts with intervals and avoid significance claims.",
+      "bodyBytes": 150
+    },
+    {
+      "id": "finding:oom-kill-was-the-change",
+      "kind": "finding",
+      "title": "A Killed exit was the change, not the machine",
+      "description": "A check that died with Killed looked like an environment failure but an unbounded buffer added by the change caused it; read the change before dismissing.",
+      "bodyBytes": 200
+    },
+    {
+      "id": "finding:date-dependent-fixture",
+      "kind": "finding",
+      "title": "A fixture failed once its date aged out",
+      "description": "A saved-usage fixture failed every commit after it passed the 92-day scan cache window (8c12bfaf41); keep fixture dates inside the window.",
+      "bodyBytes": 178
+    },
+    {
+      "id": "finding:dpop-https-behind-tunnel",
+      "kind": "finding",
+      "title": "DPoP must use the https URL behind the tunnel",
+      "description": "Behind the T3 Connect tunnel the client signs the https URL; verification must rebuild it from forwarded headers, not use the internal http URL.",
+      "bodyBytes": 190
+    },
+    {
+      "id": "finding:mcp-credential-refresh",
+      "kind": "finding",
+      "title": "Reused sessions must refresh MCP credentials",
+      "description": "Reusing a provider session without refreshing MCP account credentials makes tools fail after token expiry.",
+      "bodyBytes": 151
+    },
+    {
+      "id": "finding:readonly-provider-only",
+      "kind": "finding",
+      "title": "Read-only tasks need an enforcing provider",
+      "description": "A read-only managed task may run only on a provider that actually enforces read-only access; otherwise it must be refused.",
+      "bodyBytes": 165
+    },
+    {
+      "id": "finding:pending-items-partial-index",
+      "kind": "finding",
+      "title": "Pending turn item reads need the partial index",
+      "description": "Shell snapshot reads of pending turn items must go through the partial index; a full scan made streaming slow.",
+      "bodyBytes": 157
+    },
+    {
+      "id": "finding:record-fork-difference",
+      "kind": "finding",
+      "title": "Record every deliberate upstream difference",
+      "description": "Every deliberate difference from upstream updates fork/differences.md in the same change.",
+      "bodyBytes": 133
+    },
+    {
+      "id": "finding:comments-default-none",
+      "kind": "finding",
+      "title": "Default to no code comments",
+      "description": "Record only a constraint, external quirk or invariant the code cannot show, in one to four lines.",
+      "bodyBytes": 125
+    },
+    {
+      "id": "finding:no-ui-restyle",
+      "kind": "finding",
+      "title": "UI components own their look",
+      "description": "Exports in components/ui take a variant or size; do not restyle them through className.",
+      "bodyBytes": 116
+    },
+    {
+      "id": "finding:mobile-nav-is-separate",
+      "kind": "finding",
+      "title": "Mobile navigation is separate from web",
+      "description": "Shared client logic belongs in packages/client-runtime; mobile navigation is its own surface.",
+      "bodyBytes": 132
+    },
+    {
+      "id": "finding:one-browser-check",
+      "kind": "finding",
+      "title": "One integrated browser check after integration",
+      "description": "A visible UI change gets one Browser-panel check by the primary agent after integration; helpers do not start dev servers.",
+      "bodyBytes": 169
+    },
+    {
+      "id": "finding:design-loop-needs-yes",
+      "kind": "finding",
+      "title": "Look-and-feel changes wait for the owner's yes",
+      "description": "A change judged by look or feel is shown on a preview and lands only after the owner says it feels right; apply each round of notes to the same preview.",
+      "bodyBytes": 199
+    },
+    {
+      "id": "finding:no-continuous-repaint",
+      "kind": "finding",
+      "title": "Avoid continuously repainting animations",
+      "description": "Continuous repaints cost battery and frames on high-refresh displays; prefer transitions that settle.",
+      "bodyBytes": 142
+    },
+    {
+      "id": "finding:bounded-wait-on-background",
+      "kind": "finding",
+      "title": "A managed task waits a bounded time on background work",
+      "description": "A managed task publishes its result after a bounded wait on a background command it left running; it never waits indefinitely.",
+      "bodyBytes": 181
+    },
+    {
+      "id": "finding:followup-keeps-workspace",
+      "kind": "finding",
+      "title": "A follow-up keeps the task's own workspace",
+      "description": "A delegate_task follow-up continues in the existing conversation and workspace; do not start a fresh workspace for it.",
+      "bodyBytes": 161
+    },
+    {
+      "id": "finding:registered-flake-different-error",
+      "kind": "finding",
+      "title": "A registered flaky test with a new error is not a known flake",
+      "description": "A test in the flake registry that fails with a different error than the registered signature needs investigation, not a quarantine.",
+      "bodyBytes": 193
+    },
+    {
+      "id": "finding:unattended-asks-nothing",
+      "kind": "finding",
+      "title": "Unattended runs ask no routine questions",
+      "description": "When the owner is away, settle reversible choices from evidence, record blocked actions and carry on with independent work.",
+      "bodyBytes": 164
+    }
+  ]
+}

@@ -1,0 +1,4945 @@
+{
+  "schema": "context-ranking-pilot-results-v1",
+  "split": "tune",
+  "rule": {
+    "id": "context-ranking-pilot",
+    "version": "1"
+  },
+  "declared": {
+    "topK": 5,
+    "threshold": 0.5,
+    "tokenBudgetEstimate": 6000
+  },
+  "baselineVersion": "bm25-pool-idf-v1",
+  "corpusDigest": "23a9821b0e59c11ac9c5534bb5f4e85eaa38b2d1343cb56c5dfabcf98ff4fc42",
+  "corpusDigestAll": "21f7a62d4d851c1784302205e3b145855693d63dd6fba7b6af48150e0b0e3c8e",
+  "labels": {
+    "A": {
+      "role": "advisor",
+      "model": "gpt-6-astra",
+      "options": "reasoningEffort=medium, serviceTier=default",
+      "labelerBatches": 4,
+      "capturedAt": "2026-11-05T00:22:07.001Z",
+      "corpusDigest": "21f7a62d4d851c1784302205e3b145855693d63dd6fba7b6af48150e0b0e3c8e",
+      "blind": "labelers were not shown any ranking system, the baseline, the evaluation code or the author's expectations",
+      "unknownCount": 0
+    },
+    "B": {
+      "role": "scout",
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "options": "thinking=low",
+      "labelerBatches": 4,
+      "capturedAt": "2026-11-05T00:22:07.056Z",
+      "corpusDigest": "21f7a62d4d851c1784302205e3b145855693d63dd6fba7b6af48150e0b0e3c8e",
+      "blind": "labelers were not shown any ranking system, the baseline, the evaluation code or the author's expectations",
+      "unknownCount": 0
+    }
+  },
+  "runAt": "2026-11-05T00:26:38.878Z",
+  "engines": [
+    "jev",
+    "luna"
+  ],
+  "run": {
+    "checkout": {
+      "head": "97202bdf4f9bce89c39c9db3aa1a371ae42ae083",
+      "workingCopyDirty": true
+    },
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "linux",
+      "arch": "x64"
+    },
+    "files": {
+      "apps/server/src/decisionEvaluations/contextRanking/run.ts": "1ecca7924f8e116863abdff02a62ce2d73c8d89e65cf2dccc110438376fd2c00",
+      "apps/server/src/decisionEvaluations/contextRanking/provenance.ts": "60e22e3bb9a953f99e8ed474e2f30883ee391453cbb8e5214f52e6cc5a1e11fb",
+      "apps/server/src/decisionEvaluations/contextRanking/rule.ts": "b6cb35712c884d9f82757c40d90ca0119d00f55174056a8275769875ac564514",
+      "apps/server/src/decisionEvaluations/contextRanking/baseline.ts": "26670d11857adafd13861129e5fe8025cb008f9ac629e3f2942621fe39e97f92",
+      "apps/server/src/decisionEvaluations/contextRanking/harness.ts": "4661c28d4333669e707d027cd579e286867a012cd4cf53d7c11767b5c2b6a515",
+      "apps/server/src/decisionEvaluations/contextRanking/caseBuilder.ts": "873196873ffb326d0ef0b9f1005d120f0b78c8f76946e5e7c29aa237d62eb5cd",
+      "apps/server/src/decisionEvaluations/contextRanking/corpusTypes.ts": "2dbc98ee2ea91a08c78c1a7248ed7c839eeb3657bf3384db2ef57d89e89cfedb",
+      "apps/server/src/decisionEvaluations/contextRanking/corpusTune.ts": "3bec26fded0e9bfacbf4b702e8ce6a9c913949ed33c62685e7e73f8aaa4d2e21",
+      "apps/server/src/decisionEvaluations/contextRanking/corpusHeldout.ts": "3afc8c78693e24562866e59f19b7cb1c1ab998b367dd9fd57e95f492e7d3490d",
+      "apps/server/src/decisionEvaluations/contextRanking/findings.ts": "473cd26e9a5e04f3500851b82da33ff2897de12f70eadc9e04c6a3fd438feb9b",
+      "apps/server/src/decisionEvaluations/contextRanking/pool.json": "12d80773051579f9e12eb123e9ce4604a2cf97a2419947c9f22da2def259568c",
+      "apps/server/src/decisions/DecisionService.ts": "e63db78a2a054f1115aed709c53b37a9c16683709bfad94042c4171ec4d0f5f8",
+      "apps/server/src/decisions/adapters.ts": "ce64942a3311d10543b83fe3c9b3c47fcc72b9cec6c7b1efdf0067005913a492",
+      "apps/server/src/decisions/decisions.testkit.ts": "80cebd187858cfa6029c6356822962a363431afb30ff7b6fb08adbd2c15a2016",
+      "packages/contracts/src/decisions.ts": "4225d2f33a0754c8bbe47500e29a59f19d85c795ed17517db4b1f0f262e26f18",
+      "pnpm-lock.yaml": "5843e5b209222e7d5ef712d688f911b81fa73b030f433d4db6a06be570b08c79"
+    }
+  },
+  "scorer": {
+    "files": {
+      "apps/server/src/decisionEvaluations/contextRanking/scoring.ts": "ff0fad8ce72c44e9fb942c3bf14a98252753388edecdd529cfa467c0f8863a53",
+      "apps/server/src/decisionEvaluations/contextRanking/labels.ts": "0a76cbdc567482512e4415161b8ca63c823bca6fcd6e2703466f0067dff42f60",
+      "apps/server/src/decisionEvaluations/contextRanking/results/labels-A.json": "a884f92e559c5e36f21a74dec02883abe02872e0a31c1200b415daf0618600e9",
+      "apps/server/src/decisionEvaluations/contextRanking/results/labels-B.json": "458841f79d54573f3e3a1f11c67bbc4cc22a573a2136219f6bdde9f84be26801",
+      "apps/server/src/decisionEvaluations/semanticLint/scoring.ts": "1fc9dd94096e4573aca56aa36236473c8d858445df5e419cc6eb00d01cde1790"
+    },
+    "build": {
+      "apps/server/src/decisionEvaluations/contextRanking/buildPool.ts": "d98e7b0e1598d96ea06434c1707e2da547ba77683d1e8f8bb2321f8bb1f0ced5",
+      "apps/server/src/decisionEvaluations/contextRanking/labelPackets.ts": "8852b22eb36fd417991c6940c9f7d0fac5a3cdf1b7d56e327e32d887b65e3f99"
+    }
+  },
+  "records": [
+    {
+      "caseId": "t-followup-workspace",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0.03,
+          "c02": 0.19,
+          "c03": 0.09,
+          "c04": 0.34,
+          "c05": 0.06,
+          "c06": 0.09,
+          "c07": 0.24,
+          "c08": 0.02,
+          "c09": 0.03,
+          "c10": 0.88,
+          "c11": 0.04,
+          "c12": 0.13,
+          "c13": 0.74,
+          "c14": 0.27,
+          "c15": 0.02,
+          "c16": 0.03
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "c558fe5bcca1a76db0b068c1dc491f337ddb811770eb13064a8216c077fd4313",
+      "latencyMs": 558,
+      "estimatedInputTokens": 2875,
+      "inputTokens": 3130,
+      "outputTokens": 292,
+      "costUsd": 0.00013146000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-followup-workspace",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0,
+          "c02": 0,
+          "c03": 0,
+          "c04": 0.09,
+          "c05": 0,
+          "c06": 0,
+          "c07": 0.01,
+          "c08": 0,
+          "c09": 0,
+          "c10": 1,
+          "c11": 0,
+          "c12": 0,
+          "c13": 1,
+          "c14": 0,
+          "c15": 0,
+          "c16": 0
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "73017c7c44533c9535627aa2362c86fce0b57b9c30d2ee6925890516cf941630",
+      "latencyMs": 702,
+      "estimatedInputTokens": 2875,
+      "inputTokens": 4588,
+      "outputTokens": 0,
+      "costUsd": 0.0004588,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-dpop-tunnel",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0.71,
+          "c02": 0.03,
+          "c03": 0.07,
+          "c04": 0.32,
+          "c05": 0.49,
+          "c06": 0.87,
+          "c07": 0.02,
+          "c08": 0.06,
+          "c09": 0.03,
+          "c10": 0.02,
+          "c11": 0.4,
+          "c12": 0.05,
+          "c13": 0.02,
+          "c14": 0.02,
+          "c15": 0.02,
+          "c16": 0.63
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "99e8e561782d8a199db23a1345bacd2ef9137ad41180861e19dde57efe5aba8d",
+      "latencyMs": 205,
+      "estimatedInputTokens": 2857,
+      "inputTokens": 3049,
+      "outputTokens": 292,
+      "costUsd": 0.000128058,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-dpop-tunnel",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0.99,
+          "c02": 0,
+          "c03": 0,
+          "c04": 0.08,
+          "c05": 0.21,
+          "c06": 0.54,
+          "c07": 0,
+          "c08": 0,
+          "c09": 0,
+          "c10": 0,
+          "c11": 0.17,
+          "c12": 0,
+          "c13": 0,
+          "c14": 0,
+          "c15": 0,
+          "c16": 1
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "808937bc3cab5822973ed888a8b85c018ea031172852fdf7faa27d017720f702",
+      "latencyMs": 724,
+      "estimatedInputTokens": 2857,
+      "inputTokens": 4550,
+      "outputTokens": 0,
+      "costUsd": 0.000455,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-install-on-quit",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0.05,
+          "c02": 0.49,
+          "c03": 0.2,
+          "c04": 0.05,
+          "c05": 0.85,
+          "c06": 0.03,
+          "c07": 0.72,
+          "c08": 0.05,
+          "c09": 0.03,
+          "c10": 0.4,
+          "c11": 0.22,
+          "c12": 0.06,
+          "c13": 0.08,
+          "c14": 0.04,
+          "c15": 0.03,
+          "c16": 0.7
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "f6121eb113ead5f948c143632eba1901e81bd278dc0002e81e5368aa26d0541d",
+      "latencyMs": 285,
+      "estimatedInputTokens": 2899,
+      "inputTokens": 3138,
+      "outputTokens": 292,
+      "costUsd": 0.00013179600000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-install-on-quit",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0,
+          "c02": 0.05,
+          "c03": 0,
+          "c04": 0,
+          "c05": 1,
+          "c06": 0,
+          "c07": 1,
+          "c08": 0,
+          "c09": 0,
+          "c10": 0.75,
+          "c11": 0.09,
+          "c12": 0,
+          "c13": 0.02,
+          "c14": 0,
+          "c15": 0,
+          "c16": 0.99
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "d40de8736c1d0cb0a98339cba648b9ee2887b353c0b28dea840c1c902adf0d28",
+      "latencyMs": 1195,
+      "estimatedInputTokens": 2899,
+      "inputTokens": 4636,
+      "outputTokens": 0,
+      "costUsd": 0.00046360000000000005,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-close-report",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0.13,
+          "c02": 0.08,
+          "c03": 0.04,
+          "c04": 0.13,
+          "c05": 0.08,
+          "c06": 0.03,
+          "c07": 0.03,
+          "c08": 0.14,
+          "c09": 0.17,
+          "c10": 0.03,
+          "c11": 0.08,
+          "c12": 0.59,
+          "c13": 0.03,
+          "c14": 0.62,
+          "c15": 0.03,
+          "c16": 0.17
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "96c14daf5c4bdfb1e963d73a84d7586abcb28dba3209fb5b04a36e7a21a559df",
+      "latencyMs": 645,
+      "estimatedInputTokens": 2892,
+      "inputTokens": 3079,
+      "outputTokens": 292,
+      "costUsd": 0.000129318,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-close-report",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0,
+          "c02": 0,
+          "c03": 0,
+          "c04": 0.02,
+          "c05": 0,
+          "c06": 0,
+          "c07": 0,
+          "c08": 0.03,
+          "c09": 0,
+          "c10": 0,
+          "c11": 0,
+          "c12": 0.04,
+          "c13": 0,
+          "c14": 0.02,
+          "c15": 0,
+          "c16": 0.53
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "5ba44308bb24572f7f9b357a67e7ef5ebaa79f1d8a3ed48290fa44e800db418f",
+      "latencyMs": 381,
+      "estimatedInputTokens": 2892,
+      "inputTokens": 4599,
+      "outputTokens": 0,
+      "costUsd": 0.0004599,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-eval-run-script",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0.35,
+          "c02": 0.06,
+          "c03": 0.06,
+          "c04": 0.75,
+          "c05": 0.09,
+          "c06": 0.12,
+          "c07": 0.77,
+          "c08": 0.47,
+          "c09": 0.7,
+          "c10": 0.03,
+          "c11": 0.2,
+          "c12": 0.02,
+          "c13": 0.5,
+          "c14": 0.48,
+          "c15": 0.84,
+          "c16": 0.03
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "4b2a6b12e04bf749ad149730f81e1395872e4a2773380131fbd970e16badc60f",
+      "latencyMs": 435,
+      "estimatedInputTokens": 2913,
+      "inputTokens": 3118,
+      "outputTokens": 292,
+      "costUsd": 0.00013095600000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-eval-run-script",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0,
+          "c02": 0,
+          "c03": 0,
+          "c04": 0.85,
+          "c05": 0,
+          "c06": 0,
+          "c07": 1,
+          "c08": 0.98,
+          "c09": 1,
+          "c10": 0,
+          "c11": 0.39,
+          "c12": 0,
+          "c13": 1,
+          "c14": 0.99,
+          "c15": 0.99,
+          "c16": 0
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "f55076e23b7c872c4df88d45a31925b08146ad59cfd2f004cdd9daefd2f9156e",
+      "latencyMs": 501,
+      "estimatedInputTokens": 2913,
+      "inputTokens": 4615,
+      "outputTokens": 0,
+      "costUsd": 0.0004615,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-weekly-bump",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0.04,
+          "c02": 0.82,
+          "c03": 0.06,
+          "c04": 0.25,
+          "c05": 0.03,
+          "c06": 0.3,
+          "c07": 0.04,
+          "c08": 0.03,
+          "c09": 0.91,
+          "c10": 0.03,
+          "c11": 0.08,
+          "c12": 0.04,
+          "c13": 0.06,
+          "c14": 0.31,
+          "c15": 0.04,
+          "c16": 0.08
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "14a72361c3395855df94e5baf224230146187cbdb3a860e6104d223b51da8b91",
+      "latencyMs": 211,
+      "estimatedInputTokens": 2912,
+      "inputTokens": 3113,
+      "outputTokens": 292,
+      "costUsd": 0.000130746,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-weekly-bump",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0,
+          "c02": 1,
+          "c03": 0,
+          "c04": 0,
+          "c05": 0,
+          "c06": 0,
+          "c07": 0,
+          "c08": 0,
+          "c09": 1,
+          "c10": 0,
+          "c11": 0,
+          "c12": 0,
+          "c13": 0,
+          "c14": 0.01,
+          "c15": 0,
+          "c16": 0
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "4a63d985df3e13790fa6c0d74eb0dc5a282424469a6dea371cb21ca8f0b6e299",
+      "latencyMs": 257,
+      "estimatedInputTokens": 2912,
+      "inputTokens": 4619,
+      "outputTokens": 0,
+      "costUsd": 0.00046190000000000006,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-label-rename",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0.28,
+          "c02": 0.02,
+          "c03": 0.53,
+          "c04": 0.26,
+          "c05": 0.05,
+          "c06": 0.02,
+          "c07": 0.03,
+          "c08": 0.03,
+          "c09": 0.03,
+          "c10": 0.03,
+          "c11": 0.15,
+          "c12": 0.27,
+          "c13": 0.02,
+          "c14": 0.02,
+          "c15": 0.51,
+          "c16": 0.02
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "04ff60db377172d51d703469ba965070601e1c28cef77bb8f22586463dcd17d5",
+      "latencyMs": 421,
+      "estimatedInputTokens": 2810,
+      "inputTokens": 2992,
+      "outputTokens": 292,
+      "costUsd": 0.000125664,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-label-rename",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0,
+          "c02": 0,
+          "c03": 0,
+          "c04": 0,
+          "c05": 0,
+          "c06": 0,
+          "c07": 0,
+          "c08": 0,
+          "c09": 0,
+          "c10": 0,
+          "c11": 0,
+          "c12": 0,
+          "c13": 0,
+          "c14": 0,
+          "c15": 0.04,
+          "c16": 0
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "20f62c5385baf16cef03fcaff7b5f21ae16c641704ac8bf8aeddffb4bce1d4ae",
+      "latencyMs": 194,
+      "estimatedInputTokens": 2810,
+      "inputTokens": 4497,
+      "outputTokens": 0,
+      "costUsd": 0.00044970000000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-review-pilot",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0.13,
+          "c02": 0.03,
+          "c03": 0.84,
+          "c04": 0.56,
+          "c05": 0.73,
+          "c06": 0.05,
+          "c07": 0.08,
+          "c08": 0.7,
+          "c09": 0.03,
+          "c10": 0.02,
+          "c11": 0.04,
+          "c12": 0.08,
+          "c13": 0.52,
+          "c14": 0.06,
+          "c15": 0.06,
+          "c16": 0.72
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "666ab85355c3fcd0c6a5896d43cfeb35926a159eff09dcc52e60deb6c3aa9a90",
+      "latencyMs": 172,
+      "estimatedInputTokens": 2785,
+      "inputTokens": 3015,
+      "outputTokens": 292,
+      "costUsd": 0.00012663,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-review-pilot",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "scores": {
+          "c01": 0,
+          "c02": 0,
+          "c03": 1,
+          "c04": 1,
+          "c05": 0.97,
+          "c06": 0.05,
+          "c07": 0,
+          "c08": 1,
+          "c09": 0,
+          "c10": 0,
+          "c11": 0,
+          "c12": 0,
+          "c13": 0.91,
+          "c14": 0,
+          "c15": 0,
+          "c16": 0.92
+        },
+        "unanswered": 0
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "7b3d12924900bc393afcb9701f098cd1f28967ceb1393787e9cf8258a8a30739",
+      "latencyMs": 513,
+      "estimatedInputTokens": 2785,
+      "inputTokens": 4512,
+      "outputTokens": 0,
+      "costUsd": 0.00045120000000000007,
+      "costStatus": "estimated"
+    }
+  ],
+  "systems": {
+    "lexical": {
+      "rules": {
+        "topK": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 12,
+          "recall": {
+            "value": 0.7058823529411765,
+            "low": 0.468664666737861,
+            "high": 0.8672020613444361
+          },
+          "criticalOmissionCases": 3,
+          "criticalOmissionIds": [
+            "t-dpop-tunnel",
+            "t-install-on-quit",
+            "t-eval-run-script"
+          ],
+          "allNeededRetainedCases": 5,
+          "included": {
+            "needed": 12,
+            "helpful": 11,
+            "unneeded": 16,
+            "uncertain": 1,
+            "total": 40
+          },
+          "precisionStrict": {
+            "value": 0.3,
+            "low": 0.18074670915695296,
+            "high": 0.454303106543204
+          },
+          "noise": {
+            "value": 0.4,
+            "low": 0.2634811061240136,
+            "high": 0.5540438017260649
+          },
+          "meanIncludedCandidates": 5,
+          "meanIncludedTokens": 11981.625,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0.8583231962823752,
+          "meanIncludedWhenNoneNeeded": null
+        },
+        "threshold": null,
+        "budget": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 11,
+          "recall": {
+            "value": 0.6470588235294118,
+            "low": 0.4129996672121182,
+            "high": 0.826905138560951
+          },
+          "criticalOmissionCases": 4,
+          "criticalOmissionIds": [
+            "t-followup-workspace",
+            "t-dpop-tunnel",
+            "t-install-on-quit",
+            "t-close-report"
+          ],
+          "allNeededRetainedCases": 4,
+          "included": {
+            "needed": 11,
+            "helpful": 15,
+            "unneeded": 30,
+            "uncertain": 1,
+            "total": 57
+          },
+          "precisionStrict": {
+            "value": 0.19298245614035087,
+            "low": 0.11132633377760481,
+            "high": 0.3134093733701362
+          },
+          "noise": {
+            "value": 0.5263157894736842,
+            "low": 0.3991779445222314,
+            "high": 0.6501304234365335
+          },
+          "meanIncludedCandidates": 7.125,
+          "meanIncludedTokens": 8108.375,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0.9041224664147062,
+          "meanIncludedWhenNoneNeeded": null
+        },
+        "all": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 17,
+          "recall": {
+            "value": 1,
+            "low": 0.8156763396284354,
+            "high": 1
+          },
+          "criticalOmissionCases": 0,
+          "criticalOmissionIds": [],
+          "allNeededRetainedCases": 8,
+          "included": {
+            "needed": 17,
+            "helpful": 18,
+            "unneeded": 86,
+            "uncertain": 7,
+            "total": 128
+          },
+          "precisionStrict": {
+            "value": 0.1328125,
+            "low": 0.08460158144609939,
+            "high": 0.2024216342915737
+          },
+          "noise": {
+            "value": 0.671875,
+            "low": 0.5865623991215974,
+            "high": 0.7471714147884281
+          },
+          "meanIncludedCandidates": 16,
+          "meanIncludedTokens": 84570.125,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0,
+          "meanIncludedWhenNoneNeeded": null
+        },
+        "none": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 0,
+          "recall": {
+            "value": 0,
+            "low": 0,
+            "high": 0.18432366037156456
+          },
+          "criticalOmissionCases": 8,
+          "criticalOmissionIds": [
+            "t-followup-workspace",
+            "t-dpop-tunnel",
+            "t-install-on-quit",
+            "t-close-report",
+            "t-eval-run-script",
+            "t-weekly-bump",
+            "t-label-rename",
+            "t-review-pilot"
+          ],
+          "allNeededRetainedCases": 0,
+          "included": {
+            "needed": 0,
+            "helpful": 0,
+            "unneeded": 0,
+            "uncertain": 0,
+            "total": 0
+          },
+          "precisionStrict": {
+            "value": null,
+            "low": null,
+            "high": null
+          },
+          "noise": {
+            "value": null,
+            "low": null,
+            "high": null
+          },
+          "meanIncludedCandidates": 0,
+          "meanIncludedTokens": 2499.5,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0.970444645789515,
+          "meanIncludedWhenNoneNeeded": null
+        }
+      },
+      "meanAveragePrecision": 0.5672416125541124,
+      "byStratumTopK": {
+        "authentic": {
+          "cases": 3,
+          "neededItems": 6,
+          "neededRetained": 2,
+          "criticalOmissionCases": 2
+        },
+        "synthetic": {
+          "cases": 4,
+          "neededItems": 8,
+          "neededRetained": 7,
+          "criticalOmissionCases": 1
+        },
+        "reconstructed": {
+          "cases": 1,
+          "neededItems": 3,
+          "neededRetained": 3,
+          "criticalOmissionCases": 0
+        }
+      }
+    },
+    "random": {
+      "rules": {
+        "topK": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 5,
+          "recall": {
+            "value": 0.29411764705882354,
+            "low": 0.13279793865556402,
+            "high": 0.5313353332621391
+          },
+          "criticalOmissionCases": 7,
+          "criticalOmissionIds": [
+            "t-followup-workspace",
+            "t-dpop-tunnel",
+            "t-install-on-quit",
+            "t-close-report",
+            "t-eval-run-script",
+            "t-weekly-bump",
+            "t-review-pilot"
+          ],
+          "allNeededRetainedCases": 1,
+          "included": {
+            "needed": 5,
+            "helpful": 9,
+            "unneeded": 25,
+            "uncertain": 1,
+            "total": 40
+          },
+          "precisionStrict": {
+            "value": 0.125,
+            "low": 0.05459419773541284,
+            "high": 0.26112420670238146
+          },
+          "noise": {
+            "value": 0.625,
+            "low": 0.47032160054531913,
+            "high": 0.7577722646420829
+          },
+          "meanIncludedCandidates": 5,
+          "meanIncludedTokens": 19745.75,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0.7665162490891435,
+          "meanIncludedWhenNoneNeeded": null
+        },
+        "threshold": null,
+        "budget": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 7,
+          "recall": {
+            "value": 0.4117647058823529,
+            "low": 0.21610786039131383,
+            "high": 0.6399492561448447
+          },
+          "criticalOmissionCases": 7,
+          "criticalOmissionIds": [
+            "t-followup-workspace",
+            "t-dpop-tunnel",
+            "t-install-on-quit",
+            "t-close-report",
+            "t-eval-run-script",
+            "t-weekly-bump",
+            "t-review-pilot"
+          ],
+          "allNeededRetainedCases": 1,
+          "included": {
+            "needed": 7,
+            "helpful": 12,
+            "unneeded": 41,
+            "uncertain": 1,
+            "total": 61
+          },
+          "precisionStrict": {
+            "value": 0.11475409836065574,
+            "low": 0.0567113064337431,
+            "high": 0.2184453830989026
+          },
+          "noise": {
+            "value": 0.6721311475409836,
+            "low": 0.5472157118133126,
+            "high": 0.7766504481827393
+          },
+          "meanIncludedCandidates": 7.625,
+          "meanIncludedTokens": 8202,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0.9030153969856376,
+          "meanIncludedWhenNoneNeeded": null
+        },
+        "all": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 17,
+          "recall": {
+            "value": 1,
+            "low": 0.8156763396284354,
+            "high": 1
+          },
+          "criticalOmissionCases": 0,
+          "criticalOmissionIds": [],
+          "allNeededRetainedCases": 8,
+          "included": {
+            "needed": 17,
+            "helpful": 18,
+            "unneeded": 86,
+            "uncertain": 7,
+            "total": 128
+          },
+          "precisionStrict": {
+            "value": 0.1328125,
+            "low": 0.08460158144609939,
+            "high": 0.2024216342915737
+          },
+          "noise": {
+            "value": 0.671875,
+            "low": 0.5865623991215974,
+            "high": 0.7471714147884281
+          },
+          "meanIncludedCandidates": 16,
+          "meanIncludedTokens": 84570.125,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0,
+          "meanIncludedWhenNoneNeeded": null
+        },
+        "none": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 0,
+          "recall": {
+            "value": 0,
+            "low": 0,
+            "high": 0.18432366037156456
+          },
+          "criticalOmissionCases": 8,
+          "criticalOmissionIds": [
+            "t-followup-workspace",
+            "t-dpop-tunnel",
+            "t-install-on-quit",
+            "t-close-report",
+            "t-eval-run-script",
+            "t-weekly-bump",
+            "t-label-rename",
+            "t-review-pilot"
+          ],
+          "allNeededRetainedCases": 0,
+          "included": {
+            "needed": 0,
+            "helpful": 0,
+            "unneeded": 0,
+            "uncertain": 0,
+            "total": 0
+          },
+          "precisionStrict": {
+            "value": null,
+            "low": null,
+            "high": null
+          },
+          "noise": {
+            "value": null,
+            "low": null,
+            "high": null
+          },
+          "meanIncludedCandidates": 0,
+          "meanIncludedTokens": 2499.5,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0.970444645789515,
+          "meanIncludedWhenNoneNeeded": null
+        }
+      },
+      "meanAveragePrecision": 0.3205993659118659,
+      "byStratumTopK": {
+        "authentic": {
+          "cases": 3,
+          "neededItems": 6,
+          "neededRetained": 1,
+          "criticalOmissionCases": 3
+        },
+        "synthetic": {
+          "cases": 4,
+          "neededItems": 8,
+          "neededRetained": 3,
+          "criticalOmissionCases": 3
+        },
+        "reconstructed": {
+          "cases": 1,
+          "neededItems": 3,
+          "neededRetained": 1,
+          "criticalOmissionCases": 1
+        }
+      }
+    },
+    "jev": {
+      "rules": {
+        "topK": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 17,
+          "recall": {
+            "value": 1,
+            "low": 0.8156763396284354,
+            "high": 1
+          },
+          "criticalOmissionCases": 0,
+          "criticalOmissionIds": [],
+          "allNeededRetainedCases": 8,
+          "included": {
+            "needed": 17,
+            "helpful": 13,
+            "unneeded": 7,
+            "uncertain": 3,
+            "total": 40
+          },
+          "precisionStrict": {
+            "value": 0.425,
+            "low": 0.28509168524815875,
+            "high": 0.5780519956394001
+          },
+          "noise": {
+            "value": 0.175,
+            "low": 0.08745302996883066,
+            "high": 0.3195029205439244
+          },
+          "meanIncludedCandidates": 5,
+          "meanIncludedTokens": 28890.875,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0.658379658301321,
+          "meanIncludedWhenNoneNeeded": null
+        },
+        "threshold": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 15,
+          "recall": {
+            "value": 0.8823529411764706,
+            "low": 0.6566315750229009,
+            "high": 0.967120919987079
+          },
+          "criticalOmissionCases": 2,
+          "criticalOmissionIds": [
+            "t-install-on-quit",
+            "t-close-report"
+          ],
+          "allNeededRetainedCases": 6,
+          "included": {
+            "needed": 15,
+            "helpful": 6,
+            "unneeded": 4,
+            "uncertain": 0,
+            "total": 25
+          },
+          "precisionStrict": {
+            "value": 0.6,
+            "low": 0.40739127785127344,
+            "high": 0.7659694233580909
+          },
+          "noise": {
+            "value": 0.16,
+            "low": 0.06403347608577989,
+            "high": 0.34654013980238163
+          },
+          "meanIncludedCandidates": 3.125,
+          "meanIncludedTokens": 16197.125,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0.8084769887711529,
+          "meanIncludedWhenNoneNeeded": null
+        },
+        "budget": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 14,
+          "recall": {
+            "value": 0.8235294117647058,
+            "low": 0.5897007098262422,
+            "high": 0.9380898628745101
+          },
+          "criticalOmissionCases": 2,
+          "criticalOmissionIds": [
+            "t-followup-workspace",
+            "t-install-on-quit"
+          ],
+          "allNeededRetainedCases": 6,
+          "included": {
+            "needed": 14,
+            "helpful": 14,
+            "unneeded": 32,
+            "uncertain": 2,
+            "total": 62
+          },
+          "precisionStrict": {
+            "value": 0.22580645161290322,
+            "low": 0.13955057139297955,
+            "high": 0.34405857540782725
+          },
+          "noise": {
+            "value": 0.5161290322580645,
+            "low": 0.39447247460618196,
+            "high": 0.6359034579349471
+          },
+          "meanIncludedCandidates": 7.75,
+          "meanIncludedTokens": 7963.25,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0.9058384979329285,
+          "meanIncludedWhenNoneNeeded": null
+        },
+        "all": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 17,
+          "recall": {
+            "value": 1,
+            "low": 0.8156763396284354,
+            "high": 1
+          },
+          "criticalOmissionCases": 0,
+          "criticalOmissionIds": [],
+          "allNeededRetainedCases": 8,
+          "included": {
+            "needed": 17,
+            "helpful": 18,
+            "unneeded": 86,
+            "uncertain": 7,
+            "total": 128
+          },
+          "precisionStrict": {
+            "value": 0.1328125,
+            "low": 0.08460158144609939,
+            "high": 0.2024216342915737
+          },
+          "noise": {
+            "value": 0.671875,
+            "low": 0.5865623991215974,
+            "high": 0.7471714147884281
+          },
+          "meanIncludedCandidates": 16,
+          "meanIncludedTokens": 84570.125,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0,
+          "meanIncludedWhenNoneNeeded": null
+        },
+        "none": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 0,
+          "recall": {
+            "value": 0,
+            "low": 0,
+            "high": 0.18432366037156456
+          },
+          "criticalOmissionCases": 8,
+          "criticalOmissionIds": [
+            "t-followup-workspace",
+            "t-dpop-tunnel",
+            "t-install-on-quit",
+            "t-close-report",
+            "t-eval-run-script",
+            "t-weekly-bump",
+            "t-label-rename",
+            "t-review-pilot"
+          ],
+          "allNeededRetainedCases": 0,
+          "included": {
+            "needed": 0,
+            "helpful": 0,
+            "unneeded": 0,
+            "uncertain": 0,
+            "total": 0
+          },
+          "precisionStrict": {
+            "value": null,
+            "low": null,
+            "high": null
+          },
+          "noise": {
+            "value": null,
+            "low": null,
+            "high": null
+          },
+          "meanIncludedCandidates": 0,
+          "meanIncludedTokens": 2499.5,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0.970444645789515,
+          "meanIncludedWhenNoneNeeded": null
+        }
+      },
+      "meanAveragePrecision": 0.8729166666666668,
+      "byStratumTopK": {
+        "authentic": {
+          "cases": 3,
+          "neededItems": 6,
+          "neededRetained": 6,
+          "criticalOmissionCases": 0
+        },
+        "synthetic": {
+          "cases": 4,
+          "neededItems": 8,
+          "neededRetained": 8,
+          "criticalOmissionCases": 0
+        },
+        "reconstructed": {
+          "cases": 1,
+          "neededItems": 3,
+          "neededRetained": 3,
+          "criticalOmissionCases": 0
+        }
+      }
+    },
+    "luna": {
+      "rules": {
+        "topK": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 16,
+          "recall": {
+            "value": 0.9411764705882353,
+            "low": 0.730174547964372,
+            "high": 0.9895398693548358
+          },
+          "criticalOmissionCases": 1,
+          "criticalOmissionIds": [
+            "t-eval-run-script"
+          ],
+          "allNeededRetainedCases": 7,
+          "included": {
+            "needed": 16,
+            "helpful": 12,
+            "unneeded": 11,
+            "uncertain": 1,
+            "total": 40
+          },
+          "precisionStrict": {
+            "value": 0.4,
+            "low": 0.2634811061240136,
+            "high": 0.5540438017260649
+          },
+          "noise": {
+            "value": 0.275,
+            "low": 0.1610785343314309,
+            "high": 0.4283525083312457
+          },
+          "meanIncludedCandidates": 5,
+          "meanIncludedTokens": 26831.75,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0.6827277954242116,
+          "meanIncludedWhenNoneNeeded": null
+        },
+        "threshold": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 16,
+          "recall": {
+            "value": 0.9411764705882353,
+            "low": 0.730174547964372,
+            "high": 0.9895398693548358
+          },
+          "criticalOmissionCases": 1,
+          "criticalOmissionIds": [
+            "t-label-rename"
+          ],
+          "allNeededRetainedCases": 7,
+          "included": {
+            "needed": 16,
+            "helpful": 8,
+            "unneeded": 1,
+            "uncertain": 0,
+            "total": 25
+          },
+          "precisionStrict": {
+            "value": 0.64,
+            "low": 0.44518154601046633,
+            "high": 0.7975234356826436
+          },
+          "noise": {
+            "value": 0.04,
+            "low": 0.007096050386699165,
+            "high": 0.19544472405022525
+          },
+          "meanIncludedCandidates": 3.125,
+          "meanIncludedTokens": 16521.25,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0.8046443705741242,
+          "meanIncludedWhenNoneNeeded": null
+        },
+        "budget": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 14,
+          "recall": {
+            "value": 0.8235294117647058,
+            "low": 0.5897007098262422,
+            "high": 0.9380898628745101
+          },
+          "criticalOmissionCases": 2,
+          "criticalOmissionIds": [
+            "t-followup-workspace",
+            "t-install-on-quit"
+          ],
+          "allNeededRetainedCases": 6,
+          "included": {
+            "needed": 14,
+            "helpful": 14,
+            "unneeded": 31,
+            "uncertain": 1,
+            "total": 60
+          },
+          "precisionStrict": {
+            "value": 0.23333333333333334,
+            "low": 0.1443943161843107,
+            "high": 0.3543651134039202
+          },
+          "noise": {
+            "value": 0.5166666666666667,
+            "low": 0.39307594850843575,
+            "high": 0.6382515871422999
+          },
+          "meanIncludedCandidates": 7.5,
+          "meanIncludedTokens": 7908.875,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0.9064814554785157,
+          "meanIncludedWhenNoneNeeded": null
+        },
+        "all": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 17,
+          "recall": {
+            "value": 1,
+            "low": 0.8156763396284354,
+            "high": 1
+          },
+          "criticalOmissionCases": 0,
+          "criticalOmissionIds": [],
+          "allNeededRetainedCases": 8,
+          "included": {
+            "needed": 17,
+            "helpful": 18,
+            "unneeded": 86,
+            "uncertain": 7,
+            "total": 128
+          },
+          "precisionStrict": {
+            "value": 0.1328125,
+            "low": 0.08460158144609939,
+            "high": 0.2024216342915737
+          },
+          "noise": {
+            "value": 0.671875,
+            "low": 0.5865623991215974,
+            "high": 0.7471714147884281
+          },
+          "meanIncludedCandidates": 16,
+          "meanIncludedTokens": 84570.125,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0,
+          "meanIncludedWhenNoneNeeded": null
+        },
+        "none": {
+          "cases": 8,
+          "casesWithNeeded": 8,
+          "neededItems": 17,
+          "neededRetained": 0,
+          "recall": {
+            "value": 0,
+            "low": 0,
+            "high": 0.18432366037156456
+          },
+          "criticalOmissionCases": 8,
+          "criticalOmissionIds": [
+            "t-followup-workspace",
+            "t-dpop-tunnel",
+            "t-install-on-quit",
+            "t-close-report",
+            "t-eval-run-script",
+            "t-weekly-bump",
+            "t-label-rename",
+            "t-review-pilot"
+          ],
+          "allNeededRetainedCases": 0,
+          "included": {
+            "needed": 0,
+            "helpful": 0,
+            "unneeded": 0,
+            "uncertain": 0,
+            "total": 0
+          },
+          "precisionStrict": {
+            "value": null,
+            "low": null,
+            "high": null
+          },
+          "noise": {
+            "value": null,
+            "low": null,
+            "high": null
+          },
+          "meanIncludedCandidates": 0,
+          "meanIncludedTokens": 2499.5,
+          "meanAllTokens": 84570.125,
+          "tokenSavingFraction": 0.970444645789515,
+          "meanIncludedWhenNoneNeeded": null
+        }
+      },
+      "meanAveragePrecision": 0.8074404761904762,
+      "byStratumTopK": {
+        "authentic": {
+          "cases": 3,
+          "neededItems": 6,
+          "neededRetained": 6,
+          "criticalOmissionCases": 0
+        },
+        "synthetic": {
+          "cases": 4,
+          "neededItems": 8,
+          "neededRetained": 7,
+          "criticalOmissionCases": 1
+        },
+        "reconstructed": {
+          "cases": 1,
+          "neededItems": 3,
+          "neededRetained": 3,
+          "criticalOmissionCases": 0
+        }
+      }
+    }
+  },
+  "pairedVsLexical": {
+    "random": {
+      "topK": {
+        "better": 0,
+        "worse": 4,
+        "betterCases": [],
+        "worseCases": [
+          "t-followup-workspace",
+          "t-close-report",
+          "t-weekly-bump",
+          "t-review-pilot"
+        ]
+      },
+      "budget": {
+        "better": 0,
+        "worse": 3,
+        "betterCases": [],
+        "worseCases": [
+          "t-eval-run-script",
+          "t-weekly-bump",
+          "t-review-pilot"
+        ]
+      }
+    },
+    "jev": {
+      "topK": {
+        "better": 3,
+        "worse": 0,
+        "betterCases": [
+          "t-dpop-tunnel",
+          "t-install-on-quit",
+          "t-eval-run-script"
+        ],
+        "worseCases": []
+      },
+      "budget": {
+        "better": 2,
+        "worse": 0,
+        "betterCases": [
+          "t-dpop-tunnel",
+          "t-close-report"
+        ],
+        "worseCases": []
+      }
+    },
+    "luna": {
+      "topK": {
+        "better": 2,
+        "worse": 0,
+        "betterCases": [
+          "t-dpop-tunnel",
+          "t-install-on-quit"
+        ],
+        "worseCases": []
+      },
+      "budget": {
+        "better": 2,
+        "worse": 0,
+        "betterCases": [
+          "t-dpop-tunnel",
+          "t-close-report"
+        ],
+        "worseCases": []
+      }
+    }
+  },
+  "cost": {
+    "jev": {
+      "calls": 8,
+      "latencyMs": {
+        "mean": 366.5,
+        "p50": 285,
+        "max": 645
+      },
+      "unobservedAttempts": 0,
+      "inputTokens": 24634,
+      "knownInputTokens": 24634,
+      "costUsd": 0.001034628,
+      "knownCostUsd": 0.001034628,
+      "costKnownCalls": 8,
+      "costStatuses": [
+        "estimated"
+      ],
+      "attempts": 8,
+      "failedAttempts": 0,
+      "failureCodes": [],
+      "unansweredQuestions": 0,
+      "knownOutputTokens": 2336,
+      "tokenEstimate": {
+        "comparedCalls": 8,
+        "meanEstimateOverReported": 0.9314040484163598,
+        "minEstimateOverReported": 0.9185303514376997,
+        "maxEstimateOverReported": 0.9392659954530692,
+        "totalEstimated": 22943,
+        "totalReported": 24634
+      }
+    },
+    "luna": {
+      "calls": 8,
+      "latencyMs": {
+        "mean": 558.375,
+        "p50": 501,
+        "max": 1195
+      },
+      "unobservedAttempts": 0,
+      "inputTokens": 36616,
+      "knownInputTokens": 36616,
+      "costUsd": 0.0036616,
+      "knownCostUsd": 0.0036616,
+      "costKnownCalls": 8,
+      "costStatuses": [
+        "estimated"
+      ],
+      "attempts": 8,
+      "failedAttempts": 0,
+      "failureCodes": [],
+      "unansweredQuestions": 0,
+      "knownOutputTokens": 0,
+      "tokenEstimate": {
+        "comparedCalls": 8,
+        "meanEstimateOverReported": 0.6265560890396931,
+        "minEstimateOverReported": 0.6172429078014184,
+        "maxEstimateOverReported": 0.6312026002166847,
+        "totalEstimated": 22943,
+        "totalReported": 36616
+      }
+    }
+  },
+  "sensitivity": {
+    "agreed": {
+      "lexical": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 12,
+            "recall": {
+              "value": 0.7058823529411765,
+              "low": 0.468664666737861,
+              "high": 0.8672020613444361
+            },
+            "criticalOmissionCases": 3,
+            "criticalOmissionIds": [
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-eval-run-script"
+            ],
+            "allNeededRetainedCases": 5,
+            "included": {
+              "needed": 12,
+              "helpful": 11,
+              "unneeded": 16,
+              "uncertain": 1,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.3,
+              "low": 0.18074670915695296,
+              "high": 0.454303106543204
+            },
+            "noise": {
+              "value": 0.4,
+              "low": 0.2634811061240136,
+              "high": 0.5540438017260649
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 11981.625,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.8583231962823752,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": null,
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 11,
+            "recall": {
+              "value": 0.6470588235294118,
+              "low": 0.4129996672121182,
+              "high": 0.826905138560951
+            },
+            "criticalOmissionCases": 4,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report"
+            ],
+            "allNeededRetainedCases": 4,
+            "included": {
+              "needed": 11,
+              "helpful": 15,
+              "unneeded": 30,
+              "uncertain": 1,
+              "total": 57
+            },
+            "precisionStrict": {
+              "value": 0.19298245614035087,
+              "low": 0.11132633377760481,
+              "high": 0.3134093733701362
+            },
+            "noise": {
+              "value": 0.5263157894736842,
+              "low": 0.3991779445222314,
+              "high": 0.6501304234365335
+            },
+            "meanIncludedCandidates": 7.125,
+            "meanIncludedTokens": 8108.375,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9041224664147062,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 17,
+            "recall": {
+              "value": 1,
+              "low": 0.8156763396284354,
+              "high": 1
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 17,
+              "helpful": 18,
+              "unneeded": 86,
+              "uncertain": 7,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.1328125,
+              "low": 0.08460158144609939,
+              "high": 0.2024216342915737
+            },
+            "noise": {
+              "value": 0.671875,
+              "low": 0.5865623991215974,
+              "high": 0.7471714147884281
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 0,
+              "high": 0.18432366037156456
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.5672416125541124,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 6,
+            "neededRetained": 2,
+            "criticalOmissionCases": 2
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 8,
+            "neededRetained": 7,
+            "criticalOmissionCases": 1
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 3,
+            "neededRetained": 3,
+            "criticalOmissionCases": 0
+          }
+        }
+      },
+      "random": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 5,
+            "recall": {
+              "value": 0.29411764705882354,
+              "low": 0.13279793865556402,
+              "high": 0.5313353332621391
+            },
+            "criticalOmissionCases": 7,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 1,
+            "included": {
+              "needed": 5,
+              "helpful": 9,
+              "unneeded": 25,
+              "uncertain": 1,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.125,
+              "low": 0.05459419773541284,
+              "high": 0.26112420670238146
+            },
+            "noise": {
+              "value": 0.625,
+              "low": 0.47032160054531913,
+              "high": 0.7577722646420829
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 19745.75,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.7665162490891435,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": null,
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 7,
+            "recall": {
+              "value": 0.4117647058823529,
+              "low": 0.21610786039131383,
+              "high": 0.6399492561448447
+            },
+            "criticalOmissionCases": 7,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 1,
+            "included": {
+              "needed": 7,
+              "helpful": 12,
+              "unneeded": 41,
+              "uncertain": 1,
+              "total": 61
+            },
+            "precisionStrict": {
+              "value": 0.11475409836065574,
+              "low": 0.0567113064337431,
+              "high": 0.2184453830989026
+            },
+            "noise": {
+              "value": 0.6721311475409836,
+              "low": 0.5472157118133126,
+              "high": 0.7766504481827393
+            },
+            "meanIncludedCandidates": 7.625,
+            "meanIncludedTokens": 8202,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9030153969856376,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 17,
+            "recall": {
+              "value": 1,
+              "low": 0.8156763396284354,
+              "high": 1
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 17,
+              "helpful": 18,
+              "unneeded": 86,
+              "uncertain": 7,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.1328125,
+              "low": 0.08460158144609939,
+              "high": 0.2024216342915737
+            },
+            "noise": {
+              "value": 0.671875,
+              "low": 0.5865623991215974,
+              "high": 0.7471714147884281
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 0,
+              "high": 0.18432366037156456
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.3205993659118659,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 6,
+            "neededRetained": 1,
+            "criticalOmissionCases": 3
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 8,
+            "neededRetained": 3,
+            "criticalOmissionCases": 3
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 3,
+            "neededRetained": 1,
+            "criticalOmissionCases": 1
+          }
+        }
+      },
+      "jev": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 17,
+            "recall": {
+              "value": 1,
+              "low": 0.8156763396284354,
+              "high": 1
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 17,
+              "helpful": 13,
+              "unneeded": 7,
+              "uncertain": 3,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.425,
+              "low": 0.28509168524815875,
+              "high": 0.5780519956394001
+            },
+            "noise": {
+              "value": 0.175,
+              "low": 0.08745302996883066,
+              "high": 0.3195029205439244
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 28890.875,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.658379658301321,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 15,
+            "recall": {
+              "value": 0.8823529411764706,
+              "low": 0.6566315750229009,
+              "high": 0.967120919987079
+            },
+            "criticalOmissionCases": 2,
+            "criticalOmissionIds": [
+              "t-install-on-quit",
+              "t-close-report"
+            ],
+            "allNeededRetainedCases": 6,
+            "included": {
+              "needed": 15,
+              "helpful": 6,
+              "unneeded": 4,
+              "uncertain": 0,
+              "total": 25
+            },
+            "precisionStrict": {
+              "value": 0.6,
+              "low": 0.40739127785127344,
+              "high": 0.7659694233580909
+            },
+            "noise": {
+              "value": 0.16,
+              "low": 0.06403347608577989,
+              "high": 0.34654013980238163
+            },
+            "meanIncludedCandidates": 3.125,
+            "meanIncludedTokens": 16197.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.8084769887711529,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 14,
+            "recall": {
+              "value": 0.8235294117647058,
+              "low": 0.5897007098262422,
+              "high": 0.9380898628745101
+            },
+            "criticalOmissionCases": 2,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-install-on-quit"
+            ],
+            "allNeededRetainedCases": 6,
+            "included": {
+              "needed": 14,
+              "helpful": 14,
+              "unneeded": 32,
+              "uncertain": 2,
+              "total": 62
+            },
+            "precisionStrict": {
+              "value": 0.22580645161290322,
+              "low": 0.13955057139297955,
+              "high": 0.34405857540782725
+            },
+            "noise": {
+              "value": 0.5161290322580645,
+              "low": 0.39447247460618196,
+              "high": 0.6359034579349471
+            },
+            "meanIncludedCandidates": 7.75,
+            "meanIncludedTokens": 7963.25,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9058384979329285,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 17,
+            "recall": {
+              "value": 1,
+              "low": 0.8156763396284354,
+              "high": 1
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 17,
+              "helpful": 18,
+              "unneeded": 86,
+              "uncertain": 7,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.1328125,
+              "low": 0.08460158144609939,
+              "high": 0.2024216342915737
+            },
+            "noise": {
+              "value": 0.671875,
+              "low": 0.5865623991215974,
+              "high": 0.7471714147884281
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 0,
+              "high": 0.18432366037156456
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.8729166666666668,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 6,
+            "neededRetained": 6,
+            "criticalOmissionCases": 0
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 8,
+            "neededRetained": 8,
+            "criticalOmissionCases": 0
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 3,
+            "neededRetained": 3,
+            "criticalOmissionCases": 0
+          }
+        }
+      },
+      "luna": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 16,
+            "recall": {
+              "value": 0.9411764705882353,
+              "low": 0.730174547964372,
+              "high": 0.9895398693548358
+            },
+            "criticalOmissionCases": 1,
+            "criticalOmissionIds": [
+              "t-eval-run-script"
+            ],
+            "allNeededRetainedCases": 7,
+            "included": {
+              "needed": 16,
+              "helpful": 12,
+              "unneeded": 11,
+              "uncertain": 1,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.4,
+              "low": 0.2634811061240136,
+              "high": 0.5540438017260649
+            },
+            "noise": {
+              "value": 0.275,
+              "low": 0.1610785343314309,
+              "high": 0.4283525083312457
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 26831.75,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.6827277954242116,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 16,
+            "recall": {
+              "value": 0.9411764705882353,
+              "low": 0.730174547964372,
+              "high": 0.9895398693548358
+            },
+            "criticalOmissionCases": 1,
+            "criticalOmissionIds": [
+              "t-label-rename"
+            ],
+            "allNeededRetainedCases": 7,
+            "included": {
+              "needed": 16,
+              "helpful": 8,
+              "unneeded": 1,
+              "uncertain": 0,
+              "total": 25
+            },
+            "precisionStrict": {
+              "value": 0.64,
+              "low": 0.44518154601046633,
+              "high": 0.7975234356826436
+            },
+            "noise": {
+              "value": 0.04,
+              "low": 0.007096050386699165,
+              "high": 0.19544472405022525
+            },
+            "meanIncludedCandidates": 3.125,
+            "meanIncludedTokens": 16521.25,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.8046443705741242,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 14,
+            "recall": {
+              "value": 0.8235294117647058,
+              "low": 0.5897007098262422,
+              "high": 0.9380898628745101
+            },
+            "criticalOmissionCases": 2,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-install-on-quit"
+            ],
+            "allNeededRetainedCases": 6,
+            "included": {
+              "needed": 14,
+              "helpful": 14,
+              "unneeded": 31,
+              "uncertain": 1,
+              "total": 60
+            },
+            "precisionStrict": {
+              "value": 0.23333333333333334,
+              "low": 0.1443943161843107,
+              "high": 0.3543651134039202
+            },
+            "noise": {
+              "value": 0.5166666666666667,
+              "low": 0.39307594850843575,
+              "high": 0.6382515871422999
+            },
+            "meanIncludedCandidates": 7.5,
+            "meanIncludedTokens": 7908.875,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9064814554785157,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 17,
+            "recall": {
+              "value": 1,
+              "low": 0.8156763396284354,
+              "high": 1
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 17,
+              "helpful": 18,
+              "unneeded": 86,
+              "uncertain": 7,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.1328125,
+              "low": 0.08460158144609939,
+              "high": 0.2024216342915737
+            },
+            "noise": {
+              "value": 0.671875,
+              "low": 0.5865623991215974,
+              "high": 0.7471714147884281
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 17,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 0,
+              "high": 0.18432366037156456
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.8074404761904762,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 6,
+            "neededRetained": 6,
+            "criticalOmissionCases": 0
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 8,
+            "neededRetained": 7,
+            "criticalOmissionCases": 1
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 3,
+            "neededRetained": 3,
+            "criticalOmissionCases": 0
+          }
+        }
+      }
+    },
+    "relaxed": {
+      "lexical": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 18,
+            "recall": {
+              "value": 0.6923076923076923,
+              "low": 0.5001138848576876,
+              "high": 0.8349887906020732
+            },
+            "criticalOmissionCases": 5,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-eval-run-script",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 3,
+            "included": {
+              "needed": 18,
+              "helpful": 5,
+              "unneeded": 16,
+              "uncertain": 1,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.45,
+              "low": 0.30705075280944694,
+              "high": 0.6017117011155924
+            },
+            "noise": {
+              "value": 0.4,
+              "low": 0.2634811061240136,
+              "high": 0.5540438017260649
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 11981.625,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.8583231962823752,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": null,
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 20,
+            "recall": {
+              "value": 0.7692307692307693,
+              "low": 0.5794807424804321,
+              "high": 0.8896630031632332
+            },
+            "criticalOmissionCases": 4,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report"
+            ],
+            "allNeededRetainedCases": 4,
+            "included": {
+              "needed": 20,
+              "helpful": 6,
+              "unneeded": 30,
+              "uncertain": 1,
+              "total": 57
+            },
+            "precisionStrict": {
+              "value": 0.3508771929824561,
+              "low": 0.24000246078174026,
+              "high": 0.48058345411859105
+            },
+            "noise": {
+              "value": 0.5263157894736842,
+              "low": 0.3991779445222314,
+              "high": 0.6501304234365335
+            },
+            "meanIncludedCandidates": 7.125,
+            "meanIncludedTokens": 8108.375,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9041224664147062,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 26,
+            "recall": {
+              "value": 1,
+              "low": 0.8712669561953784,
+              "high": 1
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 26,
+              "helpful": 9,
+              "unneeded": 86,
+              "uncertain": 7,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.203125,
+              "low": 0.14255643643579252,
+              "high": 0.28099424862870914
+            },
+            "noise": {
+              "value": 0.671875,
+              "low": 0.5865623991215974,
+              "high": 0.7471714147884281
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 0,
+              "high": 0.12873304380462175
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.7270427489177489,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 10,
+            "neededRetained": 5,
+            "criticalOmissionCases": 3
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 10,
+            "neededRetained": 8,
+            "criticalOmissionCases": 1
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 6,
+            "neededRetained": 5,
+            "criticalOmissionCases": 1
+          }
+        }
+      },
+      "random": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 9,
+            "recall": {
+              "value": 0.34615384615384615,
+              "low": 0.19412014972852126,
+              "high": 0.5377977099036699
+            },
+            "criticalOmissionCases": 7,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 1,
+            "included": {
+              "needed": 9,
+              "helpful": 5,
+              "unneeded": 25,
+              "uncertain": 1,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.225,
+              "low": 0.1231595325467853,
+              "high": 0.3750339640409305
+            },
+            "noise": {
+              "value": 0.625,
+              "low": 0.47032160054531913,
+              "high": 0.7577722646420829
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 19745.75,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.7665162490891435,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": null,
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 14,
+            "recall": {
+              "value": 0.5384615384615384,
+              "low": 0.3545763620443012,
+              "high": 0.712444173047651
+            },
+            "criticalOmissionCases": 7,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 1,
+            "included": {
+              "needed": 14,
+              "helpful": 5,
+              "unneeded": 41,
+              "uncertain": 1,
+              "total": 61
+            },
+            "precisionStrict": {
+              "value": 0.22950819672131148,
+              "low": 0.141931023788832,
+              "high": 0.34913643907451497
+            },
+            "noise": {
+              "value": 0.6721311475409836,
+              "low": 0.5472157118133126,
+              "high": 0.7766504481827393
+            },
+            "meanIncludedCandidates": 7.625,
+            "meanIncludedTokens": 8202,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9030153969856376,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 26,
+            "recall": {
+              "value": 1,
+              "low": 0.8712669561953784,
+              "high": 1
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 26,
+              "helpful": 9,
+              "unneeded": 86,
+              "uncertain": 7,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.203125,
+              "low": 0.14255643643579252,
+              "high": 0.28099424862870914
+            },
+            "noise": {
+              "value": 0.671875,
+              "low": 0.5865623991215974,
+              "high": 0.7471714147884281
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 0,
+              "high": 0.12873304380462175
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.3968338085525585,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 10,
+            "neededRetained": 2,
+            "criticalOmissionCases": 3
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 10,
+            "neededRetained": 4,
+            "criticalOmissionCases": 3
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 6,
+            "neededRetained": 3,
+            "criticalOmissionCases": 1
+          }
+        }
+      },
+      "jev": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 24,
+            "recall": {
+              "value": 0.9230769230769231,
+              "low": 0.7585805251948495,
+              "high": 0.9786453608166245
+            },
+            "criticalOmissionCases": 2,
+            "criticalOmissionIds": [
+              "t-eval-run-script",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 6,
+            "included": {
+              "needed": 24,
+              "helpful": 6,
+              "unneeded": 7,
+              "uncertain": 3,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.6,
+              "low": 0.445956198273935,
+              "high": 0.7365188938759863
+            },
+            "noise": {
+              "value": 0.175,
+              "low": 0.08745302996883066,
+              "high": 0.3195029205439244
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 28890.875,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.658379658301321,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 21,
+            "recall": {
+              "value": 0.8076923076923077,
+              "low": 0.6212336384535001,
+              "high": 0.9149306422821174
+            },
+            "criticalOmissionCases": 4,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script"
+            ],
+            "allNeededRetainedCases": 4,
+            "included": {
+              "needed": 21,
+              "helpful": 0,
+              "unneeded": 4,
+              "uncertain": 0,
+              "total": 25
+            },
+            "precisionStrict": {
+              "value": 0.84,
+              "low": 0.6534598601976183,
+              "high": 0.9359665239142201
+            },
+            "noise": {
+              "value": 0.16,
+              "low": 0.06403347608577989,
+              "high": 0.34654013980238163
+            },
+            "meanIncludedCandidates": 3.125,
+            "meanIncludedTokens": 16197.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.8084769887711529,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 23,
+            "recall": {
+              "value": 0.8846153846153846,
+              "low": 0.7102370691310166,
+              "high": 0.959968281788505
+            },
+            "criticalOmissionCases": 2,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-install-on-quit"
+            ],
+            "allNeededRetainedCases": 6,
+            "included": {
+              "needed": 23,
+              "helpful": 5,
+              "unneeded": 32,
+              "uncertain": 2,
+              "total": 62
+            },
+            "precisionStrict": {
+              "value": 0.3709677419354839,
+              "low": 0.26156988879274196,
+              "high": 0.49542265087822607
+            },
+            "noise": {
+              "value": 0.5161290322580645,
+              "low": 0.39447247460618196,
+              "high": 0.6359034579349471
+            },
+            "meanIncludedCandidates": 7.75,
+            "meanIncludedTokens": 7963.25,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9058384979329285,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 26,
+            "recall": {
+              "value": 1,
+              "low": 0.8712669561953784,
+              "high": 1
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 26,
+              "helpful": 9,
+              "unneeded": 86,
+              "uncertain": 7,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.203125,
+              "low": 0.14255643643579252,
+              "high": 0.28099424862870914
+            },
+            "noise": {
+              "value": 0.671875,
+              "low": 0.5865623991215974,
+              "high": 0.7471714147884281
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 0,
+              "high": 0.12873304380462175
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.8921875,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 10,
+            "neededRetained": 10,
+            "criticalOmissionCases": 0
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 10,
+            "neededRetained": 9,
+            "criticalOmissionCases": 1
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 6,
+            "neededRetained": 5,
+            "criticalOmissionCases": 1
+          }
+        }
+      },
+      "luna": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 23,
+            "recall": {
+              "value": 0.8846153846153846,
+              "low": 0.7102370691310166,
+              "high": 0.959968281788505
+            },
+            "criticalOmissionCases": 3,
+            "criticalOmissionIds": [
+              "t-install-on-quit",
+              "t-eval-run-script",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 5,
+            "included": {
+              "needed": 23,
+              "helpful": 5,
+              "unneeded": 11,
+              "uncertain": 1,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.575,
+              "low": 0.42194800436059987,
+              "high": 0.7149083147518411
+            },
+            "noise": {
+              "value": 0.275,
+              "low": 0.1610785343314309,
+              "high": 0.4283525083312457
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 26831.75,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.6827277954242116,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 23,
+            "recall": {
+              "value": 0.8846153846153846,
+              "low": 0.7102370691310166,
+              "high": 0.959968281788505
+            },
+            "criticalOmissionCases": 3,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-install-on-quit",
+              "t-label-rename"
+            ],
+            "allNeededRetainedCases": 5,
+            "included": {
+              "needed": 23,
+              "helpful": 1,
+              "unneeded": 1,
+              "uncertain": 0,
+              "total": 25
+            },
+            "precisionStrict": {
+              "value": 0.92,
+              "low": 0.7503348787704218,
+              "high": 0.977780066308908
+            },
+            "noise": {
+              "value": 0.04,
+              "low": 0.007096050386699165,
+              "high": 0.19544472405022525
+            },
+            "meanIncludedCandidates": 3.125,
+            "meanIncludedTokens": 16521.25,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.8046443705741242,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 23,
+            "recall": {
+              "value": 0.8846153846153846,
+              "low": 0.7102370691310166,
+              "high": 0.959968281788505
+            },
+            "criticalOmissionCases": 2,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-install-on-quit"
+            ],
+            "allNeededRetainedCases": 6,
+            "included": {
+              "needed": 23,
+              "helpful": 5,
+              "unneeded": 31,
+              "uncertain": 1,
+              "total": 60
+            },
+            "precisionStrict": {
+              "value": 0.38333333333333336,
+              "low": 0.2708808958488824,
+              "high": 0.5098263545959686
+            },
+            "noise": {
+              "value": 0.5166666666666667,
+              "low": 0.39307594850843575,
+              "high": 0.6382515871422999
+            },
+            "meanIncludedCandidates": 7.5,
+            "meanIncludedTokens": 7908.875,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9064814554785157,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 26,
+            "recall": {
+              "value": 1,
+              "low": 0.8712669561953784,
+              "high": 1
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 26,
+              "helpful": 9,
+              "unneeded": 86,
+              "uncertain": 7,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.203125,
+              "low": 0.14255643643579252,
+              "high": 0.28099424862870914
+            },
+            "noise": {
+              "value": 0.671875,
+              "low": 0.5865623991215974,
+              "high": 0.7471714147884281
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 26,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 0,
+              "high": 0.12873304380462175
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.8850446428571428,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 10,
+            "neededRetained": 9,
+            "criticalOmissionCases": 1
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 10,
+            "neededRetained": 9,
+            "criticalOmissionCases": 1
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 6,
+            "neededRetained": 5,
+            "criticalOmissionCases": 1
+          }
+        }
+      }
+    },
+    "labelerA": {
+      "lexical": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 14,
+            "recall": {
+              "value": 0.6666666666666666,
+              "low": 0.45373075657210293,
+              "high": 0.8280546356731631
+            },
+            "criticalOmissionCases": 4,
+            "criticalOmissionIds": [
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-eval-run-script",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 4,
+            "included": {
+              "needed": 14,
+              "helpful": 9,
+              "unneeded": 17,
+              "uncertain": 0,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.35,
+              "low": 0.2213433317104915,
+              "high": 0.5049440300646263
+            },
+            "noise": {
+              "value": 0.425,
+              "low": 0.28509168524815875,
+              "high": 0.5780519956394001
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 11981.625,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.8583231962823752,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": null,
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 15,
+            "recall": {
+              "value": 0.7142857142857143,
+              "low": 0.500432261771624,
+              "high": 0.8618632425437179
+            },
+            "criticalOmissionCases": 4,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report"
+            ],
+            "allNeededRetainedCases": 4,
+            "included": {
+              "needed": 15,
+              "helpful": 11,
+              "unneeded": 31,
+              "uncertain": 0,
+              "total": 57
+            },
+            "precisionStrict": {
+              "value": 0.2631578947368421,
+              "low": 0.1664564242184771,
+              "high": 0.3897682641526373
+            },
+            "noise": {
+              "value": 0.543859649122807,
+              "low": 0.41590460831272247,
+              "high": 0.6662760049518861
+            },
+            "meanIncludedCandidates": 7.125,
+            "meanIncludedTokens": 8108.375,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9041224664147062,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 21,
+            "recall": {
+              "value": 1,
+              "low": 0.8453561767357979,
+              "high": 0.9999999999999999
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 21,
+              "helpful": 19,
+              "unneeded": 88,
+              "uncertain": 0,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.1640625,
+              "low": 0.10988249779919597,
+              "high": 0.23781959319484536
+            },
+            "noise": {
+              "value": 0.6875,
+              "low": 0.602727327674739,
+              "high": 0.7613459238634704
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 0,
+              "high": 0.15464382326420195
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.599264971139971,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 6,
+            "neededRetained": 2,
+            "criticalOmissionCases": 2
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 9,
+            "neededRetained": 7,
+            "criticalOmissionCases": 1
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 6,
+            "neededRetained": 5,
+            "criticalOmissionCases": 1
+          }
+        }
+      },
+      "random": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 8,
+            "recall": {
+              "value": 0.38095238095238093,
+              "low": 0.20750767797982506,
+              "high": 0.5912170418449848
+            },
+            "criticalOmissionCases": 7,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 1,
+            "included": {
+              "needed": 8,
+              "helpful": 7,
+              "unneeded": 25,
+              "uncertain": 0,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.2,
+              "low": 0.10499864973166874,
+              "high": 0.34757607381856676
+            },
+            "noise": {
+              "value": 0.625,
+              "low": 0.47032160054531913,
+              "high": 0.7577722646420829
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 19745.75,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.7665162490891435,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": null,
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 11,
+            "recall": {
+              "value": 0.5238095238095238,
+              "low": 0.32369217900266756,
+              "high": 0.7165628770323705
+            },
+            "criticalOmissionCases": 7,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 1,
+            "included": {
+              "needed": 11,
+              "helpful": 8,
+              "unneeded": 42,
+              "uncertain": 0,
+              "total": 61
+            },
+            "precisionStrict": {
+              "value": 0.18032786885245902,
+              "low": 0.10379034061426573,
+              "high": 0.2947439336787807
+            },
+            "noise": {
+              "value": 0.6885245901639344,
+              "low": 0.5640832930215206,
+              "high": 0.7906272631646315
+            },
+            "meanIncludedCandidates": 7.625,
+            "meanIncludedTokens": 8202,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9030153969856376,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 21,
+            "recall": {
+              "value": 1,
+              "low": 0.8453561767357979,
+              "high": 0.9999999999999999
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 21,
+              "helpful": 19,
+              "unneeded": 88,
+              "uncertain": 0,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.1640625,
+              "low": 0.10988249779919597,
+              "high": 0.23781959319484536
+            },
+            "noise": {
+              "value": 0.6875,
+              "low": 0.602727327674739,
+              "high": 0.7613459238634704
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 0,
+              "high": 0.15464382326420195
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.3645725801975802,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 6,
+            "neededRetained": 1,
+            "criticalOmissionCases": 3
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 9,
+            "neededRetained": 4,
+            "criticalOmissionCases": 3
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 6,
+            "neededRetained": 3,
+            "criticalOmissionCases": 1
+          }
+        }
+      },
+      "jev": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 19,
+            "recall": {
+              "value": 0.9047619047619048,
+              "low": 0.7108541613925933,
+              "high": 0.9734817912030528
+            },
+            "criticalOmissionCases": 2,
+            "criticalOmissionIds": [
+              "t-eval-run-script",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 6,
+            "included": {
+              "needed": 19,
+              "helpful": 12,
+              "unneeded": 9,
+              "uncertain": 0,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.475,
+              "low": 0.32935229550181694,
+              "high": 0.6250289314607027
+            },
+            "noise": {
+              "value": 0.225,
+              "low": 0.1231595325467853,
+              "high": 0.3750339640409305
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 28890.875,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.658379658301321,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 18,
+            "recall": {
+              "value": 0.8571428571428571,
+              "low": 0.6536350585077049,
+              "high": 0.950190782017865
+            },
+            "criticalOmissionCases": 3,
+            "criticalOmissionIds": [
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script"
+            ],
+            "allNeededRetainedCases": 5,
+            "included": {
+              "needed": 18,
+              "helpful": 3,
+              "unneeded": 4,
+              "uncertain": 0,
+              "total": 25
+            },
+            "precisionStrict": {
+              "value": 0.72,
+              "low": 0.5242302810344169,
+              "high": 0.8571632616261843
+            },
+            "noise": {
+              "value": 0.16,
+              "low": 0.06403347608577989,
+              "high": 0.34654013980238163
+            },
+            "meanIncludedCandidates": 3.125,
+            "meanIncludedTokens": 16197.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.8084769887711529,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 18,
+            "recall": {
+              "value": 0.8571428571428571,
+              "low": 0.6536350585077049,
+              "high": 0.950190782017865
+            },
+            "criticalOmissionCases": 2,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-install-on-quit"
+            ],
+            "allNeededRetainedCases": 6,
+            "included": {
+              "needed": 18,
+              "helpful": 11,
+              "unneeded": 33,
+              "uncertain": 0,
+              "total": 62
+            },
+            "precisionStrict": {
+              "value": 0.2903225806451613,
+              "low": 0.19223406385395198,
+              "high": 0.4128788131113709
+            },
+            "noise": {
+              "value": 0.532258064516129,
+              "low": 0.40983817375848014,
+              "high": 0.650913691323778
+            },
+            "meanIncludedCandidates": 7.75,
+            "meanIncludedTokens": 7963.25,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9058384979329285,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 21,
+            "recall": {
+              "value": 1,
+              "low": 0.8453561767357979,
+              "high": 0.9999999999999999
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 21,
+              "helpful": 19,
+              "unneeded": 88,
+              "uncertain": 0,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.1640625,
+              "low": 0.10988249779919597,
+              "high": 0.23781959319484536
+            },
+            "noise": {
+              "value": 0.6875,
+              "low": 0.602727327674739,
+              "high": 0.7613459238634704
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 0,
+              "high": 0.15464382326420195
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.8854166666666666,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 6,
+            "neededRetained": 6,
+            "criticalOmissionCases": 0
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 9,
+            "neededRetained": 8,
+            "criticalOmissionCases": 1
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 6,
+            "neededRetained": 5,
+            "criticalOmissionCases": 1
+          }
+        }
+      },
+      "luna": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 19,
+            "recall": {
+              "value": 0.9047619047619048,
+              "low": 0.7108541613925933,
+              "high": 0.9734817912030528
+            },
+            "criticalOmissionCases": 2,
+            "criticalOmissionIds": [
+              "t-eval-run-script",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 6,
+            "included": {
+              "needed": 19,
+              "helpful": 9,
+              "unneeded": 12,
+              "uncertain": 0,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.475,
+              "low": 0.32935229550181694,
+              "high": 0.6250289314607027
+            },
+            "noise": {
+              "value": 0.3,
+              "low": 0.18074670915695296,
+              "high": 0.454303106543204
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 26831.75,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.6827277954242116,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 20,
+            "recall": {
+              "value": 0.9523809523809523,
+              "low": 0.7733018341376452,
+              "high": 0.9915442305280766
+            },
+            "criticalOmissionCases": 1,
+            "criticalOmissionIds": [
+              "t-label-rename"
+            ],
+            "allNeededRetainedCases": 7,
+            "included": {
+              "needed": 20,
+              "helpful": 4,
+              "unneeded": 1,
+              "uncertain": 0,
+              "total": 25
+            },
+            "precisionStrict": {
+              "value": 0.8,
+              "low": 0.6086866446346177,
+              "high": 0.9113954589934752
+            },
+            "noise": {
+              "value": 0.04,
+              "low": 0.007096050386699165,
+              "high": 0.19544472405022525
+            },
+            "meanIncludedCandidates": 3.125,
+            "meanIncludedTokens": 16521.25,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.8046443705741242,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 18,
+            "recall": {
+              "value": 0.8571428571428571,
+              "low": 0.6536350585077049,
+              "high": 0.950190782017865
+            },
+            "criticalOmissionCases": 2,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-install-on-quit"
+            ],
+            "allNeededRetainedCases": 6,
+            "included": {
+              "needed": 18,
+              "helpful": 10,
+              "unneeded": 32,
+              "uncertain": 0,
+              "total": 60
+            },
+            "precisionStrict": {
+              "value": 0.3,
+              "low": 0.19898010252726892,
+              "high": 0.42508946966390415
+            },
+            "noise": {
+              "value": 0.5333333333333333,
+              "low": 0.40893208671135106,
+              "high": 0.65372298459012
+            },
+            "meanIncludedCandidates": 7.5,
+            "meanIncludedTokens": 7908.875,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9064814554785157,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 21,
+            "recall": {
+              "value": 1,
+              "low": 0.8453561767357979,
+              "high": 0.9999999999999999
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 21,
+              "helpful": 19,
+              "unneeded": 88,
+              "uncertain": 0,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.1640625,
+              "low": 0.10988249779919597,
+              "high": 0.23781959319484536
+            },
+            "noise": {
+              "value": 0.6875,
+              "low": 0.602727327674739,
+              "high": 0.7613459238634704
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 21,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 0,
+              "high": 0.15464382326420195
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.8253571428571429,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 6,
+            "neededRetained": 6,
+            "criticalOmissionCases": 0
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 9,
+            "neededRetained": 8,
+            "criticalOmissionCases": 1
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 6,
+            "neededRetained": 5,
+            "criticalOmissionCases": 1
+          }
+        }
+      }
+    },
+    "labelerB": {
+      "lexical": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 16,
+            "recall": {
+              "value": 0.7272727272727273,
+              "low": 0.5184787630099802,
+              "high": 0.8684941798418556
+            },
+            "criticalOmissionCases": 4,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-eval-run-script"
+            ],
+            "allNeededRetainedCases": 4,
+            "included": {
+              "needed": 16,
+              "helpful": 8,
+              "unneeded": 16,
+              "uncertain": 0,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.4,
+              "low": 0.2634811061240136,
+              "high": 0.5540438017260649
+            },
+            "noise": {
+              "value": 0.4,
+              "low": 0.2634811061240136,
+              "high": 0.5540438017260649
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 11981.625,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.8583231962823752,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": null,
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 16,
+            "recall": {
+              "value": 0.7272727272727273,
+              "low": 0.5184787630099802,
+              "high": 0.8684941798418556
+            },
+            "criticalOmissionCases": 4,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report"
+            ],
+            "allNeededRetainedCases": 4,
+            "included": {
+              "needed": 16,
+              "helpful": 11,
+              "unneeded": 30,
+              "uncertain": 0,
+              "total": 57
+            },
+            "precisionStrict": {
+              "value": 0.2807017543859649,
+              "low": 0.18079248284972227,
+              "high": 0.40830445082723554
+            },
+            "noise": {
+              "value": 0.5263157894736842,
+              "low": 0.3991779445222314,
+              "high": 0.6501304234365335
+            },
+            "meanIncludedCandidates": 7.125,
+            "meanIncludedTokens": 8108.375,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9041224664147062,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 22,
+            "recall": {
+              "value": 1,
+              "low": 0.8513404742740388,
+              "high": 1
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 22,
+              "helpful": 15,
+              "unneeded": 91,
+              "uncertain": 0,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.171875,
+              "low": 0.11633031408834081,
+              "high": 0.24654149571979256
+            },
+            "noise": {
+              "value": 0.7109375,
+              "low": 0.6271652314384711,
+              "high": 0.7824171765420146
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 1.3877787807814457e-17,
+              "high": 0.14865952572596125
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.6958874458874458,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 10,
+            "neededRetained": 5,
+            "criticalOmissionCases": 3
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 9,
+            "neededRetained": 8,
+            "criticalOmissionCases": 1
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 3,
+            "neededRetained": 3,
+            "criticalOmissionCases": 0
+          }
+        }
+      },
+      "random": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 6,
+            "recall": {
+              "value": 0.2727272727272727,
+              "low": 0.1315058201581444,
+              "high": 0.4815212369900198
+            },
+            "criticalOmissionCases": 7,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 1,
+            "included": {
+              "needed": 6,
+              "helpful": 8,
+              "unneeded": 26,
+              "uncertain": 0,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.15,
+              "low": 0.07061091708507435,
+              "high": 0.2907262603902003
+            },
+            "noise": {
+              "value": 0.65,
+              "low": 0.4950559699353738,
+              "high": 0.7786566682895086
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 19745.75,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.7665162490891435,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": null,
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 10,
+            "recall": {
+              "value": 0.45454545454545453,
+              "low": 0.26920014432004846,
+              "high": 0.6534052671095845
+            },
+            "criticalOmissionCases": 7,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 1,
+            "included": {
+              "needed": 10,
+              "helpful": 10,
+              "unneeded": 41,
+              "uncertain": 0,
+              "total": 61
+            },
+            "precisionStrict": {
+              "value": 0.16393442622950818,
+              "low": 0.0915591348574295,
+              "high": 0.27613074324551673
+            },
+            "noise": {
+              "value": 0.6721311475409836,
+              "low": 0.5472157118133126,
+              "high": 0.7766504481827393
+            },
+            "meanIncludedCandidates": 7.625,
+            "meanIncludedTokens": 8202,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9030153969856376,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 22,
+            "recall": {
+              "value": 1,
+              "low": 0.8513404742740388,
+              "high": 1
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 22,
+              "helpful": 15,
+              "unneeded": 91,
+              "uncertain": 0,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.171875,
+              "low": 0.11633031408834081,
+              "high": 0.24654149571979256
+            },
+            "noise": {
+              "value": 0.7109375,
+              "low": 0.6271652314384711,
+              "high": 0.7824171765420146
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 1.3877787807814457e-17,
+              "high": 0.14865952572596125
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.35154611013986015,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 10,
+            "neededRetained": 2,
+            "criticalOmissionCases": 3
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 9,
+            "neededRetained": 3,
+            "criticalOmissionCases": 3
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 3,
+            "neededRetained": 1,
+            "criticalOmissionCases": 1
+          }
+        }
+      },
+      "jev": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 22,
+            "recall": {
+              "value": 1,
+              "low": 0.8513404742740388,
+              "high": 1
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 22,
+              "helpful": 10,
+              "unneeded": 8,
+              "uncertain": 0,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.55,
+              "low": 0.39828829888440775,
+              "high": 0.6929492471905531
+            },
+            "noise": {
+              "value": 0.2,
+              "low": 0.10499864973166874,
+              "high": 0.34757607381856676
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 28890.875,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.658379658301321,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 18,
+            "recall": {
+              "value": 0.8181818181818182,
+              "low": 0.6148297802336213,
+              "high": 0.9269323397589488
+            },
+            "criticalOmissionCases": 3,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-install-on-quit",
+              "t-close-report"
+            ],
+            "allNeededRetainedCases": 5,
+            "included": {
+              "needed": 18,
+              "helpful": 3,
+              "unneeded": 4,
+              "uncertain": 0,
+              "total": 25
+            },
+            "precisionStrict": {
+              "value": 0.72,
+              "low": 0.5242302810344169,
+              "high": 0.8571632616261843
+            },
+            "noise": {
+              "value": 0.16,
+              "low": 0.06403347608577989,
+              "high": 0.34654013980238163
+            },
+            "meanIncludedCandidates": 3.125,
+            "meanIncludedTokens": 16197.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.8084769887711529,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 19,
+            "recall": {
+              "value": 0.8636363636363636,
+              "low": 0.6666458812053,
+              "high": 0.9525108273576373
+            },
+            "criticalOmissionCases": 2,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-install-on-quit"
+            ],
+            "allNeededRetainedCases": 6,
+            "included": {
+              "needed": 19,
+              "helpful": 10,
+              "unneeded": 33,
+              "uncertain": 0,
+              "total": 62
+            },
+            "precisionStrict": {
+              "value": 0.3064516129032258,
+              "low": 0.20581430019850633,
+              "high": 0.4296745093079456
+            },
+            "noise": {
+              "value": 0.532258064516129,
+              "low": 0.40983817375848014,
+              "high": 0.650913691323778
+            },
+            "meanIncludedCandidates": 7.75,
+            "meanIncludedTokens": 7963.25,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9058384979329285,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 22,
+            "recall": {
+              "value": 1,
+              "low": 0.8513404742740388,
+              "high": 1
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 22,
+              "helpful": 15,
+              "unneeded": 91,
+              "uncertain": 0,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.171875,
+              "low": 0.11633031408834081,
+              "high": 0.24654149571979256
+            },
+            "noise": {
+              "value": 0.7109375,
+              "low": 0.6271652314384711,
+              "high": 0.7824171765420146
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 1.3877787807814457e-17,
+              "high": 0.14865952572596125
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.8755208333333333,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 10,
+            "neededRetained": 10,
+            "criticalOmissionCases": 0
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 9,
+            "neededRetained": 9,
+            "criticalOmissionCases": 0
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 3,
+            "neededRetained": 3,
+            "criticalOmissionCases": 0
+          }
+        }
+      },
+      "luna": {
+        "rules": {
+          "topK": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 20,
+            "recall": {
+              "value": 0.9090909090909091,
+              "low": 0.7218461934161421,
+              "high": 0.9747051037171622
+            },
+            "criticalOmissionCases": 2,
+            "criticalOmissionIds": [
+              "t-install-on-quit",
+              "t-eval-run-script"
+            ],
+            "allNeededRetainedCases": 6,
+            "included": {
+              "needed": 20,
+              "helpful": 9,
+              "unneeded": 11,
+              "uncertain": 0,
+              "total": 40
+            },
+            "precisionStrict": {
+              "value": 0.5,
+              "low": 0.35199278797099753,
+              "high": 0.6480072120290025
+            },
+            "noise": {
+              "value": 0.275,
+              "low": 0.1610785343314309,
+              "high": 0.4283525083312457
+            },
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 26831.75,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.6827277954242116,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "threshold": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 19,
+            "recall": {
+              "value": 0.8636363636363636,
+              "low": 0.6666458812053,
+              "high": 0.9525108273576373
+            },
+            "criticalOmissionCases": 3,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-install-on-quit",
+              "t-label-rename"
+            ],
+            "allNeededRetainedCases": 5,
+            "included": {
+              "needed": 19,
+              "helpful": 5,
+              "unneeded": 1,
+              "uncertain": 0,
+              "total": 25
+            },
+            "precisionStrict": {
+              "value": 0.76,
+              "low": 0.5656994004476144,
+              "high": 0.8850384226967327
+            },
+            "noise": {
+              "value": 0.04,
+              "low": 0.007096050386699165,
+              "high": 0.19544472405022525
+            },
+            "meanIncludedCandidates": 3.125,
+            "meanIncludedTokens": 16521.25,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.8046443705741242,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "budget": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 19,
+            "recall": {
+              "value": 0.8636363636363636,
+              "low": 0.6666458812053,
+              "high": 0.9525108273576373
+            },
+            "criticalOmissionCases": 2,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-install-on-quit"
+            ],
+            "allNeededRetainedCases": 6,
+            "included": {
+              "needed": 19,
+              "helpful": 10,
+              "unneeded": 31,
+              "uncertain": 0,
+              "total": 60
+            },
+            "precisionStrict": {
+              "value": 0.31666666666666665,
+              "low": 0.21305705841174333,
+              "high": 0.4423400494301654
+            },
+            "noise": {
+              "value": 0.5166666666666667,
+              "low": 0.39307594850843575,
+              "high": 0.6382515871422999
+            },
+            "meanIncludedCandidates": 7.5,
+            "meanIncludedTokens": 7908.875,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.9064814554785157,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "all": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 22,
+            "recall": {
+              "value": 1,
+              "low": 0.8513404742740388,
+              "high": 1
+            },
+            "criticalOmissionCases": 0,
+            "criticalOmissionIds": [],
+            "allNeededRetainedCases": 8,
+            "included": {
+              "needed": 22,
+              "helpful": 15,
+              "unneeded": 91,
+              "uncertain": 0,
+              "total": 128
+            },
+            "precisionStrict": {
+              "value": 0.171875,
+              "low": 0.11633031408834081,
+              "high": 0.24654149571979256
+            },
+            "noise": {
+              "value": 0.7109375,
+              "low": 0.6271652314384711,
+              "high": 0.7824171765420146
+            },
+            "meanIncludedCandidates": 16,
+            "meanIncludedTokens": 84570.125,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0,
+            "meanIncludedWhenNoneNeeded": null
+          },
+          "none": {
+            "cases": 8,
+            "casesWithNeeded": 8,
+            "neededItems": 22,
+            "neededRetained": 0,
+            "recall": {
+              "value": 0,
+              "low": 1.3877787807814457e-17,
+              "high": 0.14865952572596125
+            },
+            "criticalOmissionCases": 8,
+            "criticalOmissionIds": [
+              "t-followup-workspace",
+              "t-dpop-tunnel",
+              "t-install-on-quit",
+              "t-close-report",
+              "t-eval-run-script",
+              "t-weekly-bump",
+              "t-label-rename",
+              "t-review-pilot"
+            ],
+            "allNeededRetainedCases": 0,
+            "included": {
+              "needed": 0,
+              "helpful": 0,
+              "unneeded": 0,
+              "uncertain": 0,
+              "total": 0
+            },
+            "precisionStrict": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "noise": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "meanIncludedCandidates": 0,
+            "meanIncludedTokens": 2499.5,
+            "meanAllTokens": 84570.125,
+            "tokenSavingFraction": 0.970444645789515,
+            "meanIncludedWhenNoneNeeded": null
+          }
+        },
+        "meanAveragePrecision": 0.8654613095238095,
+        "byStratumTopK": {
+          "authentic": {
+            "cases": 3,
+            "neededItems": 10,
+            "neededRetained": 9,
+            "criticalOmissionCases": 1
+          },
+          "synthetic": {
+            "cases": 4,
+            "neededItems": 9,
+            "neededRetained": 8,
+            "criticalOmissionCases": 1
+          },
+          "reconstructed": {
+            "cases": 1,
+            "neededItems": 3,
+            "neededRetained": 3,
+            "criticalOmissionCases": 0
+          }
+        }
+      }
+    }
+  }
+}

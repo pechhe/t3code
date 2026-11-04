@@ -563,5 +563,10 @@
     "path": "apps/server/src/decisionEvaluations/failureTriage/corpusAuthentic.json",
     "category": "captured-fixtures",
     "reason": "Retained nightly-audit evidence lists real changed file paths under apps/server/src/hq; it is recorded data, not product terminology."
+  },
+  {
+    "path": "apps/server/src/decisionEvaluations/contextRanking/**",
+    "category": "captured-fixtures",
+    "reason": "The context-ranking corpus, pool and retained results cite real repository paths under apps/server/src/hq as candidate context; they are recorded data, not product terminology."
   }
 ]
