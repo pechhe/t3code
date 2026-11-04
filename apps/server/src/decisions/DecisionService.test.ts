@@ -124,6 +124,28 @@ it.effect("constructs without credentials and reports unavailable lazily", () =>
     expect(calls).toHaveLength(0);
   }),
 );
+it.effect.each(["jev", "luna"] as const)(
+  "rejects a single-choice question before calling %s",
+  (engine) =>
+    Effect.gen(function* () {
+      const { service, calls } = yield* setup();
+      const result = yield* Effect.flip(
+        service.decide({
+          ...request(engine),
+          questions: [
+            {
+              id: "only",
+              type: "choice",
+              instructions: "Choose an option",
+              choices: [{ label: "only", description: "The only option" }],
+            },
+          ],
+        }),
+      );
+      expect(result.code).toBe("invalid-input");
+      expect(calls).toHaveLength(0);
+    }),
+);
 it.effect.each([
   { options: { body: "{}" }, code: "invalid-provider-response" },
   { options: { body: "x".repeat(1024 * 1024 + 1) }, code: "invalid-provider-response" },

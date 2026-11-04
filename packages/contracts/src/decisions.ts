@@ -18,7 +18,7 @@ export const DecisionQuestion = Schema.Union([
     id,
     type: Schema.Literal("choice"),
     instructions: text,
-    choices: Schema.Array(option).check(Schema.isMinLength(1), Schema.isMaxLength(64)),
+    choices: Schema.Array(option).check(Schema.isMinLength(2), Schema.isMaxLength(64)),
   }),
   Schema.Struct({
     id,
