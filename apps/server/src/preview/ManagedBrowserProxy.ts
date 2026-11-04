@@ -45,6 +45,14 @@ const allowedAddress = (host: string, port: number, entries: ReadonlyArray<strin
     );
   });
 
+/** Hands Node's connect the addresses already validated for a name, so it tries each in turn without a second lookup. */
+const pinnedLookup =
+  (addresses: ReadonlyArray<{ address: string; family: number }>): NodeNet.LookupFunction =>
+  (_host, options, callback) =>
+    options.all
+      ? callback(null, [...addresses])
+      : callback(null, addresses[0]!.address, addresses[0]!.family);
+
 interface Options {
   readonly serverPort: number;
   /** null revokes the context, including already established tunnels. */
@@ -139,7 +147,10 @@ export class ManagedBrowserProxy {
     const addresses = NodeNet.isIP(host)
       ? [{ address: host, family: NodeNet.isIP(host) }]
       : host === "localhost" || host.endsWith(".localhost")
-        ? [{ address: "127.0.0.1", family: 4 }]
+        ? [
+            { address: "127.0.0.1", family: 4 },
+            { address: "::1", family: 6 },
+          ]
         : await bounded(
             this.options.resolve?.(host) ?? NodeDnsPromises.lookup(host, { all: true }),
             5_000,
@@ -150,7 +161,7 @@ export class ManagedBrowserProxy {
       (!allowed && addresses.some(({ address }) => isPrivate(address)))
     )
       return deny();
-    return { address: addresses[0]!.address, port };
+    return { host, addresses, port };
   }
 
   private async forward(request: NodeHttp.IncomingMessage, response: NodeHttp.ServerResponse) {
@@ -181,7 +192,8 @@ export class ManagedBrowserProxy {
     } = request.headers;
     const upstream = NodeHttp.request(
       {
-        hostname: target.address,
+        hostname: target.host,
+        lookup: pinnedLookup(target.addresses),
         port: target.port,
         method: request.method,
         path: `${url.pathname}${url.search}`,
@@ -221,7 +233,11 @@ export class ManagedBrowserProxy {
       if (!["http:", "https:", "ws:"].includes(url.protocol))
         throw new Error("Unsupported proxy protocol.");
       const target = await this.destination(url);
-      const upstream = NodeNet.connect({ host: target.address, port: target.port });
+      const upstream = NodeNet.connect({
+        host: target.host,
+        lookup: pinnedLookup(target.addresses),
+        port: target.port,
+      });
       this.track(upstream);
       const timer = setTimeout(() => {
         upstream.destroy();

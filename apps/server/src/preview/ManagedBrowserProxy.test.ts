@@ -225,6 +225,27 @@ it("denies a name that resolves into the carrier-grade NAT range used by tailnet
   }
 });
 
+it("reaches an allowed .localhost preview that listens only on IPv6 loopback", async () => {
+  const destination = NodeHttp.createServer((_request, response) => response.end("ipv6 preview"));
+  await new Promise<void>((resolve, reject) => {
+    destination.once("error", reject);
+    destination.listen(0, "::1", resolve);
+  });
+  const port = (destination.address() as NodeNet.AddressInfo).port;
+  const proxy = await ManagedBrowserProxy.start({
+    serverPort: 9999,
+    policy: async () => [`preview.localhost:${port}`],
+  });
+  try {
+    const result = await proxyRequest(proxy, `http://preview.localhost:${port}/`);
+    expect(result.status).toBe(200);
+    expect(result.body).toBe("ipv6 preview");
+  } finally {
+    await proxy.close();
+    await close(destination);
+  }
+});
+
 it("tunnels authenticated CONNECT traffic to the validated allowed IP", async () => {
   const destination = NodeHttp.createServer((_request, response) => response.end("tunnel fixture"));
   const port = await listen(destination);
