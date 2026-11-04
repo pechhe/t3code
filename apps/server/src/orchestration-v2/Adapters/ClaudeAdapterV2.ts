@@ -1535,7 +1535,18 @@ export function makeClaudeQueryOptions(input: {
     ...(input.settings?.binaryPath
       ? { pathToClaudeCodeExecutable: input.settings.binaryPath }
       : {}),
-    ...(input.environment === undefined ? {} : { env: input.environment }),
+    ...(input.allowDangerouslySkipPermissions === true
+      ? {
+          // Full access must not stop for the CLI's own risky-rm check. The SDK replaces
+          // process.env with `env`, so the base environment is carried over explicitly.
+          env: {
+            ...(input.environment ?? process.env),
+            CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS: "1",
+          },
+        }
+      : input.environment === undefined
+        ? {}
+        : { env: input.environment }),
     ...(input.mcpServers === undefined ? {} : { mcpServers: input.mcpServers }),
     systemPrompt: {
       type: "preset" as const,
@@ -3149,15 +3160,6 @@ export function claudeApprovalPresentation(input: {
       ? { options: CLAUDE_NO_STANDING_GRANT_OPTIONS }
       : {}),
   };
-}
-
-// Full access means no prompts: the CLI's own safety checks (an rm it cannot parse) are
-// allowed too. Only an ask rule the user wrote themselves still asks.
-export function claudeFullAccessAutoAllows(input: {
-  readonly permissionMode: PermissionMode;
-  readonly matchedAskRule?: Parameters<CanUseTool>[2]["matchedAskRule"];
-}): boolean {
-  return input.permissionMode === "bypassPermissions" && input.matchedAskRule === undefined;
 }
 
 export function permissionResultFromDecision(input: {
@@ -9550,13 +9552,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             } satisfies PermissionResult;
           }
 
-          if (
-            !requiresClaudeApproval(context) ||
-            claudeFullAccessAutoAllows({
-              permissionMode: context.queryPolicy.permissionMode,
-              matchedAskRule: callbackOptions.matchedAskRule,
-            })
-          ) {
+          if (!requiresClaudeApproval(context)) {
             return {
               behavior: "allow",
               updatedInput: toolInput,

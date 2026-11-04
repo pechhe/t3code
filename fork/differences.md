@@ -812,10 +812,10 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** deliberate behaviour change
 - **Why:** Claude's CLI forwards some commands to the permission callback even in `bypassPermissions` (a `sh -c` script with `rm` it cannot parse). Upstream shows these as approvals, so a full-access thread still stops for a person.
-- **Requirements:** in full access the Claude callback allows every such forwarded check; only an ask rule the user wrote (`matchedAskRule`) still asks. Plan mode and non-bypass modes are unchanged, and the SlipJay command guard still runs before the callback.
-- **Integration points:** `claudeFullAccessAutoAllows` and the `canUseTool` callback in `Adapters/ClaudeAdapterV2.ts`.
-- **Proof:** Adapters/ClaudeAdapterV2.test.ts ("auto-allows CLI safety checks in full access").
-- **Upstream:** upstream surfaces these asks (`fullAccessOverride: "provider_check"`); not proposed upstream.
-- **Retire when:** upstream offers a setting that makes full access skip the CLI's own checks.
+- **Requirements:** a Claude query that skips permissions (full access) runs with `CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1` on top of its environment (the SDK replaces `process.env` with `env`, so the base is carried over). Other modes are unchanged. Needs a Claude CLI that reads the variable (2.1.318 or later); an older CLI ignores it and keeps asking.
+- **Integration points:** `makeClaudeQueryOptions` in `Adapters/ClaudeAdapterV2.ts`.
+- **Proof:** Adapters/ClaudeAdapterV2.test.ts ("ClaudeAdapterV2 full access environment").
+- **Upstream:** upstream still surfaces these asks (`fullAccessOverride: "provider_check"`); not proposed upstream.
+- **Retire when:** upstream sets the variable itself or offers a setting for it.
 - **Decision:** `retain` (new, 2026-11-04).
 - **Owner:** none.

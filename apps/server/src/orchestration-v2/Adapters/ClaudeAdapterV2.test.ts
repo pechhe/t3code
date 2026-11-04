@@ -874,20 +874,32 @@ describe("ClaudeAdapterV2 context usage", () => {
   });
 });
 
-describe("ClaudeAdapterV2 approval presentation", () => {
-  it("auto-allows CLI safety checks in full access but still asks on a user ask rule", () => {
-    assert.isTrue(
-      ClaudeAdapterV2.claudeFullAccessAutoAllows({ permissionMode: "bypassPermissions" }),
-    );
-    assert.isFalse(
-      ClaudeAdapterV2.claudeFullAccessAutoAllows({
-        permissionMode: "bypassPermissions",
-        matchedAskRule: { source: "userSettings", toolName: "Bash" },
+describe("ClaudeAdapterV2 full access environment", () => {
+  const optionsFor = (runtimeMode: "full-access" | "approval-required") =>
+    ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "full-access-session",
+      resume: false,
+      cwd: "/workspace",
+      environment: { PATH: "/bin" },
+      mcpServers: {},
+      ...ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy({
+        runtimeMode,
+        interactionMode: "default",
+        cwd: "/workspace",
       }),
-    );
-    assert.isFalse(ClaudeAdapterV2.claudeFullAccessAutoAllows({ permissionMode: "default" }));
-  });
+    });
 
+  it("tells the CLI to skip even its own risky-command prompts in full access only", () => {
+    assert.deepEqual(optionsFor("full-access").env, {
+      PATH: "/bin",
+      CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS: "1",
+    });
+    assert.deepEqual(optionsFor("approval-required").env, { PATH: "/bin" });
+  });
+});
+
+describe("ClaudeAdapterV2 approval presentation", () => {
   it("marks asks that full access could not auto-allow and keeps the CLI's reason", () => {
     const presentation = ClaudeAdapterV2.claudeApprovalPresentation({
       permissionMode: "bypassPermissions",
@@ -3174,7 +3186,6 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 signal: new AbortController().signal,
                 toolUseID: `forwarded-before-${phase}`,
                 requestId: `request-forwarded-before-${phase}`,
-                matchedAskRule: { source: "userSettings", toolName: "Bash" },
               },
             ),
           ).pipe(Effect.forkScoped);
@@ -3240,7 +3251,6 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 signal: new AbortController().signal,
                 toolUseID: `forwarded-after-plan-${phase}`,
                 requestId: `request-after-plan-${phase}`,
-                matchedAskRule: { source: "userSettings", toolName: "Bash" },
               },
             ),
           ).pipe(Effect.forkScoped);
@@ -3931,7 +3941,6 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             signal: new AbortController().signal,
             toolUseID: id,
             requestId: "weather-request",
-            matchedAskRule: { source: "userSettings", toolName: toolName },
           },
         ),
       ).pipe(Effect.forkScoped);
