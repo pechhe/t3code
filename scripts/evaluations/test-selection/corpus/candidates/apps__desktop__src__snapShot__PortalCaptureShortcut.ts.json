@@ -1,0 +1,29 @@
+{
+ "changed": [
+  "apps/desktop/src/snapShot/PortalCaptureShortcut.ts"
+ ],
+ "kind": "related",
+ "reason": null,
+ "candidates": [
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/scripts/main-process-bundle.test.mjs"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/snapShot.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/snapShot/DesktopSnapShot.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/snapShot/PortalCaptureShortcut.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ]
+}

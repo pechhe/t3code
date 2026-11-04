@@ -1,0 +1,37 @@
+{
+ "changed": [
+  "packages/client-runtime/src/mcpApps/host.ts"
+ ],
+ "kind": "related",
+ "reason": null,
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/guest/GuestPage.browser.test.tsx"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/mcpApps/host.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ]
+}

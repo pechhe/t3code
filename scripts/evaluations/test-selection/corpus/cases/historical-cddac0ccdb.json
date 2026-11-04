@@ -1,0 +1,189 @@
+{
+ "id": "historical-cddac0ccdb",
+ "kind": "historical",
+ "commit": "cddac0ccdb",
+ "changed": [
+  "apps/server/src/auth/McpOAuth.ts",
+  "apps/server/src/auth/dpop.ts",
+  "apps/server/src/auth/forwardedUrl.ts"
+ ],
+ "diff": "diff --git a/apps/server/src/auth/McpOAuth.ts b/apps/server/src/auth/McpOAuth.ts\nindex 664b3f942c..b175af2ece 100644\n--- a/apps/server/src/auth/McpOAuth.ts\n+++ b/apps/server/src/auth/McpOAuth.ts\n@@ -29,6 +29,7 @@ import * as ServerEnvironment from \"../environment/ServerEnvironment.ts\";\n import * as McpHttpServer from \"../mcp/McpHttpServer.ts\";\n import type * as McpInvocationContext from \"../mcp/McpInvocationContext.ts\";\n import * as EnvironmentAuth from \"./EnvironmentAuth.ts\";\n+import { forwardedRequestUrl } from \"./forwardedUrl.ts\";\n import * as ServerSecretStore from \"./ServerSecretStore.ts\";\n import {\n   base64UrlDecodeUtf8,\n@@ -58,21 +59,10 @@ export interface McpOAuthUrls {\n   readonly resource: string;\n }\n \n-/**\n- * The scheme a TLS-terminating proxy (Tailscale serve, a tunnel) reports. effect 4.0.6 stopped reading\n- * `x-forwarded-proto` in `toURL`, so behind such a proxy the metadata advertised `http://`. Only an upgrade to\n- * https is taken from the header, never a downgrade.\n- */\n-const forwardedHttps = (request: HttpServerRequest.HttpServerRequest) =>\n-  request.headers[\"x-forwarded-proto\"]?.split(\",\")[0]?.trim().toLowerCase() === \"https\";\n-\n export const requestUrls = (request: HttpServerRequest.HttpServerRequest): McpOAuthUrls => {\n-  const origin = Option.match(HttpServerRequest.toURL(request), {\n+  const origin = Option.match(forwardedRequestUrl(request), {\n     onNone: () => \"http://localhost\",\n-    onSome: (url) => {\n-      if (forwardedHttps(request)) url.protocol = \"https:\";\n-      return url.origin;\n-    },\n+    onSome: (url) => url.origin,\n   });\n   return { issuer: origin, resource: `${origin}/mcp` };\n };\ndiff --git a/apps/server/src/auth/dpop.ts b/apps/server/src/auth/dpop.ts\nindex 7b780852bc..d07bc57da3 100644\n--- a/apps/server/src/auth/dpop.ts\n+++ b/apps/server/src/auth/dpop.ts\n@@ -16,6 +16,7 @@ import {\n   ServerAuthInvalidCredentialError,\n   type ServerAuthInternalError,\n } from \"./EnvironmentAuth.ts\";\n+import { forwardedRequestUrl } from \"./forwardedUrl.ts\";\n import * as ServerSecretStore from \"./ServerSecretStore.ts\";\n \n export const DPOP_REPLAY_MARKER_PREFIX = \"dpop-proof-\";\n@@ -60,7 +61,7 @@ export const verifyRequestDpopProof = Effect.fn(\"dpop.verifyRequestDpopProof\")(f\n   readonly expectedAccessToken?: string;\n }) {\n   const proof = input.proof ?? input.request.headers.dpop;\n-  const url = HttpServerRequest.toURL(input.request);\n+  const url = forwardedRequestUrl(input.request);\n   if (Option.isNone(url)) {\n     return yield* new ServerAuthInvalidCredentialError({\n       diagnostic: \"Invalid DPoP request URL.\",\ndiff --git a/apps/server/src/auth/forwardedUrl.ts b/apps/server/src/auth/forwardedUrl.ts\nnew file mode 100644\nindex 0000000000..8000874f62\n--- /dev/null\n+++ b/apps/server/src/auth/forwardedUrl.ts\n@@ -0,0 +1,17 @@\n+import * as Option from \"effect/Option\";\n+import { HttpServerRequest } from \"effect/http\";\n+\n+/**\n+ * The request URL as the client addressed it. effect 4.0.6 stopped reading `x-forwarded-proto` in `toURL`, so behind a\n+ * TLS-terminating proxy (Tailscale serve, the T3 Connect tunnel) it reports `http://`. Only an upgrade to https is\n+ * taken from the header, never a downgrade.\n+ */\n+export const forwardedRequestUrl = (\n+  request: HttpServerRequest.HttpServerRequest,\n+): Option.Option<URL> =>\n+  Option.map(HttpServerRequest.toURL(request), (url) => {\n+    if (request.headers[\"x-forwarded-proto\"]?.split(\",\")[0]?.trim().toLowerCase() === \"https\") {\n+      url.protocol = \"https:\";\n+    }\n+    return url;\n+  });\n",
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/integration/transferBudgetV2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/assets/AssetAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/EnvironmentAuth.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/EnvironmentAuthAdmin.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/McpOAuth.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/dpop.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/forwardedUrl.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/replayMarkers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/config.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/connect.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/doctor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/service.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/thread.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/trace.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/triage.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/uninstall.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/update.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/CloudLink.lifecycle.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/CloudLink.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/DeviceHubProxy.stream.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/DeviceHubProxy.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/environment/DirectEndpoints.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/guest/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/observability/DefectReporter.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/ServerBrowserStream.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/serverLogger.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/serverRuntimeStartup.autoPull.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/serverRuntimeStartup.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/serverRuntimeState.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/startupAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/ws.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ]
+}

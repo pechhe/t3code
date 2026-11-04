@@ -1,0 +1,97 @@
+{
+ "id": "seeded-apps__server__src__sourceControl__SourceControlDiscovery-L107-bool-true",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/server/src/sourceControl/SourceControlDiscovery.ts",
+  "line": 107,
+  "operator": "bool-true",
+  "before": "        appendTruncationMarker: true,",
+  "after": "        appendTruncationMarker: false,"
+ },
+ "hunk": "         detail: Option.some(input.installHint),\n       } satisfies DiscoveryProbeResult<Kind>);\n     }\n \n     return process\n       .run({\n         operation: \"source-control.discovery.probe\",\n         command: executable,\n         args: versionArgs,\n         cwd: config.cwd,\n         timeoutMs: 5_000,\n         maxOutputBytes: 8_000,\n-        appendTruncationMarker: true,\n+        appendTruncationMarker: false,\n       })\n       .pipe(\n         Effect.map(\n           (result) =>\n             ({\n               kind: input.kind,\n               label: input.label,\n               executable,\n               implemented: input.implemented,\n               status: \"available\" as const,\n               version: Option.orElse(firstNonEmptyLine(result.stdout), () =>\n                 firstNonEmptyLine(result.stderr),",
+ "changed": [
+  "apps/server/src/sourceControl/SourceControlDiscovery.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/integration/transferBudgetV2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/observability/DefectReporter.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/sourceControl/SourceControlDiscovery.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/ws.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 2,
+ "failing": [],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/server/integration/transferBudgetV2.integration.test.ts": 12.786515380859376,
+  "apps/server/src/outboundHttp.test.ts": 0.92070654296875,
+  "apps/server/src/processRunner.test.ts": 0.10950048828125,
+  "apps/server/src/ws.test.ts": 3.533927490234375,
+  "apps/server/src/cli/app.test.ts": 0.829943603515625,
+  "apps/server/src/cli/pair.test.ts": 16.727188720703126,
+  "apps/server/src/cli/project.test.ts": 64.56768041992187,
+  "apps/server/src/cli/theme.test.ts": 0.966131591796875,
+  "apps/server/src/observability/DefectReporter.test.ts": 0.059447998046875,
+  "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts": 3.53527099609375,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 4.118768798828125,
+  "apps/server/src/sourceControl/SourceControlDiscovery.test.ts": 0.73691796875,
+  "scripts/hq-allowlist.test.ts": 15.5338408203125
+ },
+ "measuredWallSeconds": 129.923,
+ "exitCodes": {
+  "apps/server": 0,
+  "scripts": 1
+ }
+}

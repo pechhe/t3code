@@ -1,0 +1,113 @@
+{
+ "id": "seeded-apps__server__src__telemetry__FeatureUsage-L83-strict-equality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/server/src/telemetry/FeatureUsage.ts",
+  "line": 83,
+  "operator": "strict-equality",
+  "before": "  if (typeof payload !== \"object\" || payload === null) return undefined;",
+  "after": "  if (typeof payload !== \"object\" || payload !== null) return undefined;"
+ },
+ "hunk": " \n /** The feature a dispatched command uses, or undefined when it is not a tracked feature. */\n export function commandFeatureUsage(command: OrchestrationV2Command): FeatureUsage | undefined {\n   // TypeScript cannot pair a union's tag with its own entry, so widen once here.\n   const mapping = COMMAND_FEATURES[command.type] as\n     | ((command: OrchestrationV2Command) => FeatureUsage)\n     | undefined;\n   return mapping?.(command);\n }\n \n /** The feature a WebSocket request uses, or undefined when it is not a tracked feature. */\n export function featureUsage(method: string, payload: unknown): FeatureUsage | undefined {\n-  if (typeof payload !== \"object\" || payload === null) return undefined;\n+  if (typeof payload !== \"object\" || payload !== null) return undefined;\n   return METHOD_FEATURES[method]?.(payload as Payload);\n }\n ",
+ "changed": [
+  "apps/server/src/telemetry/FeatureUsage.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/integration/transferBudgetV2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/observability/DefectReporter.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/telemetry/FeatureUsage.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/ws.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [
+  "apps/server/src/telemetry/FeatureUsage.test.ts"
+ ],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/server/integration/transferBudgetV2.integration.test.ts": 7.1632197265625,
+  "apps/server/src/outboundHttp.test.ts": 0.740279052734375,
+  "apps/server/src/processRunner.test.ts": 0.041337158203125,
+  "apps/server/src/ws.test.ts": 2.38441943359375,
+  "apps/server/src/cli/app.test.ts": 0.58360400390625,
+  "apps/server/src/cli/pair.test.ts": 9.382938232421875,
+  "apps/server/src/cli/project.test.ts": 24.56551708984375,
+  "apps/server/src/cli/theme.test.ts": 0.111078857421875,
+  "apps/server/src/observability/DefectReporter.test.ts": 0.027556640625,
+  "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts": 1.809914794921875,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 1.960801513671875,
+  "apps/server/src/telemetry/FeatureUsage.test.ts": 0.147516845703125,
+  "scripts/hq-allowlist.test.ts": 7.627758544921875
+ },
+ "measuredWallSeconds": 55.27,
+ "exitCodes": {
+  "apps/server": 1,
+  "scripts": 1
+ },
+ "verifiedPassing": [
+  "apps/server/integration/transferBudgetV2.integration.test.ts",
+  "apps/server/src/cli/app.test.ts",
+  "apps/server/src/cli/pair.test.ts",
+  "apps/server/src/cli/project.test.ts",
+  "apps/server/src/cli/theme.test.ts",
+  "apps/server/src/observability/DefectReporter.test.ts",
+  "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts",
+  "apps/server/src/outboundHttp.test.ts",
+  "apps/server/src/processRunner.test.ts",
+  "apps/server/src/provider/CodexManagedRuntime.test.ts",
+  "apps/server/src/ws.test.ts"
+ ],
+ "controlVerified": true
+}

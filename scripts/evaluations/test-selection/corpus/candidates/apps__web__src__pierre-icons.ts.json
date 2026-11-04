@@ -1,0 +1,97 @@
+{
+ "changed": [
+  "apps/web/src/pierre-icons.ts"
+ ],
+ "kind": "related",
+ "reason": null,
+ "candidates": [
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/bundledDev.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ChatMarkdown.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/CommandPalette.focus.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/RightPanelTabs.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/UsageToggleShortcut.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/AssistantCitationChip.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/ComposerCommandMenu.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/composerContextPresentation.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/diffs/diffFileTree.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/guest/GuestPage.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestCodeTab.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestSummaryTab.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/pullRequestsRouteSearch.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/ProjectSettingsPanel.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/pierre-icons.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/reactCompilerCoverage.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ]
+}

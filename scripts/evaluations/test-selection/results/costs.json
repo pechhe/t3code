@@ -1,0 +1,194 @@
+{
+ "jev": {
+  "calls": 109,
+  "failed": 7,
+  "meanServiceLatencyMs": 289,
+  "meanWallMsPerCall": 295,
+  "inputTokens": 757583,
+  "estimatedUsd": 0.03182,
+  "questionsAnswered": 2533
+ },
+ "luna": {
+  "calls": 109,
+  "failed": 9,
+  "meanServiceLatencyMs": 478,
+  "meanWallMsPerCall": 479,
+  "inputTokens": 986756,
+  "estimatedUsd": 0.09868,
+  "questionsAnswered": 2491
+ },
+ "runtime": [
+  {
+   "id": "apps__desktop__src__backend__tailscaleEndpointProvider-L135-strict-equality",
+   "candidates": 14,
+   "gateEstimateWallSeconds": 15,
+   "recordedWorkerSeconds": 24,
+   "measuredWorkerSeconds": 41,
+   "measuredWallSeconds": 68
+  },
+  {
+   "id": "apps__desktop__src__backend__tailscaleEndpointProvider-L48-strict-inequality",
+   "candidates": 14,
+   "gateEstimateWallSeconds": 15,
+   "recordedWorkerSeconds": 24,
+   "measuredWorkerSeconds": 72,
+   "measuredWallSeconds": 99
+  },
+  {
+   "id": "apps__server__src__agents__AgentRoleResolver-L111-strict-equality",
+   "candidates": 61,
+   "subsampledFrom": 166,
+   "gateEstimateWallSeconds": 29,
+   "recordedWorkerSeconds": 193,
+   "measuredWorkerSeconds": 1042,
+   "measuredWallSeconds": 334
+  },
+  {
+   "id": "apps__server__src__agents__AgentRoleResolver-L338-strict-equality",
+   "candidates": 61,
+   "subsampledFrom": 166,
+   "gateEstimateWallSeconds": 29,
+   "recordedWorkerSeconds": 193,
+   "measuredWorkerSeconds": 922,
+   "measuredWallSeconds": 324
+  },
+  {
+   "id": "apps__server__src__mcp__McpToolAccess-L286-strict-equality",
+   "candidates": 30,
+   "gateEstimateWallSeconds": 46,
+   "recordedWorkerSeconds": 114,
+   "measuredWorkerSeconds": 259,
+   "measuredWallSeconds": 156
+  },
+  {
+   "id": "apps__server__src__mcp__McpToolAccess-L292-strict-inequality",
+   "candidates": 30,
+   "gateEstimateWallSeconds": 46,
+   "recordedWorkerSeconds": 114,
+   "measuredWorkerSeconds": 200,
+   "measuredWallSeconds": 182
+  },
+  {
+   "id": "apps__server__src__mcp__McpToolAccess-L44-strict-inequality",
+   "candidates": 30,
+   "gateEstimateWallSeconds": 46,
+   "recordedWorkerSeconds": 114,
+   "measuredWorkerSeconds": 14,
+   "measuredWallSeconds": 95
+  },
+  {
+   "id": "apps__server__src__mcp__toolkits__environment__handlers-L101-strict-inequality",
+   "candidates": 21,
+   "gateEstimateWallSeconds": 46,
+   "recordedWorkerSeconds": 93,
+   "measuredWorkerSeconds": 223,
+   "measuredWallSeconds": 222
+  },
+  {
+   "id": "apps__server__src__mcp__toolkits__environment__handlers-L33-number-increment",
+   "candidates": 21,
+   "gateEstimateWallSeconds": 46,
+   "recordedWorkerSeconds": 93,
+   "measuredWorkerSeconds": 300,
+   "measuredWallSeconds": 296
+  },
+  {
+   "id": "apps__server__src__mcp__toolkits__environment__handlers-L34-number-increment",
+   "candidates": 21,
+   "gateEstimateWallSeconds": 46,
+   "recordedWorkerSeconds": 93,
+   "measuredWorkerSeconds": 365,
+   "measuredWallSeconds": 252
+  },
+  {
+   "id": "apps__server__src__orchestration-v2__RunMetrics-L74-strict-equality",
+   "candidates": 61,
+   "subsampledFrom": 178,
+   "gateEstimateWallSeconds": 148,
+   "recordedWorkerSeconds": 476,
+   "measuredWorkerSeconds": 1314,
+   "measuredWallSeconds": 814
+  },
+  {
+   "id": "apps__server__src__orchestration-v2__RunMetrics-L76-strict-equality",
+   "candidates": 61,
+   "subsampledFrom": 178,
+   "gateEstimateWallSeconds": 148,
+   "recordedWorkerSeconds": 476,
+   "measuredWorkerSeconds": 1331,
+   "measuredWallSeconds": 777
+  },
+  {
+   "id": "apps__server__src__orchestration-v2__pullRequestWatch-L102-strict-equality",
+   "candidates": 10,
+   "gateEstimateWallSeconds": 22,
+   "recordedWorkerSeconds": 38,
+   "measuredWorkerSeconds": 58,
+   "measuredWallSeconds": 42
+  },
+  {
+   "id": "apps__server__src__orchestration-v2__pullRequestWatch-L117-strict-inequality",
+   "candidates": 10,
+   "gateEstimateWallSeconds": 22,
+   "recordedWorkerSeconds": 38,
+   "measuredWorkerSeconds": 252,
+   "measuredWallSeconds": 184
+  },
+  {
+   "id": "apps__server__src__telemetry__FeatureUsage-L11-strict-equality",
+   "candidates": 13,
+   "gateEstimateWallSeconds": 22,
+   "recordedWorkerSeconds": 43,
+   "measuredWorkerSeconds": 177,
+   "measuredWallSeconds": 186
+  },
+  {
+   "id": "apps__server__src__telemetry__FeatureUsage-L14-strict-equality",
+   "candidates": 13,
+   "gateEstimateWallSeconds": 22,
+   "recordedWorkerSeconds": 43,
+   "measuredWorkerSeconds": 145,
+   "measuredWallSeconds": 125
+  },
+  {
+   "id": "apps__server__src__telemetry__FeatureUsage-L83-strict-equality",
+   "candidates": 13,
+   "gateEstimateWallSeconds": 22,
+   "recordedWorkerSeconds": 43,
+   "measuredWorkerSeconds": 57,
+   "measuredWallSeconds": 55
+  },
+  {
+   "id": "apps__server__src__terminal__NodePtyAdapter-L141-strict-inequality",
+   "candidates": 9,
+   "gateEstimateWallSeconds": 22,
+   "recordedWorkerSeconds": 31,
+   "measuredWorkerSeconds": 39,
+   "measuredWallSeconds": 51
+  },
+  {
+   "id": "packages__client-runtime__src__device__phoneScene-L25-number-increment",
+   "candidates": 8,
+   "gateEstimateWallSeconds": 21,
+   "recordedWorkerSeconds": 15,
+   "measuredWorkerSeconds": 10,
+   "measuredWallSeconds": 25
+  },
+  {
+   "id": "packages__shared__src__forgeLinks-L147-strict-equality",
+   "candidates": 69,
+   "gateEstimateWallSeconds": 174,
+   "recordedWorkerSeconds": 395,
+   "measuredWorkerSeconds": 318,
+   "measuredWallSeconds": 264
+  },
+  {
+   "id": "packages__shared__src__forgeLinks-L16-number-increment",
+   "candidates": 69,
+   "gateEstimateWallSeconds": 174,
+   "recordedWorkerSeconds": 395,
+   "measuredWorkerSeconds": 401,
+   "measuredWallSeconds": 291
+  }
+ ]
+}

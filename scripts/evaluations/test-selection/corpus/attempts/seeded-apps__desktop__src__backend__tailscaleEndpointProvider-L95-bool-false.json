@@ -1,0 +1,102 @@
+{
+ "id": "seeded-apps__desktop__src__backend__tailscaleEndpointProvider-L95-bool-false",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/desktop/src/backend/tailscaleEndpointProvider.ts",
+  "line": 95,
+  "operator": "bool-false",
+  "before": "  const isReachable = input.serveEnabled ? yield* probe : false;",
+  "after": "  const isReachable = input.serveEnabled ? yield* probe : true;"
+ },
+ "hunk": "     return Option.none();\n   }\n \n   const httpBaseUrl = buildTailscaleHttpsBaseUrl({\n     magicDnsName: input.dnsName,\n     ...(input.servePort === undefined ? {} : { servePort: input.servePort }),\n   });\n   const probe =\n     input.probe?.(httpBaseUrl) ??\n     probeTailscaleHttpsEndpoint({\n       baseUrl: httpBaseUrl,\n     });\n-  const isReachable = input.serveEnabled ? yield* probe : false;\n+  const isReachable = input.serveEnabled ? yield* probe : true;\n \n   return Option.some(\n     createAdvertisedEndpoint({\n       provider: TAILSCALE_ENDPOINT_PROVIDER,\n       source: \"desktop-addon\",\n       id: `tailscale-magicdns:${httpBaseUrl}`,\n       label: \"Tailscale HTTPS\",\n       httpBaseUrl,\n       reachability: \"private-network\",\n       hostedHttpsCompatibility: isReachable ? \"compatible\" : \"requires-configuration\",\n       status: isReachable ? \"available\" : \"unavailable\",\n       description: isReachable",
+ "changed": [
+  "apps/desktop/src/backend/tailscaleEndpointProvider.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/scripts/main-process-bundle.test.mjs"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopBackendPool.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopServerExposure.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/tailscaleEndpointProvider.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/window.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/wsl.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/updates/DesktopUpdates.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/DesktopApplicationMenu.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/DesktopWindow.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/wsl/DesktopWslBackend.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/desktop/scripts/main-process-bundle.test.mjs": 22.2294658203125,
+  "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts": 4.119485107421875,
+  "apps/desktop/src/backend/DesktopBackendPool.test.ts": 0.03090625,
+  "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts": 0.83173095703125,
+  "apps/desktop/src/backend/DesktopServerExposure.test.ts": 9.652940185546875,
+  "apps/desktop/src/backend/tailscaleEndpointProvider.test.ts": 0.39293701171875,
+  "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts": 1.712696044921875,
+  "apps/desktop/src/updates/DesktopUpdates.test.ts": 3.770883056640625,
+  "apps/desktop/src/wsl/DesktopWslBackend.test.ts": 0.676101318359375,
+  "apps/desktop/src/window/DesktopApplicationMenu.test.ts": 0.41885888671875,
+  "apps/desktop/src/window/DesktopWindow.test.ts": 4.97799267578125,
+  "apps/desktop/src/ipc/methods/window.test.ts": 0.27089501953125,
+  "apps/desktop/src/ipc/methods/wsl.test.ts": 0.051420654296875,
+  "scripts/hq-allowlist.test.ts": 45.53059155273438
+ },
+ "measuredWallSeconds": 151.827,
+ "exitCodes": {
+  "apps/desktop": 0,
+  "scripts": 1
+ }
+}

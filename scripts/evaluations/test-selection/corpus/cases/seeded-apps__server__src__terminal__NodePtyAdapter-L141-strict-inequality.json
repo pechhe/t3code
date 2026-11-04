@@ -1,0 +1,89 @@
+{
+ "id": "seeded-apps__server__src__terminal__NodePtyAdapter-L141-strict-inequality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/server/src/terminal/NodePtyAdapter.ts",
+  "line": 141,
+  "operator": "strict-inequality",
+  "before": "      process._agent !== null &&",
+  "after": "      process._agent === null &&"
+ },
+ "hunk": "         new Error(`Windows PTY exited before its PID was available (exit code ${exitCode}).`),\n       ),\n     );\n     return Effect.sync(cleanup);\n   });\n \n // The private agent cancels pending connections before a child exists; public kill waits for first output.\n const killStartingWindowsPty = (process: import(\"node-pty\").IPty) =>\n   Effect.try(() => {\n     if (\n       \"_agent\" in process &&\n       typeof process._agent === \"object\" &&\n-      process._agent !== null &&\n+      process._agent === null &&\n       \"kill\" in process._agent &&\n       typeof process._agent.kill === \"function\"\n     ) {\n       process._agent.kill();\n     } else {\n       process.kill();\n     }\n   }).pipe(\n     Effect.catch((error) =>\n       Effect.logWarning(\"failed to cancel Windows terminal startup\", {\n         terminalPid: process.pid,\n         cause: error,",
+ "changed": [
+  "apps/server/src/terminal/NodePtyAdapter.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/terminal/NodePtyAdapter.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [
+  "apps/server/src/terminal/NodePtyAdapter.test.ts"
+ ],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/server/src/outboundHttp.test.ts": 0.349185546875,
+  "apps/server/src/processRunner.test.ts": 0.042913330078125,
+  "apps/server/src/cli/app.test.ts": 0.22820654296875,
+  "apps/server/src/cli/pair.test.ts": 3.8208916015625,
+  "apps/server/src/cli/project.test.ts": 26.0701103515625,
+  "apps/server/src/cli/theme.test.ts": 0.094510498046875,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 1.37333837890625,
+  "apps/server/src/terminal/NodePtyAdapter.test.ts": 0.1355625,
+  "scripts/hq-allowlist.test.ts": 7.115355224609375
+ },
+ "measuredWallSeconds": 50.642,
+ "exitCodes": {
+  "apps/server": 1,
+  "scripts": 1
+ },
+ "verifiedPassing": [
+  "apps/server/src/cli/app.test.ts",
+  "apps/server/src/cli/pair.test.ts",
+  "apps/server/src/cli/project.test.ts",
+  "apps/server/src/cli/theme.test.ts",
+  "apps/server/src/outboundHttp.test.ts",
+  "apps/server/src/processRunner.test.ts",
+  "apps/server/src/provider/CodexManagedRuntime.test.ts"
+ ],
+ "controlVerified": true
+}

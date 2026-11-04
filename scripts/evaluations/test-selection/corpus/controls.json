@@ -1,0 +1,243 @@
+{
+ "requested": [
+  "apps/desktop/src/backend/DesktopServerExposure.test.ts",
+  "apps/desktop/src/backend/tailscaleEndpointProvider.test.ts",
+  "apps/server/src/agents/AgentRoleResolver.test.ts",
+  "apps/server/src/agents/ManagedAgentService.test.ts",
+  "apps/server/src/auth/McpOAuth.test.ts",
+  "apps/server/src/cli/app.test.ts",
+  "apps/server/src/cli/pair.test.ts",
+  "apps/server/src/cli/project.test.ts",
+  "apps/server/src/cli/theme.test.ts",
+  "apps/server/src/mcp/ManagedDelegation.test.ts",
+  "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+  "apps/server/src/mcp/McpHttpServer.test.ts",
+  "apps/server/src/mcp/McpManagedBrowser.test.ts",
+  "apps/server/src/mcp/McpToolAccess.race.test.ts",
+  "apps/server/src/mcp/McpToolAccess.test.ts",
+  "apps/server/src/mcp/OrchestratorMcpService.test.ts",
+  "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+  "apps/server/src/mcp/SessionToolListings.test.ts",
+  "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+  "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/core.test.ts",
+  "apps/server/src/mcp/toolkits/decisions/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/device/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/project/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+  "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+  "apps/server/src/mcp/toolkits/web/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/workspace/handlers.test.ts",
+  "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts",
+  "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts",
+  "apps/server/src/orchestration-v2/GuestShare.test.ts",
+  "apps/server/src/orchestration-v2/OpenCode2OrchestratorV2.integration.test.ts",
+  "apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts",
+  "apps/server/src/orchestration-v2/RunMetrics.test.ts",
+  "apps/server/src/orchestration-v2/ThreadLaunchService.test.ts",
+  "apps/server/src/orchestration-v2/pullRequestWatch.test.ts",
+  "apps/server/src/orchestration-v2/runtimeLayer.test.ts",
+  "apps/server/src/orchestration-v2/testkit/ProviderSwitch.integration.test.ts",
+  "apps/server/src/telemetry/FeatureUsage.test.ts",
+  "apps/server/src/terminal/NodePtyAdapter.test.ts",
+  "packages/client-runtime/src/device/phoneScene.test.ts",
+  "packages/shared/src/forgeLinks.test.ts"
+ ],
+ "results": {
+  "apps/desktop/src/backend/DesktopServerExposure.test.ts": {
+   "status": "passed",
+   "seconds": 0.659324951171875
+  },
+  "apps/desktop/src/backend/tailscaleEndpointProvider.test.ts": {
+   "status": "passed",
+   "seconds": 0.036641357421875
+  },
+  "apps/server/src/agents/AgentRoleResolver.test.ts": {
+   "status": "passed",
+   "seconds": 0.203987060546875
+  },
+  "apps/server/src/agents/ManagedAgentService.test.ts": {
+   "status": "passed",
+   "seconds": 11.1334423828125
+  },
+  "apps/server/src/auth/McpOAuth.test.ts": {
+   "status": "passed",
+   "seconds": 4.55121044921875
+  },
+  "apps/server/src/cli/app.test.ts": {
+   "status": "passed",
+   "seconds": 1.45751513671875
+  },
+  "apps/server/src/cli/pair.test.ts": {
+   "status": "passed",
+   "seconds": 6.51653515625
+  },
+  "apps/server/src/cli/project.test.ts": {
+   "status": "passed",
+   "seconds": 32.80192919921875
+  },
+  "apps/server/src/cli/theme.test.ts": {
+   "status": "passed",
+   "seconds": 0.3225498046875
+  },
+  "apps/server/src/mcp/ManagedDelegation.test.ts": {
+   "status": "passed",
+   "seconds": 5.7871708984375
+  },
+  "apps/server/src/mcp/McpDeviceToolkit.test.ts": {
+   "status": "passed",
+   "seconds": 0.19238720703125
+  },
+  "apps/server/src/mcp/McpHttpServer.test.ts": {
+   "status": "passed",
+   "seconds": 1.532702880859375
+  },
+  "apps/server/src/mcp/McpManagedBrowser.test.ts": {
+   "status": "passed",
+   "seconds": 0.92214501953125
+  },
+  "apps/server/src/mcp/McpToolAccess.race.test.ts": {
+   "status": "passed",
+   "seconds": 0.569689453125
+  },
+  "apps/server/src/mcp/McpToolAccess.test.ts": {
+   "status": "passed",
+   "seconds": 1.918409423828125
+  },
+  "apps/server/src/mcp/OrchestratorMcpService.test.ts": {
+   "status": "passed",
+   "seconds": 5.113540283203125
+  },
+  "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts": {
+   "status": "passed",
+   "seconds": 15.096303466796876
+  },
+  "apps/server/src/mcp/SessionToolListings.test.ts": {
+   "status": "passed",
+   "seconds": 2.788922607421875
+  },
+  "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts": {
+   "status": "passed",
+   "seconds": 7.535775390625
+  },
+  "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts": {
+   "status": "passed",
+   "seconds": 3.38086376953125
+  },
+  "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts": {
+   "status": "passed",
+   "seconds": 5.273381103515625
+  },
+  "apps/server/src/orchestration-v2/GuestShare.test.ts": {
+   "status": "passed",
+   "seconds": 2.9969140625
+  },
+  "apps/server/src/orchestration-v2/OpenCode2OrchestratorV2.integration.test.ts": {
+   "status": "passed",
+   "seconds": 56.29417065429688
+  },
+  "apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts": {
+   "status": "passed",
+   "seconds": 4.285172607421875
+  },
+  "apps/server/src/orchestration-v2/RunMetrics.test.ts": {
+   "status": "passed",
+   "seconds": 0.644300048828125
+  },
+  "apps/server/src/orchestration-v2/ThreadLaunchService.test.ts": {
+   "status": "passed",
+   "seconds": 45.423419921875
+  },
+  "apps/server/src/orchestration-v2/pullRequestWatch.test.ts": {
+   "status": "passed",
+   "seconds": 0.045248046875
+  },
+  "apps/server/src/orchestration-v2/runtimeLayer.test.ts": {
+   "status": "passed",
+   "seconds": 30.158561279296876
+  },
+  "apps/server/src/telemetry/FeatureUsage.test.ts": {
+   "status": "passed",
+   "seconds": 0.031582275390625
+  },
+  "apps/server/src/terminal/NodePtyAdapter.test.ts": {
+   "status": "passed",
+   "seconds": 0.119455322265625
+  },
+  "apps/server/src/mcp/toolkits/core.test.ts": {
+   "status": "passed",
+   "seconds": 3.689685791015625
+  },
+  "apps/server/src/mcp/toolkits/releaseApproval.test.ts": {
+   "status": "passed",
+   "seconds": 1.5748876953125
+  },
+  "apps/server/src/orchestration-v2/testkit/ProviderSwitch.integration.test.ts": {
+   "status": "passed",
+   "seconds": 172.88818310546876
+  },
+  "apps/server/src/mcp/toolkits/attachment/handlers.test.ts": {
+   "status": "passed",
+   "seconds": 0.02053662109375
+  },
+  "apps/server/src/mcp/toolkits/decisions/handlers.test.ts": {
+   "status": "passed",
+   "seconds": 0.2028818359375
+  },
+  "apps/server/src/mcp/toolkits/device/handlers.test.ts": {
+   "status": "passed",
+   "seconds": 0.005729736328125
+  },
+  "apps/server/src/mcp/toolkits/environment/handlers.test.ts": {
+   "status": "passed",
+   "seconds": 0.1481513671875
+  },
+  "apps/server/src/mcp/toolkits/preview/handlers.test.ts": {
+   "status": "passed",
+   "seconds": 0.0857373046875
+  },
+  "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts": {
+   "status": "passed",
+   "seconds": 0.313110107421875
+  },
+  "apps/server/src/mcp/toolkits/project/handlers.test.ts": {
+   "status": "passed",
+   "seconds": 16.11704833984375
+  },
+  "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts": {
+   "status": "passed",
+   "seconds": 0.71532958984375
+  },
+  "apps/server/src/mcp/toolkits/thread/projectMove.test.ts": {
+   "status": "passed",
+   "seconds": 0.18644921875
+  },
+  "apps/server/src/mcp/toolkits/web/handlers.test.ts": {
+   "status": "passed",
+   "seconds": 0.214783447265625
+  },
+  "apps/server/src/mcp/toolkits/workspace/handlers.test.ts": {
+   "status": "passed",
+   "seconds": 3.950613525390625
+  },
+  "packages/client-runtime/src/device/phoneScene.test.ts": {
+   "status": "passed",
+   "seconds": 0.11288623046875
+  },
+  "packages/shared/src/forgeLinks.test.ts": {
+   "status": "passed",
+   "seconds": 0.080503662109375
+  }
+ },
+ "exitCodes": {
+  "apps/desktop": 0,
+  "apps/server": 0,
+  "packages/client-runtime": 0,
+  "packages/shared": 0
+ },
+ "wallSeconds": 197.473
+}

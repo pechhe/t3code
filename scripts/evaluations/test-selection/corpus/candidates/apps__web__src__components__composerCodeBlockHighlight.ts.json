@@ -1,0 +1,33 @@
+{
+ "changed": [
+  "apps/web/src/components/composerCodeBlockHighlight.ts"
+ ],
+ "kind": "related",
+ "reason": null,
+ "candidates": [
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/bundledDev.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/composerCodeBlockHighlight.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/reactCompilerCoverage.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ]
+}

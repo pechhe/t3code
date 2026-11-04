@@ -1,0 +1,79 @@
+{
+ "id": "historical-f6a5d7d070",
+ "kind": "historical",
+ "commit": "f6a5d7d070",
+ "changed": [
+  "apps/server/src/preview/ManagedBrowserProxy.ts"
+ ],
+ "diff": "diff --git a/apps/server/src/preview/ManagedBrowserProxy.ts b/apps/server/src/preview/ManagedBrowserProxy.ts\nindex 14053cf99f..7038b3910f 100644\n--- a/apps/server/src/preview/ManagedBrowserProxy.ts\n+++ b/apps/server/src/preview/ManagedBrowserProxy.ts\n@@ -45,6 +45,14 @@ const allowedAddress = (host: string, port: number, entries: ReadonlyArray<strin\n     );\n   });\n \n+/** Hands Node's connect the addresses already validated for a name, so it tries each in turn without a second lookup. */\n+const pinnedLookup =\n+  (addresses: ReadonlyArray<{ address: string; family: number }>): NodeNet.LookupFunction =>\n+  (_host, options, callback) =>\n+    options.all\n+      ? callback(null, [...addresses])\n+      : callback(null, addresses[0]!.address, addresses[0]!.family);\n+\n interface Options {\n   readonly serverPort: number;\n   /** null revokes the context, including already established tunnels. */\n@@ -139,7 +147,10 @@ export class ManagedBrowserProxy {\n     const addresses = NodeNet.isIP(host)\n       ? [{ address: host, family: NodeNet.isIP(host) }]\n       : host === \"localhost\" || host.endsWith(\".localhost\")\n-        ? [{ address: \"127.0.0.1\", family: 4 }]\n+        ? [\n+            { address: \"127.0.0.1\", family: 4 },\n+            { address: \"::1\", family: 6 },\n+          ]\n         : await bounded(\n             this.options.resolve?.(host) ?? NodeDnsPromises.lookup(host, { all: true }),\n             5_000,\n@@ -150,7 +161,7 @@ export class ManagedBrowserProxy {\n       (!allowed && addresses.some(({ address }) => isPrivate(address)))\n     )\n       return deny();\n-    return { address: addresses[0]!.address, port };\n+    return { host, addresses, port };\n   }\n \n   private async forward(request: NodeHttp.IncomingMessage, response: NodeHttp.ServerResponse) {\n@@ -181,7 +192,8 @@ export class ManagedBrowserProxy {\n     } = request.headers;\n     const upstream = NodeHttp.request(\n       {\n-        hostname: target.address,\n+        hostname: target.host,\n+        lookup: pinnedLookup(target.addresses),\n         port: target.port,\n         method: request.method,\n         path: `${url.pathname}${url.search}`,\n@@ -221,7 +233,11 @@ export class ManagedBrowserProxy {\n       if (![\"http:\", \"https:\", \"ws:\"].includes(url.protocol))\n         throw new Error(\"Unsupported proxy protocol.\");\n       const target = await this.destination(url);\n-      const upstream = NodeNet.connect({ host: target.address, port: target.port });\n+      const upstream = NodeNet.connect({\n+        host: target.host,\n+        lookup: pinnedLookup(target.addresses),\n+        port: target.port,\n+      });\n       this.track(upstream);\n       const timer = setTimeout(() => {\n         upstream.destroy();\n",
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/integration/transferBudgetV2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/observability/DefectReporter.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/ManagedBrowserProxy.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/ManagedIntegratedBrowser.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/ServerBrowser.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/ServerBrowserContexts.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/ServerBrowserStream.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/ws.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ]
+}

@@ -1,0 +1,41 @@
+{
+ "changed": [
+  "infra/relay/src/agentActivity/apnsJwt.ts"
+ ],
+ "kind": "related",
+ "reason": null,
+ "candidates": [
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/agentActivity/AgentActivityPublisher.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/agentActivity/ApnsClient.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/agentActivity/ApnsDeliveries.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/agentActivity/ApnsProviderTokens.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/agentActivity/MobileRegistrations.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/agentActivity/apnsJwt.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/hooks/HookForwarder.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/http/Api.test.ts"
+  }
+ ]
+}

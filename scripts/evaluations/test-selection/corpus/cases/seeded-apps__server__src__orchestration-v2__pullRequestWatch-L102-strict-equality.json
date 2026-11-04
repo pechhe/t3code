@@ -1,0 +1,95 @@
+{
+ "id": "seeded-apps__server__src__orchestration-v2__pullRequestWatch-L102-strict-equality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/server/src/orchestration-v2/pullRequestWatch.ts",
+  "line": 102,
+  "operator": "strict-equality",
+  "before": "    const awaitedMs = checksAwaitedSince === null ? 0 : now - Date.parse(checksAwaitedSince);",
+  "after": "    const awaitedMs = checksAwaitedSince !== null ? 0 : now - Date.parse(checksAwaitedSince);"
+ },
+ "hunk": "   }\n \n   // Only a head never read with checks waits for them: an empty read after checks were seen is\n   // the failed read above. A watch saved before this field may have seen pending checks on its\n   // head, so its clock starts only at the next push. Where a host's empty list can mean the\n   // repository runs no checks at all, nothing waits.\n   let checksAwaitedSince = watch.checksAwaitedSince;\n   if (detail.capabilities.checksAlwaysReport === true) {\n     const awaitedBefore = headMoved\n       ? DateTime.formatIso(DateTime.makeUnsafe(now))\n       : (watch.checksAwaitedSince ?? null);\n     checksAwaitedSince = detail.checks.length > 0 ? null : awaitedBefore;\n-    const awaitedMs = checksAwaitedSince === null ? 0 : now - Date.parse(checksAwaitedSince);\n+    const awaitedMs = checksAwaitedSince !== null ? 0 : now - Date.parse(checksAwaitedSince);\n     if (awaitedMs >= PULL_REQUEST_WATCH_NO_CHECKS_MS) {\n       changes.push({ kind: \"no-checks\", minutes: Math.round(awaitedMs / 60_000) });\n       checksAwaitedSince = null;\n     }\n   }\n \n   const own = (detail.viewer ?? detail.author?.login)?.toLowerCase();\n   const through = Date.parse(watch.remarksThrough);\n   const activeAt = (remark: PullRequestComment) => remark.editedAt ?? remark.createdAt;\n   // Hosts can stamp remarks to the second, so remarks at the boundary time are told apart by ID.\n   const fresh = (remarks ?? []).filter((remark) => {\n     const at = Date.parse(activeAt(remark));",
+ "changed": [
+  "apps/server/src/orchestration-v2/pullRequestWatch.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/pullRequestWatch.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 2,
+ "failing": [
+  "apps/server/src/orchestration-v2/pullRequestWatch.test.ts",
+  "apps/server/src/orchestration-v2/runtimeLayer.test.ts"
+ ],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/server/src/outboundHttp.test.ts": 0.280517822265625,
+  "apps/server/src/processRunner.test.ts": 0.038151123046875,
+  "apps/server/src/cli/app.test.ts": 0.325789306640625,
+  "apps/server/src/cli/pair.test.ts": 10.999971923828125,
+  "apps/server/src/cli/project.test.ts": 26.026982421875,
+  "apps/server/src/cli/theme.test.ts": 0.211928955078125,
+  "apps/server/src/orchestration-v2/pullRequestWatch.test.ts": 0.0243681640625,
+  "apps/server/src/orchestration-v2/runtimeLayer.test.ts": 14.728972900390625,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 2.3875380859375,
+  "scripts/hq-allowlist.test.ts": 3.427965576171875
+ },
+ "measuredWallSeconds": 41.913,
+ "exitCodes": {
+  "apps/server": 1,
+  "scripts": 1
+ },
+ "verifiedPassing": [
+  "apps/server/src/cli/app.test.ts",
+  "apps/server/src/cli/pair.test.ts",
+  "apps/server/src/cli/project.test.ts",
+  "apps/server/src/cli/theme.test.ts",
+  "apps/server/src/outboundHttp.test.ts",
+  "apps/server/src/processRunner.test.ts",
+  "apps/server/src/provider/CodexManagedRuntime.test.ts"
+ ],
+ "controlVerified": true
+}

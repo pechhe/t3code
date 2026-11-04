@@ -1,0 +1,97 @@
+{
+ "id": "seeded-apps__server__src__telemetry__FeatureUsage-L27-strict-equality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/server/src/telemetry/FeatureUsage.ts",
+  "line": 27,
+  "operator": "strict-equality",
+  "before": "    variant: command.restoreFiles === false ? \"conversation_only\" : \"with_files\",",
+  "after": "    variant: command.restoreFiles !== false ? \"conversation_only\" : \"with_files\","
+ },
+ "hunk": " \n /**\n  * Exclude housekeeping and `message.dispatch`, which `client.turn.requested` already counts.\n  * Record at command dispatch so retries that commit no change do not count twice.\n  */\n const COMMAND_FEATURES: {\n   readonly [Type in OrchestrationV2Command[\"type\"]]?: (\n     command: Extract<OrchestrationV2Command, { readonly type: Type }>,\n   ) => FeatureUsage;\n } = {\n   \"checkpoint.rollback\": (command) => ({\n     feature: \"checkpoint.rollback\",\n-    variant: command.restoreFiles === false ? \"conversation_only\" : \"with_files\",\n+    variant: command.restoreFiles !== false ? \"conversation_only\" : \"with_files\",\n   }),\n   \"thread.fork\": () => ({ feature: \"thread.fork\" }),\n   \"thread.merge_back\": () => ({ feature: \"thread.merge_back\" }),\n   \"provider.switch\": () => ({ feature: \"provider.switch\" }),\n   \"thread.archive\": () => ({ feature: \"thread.archive\" }),\n   \"thread.snooze\": () => ({ feature: \"thread.snooze\" }),\n   \"thread.pin\": () => ({ feature: \"thread.pin\" }),\n   \"thread.settle\": () => ({ feature: \"thread.settle\" }),\n   \"thread.pull-request.link\": () => ({ feature: \"thread.pull_request.link\" }),\n   \"thread.pull-request.watch\": (command) =>\n     use(\"thread.pull_request.watch\", command.watching ? \"on\" : \"off\"),\n   \"thread.runtime-mode.set\": (command) => use(\"thread.runtime_mode.set\", command.runtimeMode),",
+ "changed": [
+  "apps/server/src/telemetry/FeatureUsage.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/integration/transferBudgetV2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/observability/DefectReporter.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/telemetry/FeatureUsage.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/ws.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/server/integration/transferBudgetV2.integration.test.ts": 21.296250244140627,
+  "apps/server/src/outboundHttp.test.ts": 1.100960205078125,
+  "apps/server/src/processRunner.test.ts": 0.14691357421875,
+  "apps/server/src/ws.test.ts": 8.64879833984375,
+  "apps/server/src/cli/app.test.ts": 2.200061767578125,
+  "apps/server/src/cli/pair.test.ts": 24.907835205078126,
+  "apps/server/src/cli/project.test.ts": 70.2940341796875,
+  "apps/server/src/cli/theme.test.ts": 0.396730712890625,
+  "apps/server/src/observability/DefectReporter.test.ts": 0.0936396484375,
+  "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts": 6.67569921875,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 7.8566025390625,
+  "apps/server/src/telemetry/FeatureUsage.test.ts": 0.008455810546875,
+  "scripts/hq-allowlist.test.ts": 23.61436376953125
+ },
+ "measuredWallSeconds": 171.551,
+ "exitCodes": {
+  "apps/server": 0,
+  "scripts": 1
+ }
+}

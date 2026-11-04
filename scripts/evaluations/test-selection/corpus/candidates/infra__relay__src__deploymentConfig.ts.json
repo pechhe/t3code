@@ -1,0 +1,65 @@
+{
+ "changed": [
+  "infra/relay/src/deploymentConfig.ts"
+ ],
+ "kind": "related",
+ "reason": null,
+ "candidates": [
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/agentActivity/AgentActivityPublisher.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/agentActivity/ApnsDeliveries.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/agentActivity/MobileRegistrations.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/deploymentConfig.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/environments/EnvironmentConnector.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/environments/EnvironmentLinker.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/environments/ManagedEndpointAllocations.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/environments/ManagedEndpointProvider.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/environments/ManagedEndpointReaper.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/hooks/HeldHooks.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/hooks/HookForwarder.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/http/Api.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/previewStages.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/previewTunnelSweep.test.ts"
+  }
+ ]
+}

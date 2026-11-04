@@ -1,0 +1,140 @@
+{
+ "id": "seeded-packages__client-runtime__src__state__forgeWorkItems-L162-number-increment",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "packages/client-runtime/src/state/forgeWorkItems.ts",
+  "line": 162,
+  "operator": "number-increment",
+  "before": "    held: (item?.holds.length ?? 0) > 0,",
+  "after": "    held: (item?.holds.length ?? 1) > 0,"
+ },
+ "hunk": " \n /** What a header segment or subtitle shows for a linked item, on web and mobile alike. */\n export function presentForgeWorkItem(link: ForgeWorkItemView) {\n   const item = link.item;\n   return {\n     label: forgeItemLabel({ number: link.number, ref: item?.ref }),\n     numberHint: forgeItemNumberHint({ number: link.number, ref: item?.ref }),\n     glyph: buildKindGlyph(item?.kind),\n     // With nothing read yet, the number is all that is known; never a spinner.\n     title: item?.title ?? `Forge ${link.number}`,\n     tone: buildStatusTone(item),\n     statusLabel: item === null ? null : buildStatusLabel(item.status),\n-    held: (item?.holds.length ?? 0) > 0,\n+    held: (item?.holds.length ?? 1) > 0,\n     blocked: (item?.waits.length ?? 0) > 0,\n     unavailable: link.unavailable,\n   };\n }\n export type ForgeWorkItemPresentation = ReturnType<typeof presentForgeWorkItem>;\n \n /** Ticket statuses in the order a Spec's progress bar fills. */\n const TICKET_PROGRESS_ORDER = [\"landed\", \"in_progress\", \"ready\", \"dropped\"];\n \n /** A Spec card's progress bar and \"+N more\", from its Tickets by status. */\n export function presentSpecTickets(detail: Extract<ForgeWorkItemCard[\"detail\"], { kind: \"spec\" }>) {\n   const total = Object.values(detail.ticketCounts).reduce((sum, count) => sum + count, 0);",
+ "changed": [
+  "packages/client-runtime/src/state/forgeWorkItems.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ChatMarkdown.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/CommandPalette.focus.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/UsageToggleShortcut.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/composerContextPresentation.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/forgeItem/ForgeWorkItemCard.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/guest/GuestPage.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestCodeTab.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestSummaryTab.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/pullRequestsRouteSearch.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/IntegrationsSettings.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/useThreadActionMenu.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/forgeWorkItems.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [
+  "apps/web/src/components/ChatMarkdown.browser.test.tsx",
+  "apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx",
+  "apps/web/src/components/CommandPalette.focus.browser.test.tsx",
+  "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx",
+  "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx",
+  "apps/web/src/components/UsageToggleShortcut.browser.test.tsx",
+  "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx",
+  "apps/web/src/components/composerContextPresentation.test.ts",
+  "apps/web/src/components/forgeItem/ForgeWorkItemCard.browser.test.tsx",
+  "apps/web/src/components/guest/GuestPage.browser.test.tsx",
+  "apps/web/src/components/pullRequest/PullRequestCodeTab.browser.test.tsx",
+  "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.browser.test.tsx",
+  "apps/web/src/components/pullRequest/PullRequestSummaryTab.browser.test.tsx",
+  "apps/web/src/components/pullRequest/pullRequestsRouteSearch.test.ts",
+  "apps/web/src/components/settings/IntegrationsSettings.logic.test.ts",
+  "apps/web/src/hooks/useThreadActionMenu.test.ts"
+ ],
+ "measuredSeconds": {
+  "apps/server/src/outboundHttp.test.ts": 0.535997314453125,
+  "apps/server/src/processRunner.test.ts": 0.08531103515625,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 4.26313330078125,
+  "packages/client-runtime/src/state/forgeWorkItems.test.ts": 0.043251220703125,
+  "scripts/hq-allowlist.test.ts": 19.597184814453126
+ },
+ "measuredWallSeconds": 280.35,
+ "exitCodes": {
+  "apps/server": 0,
+  "apps/web": 1,
+  "packages/client-runtime": 0,
+  "scripts": 1
+ }
+}

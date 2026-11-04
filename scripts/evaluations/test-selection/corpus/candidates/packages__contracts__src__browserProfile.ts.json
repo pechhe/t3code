@@ -1,0 +1,4665 @@
+{
+ "changed": [
+  "packages/contracts/src/browserProfile.ts"
+ ],
+ "kind": "related",
+ "reason": null,
+ "candidates": [
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/CodexAuthCallback.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopAppActivation.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopAppActivationBroker.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopAppIdentity.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopClerk.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopCliCommand.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopCliShim.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopConnectionCatalogStore.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopEnvironment.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopLifecycle.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopLinuxUrlHandler.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopObservability.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopPreReadyPlatform.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopBackendManager.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopBackendPool.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopServerExposure.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/electron/ElectronShell.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/localEnvironment.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/preview.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/snapShot.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/sshEnvironment.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/window.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/wsl.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/preview/BrowserImport/BrowserImport.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/preview/BrowserImport/ChromiumCookies.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/preview/BrowserImport/ChromiumKeys.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/preview/BrowserImport/LinuxBrowserSecret.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/preview/ComposerDisplayMedia.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/preview/DesktopBrowserHost.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/preview/FaviconCapture.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/preview/Manager.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/preview/Passkeys.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/preview/ScreenRecordingIndicator.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/settings/DesktopAppSettings.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/settings/DesktopClientSettings.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/settings/DesktopSavedEnvironments.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/shell/DesktopShellEnvironment.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/snapShot/CaptureShortcutConfig.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/snapShot/DesktopSnapShot.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/snapShot/KdeSnapShot.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/snapShot/LinuxSnapShot.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/snapShot/NiriSnapShot.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/snapShot/captureConfigEdit.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/snapShot/snapShot.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ssh/DesktopSshPasswordPrompts.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/telemetry/DesktopTelemetryPublisher.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/updates/DesktopUpdates.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/ContextMenuImage.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/DesktopApplicationMenu.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/DesktopWindow.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/wsl/DesktopWslBackend.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/wsl/DesktopWslEnvironment.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/wsl/DesktopWslServerTree.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/connection/background-activity.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/connection/environment-cache-store.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/connection/migration.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/connection/storage.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/agent-awareness/liveActivityPreferences.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/agent-awareness/remoteRegistration.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/cloud/CloudAuthProvider.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/cloud/linkEnvironment.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/cloud/managedRelayLayer.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/connection/environmentSections.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/devices/threadDevicePreviews.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/home/homeThreadList.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/home/useThreadListActions.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/keyboard/hardwareKeyboardCommands.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/observability/tracing.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/projects/AddProjectScreen.logic.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/projects/AddProjectScreen.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/pull-requests/pullRequestActions.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/pull-requests/pullRequestActivityFilter.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/pull-requests/pullRequestAgentTasks.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/pull-requests/pullRequestAutolinks.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/pull-requests/pullRequestDescriptionContent.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/pull-requests/pullRequestDiffHighlightFiles.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/pull-requests/pullRequestDiffPages.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/pull-requests/pullRequestList.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/pull-requests/pullRequestMediaSource.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/pull-requests/pullRequestNavigation.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/pull-requests/pullRequestReviewDrafts.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/pull-requests/pullRequestStack.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/pull-requests/usePullRequestDiff.test.tsx"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/review/nativeReviewDiffAdapter.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/review/reviewCommentSelection.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/settings/SettingsRouteScreen.logic.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.test.tsx"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/settings/autoSettleSettingsSync.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/settings/components/BranchNamingSettings.test.tsx"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/settings/environment-maintenance.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/settings/scheduled-task-editor-state.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/settings/scheduledTaskDraft.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/settings/settings-scoped-server.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/sharing/incoming-share-inbox.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/sharing/incoming-share-model.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/sharing/incoming-share-storage.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/shortcuts/appShortcuts.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/terminal/terminalLaunchContext.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/terminal/terminalMenu.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/terminal/useTerminalGridSync.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/checkout-new-task-branch.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/fileChipMenu.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/new-task-context-presentation.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/new-task-project-selection.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/pending-thread-feed.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/projectThreadCreationValidation.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/provider-catalog-refresh.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/subagent-card-presentation.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/thread-provider-instance.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/thread-settings-options.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/thread-settings-sheet-state.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/threadMessageJump.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/threadQueueControlPresentation.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/use-composer-command-menu.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/threads/worktree-setup-state.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/updates/app-updates.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/usage/UsageLimitsSection.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/features/usage/usageEnvironmentSelection.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/assetImageSource.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/attachmentUpload.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/composerAttachmentUploadQueue.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/composerChipPresentation.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/composerContext.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/composerContextClipboard.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/composerFiles.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/composerImages.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/connection.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/enrichedLinkPresentation.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/filePreviewGallery.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/markdownInlineFileLinks.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/markdownLinks.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/markdownMedia.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/markdownMediaSource.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/mediaActions.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/modelOptions.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/projectFaviconDatabaseCache.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/projectIcon.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/projectThreadStartTurn.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/storage.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/lib/threadActivity.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/assets.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/attachments.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/composer-attachment-uploads.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/edit-pending-thread-message.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/pending-task-editor-writes.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/pending-thread-creation.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/preferences.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/queries.filesystem.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/queued-run-edit.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/remote-environment-projections.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/session.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/thread-order.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/thread-outbox-removal.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/thread-outbox.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/thread-task-permissions.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/use-composer-drafts.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/use-selected-thread-git-actions.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/use-selected-thread-git-actions.test.tsx"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/use-thread-outbox-drain.permissions.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/use-thread-outbox-drain.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/use-thread-pr.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/workspace-connection-atoms.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/state/workspaceModel.test.ts"
+  },
+  {
+   "directory": "apps/mobile",
+   "file": "apps/mobile/src/widgets/subscriptionUsageSnapshot.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/integration/transferBudgetV2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/scripts/migrate-dev-db.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/agents/AgentConfigCheckout.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/agents/AgentPolicyService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/agents/AgentPolicySettingsService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/agents/AgentRoleResolver.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/agents/ExternalAgentWorkService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/agents/ManagedAgentService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/agents/RunSetupRecorder.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/agents/followup.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/agents/taskTitle.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/agents/workspaceIdentity.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/assets/AssetAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/assets/AttachmentUpload.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/attachmentStore.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/EnvironmentAuth.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/EnvironmentAuthAdmin.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/EnvironmentAuthPolicy.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/McpOAuth.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/PairingGrantStore.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/RpcAuthorization.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/ServerSecretStore.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/SessionStore.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/dpop.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/replayMarkers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/background/BackgroundPolicy.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/background/HostPowerMonitor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/checkpointing/CheckpointDiffQuery.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/checkpointing/CheckpointStore.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/claudeModelOptions.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/AgentCliClient.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/agent.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/config.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/connect.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/doctor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/service.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/thread.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/trace.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/triage.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/uninstall.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/update.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/CliState.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/CliTokenManager.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/CloudLink.lifecycle.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/CloudLink.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/ConnectReachability.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/ManagedEndpointRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/bootService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/environmentKeys.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/pinnedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/selfUpdate.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/codexModelOptions.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/config.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/decisions/DecisionService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/decisions/adapters.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/desktopUpdate/DesktopAppUpdate.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/DeviceActions.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/DeviceHubProxy.stream.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/DeviceHubProxy.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/DeviceMultiHost.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/DeviceService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/DeviceToolchain.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/EasDeviceHost.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/LocalDeviceHost.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/SshDeviceHost.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/deviceToolMaintenance.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/sshDeviceScript.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/diagnostics/ProcessDiagnostics.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/environment/DirectEndpoints.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/environment/RemoteOpenTargets.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/environment/ServerEnvironment.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/environmentTheme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/experiments/ExperimentService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/experiments/ExperimentWork.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/experiments/InstructionOverlay.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/fleet/FleetProjection.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/fleet/FleetSummaryService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/git/GitManager.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/git/GitWorkflowService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/git/linkCreatedPullRequest.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/guest/GuestShareService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/guest/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/ForgeHome.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/ForgeWorkItems.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/HqAgentConnections.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/HqAgentLifecycleReactor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/HqForgeRecordingReactor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/HqForgeRecords.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/HqForgeUsage.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/HqMcpRoute.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/HqRepositories.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/HqSignIn.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/HqSignInRoute.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/RepositoryChipSync.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/htmlRender/HtmlRender.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/keybindings.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ExperimentWorkMcp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ManagedDelegation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ManagedFollowup.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpHttpServer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpInvocationContext.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpManagedBrowser.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpSessionRegistry.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.race.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpService.activity.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/PreviewAutomationBroker.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/SessionToolListings.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ToolSessionPolicy.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/WebResearch.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/WorktreeMcpService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/threadAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/core.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/preview/tools.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/web/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/workspace/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcpApps/McpAppModelContext.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcpApps/McpAppRequests.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/observability/DefectReporter.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/observability/EventLoopMonitor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/observability/OtlpEndpointCheck.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/observability/RpcInstrumentation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/AcpAdapterV2.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/AcpRegistryAdapterV2.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/AntigravityAdapterV2.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAgentSdkQueryRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/CodexProcessGroup.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/GrokAdapterV2.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/OpenCode2AdapterV2.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/AttachmentClaims.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/BackgroundWorkStop.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/CheckpointCaptureService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/CheckpointRestoreSafety.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/CheckpointRollbackService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/CheckpointScopeOwnership.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/CheckpointService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ClaudeAutomaticDelivery.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/CommandOutputHub.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/CommandPolicy.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ContextHandoffBudget.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ContextHandoffService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/DispatchModeLimit.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/EffectWorker.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/FoundationPersistence.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/GuestShare.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/IdleCompaction.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/OpenCode2OrchestratorV2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Orchestrator.migration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectCommands.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectStore.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectionControlReads.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectionMaintenance.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectionRecovery.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectionSettlement.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectionStore.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderAdapterRegistry.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderContinuationService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderEventIngestor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderRuntimeRecoveryService.regression.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderRuntimeRecoveryService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderSessionManager.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderSessionTransitionPolicy.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderSwitchService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/PullRequestSyncReactor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RestartBackgroundNote.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RestartContinuation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RunCompletionReads.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RunExecutionService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RunFinalizationQueue.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RunFinalizationService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RunMetrics.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RuntimePolicy.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RuntimeRequestService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ShellStream.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/SideChat.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/SubagentProjection.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadDeletion.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadFind.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadFork.execution.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadForkService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadLaunchService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadLiveEventCoalescer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadManagementService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadMessageIntake.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadProjectMove.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadProjectMoveService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadSearch.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadSettlementService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadStop.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadStream.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadTitleRegenerationService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadTransportPerformance.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadWatch.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadWorkflow.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/TurnItemPositionStore.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/TurnStartReads.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/UnattendedReactor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/UsageLimitRecoveryWorker.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/UserFacingErrors.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/WireProjection.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/WorkspaceAttachments.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/WorkspaceRebind.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/assistantStreaming.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/legacy/LegacyV1Cutover.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/legacy/LegacyV1ThreadImporter.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/pullRequestWatch.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/AcpRegistryReplayFixtures.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures1.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures3.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures4.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures5.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures6.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/CodexReplayFixtures.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/CursorReplayFixtures.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/GrokReplayFixtures1.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/GrokReplayFixtures2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/MuseReplayFixtures.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/OpenCodeReplayFixtures1.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/OpenCodeReplayFixtures2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/OrchestratorReplayRecovery.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/OrchestratorReplayRestartBackgroundNote.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/PiReplayFixtures.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ProviderSwitch.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ThreadFork.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ThreadMergeBack.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/threadHistoryPaging.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/toolOutputImageBytes.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/workflowAgentTranscript.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/workflowScriptQuery.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/peers/PeerEnvironments.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/peers/ThreadDirectory.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/DatabaseMaintenance.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/DatabaseStorage.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/LegacyAdvisorPins.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/016_CanonicalizeModelSelections.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/024_BackfillProjectionThreadShellSummary.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/025_CleanupInvalidProjectionPendingApprovals.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/026_CanonicalizeModelSelectionOptions.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/027_028_ProviderInstanceIdColumns.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/031_AuthAuthorizationScopes.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/046_RepairAutomaticSettlementTimestamps.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/049_ProjectionThreadsActiveOrderKey.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/050_ProjectionThreadPullRequests.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/051_ProjectionThreadMessageContext.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/054_ProjectionThreadsAutoSettleDisabledAt.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/055_OrchestrationV2.application-event-source.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/055_OrchestrationV2.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/057_ScheduledTaskWebhooks.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/067_AdvisorConsultations.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/068_ExperimentEvidence.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/072_DropUnusedV1Projections.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/074_CanonicalizeThreadPullRequestLinks.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/076_RepairClientSettlementTimestamps.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/077_ProjectHqRepositorySync.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/080_ThreadCompactAt.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/081_DropHandedWorkspaceAttachments.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/083_UnboundScheduledTaskDefaultWorkspace.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/087_ScheduledTaskRoleBackfill.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/090_ThreadMessageSearch.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/091_ProjectionAggregateIndexes.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/092_MaintenanceCandidateIndexes.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/093_IntermediateEventCompaction.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Migrations/095_ProjectionReadIndexes.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/OrchestrationEventStore.sequence.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/OrchestrationEventStore.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/RepositoryErrorCorrelation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/Sqlite.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/initializeV2Database.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/persistence/reconcileV2PreviewMigration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/ManagedIntegratedBrowser.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/Manager.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/PhiBrowser.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/PhiBrowserProtocol.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/PhiBrowserRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/PortScanner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/PreviewBrowser.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/ServerBrowser.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/ServerBrowserContexts.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/ServerBrowserPage.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/ServerBrowserStream.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/process/agentScope.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/process/externalLauncher.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/AgentSessionImporter.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/AgentSessionScanner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ManagedProjectFolders.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ProjectCloneTracker.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ProjectEnrichmentService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ProjectFaviconResolver.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ProjectMutation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ProjectService.deletion.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ProjectService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ProjectSetupScriptRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/RepositoryIdentityResolver.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/SlipJayGuard.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/SlipJayLandings.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/SlipJayReleases.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/SlipJaySettings.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/T3ProjectFileLoader.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/WorkspaceAllocationSweep.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/WorkspaceProvider.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/WorktreeSetupTracker.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/slipJayLandingState.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/AcpRegistryProbe.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/AntigravityAuth.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/AntigravityInstallation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/AntigravityProvider.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/ClaudeCapabilitiesProbe.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/ClaudeModelCatalog.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexAuthCallback.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexChatGptAuth.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexChatGptSessionLock.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexInstallation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexProvider.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/Drivers/AntigravityDriver.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/Drivers/CodexDriver.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/Drivers/CodexHomeLayout.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/Drivers/codexUsage.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/EventNdjsonLogger.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/GrokProvider.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/ModelManifest.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/ProviderAuthService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/ProviderCredentialStore.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/ProviderInstanceRegistry.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/ProviderInstanceRegistryHydration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/ProviderRegistry.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/TurnTokenUsage.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/acp/AcpJsonRpcConnection.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/acp/AcpSessionRuntime.processTree.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/acp/AntigravityAcpSupport.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/acp/AntigravityProtocol.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/antigravityAuthSupport.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/antigravityCallback.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/codexModelCatalog.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/providerCompatibility.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/providerInstallation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/providerMaintenanceRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/providerStatusCache.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/userInputAttachments.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/pullRequest/PullRequestReadCache.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/pullRequest/PullRequestReviewGuideService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/pullRequest/PullRequestService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/pullRequest/linkedThreads.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/pullRequest/pullRequestSyncKey.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/relay/AgentAwarenessRelay.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/releases/ReleaseApprovalShell.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/releases/ReleaseApprovals.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/resourceTelemetry/DesktopTelemetryReceiver.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/resourceTelemetry/Model.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/resourceTelemetry/NativeTelemetryClient.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/resourceTelemetry/ProcessGroupMetrics.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/resourceTelemetry/ResourceMonitorBinary.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/resourceTelemetry/ResourceTelemetry.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/review/ReviewService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/Schedule.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/ScheduledTaskService.interval.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/ScheduledTaskService.role.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/ScheduledTaskService.schedule.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/ScheduledTaskService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/ScheduledTaskService.webhook.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/webhookRoute.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/webhookTemplate.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/secrets/SecretRequests.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/serverLogger.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/serverRuntimeStartup.autoPull.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/serverRuntimeStartup.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/serverRuntimeState.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/serverSettings.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/serviceLauncher.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/shippedClientCompatibility.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/sourceControl/SourceControlDiscovery.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/sourceControl/SourceControlProviderRegistry.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/sourceControl/SourceControlRepositoryService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/sourceControl/sourceControlDefinitions.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/startupAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/storageCleanup.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/telemetry/AnalyticsService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/telemetry/FeatureUsage.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/telemetry/Identify.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/telemetry/ProviderDimensions.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/terminal/Manager.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/terminal/OutputProtocol.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/textGeneration/AntigravityTextGeneration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/textGeneration/ClaudeTextGeneration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/textGeneration/CodexTextGeneration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/textGeneration/GrokTextGeneration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/textGeneration/OpenCode2TextGeneration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/textGeneration/ThreadTitleLinks.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/usage/UsageLimitSources.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/usage/UsageService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/usage/cliproxyApi.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/usage/usageScanCache.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/usage/usageTranscriptReader.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/usage/usageTranscriptStreaming.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/vcs/GitVcsDriver.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/vcs/GitVcsDriverCore.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/vcs/JjVcsDriver.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/vcs/SlipJayProject.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/vcs/VcsDriverRegistry.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/vcs/VcsProcess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/vcs/VcsProjectConfig.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/vcs/VcsStatusBroadcaster.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/videoFrames/VideoFrames.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/voiceBridge/Bridge.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/voiceBridge/Http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/voiceBridge/T3Port.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/workspace/WorkspaceEntries.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/workspace/WorkspaceFileSystem.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/workspace/WorkspaceInspection.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/ws.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/authBootstrap.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/browser/ElectronBrowserHost.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/browser/browserDefaults.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/browser/browserLinkTarget.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/browser/browserRecording.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/browser/browserTargetResolver.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/browser/browserViewportLayout.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/browser/desktopTabLifetime.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/browser/previewRuntimeTabId.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/browserFaviconLogic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/browserFaviconStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/browserHistoryStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/clientPersistenceStorage.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/closedViewStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/cloud/linkEnvironment.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/cloud/managedAuth.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/cloud/relayClientInstallDialog.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/cloud/useCloudLinkController.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/BranchToolbar.panel.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ChatMarkdown.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ChatView.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/CommandPalette.focus.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/CommandPalette.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/GitActionsControl.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/GitActionsControl.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ProviderUpdateLaunchNotification.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/PullRequestThreadDialog.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ReopenClosedViewShortcut.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/RightPanelTabs.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ServerUpdateAction.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/Sidebar.drag.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/Sidebar.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ThreadNotificationCoordinator.badge.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ThreadNotificationCoordinator.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ThreadNotificationCoordinator.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ThreadStatusIndicators.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ThreadTerminalDrawer.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/UsageToggleShortcut.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/backgroundThreadAnnouncement.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/AssistantCitationChip.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/ComposerCommandMenu.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/ComposerPendingUserInputPanel.navigation.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/ComposerStashMenu.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/ContextWindowMeter.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/ExpandedImagePreview.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/MessagesTimeline.active-tools.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/MessagesTimeline.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/OpenInPicker.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/ProviderInstanceIcon.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/ProviderStatusBanner.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/QueuedRunsControl.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/SubagentTooltipContent.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/ThreadAutomationsPanel.permissions.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/ThreadDetailsPrRow.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/ThreadErrorBanner.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/ThreadRelationshipsControl.agents.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/TraitsSpeed.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/V2LifecycleRow.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/agentSpawnSummary.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/assistantCitationCommentDismissal.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/chatCanvasLayout.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/composerAttachmentFiles.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/composerAttachmentReferences.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/composerContextUndo.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/composerMentionDrag.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/composerPromptHistory.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/composerProviderState.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/composerScreenRecording.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/composerSend.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/composerSubmission.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/composerThreadImport.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/device/DeviceEnvironmentSwitch.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/modelPickerKeys.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/queuedMessageEdit.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/screenRecordingSession.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/threadActivityAnnouncement.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/threadContextDrag.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/threadFindActionBus.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/threadFindHighlights.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/timelineScrollAnchoring.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/useChatShortcuts.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/useDraftEnvironmentRouting.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/usePendingThreadRequests.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/useSettledFinished.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/composerCodeBlockHighlight.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/composerContextPresentation.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/desktop/DesktopOpenThreadCoordinator.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/desktop/DesktopWebLinkCoordinator.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/desktop/SnapShotCoordinator.browser.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/device/DevicePanel.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/device/DeviceSetup.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/device/deviceHubApi.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/device/useDeviceControls.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/diffs/AnnotatableCodeView.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/files/FilePreviewPanel.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/files/fileTreeDragMention.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/files/projectFilesQueryState.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/files/projectFilesQueryState.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/files/useFileSaveCoordinator.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/forgeItem/ForgeWorkItemCard.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/guest/GuestPage.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/guest/guestStream.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/media/MediaActions.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/media/MediaVideoPlayer.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/onboarding/WelcomeWizard.import.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/preview/PreviewView.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/preview/closePreviewSession.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/preview/openPreviewSession.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/preview/openTerminalLinkInPreview.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/preview/previewMiniPlayerLayout.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/preview/previewViewportRollback.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/preview/useDiscoveredLocalServers.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/preview/usePreviewBridge.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/projectScriptEditor.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestCodeTab.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestSummaryTab.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/pullRequestDetail.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/pullRequestList.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/pullRequestMarkdown.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/pullRequestProjectFilter.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/pullRequestReviewStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/pullRequestStackSnapshot.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/pullRequestsRouteSearch.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/scheduled/scheduledTasks.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/AcpRegistryIcon.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/AcpRegistrySearchStep.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/AcpSessionManagementSection.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/AddProviderInstanceDialog.environment.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/CaptureShortcutConfig.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/ConnectionsSettings.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/DelegationSettings.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/DelegationSettings.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/EnvironmentIconPicker.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/IntegrationsSettings.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/KeybindingsSettings.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/PoolAccountsSection.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/ProjectSettingsPanel.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/ProjectSettingsPanel.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/ProviderInstanceCard.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/ProviderSettingsForm.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/ProviderSettingsPanel.environment.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/ProviderSettingsPanel.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/ProviderSetupSection.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/SecretInput.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/SettingInheritance.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/SettingsPanels.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/SnapShotSettings.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/SnapShotSetupDialog.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/SourceControlWritingSettings.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/StorageSettings.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/TelemetryExportSettings.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/colorPickers.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/customModelEditor.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/deviceHostConnectionChecks.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/easDeviceHostsSettings.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/providerStatus.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/scopedSettings.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/settingsScope.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/settingsScopeNavigation.browser.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/settingsScopeNavigation.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/settingsSearch.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/useProjectScriptSettings.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/useSnapShotShortcutRecorder.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/sidebar/SidebarProviderUpdatePill.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/sidebar/SidebarThreadUndoNotice.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/sidebar/updateEverything.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/snapShot/snapShotOverlayDock.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/snapShot/snapShotOverlaySession.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/usage/UsageProviderChart.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/usage/usageBreakdown.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/usage/usagePagePreferences.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/usage/usagePriceTable.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/usage/usagePriceTargets.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composer-block-shortcuts.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composer-code-block.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composer-editor-mentions.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composer-list-continuation.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composer-list-split.browser.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composer-logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composer-rich-text-doc.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composer-text-direction.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composerDraftStore.snapShotOverlay.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composerDraftStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/connection/desktopLocal.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/connection/platform.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/connection/runtime.browser.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/connection/storage.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/desktopAppActivation.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/diffFileActions.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/diffPanelStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/editorPreferences.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/environmentGrouping.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/environments/primary/bootstrap.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/environments/primary/httpLayer.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/fileContextMenu.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/newThreadEnvironment.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/showThreadUndoNotice.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/useCopyToClipboard.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/useDefaultTheme.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/useEnvironmentTheme.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/usePullRequestLinking.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/useSettings.favorites.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/useSettings.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/useTheme.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/useThreadActionMenu.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/useThreadActions.permissions.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/useThreadActions.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/useThreadActions.undo.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/keybindings.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/assistantCitationNavigation.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/assistantTextSelection.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/attachmentUploadQueue.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/attachmentUploadState.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/backgroundActivityReporter.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/chatThreadActions.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/composerContextRecords.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/contextWindow.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/diffRendering.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/discardComposerDraft.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/imageAnnotation.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/imageCompression.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/projectPaths.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/projectScriptKeybindings.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/resourceTelemetryState.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/revealThreadTerminal.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/runtime.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/selectionSurface.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/snapShotShortcut.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/terminalCloseShortcut.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/terminalContext.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/lib/threadContextAttachment.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/localApi.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/markdown-clipboard.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/markdown-incremental.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/markdown-links.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/modelSelection.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/onboarding/projectImport.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/onboarding/providerReadiness.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/onboarding/targetEnvironment.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/pendingUserInput.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/portDiscoveryState.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/previewMiniPlayerStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/previewStateStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/projectScripts.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/promptStashStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/providerInstances.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/providerModels.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/providerSkillSearch.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/questionAttachments.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/remoteOpen.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/reopenClosedView.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/reviewCommentContext.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/rightPanelStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/session-logic.runtime-diagnostics.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/session-logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/settleAndAdvance.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/sidebarPendingFileDropStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/state/entities.relationshipShells.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/state/pullRequests.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/state/queries.filesystem.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/state/server.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/state/shell.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/state/sourceControlActions.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/state/terminalSessions.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/state/threads.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/state/use-orchestration-command.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/terminal-links.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/terminal/ghostty/core.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/terminal/ghostty/keyCodes.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/terminal/ghostty/surface.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/terminalUiStateStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/threadRoutes.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/threadSelectionStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/uiStateStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/versionSkew.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/worktreeCleanup.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/agentActivity/ApnsClient.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/agentActivity/ApnsDeliveries.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/agentActivity/FcmDeliveries.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/agentActivity/agentActivityPolicy.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/environments/EnvironmentConnector.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/hooks/HeldHooks.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/hooks/HookForwarder.test.ts"
+  },
+  {
+   "directory": "infra/relay",
+   "file": "infra/relay/src/http/Api.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/authorization/layer.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/authorization/remote.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/buildSessionThreadLink.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/changeRequestLinks.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/composerThreadItems.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/connection/compatibility.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/connection/diagnosis.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/connection/errors.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/connection/onboarding.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/connection/outdatedHostUpdate.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/connection/presentation.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/connection/registry.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/connection/resolver.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/connection/routes.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/connection/supervisor.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/experiments.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/handoff.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/mediaSource.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/operations/commands.performance.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/operations/commands.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/operations/projects.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/platform/orchestrationCache.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/platform/shellCacheEncoding.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/platform/storageDocument.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/preview/serverBrowserStream.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/projectFaviconCache.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/promptLinks.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/providerSkills.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/pullRequestLinkInput.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/pullRequestMarkdown.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/relay/discovery.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/relay/managedRelay.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/relay/managedRelayState.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/releaseApproval.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/rpc/client.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/rpc/session.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/secretRequest.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/sourceControlClients.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/archivedThreads.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/assets.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/attachments.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/auth.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/boundedThreadSnapshotHttp.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/commandPermissions.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/entities.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/environmentHttpAuth.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/fileMetadata.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/filesystem.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/forgeWorkItems.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/gitActions.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/itemSupport.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/olderSettledThreads.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/orchestrationV2Projection.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/peers.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/presentation.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/projectCommands.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/projectEntities.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/projectGrouping.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/providerInstanceDisplay.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/pullRequests.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/queryPersistence.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/runtime.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/server.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/serverUsage.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/sharedSettings.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/shell-sync.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/shellReducer.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/shellThreadWatches.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/subagentDisplay.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/subagentRuntime.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/terminalSession.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadCommands.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadDetail.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadExecution.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadFamilies.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadFeedback.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadHistoryController.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadHistoryMerge.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadInbox.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadReadState.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadRelationships.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadRequests.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadSearch.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadShell.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadSnoozed.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadSort.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threadSubagents.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threads-atoms.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/threads-sync.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/turnItemPresentation.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/usage.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/usageAccess.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/usageProgress.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/vcs.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/vcsAction.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/threadPullRequestCompatibility.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/threadPullRequests.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/threadReference.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/threadWorkspaces.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/userMessage.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/work-log/itemDetail.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/work-log/presentation.test.ts"
+  },
+  {
+   "directory": "packages/contracts",
+   "file": "packages/contracts/src/browserProfile.test.ts"
+  },
+  {
+   "directory": "packages/contracts",
+   "file": "packages/contracts/src/device.test.ts"
+  },
+  {
+   "directory": "packages/contracts",
+   "file": "packages/contracts/src/orchestrationV2.test.ts"
+  },
+  {
+   "directory": "packages/contracts",
+   "file": "packages/contracts/src/preview.test.ts"
+  },
+  {
+   "directory": "packages/contracts",
+   "file": "packages/contracts/src/rpc.test.ts"
+  },
+  {
+   "directory": "packages/contracts",
+   "file": "packages/contracts/src/server.test.ts"
+  },
+  {
+   "directory": "packages/contracts",
+   "file": "packages/contracts/src/settings.test.ts"
+  },
+  {
+   "directory": "packages/provider-acp",
+   "file": "packages/provider-acp/src/server/adapter.test.ts"
+  },
+  {
+   "directory": "packages/provider-acp",
+   "file": "packages/provider-acp/src/server/nativeLogging.test.ts"
+  },
+  {
+   "directory": "packages/provider-acp",
+   "file": "packages/provider-acp/src/server/runtimeModel.test.ts"
+  },
+  {
+   "directory": "packages/provider-acp-registry",
+   "file": "packages/provider-acp-registry/src/server/AcpRegistryRuntimeCoordinator.test.ts"
+  },
+  {
+   "directory": "packages/provider-acp-registry",
+   "file": "packages/provider-acp-registry/src/server/AcpRegistrySupport.test.ts"
+  },
+  {
+   "directory": "packages/provider-acp-registry",
+   "file": "packages/provider-acp-registry/src/server/auth.test.ts"
+  },
+  {
+   "directory": "packages/provider-acp-registry",
+   "file": "packages/provider-acp-registry/src/server/authenticationState.test.ts"
+  },
+  {
+   "directory": "packages/provider-acp-registry",
+   "file": "packages/provider-acp-registry/src/server/driver.test.ts"
+  },
+  {
+   "directory": "packages/provider-core",
+   "file": "packages/provider-core/src/server/AgentMcpServers.test.ts"
+  },
+  {
+   "directory": "packages/provider-core",
+   "file": "packages/provider-core/src/server/IdAllocator.test.ts"
+  },
+  {
+   "directory": "packages/provider-core",
+   "file": "packages/provider-core/src/server/attachmentPrompt.test.ts"
+  },
+  {
+   "directory": "packages/provider-core",
+   "file": "packages/provider-core/src/server/failure.test.ts"
+  },
+  {
+   "directory": "packages/provider-core",
+   "file": "packages/provider-core/src/server/maintenanceResolver.test.ts"
+  },
+  {
+   "directory": "packages/provider-core",
+   "file": "packages/provider-core/src/server/managedProvider.test.ts"
+  },
+  {
+   "directory": "packages/provider-core",
+   "file": "packages/provider-core/src/server/mcpToolPresentation.test.ts"
+  },
+  {
+   "directory": "packages/provider-core",
+   "file": "packages/provider-core/src/server/notification.test.ts"
+  },
+  {
+   "directory": "packages/provider-core",
+   "file": "packages/provider-core/src/server/providerAuthFlow.test.ts"
+  },
+  {
+   "directory": "packages/provider-core",
+   "file": "packages/provider-core/src/server/snapshotProbe.test.ts"
+  },
+  {
+   "directory": "packages/provider-core",
+   "file": "packages/provider-core/src/server/textGenerationOperations.test.ts"
+  },
+  {
+   "directory": "packages/provider-core",
+   "file": "packages/provider-core/src/server/textGenerationPrompts.test.ts"
+  },
+  {
+   "directory": "packages/provider-core",
+   "file": "packages/provider-core/src/server/textGenerationUtils.test.ts"
+  },
+  {
+   "directory": "packages/provider-core",
+   "file": "packages/provider-core/src/server/threadTitleContext.test.ts"
+  },
+  {
+   "directory": "packages/provider-cursor",
+   "file": "packages/provider-cursor/src/server/CursorAgentSdk.test.ts"
+  },
+  {
+   "directory": "packages/provider-cursor",
+   "file": "packages/provider-cursor/src/server/adapter.test.ts"
+  },
+  {
+   "directory": "packages/provider-cursor",
+   "file": "packages/provider-cursor/src/server/auth.test.ts"
+  },
+  {
+   "directory": "packages/provider-cursor",
+   "file": "packages/provider-cursor/src/server/credentialStore.test.ts"
+  },
+  {
+   "directory": "packages/provider-cursor",
+   "file": "packages/provider-cursor/src/server/driver.test.ts"
+  },
+  {
+   "directory": "packages/provider-cursor",
+   "file": "packages/provider-cursor/src/server/status.test.ts"
+  },
+  {
+   "directory": "packages/provider-cursor",
+   "file": "packages/provider-cursor/src/server/textGeneration.test.ts"
+  },
+  {
+   "directory": "packages/provider-cursor",
+   "file": "packages/provider-cursor/src/server/usageLimits.test.ts"
+  },
+  {
+   "directory": "packages/provider-grok",
+   "file": "packages/provider-grok/src/server/acpSupport.test.ts"
+  },
+  {
+   "directory": "packages/provider-grok",
+   "file": "packages/provider-grok/src/server/driver.test.ts"
+  },
+  {
+   "directory": "packages/provider-grok",
+   "file": "packages/provider-grok/src/server/skills.test.ts"
+  },
+  {
+   "directory": "packages/provider-grok",
+   "file": "packages/provider-grok/src/server/xaiAcpExtension.test.ts"
+  },
+  {
+   "directory": "packages/provider-muse",
+   "file": "packages/provider-muse/src/server/adapter.test.ts"
+  },
+  {
+   "directory": "packages/provider-muse",
+   "file": "packages/provider-muse/src/server/maintenance.test.ts"
+  },
+  {
+   "directory": "packages/provider-muse",
+   "file": "packages/provider-muse/src/server/modelCatalog.test.ts"
+  },
+  {
+   "directory": "packages/provider-muse",
+   "file": "packages/provider-muse/src/server/status.test.ts"
+  },
+  {
+   "directory": "packages/provider-muse",
+   "file": "packages/provider-muse/src/server/textGeneration.test.ts"
+  },
+  {
+   "directory": "packages/provider-muse",
+   "file": "packages/provider-muse/src/server/usage.test.ts"
+  },
+  {
+   "directory": "packages/provider-opencode",
+   "file": "packages/provider-opencode/src/server/OpenCodeRuntime.cliParsers.test.ts"
+  },
+  {
+   "directory": "packages/provider-opencode",
+   "file": "packages/provider-opencode/src/server/OpenCodeRuntime.environment.test.ts"
+  },
+  {
+   "directory": "packages/provider-opencode",
+   "file": "packages/provider-opencode/src/server/OpenCodeRuntime.inventory.test.ts"
+  },
+  {
+   "directory": "packages/provider-opencode",
+   "file": "packages/provider-opencode/src/server/OpenCodeRuntime.permissions.test.ts"
+  },
+  {
+   "directory": "packages/provider-opencode",
+   "file": "packages/provider-opencode/src/server/OpenCodeServerLedger.test.ts"
+  },
+  {
+   "directory": "packages/provider-opencode",
+   "file": "packages/provider-opencode/src/server/OpenCodeServerOwner.test.ts"
+  },
+  {
+   "directory": "packages/provider-opencode",
+   "file": "packages/provider-opencode/src/server/adapter.test.ts"
+  },
+  {
+   "directory": "packages/provider-opencode",
+   "file": "packages/provider-opencode/src/server/driver.test.ts"
+  },
+  {
+   "directory": "packages/provider-opencode",
+   "file": "packages/provider-opencode/src/server/openCode2Catalog.test.ts"
+  },
+  {
+   "directory": "packages/provider-opencode",
+   "file": "packages/provider-opencode/src/server/status.test.ts"
+  },
+  {
+   "directory": "packages/provider-opencode",
+   "file": "packages/provider-opencode/src/server/textGeneration.test.ts"
+  },
+  {
+   "directory": "packages/provider-opencode",
+   "file": "packages/provider-opencode/src/server/usage.test.ts"
+  },
+  {
+   "directory": "packages/provider-opencode",
+   "file": "packages/provider-opencode/src/server/v2/OpenCode2Server.test.ts"
+  },
+  {
+   "directory": "packages/provider-opencode",
+   "file": "packages/provider-opencode/src/server/versionProbe.test.ts"
+  },
+  {
+   "directory": "packages/provider-pi",
+   "file": "packages/provider-pi/src/server/adapter.test.ts"
+  },
+  {
+   "directory": "packages/provider-pi",
+   "file": "packages/provider-pi/src/server/commands.test.ts"
+  },
+  {
+   "directory": "packages/provider-pi",
+   "file": "packages/provider-pi/src/server/driver.test.ts"
+  },
+  {
+   "directory": "packages/provider-pi",
+   "file": "packages/provider-pi/src/server/mcpInjection.test.ts"
+  },
+  {
+   "directory": "packages/provider-pi",
+   "file": "packages/provider-pi/src/server/rpc.test.ts"
+  },
+  {
+   "directory": "packages/provider-pi",
+   "file": "packages/provider-pi/src/server/status.test.ts"
+  },
+  {
+   "directory": "packages/provider-pi",
+   "file": "packages/provider-pi/src/server/textGeneration.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/agentAwareness.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/assistantCitations.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/browserBackend.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/codexAuthHandoff.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/composerContextClipboard.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/composerContextLegacy.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/composerContextLegacySend.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/composerContextReferences.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/forgeLinks.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/git.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/htmlRender.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/markdownBlocks.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/markdownPipeline.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/mcpApp.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/model.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/orchestrationTiming.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/orchestrationV2BoundedSnapshot.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/orchestrationV2DedupedBodies.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/orchestrationV2PendingBackgroundWork.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/orchestrationV2Timeline.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/projectIdentity.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/projectSettings.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/providerPools.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/serverSettings.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/t3McpToolPresentation.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/t3ProjectFile.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/terminalLabels.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/threadFindText.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/threadLinks.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/toolOutput.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/usageFormat.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/usageLimits.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/usageMerge.test.ts"
+  },
+  {
+   "directory": "packages/source-control-azure-devops",
+   "file": "packages/source-control-azure-devops/src/server/AzureDevOpsCli.test.ts"
+  },
+  {
+   "directory": "packages/source-control-azure-devops",
+   "file": "packages/source-control-azure-devops/src/server/AzureDevOpsPullRequestCli.test.ts"
+  },
+  {
+   "directory": "packages/source-control-azure-devops",
+   "file": "packages/source-control-azure-devops/src/server/AzureDevOpsPullRequestProvider.test.ts"
+  },
+  {
+   "directory": "packages/source-control-azure-devops",
+   "file": "packages/source-control-azure-devops/src/server/AzureDevOpsSourceControlProvider.test.ts"
+  },
+  {
+   "directory": "packages/source-control-azure-devops",
+   "file": "packages/source-control-azure-devops/src/server/azureDevOpsPullRequestJson.test.ts"
+  },
+  {
+   "directory": "packages/source-control-azure-devops",
+   "file": "packages/source-control-azure-devops/src/shared/definition.test.ts"
+  },
+  {
+   "directory": "packages/source-control-bitbucket",
+   "file": "packages/source-control-bitbucket/src/server/BitbucketApi.test.ts"
+  },
+  {
+   "directory": "packages/source-control-bitbucket",
+   "file": "packages/source-control-bitbucket/src/server/BitbucketPullRequestApi.test.ts"
+  },
+  {
+   "directory": "packages/source-control-bitbucket",
+   "file": "packages/source-control-bitbucket/src/server/BitbucketPullRequestProvider.listing.test.ts"
+  },
+  {
+   "directory": "packages/source-control-bitbucket",
+   "file": "packages/source-control-bitbucket/src/server/BitbucketPullRequestProvider.test.ts"
+  },
+  {
+   "directory": "packages/source-control-bitbucket",
+   "file": "packages/source-control-bitbucket/src/server/bitbucketPullRequestJson.test.ts"
+  },
+  {
+   "directory": "packages/source-control-bitbucket",
+   "file": "packages/source-control-bitbucket/src/shared/definition.test.ts"
+  },
+  {
+   "directory": "packages/source-control-core",
+   "file": "packages/source-control-core/src/server/SourceControlRateLimit.test.ts"
+  },
+  {
+   "directory": "packages/source-control-forgejo",
+   "file": "packages/source-control-forgejo/src/server/ForgejoCheckout.test.ts"
+  },
+  {
+   "directory": "packages/source-control-forgejo",
+   "file": "packages/source-control-forgejo/src/server/ForgejoPullRequestProvider.test.ts"
+  },
+  {
+   "directory": "packages/source-control-forgejo",
+   "file": "packages/source-control-forgejo/src/server/ForgejoSourceControlProvider.test.ts"
+  },
+  {
+   "directory": "packages/source-control-forgejo",
+   "file": "packages/source-control-forgejo/src/server/forgejoPullRequests.test.ts"
+  },
+  {
+   "directory": "packages/source-control-forgejo",
+   "file": "packages/source-control-forgejo/src/shared/definition.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitcafe",
+   "file": "packages/source-control-gitcafe/src/server/GitCafeCredentials.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitcafe",
+   "file": "packages/source-control-gitcafe/src/server/GitCafePullRequestProvider.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitcafe",
+   "file": "packages/source-control-gitcafe/src/server/GitCafeSourceControlProvider.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitcafe",
+   "file": "packages/source-control-gitcafe/src/server/gitCafePullRequestJson.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitcafe",
+   "file": "packages/source-control-gitcafe/src/shared/definition.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/GitHubCredentials.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/GitHubPullRequestApi.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/GitHubPullRequestProvider.credential.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/GitHubPullRequestProvider.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/GitHubQuota.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/GitHubRest.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/GitHubSourceControlProvider.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/gitHubChangeRequestTemplate.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/gitHubDiscovery.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/gitHubGraphQlClient.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/gitHubMediaFetch.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/gitHubPullRequests.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/gitHubRepositoryResolution.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/githubStackActions.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/server/githubStackRebase.test.ts"
+  },
+  {
+   "directory": "packages/source-control-github",
+   "file": "packages/source-control-github/src/shared/definition.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitlab",
+   "file": "packages/source-control-gitlab/src/server/GitLabCli.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitlab",
+   "file": "packages/source-control-gitlab/src/server/GitLabPullRequestCli.legacy.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitlab",
+   "file": "packages/source-control-gitlab/src/server/GitLabPullRequestCli.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitlab",
+   "file": "packages/source-control-gitlab/src/server/GitLabPullRequestProvider.rateLimit.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitlab",
+   "file": "packages/source-control-gitlab/src/server/GitLabPullRequestProvider.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitlab",
+   "file": "packages/source-control-gitlab/src/server/GitLabSourceControlProvider.git.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitlab",
+   "file": "packages/source-control-gitlab/src/server/GitLabSourceControlProvider.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitlab",
+   "file": "packages/source-control-gitlab/src/server/gitLabDiscovery.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitlab",
+   "file": "packages/source-control-gitlab/src/server/gitLabMergeRequestJson.test.ts"
+  },
+  {
+   "directory": "packages/source-control-gitlab",
+   "file": "packages/source-control-gitlab/src/shared/definition.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ]
+}

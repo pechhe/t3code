@@ -1,0 +1,102 @@
+{
+ "id": "seeded-apps__desktop__src__backend__tailscaleEndpointProvider-L22-bool-true",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/desktop/src/backend/tailscaleEndpointProvider.ts",
+  "line": 22,
+  "operator": "bool-true",
+  "before": "  isAddon: true,",
+  "after": "  isAddon: false,"
+ },
+ "hunk": " } from \"@t3tools/tailscale\";\n import * as Effect from \"effect/Effect\";\n import * as Option from \"effect/Option\";\n import * as HttpClient from \"effect/http/HttpClient\";\n import * as ChildProcessSpawner from \"effect/process/ChildProcessSpawner\";\n \n import type { NetworkInterfaces } from \"./DesktopNetworkInterfaces.ts\";\n \n const TAILSCALE_ENDPOINT_PROVIDER: AdvertisedEndpointProvider = {\n   id: \"tailscale\",\n   label: \"Tailscale\",\n   kind: \"private-network\",\n-  isAddon: true,\n+  isAddon: false,\n };\n \n function resolveTailscaleIpAdvertisedEndpoints(input: {\n   readonly port: number;\n   readonly networkInterfaces: NetworkInterfaces;\n   readonly status: TailscaleStatus | null;\n }): readonly AdvertisedEndpoint[] {\n   const seen = new Set<string>();\n   const endpoints: AdvertisedEndpoint[] = [];\n \n   for (const [interfaceName, interfaceAddresses] of Object.entries(input.networkInterfaces)) {\n     if (!interfaceAddresses) continue;",
+ "changed": [
+  "apps/desktop/src/backend/tailscaleEndpointProvider.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/scripts/main-process-bundle.test.mjs"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopBackendPool.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopServerExposure.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/tailscaleEndpointProvider.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/window.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/wsl.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/updates/DesktopUpdates.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/DesktopApplicationMenu.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/DesktopWindow.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/wsl/DesktopWslBackend.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/desktop/scripts/main-process-bundle.test.mjs": 1.39946728515625,
+  "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts": 1.886769775390625,
+  "apps/desktop/src/backend/DesktopBackendPool.test.ts": 0.102181640625,
+  "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts": 0.3428720703125,
+  "apps/desktop/src/backend/DesktopServerExposure.test.ts": 2.723939697265625,
+  "apps/desktop/src/backend/tailscaleEndpointProvider.test.ts": 0.108609619140625,
+  "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts": 2.240293212890625,
+  "apps/desktop/src/updates/DesktopUpdates.test.ts": 2.49238671875,
+  "apps/desktop/src/window/DesktopApplicationMenu.test.ts": 0.21,
+  "apps/desktop/src/window/DesktopWindow.test.ts": 1.7729208984375,
+  "apps/desktop/src/wsl/DesktopWslBackend.test.ts": 0.056092041015625,
+  "apps/desktop/src/ipc/methods/window.test.ts": 0.508434814453125,
+  "apps/desktop/src/ipc/methods/wsl.test.ts": 0.1489921875,
+  "scripts/hq-allowlist.test.ts": 14.876477783203125
+ },
+ "measuredWallSeconds": 45.881,
+ "exitCodes": {
+  "apps/desktop": 0,
+  "scripts": 1
+ }
+}

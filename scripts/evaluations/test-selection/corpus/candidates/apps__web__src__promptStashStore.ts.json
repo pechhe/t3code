@@ -1,0 +1,25 @@
+{
+ "changed": [
+  "apps/web/src/promptStashStore.ts"
+ ],
+ "kind": "related",
+ "reason": null,
+ "candidates": [
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/bundledDev.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/promptStashStore.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/reactCompilerCoverage.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ]
+}

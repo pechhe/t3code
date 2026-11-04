@@ -1,0 +1,117 @@
+{
+ "id": "seeded-apps__desktop__src__window__QuitHold-L112-strict-equality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/desktop/src/window/QuitHold.ts",
+  "line": 112,
+  "operator": "strict-equality",
+  "before": "      repeatCadenceMs = now - (lastRepeatAt === 0 ? heldSince : lastRepeatAt);",
+  "after": "      repeatCadenceMs = now - (lastRepeatAt !== 0 ? heldSince : lastRepeatAt);"
+ },
+ "hunk": "           release(false, true);\n         } else {\n           quitAfterQuietPeriod();\n         }\n       }\n       return;\n     }\n     if (input.type !== \"keyDown\") return;\n \n     const modifierDown = options.platform === \"darwin\" ? input.meta : input.control;\n     if (input.isAutoRepeat && modifierDown && key === \"q\") {\n       const now = Date.now();\n-      repeatCadenceMs = now - (lastRepeatAt === 0 ? heldSince : lastRepeatAt);\n+      repeatCadenceMs = now - (lastRepeatAt !== 0 ? heldSince : lastRepeatAt);\n       lastRepeatAt = now;\n     }\n     if (quitOnRelease) {\n       event.preventDefault();\n       if (key === \"q\") quitAfterQuietPeriod();\n       return;\n     }\n \n     if (!modifierDown || input.alt || input.shift || key !== \"q\") {\n       if (key === modifierKey && !input.alt && !input.shift) return;\n \n       // release() also runs on fresh keydown after a missing macOS keyUp.",
+ "changed": [
+  "apps/desktop/src/window/QuitHold.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/scripts/main-process-bundle.test.mjs"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopAppActivation.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopLifecycle.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopBackendPool.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/localEnvironment.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/snapShot.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/window.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/wsl.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/snapShot/DesktopSnapShot.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/updates/DesktopUpdates.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/DesktopApplicationMenu.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/DesktopWindow.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/QuitHold.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/wsl/DesktopWslBackend.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/desktop/scripts/main-process-bundle.test.mjs": 4.39676416015625,
+  "apps/desktop/src/app/DesktopAppActivation.test.ts": 0.2234033203125,
+  "apps/desktop/src/app/DesktopLifecycle.test.ts": 0.083134033203125,
+  "apps/desktop/src/backend/DesktopBackendPool.test.ts": 0.122640625,
+  "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts": 0.33905810546875,
+  "apps/desktop/src/snapShot/DesktopSnapShot.test.ts": 2.526594970703125,
+  "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts": 1.476744140625,
+  "apps/desktop/src/updates/DesktopUpdates.test.ts": 2.49241259765625,
+  "apps/desktop/src/window/DesktopApplicationMenu.test.ts": 0.121696533203125,
+  "apps/desktop/src/window/DesktopWindow.test.ts": 1.0303876953125,
+  "apps/desktop/src/window/QuitHold.test.ts": 0.070318359375,
+  "apps/desktop/src/wsl/DesktopWslBackend.test.ts": 0.03242529296875,
+  "apps/desktop/src/ipc/methods/localEnvironment.test.ts": 0.04741357421875,
+  "apps/desktop/src/ipc/methods/snapShot.test.ts": 0.1071513671875,
+  "apps/desktop/src/ipc/methods/window.test.ts": 0.38293017578125,
+  "apps/desktop/src/ipc/methods/wsl.test.ts": 0.044892578125,
+  "scripts/hq-allowlist.test.ts": 15.003171875
+ },
+ "measuredWallSeconds": 69.707,
+ "exitCodes": {
+  "apps/desktop": 0,
+  "scripts": 1
+ }
+}

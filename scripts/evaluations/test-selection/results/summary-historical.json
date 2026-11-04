@@ -1,0 +1,602 @@
+[
+ {
+  "caseId": "historical-46c567bfd5",
+  "budget": 60,
+  "arm": "jev-v1",
+  "candidates": 158,
+  "baselineSelected": 139,
+  "promoted": 17,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-46c567bfd5",
+  "budget": 60,
+  "arm": "luna-v1",
+  "candidates": 158,
+  "baselineSelected": 139,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-4fa76cf865",
+  "budget": 60,
+  "arm": "jev-v1",
+  "candidates": 9,
+  "baselineSelected": 9,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-4fa76cf865",
+  "budget": 60,
+  "arm": "luna-v1",
+  "candidates": 9,
+  "baselineSelected": 9,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-51eb4e3a52",
+  "budget": 60,
+  "arm": "jev-v1",
+  "candidates": 188,
+  "baselineSelected": 64,
+  "promoted": 26,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-51eb4e3a52",
+  "budget": 60,
+  "arm": "luna-v1",
+  "candidates": 188,
+  "baselineSelected": 64,
+  "promoted": 18,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-68a802bf08",
+  "budget": 60,
+  "arm": "jev-v1",
+  "candidates": 214,
+  "baselineSelected": 79,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-68a802bf08",
+  "budget": 60,
+  "arm": "luna-v1",
+  "candidates": 214,
+  "baselineSelected": 79,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-92d5b620f2",
+  "budget": 60,
+  "arm": "jev-v1",
+  "candidates": 203,
+  "baselineSelected": 155,
+  "promoted": 25,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-92d5b620f2",
+  "budget": 60,
+  "arm": "luna-v1",
+  "candidates": 203,
+  "baselineSelected": 155,
+  "promoted": 2,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-9a29276d50",
+  "budget": 60,
+  "arm": "jev-v1",
+  "candidates": 178,
+  "baselineSelected": 19,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-9a29276d50",
+  "budget": 60,
+  "arm": "luna-v1",
+  "candidates": 178,
+  "baselineSelected": 19,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-cb5873c367",
+  "budget": 60,
+  "arm": "jev-v1",
+  "candidates": 56,
+  "baselineSelected": 55,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-cb5873c367",
+  "budget": 60,
+  "arm": "luna-v1",
+  "candidates": 56,
+  "baselineSelected": 55,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-cddac0ccdb",
+  "budget": 60,
+  "arm": "jev-v1",
+  "candidates": 44,
+  "baselineSelected": 44,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-cddac0ccdb",
+  "budget": 60,
+  "arm": "luna-v1",
+  "candidates": 44,
+  "baselineSelected": 44,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 1
+ },
+ {
+  "caseId": "historical-dcad357740",
+  "budget": 60,
+  "arm": "jev-v1",
+  "candidates": 123,
+  "baselineSelected": 100,
+  "promoted": 14,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-dcad357740",
+  "budget": 60,
+  "arm": "luna-v1",
+  "candidates": 123,
+  "baselineSelected": 100,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-f6a5d7d070",
+  "budget": 60,
+  "arm": "jev-v1",
+  "candidates": 17,
+  "baselineSelected": 17,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-f6a5d7d070",
+  "budget": 60,
+  "arm": "luna-v1",
+  "candidates": 17,
+  "baselineSelected": 17,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-46c567bfd5",
+  "budget": 20,
+  "arm": "jev-v1",
+  "candidates": 158,
+  "baselineSelected": 55,
+  "promoted": 14,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-46c567bfd5",
+  "budget": 20,
+  "arm": "luna-v1",
+  "candidates": 158,
+  "baselineSelected": 55,
+  "promoted": 2,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-4fa76cf865",
+  "budget": 20,
+  "arm": "jev-v1",
+  "candidates": 9,
+  "baselineSelected": 8,
+  "promoted": 1,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-4fa76cf865",
+  "budget": 20,
+  "arm": "luna-v1",
+  "candidates": 9,
+  "baselineSelected": 8,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-51eb4e3a52",
+  "budget": 20,
+  "arm": "jev-v1",
+  "candidates": 188,
+  "baselineSelected": 27,
+  "promoted": 13,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-51eb4e3a52",
+  "budget": 20,
+  "arm": "luna-v1",
+  "candidates": 188,
+  "baselineSelected": 27,
+  "promoted": 11,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-68a802bf08",
+  "budget": 20,
+  "arm": "jev-v1",
+  "candidates": 214,
+  "baselineSelected": 79,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-68a802bf08",
+  "budget": 20,
+  "arm": "luna-v1",
+  "candidates": 214,
+  "baselineSelected": 79,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-92d5b620f2",
+  "budget": 20,
+  "arm": "jev-v1",
+  "candidates": 203,
+  "baselineSelected": 55,
+  "promoted": 14,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-92d5b620f2",
+  "budget": 20,
+  "arm": "luna-v1",
+  "candidates": 203,
+  "baselineSelected": 55,
+  "promoted": 1,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-9a29276d50",
+  "budget": 20,
+  "arm": "jev-v1",
+  "candidates": 178,
+  "baselineSelected": 19,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-9a29276d50",
+  "budget": 20,
+  "arm": "luna-v1",
+  "candidates": 178,
+  "baselineSelected": 19,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-cb5873c367",
+  "budget": 20,
+  "arm": "jev-v1",
+  "candidates": 56,
+  "baselineSelected": 14,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-cb5873c367",
+  "budget": 20,
+  "arm": "luna-v1",
+  "candidates": 56,
+  "baselineSelected": 14,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-cddac0ccdb",
+  "budget": 20,
+  "arm": "jev-v1",
+  "candidates": 44,
+  "baselineSelected": 26,
+  "promoted": 16,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-cddac0ccdb",
+  "budget": 20,
+  "arm": "luna-v1",
+  "candidates": 44,
+  "baselineSelected": 26,
+  "promoted": 17,
+  "abstained": 0,
+  "relevantCalls": 1
+ },
+ {
+  "caseId": "historical-dcad357740",
+  "budget": 20,
+  "arm": "jev-v1",
+  "candidates": 123,
+  "baselineSelected": 25,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-dcad357740",
+  "budget": 20,
+  "arm": "luna-v1",
+  "candidates": 123,
+  "baselineSelected": 25,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-f6a5d7d070",
+  "budget": 20,
+  "arm": "jev-v1",
+  "candidates": 17,
+  "baselineSelected": 16,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-f6a5d7d070",
+  "budget": 20,
+  "arm": "luna-v1",
+  "candidates": 17,
+  "baselineSelected": 16,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-46c567bfd5",
+  "budget": 10,
+  "arm": "jev-v1",
+  "candidates": 158,
+  "baselineSelected": 18,
+  "promoted": 9,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-46c567bfd5",
+  "budget": 10,
+  "arm": "luna-v1",
+  "candidates": 158,
+  "baselineSelected": 18,
+  "promoted": 3,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-4fa76cf865",
+  "budget": 10,
+  "arm": "jev-v1",
+  "candidates": 9,
+  "baselineSelected": 7,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-4fa76cf865",
+  "budget": 10,
+  "arm": "luna-v1",
+  "candidates": 9,
+  "baselineSelected": 7,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-51eb4e3a52",
+  "budget": 10,
+  "arm": "jev-v1",
+  "candidates": 188,
+  "baselineSelected": 7,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-51eb4e3a52",
+  "budget": 10,
+  "arm": "luna-v1",
+  "candidates": 188,
+  "baselineSelected": 7,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-68a802bf08",
+  "budget": 10,
+  "arm": "jev-v1",
+  "candidates": 214,
+  "baselineSelected": 79,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-68a802bf08",
+  "budget": 10,
+  "arm": "luna-v1",
+  "candidates": 214,
+  "baselineSelected": 79,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-92d5b620f2",
+  "budget": 10,
+  "arm": "jev-v1",
+  "candidates": 203,
+  "baselineSelected": 16,
+  "promoted": 6,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-92d5b620f2",
+  "budget": 10,
+  "arm": "luna-v1",
+  "candidates": 203,
+  "baselineSelected": 16,
+  "promoted": 1,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-9a29276d50",
+  "budget": 10,
+  "arm": "jev-v1",
+  "candidates": 178,
+  "baselineSelected": 19,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-9a29276d50",
+  "budget": 10,
+  "arm": "luna-v1",
+  "candidates": 178,
+  "baselineSelected": 19,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-cb5873c367",
+  "budget": 10,
+  "arm": "jev-v1",
+  "candidates": 56,
+  "baselineSelected": 14,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-cb5873c367",
+  "budget": 10,
+  "arm": "luna-v1",
+  "candidates": 56,
+  "baselineSelected": 14,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-cddac0ccdb",
+  "budget": 10,
+  "arm": "jev-v1",
+  "candidates": 44,
+  "baselineSelected": 15,
+  "promoted": 9,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-cddac0ccdb",
+  "budget": 10,
+  "arm": "luna-v1",
+  "candidates": 44,
+  "baselineSelected": 15,
+  "promoted": 9,
+  "abstained": 0,
+  "relevantCalls": 1
+ },
+ {
+  "caseId": "historical-dcad357740",
+  "budget": 10,
+  "arm": "jev-v1",
+  "candidates": 123,
+  "baselineSelected": 25,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-dcad357740",
+  "budget": 10,
+  "arm": "luna-v1",
+  "candidates": 123,
+  "baselineSelected": 25,
+  "promoted": 0,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-f6a5d7d070",
+  "budget": 10,
+  "arm": "jev-v1",
+  "candidates": 17,
+  "baselineSelected": 14,
+  "promoted": 1,
+  "abstained": 0,
+  "relevantCalls": 0
+ },
+ {
+  "caseId": "historical-f6a5d7d070",
+  "budget": 10,
+  "arm": "luna-v1",
+  "candidates": 17,
+  "baselineSelected": 14,
+  "promoted": 1,
+  "abstained": 0,
+  "relevantCalls": 0
+ }
+]

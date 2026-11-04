@@ -1,0 +1,84 @@
+{
+ "id": "seeded-packages__client-runtime__src__device__phoneScene-L25-number-increment",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "packages/client-runtime/src/device/phoneScene.ts",
+  "line": 25,
+  "operator": "number-increment",
+  "before": "const SCREEN_HEIGHT = 2.2;",
+  "after": "const SCREEN_HEIGHT = 2.3;"
+ },
+ "hunk": "   Raycaster,\n   Shape,\n   ShapeGeometry,\n   Vector2,\n   Vector3,\n   type Camera,\n   type BufferGeometry,\n   type Texture,\n } from \"three\";\n import type { DeviceScreenSize } from \"./stream.ts\";\n import { IOS_PHONE_SHAPE, type DeviceShapeProfile } from \"./shapeProfile.ts\";\n \n-const SCREEN_HEIGHT = 2.2;\n+const SCREEN_HEIGHT = 2.3;\n \n function roundedPath(width: number, height: number, radius: number, path = new Shape()) {\n   const x = -width / 2;\n   const y = -height / 2;\n   path.moveTo(x + radius, y);\n   path.lineTo(x + width - radius, y);\n   path.quadraticCurveTo(x + width, y, x + width, y + radius);\n   path.lineTo(x + width, y + height - radius);\n   path.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);\n   path.lineTo(x + radius, y + height);\n   path.quadraticCurveTo(x, y + height, x, y + height - radius);\n   path.lineTo(x, y + radius);",
+ "changed": [
+  "packages/client-runtime/src/device/phoneScene.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/device/androidFoldScene.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/device/modelScene.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/device/phoneScene.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/device/phoneViewer.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 3,
+ "failing": [
+  "packages/client-runtime/src/device/phoneScene.test.ts"
+ ],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/server/src/outboundHttp.test.ts": 0.4843896484375,
+  "apps/server/src/processRunner.test.ts": 0.035324951171875,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 2.985774658203125,
+  "packages/client-runtime/src/device/androidFoldScene.test.ts": 0.38382568359375,
+  "packages/client-runtime/src/device/modelScene.test.ts": 0.04418115234375,
+  "packages/client-runtime/src/device/phoneScene.test.ts": 0.44666748046875,
+  "packages/client-runtime/src/device/phoneViewer.test.ts": 0.21641162109375,
+  "scripts/hq-allowlist.test.ts": 5.2507822265625
+ },
+ "measuredWallSeconds": 25.49,
+ "exitCodes": {
+  "apps/server": 0,
+  "packages/client-runtime": 1,
+  "scripts": 1
+ },
+ "verifiedPassing": [
+  "apps/server/src/outboundHttp.test.ts",
+  "apps/server/src/processRunner.test.ts",
+  "apps/server/src/provider/CodexManagedRuntime.test.ts",
+  "packages/client-runtime/src/device/androidFoldScene.test.ts",
+  "packages/client-runtime/src/device/modelScene.test.ts",
+  "packages/client-runtime/src/device/phoneViewer.test.ts"
+ ],
+ "controlVerified": true
+}

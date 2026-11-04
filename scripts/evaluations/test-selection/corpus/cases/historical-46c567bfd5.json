@@ -1,0 +1,643 @@
+{
+ "id": "historical-46c567bfd5",
+ "kind": "historical",
+ "commit": "46c567bfd5",
+ "changed": [
+  "apps/server/src/vcs/VcsStatusBroadcaster.ts"
+ ],
+ "diff": "diff --git a/apps/server/src/vcs/VcsStatusBroadcaster.ts b/apps/server/src/vcs/VcsStatusBroadcaster.ts\nindex 670856e02a..43998ba0de 100644\n--- a/apps/server/src/vcs/VcsStatusBroadcaster.ts\n+++ b/apps/server/src/vcs/VcsStatusBroadcaster.ts\n@@ -236,6 +236,18 @@ export const make = Effect.gen(function* () {\n   const withRemoteWriteLock = <A, E, R>(cwd: string, effect: Effect.Effect<A, E, R>) =>\n     remoteWriteLocks.withLock(cwd, effect);\n   const pollersRef = yield* SynchronizedRef.make(new Map<string, ActiveRemotePoller>());\n+  // Checkouts with a live status stream, with or without remote polling.\n+  const watchedRef = yield* Ref.make(new Map<string, number>());\n+  const watch = (cwd: string) =>\n+    Ref.update(watchedRef, (watched) => new Map(watched).set(cwd, (watched.get(cwd) ?? 0) + 1));\n+  const unwatch = (cwd: string) =>\n+    Ref.update(watchedRef, (watched) => {\n+      const next = new Map(watched);\n+      const count = next.get(cwd) ?? 0;\n+      if (count <= 1) next.delete(cwd);\n+      else next.set(cwd, count - 1);\n+      return next;\n+    });\n \n   const getCachedStatus = Effect.fn(\"VcsStatusBroadcaster.getCachedStatus\")(function* (\n     cwd: string,\n@@ -396,13 +408,29 @@ export const make = Effect.gen(function* () {\n     },\n   );\n \n+  // Forgets a checkout so its next read loads it fresh. Nothing publishes, because nobody\n+  // is watching it, and nothing would keep a remembered remote status current.\n+  const evictCachedStatus = (cwd: string) =>\n+    Ref.update(cacheRef, (cache) => {\n+      const next = new Map(cache);\n+      next.delete(cwd);\n+      return next;\n+    }).pipe(Effect.andThen(workflow.invalidateLocalStatus(cwd)));\n+\n   // A landing moves on SlipJay's runner, not in the checkout, so a landing change\n-  // refreshes the SlipJay checkouts this server is showing for that repository.\n+  // refreshes the SlipJay checkouts being watched for that repository. Reading a checkout\n+  // costs several VCS processes, and the cache would otherwise keep every checkout ever\n+  // shown, so an unwatched one is evicted and reloads when it is next read.\n   yield* landings.changes.pipe(\n     Stream.runForEach((change) =>\n       Effect.gen(function* () {\n         for (const [cwd, cached] of yield* Ref.get(cacheRef)) {\n           if (cached.local?.value.slipJay === undefined) continue;\n+          if (!(yield* Ref.get(watchedRef)).has(cwd)) {\n+            yield* evictCachedStatus(cwd);\n+            // A stream that began watching meanwhile may have read the entry just evicted.\n+            if (!(yield* Ref.get(watchedRef)).has(cwd)) continue;\n+          }\n           // A checkout SlipJay removed has no repository left to match. Refreshing it reads\n           // what it landed from SlipJay's record, so an open thread does not keep \"Landing\".\n           const repository = yield* landings.repositoryOf(cwd);\n@@ -719,6 +747,8 @@ export const make = Effect.gen(function* () {\n       Effect.gen(function* () {\n         const cwd = yield* withFileSystem(normalizeCwd(input.cwd));\n         const subscription = yield* PubSub.subscribe(changesPubSub);\n+        // Before the load, so a landing during it refreshes this checkout instead of dropping it.\n+        yield* Effect.acquireRelease(watch(cwd), () => unwatch(cwd));\n         const initialLocal = yield* getOrLoadLocalStatus(cwd);\n         const cachedStatus = yield* getCachedStatus(cwd);\n         const initialRemote = cachedStatus?.remote?.value ?? null;\n",
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/integration/transferBudgetV2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/agents/ExternalAgentWorkService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/agents/RunSetupRecorder.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/assets/AssetAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/McpOAuth.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/replayMarkers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/checkpointing/CheckpointDiffQuery.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/CloudLink.lifecycle.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/CloudLink.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cloud/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/fleet/FleetSummaryService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/git/linkCreatedPullRequest.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/guest/GuestShareService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/guest/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/ForgeHome.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/ForgeWorkItems.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/HqAgentLifecycleReactor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/HqForgeRecordingReactor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ExperimentWorkMcp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ManagedDelegation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ManagedFollowup.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpHttpServer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpManagedBrowser.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.race.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpService.activity.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/SessionToolListings.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ToolSessionPolicy.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/WorktreeMcpService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/threadAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/core.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/preview/tools.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/web/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/workspace/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcpApps/McpAppRequests.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/observability/DefectReporter.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/OpenCode2AdapterV2.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/BackgroundWorkStop.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/CheckpointScopeOwnership.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ClaudeAutomaticDelivery.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/DispatchModeLimit.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/EffectWorker.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/FoundationPersistence.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/GuestShare.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/OpenCode2OrchestratorV2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Orchestrator.migration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectionRecovery.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectionSettlement.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderContinuationService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderEventIngestor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderRuntimeRecoveryService.regression.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderRuntimeRecoveryService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/PullRequestSyncReactor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RestartContinuation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RunExecutionService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RunFinalizationQueue.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RunFinalizationService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/SideChat.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadFork.execution.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadLaunchService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadManagementService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadMessageIntake.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadProjectMove.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadProjectMoveService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadSettlementService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadStop.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadTitleRegenerationService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadWatch.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadWorkflow.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/UnattendedReactor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/UsageLimitRecoveryWorker.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/WorkspaceAttachments.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/WorkspaceRebind.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/legacy/LegacyV1Cutover.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/AcpRegistryReplayFixtures.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures1.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures3.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures4.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures5.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures6.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/CodexReplayFixtures.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/CursorReplayFixtures.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/GrokReplayFixtures1.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/GrokReplayFixtures2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/MuseReplayFixtures.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/OpenCodeReplayFixtures1.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/OpenCodeReplayFixtures2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/OrchestratorReplayRecovery.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/OrchestratorReplayRestartBackgroundNote.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/PiReplayFixtures.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ProviderSwitch.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ThreadFork.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ThreadMergeBack.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/preview/ServerBrowserStream.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/AgentSessionImporter.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ManagedProjectFolders.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ProjectService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/relay/AgentAwarenessRelay.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/releases/ReleaseApprovalShell.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/releases/ReleaseApprovals.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/ScheduledTaskService.interval.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/ScheduledTaskService.role.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/ScheduledTaskService.schedule.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/ScheduledTaskService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/ScheduledTaskService.webhook.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/webhookRoute.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/secrets/SecretRequests.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/serverLogger.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/serverRuntimeStartup.autoPull.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/serverRuntimeStartup.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/storageCleanup.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/textGeneration/OpenCode2TextGeneration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/vcs/VcsStatusBroadcaster.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/videoFrames/VideoFrames.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/ws.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ]
+}

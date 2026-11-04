@@ -1,0 +1,57 @@
+{
+ "changed": [
+  "apps/web/src/composer-list-continuation.ts"
+ ],
+ "kind": "related",
+ "reason": null,
+ "candidates": [
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/bundledDev.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/composerCodeBlockHighlight.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composer-block-shortcuts.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composer-code-block.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composer-list-continuation.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composer-list-split.browser.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composer-rich-text-doc.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/composer-text-direction.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/reactCompilerCoverage.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ]
+}

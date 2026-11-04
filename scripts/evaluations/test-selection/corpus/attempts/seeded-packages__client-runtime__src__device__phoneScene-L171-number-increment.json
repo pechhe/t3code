@@ -1,0 +1,73 @@
+{
+ "id": "seeded-packages__client-runtime__src__device__phoneScene-L171-number-increment",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "packages/client-runtime/src/device/phoneScene.ts",
+  "line": 171,
+  "operator": "number-increment",
+  "before": "        Math.min(profile.camera.width, profile.camera.height) / 4,",
+  "after": "        Math.min(profile.camera.width, profile.camera.height) / 5,"
+ },
+ "hunk": "     height / 2 - profile.camera.insetY,\n     back.position.z + 0.001,\n   );\n   rearCamera.rotation.y = Math.PI;\n   orientation.add(rearCamera);\n   const plateFront = 0.025 + 0.007;\n   const ringDepth = 0.025;\n   const cameraPlate = new Mesh(\n     new ExtrudeGeometry(\n       roundedPath(\n         profile.camera.width,\n         profile.camera.height,\n-        Math.min(profile.camera.width, profile.camera.height) / 4,\n+        Math.min(profile.camera.width, profile.camera.height) / 5,\n       ),\n       {\n         depth: 0.025,\n         bevelEnabled: true,\n         bevelSize: 0.009,\n         bevelThickness: 0.007,\n         bevelSegments: 2,\n       },\n     ),\n     backMaterial,\n   );\n   cameraPlate.name = \"camera-plate\";",
+ "changed": [
+  "packages/client-runtime/src/device/phoneScene.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/device/androidFoldScene.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/device/modelScene.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/device/phoneScene.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/device/phoneViewer.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 3,
+ "failing": [],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/server/src/outboundHttp.test.ts": 0.593555908203125,
+  "apps/server/src/processRunner.test.ts": 0.03899072265625,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 3.494827392578125,
+  "packages/client-runtime/src/device/androidFoldScene.test.ts": 0.116662109375,
+  "packages/client-runtime/src/device/modelScene.test.ts": 0.01557421875,
+  "packages/client-runtime/src/device/phoneScene.test.ts": 0.220239013671875,
+  "packages/client-runtime/src/device/phoneViewer.test.ts": 0.05463525390625,
+  "scripts/hq-allowlist.test.ts": 6.64350439453125
+ },
+ "measuredWallSeconds": 23.35,
+ "exitCodes": {
+  "apps/server": 0,
+  "packages/client-runtime": 0,
+  "scripts": 1
+ }
+}

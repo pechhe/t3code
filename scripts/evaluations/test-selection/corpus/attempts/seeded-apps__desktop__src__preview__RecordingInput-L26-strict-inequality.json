@@ -1,0 +1,127 @@
+{
+ "id": "seeded-apps__desktop__src__preview__RecordingInput-L26-strict-inequality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/desktop/src/preview/RecordingInput.ts",
+  "line": 26,
+  "operator": "strict-inequality",
+  "before": "  ].filter((value) => value !== null);",
+  "after": "  ].filter((value) => value === null);"
+ },
+ "hunk": "   readonly ctrlKey: boolean;\n   readonly altKey: boolean;\n   readonly shiftKey: boolean;\n }\n \n export function recordingKeyLabel(input: RecordingKeyPress, isMac: boolean): string | null {\n   if ([\"Dead\", \"Process\", \"Unidentified\", \"\"].includes(input.key)) return null;\n   const modifiers = [\n     input.ctrlKey || input.key === \"Control\" ? (isMac ? \"⌃\" : \"Ctrl\") : null,\n     input.altKey || input.key === \"Alt\" ? (isMac ? \"⌥\" : \"Alt\") : null,\n     input.shiftKey || input.key === \"Shift\" ? (isMac ? \"⇧\" : \"Shift\") : null,\n     input.metaKey || input.key === \"Meta\" ? (isMac ? \"⌘\" : \"Win\") : null,\n-  ].filter((value) => value !== null);\n+  ].filter((value) => value === null);\n   const labels: Record<string, string> = {\n     Enter: \"↵\",\n     Tab: \"⇥\",\n     Backspace: \"⌫\",\n     Delete: \"⌦\",\n     Escape: \"Esc\",\n     ArrowUp: \"↑\",\n     ArrowDown: \"↓\",\n     ArrowLeft: \"←\",\n     ArrowRight: \"→\",\n     \" \": \"Space\",\n     Space: \"Space\",",
+ "changed": [
+  "apps/desktop/src/preview/RecordingInput.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/scripts/main-process-bundle.test.mjs"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopAppActivation.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/app/DesktopLifecycle.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopBackendPool.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/localEnvironment.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/preview.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/snapShot.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/window.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/wsl.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/preview/Manager.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/preview/RecordingInput.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/snapShot/DesktopSnapShot.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/updates/DesktopUpdates.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/DesktopApplicationMenu.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/DesktopWindow.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/wsl/DesktopWslBackend.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/desktop/scripts/main-process-bundle.test.mjs": 2.38229443359375,
+  "apps/desktop/src/app/DesktopAppActivation.test.ts": 0.68446337890625,
+  "apps/desktop/src/app/DesktopLifecycle.test.ts": 0.5720107421875,
+  "apps/desktop/src/backend/DesktopBackendPool.test.ts": 0.0575224609375,
+  "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts": 0.86805419921875,
+  "apps/desktop/src/preview/Manager.test.ts": 1.153454345703125,
+  "apps/desktop/src/preview/RecordingInput.test.ts": 0.004732177734375,
+  "apps/desktop/src/snapShot/DesktopSnapShot.test.ts": 1.52181201171875,
+  "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts": 0.656235595703125,
+  "apps/desktop/src/updates/DesktopUpdates.test.ts": 1.592332275390625,
+  "apps/desktop/src/window/DesktopApplicationMenu.test.ts": 0.166300537109375,
+  "apps/desktop/src/window/DesktopWindow.test.ts": 0.7966845703125,
+  "apps/desktop/src/wsl/DesktopWslBackend.test.ts": 0.0314599609375,
+  "apps/desktop/src/ipc/methods/localEnvironment.test.ts": 0.082683837890625,
+  "apps/desktop/src/ipc/methods/preview.test.ts": 0.104841064453125,
+  "apps/desktop/src/ipc/methods/snapShot.test.ts": 0.03897216796875,
+  "apps/desktop/src/ipc/methods/window.test.ts": 1.587514892578125,
+  "apps/desktop/src/ipc/methods/wsl.test.ts": 0.109425048828125,
+  "scripts/hq-allowlist.test.ts": 19.50966796875
+ },
+ "measuredWallSeconds": 69.816,
+ "exitCodes": {
+  "apps/desktop": 0,
+  "scripts": 1
+ }
+}

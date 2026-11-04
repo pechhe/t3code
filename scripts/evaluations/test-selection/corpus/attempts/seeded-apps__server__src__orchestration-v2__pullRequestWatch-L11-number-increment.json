@@ -1,0 +1,82 @@
+{
+ "id": "seeded-apps__server__src__orchestration-v2__pullRequestWatch-L11-number-increment",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/server/src/orchestration-v2/pullRequestWatch.ts",
+  "line": 11,
+  "operator": "number-increment",
+  "before": "export const PULL_REQUEST_WATCH_WAKE_LIMIT = 10;",
+  "after": "export const PULL_REQUEST_WATCH_WAKE_LIMIT = 11;"
+ },
+ "hunk": " import type {\n   OrchestrationV2Notification,\n   PullRequestCheck,\n   PullRequestComment,\n   PullRequestDetail,\n   ThreadPullRequestWatch,\n } from \"@t3tools/contracts\";\n import * as DateTime from \"effect/DateTime\";\n \n /** Bounds consecutive comment-only wakes to stop bot reply loops; check, conflict, or push news resets it. */\n-export const PULL_REQUEST_WATCH_WAKE_LIMIT = 10;\n+export const PULL_REQUEST_WATCH_WAKE_LIMIT = 11;\n /** How long a head may go without any check before the agent is told none reported. */\n const PULL_REQUEST_WATCH_NO_CHECKS_MS = 15 * 60_000;\n const LISTED_ITEMS = 10;\n const SNIPPET_LENGTH = 200;\n \n export type PullRequestWatchChange =\n   | { readonly kind: \"checks-failed\"; readonly failed: ReadonlyArray<PullRequestCheck> }\n   | { readonly kind: \"checks-passed\"; readonly count: number; readonly required: boolean }\n   | { readonly kind: \"remarks\"; readonly remarks: ReadonlyArray<PullRequestComment> }\n   | { readonly kind: \"no-checks\"; readonly minutes: number }\n   | { readonly kind: \"conflicting\" };\n ",
+ "changed": [
+  "apps/server/src/orchestration-v2/pullRequestWatch.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/pullRequestWatch.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 2,
+ "failing": [],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/server/src/outboundHttp.test.ts": 0.721395263671875,
+  "apps/server/src/processRunner.test.ts": 0.046266845703125,
+  "apps/server/src/cli/app.test.ts": 0.320429931640625,
+  "apps/server/src/cli/pair.test.ts": 11.149516357421875,
+  "apps/server/src/cli/project.test.ts": 45.34927319335937,
+  "apps/server/src/cli/theme.test.ts": 0.103250732421875,
+  "apps/server/src/orchestration-v2/pullRequestWatch.test.ts": 0.0246396484375,
+  "apps/server/src/orchestration-v2/runtimeLayer.test.ts": 13.97047509765625,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 2.452004638671875,
+  "scripts/hq-allowlist.test.ts": 2.3439287109375
+ },
+ "measuredWallSeconds": 66.781,
+ "exitCodes": {
+  "apps/server": 0,
+  "scripts": 1
+ }
+}

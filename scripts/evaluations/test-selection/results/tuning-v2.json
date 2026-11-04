@@ -1,0 +1,634 @@
+{
+ "split": "tuning",
+ "rule": "v2",
+ "records": [
+  {
+   "caseId": "seeded-apps__desktop__src__backend__tailscaleEndpointProvider-L135-strict-equality",
+   "engine": "jev",
+   "rule": "v2",
+   "chunk": 0,
+   "questions": 13,
+   "wallMs": 3694,
+   "digest": "b91a1f084dd750402ccbd230a74774e200683f59229e2acf9a74f847160de579",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 3349,
+   "usage": {
+    "inputTokens": 4184,
+    "outputTokens": 228,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.000175728,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/desktop/src/backend/DesktopBackendPool.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/desktop/src/backend/DesktopServerExposure.test.ts",
+     "status": "answered",
+     "probability": 0.69
+    },
+    {
+     "file": "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/desktop/src/ipc/methods/wsl.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/desktop/src/window/DesktopApplicationMenu.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/desktop/src/wsl/DesktopWslBackend.test.ts",
+     "status": "answered",
+     "probability": 0.15
+    },
+    {
+     "file": "apps/desktop/src/ipc/methods/window.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/desktop/src/window/DesktopWindow.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/desktop/src/updates/DesktopUpdates.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/desktop/scripts/main-process-bundle.test.mjs",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__desktop__src__backend__tailscaleEndpointProvider-L135-strict-equality",
+   "engine": "luna",
+   "rule": "v2",
+   "chunk": 0,
+   "questions": 13,
+   "wallMs": 416,
+   "digest": "62f0edf959fee2aca938e72d9a49f755ea44e91ce5c0e368b3ec90de37c18d05",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 415,
+   "usage": {
+    "inputTokens": 5154,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0005154,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/desktop/src/backend/DesktopBackendPool.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/backend/DesktopServerExposure.test.ts",
+     "status": "answered",
+     "probability": 0.86
+    },
+    {
+     "file": "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/ipc/methods/wsl.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/window/DesktopApplicationMenu.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/wsl/DesktopWslBackend.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/desktop/src/ipc/methods/window.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/window/DesktopWindow.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/updates/DesktopUpdates.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/scripts/main-process-bundle.test.mjs",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__desktop__src__backend__tailscaleEndpointProvider-L48-strict-inequality",
+   "engine": "jev",
+   "rule": "v2",
+   "chunk": 0,
+   "questions": 13,
+   "wallMs": 382,
+   "digest": "d3c0a323b50eb9d96f6b6327fb6ff031205fbd8f256c0ed49ba59a6467af6eb2",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 381,
+   "usage": {
+    "inputTokens": 4123,
+    "outputTokens": 228,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.000173166,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/desktop/src/backend/DesktopBackendPool.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/desktop/src/backend/DesktopServerExposure.test.ts",
+     "status": "answered",
+     "probability": 0.81
+    },
+    {
+     "file": "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/desktop/src/ipc/methods/wsl.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/desktop/src/window/DesktopApplicationMenu.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    },
+    {
+     "file": "apps/desktop/src/wsl/DesktopWslBackend.test.ts",
+     "status": "answered",
+     "probability": 0.27
+    },
+    {
+     "file": "apps/desktop/src/ipc/methods/window.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/desktop/src/window/DesktopWindow.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/desktop/src/updates/DesktopUpdates.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/desktop/scripts/main-process-bundle.test.mjs",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__desktop__src__backend__tailscaleEndpointProvider-L48-strict-inequality",
+   "engine": "luna",
+   "rule": "v2",
+   "chunk": 0,
+   "questions": 13,
+   "wallMs": 948,
+   "digest": "6e196ed05ef668165412ebe5af29353534d2ef3d347665919ed1240ad525a681",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 948,
+   "usage": {
+    "inputTokens": 5142,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0005142,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/desktop/src/backend/DesktopBackendPool.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/backend/DesktopServerExposure.test.ts",
+     "status": "answered",
+     "probability": 0.73
+    },
+    {
+     "file": "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/ipc/methods/wsl.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/window/DesktopApplicationMenu.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/wsl/DesktopWslBackend.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/desktop/src/ipc/methods/window.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/window/DesktopWindow.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/src/updates/DesktopUpdates.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/desktop/scripts/main-process-bundle.test.mjs",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__orchestration-v2__pullRequestWatch-L102-strict-equality",
+   "engine": "jev",
+   "rule": "v2",
+   "chunk": 0,
+   "questions": 8,
+   "wallMs": 437,
+   "digest": "b55082fcf22230dc65729a2344659b0439c01af760a5d294bd6f6e0c052c8647",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 437,
+   "usage": {
+    "inputTokens": 2640,
+    "outputTokens": 140,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.00011088000000000001,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__orchestration-v2__pullRequestWatch-L102-strict-equality",
+   "engine": "luna",
+   "rule": "v2",
+   "chunk": 0,
+   "questions": 8,
+   "wallMs": 541,
+   "digest": "f33e8af22f5dea808d1db62166ad0b23f531bc28e0dc6cb4db918526a237d3f5",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 541,
+   "usage": {
+    "inputTokens": 3280,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.000328,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__orchestration-v2__pullRequestWatch-L117-strict-inequality",
+   "engine": "jev",
+   "rule": "v2",
+   "chunk": 0,
+   "questions": 8,
+   "wallMs": 355,
+   "digest": "ae13806ce435595d68f438a7c2bcf790101232d37e51c95a5bb00be3feff87dc",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 355,
+   "usage": {
+    "inputTokens": 2557,
+    "outputTokens": 140,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.00010739400000000001,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__orchestration-v2__pullRequestWatch-L117-strict-inequality",
+   "engine": "luna",
+   "rule": "v2",
+   "chunk": 0,
+   "questions": 8,
+   "wallMs": 225,
+   "digest": "956269deed4753c57c7c180c4706ca2d5860977e611a16a72b819c4634248b51",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 224,
+   "usage": {
+    "inputTokens": 3228,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0003228,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  }
+ ]
+}

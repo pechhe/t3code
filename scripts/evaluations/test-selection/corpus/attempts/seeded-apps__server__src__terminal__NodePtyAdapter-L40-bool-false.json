@@ -1,0 +1,77 @@
+{
+ "id": "seeded-apps__server__src__terminal__NodePtyAdapter-L40-bool-false",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/server/src/terminal/NodePtyAdapter.ts",
+  "line": 40,
+  "operator": "bool-false",
+  "before": "let didEnsureSpawnHelperExecutable = false;",
+  "after": "let didEnsureSpawnHelperExecutable = true;"
+ },
+ "hunk": " \n // node-pty's native addon stays external; single-executables need require to resolve disk modules and spawn helpers.\n const requireForNodePty = NodeModule.createRequire(import.meta.url);\n \n const loadNodePty: NodePtyModuleLoader = () =>\n   Promise.resolve().then(() => requireForNodePty(\"node-pty\") as typeof import(\"node-pty\"));\n \n export const NodePtyModuleLoaderRef = Context.Reference<NodePtyModuleLoader>(\n   \"server/terminal/NodePtyModuleLoader\",\n   { defaultValue: () => loadNodePty },\n );\n \n-let didEnsureSpawnHelperExecutable = false;\n+let didEnsureSpawnHelperExecutable = true;\n \n const resolveNodePtySpawnHelperPath = Effect.gen(function* () {\n   const path = yield* Path.Path;\n   const fs = yield* FileSystem.FileSystem;\n   const platform = yield* HostProcess.Platform;\n   const architecture = yield* HostProcess.Architecture;\n \n   const packageJsonPath = requireForNodePty.resolve(\"node-pty/package.json\");\n   const packageDir = path.dirname(packageJsonPath);\n   const candidates = [\n     path.join(packageDir, \"build\", \"Release\", \"spawn-helper\"),\n     path.join(packageDir, \"build\", \"Debug\", \"spawn-helper\"),",
+ "changed": [
+  "apps/server/src/terminal/NodePtyAdapter.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/terminal/NodePtyAdapter.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/server/src/outboundHttp.test.ts": 0.9781201171875,
+  "apps/server/src/processRunner.test.ts": 0.0524677734375,
+  "apps/server/src/cli/app.test.ts": 0.604918212890625,
+  "apps/server/src/cli/pair.test.ts": 6.637649658203125,
+  "apps/server/src/cli/project.test.ts": 19.59745458984375,
+  "apps/server/src/cli/theme.test.ts": 0.2937783203125,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 4.196970703125,
+  "apps/server/src/terminal/NodePtyAdapter.test.ts": 0.303518798828125,
+  "scripts/hq-allowlist.test.ts": 4.230722412109375
+ },
+ "measuredWallSeconds": 62.526,
+ "exitCodes": {
+  "apps/server": 0,
+  "scripts": 1
+ }
+}

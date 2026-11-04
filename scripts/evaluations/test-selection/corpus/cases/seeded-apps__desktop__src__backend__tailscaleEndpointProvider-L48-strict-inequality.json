@@ -1,0 +1,119 @@
+{
+ "id": "seeded-apps__desktop__src__backend__tailscaleEndpointProvider-L48-strict-inequality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/desktop/src/backend/tailscaleEndpointProvider.ts",
+  "line": 48,
+  "operator": "strict-inequality",
+  "before": "      if (address.family !== \"IPv4\") continue;",
+  "after": "      if (address.family === \"IPv4\") continue;"
+ },
+ "hunk": "     // CGNAT is shared with other VPNs; adapter identity works without current CLI status.\n     const isTailscaleInterface =\n       /^tailscale(?:\\d+|ipv[46])?$/iu.test(interfaceName) ||\n       interfaceAddresses.some(\n         (address) =>\n           !address.internal &&\n           address.family === \"IPv6\" &&\n           /^fd7a:115c:a1e0:/iu.test(address.address),\n       );\n \n     for (const address of interfaceAddresses) {\n       if (address.internal) continue;\n-      if (address.family !== \"IPv4\") continue;\n+      if (address.family === \"IPv4\") continue;\n       if (!isTailscaleIpv4Address(address.address)) continue;\n       if (!isTailscaleInterface && !input.status?.tailnetIpv4Addresses.includes(address.address)) {\n         continue;\n       }\n       if (seen.has(address.address)) continue;\n       seen.add(address.address);\n \n       endpoints.push(\n         createAdvertisedEndpoint({\n           provider: TAILSCALE_ENDPOINT_PROVIDER,\n           source: \"desktop-addon\",\n           id: `tailscale-ip:http://${address.address}:${input.port}`,",
+ "changed": [
+  "apps/desktop/src/backend/tailscaleEndpointProvider.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/scripts/main-process-bundle.test.mjs"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopBackendPool.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopServerExposure.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/tailscaleEndpointProvider.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/window.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/wsl.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/updates/DesktopUpdates.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/DesktopApplicationMenu.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/DesktopWindow.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/wsl/DesktopWslBackend.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [
+  "apps/desktop/src/backend/DesktopServerExposure.test.ts",
+  "apps/desktop/src/backend/tailscaleEndpointProvider.test.ts"
+ ],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/desktop/scripts/main-process-bundle.test.mjs": 2.80752685546875,
+  "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts": 5.516486572265625,
+  "apps/desktop/src/backend/DesktopBackendPool.test.ts": 0.069684326171875,
+  "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts": 0.464862060546875,
+  "apps/desktop/src/backend/DesktopServerExposure.test.ts": 5.4205205078125,
+  "apps/desktop/src/backend/tailscaleEndpointProvider.test.ts": 0.23036865234375,
+  "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts": 3.5185546875,
+  "apps/desktop/src/updates/DesktopUpdates.test.ts": 4.1223232421875,
+  "apps/desktop/src/window/DesktopApplicationMenu.test.ts": 0.091528076171875,
+  "apps/desktop/src/window/DesktopWindow.test.ts": 1.80714501953125,
+  "apps/desktop/src/wsl/DesktopWslBackend.test.ts": 0.026188720703125,
+  "apps/desktop/src/ipc/methods/window.test.ts": 1.91065478515625,
+  "apps/desktop/src/ipc/methods/wsl.test.ts": 0.07654150390625,
+  "scripts/hq-allowlist.test.ts": 46.23277783203125
+ },
+ "measuredWallSeconds": 98.998,
+ "exitCodes": {
+  "apps/desktop": 1,
+  "scripts": 1
+ },
+ "verifiedPassing": [
+  "apps/desktop/scripts/main-process-bundle.test.mjs",
+  "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts",
+  "apps/desktop/src/backend/DesktopBackendPool.test.ts",
+  "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts",
+  "apps/desktop/src/ipc/methods/window.test.ts",
+  "apps/desktop/src/ipc/methods/wsl.test.ts",
+  "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts",
+  "apps/desktop/src/updates/DesktopUpdates.test.ts",
+  "apps/desktop/src/window/DesktopApplicationMenu.test.ts",
+  "apps/desktop/src/window/DesktopWindow.test.ts",
+  "apps/desktop/src/wsl/DesktopWslBackend.test.ts"
+ ],
+ "controlVerified": true
+}

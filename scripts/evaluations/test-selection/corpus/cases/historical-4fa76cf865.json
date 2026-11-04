@@ -1,0 +1,47 @@
+{
+ "id": "historical-4fa76cf865",
+ "kind": "historical",
+ "commit": "4fa76cf865",
+ "changed": [
+  "apps/server/src/hq/HqAgentLifecycleReactor.ts"
+ ],
+ "diff": "diff --git a/apps/server/src/hq/HqAgentLifecycleReactor.ts b/apps/server/src/hq/HqAgentLifecycleReactor.ts\nindex 469d936531..d321342e6d 100644\n--- a/apps/server/src/hq/HqAgentLifecycleReactor.ts\n+++ b/apps/server/src/hq/HqAgentLifecycleReactor.ts\n@@ -1,4 +1,8 @@\n-import type { OrchestrationV2DomainEvent, ThreadId } from \"@t3tools/contracts\";\n+import type {\n+  OrchestrationV2AppThread,\n+  OrchestrationV2DomainEvent,\n+  ThreadId,\n+} from \"@t3tools/contracts\";\n import * as Context from \"effect/Context\";\n import * as Effect from \"effect/Effect\";\n import * as FiberSet from \"effect/FiberSet\";\n@@ -49,12 +53,13 @@ const make = Effect.gen(function* () {\n     threadId: ThreadId,\n     act: (\n       agent: Omit<HqAgentConnections.HqAgent, \"model\">,\n+      thread: OrchestrationV2AppThread,\n     ) => Effect.Effect<void, HqForgeRecords.HqForgeRecordError>,\n   ) =>\n     projections.getThread(threadId).pipe(\n       Effect.flatMap((thread) => {\n         const role = HqAgentConnections.hqAgentRole(thread);\n-        return role === undefined ? Effect.void : act({ threadId, role });\n+        return role === undefined ? Effect.void : act({ threadId, role }, thread);\n       }),\n     );\n \n@@ -65,23 +70,22 @@ const make = Effect.gen(function* () {\n       switch (event.type) {\n         case \"run.updated\": {\n           const { status, delegatedTaskId } = event.payload;\n-          if (\n-            delegatedTaskId === undefined ||\n-            (status !== \"completed\" && status !== \"failed\" && status !== \"cancelled\")\n-          )\n-            return;\n-          return yield* withAgentOf(event.threadId, (agent) =>\n-            recording.recordCompletion(agent.threadId, event.payload).pipe(\n-              Effect.andThen(\n-                records.enqueue({\n-                  kind: \"end\",\n-                  // One end per run: a follow-up run gets a fresh agent, which needs its own end.\n-                  recordKey: `end:${agent.threadId}:${event.payload.id}`,\n-                  threadId: agent.threadId,\n-                  role: agent.role,\n-                }),\n-              ),\n-            ),\n+          if (status !== \"completed\" && status !== \"failed\" && status !== \"cancelled\") return;\n+          return yield* withAgentOf(event.threadId, (agent, thread) =>\n+            // Only a follow-up run carries its task's id; a task's first run is told by its parent.\n+            delegatedTaskId === undefined && thread.lineage.parentThreadId === null\n+              ? Effect.void\n+              : recording.recordCompletion(agent.threadId, event.payload).pipe(\n+                  Effect.andThen(\n+                    records.enqueue({\n+                      kind: \"end\",\n+                      // One end per run: a follow-up run gets a fresh agent, which needs its own end.\n+                      recordKey: `end:${agent.threadId}:${event.payload.id}`,\n+                      threadId: agent.threadId,\n+                      role: agent.role,\n+                    }),\n+                  ),\n+                ),\n           );\n         }\n         case \"thread.deleted\":\n",
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/HqAgentLifecycleReactor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ]
+}

@@ -1,0 +1,161 @@
+{
+ "id": "seeded-apps__server__src__mcp__toolkits__environment__handlers-L101-strict-inequality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/server/src/mcp/toolkits/environment/handlers.ts",
+  "line": 101,
+  "operator": "strict-inequality",
+  "before": "        [here, ...linked.filter((environmentId) => environmentId !== here)],",
+  "after": "        [here, ...linked.filter((environmentId) => environmentId === here)],"
+ },
+ "hunk": "       const { descriptor } = yield* access;\n       const here = descriptor.environmentId;\n       const reactor = yield* UnattendedReactor.UnattendedReactor;\n       const peers = yield* PeerEnvironments.PeerEnvironments;\n       // One hop only: a linked environment's call sets Away here, never onward.\n       const linked = fromPeer\n         ? []\n         : yield* peers.linked.pipe(\n             Effect.map((environments) => environments.map(({ environmentId }) => environmentId)),\n             Effect.mapError(unavailable),\n           );\n       const environments = yield* Effect.forEach(\n-        [here, ...linked.filter((environmentId) => environmentId !== here)],\n+        [here, ...linked.filter((environmentId) => environmentId === here)],\n         (environmentId): Effect.Effect<AwayResult, OrchestratorMcpFailure> =>\n           environmentId === here\n             ? reactor.setAway(away).pipe(\n                 Effect.mapError(unavailable),\n                 Effect.map((settings) => ({ environmentId, away: settings.away })),\n               )\n             : peers\n                 .callTool({ environmentId, name: \"t3_environment_set_away\", arguments: { away } })\n                 .pipe(\n                   Effect.map((result) =>\n                     result.isError\n                       ? { environmentId, away: null, error: result.text }",
+ "changed": [
+  "apps/server/src/mcp/toolkits/environment/handlers.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/McpOAuth.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpHttpServer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpManagedBrowser.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.race.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/SessionToolListings.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/core.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 2,
+ "failing": [
+  "apps/server/src/mcp/toolkits/environment/handlers.test.ts"
+ ],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/server/src/outboundHttp.test.ts": 1.391824951171875,
+  "apps/server/src/processRunner.test.ts": 0.419619140625,
+  "apps/server/src/auth/McpOAuth.test.ts": 12.325589599609375,
+  "apps/server/src/cli/app.test.ts": 3.63889990234375,
+  "apps/server/src/cli/pair.test.ts": 8.802266357421875,
+  "apps/server/src/cli/project.test.ts": 75.25248315429687,
+  "apps/server/src/cli/theme.test.ts": 1.667065185546875,
+  "apps/server/src/mcp/McpDeviceToolkit.test.ts": 0.893239990234375,
+  "apps/server/src/mcp/McpHttpServer.test.ts": 6.6785166015625,
+  "apps/server/src/mcp/McpManagedBrowser.test.ts": 4.1957861328125,
+  "apps/server/src/mcp/McpToolAccess.race.test.ts": 0.46810107421875,
+  "apps/server/src/mcp/McpToolAccess.test.ts": 1.7912861328125,
+  "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts": 25.20646826171875,
+  "apps/server/src/mcp/SessionToolListings.test.ts": 2.850497802734375,
+  "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts": 12.288251220703126,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 10.491699462890624,
+  "apps/server/src/mcp/toolkits/core.test.ts": 5.0665439453125,
+  "apps/server/src/mcp/toolkits/releaseApproval.test.ts": 4.572501953125,
+  "apps/server/src/mcp/toolkits/environment/handlers.test.ts": 0.275583984375,
+  "apps/server/src/mcp/toolkits/thread/projectMove.test.ts": 1.49082080078125,
+  "scripts/hq-allowlist.test.ts": 43.27590795898438
+ },
+ "measuredWallSeconds": 222.373,
+ "exitCodes": {
+  "apps/server": 1,
+  "scripts": 1
+ },
+ "verifiedPassing": [
+  "apps/server/src/auth/McpOAuth.test.ts",
+  "apps/server/src/cli/app.test.ts",
+  "apps/server/src/cli/pair.test.ts",
+  "apps/server/src/cli/project.test.ts",
+  "apps/server/src/cli/theme.test.ts",
+  "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+  "apps/server/src/mcp/McpHttpServer.test.ts",
+  "apps/server/src/mcp/McpManagedBrowser.test.ts",
+  "apps/server/src/mcp/McpToolAccess.race.test.ts",
+  "apps/server/src/mcp/McpToolAccess.test.ts",
+  "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+  "apps/server/src/mcp/SessionToolListings.test.ts",
+  "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+  "apps/server/src/mcp/toolkits/core.test.ts",
+  "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+  "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+  "apps/server/src/outboundHttp.test.ts",
+  "apps/server/src/processRunner.test.ts",
+  "apps/server/src/provider/CodexManagedRuntime.test.ts"
+ ],
+ "controlVerified": true
+}

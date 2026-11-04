@@ -1,0 +1,440 @@
+{
+ "id": "seeded-packages__shared__src__forgeLinks-L147-strict-equality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "packages/shared/src/forgeLinks.ts",
+  "line": 147,
+  "operator": "strict-equality",
+  "before": "      if (child.type === \"html\") {",
+  "after": "      if (child.type !== \"html\") {"
+ },
+ "hunk": "       for (const match of markdown.slice(start, end).matchAll(FORGE_MENTION_PATTERN)) {\n         mentions.push({\n           number: Number(match[1]),\n           start: start + match.index,\n           end: start + match.index + match[0].length,\n           written: \"reference\",\n         });\n       }\n       return;\n     }\n     let protectedHtmlDepth = 0;\n     for (const child of node.children ?? []) {\n-      if (child.type === \"html\") {\n+      if (child.type !== \"html\") {\n         const childStart = child.position?.start.offset;\n         const childEnd = child.position?.end.offset;\n         const tag =\n           childStart === undefined || childEnd === undefined\n             ? \"\"\n             : markdown.slice(childStart, childEnd);\n         for (const match of tag.matchAll(/<(\\/)?(?:a|code|pre|script|style)(?=[\\s>])[^>]*>/giu)) {\n           protectedHtmlDepth = Math.max(0, protectedHtmlDepth + (match[1] ? -1 : 1));\n         }\n       } else if (protectedHtmlDepth === 0) visit(child);\n     }\n   };",
+ "changed": [
+  "packages/shared/src/forgeLinks.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/integration/transferBudgetV2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/McpOAuth.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/fleet/FleetSummaryService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/ForgeHome.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/ForgeWorkItems.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ExperimentWorkMcp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ManagedDelegation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ManagedFollowup.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpHttpServer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpManagedBrowser.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.race.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpService.activity.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/SessionToolListings.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ToolSessionPolicy.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/threadAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/core.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/web/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/workspace/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/observability/DefectReporter.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadWatch.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ManagedProjectFolders.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ProjectService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/ws.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ChatMarkdown.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/UsageToggleShortcut.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/composerContextPresentation.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/guest/GuestPage.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestCodeTab.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestSummaryTab.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/pullRequestsRouteSearch.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/forgeLinks.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [
+  "packages/shared/src/forgeLinks.test.ts"
+ ],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [
+  "apps/web/src/components/ChatMarkdown.browser.test.tsx",
+  "apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx",
+  "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx",
+  "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx",
+  "apps/web/src/components/UsageToggleShortcut.browser.test.tsx",
+  "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx",
+  "apps/web/src/components/composerContextPresentation.test.ts",
+  "apps/web/src/components/guest/GuestPage.browser.test.tsx",
+  "apps/web/src/components/pullRequest/PullRequestCodeTab.browser.test.tsx",
+  "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.browser.test.tsx",
+  "apps/web/src/components/pullRequest/PullRequestSummaryTab.browser.test.tsx",
+  "apps/web/src/components/pullRequest/pullRequestsRouteSearch.test.ts"
+ ],
+ "measuredSeconds": {
+  "apps/server/integration/transferBudgetV2.integration.test.ts": 15.096248779296875,
+  "apps/server/src/outboundHttp.test.ts": 0.546102783203125,
+  "apps/server/src/processRunner.test.ts": 0.0422333984375,
+  "apps/server/src/ws.test.ts": 4.01153125,
+  "apps/server/src/auth/McpOAuth.test.ts": 13.580297607421874,
+  "apps/server/src/cli/app.test.ts": 0.50706591796875,
+  "apps/server/src/cli/pair.test.ts": 9.919723388671875,
+  "apps/server/src/cli/project.test.ts": 33.697074462890626,
+  "apps/server/src/cli/theme.test.ts": 0.17076171875,
+  "apps/server/src/fleet/FleetSummaryService.test.ts": 4.01465625,
+  "apps/server/src/hq/ForgeHome.test.ts": 10.74426318359375,
+  "apps/server/src/hq/ForgeWorkItems.test.ts": 9.573353759765626,
+  "apps/server/src/mcp/ExperimentWorkMcp.test.ts": 0.4541845703125,
+  "apps/server/src/mcp/ManagedBrowserAccess.test.ts": 0.07678369140625,
+  "apps/server/src/mcp/ManagedDelegation.test.ts": 5.998939453125,
+  "apps/server/src/mcp/ManagedFollowup.test.ts": 0.932348388671875,
+  "apps/server/src/mcp/McpDeviceToolkit.test.ts": 0.131891845703125,
+  "apps/server/src/mcp/McpHttpServer.test.ts": 3.704365478515625,
+  "apps/server/src/mcp/McpManagedBrowser.test.ts": 0.38959912109375,
+  "apps/server/src/mcp/McpToolAccess.race.test.ts": 0.2271240234375,
+  "apps/server/src/mcp/McpToolAccess.test.ts": 0.79682470703125,
+  "apps/server/src/mcp/OrchestratorMcpService.activity.test.ts": 0.109063720703125,
+  "apps/server/src/mcp/OrchestratorMcpService.test.ts": 5.356417236328125,
+  "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts": 20.614060546875,
+  "apps/server/src/mcp/SessionToolListings.test.ts": 5.89458984375,
+  "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts": 6.685630859375,
+  "apps/server/src/mcp/ThreadMetadataMcpService.test.ts": 0.03941552734375,
+  "apps/server/src/mcp/ToolSessionPolicy.test.ts": 0.177257568359375,
+  "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts": 9.2271845703125,
+  "apps/server/src/mcp/threadAccess.test.ts": 0.028883544921875,
+  "apps/server/src/observability/DefectReporter.test.ts": 0.26219140625,
+  "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts": 6.45711669921875,
+  "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts": 2.174413330078125,
+  "apps/server/src/orchestration-v2/ThreadWatch.test.ts": 9.116491943359375,
+  "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts": 1.49488232421875,
+  "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts": 2.727274658203125,
+  "apps/server/src/orchestration-v2/runtimeLayer.test.ts": 30.89536279296875,
+  "apps/server/src/project/ManagedProjectFolders.test.ts": 9.853739501953125,
+  "apps/server/src/project/ProjectService.test.ts": 5.61136767578125,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 5.16995703125,
+  "apps/server/src/mcp/toolkits/core.test.ts": 3.346768798828125,
+  "apps/server/src/mcp/toolkits/releaseApproval.test.ts": 1.58286376953125,
+  "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts": 48.33463403320312,
+  "apps/server/src/mcp/toolkits/attachment/handlers.test.ts": 0.01730908203125,
+  "apps/server/src/mcp/toolkits/decisions/handlers.test.ts": 0.3169560546875,
+  "apps/server/src/mcp/toolkits/device/handlers.test.ts": 0.00433056640625,
+  "apps/server/src/mcp/toolkits/environment/handlers.test.ts": 0.17482177734375,
+  "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts": 0.01987353515625,
+  "apps/server/src/mcp/toolkits/preview/handlers.test.ts": 0.084822998046875,
+  "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts": 0.2339931640625,
+  "apps/server/src/mcp/toolkits/project/handlers.test.ts": 11.7227041015625,
+  "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts": 0.238950439453125,
+  "apps/server/src/mcp/toolkits/thread/projectMove.test.ts": 0.41891357421875,
+  "apps/server/src/mcp/toolkits/web/handlers.test.ts": 0.45797705078125,
+  "apps/server/src/mcp/toolkits/workspace/handlers.test.ts": 9.54007568359375,
+  "packages/shared/src/forgeLinks.test.ts": 0.07501806640625,
+  "scripts/hq-allowlist.test.ts": 5.1438515625
+ },
+ "measuredWallSeconds": 263.506,
+ "exitCodes": {
+  "apps/server": 0,
+  "apps/web": 1,
+  "packages/shared": 1,
+  "scripts": 1
+ },
+ "verifiedPassing": [
+  "apps/server/integration/transferBudgetV2.integration.test.ts",
+  "apps/server/src/auth/McpOAuth.test.ts",
+  "apps/server/src/cli/app.test.ts",
+  "apps/server/src/cli/pair.test.ts",
+  "apps/server/src/cli/project.test.ts",
+  "apps/server/src/cli/theme.test.ts",
+  "apps/server/src/fleet/FleetSummaryService.test.ts",
+  "apps/server/src/hq/ForgeHome.test.ts",
+  "apps/server/src/hq/ForgeWorkItems.test.ts",
+  "apps/server/src/mcp/ExperimentWorkMcp.test.ts",
+  "apps/server/src/mcp/ManagedBrowserAccess.test.ts",
+  "apps/server/src/mcp/ManagedDelegation.test.ts",
+  "apps/server/src/mcp/ManagedFollowup.test.ts",
+  "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+  "apps/server/src/mcp/McpHttpServer.test.ts",
+  "apps/server/src/mcp/McpManagedBrowser.test.ts",
+  "apps/server/src/mcp/McpToolAccess.race.test.ts",
+  "apps/server/src/mcp/McpToolAccess.test.ts",
+  "apps/server/src/mcp/OrchestratorMcpService.activity.test.ts",
+  "apps/server/src/mcp/OrchestratorMcpService.test.ts",
+  "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+  "apps/server/src/mcp/SessionToolListings.test.ts",
+  "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts",
+  "apps/server/src/mcp/ThreadMetadataMcpService.test.ts",
+  "apps/server/src/mcp/ToolSessionPolicy.test.ts",
+  "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+  "apps/server/src/mcp/threadAccess.test.ts",
+  "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/core.test.ts",
+  "apps/server/src/mcp/toolkits/decisions/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/device/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts",
+  "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/project/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+  "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+  "apps/server/src/mcp/toolkits/web/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/workspace/handlers.test.ts",
+  "apps/server/src/observability/DefectReporter.test.ts",
+  "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
+  "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts",
+  "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts",
+  "apps/server/src/orchestration-v2/ThreadWatch.test.ts",
+  "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts",
+  "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts",
+  "apps/server/src/orchestration-v2/runtimeLayer.test.ts",
+  "apps/server/src/outboundHttp.test.ts",
+  "apps/server/src/processRunner.test.ts",
+  "apps/server/src/project/ManagedProjectFolders.test.ts",
+  "apps/server/src/project/ProjectService.test.ts",
+  "apps/server/src/provider/CodexManagedRuntime.test.ts",
+  "apps/server/src/ws.test.ts"
+ ],
+ "controlVerified": true
+}

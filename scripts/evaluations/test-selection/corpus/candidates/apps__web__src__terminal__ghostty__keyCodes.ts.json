@@ -1,0 +1,53 @@
+{
+ "changed": [
+  "apps/web/src/terminal/ghostty/keyCodes.ts"
+ ],
+ "kind": "related",
+ "reason": null,
+ "candidates": [
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/bundledDev.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ThreadTerminalDrawer.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/onboarding/WelcomeWizard.import.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/AddProviderInstanceDialog.environment.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/ProviderSettingsPanel.environment.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/ProviderSetupSection.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/reactCompilerCoverage.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/terminal/ghostty/core.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/terminal/ghostty/keyCodes.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/terminal/ghostty/surface.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ]
+}

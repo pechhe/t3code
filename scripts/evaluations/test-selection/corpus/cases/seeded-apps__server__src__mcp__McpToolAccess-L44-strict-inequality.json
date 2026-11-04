@@ -1,0 +1,215 @@
+{
+ "id": "seeded-apps__server__src__mcp__McpToolAccess-L44-strict-inequality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/server/src/mcp/McpToolAccess.ts",
+  "line": 44,
+  "operator": "strict-inequality",
+  "before": "  if (token !== builtHere) {",
+  "after": "  if (token === builtHere) {"
+ },
+ "hunk": "   assertLiveCaller,\n   assertTargetWithinLimits,\n   type Caller,\n   loadCaller,\n   readCaller,\n   unavailable,\n } from \"./threadAccess.ts\";\n \n /** Private constructors only enforce types; the token also blocks runtime construction. */\n const builtHere: unique symbol = Symbol(\"t3/mcp/McpToolAccess/builtHere\");\n \n const refuseOutsideConstruction = (token: symbol) => {\n-  if (token !== builtHere) {\n+  if (token === builtHere) {\n     throw new TypeError(\"Only McpToolAccess builds MCP tool declarations and handler layers.\");\n   }\n };\n \n let declare: <P, A, E, R>(\n   handle: (params: P) => Effect.Effect<A, E, R>,\n ) => Declaration<(params: P) => Effect.Effect<A, E, R>>;\n \n type CheckedHandlerOf<D> = D extends Declaration<infer Handler> ? Handler : never;\n \n interface CheckedHandler extends Struct.Lambda {\n   <Handler>(declaration: Declaration<Handler>): Handler;",
+ "changed": [
+  "apps/server/src/mcp/McpToolAccess.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/McpOAuth.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpHttpServer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpManagedBrowser.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.race.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/SessionToolListings.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/core.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/web/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/workspace/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 10,
+ "failing": [
+  "apps/server/src/auth/McpOAuth.test.ts",
+  "apps/server/src/cli/app.test.ts",
+  "apps/server/src/cli/pair.test.ts",
+  "apps/server/src/cli/project.test.ts",
+  "apps/server/src/cli/theme.test.ts",
+  "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+  "apps/server/src/mcp/McpHttpServer.test.ts",
+  "apps/server/src/mcp/McpManagedBrowser.test.ts",
+  "apps/server/src/mcp/McpToolAccess.race.test.ts",
+  "apps/server/src/mcp/McpToolAccess.test.ts",
+  "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+  "apps/server/src/mcp/SessionToolListings.test.ts",
+  "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+  "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/core.test.ts",
+  "apps/server/src/mcp/toolkits/decisions/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/device/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/project/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+  "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+  "apps/server/src/mcp/toolkits/web/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/workspace/handlers.test.ts"
+ ],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/server/src/outboundHttp.test.ts": 0.825090576171875,
+  "apps/server/src/processRunner.test.ts": 0.078517333984375,
+  "apps/server/src/auth/McpOAuth.test.ts": 0,
+  "apps/server/src/cli/app.test.ts": 0,
+  "apps/server/src/cli/pair.test.ts": 0,
+  "apps/server/src/cli/project.test.ts": 0,
+  "apps/server/src/cli/theme.test.ts": 0,
+  "apps/server/src/mcp/McpDeviceToolkit.test.ts": 0,
+  "apps/server/src/mcp/McpHttpServer.test.ts": 0,
+  "apps/server/src/mcp/McpManagedBrowser.test.ts": 0,
+  "apps/server/src/mcp/McpToolAccess.race.test.ts": 0,
+  "apps/server/src/mcp/McpToolAccess.test.ts": 0,
+  "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts": 0,
+  "apps/server/src/mcp/SessionToolListings.test.ts": 0,
+  "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts": 0,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 3.367921630859375,
+  "apps/server/src/mcp/toolkits/core.test.ts": 0,
+  "apps/server/src/mcp/toolkits/releaseApproval.test.ts": 0,
+  "apps/server/src/mcp/toolkits/attachment/handlers.test.ts": 0,
+  "apps/server/src/mcp/toolkits/decisions/handlers.test.ts": 0,
+  "apps/server/src/mcp/toolkits/device/handlers.test.ts": 0,
+  "apps/server/src/mcp/toolkits/environment/handlers.test.ts": 0,
+  "apps/server/src/mcp/toolkits/preview/handlers.test.ts": 0,
+  "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts": 0,
+  "apps/server/src/mcp/toolkits/project/handlers.test.ts": 0,
+  "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts": 0,
+  "apps/server/src/mcp/toolkits/thread/projectMove.test.ts": 0,
+  "apps/server/src/mcp/toolkits/web/handlers.test.ts": 0,
+  "apps/server/src/mcp/toolkits/workspace/handlers.test.ts": 0,
+  "scripts/hq-allowlist.test.ts": 9.29025390625
+ },
+ "measuredWallSeconds": 94.907,
+ "exitCodes": {
+  "apps/server": 1,
+  "scripts": 1
+ },
+ "verifiedPassing": [
+  "apps/server/src/outboundHttp.test.ts",
+  "apps/server/src/processRunner.test.ts",
+  "apps/server/src/provider/CodexManagedRuntime.test.ts"
+ ],
+ "controlVerified": true
+}

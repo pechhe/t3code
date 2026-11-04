@@ -1,0 +1,95 @@
+{
+ "id": "seeded-apps__server__src__orchestration-v2__pullRequestWatch-L117-strict-inequality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/server/src/orchestration-v2/pullRequestWatch.ts",
+  "line": 117,
+  "operator": "strict-inequality",
+  "before": "      remark.author?.login.toLowerCase() !== own",
+  "after": "      remark.author?.login.toLowerCase() === own"
+ },
+ "hunk": "       checksAwaitedSince = null;\n     }\n   }\n \n   const own = (detail.viewer ?? detail.author?.login)?.toLowerCase();\n   const through = Date.parse(watch.remarksThrough);\n   const activeAt = (remark: PullRequestComment) => remark.editedAt ?? remark.createdAt;\n   // Hosts can stamp remarks to the second, so remarks at the boundary time are told apart by ID.\n   const fresh = (remarks ?? []).filter((remark) => {\n     const at = Date.parse(activeAt(remark));\n     return (\n       (at > through || (at === through && !watch.remarkIds.includes(remark.id))) &&\n-      remark.author?.login.toLowerCase() !== own\n+      remark.author?.login.toLowerCase() === own\n     );\n   });\n   if (fresh.length > 0) changes.push({ kind: \"remarks\", remarks: fresh });\n   const latest = Math.max(through, ...fresh.map((remark) => Date.parse(activeAt(remark))));\n   const atLatest = fresh.filter((remark) => Date.parse(activeAt(remark)) === latest);\n   const remarksThrough = latest === through ? watch.remarksThrough : activeAt(atLatest[0]!);\n   const remarkIds = [\n     ...(latest === through ? watch.remarkIds : []),\n     ...atLatest.map((remark) => remark.id),\n   ];\n \n   if (detail.mergeability === \"conflicting\" && !watch.conflicting) {",
+ "changed": [
+  "apps/server/src/orchestration-v2/pullRequestWatch.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/pullRequestWatch.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 2,
+ "failing": [
+  "apps/server/src/orchestration-v2/pullRequestWatch.test.ts",
+  "apps/server/src/orchestration-v2/runtimeLayer.test.ts"
+ ],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/server/src/outboundHttp.test.ts": 0.62968505859375,
+  "apps/server/src/processRunner.test.ts": 0.07734521484375,
+  "apps/server/src/cli/app.test.ts": 0.973386474609375,
+  "apps/server/src/cli/pair.test.ts": 17.460520263671874,
+  "apps/server/src/cli/project.test.ts": 85.02667651367187,
+  "apps/server/src/cli/theme.test.ts": 0.507102783203125,
+  "apps/server/src/orchestration-v2/pullRequestWatch.test.ts": 0.0513544921875,
+  "apps/server/src/orchestration-v2/runtimeLayer.test.ts": 97.54634252929688,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 5.062378662109375,
+  "scripts/hq-allowlist.test.ts": 44.72046240234375
+ },
+ "measuredWallSeconds": 183.739,
+ "exitCodes": {
+  "apps/server": 1,
+  "scripts": 1
+ },
+ "verifiedPassing": [
+  "apps/server/src/cli/app.test.ts",
+  "apps/server/src/cli/pair.test.ts",
+  "apps/server/src/cli/project.test.ts",
+  "apps/server/src/cli/theme.test.ts",
+  "apps/server/src/outboundHttp.test.ts",
+  "apps/server/src/processRunner.test.ts",
+  "apps/server/src/provider/CodexManagedRuntime.test.ts"
+ ],
+ "controlVerified": true
+}

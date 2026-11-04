@@ -1,0 +1,3910 @@
+{
+ "split": "heldout",
+ "rule": "v1",
+ "records": [
+  {
+   "caseId": "seeded-apps__server__src__mcp__McpToolAccess-L286-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 20,
+   "wallMs": 397,
+   "digest": "26e5a3f13f292c2cf06b545e5b143ea74b83fbffea1bbc88962c63614bf2328e",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 382,
+   "usage": {
+    "inputTokens": 5511,
+    "outputTokens": 354,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.00023146200000000001,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0.17
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0.34
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0.44
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0.47
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0.29
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0.18
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/core.test.ts",
+     "status": "answered",
+     "probability": 0.5
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__mcp__McpToolAccess-L286-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 20,
+   "wallMs": 315,
+   "digest": "1afa12eb6e15b0992668d6f6cc699bb00eb0d83da49c5af3c8897e2151eb4ede",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 315,
+   "usage": {
+    "inputTokens": 7467,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0007467000000000001,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0.7
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0.52
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/core.test.ts",
+     "status": "answered",
+     "probability": 0.81
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__mcp__McpToolAccess-L292-strict-inequality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 20,
+   "wallMs": 193,
+   "digest": "94da6dc86b44a354f3fc90c7a35825dfcba4ddb33b0059f196b665f99be1ca33",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 192,
+   "usage": {
+    "inputTokens": 5472,
+    "outputTokens": 354,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.000229824,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.15
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0.18
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0.26
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0.47
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0.55
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0.36
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0.22
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/core.test.ts",
+     "status": "answered",
+     "probability": 0.47
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__mcp__McpToolAccess-L292-strict-inequality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 20,
+   "wallMs": 458,
+   "digest": "1a6669eaedd041aa12471980de71c3923b19c9c4140b2616474bba92587a62a5",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 458,
+   "usage": {
+    "inputTokens": 7435,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0007435,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0.52
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/core.test.ts",
+     "status": "answered",
+     "probability": 0.65
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__mcp__McpToolAccess-L44-strict-inequality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 20,
+   "wallMs": 211,
+   "digest": "fb2f809e1c311fde5dea1eb65c6cdcb1bf31058c672add2f28879cb5131193ab",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 211,
+   "usage": {
+    "inputTokens": 5394,
+    "outputTokens": 354,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.000226548,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.29
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0.25
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0.36
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0.52
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0.35
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0.19
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/core.test.ts",
+     "status": "answered",
+     "probability": 0.45
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__mcp__McpToolAccess-L44-strict-inequality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 20,
+   "wallMs": 433,
+   "digest": "6385fd0cb380c71bc225305ba4d3187d2f5ae5a87c8ee8937ce2141c42c2fd30",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 433,
+   "usage": {
+    "inputTokens": 7365,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0007365,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/core.test.ts",
+     "status": "answered",
+     "probability": 0.6
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__mcp__toolkits__environment__handlers-L101-strict-inequality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 19,
+   "wallMs": 217,
+   "digest": "e5789bf43f49a65aea75a0354223e81d01270e51a4795f804faf41b41e881cf2",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 217,
+   "usage": {
+    "inputTokens": 5444,
+    "outputTokens": 336,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.00022864800000000002,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.36
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.race.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/mcp/McpHttpServer.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0.54
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__mcp__toolkits__environment__handlers-L101-strict-inequality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 19,
+   "wallMs": 454,
+   "digest": "2f6644065e6e5f58e1f2e511220e497e8f1e48c379d1ab271e67d994fe1bbd2e",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 454,
+   "usage": {
+    "inputTokens": 7275,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0007275,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.race.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpHttpServer.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0.5
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__mcp__toolkits__environment__handlers-L33-number-increment",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 19,
+   "wallMs": 180,
+   "digest": "17c00f6284acab1003ea746405cf254350a4c61248ce7d02f0d535a54525e502",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 180,
+   "usage": {
+    "inputTokens": 5400,
+    "outputTokens": 336,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.0002268,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.26
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.22
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.race.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/mcp/McpHttpServer.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0.19
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__mcp__toolkits__environment__handlers-L33-number-increment",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 19,
+   "wallMs": 500,
+   "digest": "f9757227c875f1a3bdb12700b31ebab1f21c34a30eb68fa119a2b5181a0608b6",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 500,
+   "usage": {
+    "inputTokens": 7208,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0007208000000000001,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.race.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/mcp/McpHttpServer.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__mcp__toolkits__environment__handlers-L34-number-increment",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 19,
+   "wallMs": 340,
+   "digest": "0e863742a51a993c0b2baf57630be9c7405d2322d97375821f4af5ec46ce47e6",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 339,
+   "usage": {
+    "inputTokens": 5382,
+    "outputTokens": 336,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.000226044,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.18
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.race.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/mcp/McpHttpServer.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__mcp__toolkits__environment__handlers-L34-number-increment",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 19,
+   "wallMs": 397,
+   "digest": "2501270b95fbe4a9ac2daebfd4068d7e6d0025091dfadcd6438f331c9d20b3f1",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 397,
+   "usage": {
+    "inputTokens": 7198,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0007198,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.race.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    },
+    {
+     "file": "apps/server/src/mcp/McpHttpServer.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__telemetry__FeatureUsage-L11-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 12,
+   "wallMs": 188,
+   "digest": "f481e949225e276eee95651797b44ec9af6588df0b3157727895f9ed19f9d603",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 188,
+   "usage": {
+    "inputTokens": 3377,
+    "outputTokens": 210,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.000141834,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/observability/DefectReporter.test.ts",
+     "status": "answered",
+     "probability": 0.21
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/ws.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/integration/transferBudgetV2.integration.test.ts",
+     "status": "answered",
+     "probability": 0.26
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__telemetry__FeatureUsage-L11-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 12,
+   "wallMs": 409,
+   "digest": "97cb3ab3ec233842be60c5e477c7ab9ba149326c26a73e60f5a06ad110c2401b",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 409,
+   "usage": {
+    "inputTokens": 4529,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.00045290000000000006,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/observability/DefectReporter.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/ws.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/integration/transferBudgetV2.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__telemetry__FeatureUsage-L14-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 12,
+   "wallMs": 161,
+   "digest": "4e3b61830f121fd20a717422ced0b6dc00f8fd306e29e960ecc64a1cf426e9b4",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 160,
+   "usage": {
+    "inputTokens": 3369,
+    "outputTokens": 210,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.00014149800000000002,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/observability/DefectReporter.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/ws.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/integration/transferBudgetV2.integration.test.ts",
+     "status": "answered",
+     "probability": 0.22
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__telemetry__FeatureUsage-L14-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 12,
+   "wallMs": 214,
+   "digest": "56b936370bd138378430cd1f592f133ff35ebc5cca01e7b081c4d922f702612c",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 214,
+   "usage": {
+    "inputTokens": 4524,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.00045240000000000005,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/observability/DefectReporter.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/ws.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/integration/transferBudgetV2.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__telemetry__FeatureUsage-L83-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 12,
+   "wallMs": 205,
+   "digest": "b7e22a4449f39fc72599fbda54db0031def35bc0bc025b39abd264d38f411d78",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 204,
+   "usage": {
+    "inputTokens": 3324,
+    "outputTokens": 210,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.000139608,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/observability/DefectReporter.test.ts",
+     "status": "answered",
+     "probability": 0.24
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.26
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts",
+     "status": "answered",
+     "probability": 0.19
+    },
+    {
+     "file": "apps/server/src/ws.test.ts",
+     "status": "answered",
+     "probability": 0.27
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/integration/transferBudgetV2.integration.test.ts",
+     "status": "answered",
+     "probability": 0.32
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__telemetry__FeatureUsage-L83-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 12,
+   "wallMs": 270,
+   "digest": "b56e02c8a897231a923e8b599430505675b493f70167d0aad3ae6805e2307c4a",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 270,
+   "usage": {
+    "inputTokens": 4475,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0004475,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/observability/DefectReporter.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/ws.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/integration/transferBudgetV2.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__terminal__NodePtyAdapter-L141-strict-inequality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 8,
+   "wallMs": 177,
+   "digest": "5a2fcaa86401c0e169bf0f4ae8a8ed8cc5b65c6f7bd1f7f93c34ea716e420fd8",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 173,
+   "usage": {
+    "inputTokens": 2371,
+    "outputTokens": 140,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.00009958200000000001,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.36
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.35
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__terminal__NodePtyAdapter-L141-strict-inequality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 8,
+   "wallMs": 177,
+   "digest": "b3af436db5ffa67565e930f92f415aebee9c9d09c3a7f149db80d353d80a108c",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 177,
+   "usage": {
+    "inputTokens": 3070,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.000307,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-packages__client-runtime__src__device__phoneScene-L25-number-increment",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 5,
+   "wallMs": 163,
+   "digest": "524441acd20588067ef42ab1e0d2121636d305d46a045c52c360cbe553f857d9",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 161,
+   "usage": {
+    "inputTokens": 1550,
+    "outputTokens": 89,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.00006510000000000001,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "packages/client-runtime/src/device/phoneViewer.test.ts",
+     "status": "answered",
+     "probability": 0.4
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-packages__client-runtime__src__device__phoneScene-L25-number-increment",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 5,
+   "wallMs": 155,
+   "digest": "38110d35add5244d80def2eddfff5e04a6936c1b5c5080d6c9d5f858a2af67f2",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 155,
+   "usage": {
+    "inputTokens": 1873,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0001873,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "packages/client-runtime/src/device/phoneViewer.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-packages__shared__src__forgeLinks-L147-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 32,
+   "wallMs": 204,
+   "digest": "85b894e7114726ef2a6636e4b9b88533f6e59bc5247186228007e026dd256462",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 204,
+   "usage": {
+    "inputTokens": 8310,
+    "outputTokens": 570,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.00034902,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/hq/ForgeHome.test.ts",
+     "status": "answered",
+     "probability": 0.15
+    },
+    {
+     "file": "apps/server/src/hq/ForgeWorkItems.test.ts",
+     "status": "answered",
+     "probability": 0.53
+    },
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/web/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/workspace/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/mcp/ToolSessionPolicy.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/web/src/components/guest/GuestPage.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.19
+    },
+    {
+     "file": "apps/web/src/components/pullRequest/PullRequestCodeTab.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/web/src/components/UsageToggleShortcut.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedFollowup.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/mcp/threadAccess.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts",
+     "status": "answered",
+     "probability": 0.2
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/observability/DefectReporter.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/ExperimentWorkMcp.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.race.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpService.activity.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-packages__shared__src__forgeLinks-L147-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 1,
+   "questions": 32,
+   "wallMs": 216,
+   "digest": "4f368a7792fe409a4f669bb49dcf4017c5fcd19ce1ae7f199731deade8afeff9",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 216,
+   "usage": {
+    "inputTokens": 9612,
+    "outputTokens": 570,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.000403704,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.4
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0.21
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpService.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/core.test.ts",
+     "status": "answered",
+     "probability": 0.27
+    },
+    {
+     "file": "apps/server/src/ws.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/web/src/components/composerContextPresentation.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/web/src/components/pullRequest/pullRequestsRouteSearch.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/McpHttpServer.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.39
+    },
+    {
+     "file": "apps/server/src/project/ProjectService.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.15
+    },
+    {
+     "file": "apps/server/src/fleet/FleetSummaryService.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedDelegation.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadWatch.test.ts",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/integration/transferBudgetV2.integration.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/project/ManagedProjectFolders.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/web/src/components/ChatMarkdown.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.48
+    },
+    {
+     "file": "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.34
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-packages__shared__src__forgeLinks-L147-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 2,
+   "questions": 4,
+   "wallMs": 160,
+   "digest": "e857d142f771f3e9e61be8dcc6e1b2b5d3647b601d718e1cd2a580e9b53a591a",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 160,
+   "usage": {
+    "inputTokens": 1605,
+    "outputTokens": 72,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.00006741000000000001,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/web/src/components/pullRequest/PullRequestSummaryTab.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.18
+    },
+    {
+     "file": "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.58
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0.13
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-packages__shared__src__forgeLinks-L147-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 32,
+   "wallMs": 466,
+   "digest": "29fba25b41cf91ae35038e7f4a5a42dce345f53ae6003ca77344eaf69b32888f",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 466,
+   "usage": {
+    "inputTokens": 11565,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0011565,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/hq/ForgeHome.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/ForgeWorkItems.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/web/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/workspace/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ToolSessionPolicy.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/guest/GuestPage.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/pullRequest/PullRequestCodeTab.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/UsageToggleShortcut.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedFollowup.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/threadAccess.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/observability/DefectReporter.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ExperimentWorkMcp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.race.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpService.activity.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-packages__shared__src__forgeLinks-L147-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 1,
+   "questions": 32,
+   "wallMs": 373,
+   "digest": "c01b3a130ef51669a6ffa2e469eb84a2e576f0124e406ac1a375ade70b150e76",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 373,
+   "usage": {
+    "inputTokens": 12874,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0012874000000000002,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/core.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/ws.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/composerContextPresentation.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/pullRequest/pullRequestsRouteSearch.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpHttpServer.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/project/ProjectService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/fleet/FleetSummaryService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedDelegation.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadWatch.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/integration/transferBudgetV2.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/project/ManagedProjectFolders.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/ChatMarkdown.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-packages__shared__src__forgeLinks-L147-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 2,
+   "questions": 4,
+   "wallMs": 201,
+   "digest": "9f7f1d7358539ec9537f0bf1840986227761a4f0bd98a2e37673e0f5332af82c",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 201,
+   "usage": {
+    "inputTokens": 1778,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0001778,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/web/src/components/pullRequest/PullRequestSummaryTab.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-packages__shared__src__forgeLinks-L16-number-increment",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 32,
+   "wallMs": 189,
+   "digest": "20e0f360acdff872d1b4a21a28a6c15d72919f40f31b6b5b29589d53c1cf7df3",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 189,
+   "usage": {
+    "inputTokens": 8419,
+    "outputTokens": 570,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.000353598,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/hq/ForgeHome.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/hq/ForgeWorkItems.test.ts",
+     "status": "answered",
+     "probability": 0.55
+    },
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/web/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/workspace/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/ToolSessionPolicy.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/web/src/components/guest/GuestPage.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/web/src/components/pullRequest/PullRequestCodeTab.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/web/src/components/UsageToggleShortcut.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedFollowup.test.ts",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/mcp/threadAccess.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts",
+     "status": "answered",
+     "probability": 0.18
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/observability/DefectReporter.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/ExperimentWorkMcp.test.ts",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.race.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpService.activity.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-packages__shared__src__forgeLinks-L16-number-increment",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 1,
+   "questions": 32,
+   "wallMs": 252,
+   "digest": "d76bcde3560ffe054ab5c553d05bad92e15f40fae8fb2ddf4b49c84cea9f76ae",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 252,
+   "usage": {
+    "inputTokens": 9721,
+    "outputTokens": 570,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.00040828200000000005,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.44
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0.19
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpService.test.ts",
+     "status": "answered",
+     "probability": 0.38
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/core.test.ts",
+     "status": "answered",
+     "probability": 0.3
+    },
+    {
+     "file": "apps/server/src/ws.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/web/src/components/composerContextPresentation.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/web/src/components/pullRequest/pullRequestsRouteSearch.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/McpHttpServer.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/project/ProjectService.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.13
+    },
+    {
+     "file": "apps/server/src/fleet/FleetSummaryService.test.ts",
+     "status": "answered",
+     "probability": 0.27
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedDelegation.test.ts",
+     "status": "answered",
+     "probability": 0.19
+    },
+    {
+     "file": "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadWatch.test.ts",
+     "status": "answered",
+     "probability": 0.31
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/integration/transferBudgetV2.integration.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/project/ManagedProjectFolders.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/web/src/components/ChatMarkdown.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.31
+    },
+    {
+     "file": "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.22
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-packages__shared__src__forgeLinks-L16-number-increment",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 2,
+   "questions": 4,
+   "wallMs": 185,
+   "digest": "ee3e456584e1c115bd54305719a4b2d98fd65a5bb6210c7cc643c2bcd1d3cf1f",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 183,
+   "usage": {
+    "inputTokens": 1714,
+    "outputTokens": 72,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.000071988,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/web/src/components/pullRequest/PullRequestSummaryTab.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx",
+     "status": "answered",
+     "probability": 0.26
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0.46
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-packages__shared__src__forgeLinks-L16-number-increment",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 32,
+   "wallMs": 265,
+   "digest": "2f5c201bb73dbec6c89676cccc5ea78a928190efcd57afaa9982005ecdaf4751",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 265,
+   "usage": {
+    "inputTokens": 11672,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0011672,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/hq/ForgeHome.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/ForgeWorkItems.test.ts",
+     "status": "answered",
+     "probability": 0.49
+    },
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/web/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/workspace/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ToolSessionPolicy.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/guest/GuestPage.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/pullRequest/PullRequestCodeTab.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/UsageToggleShortcut.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedFollowup.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/threadAccess.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/observability/DefectReporter.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ExperimentWorkMcp.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.race.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpService.activity.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/outboundHttp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-packages__shared__src__forgeLinks-L16-number-increment",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 1,
+   "questions": 32,
+   "wallMs": 259,
+   "digest": "14bb7ac572cc216bbdafb691c769dbb2fc8c3657ec93ddd2e0dbc9b1b3f1db07",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 257,
+   "usage": {
+    "inputTokens": 12981,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0012981000000000002,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/theme.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpService.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/core.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/ws.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/composerContextPresentation.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/pullRequest/pullRequestsRouteSearch.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpHttpServer.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/project/ProjectService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/fleet/FleetSummaryService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedDelegation.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadWatch.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/auth/McpOAuth.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/integration/transferBudgetV2.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/project/ManagedProjectFolders.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/ChatMarkdown.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/project.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-packages__shared__src__forgeLinks-L16-number-increment",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 2,
+   "questions": 4,
+   "wallMs": 173,
+   "digest": "9c27a3d01026d2df36314fdf03ea9a146e313e4a72494cc1982049a7099885d0",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 173,
+   "usage": {
+    "inputTokens": 1885,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0001885,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/web/src/components/pullRequest/PullRequestSummaryTab.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,264 @@
+{
+ "id": "seeded-packages__ssh__src__command-L26-strict-equality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "packages/ssh/src/command.ts",
+  "line": 26,
+  "operator": "strict-equality",
+  "before": "  platform === \"win32\" ? \"ssh.exe\" : \"ssh\";",
+  "after": "  platform !== \"win32\" ? \"ssh.exe\" : \"ssh\";"
+ },
+ "hunk": " import { buildSshChildEnvironment, type SshAuthOptions } from \"./auth.ts\";\n import { SshCommandError, SshInvalidTargetError } from \"./errors.ts\";\n \n const DEFAULT_SSH_COMMAND_TIMEOUT_MS = 60_000;\n const MAX_SSH_ERROR_OUTPUT_LENGTH = 4_000;\n \n /**\n  * ssh is a real executable everywhere (`ssh.exe` on Windows), so it is always\n  * spawned directly — cmd.exe shell mode would re-tokenize arguments such as\n  * identity-file paths containing spaces.\n  */\n const sshCommandForPlatform = (platform: NodeJS.Platform): string =>\n-  platform === \"win32\" ? \"ssh.exe\" : \"ssh\";\n+  platform !== \"win32\" ? \"ssh.exe\" : \"ssh\";\n \n export const resolveSshCommand = Effect.map(HostProcess.Platform, sshCommandForPlatform);\n \n const encoder = new TextEncoder();\n \n export interface SshCommandResult {\n   readonly stdout: string;\n   readonly stderr: string;\n }\n \n export interface RunSshCommandOptions extends SshAuthOptions {\n   readonly preHostArgs?: ReadonlyArray<string>;",
+ "changed": [
+  "packages/ssh/src/command.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopBackendManager.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopBackendPool.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/sshEnvironment.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/window.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/ipc/methods/wsl.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/updates/DesktopUpdates.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/window/DesktopApplicationMenu.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/wsl/DesktopWslBackend.test.ts"
+  },
+  {
+   "directory": "apps/desktop",
+   "file": "apps/desktop/src/wsl/DesktopWslEnvironment.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/integration/transferBudgetV2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/McpOAuth.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/DeviceHubProxy.stream.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/DeviceHubProxy.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/DeviceMultiHost.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/DeviceService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/SshDeviceHost.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/device/localSshDeviceHost.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpHttpServer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpManagedBrowser.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.race.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/SessionToolListings.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ToolSessionPolicy.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/core.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/observability/DefectReporter.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/ws.test.ts"
+  },
+  {
+   "directory": "packages/ssh",
+   "file": "packages/ssh/src/command.test.ts"
+  },
+  {
+   "directory": "packages/ssh",
+   "file": "packages/ssh/src/tunnel.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/desktop/src/backend/DesktopBackendConfiguration.test.ts": 0.8467177734375,
+  "apps/desktop/src/backend/DesktopBackendManager.test.ts": 0.21393359375,
+  "apps/desktop/src/backend/DesktopBackendPool.test.ts": 0.12054541015625,
+  "apps/desktop/src/backend/DesktopLocalEnvironmentAuth.test.ts": 0.520381591796875,
+  "apps/desktop/src/updates/DesktopRemoteUpdates.test.ts": 1.049642333984375,
+  "apps/desktop/src/updates/DesktopUpdates.test.ts": 1.247512451171875,
+  "apps/desktop/src/window/DesktopApplicationMenu.test.ts": 0.08291552734375,
+  "apps/desktop/src/wsl/DesktopWslBackend.test.ts": 0.023277587890625,
+  "apps/desktop/src/wsl/DesktopWslEnvironment.test.ts": 6.393343994140625,
+  "apps/desktop/src/ipc/methods/sshEnvironment.test.ts": 0.026021240234375,
+  "apps/desktop/src/ipc/methods/window.test.ts": 0.53066064453125,
+  "apps/desktop/src/ipc/methods/wsl.test.ts": 0.0340126953125,
+  "apps/server/integration/transferBudgetV2.integration.test.ts": 12.151617919921875,
+  "apps/server/src/outboundHttp.test.ts": 2.160359130859375,
+  "apps/server/src/processRunner.test.ts": 0.081444580078125,
+  "apps/server/src/ws.test.ts": 3.44063671875,
+  "apps/server/src/auth/McpOAuth.test.ts": 12.171552734375,
+  "apps/server/src/cli/app.test.ts": 2.39366455078125,
+  "apps/server/src/cli/pair.test.ts": 13.35361962890625,
+  "apps/server/src/cli/project.test.ts": 48.883322021484375,
+  "apps/server/src/cli/theme.test.ts": 0.523091064453125,
+  "apps/server/src/device/DeviceHubProxy.stream.test.ts": 0.794780029296875,
+  "apps/server/src/device/DeviceHubProxy.test.ts": 0.3801328125,
+  "apps/server/src/device/DeviceMultiHost.test.ts": 0.238282958984375,
+  "apps/server/src/device/DeviceService.test.ts": 2.283713134765625,
+  "apps/server/src/device/SshDeviceHost.test.ts": 0.259506103515625,
+  "apps/server/src/device/localSshDeviceHost.test.ts": 0.115903564453125,
+  "apps/server/src/mcp/McpDeviceToolkit.test.ts": 0.282537353515625,
+  "apps/server/src/mcp/McpHttpServer.test.ts": 4.238979736328125,
+  "apps/server/src/mcp/McpManagedBrowser.test.ts": 1.013084716796875,
+  "apps/server/src/mcp/McpToolAccess.race.test.ts": 0.205623779296875,
+  "apps/server/src/mcp/McpToolAccess.test.ts": 2.630530029296875,
+  "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts": 31.614952392578125,
+  "apps/server/src/mcp/SessionToolListings.test.ts": 5.273326171875,
+  "apps/server/src/mcp/ToolSessionPolicy.test.ts": 0.486375244140625,
+  "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts": 14.5888017578125,
+  "apps/server/src/observability/DefectReporter.test.ts": 0.03360791015625,
+  "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts": 2.018151123046875,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 3.50413525390625,
+  "apps/server/src/mcp/toolkits/core.test.ts": 9.446569091796874,
+  "apps/server/src/mcp/toolkits/releaseApproval.test.ts": 3.0055849609375,
+  "apps/server/src/mcp/toolkits/device/handlers.test.ts": 0.005132568359375,
+  "apps/server/src/mcp/toolkits/thread/projectMove.test.ts": 1.22751220703125,
+  "packages/ssh/src/command.test.ts": 0.648059326171875,
+  "packages/ssh/src/tunnel.test.ts": 0.302951171875,
+  "scripts/hq-allowlist.test.ts": 20.669814453125
+ },
+ "measuredWallSeconds": 189.276,
+ "exitCodes": {
+  "apps/desktop": 0,
+  "apps/server": 0,
+  "packages/ssh": 0,
+  "scripts": 1
+ }
+}

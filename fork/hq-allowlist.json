@@ -565,6 +565,11 @@
     "reason": "Retained nightly-audit evidence lists real changed file paths under apps/server/src/hq; it is recorded data, not product terminology."
   },
   {
+    "path": "scripts/evaluations/test-selection/{corpus,results}/**",
+    "category": "captured-fixtures",
+    "reason": "The test-selection corpus, candidate lists and retained results cite real repository paths under apps/server/src/hq as test candidates; they are recorded data, not product terminology."
+  },
+  {
     "path": "apps/server/src/decisionEvaluations/contextRanking/**",
     "category": "captured-fixtures",
     "reason": "The context-ranking corpus, pool and retained results cite real repository paths under apps/server/src/hq as candidate context; they are recorded data, not product terminology."

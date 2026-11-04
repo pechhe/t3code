@@ -1,0 +1,140 @@
+{
+ "id": "seeded-packages__client-runtime__src__state__forgeWorkItems-L22-strict-equality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "packages/client-runtime/src/state/forgeWorkItems.ts",
+  "line": 22,
+  "operator": "strict-equality",
+  "before": "    if (typeof document === \"undefined\") return true;",
+  "after": "    if (typeof document !== \"undefined\") return true;"
+ },
+ "hunk": " \n import type { EnvironmentRegistry } from \"../connection/registry.ts\";\n import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from \"./runtime.ts\";\n \n /**\n  * Clients ask once a minute while visible; the server backs off unchanged Weave reads to five\n  * minutes and expires them after proxied agent writes. No mounted reader means no polling.\n  */\n export function createForgeWorkItemAtoms<R, E>(\n   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,\n ) {\n   const visible = Atom.make((get) => {\n-    if (typeof document === \"undefined\") return true;\n+    if (typeof document !== \"undefined\") return true;\n     const update = () => get.setSelf(document.visibilityState === \"visible\");\n     document.addEventListener(\"visibilitychange\", update);\n     get.addFinalizer(() => document.removeEventListener(\"visibilitychange\", update));\n     return document.visibilityState === \"visible\";\n   }).pipe(Atom.setIdleTTL(0));\n   // Dispose polling immediately when the last reader unmounts, including the timer wrapper.\n   const polling = {\n     staleTimeMs: 60_000,\n     refreshIntervalMs: 60_000,\n     idleTtlMs: 0,\n     refreshWhile: visible,\n   };",
+ "changed": [
+  "packages/client-runtime/src/state/forgeWorkItems.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ChatMarkdown.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/CommandPalette.focus.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/UsageToggleShortcut.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/composerContextPresentation.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/forgeItem/ForgeWorkItemCard.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/guest/GuestPage.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestCodeTab.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestSummaryTab.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/pullRequestsRouteSearch.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/settings/IntegrationsSettings.logic.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/hooks/useThreadActionMenu.test.ts"
+  },
+  {
+   "directory": "packages/client-runtime",
+   "file": "packages/client-runtime/src/state/forgeWorkItems.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [
+  "apps/web/src/components/ChatMarkdown.browser.test.tsx",
+  "apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx",
+  "apps/web/src/components/CommandPalette.focus.browser.test.tsx",
+  "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx",
+  "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx",
+  "apps/web/src/components/UsageToggleShortcut.browser.test.tsx",
+  "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx",
+  "apps/web/src/components/composerContextPresentation.test.ts",
+  "apps/web/src/components/forgeItem/ForgeWorkItemCard.browser.test.tsx",
+  "apps/web/src/components/guest/GuestPage.browser.test.tsx",
+  "apps/web/src/components/pullRequest/PullRequestCodeTab.browser.test.tsx",
+  "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.browser.test.tsx",
+  "apps/web/src/components/pullRequest/PullRequestSummaryTab.browser.test.tsx",
+  "apps/web/src/components/pullRequest/pullRequestsRouteSearch.test.ts",
+  "apps/web/src/components/settings/IntegrationsSettings.logic.test.ts",
+  "apps/web/src/hooks/useThreadActionMenu.test.ts"
+ ],
+ "measuredSeconds": {
+  "apps/server/src/outboundHttp.test.ts": 0.665423583984375,
+  "apps/server/src/processRunner.test.ts": 0.054574951171875,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 2.461607666015625,
+  "packages/client-runtime/src/state/forgeWorkItems.test.ts": 0.01137744140625,
+  "scripts/hq-allowlist.test.ts": 10.82063525390625
+ },
+ "measuredWallSeconds": 97.959,
+ "exitCodes": {
+  "apps/server": 0,
+  "apps/web": 1,
+  "packages/client-runtime": 0,
+  "scripts": 1
+ }
+}

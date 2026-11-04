@@ -1,0 +1,402 @@
+{
+ "id": "seeded-apps__server__src__orchestration-v2__RunMetrics-L74-strict-equality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/server/src/orchestration-v2/RunMetrics.ts",
+  "line": 74,
+  "operator": "strict-equality",
+  "before": "          run.startedAt === null ? undefined : DateTime.distance(run.requestedAt, run.startedAt),",
+  "after": "          run.startedAt !== null ? undefined : DateTime.distance(run.requestedAt, run.startedAt),"
+ },
+ "hunk": "         delegated = yield* isSubagentThread(run.threadId).pipe(Effect.orElseSucceed(() => false));\n         delegatedThreads.set(run.threadId, delegated);\n       }\n       outcomes.push({\n         runId: run.id,\n         attributes: metricAttributes({\n           provider: run.providerInstanceId,\n           modelFamily: normalizeModelMetricLabel(run.modelSelection.model),\n           outcome: run.status,\n           delegated,\n         }),\n         queueWait:\n-          run.startedAt === null ? undefined : DateTime.distance(run.requestedAt, run.startedAt),\n+          run.startedAt !== null ? undefined : DateTime.distance(run.requestedAt, run.startedAt),\n         duration:\n           run.startedAt === null || run.completedAt === null\n             ? undefined\n             : DateTime.distance(run.startedAt, run.completedAt),\n       });\n     }\n     return outcomes;\n   });\n   // Uninterruptible so a run is never marked counted with only part of its measurements.\n   const record = Effect.fnUntraced(function* (outcomes: ReadonlyArray<RunOutcome>) {\n     for (const outcome of outcomes) {\n       // Concurrent writers can prepare the same run; the first to publish counts it.",
+ "changed": [
+  "apps/server/src/orchestration-v2/RunMetrics.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RunMetrics.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/GuestShare.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RestartContinuation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectionSettlement.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderContinuationService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadManagementService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadLaunchService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ProjectService.deletion.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ProjectMutation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/PiReplayFixtures.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/WorktreeMcpService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ProviderSwitch.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ProjectService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/ScheduledTaskService.interval.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/WorkspaceRebind.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/CheckpointScopeOwnership.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/git/linkCreatedPullRequest.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/replayMarkers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/guest/http.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/serverRuntimeStartup.autoPull.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/HqForgeRecordingReactor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RuntimeRequestService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/RepositoryChipSync.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/OpenCode2OrchestratorV2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderRuntimeRecoveryService.regression.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/ForgeWorkItems.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/SessionToolListings.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/git/GitWorkflowService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/RunFinalizationQueue.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/observability/DefectReporter.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/scheduledTasks/ScheduledTaskService.schedule.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderEventIngestor.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ThreadFork.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadSettlementService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProviderSessionManager.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures1.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ManagedDelegation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/GrokReplayFixtures1.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures5.integration.test.ts"
+  }
+ ],
+ "subsampledFrom": 178,
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [
+  "apps/server/src/mcp/OrchestratorMcpService.test.ts",
+  "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts",
+  "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts",
+  "apps/server/src/orchestration-v2/GuestShare.test.ts",
+  "apps/server/src/orchestration-v2/OpenCode2OrchestratorV2.integration.test.ts",
+  "apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts",
+  "apps/server/src/orchestration-v2/RunMetrics.test.ts",
+  "apps/server/src/orchestration-v2/ThreadLaunchService.test.ts",
+  "apps/server/src/orchestration-v2/testkit/ProviderSwitch.integration.test.ts"
+ ],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/server/src/processRunner.test.ts": 0.07451025390625,
+  "apps/server/src/serverRuntimeStartup.autoPull.test.ts": 0.0730302734375,
+  "apps/server/src/auth/replayMarkers.test.ts": 0.906681884765625,
+  "apps/server/src/cli/app.test.ts": 2.17116748046875,
+  "apps/server/src/git/GitWorkflowService.test.ts": 2.487569580078125,
+  "apps/server/src/git/linkCreatedPullRequest.test.ts": 0.094107666015625,
+  "apps/server/src/guest/http.test.ts": 0.1994580078125,
+  "apps/server/src/hq/ForgeWorkItems.test.ts": 4.11265185546875,
+  "apps/server/src/hq/HqForgeRecordingReactor.test.ts": 0.848607666015625,
+  "apps/server/src/hq/RepositoryChipSync.test.ts": 0.302701416015625,
+  "apps/server/src/mcp/ManagedBrowserAccess.test.ts": 0.235192138671875,
+  "apps/server/src/mcp/ManagedDelegation.test.ts": 5.325423095703125,
+  "apps/server/src/mcp/OrchestratorMcpService.test.ts": 2.783576171875,
+  "apps/server/src/mcp/SessionToolListings.test.ts": 1.6342041015625,
+  "apps/server/src/mcp/ThreadMetadataMcpService.test.ts": 0.107964599609375,
+  "apps/server/src/mcp/WorktreeMcpService.test.ts": 3.6632490234375,
+  "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts": 4.941510498046875,
+  "apps/server/src/orchestration-v2/CheckpointScopeOwnership.test.ts": 0.871264892578125,
+  "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts": 7.442842529296875,
+  "apps/server/src/orchestration-v2/GuestShare.test.ts": 2.836369384765625,
+  "apps/server/src/orchestration-v2/OpenCode2OrchestratorV2.integration.test.ts": 43.3275537109375,
+  "apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts": 1.036833251953125,
+  "apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts": 3.94949169921875,
+  "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts": 1.070264892578125,
+  "apps/server/src/orchestration-v2/ProjectionSettlement.test.ts": 1.54992578125,
+  "apps/server/src/orchestration-v2/ProviderContinuationService.test.ts": 0.33389013671875,
+  "apps/server/src/orchestration-v2/ProviderEventIngestor.test.ts": 10.6739072265625,
+  "apps/server/src/orchestration-v2/ProviderRuntimeRecoveryService.regression.test.ts": 0.213522216796875,
+  "apps/server/src/orchestration-v2/ProviderSessionManager.test.ts": 8.914352294921875,
+  "apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts": 0.03475439453125,
+  "apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts": 11.33342236328125,
+  "apps/server/src/orchestration-v2/RestartContinuation.test.ts": 0.61179736328125,
+  "apps/server/src/orchestration-v2/RunFinalizationQueue.test.ts": 1.602210205078125,
+  "apps/server/src/orchestration-v2/RunMetrics.test.ts": 0.70789453125,
+  "apps/server/src/orchestration-v2/RuntimeRequestService.test.ts": 0.108397216796875,
+  "apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts": 24.2847294921875,
+  "apps/server/src/orchestration-v2/ThreadLaunchService.test.ts": 747.2773811035156,
+  "apps/server/src/orchestration-v2/ThreadManagementService.test.ts": 6.935035888671875,
+  "apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts": 0.15846923828125,
+  "apps/server/src/orchestration-v2/ThreadSettlementService.test.ts": 0.402460205078125,
+  "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts": 0.4193291015625,
+  "apps/server/src/orchestration-v2/WorkspaceRebind.integration.test.ts": 13.233899169921875,
+  "apps/server/src/observability/DefectReporter.test.ts": 0.04542041015625,
+  "apps/server/src/project/ProjectMutation.test.ts": 0.024791259765625,
+  "apps/server/src/project/ProjectService.deletion.test.ts": 2.26291650390625,
+  "apps/server/src/project/ProjectService.test.ts": 1.05421240234375,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 2.20853369140625,
+  "apps/server/src/scheduledTasks/ScheduledTaskService.interval.test.ts": 1.967318115234375,
+  "apps/server/src/scheduledTasks/ScheduledTaskService.schedule.test.ts": 2.473816650390625,
+  "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts": 25.292107666015625,
+  "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures1.integration.test.ts": 25.674683349609374,
+  "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures5.integration.test.ts": 30.07185302734375,
+  "apps/server/src/orchestration-v2/testkit/GrokReplayFixtures1.integration.test.ts": 37.00871508789062,
+  "apps/server/src/orchestration-v2/testkit/PiReplayFixtures.integration.test.ts": 44.94808642578125,
+  "apps/server/src/orchestration-v2/testkit/ProviderSwitch.integration.test.ts": 162.81113037109375,
+  "apps/server/src/orchestration-v2/testkit/ThreadFork.integration.test.ts": 33.04135205078125,
+  "apps/server/src/mcp/toolkits/decisions/handlers.test.ts": 0.1121484375,
+  "apps/server/src/mcp/toolkits/environment/handlers.test.ts": 0.085888671875,
+  "apps/server/src/mcp/toolkits/project/handlers.test.ts": 14.25280224609375,
+  "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts": 0.320965576171875,
+  "scripts/hq-allowlist.test.ts": 11.40341455078125
+ },
+ "measuredWallSeconds": 813.688,
+ "exitCodes": {
+  "apps/server": 1,
+  "scripts": 1
+ },
+ "verifiedPassing": [
+  "apps/server/src/auth/replayMarkers.test.ts",
+  "apps/server/src/cli/app.test.ts",
+  "apps/server/src/git/GitWorkflowService.test.ts",
+  "apps/server/src/git/linkCreatedPullRequest.test.ts",
+  "apps/server/src/guest/http.test.ts",
+  "apps/server/src/hq/ForgeWorkItems.test.ts",
+  "apps/server/src/hq/HqForgeRecordingReactor.test.ts",
+  "apps/server/src/hq/RepositoryChipSync.test.ts",
+  "apps/server/src/mcp/ManagedBrowserAccess.test.ts",
+  "apps/server/src/mcp/ManagedDelegation.test.ts",
+  "apps/server/src/mcp/SessionToolListings.test.ts",
+  "apps/server/src/mcp/ThreadMetadataMcpService.test.ts",
+  "apps/server/src/mcp/WorktreeMcpService.test.ts",
+  "apps/server/src/mcp/toolkits/decisions/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/project/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts",
+  "apps/server/src/observability/DefectReporter.test.ts",
+  "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
+  "apps/server/src/orchestration-v2/CheckpointScopeOwnership.test.ts",
+  "apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts",
+  "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts",
+  "apps/server/src/orchestration-v2/ProjectionSettlement.test.ts",
+  "apps/server/src/orchestration-v2/ProviderContinuationService.test.ts",
+  "apps/server/src/orchestration-v2/ProviderEventIngestor.test.ts",
+  "apps/server/src/orchestration-v2/ProviderRuntimeRecoveryService.regression.test.ts",
+  "apps/server/src/orchestration-v2/ProviderSessionManager.test.ts",
+  "apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts",
+  "apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts",
+  "apps/server/src/orchestration-v2/RestartContinuation.test.ts",
+  "apps/server/src/orchestration-v2/RunFinalizationQueue.test.ts",
+  "apps/server/src/orchestration-v2/RuntimeRequestService.test.ts",
+  "apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts",
+  "apps/server/src/orchestration-v2/ThreadManagementService.test.ts",
+  "apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts",
+  "apps/server/src/orchestration-v2/ThreadSettlementService.test.ts",
+  "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts",
+  "apps/server/src/orchestration-v2/WorkspaceRebind.integration.test.ts",
+  "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures1.integration.test.ts",
+  "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures5.integration.test.ts",
+  "apps/server/src/orchestration-v2/testkit/GrokReplayFixtures1.integration.test.ts",
+  "apps/server/src/orchestration-v2/testkit/PiReplayFixtures.integration.test.ts",
+  "apps/server/src/orchestration-v2/testkit/ThreadFork.integration.test.ts",
+  "apps/server/src/processRunner.test.ts",
+  "apps/server/src/project/ProjectMutation.test.ts",
+  "apps/server/src/project/ProjectService.deletion.test.ts",
+  "apps/server/src/project/ProjectService.test.ts",
+  "apps/server/src/provider/CodexManagedRuntime.test.ts",
+  "apps/server/src/scheduledTasks/ScheduledTaskService.interval.test.ts",
+  "apps/server/src/scheduledTasks/ScheduledTaskService.schedule.test.ts",
+  "apps/server/src/serverRuntimeStartup.autoPull.test.ts"
+ ],
+ "controlVerified": true
+}

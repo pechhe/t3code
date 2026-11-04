@@ -1,0 +1,380 @@
+{
+ "id": "seeded-packages__shared__src__forgeLinks-L155-number-increment",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "packages/shared/src/forgeLinks.ts",
+  "line": 155,
+  "operator": "number-increment",
+  "before": "          protectedHtmlDepth = Math.max(0, protectedHtmlDepth + (match[1] ? -1 : 1));",
+  "after": "          protectedHtmlDepth = Math.max(1, protectedHtmlDepth + (match[1] ? -1 : 1));"
+ },
+ "hunk": "       return;\n     }\n     let protectedHtmlDepth = 0;\n     for (const child of node.children ?? []) {\n       if (child.type === \"html\") {\n         const childStart = child.position?.start.offset;\n         const childEnd = child.position?.end.offset;\n         const tag =\n           childStart === undefined || childEnd === undefined\n             ? \"\"\n             : markdown.slice(childStart, childEnd);\n         for (const match of tag.matchAll(/<(\\/)?(?:a|code|pre|script|style)(?=[\\s>])[^>]*>/giu)) {\n-          protectedHtmlDepth = Math.max(0, protectedHtmlDepth + (match[1] ? -1 : 1));\n+          protectedHtmlDepth = Math.max(1, protectedHtmlDepth + (match[1] ? -1 : 1));\n         }\n       } else if (protectedHtmlDepth === 0) visit(child);\n     }\n   };\n   visit(parser.parse(markdown) as MarkdownNode);\n   return mentions;\n }\n \n /**\n  * Rewrites each mention of an item `label` knows as a link to it carrying that label; a mention\n  * of an unknown item stays exactly as written.\n  */",
+ "changed": [
+  "packages/shared/src/forgeLinks.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/integration/transferBudgetV2.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/McpOAuth.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/fleet/FleetSummaryService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/ForgeHome.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/hq/ForgeWorkItems.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ExperimentWorkMcp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ManagedDelegation.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ManagedFollowup.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpHttpServer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpManagedBrowser.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.race.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpService.activity.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/SessionToolListings.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/ToolSessionPolicy.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/threadAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/core.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/web/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/workspace/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/observability/DefectReporter.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/ThreadWatch.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ManagedProjectFolders.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/project/ProjectService.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/ws.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ChatMarkdown.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/UsageToggleShortcut.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/composerContextPresentation.test.ts"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/guest/GuestPage.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestCodeTab.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/PullRequestSummaryTab.browser.test.tsx"
+  },
+  {
+   "directory": "apps/web",
+   "file": "apps/web/src/components/pullRequest/pullRequestsRouteSearch.test.ts"
+  },
+  {
+   "directory": "packages/shared",
+   "file": "packages/shared/src/forgeLinks.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 1,
+ "failing": [],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [
+  "apps/web/src/components/ChatMarkdown.browser.test.tsx",
+  "apps/web/src/components/ChatMarkdown.permissions.browser.test.tsx",
+  "apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx",
+  "apps/web/src/components/ComposerPromptEditorTiptap.input.browser.test.tsx",
+  "apps/web/src/components/UsageToggleShortcut.browser.test.tsx",
+  "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx",
+  "apps/web/src/components/composerContextPresentation.test.ts",
+  "apps/web/src/components/guest/GuestPage.browser.test.tsx",
+  "apps/web/src/components/pullRequest/PullRequestCodeTab.browser.test.tsx",
+  "apps/web/src/components/pullRequest/PullRequestMarkdownEditor.browser.test.tsx",
+  "apps/web/src/components/pullRequest/PullRequestSummaryTab.browser.test.tsx",
+  "apps/web/src/components/pullRequest/pullRequestsRouteSearch.test.ts"
+ ],
+ "measuredSeconds": {
+  "apps/server/integration/transferBudgetV2.integration.test.ts": 11.297084716796874,
+  "apps/server/src/outboundHttp.test.ts": 0.550208251953125,
+  "apps/server/src/processRunner.test.ts": 0.06128857421875,
+  "apps/server/src/ws.test.ts": 2.38003369140625,
+  "apps/server/src/auth/McpOAuth.test.ts": 13.804061767578125,
+  "apps/server/src/cli/app.test.ts": 1.34191943359375,
+  "apps/server/src/cli/pair.test.ts": 5.386872314453125,
+  "apps/server/src/cli/project.test.ts": 35.375280517578126,
+  "apps/server/src/cli/theme.test.ts": 0.4029912109375,
+  "apps/server/src/fleet/FleetSummaryService.test.ts": 4.02736962890625,
+  "apps/server/src/hq/ForgeHome.test.ts": 23.822529052734374,
+  "apps/server/src/hq/ForgeWorkItems.test.ts": 3.357576416015625,
+  "apps/server/src/mcp/ExperimentWorkMcp.test.ts": 0.136427978515625,
+  "apps/server/src/mcp/ManagedBrowserAccess.test.ts": 0.120521484375,
+  "apps/server/src/mcp/ManagedDelegation.test.ts": 4.354897705078125,
+  "apps/server/src/mcp/ManagedFollowup.test.ts": 0.056306640625,
+  "apps/server/src/mcp/McpDeviceToolkit.test.ts": 0.253117919921875,
+  "apps/server/src/mcp/McpHttpServer.test.ts": 6.283020751953125,
+  "apps/server/src/mcp/McpManagedBrowser.test.ts": 0.7556318359375,
+  "apps/server/src/mcp/McpToolAccess.race.test.ts": 0.080801025390625,
+  "apps/server/src/mcp/McpToolAccess.test.ts": 1.54762353515625,
+  "apps/server/src/mcp/OrchestratorMcpService.activity.test.ts": 0.26239892578125,
+  "apps/server/src/mcp/OrchestratorMcpService.test.ts": 5.484203857421875,
+  "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts": 23.17831298828125,
+  "apps/server/src/mcp/SessionToolListings.test.ts": 2.15555126953125,
+  "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts": 13.830584716796874,
+  "apps/server/src/mcp/ThreadMetadataMcpService.test.ts": 0.369766357421875,
+  "apps/server/src/mcp/ToolSessionPolicy.test.ts": 0.152389404296875,
+  "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts": 8.523684326171875,
+  "apps/server/src/mcp/threadAccess.test.ts": 0.165125,
+  "apps/server/src/observability/DefectReporter.test.ts": 0.08086572265625,
+  "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts": 12.604988037109376,
+  "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts": 5.534548583984375,
+  "apps/server/src/orchestration-v2/ThreadWatch.test.ts": 6.129919189453125,
+  "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts": 0.776059814453125,
+  "apps/server/src/orchestration-v2/boundedSnapshotTransport.test.ts": 0.7965751953125,
+  "apps/server/src/orchestration-v2/runtimeLayer.test.ts": 32.85599438476562,
+  "apps/server/src/project/ManagedProjectFolders.test.ts": 17.359806640625,
+  "apps/server/src/project/ProjectService.test.ts": 2.12986083984375,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 4.3905537109375,
+  "apps/server/src/mcp/toolkits/core.test.ts": 4.193482421875,
+  "apps/server/src/mcp/toolkits/releaseApproval.test.ts": 0.681787841796875,
+  "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts": 38.057590087890624,
+  "apps/server/src/mcp/toolkits/attachment/handlers.test.ts": 0.03999169921875,
+  "apps/server/src/mcp/toolkits/decisions/handlers.test.ts": 0.3129814453125,
+  "apps/server/src/mcp/toolkits/device/handlers.test.ts": 0.006470458984375,
+  "apps/server/src/mcp/toolkits/environment/handlers.test.ts": 0.446436279296875,
+  "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts": 0.03319873046875,
+  "apps/server/src/mcp/toolkits/preview/handlers.test.ts": 0.132497314453125,
+  "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts": 0.39476171875,
+  "apps/server/src/mcp/toolkits/project/handlers.test.ts": 23.0669091796875,
+  "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts": 0.20481787109375,
+  "apps/server/src/mcp/toolkits/thread/projectMove.test.ts": 0.827862060546875,
+  "apps/server/src/mcp/toolkits/web/handlers.test.ts": 0.453645751953125,
+  "apps/server/src/mcp/toolkits/workspace/handlers.test.ts": 7.351337646484375,
+  "packages/shared/src/forgeLinks.test.ts": 0.098671875,
+  "scripts/hq-allowlist.test.ts": 7.223623046875
+ },
+ "measuredWallSeconds": 285.821,
+ "exitCodes": {
+  "apps/server": 0,
+  "apps/web": 1,
+  "packages/shared": 0,
+  "scripts": 1
+ }
+}

@@ -1,0 +1,2822 @@
+{
+ "split": "heldout",
+ "rule": "v1",
+ "records": [
+  {
+   "caseId": "seeded-apps__server__src__agents__AgentRoleResolver-L111-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 32,
+   "wallMs": 699,
+   "digest": "428cb4d0a32256ab4bb1384759e4c7ad83fae340ee47ae869317026593d29440",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 668,
+   "usage": {
+    "inputTokens": 8715,
+    "outputTokens": 570,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.00036603000000000004,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/agents/ManagedAgentService.test.ts",
+     "status": "answered",
+     "probability": 0.28
+    },
+    {
+     "file": "apps/server/src/agents/RunSetupRecorder.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/guest/GuestShareService.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/hq/ForgeHome.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/hq/ForgeWorkItems.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/hq/HqForgeRecordingReactor.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/web/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/ToolSessionPolicy.test.ts",
+     "status": "answered",
+     "probability": 0.17
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures5.integration.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/CursorReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/MuseReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/OpenCodeReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/PiReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceRebind.integration.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/checkpointing/CheckpointDiffQuery.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/experiments/InstructionOverlay.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/hq/HqAgentLifecycleReactor.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RuntimePolicy.test.ts",
+     "status": "answered",
+     "probability": 0.2
+    },
+    {
+     "file": "apps/server/src/project/AgentSessionImporter.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/cloud/http.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/ExperimentWorkMcp.test.ts",
+     "status": "answered",
+     "probability": 0.17
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.race.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.18
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/CheckpointRestoreSafety.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__agents__AgentRoleResolver-L111-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 1,
+   "questions": 28,
+   "wallMs": 213,
+   "digest": "4db46a979ab7da48a711cbde5f3d5b7b38d37f7c1c10d414168ae00b226a8e7d",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 212,
+   "usage": {
+    "inputTokens": 8581,
+    "outputTokens": 498,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.00036040200000000006,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/orchestration-v2/DispatchModeLimit.test.ts",
+     "status": "answered",
+     "probability": 0.21
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/serverLogger.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0.23
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RunExecutionService.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/CodexReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/preview/ServerBrowserStream.test.ts",
+     "status": "answered",
+     "probability": 0.15
+    },
+    {
+     "file": "apps/server/src/auth/replayMarkers.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0.32
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RunFinalizationService.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.role.test.ts",
+     "status": "answered",
+     "probability": 0.33
+    },
+    {
+     "file": "apps/server/src/textGeneration/OpenCode2TextGeneration.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/mcp/WorktreeMcpService.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/relay/AgentAwarenessRelay.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/mcp/McpHttpServer.test.ts",
+     "status": "answered",
+     "probability": 0.35
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedDelegation.test.ts",
+     "status": "answered",
+     "probability": 0.34
+    },
+    {
+     "file": "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts",
+     "status": "answered",
+     "probability": 0.13
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/experiments/ExperimentWork.test.ts",
+     "status": "answered",
+     "probability": 0.24
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectionRecovery.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.webhook.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadManagementService.test.ts",
+     "status": "answered",
+     "probability": 0.17
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadStop.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts",
+     "status": "answered",
+     "probability": 0.19
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts",
+     "status": "answered",
+     "probability": 0.23
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__agents__AgentRoleResolver-L111-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 32,
+   "wallMs": 1728,
+   "digest": "2481eb86c2cf1b2d35a347eed9c23c089590f42dfa931d1adaf65f2903c0c74b",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 1727,
+   "usage": {
+    "inputTokens": 11981,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0011981000000000001,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/agents/ManagedAgentService.test.ts",
+     "status": "answered",
+     "probability": 0.26
+    },
+    {
+     "file": "apps/server/src/agents/RunSetupRecorder.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/guest/GuestShareService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/ForgeHome.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/ForgeWorkItems.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/HqForgeRecordingReactor.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/web/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ToolSessionPolicy.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures5.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/CursorReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/MuseReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/OpenCodeReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/PiReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceRebind.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/checkpointing/CheckpointDiffQuery.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/experiments/InstructionOverlay.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/HqAgentLifecycleReactor.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RuntimePolicy.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/project/AgentSessionImporter.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cloud/http.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ExperimentWorkMcp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.race.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/CheckpointRestoreSafety.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__agents__AgentRoleResolver-L111-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 1,
+   "questions": 28,
+   "wallMs": 912,
+   "digest": "1d932b4b944d1ffe843fe22e7093134225540c1b9e9b26dc9c8579e4e4dea23a",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 911,
+   "usage": {
+    "inputTokens": 11341,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0011341,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/orchestration-v2/DispatchModeLimit.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/serverLogger.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RunExecutionService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/CodexReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/preview/ServerBrowserStream.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/auth/replayMarkers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RunFinalizationService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.role.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/textGeneration/OpenCode2TextGeneration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/WorktreeMcpService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/relay/AgentAwarenessRelay.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpHttpServer.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedDelegation.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/experiments/ExperimentWork.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectionRecovery.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.webhook.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadManagementService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadStop.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__agents__AgentRoleResolver-L338-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 32,
+   "wallMs": 202,
+   "digest": "0d8d263cae8b3c0d30f0ebe9720221addf2f201599cc53c268cab85adafd525c",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 202,
+   "usage": {
+    "inputTokens": 8670,
+    "outputTokens": 570,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.00036414000000000005,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/agents/ManagedAgentService.test.ts",
+     "status": "answered",
+     "probability": 0.37
+    },
+    {
+     "file": "apps/server/src/agents/RunSetupRecorder.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/guest/GuestShareService.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/hq/ForgeHome.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/hq/ForgeWorkItems.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/hq/HqForgeRecordingReactor.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/web/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/ToolSessionPolicy.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures5.integration.test.ts",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/CursorReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0.17
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/MuseReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/OpenCodeReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/PiReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceRebind.integration.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/checkpointing/CheckpointDiffQuery.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/experiments/InstructionOverlay.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/hq/HqAgentLifecycleReactor.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RuntimePolicy.test.ts",
+     "status": "answered",
+     "probability": 0.27
+    },
+    {
+     "file": "apps/server/src/project/AgentSessionImporter.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/cloud/http.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/ExperimentWorkMcp.test.ts",
+     "status": "answered",
+     "probability": 0.26
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.race.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.17
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/CheckpointRestoreSafety.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__agents__AgentRoleResolver-L338-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 1,
+   "questions": 28,
+   "wallMs": 281,
+   "digest": "6c205b51a0b0360932c44bc8a8548bdab5528af66c53bfd1dbc9f3b86efd5e1f",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 280,
+   "usage": {
+    "inputTokens": 8536,
+    "outputTokens": 498,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.000358512,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/orchestration-v2/DispatchModeLimit.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/serverLogger.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RunExecutionService.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/CodexReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0.15
+    },
+    {
+     "file": "apps/server/src/preview/ServerBrowserStream.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/auth/replayMarkers.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0.19
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RunFinalizationService.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.role.test.ts",
+     "status": "answered",
+     "probability": 0.45
+    },
+    {
+     "file": "apps/server/src/textGeneration/OpenCode2TextGeneration.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/mcp/WorktreeMcpService.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/relay/AgentAwarenessRelay.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/mcp/McpHttpServer.test.ts",
+     "status": "answered",
+     "probability": 0.28
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedDelegation.test.ts",
+     "status": "answered",
+     "probability": 0.4
+    },
+    {
+     "file": "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts",
+     "status": "answered",
+     "probability": 0.15
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts",
+     "status": "answered",
+     "probability": 0.13
+    },
+    {
+     "file": "apps/server/src/experiments/ExperimentWork.test.ts",
+     "status": "answered",
+     "probability": 0.26
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectionRecovery.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.webhook.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadManagementService.test.ts",
+     "status": "answered",
+     "probability": 0.21
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts",
+     "status": "answered",
+     "probability": 0.13
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadStop.test.ts",
+     "status": "answered",
+     "probability": 0.13
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts",
+     "status": "answered",
+     "probability": 0.38
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts",
+     "status": "answered",
+     "probability": 0.44
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__agents__AgentRoleResolver-L338-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 32,
+   "wallMs": 684,
+   "digest": "228bf603d9a4bd9b7738d9c7c10d1b2c30f2f93ba3934b65748b440604f60f9c",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 683,
+   "usage": {
+    "inputTokens": 11973,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0011972999999999999,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/agents/ManagedAgentService.test.ts",
+     "status": "answered",
+     "probability": 0.6
+    },
+    {
+     "file": "apps/server/src/agents/RunSetupRecorder.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/guest/GuestShareService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/ForgeHome.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/hq/ForgeWorkItems.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/HqForgeRecordingReactor.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/web/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ToolSessionPolicy.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures5.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/CursorReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/MuseReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/OpenCodeReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/PiReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceRebind.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/checkpointing/CheckpointDiffQuery.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/experiments/InstructionOverlay.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/HqAgentLifecycleReactor.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RuntimePolicy.test.ts",
+     "status": "answered",
+     "probability": 0.36
+    },
+    {
+     "file": "apps/server/src/project/AgentSessionImporter.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/cloud/http.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ExperimentWorkMcp.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    },
+    {
+     "file": "apps/server/src/mcp/McpToolAccess.race.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.03
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/CheckpointRestoreSafety.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__agents__AgentRoleResolver-L338-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 1,
+   "questions": 28,
+   "wallMs": 956,
+   "digest": "77e6236de5a56fc628b6495f63fc8f159ef57efc29cda6601402851ef247a20b",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 956,
+   "usage": {
+    "inputTokens": 11333,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0011333,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/orchestration-v2/DispatchModeLimit.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/serverLogger.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RunExecutionService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/CodexReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/preview/ServerBrowserStream.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/auth/replayMarkers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpManagedBrowser.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RunFinalizationService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.role.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/textGeneration/OpenCode2TextGeneration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/WorktreeMcpService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/relay/AgentAwarenessRelay.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/McpHttpServer.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedDelegation.test.ts",
+     "status": "answered",
+     "probability": 0.36
+    },
+    {
+     "file": "apps/server/src/mcp/TaskCancelNativeSubagent.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/experiments/ExperimentWork.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    },
+    {
+     "file": "apps/server/src/cli/pair.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectionRecovery.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.webhook.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadManagementService.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/runtimeLayer.test.ts",
+     "status": "answered",
+     "probability": 0.02
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadStop.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__orchestration-v2__RunMetrics-L74-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 32,
+   "wallMs": 244,
+   "digest": "713d0b7931b93e20fcbd28b10d057018c35a784049a242c7fa6cf493bd77c076",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 243,
+   "usage": {
+    "inputTokens": 9571,
+    "outputTokens": 570,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.000401982,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/orchestration-v2/GuestShare.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceRebind.integration.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderRuntimeRecoveryService.regression.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RuntimeRequestService.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderContinuationService.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/CheckpointScopeOwnership.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadSettlementService.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RestartContinuation.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RunFinalizationQueue.test.ts",
+     "status": "answered",
+     "probability": 0.17
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectionSettlement.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts",
+     "status": "answered",
+     "probability": 0.13
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderEventIngestor.test.ts",
+     "status": "answered",
+     "probability": 0.3
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadManagementService.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderSessionManager.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadLaunchService.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/OpenCode2OrchestratorV2.integration.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/guest/http.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/hq/ForgeWorkItems.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/hq/HqForgeRecordingReactor.test.ts",
+     "status": "answered",
+     "probability": 0.14
+    },
+    {
+     "file": "apps/server/src/hq/RepositoryChipSync.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__orchestration-v2__RunMetrics-L74-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 1,
+   "questions": 28,
+   "wallMs": 171,
+   "digest": "1da75f32b46b93e27a23f81278091555b3c48d14a7eeb4531bc550eca74cfbe8",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 171,
+   "usage": {
+    "inputTokens": 7766,
+    "outputTokens": 498,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.000326172,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures5.integration.test.ts",
+     "status": "answered",
+     "probability": 0.2
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/GrokReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/PiReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0.15
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/git/linkCreatedPullRequest.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/observability/DefectReporter.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/project/ProjectMutation.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/serverRuntimeStartup.autoPull.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/auth/replayMarkers.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpService.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.schedule.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/mcp/WorktreeMcpService.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/project/ProjectService.deletion.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/project/ProjectService.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedDelegation.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.interval.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/git/GitWorkflowService.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ThreadFork.integration.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ProviderSwitch.integration.test.ts",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__orchestration-v2__RunMetrics-L74-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 32,
+   "wallMs": 269,
+   "digest": "9a95a8cf1863b7fa043b01d1857796b6b7e07ce70d7fdcd5dd854fff16eab5b7",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 269,
+   "usage": {
+    "inputTokens": 12680,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.001268,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/orchestration-v2/GuestShare.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceRebind.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderRuntimeRecoveryService.regression.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RuntimeRequestService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderContinuationService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/CheckpointScopeOwnership.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadSettlementService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RestartContinuation.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RunFinalizationQueue.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectionSettlement.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderEventIngestor.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadManagementService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderSessionManager.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadLaunchService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/OpenCode2OrchestratorV2.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/guest/http.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/ForgeWorkItems.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/HqForgeRecordingReactor.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/RepositoryChipSync.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__orchestration-v2__RunMetrics-L74-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 1,
+   "questions": 28,
+   "wallMs": 1058,
+   "digest": "49b0ae7266d4d8425c186ffdb46d64351bab1977cab8cc4254a19a7f33aa4481",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 1057,
+   "usage": {
+    "inputTokens": 10576,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0010576000000000001,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures5.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/GrokReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/PiReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/git/linkCreatedPullRequest.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/observability/DefectReporter.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/project/ProjectMutation.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/serverRuntimeStartup.autoPull.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/auth/replayMarkers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.schedule.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/WorktreeMcpService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/project/ProjectService.deletion.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/project/ProjectService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedDelegation.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.interval.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/git/GitWorkflowService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ThreadFork.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ProviderSwitch.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__orchestration-v2__RunMetrics-L76-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 32,
+   "wallMs": 233,
+   "digest": "c5f51ae6c7d7a972ce3cc1027ba01dfdc9ad2ea8c6fa1dfbd70610c9a64e7c73",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 227,
+   "usage": {
+    "inputTokens": 9541,
+    "outputTokens": 570,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.00040072200000000006,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/orchestration-v2/GuestShare.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts",
+     "status": "answered",
+     "probability": 0.1
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceRebind.integration.test.ts",
+     "status": "answered",
+     "probability": 0.13
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderRuntimeRecoveryService.regression.test.ts",
+     "status": "answered",
+     "probability": 0.13
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RuntimeRequestService.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderContinuationService.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/CheckpointScopeOwnership.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadSettlementService.test.ts",
+     "status": "answered",
+     "probability": 0.15
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RestartContinuation.test.ts",
+     "status": "answered",
+     "probability": 0.17
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RunFinalizationQueue.test.ts",
+     "status": "answered",
+     "probability": 0.24
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectionSettlement.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts",
+     "status": "answered",
+     "probability": 0.13
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderEventIngestor.test.ts",
+     "status": "answered",
+     "probability": 0.28
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadManagementService.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderSessionManager.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts",
+     "status": "answered",
+     "probability": 0.13
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadLaunchService.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/OpenCode2OrchestratorV2.integration.test.ts",
+     "status": "answered",
+     "probability": 0.15
+    },
+    {
+     "file": "apps/server/src/guest/http.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/hq/ForgeWorkItems.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/hq/HqForgeRecordingReactor.test.ts",
+     "status": "answered",
+     "probability": 0.23
+    },
+    {
+     "file": "apps/server/src/hq/RepositoryChipSync.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0.12
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__orchestration-v2__RunMetrics-L76-strict-equality",
+   "engine": "jev",
+   "rule": "v1",
+   "chunk": 1,
+   "questions": 28,
+   "wallMs": 170,
+   "digest": "2dda30b278c9c4b29b59b32f62b703db48182044d1c63b0582a99d10e4622df9",
+   "requestedModel": "jev-1.14.0",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 170,
+   "usage": {
+    "inputTokens": 7736,
+    "outputTokens": 498,
+    "cachedInputTokens": null,
+    "cacheWriteTokens": null
+   },
+   "cost": {
+    "usd": 0.000324912,
+    "status": "estimated",
+    "pricingSource": "https://docs.typesafe.ai/models",
+    "inputUsdPerMillion": 0.042
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures5.integration.test.ts",
+     "status": "answered",
+     "probability": 0.19
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/GrokReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0.16
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/PiReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0.15
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/git/linkCreatedPullRequest.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/observability/DefectReporter.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/project/ProjectMutation.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/serverRuntimeStartup.autoPull.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0.07
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/auth/replayMarkers.test.ts",
+     "status": "answered",
+     "probability": 0.05
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0.04
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpService.test.ts",
+     "status": "answered",
+     "probability": 0.11
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.schedule.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/mcp/WorktreeMcpService.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/project/ProjectService.deletion.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/project/ProjectService.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedDelegation.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.interval.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts",
+     "status": "answered",
+     "probability": 0.08
+    },
+    {
+     "file": "apps/server/src/git/GitWorkflowService.test.ts",
+     "status": "answered",
+     "probability": 0.06
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ThreadFork.integration.test.ts",
+     "status": "answered",
+     "probability": 0.18
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ProviderSwitch.integration.test.ts",
+     "status": "answered",
+     "probability": 0.24
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
+     "status": "answered",
+     "probability": 0.09
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__orchestration-v2__RunMetrics-L76-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 0,
+   "questions": 32,
+   "wallMs": 1337,
+   "digest": "2e123ab147f51a760619e84d964f6ec2616ceb8ea2d12a0fb4424126144662b2",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 1336,
+   "usage": {
+    "inputTokens": 12657,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0012657,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/orchestration-v2/GuestShare.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceRebind.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderRuntimeRecoveryService.regression.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RuntimeRequestService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderContinuationService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/WorkspaceAttachment.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/CheckpointScopeOwnership.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadSettlementService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RestartContinuation.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/RunFinalizationQueue.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProjectionSettlement.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/AdvisorIdleClose.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderEventIngestor.test.ts",
+     "status": "answered",
+     "probability": 0.01
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadManagementService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ProviderSessionManager.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/ThreadLaunchService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/OpenCode2OrchestratorV2.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/guest/http.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/ForgeWorkItems.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/HqForgeRecordingReactor.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/hq/RepositoryChipSync.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/SessionToolListings.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  },
+  {
+   "caseId": "seeded-apps__server__src__orchestration-v2__RunMetrics-L76-strict-equality",
+   "engine": "luna",
+   "rule": "v1",
+   "chunk": 1,
+   "questions": 28,
+   "wallMs": 593,
+   "digest": "1302ecb78f853ed6489f4b95d62e8fad2872cf774299e5590a2f5786419115da",
+   "requestedModel": "gpt-6-luna",
+   "adapterVersion": "t3-decisions-v1",
+   "latencyMs": 593,
+   "usage": {
+    "inputTokens": 10553,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0
+   },
+   "cost": {
+    "usd": 0.0010553,
+    "status": "estimated",
+    "pricingSource": "https://developers.openai.com/api/docs/guides/decisions",
+    "inputUsdPerMillion": 0.1
+   },
+   "answers": [
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ClaudeReplayFixtures5.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/GrokReplayFixtures1.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/PiReplayFixtures.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "scripts/hq-allowlist.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/git/linkCreatedPullRequest.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedBrowserAccess.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/observability/DefectReporter.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/project/ProjectMutation.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/serverRuntimeStartup.autoPull.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/processRunner.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/provider/CodexManagedRuntime.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/auth/replayMarkers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/cli/app.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/OrchestratorMcpService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.schedule.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/WorktreeMcpService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/project/ProjectService.deletion.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/project/ProjectService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/ManagedDelegation.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/scheduledTasks/ScheduledTaskService.interval.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/git/GitWorkflowService.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ThreadFork.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/testkit/ProviderSwitch.integration.test.ts",
+     "status": "answered",
+     "probability": 0
+    },
+    {
+     "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
+     "status": "answered",
+     "probability": 0
+    }
+   ]
+  }
+ ]
+}

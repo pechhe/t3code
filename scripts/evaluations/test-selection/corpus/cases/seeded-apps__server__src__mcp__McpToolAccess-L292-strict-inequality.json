@@ -1,0 +1,215 @@
+{
+ "id": "seeded-apps__server__src__mcp__McpToolAccess-L292-strict-inequality",
+ "kind": "seeded",
+ "seed": 1,
+ "mutation": {
+  "file": "apps/server/src/mcp/McpToolAccess.ts",
+  "line": 292,
+  "operator": "strict-inequality",
+  "before": "          if (target.agentTask?.externalOwner !== undefined)",
+  "after": "          if (target.agentTask?.externalOwner === undefined)"
+ },
+ "hunk": "   handle: (params: P) => Effect.Effect<A, E, R>,\n ) =>\n   declare((params: P) =>\n     Effect.gen(function* () {\n       const caller = yield* writingCaller;\n       for (const threadId of threads(params)) {\n         if (threadId === undefined || threadId === caller.scope.thread?.threadId) continue;\n         const target = yield* caller.threads\n           .getThreadShell(threadId)\n           .pipe(Effect.mapError(unavailable));\n         if (target !== null && target.deletedAt === null) {\n           yield* assertExternalWorkOwner(caller.scope, target);\n-          if (target.agentTask?.externalOwner !== undefined)\n+          if (target.agentTask?.externalOwner === undefined)\n             return yield* new OrchestratorMcpFailure({\n               code: \"capability_denied\",\n               message: \"Use the owned task lifecycle instead of modifying its backing thread.\",\n             });\n           yield* assertTargetWithinLimits(caller.limits, target);\n         }\n       }\n       // Modes can rise after this check; the orchestrator rechecks under lock and records refusal before handlers wrap errors.\n       const refused = yield* Ref.make<DispatchModeRefusal | undefined>(undefined);\n       return yield* handle(params).pipe(\n         Effect.provideService(DispatchModeLimit, { ...caller.limits, refused }),\n         Effect.catch((error) =>",
+ "changed": [
+  "apps/server/src/mcp/McpToolAccess.ts"
+ ],
+ "candidates": [
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/auth/McpOAuth.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/app.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/pair.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/project.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/cli/theme.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpDeviceToolkit.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpHttpServer.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpManagedBrowser.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.race.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/McpToolAccess.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/SessionToolListings.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/attachment/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/core.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/decisions/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/device/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/environment/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/preview/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/project/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/releaseApproval.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/thread/projectMove.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/web/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/mcp/toolkits/workspace/handlers.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/outboundHttp.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/processRunner.test.ts"
+  },
+  {
+   "directory": "apps/server",
+   "file": "apps/server/src/provider/CodexManagedRuntime.test.ts"
+  },
+  {
+   "directory": "scripts",
+   "file": "scripts/hq-allowlist.test.ts"
+  }
+ ],
+ "ranksNote": "ranks recomputed by the harness from the gate's budgetLandingTests inputs",
+ "mandatory": 10,
+ "failing": [
+  "apps/server/src/mcp/McpToolAccess.race.test.ts",
+  "apps/server/src/mcp/McpToolAccess.test.ts",
+  "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts",
+  "apps/server/src/mcp/toolkits/core.test.ts",
+  "apps/server/src/mcp/toolkits/thread/projectMove.test.ts"
+ ],
+ "uncertain": [
+  "scripts/hq-allowlist.test.ts"
+ ],
+ "unreported": [],
+ "measuredSeconds": {
+  "apps/server/src/outboundHttp.test.ts": 1.307442138671875,
+  "apps/server/src/processRunner.test.ts": 0.212124755859375,
+  "apps/server/src/auth/McpOAuth.test.ts": 11.4452568359375,
+  "apps/server/src/cli/app.test.ts": 1.90406982421875,
+  "apps/server/src/cli/pair.test.ts": 6.85872314453125,
+  "apps/server/src/cli/project.test.ts": 73.5138115234375,
+  "apps/server/src/cli/theme.test.ts": 0.796003173828125,
+  "apps/server/src/mcp/McpDeviceToolkit.test.ts": 0.71868115234375,
+  "apps/server/src/mcp/McpHttpServer.test.ts": 3.83743359375,
+  "apps/server/src/mcp/McpManagedBrowser.test.ts": 1.569114501953125,
+  "apps/server/src/mcp/McpToolAccess.race.test.ts": 0.3227333984375,
+  "apps/server/src/mcp/McpToolAccess.test.ts": 2.152856689453125,
+  "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts": 15.264291748046874,
+  "apps/server/src/mcp/SessionToolListings.test.ts": 4.983359619140625,
+  "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts": 14.66368701171875,
+  "apps/server/src/provider/CodexManagedRuntime.test.ts": 4.33350439453125,
+  "apps/server/src/mcp/toolkits/core.test.ts": 3.904923095703125,
+  "apps/server/src/mcp/toolkits/releaseApproval.test.ts": 1.753446533203125,
+  "apps/server/src/mcp/toolkits/attachment/handlers.test.ts": 0.0817509765625,
+  "apps/server/src/mcp/toolkits/decisions/handlers.test.ts": 0.2559208984375,
+  "apps/server/src/mcp/toolkits/device/handlers.test.ts": 0.0244013671875,
+  "apps/server/src/mcp/toolkits/environment/handlers.test.ts": 0.523631103515625,
+  "apps/server/src/mcp/toolkits/preview/handlers.test.ts": 0.358279296875,
+  "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts": 1.947516845703125,
+  "apps/server/src/mcp/toolkits/project/handlers.test.ts": 24.232135498046876,
+  "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts": 0.655568115234375,
+  "apps/server/src/mcp/toolkits/thread/projectMove.test.ts": 0.7038896484375,
+  "apps/server/src/mcp/toolkits/web/handlers.test.ts": 0.607836669921875,
+  "apps/server/src/mcp/toolkits/workspace/handlers.test.ts": 5.291014892578125,
+  "scripts/hq-allowlist.test.ts": 15.671569091796876
+ },
+ "measuredWallSeconds": 182.022,
+ "exitCodes": {
+  "apps/server": 1,
+  "scripts": 1
+ },
+ "verifiedPassing": [
+  "apps/server/src/auth/McpOAuth.test.ts",
+  "apps/server/src/cli/app.test.ts",
+  "apps/server/src/cli/pair.test.ts",
+  "apps/server/src/cli/project.test.ts",
+  "apps/server/src/cli/theme.test.ts",
+  "apps/server/src/mcp/McpDeviceToolkit.test.ts",
+  "apps/server/src/mcp/McpHttpServer.test.ts",
+  "apps/server/src/mcp/McpManagedBrowser.test.ts",
+  "apps/server/src/mcp/SessionToolListings.test.ts",
+  "apps/server/src/mcp/WorkspaceInspectionMcp.test.ts",
+  "apps/server/src/mcp/toolkits/attachment/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/decisions/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/device/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/environment/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/preview/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/previewControls/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/project/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/pullRequests/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/releaseApproval.test.ts",
+  "apps/server/src/mcp/toolkits/web/handlers.test.ts",
+  "apps/server/src/mcp/toolkits/workspace/handlers.test.ts",
+  "apps/server/src/outboundHttp.test.ts",
+  "apps/server/src/processRunner.test.ts",
+  "apps/server/src/provider/CodexManagedRuntime.test.ts"
+ ],
+ "controlVerified": true
+}
