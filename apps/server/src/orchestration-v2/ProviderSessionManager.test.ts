@@ -1,3 +1,4 @@
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as NetAddress from "effect/net/NetAddress";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -3425,9 +3426,9 @@ it.effect(
             modelSelection,
             runtimePolicy,
           });
+          const loadedProviderThread = yield* resume;
           yield* resume;
-          yield* resume;
-          return { runtime, providerThread, resume };
+          return { runtime, providerThread: loadedProviderThread, resume };
         });
         const failed = yield* openCachedRuntime(ThreadId.make("idle-failed-runtime"));
         const healthy = yield* openCachedRuntime(ThreadId.make("idle-healthy-runtime"));
@@ -3792,3 +3793,103 @@ it("a web-research session gets T3's web family unless its provider researches n
   // Only the web-research profile asks for the family.
   assert.isFalse(ProviderSessionManager.usesT3WebTools("source-reader", pi));
 });
+
+it.effect("exclusive runtimes reopen only when managed registration changes", () =>
+  Effect.gen(function* () {
+    const state = yield* Ref.make(emptyState);
+    const choices: AgentMcpServers.Registration[] = [];
+    yield* Effect.gen(function* () {
+      const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const now = yield* DateTime.now;
+      const threadId = ThreadId.make("registration-transition");
+      const providerSessionId = yield* idAllocator.allocate.providerSession({
+        providerInstanceId: modelSelection.instanceId,
+        threadId,
+      });
+      yield* eventSink.write({
+        events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
+      });
+      const open = (agentMcpRegistration: AgentMcpServers.Registration) =>
+        manager.open({
+          threadId,
+          providerSessionId,
+          modelSelection,
+          runtimePolicy,
+          agentMcpRegistration,
+        });
+      const legacy = yield* open("legacy");
+      assert.strictEqual(yield* open("legacy"), legacy);
+      assert.deepStrictEqual(choices, ["legacy"]);
+      const canonical = yield* open("canonical");
+      assert.notStrictEqual(canonical, legacy);
+      assert.strictEqual(yield* open("canonical"), canonical);
+      assert.deepStrictEqual(choices, ["legacy", "canonical"]);
+      assert.equal((yield* Ref.get(state)).closeCount, 1);
+      assert.equal((yield* Ref.get(state)).openCount, 2);
+    }).pipe(
+      Effect.provide(
+        layerTest({
+          state,
+          idleTimeoutMs: 60000,
+          capabilities: ExclusiveCapabilities,
+          beforeOpen: () =>
+            Effect.flatMap(AgentMcpServers.CurrentRegistration, (registration) =>
+              Effect.sync(() => {
+                choices.push(registration);
+              }),
+            ),
+        }),
+      ),
+    );
+  }),
+);
+
+it.effect("registration transitions preserve pending native work", () =>
+  Effect.gen(function* () {
+    const state = yield* Ref.make(emptyState);
+    yield* Effect.gen(function* () {
+      const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const now = yield* DateTime.now;
+      const threadId = ThreadId.make("registration-pending-work");
+      const providerSessionId = yield* idAllocator.allocate.providerSession({
+        providerInstanceId: modelSelection.instanceId,
+        threadId,
+      });
+      yield* eventSink.write({
+        events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
+      });
+      const legacy = yield* manager.open({
+        threadId,
+        providerSessionId,
+        modelSelection,
+        runtimePolicy,
+        agentMcpRegistration: "legacy",
+      });
+      const error = yield* manager
+        .open({
+          threadId,
+          providerSessionId,
+          modelSelection,
+          runtimePolicy,
+          agentMcpRegistration: "canonical",
+        })
+        .pipe(Effect.flip);
+      assert.equal(error._tag, "ProviderSessionOpenError");
+      assert.equal((yield* Ref.get(state)).closeCount, 0);
+      assert.strictEqual(Option.getOrUndefined(yield* manager.get(providerSessionId)), legacy);
+    }).pipe(
+      Effect.provide(
+        layerTest({
+          state,
+          idleTimeoutMs: 60000,
+          capabilities: ExclusiveCapabilities,
+          hasPendingBackgroundWork: Effect.succeed(true),
+        }),
+      ),
+    );
+  }),
+);

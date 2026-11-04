@@ -725,3 +725,51 @@ describe("Pi agent MCP servers", () => {
     assert.equal(confirmations.length, 2);
   });
 });
+
+describe("canonical and legacy Weave discovery", () => {
+  it.each(["modern", "no search", "older"])(
+    "preserves calls and denials with %s Pi",
+    async (mode) => {
+      const canonical = {
+        name: "weave",
+        url: "http://weave.invalid/mcp/weave",
+        authorizationHeader: "Bearer same-identity",
+        tools: ["weave_forge_read", "weave_forge_update"],
+      };
+      for (const legacy of [false, true]) {
+        const bridge = await loadMcpBridge({
+          modern: mode !== "older",
+          toolSearchAvailable: mode !== "older",
+          toolSearchDisabled: mode === "no search",
+          withoutT3: true,
+          agentServers: [canonical, ...(legacy ? [{ ...canonical, name: "yardsmith-hq" }] : [])],
+          result: { isError: true, content: [{ type: "text", text: "forbidden" }] },
+        });
+        await bridge.handlers.get("session_start")!(
+          { systemPrompt: "" },
+          { model: { api: "anthropic-messages" }, ui: { notify: () => undefined } },
+        );
+        const prefixes = ["weave", ...(legacy ? ["yardsmith-hq", "yardsmith_hq"] : [])];
+        for (const prefix of prefixes) {
+          const tool = bridge.tools.find(
+            (tool) => tool.name === `mcp__${prefix}__weave_forge_update`,
+          );
+          assert.isDefined(tool);
+          const result = await tool!.execute("fixture", { ref: "T3-342" });
+          assert.isTrue(result.isError);
+          assert.equal(result.content[0]?.text, "forbidden");
+          assert.deepEqual(bridge.requests.at(-1)?.params, {
+            name: "weave_forge_update",
+            arguments: { ref: "T3-342" },
+          });
+          assert.equal(bridge.transports.at(-1)?.authorization, canonical.authorizationHeader);
+        }
+        if (!legacy)
+          assert.deepEqual(
+            bridge.tools.map((tool) => tool.name),
+            canonical.tools.map((name) => `mcp__weave__${name}`),
+          );
+      }
+    },
+  );
+});

@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { AgentTaskBinding, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Logger from "effect/Logger";
@@ -117,6 +118,8 @@ it.effect("an interrupted Forge write still expires display caches", () =>
     const agent = yield* connections.connection(leadThread);
     const version = yield* connections.buildWriteVersion;
     hq.state.toolCallsHang = true;
+    const received = yield* Deferred.make<void>();
+    hq.tools.onCall = Deferred.succeed(received, undefined).pipe(Effect.asVoid);
     const forwarding = yield* connections
       .forward({
         authorization: agent!.authorizationHeader,
@@ -134,7 +137,7 @@ it.effect("an interrupted Forge write still expires display caches", () =>
       })
       .pipe(Effect.forkChild);
     // Weave has the write, and may commit it, before the agent goes away.
-    while (hq.toolCalls.length === 0) yield* Effect.yieldNow;
+    yield* Deferred.await(received);
     yield* Fiber.interrupt(forwarding);
     assert.strictEqual(yield* connections.buildWriteVersion, version + 1);
   }),
@@ -246,22 +249,28 @@ it.effect("the delegation is kept only in the server secret store", () =>
 );
 
 it.effect(
-  "every adapter's shared server list carries the thread's yardsmith-hq, no HQ credential",
+  "fresh adapters advertise one canonical Weave server, retaining legacy registrations on request",
   () =>
     Effect.gen(function* () {
       const { connections, call, assertNoSecretsIn } = yield* makeHarness;
       yield* call(reviewerThread);
-      const readAgentServers = (threadId: ThreadId) =>
-        AgentMcpServers.AgentMcpServers.use((servers) => servers.read(threadId)).pipe(
+      const readAgentServers = (threadId: ThreadId, registration?: "canonical" | "legacy") =>
+        AgentMcpServers.AgentMcpServers.use((servers) => servers.read(threadId, registration)).pipe(
           Effect.provide(agentMcpServersFor(connections)),
         );
       const agentServers = yield* readAgentServers(reviewerThread);
       assert.deepStrictEqual(
         agentServers.map(({ name, url }) => ({ name, url })),
-        [
-          { name: "weave", url: hqEndpoint },
-          { name: "yardsmith-hq", url: hqEndpoint },
-        ],
+        [{ name: "weave", url: hqEndpoint }],
+      );
+      const legacyServers = yield* readAgentServers(reviewerThread, "legacy");
+      assert.deepStrictEqual(
+        legacyServers.map(({ name }) => name),
+        ["weave", "yardsmith-hq"],
+      );
+      assert.strictEqual(
+        legacyServers[0]!.authorizationHeader,
+        legacyServers[1]!.authorizationHeader,
       );
       // A thread Weave never prepared, such as a raw delegated child, gets no server.
       assert.deepStrictEqual(yield* readAgentServers(ThreadId.make("thread-raw-child")), []);
@@ -282,20 +291,18 @@ it.effect(
           cwd: "/workspace",
         },
       });
-      assert.deepStrictEqual(Object.keys(claude.mcpServers ?? {}), ["weave", "yardsmith-hq"]);
-      assert.include(claude.allowedTools ?? [], "mcp__yardsmith-hq__*");
+      assert.deepStrictEqual(Object.keys(claude.mcpServers ?? {}), ["weave"]);
+      assert.notInclude(claude.allowedTools ?? [], "mcp__yardsmith-hq__*");
       assert.include(claude.allowedTools ?? [], "mcp__weave__*");
       const codexServers = codex.config.mcp_servers as Record<
         string,
         { url: string; default_tools_approval_mode?: string }
       >;
-      assert.deepStrictEqual(Object.keys(codexServers), ["weave", "yardsmith-hq"]);
-      assert.strictEqual(codexServers["yardsmith-hq"]!.url, hqEndpoint);
+      assert.deepStrictEqual(Object.keys(codexServers), ["weave"]);
       assert.strictEqual(codexServers["weave"]!.url, hqEndpoint);
       assert.strictEqual(codexServers["weave"]!.default_tools_approval_mode, "approve");
       // Codex denies an unapproved MCP tool under `approval_policy: never`, so its Weave server
       // must pre-approve like Claude's wildcard or a reviewer cannot record its review.
-      assert.strictEqual(codexServers["yardsmith-hq"]!.default_tools_approval_mode, "approve");
       assertNoSecretsIn(agentServers, claude, codex);
     }),
 );
@@ -593,4 +600,145 @@ it.effect("a legacy connection key still serves calls and can be disconnected", 
     assert.isNull(yield* connections.read);
     assert.strictEqual(stored.size, 0);
   }),
+);
+
+const decodeResponse = Schema.decodeUnknownSync(
+  Schema.fromJsonString(
+    Schema.Struct({
+      result: Schema.Struct({
+        agent: Schema.optional(Schema.String),
+        tools: Schema.optional(Schema.Array(Schema.Unknown)),
+        instructions: Schema.optional(Schema.String),
+        content: Schema.optional(Schema.Array(Schema.Unknown)),
+        structuredContent: Schema.optional(Schema.Unknown),
+      }),
+    }),
+  ),
+);
+
+it.effect(
+  "one registration retains every upstream capability, instructions and permission denial",
+  () =>
+    Effect.gen(function* () {
+      const { connections, hq } = yield* makeHarness;
+      hq.tools.catalog = Array.from({ length: 504 }, (_, index) => ({
+        name: `weave_fixture_capability_${String(index).padStart(3, "0")}`,
+        description: `Fixture capability ${index}`,
+        inputSchema: { type: "object", properties: { ref: { type: "string" } } },
+      }));
+      hq.tools.instructions =
+        "Use the session endpoint catalogue. Calls retain the agent’s role and grants.";
+      hq.tools.call = (name) => ({ status: "failed", code: "forbidden", name });
+      const read = (registration: "canonical" | "legacy") =>
+        AgentMcpServers.AgentMcpServers.use((servers) =>
+          servers.read(reviewerThread, registration),
+        ).pipe(Effect.provide(agentMcpServersFor(connections)));
+      const before = yield* read("legacy");
+      const after = yield* read("canonical");
+      for (const servers of [before, after]) {
+        const claude = claudeMcpQueryOverrides({
+          mcpSession: undefined,
+          agentServers: servers,
+          managedAgent: true,
+          readOnlySandbox: true,
+        });
+        const codex = codexThreadRuntimeParams({
+          mcpSession: undefined,
+          agentServers: servers,
+          runtimePolicy: {
+            managedAgent: true,
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+            cwd: "/fixture",
+          },
+        });
+        assert.deepStrictEqual(
+          Object.keys(claude.mcpServers ?? {}),
+          servers.map((server) => server.name),
+        );
+        assert.deepStrictEqual(
+          Object.keys(codex.config.mcp_servers as object),
+          servers.map((server) => server.name),
+        );
+        for (const server of servers)
+          assert.include(claude.allowedTools ?? [], `mcp__${server.name}__*`);
+      }
+      const request = (server: AgentMcpServers.AgentMcpServer, method: string, params?: unknown) =>
+        connections
+          .forward({
+            authorization: server.authorizationHeader,
+            contentType: undefined,
+            accept: undefined,
+            protocolVersion: undefined,
+            body: new TextEncoder().encode(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: 1,
+                method,
+                ...(params === undefined ? {} : { params }),
+              }),
+            ),
+          })
+          .pipe(
+            Effect.map(
+              (response) => decodeResponse(new TextDecoder().decode(response.body)).result,
+            ),
+          );
+      for (const server of [...before, ...after]) {
+        assert.deepStrictEqual((yield* request(server, "tools/list")).tools, hq.tools.catalog);
+        assert.strictEqual(
+          (yield* request(server, "initialize")).instructions,
+          hq.tools.instructions,
+        );
+        assert.deepStrictEqual(
+          yield* request(server, "tools/call", { name: hq.tools.catalog[0]!.name, arguments: {} }),
+          {
+            content: [],
+            structuredContent: {
+              status: "failed",
+              code: "forbidden",
+              name: hq.tools.catalog[0]!.name,
+            },
+          },
+        );
+      }
+      assert.strictEqual(new Set(hq.mcpCalls.map((call) => call.agentId)).size, 1);
+      const material = (servers: ReadonlyArray<AgentMcpServers.AgentMcpServer>) => {
+        const names = servers
+          .flatMap((server) => hq.tools.catalog.map((tool) => `mcp__${server.name}__${tool.name}`))
+          .join("\n");
+        const instructions = servers.map(() => hq.tools.instructions).join("\n");
+        const schemas = servers.flatMap(() => hq.tools.catalog.map((tool) => tool.inputSchema));
+        return {
+          servers: servers.length,
+          names: servers.length * hq.tools.catalog.length,
+          nameChars: names.length,
+          nameBytes: new TextEncoder().encode(names).length,
+          instructionChars: instructions.length,
+          instructionBytes: new TextEncoder().encode(instructions).length,
+          schemaChars: JSON.stringify(schemas).length,
+          schemaBytes: new TextEncoder().encode(JSON.stringify(schemas)).length,
+        };
+      };
+      assert.deepStrictEqual(material(before), {
+        servers: 2,
+        names: 1008,
+        nameChars: 44855,
+        nameBytes: 44855,
+        instructionChars: 155,
+        instructionBytes: 159,
+        schemaChars: 57457,
+        schemaBytes: 57457,
+      });
+      assert.deepStrictEqual(material(after), {
+        servers: 1,
+        names: 504,
+        nameChars: 20663,
+        nameBytes: 20663,
+        instructionChars: 77,
+        instructionBytes: 79,
+        schemaChars: 28729,
+        schemaBytes: 28729,
+      });
+    }),
 );

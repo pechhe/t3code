@@ -27,6 +27,19 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
+import * as Queue from "effect/Queue";
+import * as Sink from "effect/Sink";
+import * as Stream from "effect/Stream";
+import * as Schema from "effect/Schema";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import { PiAdapterV2Driver } from "@t3tools/provider-pi/server";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import * as McpSessionRegistryTestkit from "../mcp/McpSessionRegistry.testkit.ts";
+import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
+import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
+import * as CommandOutputHub from "./CommandOutputHub.ts";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerConfig from "../config.ts";
@@ -42,7 +55,7 @@ import * as EventSink from "./EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectStore from "./ProjectStore.ts";
-import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 
@@ -346,15 +359,21 @@ it.effect.each([
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
-const seedRollbackHistory = Effect.gen(function* () {
+const seedRollbackHistoryFor = Effect.fn("CheckpointRollbackFixture.seed")(function* (
+  provider = {
+    instanceId: ProviderInstanceId.make("codex"),
+    driver: ProviderDriverKind.make("codex"),
+    model: "test",
+  },
+) {
   const store = yield* ProjectionStore.ProjectionStoreV2;
   const now = yield* DateTime.now;
   const threadId = ThreadId.make("rollback-history");
   const providerThreadId = ProviderThreadId.make("rollback-history-provider");
   const providerSessionId = ProviderSessionId.make("rollback-history-session");
-  const providerInstanceId = ProviderInstanceId.make("codex");
-  const driver = ProviderDriverKind.make("codex");
-  const modelSelection = { instanceId: providerInstanceId, model: "test" };
+  const providerInstanceId = provider.instanceId;
+  const driver = provider.driver;
+  const modelSelection = { instanceId: providerInstanceId, model: provider.model };
   const scopeId = CheckpointScopeId.make("rollback-history-root");
   const otherScopeId = CheckpointScopeId.make("rollback-history-child");
   const runId = (ordinal: number) => RunId.make(`rollback-history-run-${ordinal}`);
@@ -513,7 +532,11 @@ const seedRollbackHistory = Effect.gen(function* () {
           providerThreadId,
           nodeId: nodeId(ordinal),
           runAttemptId: attemptId(attemptOrdinal),
-          nativeTurnRef: { driver, nativeId: `native-turn-${attemptOrdinal}`, strength: "strong" },
+          nativeTurnRef: {
+            driver,
+            nativeId: `native-turn-${attemptOrdinal}`,
+            strength: "strong",
+          },
           ordinal: attemptOrdinal * 2,
           status: status === "rolled_back" ? "completed" : status,
           startedAt: now,
@@ -621,6 +644,10 @@ const seedRollbackHistory = Effect.gen(function* () {
     store,
     now,
     threadId,
+    providerThreadId,
+    providerSessionId,
+    scopeId,
+    modelSelection,
     runId,
     nodeId,
     checkpointId,
@@ -631,6 +658,8 @@ const seedRollbackHistory = Effect.gen(function* () {
     committed,
   };
 });
+
+const seedRollbackHistory = seedRollbackHistoryFor();
 
 it.layer(ProjectionStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)))(
   "rollback history reads",
@@ -730,4 +759,210 @@ it.layer(ProjectionStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMe
         }),
     );
   },
+);
+
+const decodePiRollbackRequest = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      type: Schema.String,
+      id: Schema.optional(Schema.String),
+    }),
+  ),
+);
+
+it.effect(
+  "checkpoint rollback reuses a warm canonical Pi runtime and rolls back its native history",
+  () =>
+    Effect.gen(function* () {
+      const history = yield* seedRollbackHistoryFor({
+        instanceId: ProviderInstanceId.make("pi"),
+        driver: ProviderDriverKind.make("pi"),
+        model: "default",
+      });
+      const fileSystem = yield* FileSystem.FileSystem;
+      const ids = yield* IdAllocator.IdAllocatorV2;
+      const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+      let spawns = 0;
+      const requests: string[] = [];
+      const spawner = ChildProcessSpawner.make(() =>
+        Effect.gen(function* () {
+          spawns++;
+          const stdout = yield* Queue.unbounded<Uint8Array>();
+          let pending = "";
+          let sessionFile = "/fixture/pi/canonical.jsonl";
+          const receive = Effect.fn("PiRollbackFixture.receive")(function* (bytes: Uint8Array) {
+            pending += new TextDecoder().decode(bytes);
+            while (pending.includes("\n")) {
+              const newline = pending.indexOf("\n");
+              const line = pending.slice(0, newline);
+              pending = pending.slice(newline + 1);
+              if (line.length === 0) continue;
+              const request = yield* decodePiRollbackRequest(line).pipe(Effect.orDie);
+              requests.push(request.type);
+              if (request.id === undefined) continue;
+              if (request.type === "fork") sessionFile = "/fixture/pi/rolled-back.jsonl";
+              const data =
+                request.type === "get_state"
+                  ? {
+                      sessionFile,
+                      thinkingLevel: "high",
+                      isStreaming: false,
+                      isCompacting: false,
+                      pendingMessageCount: 0,
+                    }
+                  : request.type === "get_entries"
+                    ? { entries: [], leafId: null }
+                    : request.type === "get_available_models"
+                      ? { models: [] }
+                      : {};
+              yield* Queue.offer(
+                stdout,
+                new TextEncoder().encode(
+                  JSON.stringify({
+                    type: "response",
+                    id: request.id,
+                    command: request.type,
+                    success: true,
+                    data,
+                  }) + "\n",
+                ),
+              );
+            }
+          });
+          return ChildProcessSpawner.makeHandle({
+            pid: ChildProcessSpawner.ProcessId(99999999),
+            exitCode: Effect.never,
+            isRunning: Effect.succeed(true),
+            kill: () => Effect.void,
+            unref: Effect.succeed(Effect.void),
+            stdin: Sink.forEach(receive),
+            stdout: Stream.fromQueue(stdout),
+            stderr: Stream.empty,
+            all: Stream.empty,
+            getInputFd: () => Sink.drain,
+            getOutputFd: () => Stream.empty,
+          });
+        }),
+      );
+      const adapter = yield* PiAdapterV2Driver.create({
+        instanceId: history.modelSelection.instanceId,
+        displayName: undefined,
+        enabled: true,
+        config: {
+          enabled: true,
+          binaryPath: "pi",
+          launchArgs: "",
+          customModels: [],
+          autoCompactWindow: "",
+        },
+        environment: [],
+      }).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.provideService(HostProcess.Environment, {}),
+      );
+      const sinkLayer = Layer.mock(EventSink.EventSinkV2)({
+        write: ({ events }) =>
+          Effect.gen(function* () {
+            for (const event of events) yield* history.store.apply(event);
+            return [];
+          }).pipe(Effect.orDie),
+      });
+      const dependencies = Layer.mergeAll(
+        Layer.succeed(ProjectionStore.ProjectionStoreV2, history.store),
+        Layer.succeed(FileSystem.FileSystem, fileSystem),
+        Layer.succeed(IdAllocator.IdAllocatorV2, ids),
+        Layer.succeed(McpProviderSessions.McpProviderSessions, mcpSessions),
+        sinkLayer,
+        ProviderAdapterRegistry.layerSingle(adapter),
+        McpSessionRegistryTestkit.layer,
+        Layer.mock(ProviderEventIngestor.ProviderEventIngestorV2)({}),
+        Layer.mock(CommandOutputHub.CommandOutputHub)({}),
+      );
+      const managerLayer = ProviderSessionManager.layerWithOptions({ configureMcp: false }).pipe(
+        Layer.provide(dependencies),
+      );
+      const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: process.cwd(),
+      });
+      const rollbackLayer = layerCheckpointRollbackService.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            dependencies,
+            managerLayer,
+            ThreadCommandExecutor.layer,
+            Layer.mock(CheckpointService.CheckpointServiceV2)({
+              deleteStaleRefs: () => Effect.void,
+            }),
+            Layer.mock(RuntimePolicy.RuntimePolicyV2)({
+              resolve: () => Effect.succeed(runtimePolicy),
+            }),
+          ),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+        const service = yield* CheckpointRollbackService.CheckpointRollbackServiceV2;
+        const runtime = yield* manager.open({
+          threadId: history.threadId,
+          providerSessionId: history.providerSessionId,
+          modelSelection: history.modelSelection,
+          runtimePolicy,
+          agentMcpRegistration: "canonical",
+        });
+        const projection = yield* history.store.getThreadProjection(history.threadId);
+        const native = yield* runtime.ensureThread({
+          threadId: history.threadId,
+          existingProviderThread: projection.providerThreads[0]!,
+          modelSelection: history.modelSelection,
+          runtimePolicy,
+        });
+        yield* history.store.apply({
+          id: EventId.make("warm-canonical-pi"),
+          type: "provider-thread.updated",
+          threadId: history.threadId,
+          occurredAt: history.now,
+          payload: native,
+        });
+        assert.equal(native.nativeMetadata?.agentMcpRegistration, "canonical");
+        assert.equal(spawns, 1);
+        yield* service.execute({
+          threadId: history.threadId,
+          providerThreadId: history.providerThreadId,
+          scopeId: history.scopeId,
+          checkpointId: history.checkpointId(0),
+          restoreFiles: false,
+        });
+        assert.strictEqual(
+          Option.getOrUndefined(yield* manager.get(history.providerSessionId)),
+          runtime,
+        );
+        assert.equal(spawns, 1);
+        assert.include(requests, "fork");
+        const rolledBack = yield* history.store.getThreadProjection(history.threadId);
+        assert.equal(
+          rolledBack.providerThreads.find((thread) => thread.id === history.providerThreadId)
+            ?.nativeThreadRef?.nativeId,
+          "/fixture/pi/rolled-back.jsonl",
+        );
+        assert.equal(
+          rolledBack.providerThreads.find((thread) => thread.id === history.providerThreadId)
+            ?.nativeMetadata?.agentMcpRegistration,
+          "canonical",
+        );
+        assert.isTrue(rolledBack.runs.every((run) => run.status === "rolled_back"));
+      }).pipe(Effect.provide(Layer.merge(managerLayer, rollbackLayer)));
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          ProjectionStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)),
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          TestProviderHost.layer().pipe(Layer.provide(NodeServices.layer)),
+          NodeServices.layer,
+        ),
+      ),
+    ),
 );

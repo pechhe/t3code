@@ -527,11 +527,10 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   const registerTools = () => {
     approvedMcpTools.clear();
     for (const server of servers) {
-      // Preserve public names for saved loadouts and tool selectors. Hidden
-      // canonical names reserve ownership against Pi's configured MCP servers.
+      // Preserve saved public names and normalized aliases; hide aliases where Pi supports exposure.
       const publicPrefix = \`mcp__\${server.name}__\`;
       const canonicalPrefix = \`mcp__\${server.name.replaceAll("-", "_")}__\`;
-      const prefixes = supportsExposure && canonicalPrefix !== publicPrefix
+      const prefixes = (supportsExposure || server.agent) && canonicalPrefix !== publicPrefix
         ? [publicPrefix, canonicalPrefix]
         : [publicPrefix];
       for (const tool of server.catalog) {

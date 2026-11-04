@@ -22,7 +22,6 @@ import {
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -1597,10 +1596,13 @@ describe("PiAdapterV2", () => {
         });
         yield* open({});
         const [readOnly, writer, ordinary] = launches;
+        if (readOnly === undefined || writer === undefined || ordinary === undefined) {
+          assert.fail("Expected read-only, writer and ordinary Pi launches");
+        }
         // A user's tool selection cannot re-enable the withheld tools.
         assert.notInclude(readOnly, "read,bash");
         assert.deepEqual(
-          readOnly?.slice(
+          readOnly.slice(
             readOnly.indexOf("--exclude-tools"),
             readOnly.indexOf("--exclude-tools") + 2,
           ),
@@ -1609,11 +1611,11 @@ describe("PiAdapterV2", () => {
         assert.include(readOnly, "--no-extensions");
         assert.notInclude(readOnly, "/user/extension.ts");
         assert.notInclude(readOnly, "/user/other.ts");
-        const extensions = readOnly?.flatMap((arg, index) =>
+        const extensions = readOnly.flatMap((arg, index) =>
           arg === "--extension" ? [readOnly[index + 1]] : [],
         );
         assert.lengthOf(extensions, 1);
-        assert.isTrue(extensions?.[0]?.endsWith("pi-t3-mcp-extension.ts"));
+        assert.isTrue(extensions[0]?.endsWith("pi-t3-mcp-extension.ts"));
         for (const args of [writer, ordinary]) {
           assert.notInclude(args, "--no-extensions");
           assert.include(args, "/user/extension.ts");
@@ -1710,6 +1712,34 @@ describe("PiAdapterV2", () => {
       );
       assert.deepEqual(JSON.parse(fake.lastSpawn().env.T3_MCP_AGENT_SERVERS!), [weave]);
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect.each(["canonical", "legacy"] as const)(
+    "launches Pi with the restored %s registration choice",
+    (registration) =>
+      Effect.gen(function* () {
+        const fake = yield* makeFakePi;
+        const servers = ["weave", ...(registration === "legacy" ? ["yardsmith-hq"] : [])].map(
+          (name) => ({
+            name,
+            url: "http://weave.invalid/mcp/weave",
+            authorizationHeader: "Bearer fixture",
+          }),
+        );
+        yield* openRuntime(fake).pipe(
+          Effect.provideService(AgentMcpServers.CurrentRegistration, registration),
+          Effect.provideService(
+            AgentMcpServers.AgentMcpServers,
+            AgentMcpServers.AgentMcpServers.of({
+              read: (_threadId, choice) => {
+                assert.equal(choice, registration);
+                return Effect.succeed(servers);
+              },
+            }),
+          ),
+        );
+        assert.deepEqual(JSON.parse(fake.lastSpawn().env.T3_MCP_AGENT_SERVERS!), servers);
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
   it.effect("rejects a resume while a turn is active", () =>

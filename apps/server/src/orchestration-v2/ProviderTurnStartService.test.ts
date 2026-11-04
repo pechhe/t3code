@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { it as effectIt } from "@effect/vitest";
 import {
   CheckpointScopeId,
+  ContextTransferId,
   MessageId,
   NodeId,
   ProviderSessionId,
@@ -336,6 +337,8 @@ function makeLocalCommandHarness(input: {
   readonly failReadsAfterRunning?: boolean;
   /** The conversation already has a native session, which a compaction can replace. */
   readonly nativeSession?: boolean;
+  readonly nativeResumeFails?: boolean;
+  readonly agentMcpRegistration?: "canonical" | "legacy";
   /** The thread's session is replaced by another turn while the summariser writes. */
   readonly sessionMovedDuringSummary?: boolean;
   readonly backgroundTasks?: number;
@@ -420,6 +423,9 @@ function makeLocalCommandHarness(input: {
     lastRunOrdinal: 2,
     handoffIds: [],
     forkedFrom: null,
+    ...(input.agentMcpRegistration === undefined
+      ? {}
+      : { nativeMetadata: { agentMcpRegistration: input.agentMcpRegistration } }),
     createdAt: now,
     updatedAt: now,
   };
@@ -688,7 +694,7 @@ function makeLocalCommandHarness(input: {
   const startTurn = vi.fn<ProviderAdapter.ProviderAdapterV2SessionRuntime["startTurn"]>(
     () => Effect.void,
   );
-  const open = vi.fn(() =>
+  const open = vi.fn<ProviderSessionManager.ProviderSessionManagerV2Shape["open"]>((openInput) =>
     input.interruptOpen === true
       ? Effect.interrupt
       : input.resumeSession !== undefined
@@ -729,8 +735,33 @@ function makeLocalCommandHarness(input: {
                       updatedAt: now,
                       lastError: null,
                     },
-                    ensureThread: () => Effect.succeed(providerThread),
-                    resumeThread: () => Effect.succeed(projection.providerThreads[0]),
+                    ensureThread: () =>
+                      Effect.succeed(
+                        input.nativeResumeFails !== true
+                          ? providerThread
+                          : {
+                              ...providerThread,
+                              nativeThreadRef: {
+                                driver: providerThread.driver,
+                                nativeId: "fresh-session",
+                                strength: "strong" as const,
+                              },
+                              nativeMetadata: {
+                                agentMcpRegistration: openInput.agentMcpRegistration ?? "canonical",
+                              },
+                            },
+                      ),
+                    resumeThread: () =>
+                      input.nativeResumeFails === true
+                        ? Effect.fail(
+                            new ProviderAdapter.ProviderAdapterResumeThreadError({
+                              driver: providerThread.driver,
+                              providerSessionId,
+                              providerThreadId,
+                              cause: "missing native session",
+                            }),
+                          )
+                        : Effect.succeed(projection.providerThreads[0]),
                   } as never)
                 : Effect.die("A local command must not open a native session."),
   );
@@ -1181,12 +1212,12 @@ effectIt.effect.each(["cleanup-first", "startup-first"])(
         fileSystem.makeDirectory(worktreePath).pipe(Effect.as({} as never), Effect.orDie),
       );
       const open = harness.open.getMockImplementation()!;
-      harness.open.mockImplementation(() =>
+      harness.open.mockImplementation((input) =>
         Effect.gen(function* () {
           expect(yield* fileSystem.exists(worktreePath).pipe(Effect.orDie)).toBe(true);
           yield* Deferred.succeed(openEntered, undefined);
           if (order === "startup-first") yield* Deferred.await(release);
-          return yield* open();
+          return yield* open(input);
         }),
       );
       let cleanupEntered = false;
@@ -2384,3 +2415,191 @@ describe("Claude resume without a transcript", () => {
     }).pipe(Effect.scoped, Effect.provide(claudeResumeLayer)),
   );
 });
+
+effectIt.effect.each(["legacy", "canonical"] as const)(
+  "resume failure replaces a %s native session with canonical registration",
+  (registration) =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Continue",
+        claude: { usages: [] },
+        nativeSession: true,
+        deliverTurn: true,
+        nativeResumeFails: true,
+        agentMcpRegistration: registration,
+        history: [],
+      });
+      yield* harness.start;
+      expect(harness.open.mock.calls.map(([input]) => input.agentMcpRegistration)).toEqual(
+        registration === "legacy" ? ["legacy", "canonical"] : ["canonical"],
+      );
+      expect(harness.startRootRun).toHaveBeenCalledTimes(1);
+      expect(harness.startRootRun.mock.calls[0]![0].providerThread).toMatchObject({
+        nativeThreadRef: { nativeId: "fresh-session" },
+        nativeMetadata: { agentMcpRegistration: "canonical" },
+      });
+      if (registration === "legacy")
+        expect(harness.open.mock.calls[1]![0]).not.toHaveProperty("initialNativeThreadId");
+    }),
+);
+
+effectIt.effect("same-choice native resume opens once without creating a replacement", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Continue",
+      claude: { usages: [] },
+      nativeSession: true,
+      deliverTurn: true,
+      agentMcpRegistration: "legacy",
+    });
+    yield* harness.start;
+    expect(harness.open).toHaveBeenCalledTimes(1);
+    expect(harness.open.mock.calls[0]![0].agentMcpRegistration).toBe("legacy");
+    expect(harness.startRootRun.mock.calls[0]![0].providerThread.nativeThreadRef?.nativeId).toBe(
+      "existing-session",
+    );
+  }),
+);
+
+effectIt.effect("a native fork resolves legacy source registration before runtime launch", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Continue",
+      claude: { usages: [] },
+      deliverTurn: true,
+    });
+    const projection = harness.projection();
+    const sourceThreadId = ThreadId.make("legacy-fork-source");
+    const sourceRunId = RunId.make("legacy-source-run");
+    const source = {
+      ...projection.providerThreads[0]!,
+      id: ProviderThreadId.make("legacy-source-provider"),
+      appThreadId: sourceThreadId,
+      nativeThreadRef: {
+        driver: projection.providerThreads[0]!.driver,
+        nativeId: "legacy-source",
+        strength: "strong" as const,
+      },
+    };
+    const target = projection.providerThreads[0]!;
+    harness.setProjection({
+      ...projection,
+      providerThreads: [...projection.providerThreads, source],
+      runs: [
+        ...projection.runs,
+        {
+          ...projection.runs[0]!,
+          id: sourceRunId,
+          threadId: sourceThreadId,
+          providerThreadId: source.id,
+          status: "completed",
+          completedAt: projection.updatedAt,
+        },
+      ],
+      contextTransfers: [
+        {
+          id: ContextTransferId.make("legacy-fork"),
+          type: "fork",
+          sourceThreadId,
+          targetThreadId: projection.thread.id,
+          sourcePoint: { threadId: sourceThreadId, runId: sourceRunId },
+          basePoint: null,
+          sourceProviderInstanceId: source.providerInstanceId,
+          targetProviderInstanceId: target.providerInstanceId,
+          targetRunId: projection.runs[0]!.id,
+          status: "pending",
+          resolution: null,
+          createdBy: "user",
+          error: null,
+          createdAt: projection.updatedAt,
+          updatedAt: projection.updatedAt,
+          consumedAt: null,
+        },
+      ],
+    });
+    const open = harness.open.getMockImplementation()!;
+    harness.open.mockImplementation((input) =>
+      open(input).pipe(
+        Effect.map((runtime) => ({
+          ...runtime,
+          forkThread: () =>
+            Effect.succeed({
+              ...target,
+              nativeThreadRef: {
+                driver: target.driver,
+                nativeId: "forked-native",
+                strength: "strong" as const,
+              },
+              nativeMetadata: { agentMcpRegistration: input.agentMcpRegistration },
+            }),
+        })),
+      ),
+    );
+    yield* harness.start;
+    expect(harness.open.mock.calls[0]![0].agentMcpRegistration).toBe("legacy");
+    expect(harness.open.mock.calls[0]![0]).not.toHaveProperty("initialNativeThreadId");
+    expect(
+      harness.startRootRun.mock.calls[0]![0].providerThread.nativeMetadata?.agentMcpRegistration,
+    ).toBe("legacy");
+  }),
+);
+
+effectIt.effect(
+  "cancellation during canonical reopening keeps queued input and does not start the replacement",
+  () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Continue",
+        claude: { usages: [] },
+        nativeSession: true,
+        deliverTurn: true,
+        nativeResumeFails: true,
+        agentMcpRegistration: "legacy",
+        history: [],
+      });
+      const projection = harness.projection();
+      const queued = {
+        ...projection.runs[0]!,
+        id: RunId.make("queued-after-registration-transition"),
+        status: "queued" as const,
+      };
+      const queuedMessage = {
+        ...projection.messages[0]!,
+        id: MessageId.make("queued-input-after-transition"),
+        runId: queued.id,
+        text: "Keep this queued input",
+      };
+      harness.setProjection({
+        ...projection,
+        runs: [...projection.runs, queued],
+        messages: [...projection.messages, queuedMessage],
+      });
+      const open = harness.open.getMockImplementation()!;
+      let opened = 0;
+      harness.open.mockImplementation((input) =>
+        open(input).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              if (++opened !== 2) return;
+              const current = harness.projection();
+              harness.setProjection({
+                ...current,
+                runs: current.runs.map((run) =>
+                  run.id === projection.runs[0]!.id
+                    ? { ...run, status: "interrupted", completedAt: projection.updatedAt }
+                    : run,
+                ),
+              });
+            }),
+          ),
+        ),
+      );
+      yield* harness.start;
+      expect(harness.open).toHaveBeenCalledTimes(2);
+      expect(harness.startRootRun).not.toHaveBeenCalled();
+      expect(harness.projection().runs.find((run) => run.id === queued.id)).toEqual(queued);
+      expect(
+        harness.projection().messages.find((message) => message.id === queuedMessage.id),
+      ).toEqual(queuedMessage);
+    }),
+);

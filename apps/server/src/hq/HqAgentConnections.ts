@@ -1,12 +1,6 @@
 /**
- * Agents act in Weave, as themselves (pechhe/yardsmith#2478). The environment keeps one Weave
- * connection, the person's Weave delegation, in the server secret store, and every project uses it.
- * Each thread's agent reaches Weave through T3's own `/mcp/weave` endpoint, authenticated by
- * a credential bound to that thread; T3 exchanges the delegation for the agent's Weave token, renews it, and presents it to
- * Weave's `/api/mcp` on the agent's behalf. The delegation and the agent token therefore never
- * leave this process: no provider config, argv, environment, workspace or prompt carries them,
- * and a long-lived provider process (Codex keeps a thread's MCP headers for its lifetime) never
- * holds a token that can expire.
+ * Provider processes hold only a thread-bound T3 credential. Weave delegations and renewable
+ * agent tokens stay in this process so long-lived providers never hold an expiring token.
  */
 import { WEAVE_NAMES, type OrchestrationV2AppThread, type ThreadId } from "@t3tools/contracts";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
@@ -381,10 +375,8 @@ export class HqAgentConnections extends Context.Service<
       HqObserveError
     >;
     /**
-     * Posts one of the person's own Forge decisions, or the reads that refresh their cards, to Weave's
-     * `/api/build/decisions` as the person, with the stored delegation (pechhe/yardsmith Spec
-     * #4367). Only the server's Forge Home calls this; no thread's MCP route can, so no agent decides
-     * as the person through T3. `origin`, when given, refuses to post to any other Weave.
+     * Only Forge Home may use the person's delegation here; thread MCP routes cannot decide
+     * as the person. An explicit `origin` refuses to post to any other Weave.
      */
     readonly decide: (input: {
       readonly body: Record<string, unknown>;
@@ -1206,16 +1198,18 @@ export const agentMcpServersLayer = Layer.effect(
   Effect.gen(function* () {
     const connections = yield* HqAgentConnections;
     return AgentMcpServers.AgentMcpServers.of({
-      read: (threadId) =>
+      read: (threadId, registration = "canonical") =>
         connections.connection(threadId).pipe(
           Effect.map((connection) =>
             connection === undefined
               ? []
-              : WEAVE_NAMES.servers.map((name) => ({
-                  name,
-                  url: connection.endpoint,
-                  authorizationHeader: connection.authorizationHeader,
-                })),
+              : (registration === "legacy" ? WEAVE_NAMES.servers : [WEAVE_NAMES.servers[0]]).map(
+                  (name) => ({
+                    name,
+                    url: connection.endpoint,
+                    authorizationHeader: connection.authorizationHeader,
+                  }),
+                ),
           ),
         ),
     });

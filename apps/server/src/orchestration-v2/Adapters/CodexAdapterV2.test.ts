@@ -1,3 +1,4 @@
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
 import {
   makeProviderTextDeltaCoalescer,
@@ -1865,9 +1866,9 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       ),
   );
 
-  it.effect(
-    "starts a thread with a yardsmith-hq server and no HQ credential, through renewal and reconnect failures",
-    () =>
+  it.effect.each(["canonical", "legacy"] as const)(
+    "starts a thread with %s Weave registration through renewal and reconnect failures",
+    (registration) =>
       Effect.gen(function* () {
         const hq = yield* HqTestkit.makeHqHarness;
         const scenario = "hq-connection";
@@ -1904,13 +1905,18 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                       params: {
                         config: {
                           ...CodexAdapterV2.CODEX_THREAD_CONFIG,
-                          mcp_servers: {
-                            "yardsmith-hq": {
-                              url: HqTestkit.hqEndpoint,
-                              http_headers: { Authorization: connection.authorizationHeader },
-                              default_tools_approval_mode: "approve",
-                            },
-                          },
+                          mcp_servers: Object.fromEntries(
+                            (registration === "legacy" ? ["weave", "yardsmith-hq"] : ["weave"]).map(
+                              (name) => [
+                                name,
+                                {
+                                  url: HqTestkit.hqEndpoint,
+                                  http_headers: { Authorization: connection.authorizationHeader },
+                                  default_tools_approval_mode: "approve",
+                                },
+                              ],
+                            ),
+                          ),
                         },
                       },
                     },
@@ -1954,6 +1960,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         // Every frame T3 sent Codex, the prompt included, and every event it reported.
         hq.assertNoSecretsIn(requests, harness.events);
       }).pipe(
+        Effect.provideService(AgentMcpServers.CurrentRegistration, registration),
         Effect.scoped,
         Effect.provide(
           Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),

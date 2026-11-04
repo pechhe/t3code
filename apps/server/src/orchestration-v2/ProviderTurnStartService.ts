@@ -1,3 +1,4 @@
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { checkoutRoot, repositoryWriteRoots } from "../agents/workspaceIdentity.ts";
@@ -1212,26 +1213,60 @@ export const layer: Layer.Layer<
         });
         if (!repaired.committed) return;
       }
-      const sessionResult = yield* Effect.result(
+      const nativeForkSource =
+        nativeForkTransfer === undefined
+          ? undefined
+          : yield* Effect.gen(function* () {
+              const sourceProjection = yield* projectionStore.getThreadRecords(
+                nativeForkTransfer.sourceThreadId,
+                ["runs", "providerThreads", "attempts", "providerTurns"],
+              );
+              const sourceRun = sourceProjection.runs.find(
+                (candidate) => candidate.id === nativeForkTransfer.sourcePoint.runId,
+              );
+              const sourceProviderThread = sourceProjection.providerThreads.find(
+                (candidate) => candidate.id === sourceRun?.providerThreadId,
+              );
+              const sourceAttempt = sourceProjection.attempts.find(
+                (candidate) => candidate.id === sourceRun?.activeAttemptId,
+              );
+              const sourceProviderTurn =
+                latestProviderTurnForAttempt(sourceProjection.providerTurns, sourceAttempt?.id) ??
+                sourceProjection.providerTurns.find(
+                  (candidate) => candidate.id === sourceAttempt?.providerTurnId,
+                );
+              if (sourceRun === undefined || sourceProviderThread === undefined) {
+                return yield* new ProviderTurnStartError({
+                  runId,
+                  cause: `Native fork transfer ${nativeForkTransfer.id} has no source provider execution.`,
+                });
+              }
+              return { sourceProjection, sourceProviderThread, sourceProviderTurn };
+            });
+      const initialRegistration = AgentMcpServers.registrationForThread(
+        nativeForkSource?.sourceProviderThread ?? providerThread,
+      );
+      const openSession = (registration: AgentMcpServers.Registration, fresh = false) =>
         providerSessions.open({
+          agentMcpRegistration: registration,
           threadId: projection.thread.id,
           providerSessionId,
           modelSelection: run.modelSelection,
           runtimePolicy: resolvedRuntimePolicy,
-          ...(existingSessionProjection === undefined
+          ...(fresh || existingSessionProjection === undefined
             ? {}
             : { resumeFromSession: existingSessionProjection }),
-          ...(providerThread.nativeThreadRef?.nativeId == null
+          ...(fresh || providerThread.nativeThreadRef?.nativeId == null
             ? {}
             : { initialNativeThreadId: providerThread.nativeThreadRef.nativeId }),
-          ...(providerThread.nativeMetadata?.itemIdentityVersion === undefined
+          ...(fresh || providerThread.nativeMetadata?.itemIdentityVersion === undefined
             ? {}
             : {
                 initialProviderItemIdentityVersion:
                   providerThread.nativeMetadata.itemIdentityVersion,
               }),
-        }),
-      );
+        });
+      const sessionResult = yield* Effect.result(openSession(initialRegistration));
       if (sessionResult._tag === "Failure") {
         if (input.willRetry === true) return yield* sessionResult.failure;
         yield* settleStartFailure({
@@ -1241,7 +1276,7 @@ export const layer: Layer.Layer<
         });
         return;
       }
-      const session = sessionResult.success;
+      let session = sessionResult.success;
       if (!(yield* isCurrentAttemptInStatus("starting"))) return;
       const loadFromProvider = Effect.fn("ProviderTurnStartService.loadFromProvider")(function* (
         load: Effect.Effect<OrchestrationV2ProviderThread, ProviderAdapter.ProviderAdapterV2Error>,
@@ -1258,31 +1293,8 @@ export const layer: Layer.Layer<
       });
       let effectiveHandoffs = handoffs;
       const loadedProviderThread = yield* Effect.gen(function* () {
-        if (nativeForkTransfer !== undefined) {
-          const sourceProjection = yield* projectionStore.getThreadRecords(
-            nativeForkTransfer.sourceThreadId,
-            ["runs", "providerThreads", "attempts", "providerTurns"],
-          );
-          const sourceRun = sourceProjection.runs.find(
-            (candidate) => candidate.id === nativeForkTransfer.sourcePoint.runId,
-          );
-          const sourceProviderThread = sourceProjection.providerThreads.find(
-            (candidate) => candidate.id === sourceRun?.providerThreadId,
-          );
-          const sourceAttempt = sourceProjection.attempts.find(
-            (candidate) => candidate.id === sourceRun?.activeAttemptId,
-          );
-          const sourceProviderTurn =
-            latestProviderTurnForAttempt(sourceProjection.providerTurns, sourceAttempt?.id) ??
-            sourceProjection.providerTurns.find(
-              (candidate) => candidate.id === sourceAttempt?.providerTurnId,
-            );
-          if (sourceRun === undefined || sourceProviderThread === undefined) {
-            return yield* new ProviderTurnStartError({
-              runId,
-              cause: `Native fork transfer ${nativeForkTransfer.id} has no source provider execution.`,
-            });
-          }
+        if (nativeForkSource !== undefined) {
+          const { sourceProjection, sourceProviderThread, sourceProviderTurn } = nativeForkSource;
           return yield* loadFromProvider(
             session.forkThread({
               sourceProviderThread,
@@ -1344,6 +1356,36 @@ export const layer: Layer.Layer<
           reason: uncertainDelivery ? "uncertain_history_delivery" : "resume_failed",
           errorTag: resumed.failure._tag,
         });
+        if (initialRegistration !== "canonical") {
+          // A launch-time MCP catalogue cannot change with only a new native thread id.
+          if (
+            session.providerSession?.capabilities.sessions
+              .supportsMultipleProviderThreadsPerSession !== true &&
+            session.hasPendingBackgroundWork !== undefined &&
+            (yield* session.hasPendingBackgroundWork)
+          ) {
+            if (input.willRetry === true) return yield* resumed.failure;
+            yield* settleStartFailure({
+              signal: "provider-thread-load-failure",
+              title: "Provider turn failed to start",
+              error: resumed.failure,
+            });
+            return undefined;
+          }
+          if (!(yield* isCurrentAttemptInStatus("starting"))) return undefined;
+          const reopened = yield* Effect.result(openSession("canonical", true));
+          if (reopened._tag === "Failure") {
+            if (input.willRetry === true) return yield* reopened.failure;
+            yield* settleStartFailure({
+              signal: "provider-session-open-failure",
+              title: "Provider session failed to open",
+              error: reopened.failure,
+            });
+            return undefined;
+          }
+          session = reopened.success;
+          if (!(yield* isCurrentAttemptInStatus("starting"))) return undefined;
+        }
         const replacement = yield* loadFromProvider(
           session.ensureThread({
             threadId: projection.thread.id,

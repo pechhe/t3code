@@ -1,3 +1,4 @@
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 // @effect-diagnostics nodeBuiltinImport:off -- workflow fixtures use files and the fake Claude CLI uses Node streams
 import * as NodeEvents from "node:events";
 import * as NodeFS from "node:fs";
@@ -1276,9 +1277,9 @@ describe("ClaudeAdapterV2 append-system-prompt-file launch argument", () => {
 });
 
 describe("ClaudeAdapterV2 YardSmith HQ connection", () => {
-  it.effect(
-    "launches with a yardsmith-hq server and no HQ credential, through renewal and reconnect failures",
-    () =>
+  it.effect.each(["canonical", "legacy"] as const)(
+    "launches with %s Weave registration through renewal and reconnect failures",
+    (registration) =>
       Effect.scoped(
         Effect.gen(function* () {
           const hq = yield* HqTestkit.makeHqHarness;
@@ -1359,17 +1360,24 @@ describe("ClaudeAdapterV2 YardSmith HQ connection", () => {
           assert.lengthOf(opened, 1);
           const options = (opened[0] as { options: ClaudeAdapterV2.ClaudeAgentSdkQueryOptions })
             .options;
-          assert.deepEqual(options.mcpServers?.["yardsmith-hq"], {
+          assert.deepEqual(
+            Object.keys(options.mcpServers ?? {}),
+            registration === "legacy" ? ["weave", "yardsmith-hq"] : ["weave"],
+          );
+          assert.deepEqual(options.mcpServers?.["weave"], {
             type: "http",
             url: HqTestkit.hqEndpoint,
             headers: {
               Authorization: (yield* hq.connections.connection(threadId))!.authorizationHeader,
             },
           });
-          assert.include(options.allowedTools ?? [], "mcp__yardsmith-hq__*");
+          assert.include(options.allowedTools ?? [], "mcp__weave__*");
+          if (registration === "legacy")
+            assert.include(options.allowedTools ?? [], "mcp__yardsmith-hq__*");
           // The whole launch: prompt, environment, argv, settings, MCP config and its log form.
           hq.assertNoSecretsIn(opened, offered, ClaudeAdapterV2.loggedClaudeQueryOptions(options));
         }).pipe(
+          Effect.provideService(AgentMcpServers.CurrentRegistration, registration),
           Effect.provide(
             Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
           ),

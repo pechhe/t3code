@@ -65,16 +65,20 @@ See the [mobile README](../../apps/mobile/README.md) for native builds and Metro
 Flags go directly after the task name, for example `vp run dev --home-dir /tmp/t3code-dev`. Do not add a `--` before them: it forwards `--home-dir` to Vite, which crashes.
 Add `--browser` to open a browser automatically.
 
+### Worktree setup
+
+`t3.json` setup installs dependencies in the background. While `.t3/setup-running` names a live PID, wait and do not run `vp i`. Completion writes `.t3/setup-done` or `.t3/setup-failed` (with the error tail). With no marker, setup never ran: run `vp i`.
+
+Stop only the process you started, using its captured PID and the [process safety rule](../../AGENTS.md#runtime-safety). If another checkout is needed, use `git worktree add` next to the current worktree, not in `/tmp`, and remove it when done. Global workspace ownership rules still apply.
+
 ### State and ports
 
 Linked git worktrees and SlipJay (jj) workspaces default to their own `.t3/userdata`, from the workspace root or any nested directory, even when `T3CODE_HOME` is set.
 The main checkout defaults to `~/.t3/dev/userdata`. An explicit `--home-dir` wins in both cases.
 Inside a SlipJay workspace directory where no workspace root is recognised, the runner refuses to start instead of using the shared home; pass `--home-dir`.
 `vp run migrate-dev-db` follows the same default; `--base-dir` overrides it.
-The first start in a worktree seeds its empty database from a read-only copy of
-`~/.t3/userdata`; `--no-seed` or `T3CODE_DEV_SEED=0` skips that.
 Never run a development server against the live `~/.t3/userdata`.
-See [test data](../../AGENTS.md#test-data) for copying a consistent database snapshot.
+See [test data](#test-data) for copying a consistent database snapshot.
 
 Read ports from the `[dev-runner]` output. Worktrees derive stable preferences from their paths,
 but occupied ports can shift them. `T3CODE_PORT_OFFSET` or `T3CODE_DEV_INSTANCE` can select a
@@ -84,7 +88,7 @@ different preference when needed.
 
 `vp run dev --share` publishes the web port over the machine's tailnet and prints a pairing URL
 for that origin. Give the tester the complete URL, including its token. The dev runner removes
-its mapping on exit.
+its mapping on exit. Do not configure `tailscale serve` by hand or consume the tester’s pairing URL. A browser with the reusable dev cookie can use the bare origin. If a normal one-time token was consumed, mint another with `node apps/server/src/bin.ts pair`; it has standard scopes, while the startup URL has the admin scopes needed for Connections settings.
 
 Leave `VITE_HTTP_URL` and `VITE_WS_URL` unset. Vite proxies the backend through the browser's
 origin so the same build works over localhost and remote connections.
@@ -153,7 +157,19 @@ startup and keeps its own SQLite data, signing key, and revocation state. Deskto
 servers ignore the value. See [environment authentication](../internals/environment-auth.md#reusable-dev-credential)
 for the security model.
 
+## Test data
+
+An empty database is a bad test. Seed your worktree's `.t3` with a copy of real data instead of pointing at live state:
+
+- The first `vp run dev` in a worktree does this for you when its database is missing. `--no-seed` or `T3CODE_DEV_SEED=0` skips it.
+- Run `vp run migrate-dev-db` with your dev server stopped to refresh. It defaults to the same workspace `.t3` as the dev runner (`--base-dir` overrides) and rebuilds `<worktree>/.t3/userdata/statev2.sqlite` from a read-only snapshot of `~/.t3/userdata/statev2.sqlite`, the developer's real data. It keeps recent projects and their stopped threads, and drops scheduled tasks, pending work, and auth sessions, so your dev server never runs the developer's agents. Raise `--projects` and `--threads-per-project` for more data.
+- Refresh `statev2.sqlite`, not `state.sqlite`. The server copies the V1 `state.sqlite` only when `statev2.sqlite` is missing.
+- Bring `secrets` and `settings.json` only if the flow under test needs them, and then only the file it needs, such as `secrets/weave-connection.bin` for the Weave connection (or the `secrets/hq-connection.bin` read fallback for an older stored connection). Never copy the whole `secrets` directory: its `cloud-*` files are the live relay identity, and a dev server holding them publishes as the real environment. The database copy already drops scheduled tasks, so a dev server never runs the developer's agents.
+- Copy in, never symlink. Data flows one way: into your sandbox, never back out.
+
 ## Checks
+
+Before writing tests or choosing code checks, read [test authoring and focused verification](testing.md).
 
 `vp run check:changed` runs CI's fast checks for your branch's changes: format and lint of the
 changed files, `knip:check` when code or a manifest changes, the generated GraphQL checks, typecheck
@@ -344,3 +360,14 @@ passed as `--wsl-runtime`; see the
 Add `--signed` after configuring the platform credentials in the
 [release runbook](./release.md). macOS passkeys need a signed, provisioned app; follow the
 [Connect setup](./connect-setup.md#desktop-passkeys) for local signing and renderer HMR.
+
+## Authorised pull requests
+
+- Global SlipJay policy governs publication in this fork. The following applies only to an explicitly authorised PR in a repository/workflow that permits it; it does not authorise a PR here.
+- If `origin` is git.cafe, follow [GitCafe mirror](#gitcafe-mirror-optional): use `cafe` for existing PRs, issues, comments and labels, but push and open PRs on GitHub, where CI runs.
+- Conventional commit titles, plain language: `fix(web): new threads no longer spike CPU`.
+- Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
+- UI changes need before/after images. Motion or timing needs a short video.
+- Upload PR evidence to GitHub. Never commit PR-only screenshots or assets such as `.github/pr-assets/`.
+- One request is one PR. Split it only when the maintainer asks. Outside contributions follow the stricter [one problem per PR](../../CONTRIBUTING.md#solve-one-underlying-problem-per-pr) rule.
+- When babysitting: call `watch_pull_request` and end your turn. T3 Code wakes you on checks, comments, or conflicts. Do not poll or sleep. Verify each bot finding against the source, fix real ones, dismiss false positives with a written reason. Stay quiet when nothing is new. Stop when the bots are green on the latest commit.

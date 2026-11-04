@@ -1,3 +1,4 @@
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
@@ -168,6 +169,7 @@ export interface ProviderSessionManagerV2Shape {
     readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
     readonly resumeFromSession?: OrchestrationV2ProviderSession;
     readonly initialNativeThreadId?: string;
+    readonly agentMcpRegistration?: AgentMcpServers.Registration;
     readonly initialProviderItemIdentityVersion?: 2;
   }) => Effect.Effect<
     ProviderAdapter.ProviderAdapterV2SessionRuntime,
@@ -205,6 +207,7 @@ export class ProviderSessionManagerV2 extends Context.Service<
 >()("t3/orchestration-v2/ProviderSessionManager/ProviderSessionManagerV2") {}
 
 interface LiveSessionEntry {
+  readonly agentMcpRegistration: AgentMcpServers.Registration;
   readonly attachedThreadIds: ReadonlySet<ThreadId>;
   readonly loadedProviderThreadKeyByThread: ReadonlyMap<ThreadId, string>;
   /** Scope revocation to recorded credential ids so superseded sessions cannot revoke replacements opened before detach. */
@@ -2225,7 +2228,41 @@ export const layerWithOptions = (
                 }
               }
               const key = sessionKey(input.providerSessionId);
-              const existing = (yield* Ref.get(sessions)).get(key);
+              const registration =
+                input.agentMcpRegistration ??
+                (input.initialNativeThreadId === undefined ? "canonical" : "legacy");
+              let existing = (yield* Ref.get(sessions)).get(key);
+              if (
+                existing !== undefined &&
+                !existing.supportsMultipleProviderThreads &&
+                existing.agentMcpRegistration !== registration
+              ) {
+                const pending =
+                  existing.runtime.hasPendingBackgroundWork === undefined
+                    ? false
+                    : yield* existing.runtime.hasPendingBackgroundWork;
+                if (existing.busyTurns.size > 0 || pending) {
+                  return yield* new ProviderSessionOpenError({
+                    instanceId: input.modelSelection.instanceId,
+                    providerSessionId: input.providerSessionId,
+                    cause: "Cannot change managed MCP registration while provider work is active.",
+                  });
+                }
+                yield* releaseEntry({
+                  providerSessionId: input.providerSessionId,
+                  reason: "manual_shutdown",
+                }).pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new ProviderSessionOpenError({
+                        instanceId: input.modelSelection.instanceId,
+                        providerSessionId: input.providerSessionId,
+                        cause,
+                      }),
+                  ),
+                );
+                existing = undefined;
+              }
               if (existing !== undefined) {
                 const attached = existing.attachedThreadIds.has(input.threadId);
                 if (!attached && !existing.supportsMultipleProviderThreads) {
@@ -2270,7 +2307,7 @@ export const layerWithOptions = (
               });
               const sessionScope = yield* Scope.fork(sessionScopes);
               yield* agentScope.clear(input.threadId);
-              const runtime = yield* adapter
+              const openedRuntime = yield* adapter
                 .openSession({
                   threadId: input.threadId,
                   providerSessionId: input.providerSessionId,
@@ -2291,6 +2328,7 @@ export const layerWithOptions = (
                 })
                 .pipe(
                   Effect.provideService(Scope.Scope, sessionScope),
+                  Effect.provideService(AgentMcpServers.CurrentRegistration, registration),
                   // Bound scope close after cleanup; a wedged finalizer must not hold the open lock or interrupter.
                   Effect.onError(() =>
                     dropReservation.pipe(
@@ -2320,12 +2358,14 @@ export const layerWithOptions = (
                     attributes: { provider: adapter.driver, operation: "open" },
                   }),
                 );
+              const runtime = AgentMcpServers.bindRuntime(openedRuntime);
               const eventSubscribers = yield* Ref.make<
                 ReadonlyMap<number, Queue.Queue<ProviderSessionEventSignal, Cause.Done>>
               >(new Map());
               const exposedRuntime = decorateRuntime(runtime, eventSubscribers);
               const now = yield* Clock.currentTimeMillis;
               const entry: LiveSessionEntry = {
+                agentMcpRegistration: registration,
                 attachedThreadIds: new Set([input.threadId]),
                 loadedProviderThreadKeyByThread: new Map(),
                 mcpCredentialIdByThread:

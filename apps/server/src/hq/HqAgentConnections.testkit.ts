@@ -63,7 +63,14 @@ const makeFakeHq = () => {
   /** Answers a `tools/call` with Weave's structured outcome; tests replace it with Forge data. */
   const tools: {
     call: (name: string, args: Record<string, unknown>) => Record<string, unknown>;
-  } = { call: () => ({ status: "succeeded", value: null }) };
+    catalog: ReadonlyArray<{
+      name: string;
+      description: string;
+      inputSchema: Record<string, unknown>;
+    }>;
+    instructions: string;
+    onCall?: Effect.Effect<void>;
+  } = { call: () => ({ status: "succeeded", value: null }), catalog: [], instructions: "" };
   const toolCalls: Array<{ name: string; args: Record<string, unknown>; agentId: string }> = [];
   let minted = 0;
 
@@ -159,12 +166,30 @@ const makeFakeHq = () => {
           method: string;
           params?: { name: string; arguments: Record<string, unknown> };
         };
+        if (message.method === "initialize")
+          return respond(request, 200, {
+            jsonrpc: "2.0",
+            id: message.id,
+            result: {
+              protocolVersion: "2025-03-26",
+              capabilities: { tools: {} },
+              serverInfo: { name: "weave-fixture", version: "1" },
+              instructions: tools.instructions,
+            },
+          });
+        if (message.method === "tools/list")
+          return respond(request, 200, {
+            jsonrpc: "2.0",
+            id: message.id,
+            result: { agent: agent.id, tools: tools.catalog },
+          });
         if (message.method === "tools/call" && message.params !== undefined) {
           toolCalls.push({
             name: message.params.name,
             args: message.params.arguments,
             agentId: agent.id,
           });
+          if (tools.onCall !== undefined) yield* tools.onCall;
           if (state.toolCallsHang) return yield* Effect.never;
           const outcome = tools.call(message.params.name, message.params.arguments);
           return respond(request, 200, {

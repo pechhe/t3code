@@ -8,6 +8,7 @@ import {
   VcsProcessExitError,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -242,6 +243,7 @@ export const layer: Layer.Layer<
       });
       const existingSession = context.providerSession;
       const session = yield* sessions.open({
+        agentMcpRegistration: AgentMcpServers.registrationForThread(providerThread),
         threadId: input.threadId,
         providerSessionId: providerThread.providerSessionId,
         modelSelection,
