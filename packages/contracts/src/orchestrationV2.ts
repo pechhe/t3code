@@ -2272,6 +2272,7 @@ export type OrchestrationV2LatestVisibleMessageSummary =
   typeof OrchestrationV2LatestVisibleMessageSummary.Type;
 
 export const OrchestrationV2ThreadShell = Schema.Struct({
+  champion: Schema.optional(Schema.Struct({ id: Schema.String, attention: Schema.Boolean })),
   followupSourceRevision: Schema.optional(TrimmedNonEmptyString),
   advisorClosedAt: Schema.optional(Schema.DateTimeUtc),
   agentTask: Schema.optional(AgentTaskBinding),

@@ -1,4 +1,18 @@
 import {
+  ChampionListInput,
+  ChampionListResult,
+  ChampionGetInput,
+  ChampionDetail,
+  ChampionHistoryInput,
+  ChampionHistoryResult,
+  ChampionUpsertInput,
+  ChampionLifecycleInput,
+  ChampionProposeInput,
+  ChampionAcceptInput,
+  ChampionFindingActionInput,
+  ChampionError,
+} from "./champions.ts";
+import {
   Experiment,
   ExperimentDefinition,
   ExperimentTransitionInput,
@@ -621,6 +635,19 @@ export const WS_METHODS = {
   forgeHomeDecide: "build.home.decide",
   forgeHomeAnswer: "build.home.answer",
 
+  championsList: "champions.list",
+  championsSubscribe: "champions.subscribe",
+  championsGet: "champions.get",
+  championsHistory: "champions.history",
+  championsUpsert: "champions.upsert",
+  championsSetLifecycle: "champions.setLifecycle",
+  championsSetup: "champions.setup",
+  championsRunCheck: "champions.runCheck",
+  championsPropose: "champions.propose",
+  championsDiscardProposal: "champions.discardProposal",
+  championsCancelSetup: "champions.cancelSetup",
+  championsAccept: "champions.accept",
+  championsFindingAction: "champions.findingAction",
   scheduledTasksList: "scheduledTasks.list",
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   scheduledTasksUpsert: "scheduledTasks.upsert",
@@ -2111,6 +2138,72 @@ const WsForgeHomeAnswerRpc = Rpc.make(WS_METHODS.forgeHomeAnswer, {
   error: Schema.Union([ForgeHomeError, EnvironmentAuthorizationError]),
 });
 
+const WsChampionsListRpc = Rpc.make(WS_METHODS.championsList, {
+  payload: ChampionListInput,
+  success: ChampionListResult,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsSubscribeRpc = Rpc.make(WS_METHODS.championsSubscribe, {
+  payload: ChampionListInput,
+  success: ChampionListResult,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+const WsChampionsGetRpc = Rpc.make(WS_METHODS.championsGet, {
+  payload: ChampionGetInput,
+  success: ChampionDetail,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsHistoryRpc = Rpc.make(WS_METHODS.championsHistory, {
+  payload: ChampionHistoryInput,
+  success: ChampionHistoryResult,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsUpsertRpc = Rpc.make(WS_METHODS.championsUpsert, {
+  payload: ChampionUpsertInput,
+  success: ChampionDetail,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsSetLifecycleRpc = Rpc.make(WS_METHODS.championsSetLifecycle, {
+  payload: ChampionLifecycleInput,
+  success: ChampionDetail,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsSetupRpc = Rpc.make(WS_METHODS.championsSetup, {
+  payload: ChampionGetInput,
+  success: ChampionDetail,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsRunCheckRpc = Rpc.make(WS_METHODS.championsRunCheck, {
+  payload: ChampionGetInput,
+  success: ChampionDetail,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsProposeRpc = Rpc.make(WS_METHODS.championsPropose, {
+  payload: ChampionProposeInput,
+  success: ChampionDetail,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsDiscardProposalRpc = Rpc.make(WS_METHODS.championsDiscardProposal, {
+  payload: ChampionGetInput,
+  success: ChampionDetail,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsCancelSetupRpc = Rpc.make(WS_METHODS.championsCancelSetup, {
+  payload: ChampionGetInput,
+  success: ChampionDetail,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsAcceptRpc = Rpc.make(WS_METHODS.championsAccept, {
+  payload: ChampionAcceptInput,
+  success: ChampionDetail,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsFindingActionRpc = Rpc.make(WS_METHODS.championsFindingAction, {
+  payload: ChampionFindingActionInput,
+  success: ChampionDetail,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
 const WsScheduledTasksListRpc = Rpc.make(WS_METHODS.scheduledTasksList, {
   payload: ScheduledTaskListInput,
   success: ScheduledTaskListResult,
@@ -2493,10 +2586,27 @@ export const WsHqRpcGroup = RpcGroup.make(WsHqSignInStartRpc, WsHqDisconnectRpc)
 
 export const WsAwayRpcGroup = RpcGroup.make(WsServerSetAwayRpc).middleware(RpcScopeAuthorization);
 
+export const WsChampionsRpcGroup = RpcGroup.make(
+  WsChampionsListRpc,
+  WsChampionsSubscribeRpc,
+  WsChampionsGetRpc,
+  WsChampionsHistoryRpc,
+  WsChampionsUpsertRpc,
+  WsChampionsSetLifecycleRpc,
+  WsChampionsSetupRpc,
+  WsChampionsRunCheckRpc,
+  WsChampionsProposeRpc,
+  WsChampionsAcceptRpc,
+  WsChampionsDiscardProposalRpc,
+  WsChampionsCancelSetupRpc,
+  WsChampionsFindingActionRpc,
+).middleware(RpcScopeAuthorization);
+
 /** Every RPC the WebSocket serves. */
 export const WsRpcGroup = WsCoreRpcGroup.merge(WsPullRequestRpcGroup)
   .merge(WsPeersRpcGroup)
   .merge(WsHqRpcGroup)
   .merge(WsGuestShareRpcGroup)
   .merge(WsThreadStructureRpcGroup)
-  .merge(WsAwayRpcGroup);
+  .merge(WsAwayRpcGroup)
+  .merge(WsChampionsRpcGroup);

@@ -1,3 +1,4 @@
+import { championNeedsInbox } from "./threadInbox.ts";
 import type {
   AgentRole,
   EnvironmentId,
@@ -671,7 +672,8 @@ export function createEnvironmentThreadShellAtoms(input: {
           seen.add(key);
           const thread = threads.get(ref.threadId);
           if (thread !== undefined) {
-            next.push(scopedThread(ref.environmentId, thread, subagentRequests));
+            const scoped = scopedThread(ref.environmentId, thread, subagentRequests);
+            if (championNeedsInbox(scoped)) next.push(scoped);
           }
         }
       }
@@ -702,7 +704,8 @@ export function createEnvironmentThreadShellAtoms(input: {
     for (const environmentId of enabledEnvironmentIds(get(input.catalogValueAtom))) {
       const subagentRequests = get(pendingSubagentRequestsAtom(environmentId));
       for (const thread of get(environmentListedThreadsAtom(environmentId))) {
-        next.push(scopedThread(environmentId, thread, subagentRequests));
+        const scoped = scopedThread(environmentId, thread, subagentRequests);
+        if (championNeedsInbox(scoped)) next.push(scoped);
       }
     }
     if (arrayElementsEqual(previousThreadShells, next)) {
@@ -719,7 +722,7 @@ export function createEnvironmentThreadShellAtoms(input: {
     const next: EnvironmentThreadShell[] = [];
     for (const ref of get(threadRefsAtom)) {
       const shell = get(quietThreadShellAtomFamily(threadKey(ref)));
-      if (shell !== null) next.push(shell);
+      if (shell !== null && championNeedsInbox(shell)) next.push(shell);
     }
     if (arrayElementsEqual(previousQuietThreadShells, next)) return previousQuietThreadShells;
     previousQuietThreadShells = next;
@@ -734,7 +737,8 @@ export function createEnvironmentThreadShellAtoms(input: {
       for (const thread of get(environmentListedThreadsAtom(environmentId))) {
         if (thread.archivedAt !== null || thread.lineage.relationshipToParent === "subagent")
           continue;
-        next.push(scopedThread(environmentId, thread, subagentRequests));
+        const scoped = scopedThread(environmentId, thread, subagentRequests);
+        if (championNeedsInbox(scoped)) next.push(scoped);
       }
     }
     if (arrayElementsEqual(previousNavigationShells, next)) return previousNavigationShells;

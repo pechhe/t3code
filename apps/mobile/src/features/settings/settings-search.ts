@@ -31,6 +31,7 @@ const SETTINGS_SEARCH_TERMS = {
   SettingsKeyboard: ["return key", "send message", "new line", "hardware keyboard"],
   SettingsMicrophone: ["voice", "dictation", "audio input", "bluetooth"],
   SettingsScheduledTasks: ["automations", "schedule", "cron", "recurring", "webhook"],
+  SettingsChampions: ["metrics", "health", "quality", "findings", "monitor"],
   SettingsProjectOverview: ["project", "checkouts", "worktrees", "delete project"],
   SettingsOrganization: ["project grouping", "group projects", "sidebar"],
   SettingsThreads: [

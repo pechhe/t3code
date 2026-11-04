@@ -107,6 +107,10 @@ import {
   SettingsScheduledTaskNewRouteScreen,
   SettingsScheduledTaskEditRouteScreen,
 } from "./features/settings/SettingsScheduledTasksRouteScreen";
+import {
+  SettingsChampionDetailRouteScreen,
+  SettingsChampionsRouteScreen,
+} from "./features/settings/SettingsChampionsRouteScreen";
 import { ScheduledTaskBranchPickerRouteScreen } from "./features/settings/ScheduledTaskPickerScreens";
 import { SettingsKeyboardRouteScreen } from "./features/settings/SettingsKeyboardRouteScreen";
 import { SettingsLegalRouteScreen } from "./features/settings/SettingsLegalRouteScreen";
@@ -387,6 +391,15 @@ const SETTINGS_SCREENS = {
       title: "Scheduled Tasks",
       headerTitleStyle: { fontSize: 16, fontWeight: "800" },
     },
+  }),
+  SettingsChampions: createNativeStackScreen({
+    screen: SettingsChampionsRouteScreen,
+    linking: "settings/champions",
+    options: { ...SETTINGS_PAGE_OPTIONS, title: "Champions" },
+  }),
+  SettingsChampionDetail: createNativeStackScreen({
+    screen: SettingsChampionDetailRouteScreen,
+    options: { ...SETTINGS_PAGE_OPTIONS, title: "Champion" },
   }),
   SettingsScheduledTaskNew: createNativeStackScreen({
     screen: SettingsScheduledTaskNewRouteScreen,

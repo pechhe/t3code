@@ -1,3 +1,4 @@
+import * as Champions from "../champions/ChampionService.ts";
 import * as GuestShareService from "../guest/GuestShareService.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
@@ -314,6 +315,11 @@ const layerScheduledTaskProvided = ScheduledTaskService.layer.pipe(
     ),
   ),
 );
+const layerChampionsProvided = Champions.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(layerThreadLaunchProvided, layerThreadManagementProvided, layerProjectService),
+  ),
+);
 const layerThreadProjectMoveProvided = ThreadProjectMoveService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
@@ -416,6 +422,7 @@ export const layerProduction = Layer.mergeAll(
   layerWorkspaceAttachmentsProvided,
   layerThreadLifecycleProvided,
   layerScheduledTaskProvided,
+  layerChampionsProvided,
   layerThreadProjectMoveProvided,
   RunSetupRecorder.storeLayer,
   layerSecretRequestsProvided,

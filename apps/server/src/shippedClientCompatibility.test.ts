@@ -115,3 +115,14 @@ it("a client that predates endedThreadWatches still decodes a thread shell that 
   });
   assert.deepEqual(Object.keys(decoded).toSorted(), ["id", "title"]);
 });
+
+it("a shipped client ignores additive champion owner metadata on an ordinary thread shell", () => {
+  const { id, title, threadWatches } = OrchestrationV2ThreadShell.fields;
+  const shippedShell = Schema.Struct({ id, title, threadWatches });
+  const decoded = Schema.decodeUnknownSync(shippedShell)({
+    id: "thread-champion",
+    title: "Quality",
+    champion: { id: "quality", attention: false },
+  });
+  assert.deepEqual(Object.keys(decoded).toSorted(), ["id", "title"]);
+});

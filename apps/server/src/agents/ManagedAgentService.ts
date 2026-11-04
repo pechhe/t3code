@@ -133,6 +133,8 @@ type Authority = {
    * current checkout does not have to be it.
    */
   readonly retainsWorkspace?: boolean;
+  /** Admission only: ThreadLaunch will allocate the named Spec's workspace before any turn. */
+  readonly allocatesWorkspace?: boolean;
 };
 const decodeExternalSession = Schema.decodeUnknownEffect(
   Schema.fromJsonString(AgentExternalSession),
@@ -357,14 +359,22 @@ const make = Effect.gen(function* () {
     const lead = retained
       ? expected
       : (authority.workspacePath ??
-        (assignment === "isolated" || (!writes && (pinnedReader || assignment === "lead"))
+        (assignment === "isolated" ||
+        (authority.allocatesWorkspace === true && request.role === "lead") ||
+        (!writes && (pinnedReader || assignment === "lead"))
           ? authority.projectRoot
           : undefined));
     if (!path.isAbsolute(expected))
       return yield* refuse(`workspacePath must be absolute, got ${expected}`);
     // Another project holds no checkout of the caller's, so only pinned readers and isolated
     // writers go there.
-    if (authority.foreignProject === true && assignment === "lead" && !pinnedReader && !retained)
+    if (
+      authority.foreignProject === true &&
+      assignment === "lead" &&
+      !pinnedReader &&
+      !retained &&
+      !(authority.allocatesWorkspace === true && request.role === "lead")
+    )
       return yield* refuse(
         'this thread has no workspace of its own in that project; pin sourceRevision for read-only work there, or pass workspaceAssignment "isolated" with a separately allocated workspace',
       );

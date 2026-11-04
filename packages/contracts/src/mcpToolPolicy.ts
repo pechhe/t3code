@@ -105,6 +105,7 @@ export const toolFamily = (name: string): ToolFamily => {
   if (REPORT_TOOLS.has(name)) return "report";
   if (LEAF_TOOLS.has(name)) return "leaf";
   if (SCHEDULING_TOOLS.has(name)) return "scheduling";
+  if (name.startsWith("t3_champions_")) return "scheduling";
   if (name.startsWith("t3_experiments_")) return "experiments";
   // Work-unit allocation and evidence are an implementer's tools, not a researcher's.
   if (name.startsWith("t3_work_")) return "work";

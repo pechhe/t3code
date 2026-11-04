@@ -1,3 +1,7 @@
+import * as Champions from "../champions/ChampionService.ts";
+import * as Scheduler from "../scheduling/Scheduler.ts";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import { ProviderThreadId, type ChampionFinding } from "@t3tools/contracts";
 import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -258,6 +262,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
     ) => ReadonlyArray<OrchestrationV2ThreadShell> = () => [],
     bound = true,
     options: {
+      readonly champion?: boolean;
       readonly register?: ReadonlyArray<"foreign" | "twin">;
       readonly scratch?: boolean;
       /** The lead holds the other project's isolated workspace as a live attachment. */
@@ -308,7 +313,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           ? [["twin-project", `${foreign}/packages/app`] as const]
           : []),
       ]);
-      const parent = {
+      let parent = {
         thread: {
           id: threadId,
           projectId,
@@ -348,7 +353,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         contextTransfers: [],
         subagents: [],
       } as unknown as OrchestrationV2ThreadProjection;
-      const scope: McpInvocationScope = {
+      let scope: McpInvocationScope = {
         environmentId: EnvironmentId.make("managed-environment"),
         requestNamespace: "lead-caller",
         thread: {
@@ -377,9 +382,18 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             ),
           ),
       });
+      let championLaunched = false;
+      const children = new Map<ThreadId, OrchestrationV2ThreadShell>();
       const transport = Layer.mergeAll(
         Layer.mock(Threads.ThreadManagementService)({
           getThreadRecords: () => Effect.succeed(parent),
+          getThreadShell: (id) =>
+            Effect.succeed(
+              id === parent.thread.id && (!options.champion || championLaunched)
+                ? (parent.thread as unknown as OrchestrationV2ThreadShell)
+                : (children.get(id) ?? null),
+            ),
+          getReceipt: () => Effect.succeed(Option.none()),
           hasReceipt: () => Effect.succeed(false),
           isProviderInstanceEnabledForProject: () => Effect.succeed(true),
           listProjectThreads: (input) =>
@@ -388,6 +402,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             ),
           dispatch: (command) =>
             Effect.suspend(() => {
+              if (options.champion && command.type !== "delegated_task.request")
+                return Effect.succeed({ sequence: 1, storedEvents: [] } as never);
               dispatched.push(command);
               locked.push(holding > 0);
               // Stop after capture: launching the child is the orchestrator's concern.
@@ -416,10 +432,111 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         Layer.mock(Secrets.SecretRequests)({}),
         Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
         Layer.mock(Scheduled.ScheduledTaskService)({}),
-        Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
+        Layer.mock(ThreadLaunch.ThreadLaunchService)({
+          launch: (input) =>
+            Effect.sync(() => {
+              championLaunched = true;
+              const providerThreadId = ProviderThreadId.make("champion-provider");
+              parent = {
+                ...parent,
+                thread: {
+                  ...parent.thread,
+                  id: input.threadId!,
+                  activeRunId: RunId.make("lead-run"),
+                  activeProviderThreadId: providerThreadId,
+                  archivedAt: null,
+                  deletedAt: null,
+                },
+                runs: [
+                  {
+                    ...parent.runs[0]!,
+                    userMessageId: input.initialMessage!.messageId!,
+                    providerThreadId,
+                    modelSelection: parent.thread.modelSelection,
+                  },
+                ],
+                providerThreads: [{ id: providerThreadId, providerSessionId: "lead-session" }],
+              } as unknown as OrchestrationV2ThreadProjection;
+              return { threadId: input.threadId!, projection: parent, resumed: false };
+            }),
+        }),
         Layer.mock(GitVcs.GitVcsDriver)({}),
         Settings.layerTest(),
       );
+      let champion:
+        | { service: Champions.ChampionService["Service"]; finding: ChampionFinding }
+        | undefined;
+      if (options.champion) {
+        const service = yield* Effect.gen(function* () {
+          return yield* Champions.ChampionService;
+        }).pipe(
+          Effect.provide(
+            Champions.layer.pipe(
+              Layer.provide(transport),
+              Layer.provide(NodeCrypto.layer),
+              Layer.provide(Layer.mock(Scheduler.Scheduler)({ register: () => Effect.void })),
+            ),
+          ),
+        );
+        const doc = yield* service.upsert({
+          id: "managed-champion",
+          projectId,
+          name: "Managed health",
+          purpose: "Own improvements",
+          schedule: { type: "interval", everyMs: 60000 },
+          setupModelSelection: { instanceId: claude.instanceId, model: "claude-fable-test" },
+          routineModelSelection: parent.thread.modelSelection,
+          charter: {
+            maxConcurrentRepairs: 1,
+            maxRepairsPerDay: 3,
+            instructions: "Use normal managed roles",
+          },
+        });
+        scope = { ...scope, thread: { ...scope.thread!, threadId: doc.champion.ownerThreadId } };
+        parent = { ...parent, thread: { ...parent.thread, id: doc.champion.ownerThreadId } };
+        yield* service.propose({
+          id: doc.champion.id,
+          reason: "Measure health",
+          metrics: [
+            {
+              id: "errors",
+              name: "Errors",
+              description: "",
+              unit: "count",
+              source: "fixture",
+              context: "",
+              direction: "lower",
+              minimum: null,
+              maximum: 0,
+            },
+          ],
+        });
+        yield* service.accept({ id: doc.champion.id });
+        yield* service.setLifecycle({ id: doc.champion.id, lifecycle: "active" });
+        yield* service.runCheck({ id: doc.champion.id });
+        const report = yield* service.report(scope.thread, {
+          samples: [
+            {
+              metricId: "errors",
+              version: 1,
+              unit: "count",
+              status: "measured",
+              value: 1,
+              observedAt: "1970-01-01T00:00:00Z",
+              source: "fixture",
+              evidence: "One observed error",
+              revision: null,
+            },
+          ],
+          findings: [],
+          summary: "Own the finding",
+        });
+        champion = { service, finding: report.findings[0]! };
+      }
+      const championLayer =
+        champion === undefined
+          ? Layer.empty
+          : Layer.succeed(Champions.ChampionService, champion.service);
       const delegate = (
         input: Parameters<Mcp.OrchestratorMcpService["Service"]["delegateTask"]>[1],
       ) =>
@@ -431,6 +548,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             Mcp.layer.pipe(
               Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
               Layer.provide(transport),
+              Layer.provide(championLayer),
               Layer.provide(WorkspaceProvider.layerGitWorktree),
             ),
           ),
@@ -456,6 +574,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             Mcp.layer.pipe(
               Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
               Layer.provide(transport),
+              Layer.provide(championLayer),
               Layer.provide(WorkspaceProvider.layerGitWorktree),
             ),
           ),
@@ -465,6 +584,28 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           ),
         );
       return {
+        champion,
+        scope,
+        addChild: (finding: ChampionFinding, role: string) => {
+          const id = ThreadId.make(`champion-child:${role}`);
+          children.set(id, {
+            id,
+            projectId,
+            agentTask: { workId: finding.workId, attemptId: finding.attemptId, role },
+          } as OrchestrationV2ThreadShell);
+          parent = {
+            ...parent,
+            subagents: [
+              ...parent.subagents,
+              {
+                origin: "app_owned",
+                childThreadId: id,
+                status: "completed",
+                result: "Challenge completed",
+              } as (typeof parent.subagents)[number],
+            ],
+          };
+        },
         lead,
         helper,
         foreign,
@@ -753,6 +894,67 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       );
       expect(h.dispatched).toHaveLength(0);
     }),
+  );
+
+  it.effect(
+    "champion advice uses its explicit stronger selection through managed policy, and its Spec lead requests normal isolated allocation",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* harness(undefined, false, { champion: true });
+        const { service, finding } = h.champion!;
+        const advice = {
+          task: "Challenge this larger improvement",
+          clientRequestId: "champion-advice",
+          agentTask: request({
+            role: "advisor",
+            workId: finding.workId,
+            attemptId: finding.attemptId,
+            workspacePath: h.lead,
+            readOnly: true,
+            sourceRevision: "source-pin",
+          }),
+        };
+        const refused = yield* h.delegate({
+          ...advice,
+          target: { providerInstanceId: codex.instanceId, model: codexModel },
+        });
+        expect(refused.code).toBe("capability_denied");
+        expect(h.dispatched).toHaveLength(0);
+        yield* h.delegate(advice);
+        expect(h.dispatched).toHaveLength(1);
+        const advisory = h.dispatched[0] as {
+          modelSelection: ModelSelection;
+          agentTask: AgentTaskBinding;
+        };
+        expect(advisory.modelSelection).toMatchObject({
+          instanceId: claude.instanceId,
+          model: "claude-fable-test",
+        });
+        expect(advisory.agentTask.role).toBe("advisor");
+        h.addChild(finding, "advisor");
+        yield* service.updateDelivery(h.scope.thread, {
+          findingId: finding.id,
+          action: "spec",
+          specUrl: "forge://9",
+          evidence: "Advisor challenged and owner shaped the Spec",
+        });
+        const leadFailure = yield* h.delegate({
+          task: "Run shaped Spec 9",
+          clientRequestId: "champion-spec",
+          forgeItem: 9,
+          agentTask: request({
+            role: "lead",
+            taskClass: "mixed",
+            workId: finding.workId,
+            attemptId: finding.attemptId,
+            workspacePath: h.lead,
+          }),
+        });
+        expect(h.dispatched, leadFailure.message).toHaveLength(2);
+        const lead = h.dispatched[1] as { workspaceStrategy: unknown; agentTask: AgentTaskBinding };
+        expect(lead.agentTask.role).toBe("lead");
+        expect(lead.workspaceStrategy).toEqual({ type: "worktree", baseRef: "HEAD", forgeItem: 9 });
+      }),
   );
 
   it.effect("starts a Spec lead in its Forge item's workspace, and lets it delegate leaves", () =>

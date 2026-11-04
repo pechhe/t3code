@@ -1041,3 +1041,47 @@ function settleAfterRunState(input: {
     ],
   } as unknown as OrchestrationV2ThreadProjection;
 }
+
+it.effect(
+  "retains a champion owner's thread and workspace while accepted children are live",
+  () => {
+    const threadId = ThreadId.make("champion:owner");
+    const layerTest = ThreadManagementService.layer.pipe(
+      Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
+      Layer.provide(
+        Layer.mock(Orchestrator.OrchestratorV2)({
+          getThreadShell: () =>
+            Effect.succeed({
+              id: threadId,
+              champion: { id: "quality", attention: true },
+            } as OrchestrationV2ThreadShell),
+          getThreadRecords: () =>
+            Effect.succeed({
+              subagents: [{ origin: "app_owned", childThreadId: "child", status: "running" }],
+            } as unknown as OrchestrationV2ThreadProjection),
+          dispatch: () =>
+            Effect.die("A live champion owner's archive/replacement must not reach dispatch."),
+        }),
+      ),
+      Layer.provide(ServerSettings.layerTest()),
+      Layer.provide(layerReceiptsTest),
+    );
+    const commands: OrchestrationV2ServerCommand[] = [
+      { type: "thread.archive", threadId, commandId: CommandId.make("champion:archive") },
+      { type: "thread.delete", threadId, commandId: CommandId.make("champion:delete") },
+      {
+        type: "thread.metadata.update",
+        threadId,
+        commandId: CommandId.make("champion:replace"),
+        worktreePath: "/replacement",
+      },
+    ];
+    return Effect.gen(function* () {
+      const threads = yield* ThreadManagementService.ThreadManagementService;
+      for (const command of commands) {
+        const error = yield* threads.dispatch(command).pipe(Effect.flip);
+        expect(error._tag).toBe("OrchestratorCommandRejectedError");
+      }
+    }).pipe(Effect.provide(layerTest));
+  },
+);

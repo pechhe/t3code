@@ -249,6 +249,7 @@ function useSettingsIndexSections(): SettingsListSection[] {
       title: "Automations",
       rows: [
         page("SettingsScheduledTasks", "clock", "Scheduled tasks"),
+        page("SettingsChampions", "checkmark.shield", "Champions"),
         page("SettingsExperiments", "slider.horizontal.3", "Experiments"),
       ],
     },

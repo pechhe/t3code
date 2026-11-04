@@ -1033,6 +1033,10 @@ export function createServerEnvironmentAtoms<R, E>(
     readonly environmentId: EnvironmentId;
     readonly input: EnvironmentRpcInput<typeof WS_METHODS.subscribeServerLifecycle>;
   }) => welcomeFamily(target.environmentId);
+  const championsLive = createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+    label: "environment-data:champions:live",
+    tag: WS_METHODS.championsSubscribe,
+  });
   const updateSettings = createEnvironmentRpcCommand(runtime, {
     label: "environment-data:server:update-settings",
     tag: WS_METHODS.serverUpdateSettings,
@@ -1160,6 +1164,17 @@ export function createServerEnvironmentAtoms<R, E>(
     scheduledTaskWebhookDelivery: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:scheduled-task:webhook-delivery",
       tag: WS_METHODS.scheduledTasksGetWebhookDelivery,
+    }),
+    championsLive,
+    championDetail: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:champions:detail",
+      tag: WS_METHODS.championsGet,
+      refreshTrigger: ({ environmentId }) => championsLive({ environmentId, input: {} }),
+    }),
+    championHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:champions:history",
+      tag: WS_METHODS.championsHistory,
+      refreshTrigger: ({ environmentId }) => championsLive({ environmentId, input: {} }),
     }),
     scheduledTasksLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:scheduled-tasks:live",
@@ -1396,6 +1411,42 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.experimentsTransition,
       scheduler: configScheduler,
       concurrency: configConcurrency,
+    }),
+    upsertChampion: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:champions:Upsert",
+      tag: WS_METHODS.championsUpsert,
+    }),
+    setChampionLifecycle: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:champions:SetLifecycle",
+      tag: WS_METHODS.championsSetLifecycle,
+    }),
+    setupChampion: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:champions:Setup",
+      tag: WS_METHODS.championsSetup,
+    }),
+    runChampionCheck: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:champions:RunCheck",
+      tag: WS_METHODS.championsRunCheck,
+    }),
+    proposeChampionMetrics: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:champions:Propose",
+      tag: WS_METHODS.championsPropose,
+    }),
+    discardChampionProposal: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:champions:discard-proposal",
+      tag: WS_METHODS.championsDiscardProposal,
+    }),
+    cancelChampionSetup: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:champions:cancel-setup",
+      tag: WS_METHODS.championsCancelSetup,
+    }),
+    acceptChampionMetrics: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:champions:Accept",
+      tag: WS_METHODS.championsAccept,
+    }),
+    championFindingAction: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:champions:FindingAction",
+      tag: WS_METHODS.championsFindingAction,
     }),
     upsertScheduledTask: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:scheduled-task:upsert",

@@ -60,6 +60,33 @@ const setup = Effect.gen(function* () {
 });
 
 describe("command permissions", () => {
+  it.effect.each([
+    WS_METHODS.championsUpsert,
+    WS_METHODS.championsSetLifecycle,
+    WS_METHODS.championsSetup,
+    WS_METHODS.championsRunCheck,
+    WS_METHODS.championsPropose,
+    WS_METHODS.championsDiscardProposal,
+    WS_METHODS.championsCancelSetup,
+    WS_METHODS.championsAccept,
+    WS_METHODS.championsFindingAction,
+  ])("authorizes champion mutations against the destination environment: %s", (method) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const command = createCommandPermissions(runtime, method);
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        registry.set(sessions(other), AsyncResult.success(grant(false)));
+        expect(registry.get(command.permissionAtom(env))).toBe(true);
+        yield* command.authorize(registry, env);
+        expect(registry.get(command.permissionAtom(other))).toBe(false);
+        expect((yield* command.authorize(registry, other).pipe(Effect.flip))._tag).toBe(
+          "EnvironmentAuthorizationError",
+        );
+      }),
+    ),
+  );
+
   it.effect("requires the destination preview grant to close a browser tab", () =>
     Effect.scoped(
       Effect.gen(function* () {

@@ -1,6 +1,8 @@
 import { DecisionToolkit } from "./toolkits/decisions/tools.ts";
 import * as DecisionHandlers from "./toolkits/decisions/handlers.ts";
 import * as DecisionService from "../decisions/DecisionService.ts";
+import { ChampionsToolkit } from "./toolkits/champions/tools.ts";
+import * as ChampionsHandlers from "./toolkits/champions/handlers.ts";
 import { WebToolkit } from "./toolkits/web/tools.ts";
 import * as WebHandlers from "./toolkits/web/handlers.ts";
 import * as WebResearch from "./WebResearch.ts";
@@ -1212,6 +1214,7 @@ export const layerSessionToolkits = (families: ReadonlySet<ToolFamily>) =>
       ? toolkitRegistration(TerminalToolkit, TerminalHandlers.layer)
       : Layer.empty,
     families.has("workspace") ? layerPullRequestsToolkit : Layer.empty,
+    sessionToolkitRegistration(ChampionsToolkit, ChampionsHandlers.handlers, families),
     sessionToolkitRegistration(ExperimentsToolkit, ExperimentsHandlers.handlers, families),
   );
 
@@ -1287,6 +1290,7 @@ const legacyLayer = Layer.mergeAll(
   toolkitRegistration(FleetToolkit, FleetHandlers.layer),
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
+  toolkitRegistration(ChampionsToolkit, ChampionsHandlers.layer),
   toolkitRegistration(ExperimentsToolkit, ExperimentsHandlers.layer).pipe(
     Layer.provide(layerOrchestratorMcpService),
   ),

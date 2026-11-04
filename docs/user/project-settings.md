@@ -70,6 +70,40 @@ to override its environment defaults. Worktree directories keep their original n
 If generation fails, or a custom name is invalid or already taken, the temporary
 branch name remains.
 
+## Champions
+
+Use **Champions** to give an agent an ongoing responsibility for a project, such
+as keeping page loads fast or tests reliable. Each champion shows the measurements
+it tracks and an activity feed of findings, work and results.
+
+Create a champion with a purpose and project, then ask it to propose metrics.
+Setup uses the stronger model you choose; recurring checks use a separate model
+so routine monitoring need not incur the same cost. Review the suggested metrics,
+edit them if needed, and accept them before enabling checks. Advanced settings
+control the cadence, model selections and the limits on automatic repairs.
+
+Expand a metric to inspect its source and history. Missing measurements are
+unknown, not zero. Changing what a metric measures starts a separate series;
+earlier readings remain available. **Ask AI to review metrics** asks the setup model for a
+new proposal without silently changing the accepted definitions.
+
+A champion can delegate bounded repairs within its instructions and limits.
+Larger work goes through normal Spec shaping and delivery. Ordinary checks stay
+out of the chat list; decisions and interrupted work come to your inbox. The
+activity feed links to the underlying work. A returned change or a landing alone
+does not prove improvement: the champion needs comparable measurements of the
+running version.
+
+Pausing stops new scheduled checks and repair dispatch, while existing work
+continues. A manual check while paused measures only. Resuming starts from the
+next due time rather than replaying every missed check. Retiring stops future
+checks and preserves the history and any unfinished work.
+
+On native mobile, open **Settings → Champions** to see current readings, manage
+checks and respond to findings or decisions. Create champions and edit metric
+definitions on web or desktop; those clients also show the complete activity
+history.
+
 ## Scheduled tasks
 
 On web and desktop, open **Scheduled** from the sidebar's bottom row, next to Usage.

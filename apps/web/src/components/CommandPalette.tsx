@@ -66,6 +66,7 @@ import {
   PaletteIcon,
   RotateCcwIcon,
   SettingsIcon,
+  ShieldCheckIcon,
   SquarePenIcon,
   TextSearchIcon,
   UserPlusIcon,
@@ -1640,6 +1641,17 @@ function OpenCommandPaletteDialog(props: {
     icon: <CalendarClockIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({ to: "/scheduled" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:champions",
+    searchTerms: ["champions", "champion", "metrics", "health", "quality", "monitor", "findings"],
+    title: "Open champions",
+    icon: <ShieldCheckIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/champions" });
     },
   });
 

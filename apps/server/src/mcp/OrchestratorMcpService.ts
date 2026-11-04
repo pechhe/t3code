@@ -1,3 +1,5 @@
+import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
+import * as Champions from "../champions/ChampionService.ts";
 import { defaultChildMode } from "../agents/delegationRuntime.ts";
 import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as ExternalWork from "../agents/ExternalAgentWorkService.ts";
@@ -84,7 +86,6 @@ import {
   type ProviderInteractionMode,
   type ProviderInstanceId,
   type ProviderOptionDescriptor,
-  type ProviderOptionSelection,
   ProviderRequestKind,
   type RuntimeMode,
   type ScheduledTask,
@@ -526,41 +527,6 @@ function selectionOf(
       ...(target.options === undefined ? {} : { options: target.options }),
     },
   };
-}
-
-/** Skip checks without descriptors; reject duplicate IDs because consumers disagree on precedence. */
-function invalidOptionSelections(
-  selections: ReadonlyArray<ProviderOptionSelection>,
-  descriptors: ReadonlyArray<ProviderOptionDescriptor> | undefined,
-): ReadonlyArray<string> {
-  const problems: Array<string> = [];
-  const seen = new Set<string>();
-  for (const selection of selections) {
-    if (seen.has(selection.id)) {
-      problems.push(`Option ${selection.id} was specified more than once.`);
-      continue;
-    }
-    seen.add(selection.id);
-    if (descriptors === undefined) continue;
-    const descriptor = descriptors.find((candidate) => candidate.id === selection.id);
-    if (descriptor === undefined) {
-      const known = descriptors.map((candidate) => candidate.id).join(", ");
-      problems.push(`Unknown option ${selection.id}; supported options: ${known || "none"}.`);
-      continue;
-    }
-    if (descriptor.type === "boolean" && typeof selection.value !== "boolean") {
-      problems.push(`Option ${selection.id} expects a boolean value.`);
-      continue;
-    }
-    if (
-      descriptor.type === "select" &&
-      !descriptor.options.some((choice) => choice.id === selection.value)
-    ) {
-      const choices = descriptor.options.map((choice) => choice.id).join(", ");
-      problems.push(`Option ${selection.id} must be one of: ${choices}.`);
-    }
-  }
-  return problems;
 }
 
 function taskStatusForRun(
@@ -1241,6 +1207,7 @@ const make = Effect.gen(function* () {
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const providerAdapters = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
+  const champions = yield* Effect.serviceOption(Champions.ChampionService);
   const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
   const projects = yield* ProjectService.ProjectService;
   const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
@@ -2616,867 +2583,1012 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
       return { ...result, environmentId: scope.environmentId };
     }),
-    delegateTask: Effect.fn("OrchestratorMcpService.delegateTask")(function* (callerScope, input) {
-      if (
-        input.followup !== undefined &&
-        (input.agentTask !== undefined ||
-          input.target !== undefined ||
-          input.isolation !== undefined ||
-          input.forgeItem !== undefined ||
-          input.offPolicyReason !== undefined ||
-          input.runtimeMode !== undefined ||
-          input.interactionMode !== undefined ||
-          input.role !== undefined ||
-          input.title !== undefined ||
-          input.clientRequestId === undefined)
-      )
-        return yield* failure(
-          "invalid_request",
-          "Follow-ups require a stable clientRequestId and retain their original role, model, workspace and modes.",
-        );
-      // Managed work binds and validates its checkout before launch, so it names one
-      // through workspaceAssignment rather than a worktree T3 creates afterwards.
-      if (input.agentTask !== undefined && input.isolation === "worktree")
-        return yield* failure(
-          "invalid_request",
-          'isolation "worktree" applies only to a delegation without agentTask; managed work uses agentTask.workspaceAssignment "isolated".',
-        );
-      const specLead = input.agentTask?.role === "lead";
-      if (specLead !== (input.forgeItem !== undefined))
-        return yield* failure(
-          "invalid_request",
-          specLead
-            ? "A `lead` task runs one Spec: pass its Forge item as forgeItem."
-            : "forgeItem applies only to agentTask role `lead`.",
-        );
-      if (specLead && input.agentTask?.workspaceAssignment === "isolated")
-        return yield* failure(
-          "invalid_request",
-          "A `lead` task works in its Forge item's own workspace: omit workspaceAssignment.",
-        );
-      if (callerScope.client !== undefined && callerScope.thread === undefined) {
-        const service = yield* external;
-        const accepted = yield* service
-          .submit(callerScope, input)
-          .pipe(Effect.mapError(externalFailure));
-        if (input.mode !== "wait" || accepted.workState === "result_available") return accepted;
-        const budget = Math.min(
-          MAX_WAIT_TIMEOUT_MS,
-          Math.max(1, input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS),
-        );
-        const waited = yield* threadManagement
-          .waitForThread({
-            threadId: accepted.childThreadId,
-            projectId:
-              accepted.agentTask?.externalOwner?.projectId ??
-              (yield* failure("invalid_request", "Missing owned task project.")),
-            timeoutMs: budget,
-          })
-          .pipe(Effect.mapError(threadManagementFailure));
-        const current = yield* service
-          .status(callerScope, accepted.taskId)
-          .pipe(Effect.mapError(externalFailure));
-        return { ...current, waitTimedOut: waited.timedOut };
-      }
-      if (input.externalSessionKey !== undefined)
-        return yield* failure(
-          "invalid_request",
-          "External session bindings require an authenticated external caller.",
-        );
-      const { scope, parent } = yield* loadThreadCaller(callerScope, "delegate_task");
-      if (isLeafAgentTask(parent.thread.agentTask))
-        return yield* failure(
-          "capability_denied",
-          "Managed child tasks cannot delegate recursively.",
-        );
-      if (parent.thread.agentTask?.role === "lead" && specLead)
-        return yield* failure(
-          "capability_denied",
-          "A Spec lead runs one Spec; only an Arc lead starts another `lead`.",
-        );
-      // A Spec lead starts in its parent's own mode, as a thread it launched would.
-      const childRuntimeDefault = specLead
-        ? Effect.succeed<OrchestratorMcpRuntimeMode>("inherit")
-        : serverSettings.getSettings.pipe(
-            Effect.map((settings) => settings.delegation.defaultChildRuntimeMode),
-            Effect.mapError(() =>
-              failure("orchestration_error", "Unable to read delegation settings."),
-            ),
-          );
-      const parentRun = parent.runs
-        .filter(ThreadManagementService.isActiveRun)
-        .toSorted((left, right) => right.ordinal - left.ordinal)[0];
-      if (
-        parentRun === undefined ||
-        parentRun.rootNodeId === null ||
-        parentRun.providerInstanceId !== scope.thread.providerInstanceId
-      ) {
-        return yield* failure(
-          "parent_not_active",
-          "Delegated tasks require an active run owned by this MCP provider session.",
-        );
-      }
-      if (input.followup !== undefined) {
-        const followup = input.followup;
-        const current = yield* readTask(scope, followup.taskId);
-        const child = yield* threadManagement
-          .getThreadRecords(current.childThreadId, ["runs", "messages"])
-          .pipe(Effect.mapError(threadManagementFailure));
-        if (child.thread.advisorClosedAt !== undefined)
-          return yield* failure("invalid_request", "This advisor is closed. Start a new advisor.");
-        const binding = child.thread.agentTask;
-        if (binding === undefined)
-          return yield* failure(
-            "invalid_request",
-            "Only a managed task can continue its conversation.",
-          );
-        const followupTarget = followupBinding(
-          binding,
-          followup,
-          child.thread.followupSourceRevision,
-        );
-        if (followupTarget === undefined)
-          return yield* failure(
-            "invalid_request",
-            "This agent is pinned to a source revision: state the revision its workspace is at now.",
-          );
-        const key = yield* requestKey(input.clientRequestId);
-        const commandId = stableCommandId({
-          scope,
-          requestKey: key,
-          operation: "followup",
-        });
-        const messageId = stableOperationMessageId({
-          scope,
-          requestKey: key,
-          operation: "followup",
-        });
-        const text = followupPrompt(followup, input.task);
-        const priorTask = parent.subagents.find(
-          (task) => task.id === deriveIds.delegatedTaskNode({ commandId }),
-        );
+    delegateTask: Effect.fn("OrchestratorMcpService.delegateTask")(
+      function* (callerScope, input) {
         if (
-          priorTask !== undefined &&
-          (priorTask.childThreadId !== current.childThreadId || priorTask.prompt !== text)
+          input.followup !== undefined &&
+          (input.agentTask !== undefined ||
+            input.target !== undefined ||
+            input.isolation !== undefined ||
+            input.forgeItem !== undefined ||
+            input.offPolicyReason !== undefined ||
+            input.runtimeMode !== undefined ||
+            input.interactionMode !== undefined ||
+            input.role !== undefined ||
+            input.title !== undefined ||
+            input.clientRequestId === undefined)
         )
           return yield* failure(
             "invalid_request",
-            "This follow-up identity already belongs to a different task.",
+            "Follow-ups require a stable clientRequestId and retain their original role, model, workspace and modes.",
           );
-        const prior = child.messages.find((message) => message.id === messageId);
-        if (prior !== undefined) {
-          if (prior.text !== text)
+        // Managed work binds and validates its checkout before launch, so it names one
+        // through workspaceAssignment rather than a worktree T3 creates afterwards.
+        if (input.agentTask !== undefined && input.isolation === "worktree")
+          return yield* failure(
+            "invalid_request",
+            'isolation "worktree" applies only to a delegation without agentTask; managed work uses agentTask.workspaceAssignment "isolated".',
+          );
+        const specLead = input.agentTask?.role === "lead";
+        if (specLead !== (input.forgeItem !== undefined))
+          return yield* failure(
+            "invalid_request",
+            specLead
+              ? "A `lead` task runs one Spec: pass its Forge item as forgeItem."
+              : "forgeItem applies only to agentTask role `lead`.",
+          );
+        if (specLead && input.agentTask?.workspaceAssignment === "isolated")
+          return yield* failure(
+            "invalid_request",
+            "A `lead` task works in its Forge item's own workspace: omit workspaceAssignment.",
+          );
+        if (callerScope.client !== undefined && callerScope.thread === undefined) {
+          const service = yield* external;
+          const accepted = yield* service
+            .submit(callerScope, input)
+            .pipe(Effect.mapError(externalFailure));
+          if (input.mode !== "wait" || accepted.workState === "result_available") return accepted;
+          const budget = Math.min(
+            MAX_WAIT_TIMEOUT_MS,
+            Math.max(1, input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS),
+          );
+          const waited = yield* threadManagement
+            .waitForThread({
+              threadId: accepted.childThreadId,
+              projectId:
+                accepted.agentTask?.externalOwner?.projectId ??
+                (yield* failure("invalid_request", "Missing owned task project.")),
+              timeoutMs: budget,
+            })
+            .pipe(Effect.mapError(threadManagementFailure));
+          const current = yield* service
+            .status(callerScope, accepted.taskId)
+            .pipe(Effect.mapError(externalFailure));
+          return { ...current, waitTimedOut: waited.timedOut };
+        }
+        if (input.externalSessionKey !== undefined)
+          return yield* failure(
+            "invalid_request",
+            "External session bindings require an authenticated external caller.",
+          );
+        const { scope, parent } = yield* loadThreadCaller(callerScope, "delegate_task");
+        if (Option.isSome(champions)) {
+          let request = input.agentTask;
+          let childThreadId: ThreadId | undefined;
+          if (input.followup !== undefined) {
+            const task = yield* readTask(scope, input.followup.taskId);
+            const child = yield* threadManagement
+              .getThreadShell(task.childThreadId)
+              .pipe(Effect.mapError(threadManagementFailure));
+            request = child?.agentTask;
+            childThreadId = task.childThreadId;
+          }
+          const championSelection = yield* champions.value
+            .guardDelegation({
+              ownerThreadId: parent.thread.id,
+              request,
+              clientRequestId: input.clientRequestId,
+              followup: input.followup !== undefined,
+              forgeItem: input.forgeItem,
+              childThreadId,
+            })
+            .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
+          if (championSelection !== undefined) {
+            const explicit = input.target;
+            const selectedProvider = (yield* providerRegistry.getProviders).find(
+              (p) => p.instanceId === championSelection.instanceId,
+            );
+            if (
+              (explicit?.model !== undefined && explicit.model !== championSelection.model) ||
+              (explicit?.providerInstanceId !== undefined &&
+                explicit.providerInstanceId !== championSelection.instanceId) ||
+              (explicit?.driverKind !== undefined &&
+                explicit.driverKind !== selectedProvider?.driver) ||
+              (explicit?.options !== undefined &&
+                (explicit.options.length !== (championSelection.options?.length ?? 0) ||
+                  explicit.options.some(
+                    (o) =>
+                      !championSelection.options?.some((v) => v.id === o.id && v.value === o.value),
+                  )))
+            )
+              return yield* failure(
+                "capability_denied",
+                "Champion advice requires the configured stronger selection; no fallback is allowed.",
+              );
+            input = {
+              ...input,
+              target: {
+                providerInstanceId: championSelection.instanceId,
+                model: championSelection.model,
+                options: championSelection.options,
+              },
+            };
+          }
+        }
+
+        if (isLeafAgentTask(parent.thread.agentTask))
+          return yield* failure(
+            "capability_denied",
+            "Managed child tasks cannot delegate recursively.",
+          );
+        if (parent.thread.agentTask?.role === "lead" && specLead)
+          return yield* failure(
+            "capability_denied",
+            "A Spec lead runs one Spec; only an Arc lead starts another `lead`.",
+          );
+        // A Spec lead starts in its parent's own mode, as a thread it launched would.
+        const childRuntimeDefault = specLead
+          ? Effect.succeed<OrchestratorMcpRuntimeMode>("inherit")
+          : serverSettings.getSettings.pipe(
+              Effect.map((settings) => settings.delegation.defaultChildRuntimeMode),
+              Effect.mapError(() =>
+                failure("orchestration_error", "Unable to read delegation settings."),
+              ),
+            );
+        const parentRun = parent.runs
+          .filter(ThreadManagementService.isActiveRun)
+          .toSorted((left, right) => right.ordinal - left.ordinal)[0];
+        if (
+          parentRun === undefined ||
+          parentRun.rootNodeId === null ||
+          parentRun.providerInstanceId !== scope.thread.providerInstanceId
+        ) {
+          return yield* failure(
+            "parent_not_active",
+            "Delegated tasks require an active run owned by this MCP provider session.",
+          );
+        }
+        if (input.followup !== undefined) {
+          const followup = input.followup;
+          const current = yield* readTask(scope, followup.taskId);
+          const child = yield* threadManagement
+            .getThreadRecords(current.childThreadId, ["runs", "messages"])
+            .pipe(Effect.mapError(threadManagementFailure));
+          if (child.thread.advisorClosedAt !== undefined)
             return yield* failure(
               "invalid_request",
-              "This follow-up identity already belongs to a different question.",
+              "This advisor is closed. Start a new advisor.",
             );
-          return yield* readTask(scope, deriveIds.delegatedTaskNode({ commandId }), false, true);
-        }
-        if (
-          current.workState !== "result_available" ||
-          // Status may derive a terminal child result before parent publication.
-          // Orchestration creates a consultation task only after that publication.
-          !parent.subagents.some((task) => task.id === followup.taskId && task.result !== null) ||
-          current.hasPendingChildRuns ||
-          parent.subagents.some(
-            (task) =>
-              task.childThreadId === current.childThreadId &&
-              task.completionDelivery?.state === "disposed",
-          ) ||
-          child.thread.archivedAt !== null
-        )
-          return yield* failure(
-            "invalid_request",
-            "The agent is busy, awaiting result publication, or closed. Retry after publication; delegate a fresh task for new work.",
+          const binding = child.thread.agentTask;
+          if (binding === undefined)
+            return yield* failure(
+              "invalid_request",
+              "Only a managed task can continue its conversation.",
+            );
+          const followupTarget = followupBinding(
+            binding,
+            followup,
+            child.thread.followupSourceRevision,
           );
-        const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
-        if (Option.isNone(managed))
-          return yield* failure("capability_denied", "Managed agent policy is unavailable.");
-        const consultation = Effect.gen(function* () {
-          const refreshed = yield* readTask(scope, followup.taskId);
-          const owned = yield* loadProjection(parent.thread.id);
-          yield* assertLiveCaller(scope, owned);
+          if (followupTarget === undefined)
+            return yield* failure(
+              "invalid_request",
+              "This agent is pinned to a source revision: state the revision its workspace is at now.",
+            );
+          const key = yield* requestKey(input.clientRequestId);
+          const commandId = stableCommandId({
+            scope,
+            requestKey: key,
+            operation: "followup",
+          });
+          const messageId = stableOperationMessageId({
+            scope,
+            requestKey: key,
+            operation: "followup",
+          });
+          const text = followupPrompt(followup, input.task);
+          const priorTask = parent.subagents.find(
+            (task) => task.id === deriveIds.delegatedTaskNode({ commandId }),
+          );
           if (
-            refreshed.hasPendingChildRuns ||
-            !owned.subagents.some((task) => task.id === followup.taskId && task.result !== null) ||
-            owned.subagents.some(
-              (task) =>
-                task.childThreadId === current.childThreadId &&
-                task.completionDelivery?.state === "disposed",
-            )
+            priorTask !== undefined &&
+            (priorTask.childThreadId !== current.childThreadId || priorTask.prompt !== text)
           )
             return yield* failure(
               "invalid_request",
-              "The agent is busy, awaiting result publication, or closed. If the advisor is closed, start a new advisor.",
+              "This follow-up identity already belongs to a different task.",
             );
-          // A task sent to another project stays there, where the caller holds a workspace
-          // only while it has one attached.
-          const taskProjectId = followupTarget.projectId ?? parent.thread.projectId;
-          const leadCheckout = callerCheckoutIn(parent.thread, taskProjectId);
-          const foreign = leadCheckout === undefined;
-          const providers = yield* Effect.filter(yield* loadProviders, (provider) =>
-            threadManagement.isProviderInstanceEnabledForProject({
-              projectId: taskProjectId,
-              instanceId: provider.instanceId,
-            }),
-          );
-          yield* managed.value
-            .validate({
-              binding: followupTarget,
-              runtimeMode: child.thread.runtimeMode,
-              selection: binding.effective,
-              projectId: taskProjectId,
-              providers,
-              ceiling: parent.thread.runtimeMode,
-              workspacePath: leadCheckout ?? null,
-              owner: threadOwner(parent.thread),
-              projectRoot: (yield* requireProject(taskProjectId)).workspaceRoot,
-              retainsWorkspace: true,
-              ...(foreign ? { foreignProject: true } : {}),
-              occupants: yield* occupantsEverywhere,
-            })
-            .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
-          if (binding.workUnitId !== undefined)
-            yield* experiments
-              .workDispatchPolicy({
-                workUnitId: binding.workUnitId,
-                owner: yield* internalWorkOwner(scope, parent),
-                role: binding.role,
-                followup: true,
-              })
-              .pipe(Effect.mapError(workError));
-          yield* resolveRuntimeMode(parent.thread.runtimeMode, child.thread.runtimeMode);
-          yield* resolveInteractionMode(
-            parent.thread.interactionMode,
-            child.thread.interactionMode,
-          );
-          yield* threadManagement
-            .sendToThread({
-              projectId: child.thread.projectId,
-              threadId: child.thread.id,
-              commandId,
-              messageId,
-              senderThreadId: parent.thread.id,
-              ...(followup.sourceRevision === undefined
-                ? {}
-                : { followupSourceRevision: followup.sourceRevision }),
-              text,
-              attachments: [],
-              mode: "queue",
-              createdBy: "agent",
-              creationSource: "mcp",
-            })
-            .pipe(
-              Effect.mapError((error) =>
-                isThreadManagementError(error)
-                  ? threadManagementFailure(error)
-                  : failure("orchestration_error", "Unable to continue the agent."),
-              ),
-              Effect.provideService(DispatchModeLimit, {
-                runtimeMode: parent.thread.runtimeMode,
-                interactionMode: parent.thread.interactionMode,
-              }),
+          const prior = child.messages.find((message) => message.id === messageId);
+          if (prior !== undefined) {
+            if (prior.text !== text)
+              return yield* failure(
+                "invalid_request",
+                "This follow-up identity already belongs to a different question.",
+              );
+            return yield* readTask(scope, deriveIds.delegatedTaskNode({ commandId }), false, true);
+          }
+          if (
+            current.workState !== "result_available" ||
+            // Status may derive a terminal child result before parent publication.
+            // Orchestration creates a consultation task only after that publication.
+            !parent.subagents.some((task) => task.id === followup.taskId && task.result !== null) ||
+            current.hasPendingChildRuns ||
+            parent.subagents.some(
+              (task) =>
+                task.childThreadId === current.childThreadId &&
+                task.completionDelivery?.state === "disposed",
+            ) ||
+            child.thread.archivedAt !== null
+          )
+            return yield* failure(
+              "invalid_request",
+              "The agent is busy, awaiting result publication, or closed. Retry after publication; delegate a fresh task for new work.",
             );
-          return yield* readTask(scope, deriveIds.delegatedTaskNode({ commandId }), false, true);
-        });
-        const accepted = yield* managed.value.exclusive(consultation);
-        if (input.mode !== "wait") return accepted;
-        const waited = yield* waitForTask(
-          scope,
-          accepted.taskId,
-          Math.min(MAX_WAIT_TIMEOUT_MS, Math.max(1, input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS)),
-        );
-        return Option.isSome(waited)
-          ? waited.value
-          : yield* readTask(scope, accepted.taskId, true, true);
-      }
-      const providers = yield* loadProviders;
-      const key = yield* requestKey(input.clientRequestId);
-      const commandId = stableCommandId({
-        scope,
-        requestKey: key,
-        operation: "delegate-task",
-      });
-      const isRetryOfAcceptedDelegation = yield* threadManagement.hasReceipt(commandId);
-      if (input.agentTask !== undefined && input.clientRequestId === undefined)
-        return yield* failure("invalid_request", "Managed work requires a stable clientRequestId.");
-      if (input.agentTask !== undefined && input.offPolicyReason !== undefined)
-        return yield* failure(
-          "invalid_request",
-          "offPolicyReason applies only to a delegation without agentTask.",
-        );
-      // Managed identity is required by child capabilities, including native Weave access.
-      if (input.agentTask === undefined && !isRetryOfAcceptedDelegation) {
-        const policyService = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
-        // A named but unreadable policy still refuses: an outage must not open free choice.
-        const configured =
-          Option.isSome(policyService) && (yield* policyService.value.configured());
-        if (configured)
-          return yield* failure(
-            "invalid_request",
-            "A role policy is configured: call agent_roles, then delegate_task with agentTask (role, taskClass, workId, attemptId, workspacePath). If no eligible role fits, report the task as blocked.",
-          );
-      }
-      const fingerprintText = yield* encodeDelegateTaskFingerprint({
-        ...input,
-        mode: undefined,
-        timeoutMs: undefined,
-      }).pipe(Effect.orDie);
-      const requestFingerprint = yield* crypto
-        .digest("SHA-256", new TextEncoder().encode(fingerprintText))
-        .pipe(Effect.map(Hex.encode), Effect.orDie);
-      // Managed work compares its binding's fingerprint below; an unmanaged retry compares the
-      // fingerprint recorded on the task its first call created.
-      if (input.agentTask === undefined && isRetryOfAcceptedDelegation) {
-        const prior = parent.subagents.find(
-          (task) => task.id === deriveIds.delegatedTaskNode({ commandId }),
-        );
-        if (prior !== undefined && prior.requestFingerprint !== requestFingerprint)
-          return yield* failure(
-            "invalid_request",
-            "The request identity already belongs to a different task.",
-          );
-      }
-      const managed =
-        input.agentTask === undefined
-          ? undefined
-          : yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
-      if (managed !== undefined && Option.isNone(managed))
-        return yield* failure(
-          "capability_denied",
-          "Managed delegation is not configured in this environment.",
-        );
-      const managedService =
-        managed !== undefined && Option.isSome(managed) ? managed.value : undefined;
-      const existing =
-        input.agentTask !== undefined && isRetryOfAcceptedDelegation
-          ? yield* threadManagement
-              .getThreadRecords(deriveIds.delegatedTaskThread({ commandId }), [])
-              .pipe(Effect.mapError(threadManagementFailure))
-          : undefined;
-      if (existing !== undefined) {
-        const prior = existing.thread.agentTask;
-        if (
-          prior === undefined ||
-          prior.requestFingerprint !== requestFingerprint ||
-          prior.workId !== input.agentTask?.workId ||
-          prior.attemptId !== input.agentTask?.attemptId ||
-          prior.role !== input.agentTask?.role ||
-          prior.taskClass !== input.agentTask?.taskClass ||
-          prior.workspacePath !== input.agentTask?.workspacePath ||
-          prior.workspaceAssignment !== input.agentTask?.workspaceAssignment
-        )
-          return yield* failure(
-            "invalid_request",
-            "The request identity already belongs to different managed work.",
-          );
-        return yield* readTask(scope, deriveIds.delegatedTaskNode({ commandId }), false, true);
-      }
-      // A managed task may work in any registered project's repository, not only the caller's;
-      // a workspace the caller has attached names its own project.
-      const attachedTarget =
-        input.agentTask?.projectId == null
-          ? liveWorkspaceAttachments(parent.thread).find(
-              (attachment) => attachment.workspacePath === input.agentTask?.workspacePath,
-            )?.projectId
-          : undefined;
-      const taskProjectId =
-        managedService === undefined || input.agentTask === undefined
-          ? parent.thread.projectId
-          : attachedTarget !== undefined
-            ? attachedTarget
-            : yield* managedService
-                .targetProject({
-                  request: input.agentTask,
-                  callerProjectId: parent.thread.projectId,
-                  callerCheckout: parent.thread.worktreePath,
-                  projects: listProjects,
-                })
-                .pipe(
-                  Effect.mapError((error) =>
-                    Schema.is(ManagedAgent.ManagedAgentError)(error)
-                      ? failure("capability_denied", error.message)
-                      : error,
-                  ),
-                );
-      // The caller's checkout in the task's project: its primary workspace at home, or a live
-      // attachment elsewhere. Without one, the task never shares a workspace there.
-      const leadCheckout = callerCheckoutIn(parent.thread, taskProjectId);
-      const foreign = leadCheckout === undefined;
-      const eligibleProviders =
-        input.agentTask === undefined
-          ? providers
-          : yield* Effect.filter(providers, (provider) =>
+          const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+          if (Option.isNone(managed))
+            return yield* failure("capability_denied", "Managed agent policy is unavailable.");
+          const consultation = Effect.gen(function* () {
+            const refreshed = yield* readTask(scope, followup.taskId);
+            const owned = yield* loadProjection(parent.thread.id);
+            yield* assertLiveCaller(scope, owned);
+            if (
+              refreshed.hasPendingChildRuns ||
+              !owned.subagents.some(
+                (task) => task.id === followup.taskId && task.result !== null,
+              ) ||
+              owned.subagents.some(
+                (task) =>
+                  task.childThreadId === current.childThreadId &&
+                  task.completionDelivery?.state === "disposed",
+              )
+            )
+              return yield* failure(
+                "invalid_request",
+                "The agent is busy, awaiting result publication, or closed. If the advisor is closed, start a new advisor.",
+              );
+            // A task sent to another project stays there, where the caller holds a workspace
+            // only while it has one attached.
+            const taskProjectId = followupTarget.projectId ?? parent.thread.projectId;
+            const leadCheckout = callerCheckoutIn(parent.thread, taskProjectId);
+            const foreign = leadCheckout === undefined;
+            const providers = yield* Effect.filter(yield* loadProviders, (provider) =>
               threadManagement.isProviderInstanceEnabledForProject({
                 projectId: taskProjectId,
                 instanceId: provider.instanceId,
               }),
             );
-      const priorAssignments =
-        input.agentTask === undefined
-          ? []
-          : yield* experiments
-              .assignments({ threadId: deriveIds.delegatedTaskThread({ commandId }) })
-              .pipe(
-                Effect.mapError(() =>
-                  failure("orchestration_error", "Unable to read managed work assignments."),
-                ),
-              );
-      let recordedBinding = priorAssignments.find(
-        (assignment) => assignment.agentTask !== undefined,
-      )?.agentTask;
-      const workOwner =
-        input.agentTask?.workUnitId === undefined
-          ? undefined
-          : yield* internalWorkOwner(scope, parent);
-      const workUnit =
-        input.agentTask?.workUnitId === undefined
-          ? undefined
-          : yield* experiments
-              .workDispatchPolicy({
-                workUnitId: input.agentTask.workUnitId,
-                owner: workOwner!,
-                role: input.agentTask.role,
+            yield* managed.value
+              .validate({
+                binding: followupTarget,
+                runtimeMode: child.thread.runtimeMode,
+                selection: binding.effective,
+                projectId: taskProjectId,
+                providers,
+                ceiling: parent.thread.runtimeMode,
+                workspacePath: leadCheckout ?? null,
+                owner: threadOwner(parent.thread),
+                projectRoot: (yield* requireProject(taskProjectId)).workspaceRoot,
+                retainsWorkspace: true,
+                ...(foreign ? { foreignProject: true } : {}),
+                occupants: yield* occupantsEverywhere,
               })
-              .pipe(Effect.mapError(workError));
-      if (workUnit !== undefined && recordedBinding === undefined)
-        recordedBinding = (yield* experiments
-          .readWork({ workUnitId: workUnit.id })
-          .pipe(Effect.mapError(workError))).tasks.find(
-          (t) => t.taskId === deriveIds.delegatedTaskNode({ commandId }),
-        )?.binding;
-      const isolated = input.agentTask?.workspaceAssignment === "isolated";
-      // A pinned reader may use another workspace of the repository, so it is checked
-      // against the writers there just as an isolated helper is.
-      const elsewhere =
-        foreign ||
-        isolated ||
-        (input.agentTask?.sourceRevision !== undefined &&
-          input.agentTask.workspacePath !== leadCheckout);
-      // Read again inside the launch lock, so two helpers cannot both claim one workspace.
-      const readWorkspaceAuthority = Effect.gen(function* () {
-        const bound = leadCheckout != null;
-        if (!elsewhere && bound) return {};
-        // A thread of any project may hold a workspace here as an attachment.
-        const occupants = () => occupantsEverywhere;
-        if (foreign)
-          return {
-            owner: threadOwner(parent.thread),
-            workspacePath: null,
-            projectRoot: (yield* requireProject(taskProjectId)).workspaceRoot,
-            foreignProject: true,
-            occupants: yield* occupantsEverywhere,
-          };
-        // A bound lead's own binding is its workspace; only isolated helpers and unbound
-        // leads compare against the project's main checkout.
-        if (bound && !isolated)
-          return { owner: threadOwner(parent.thread), occupants: yield* occupants() };
-        const projectRoot = (yield* requireProject(taskProjectId)).workspaceRoot;
-        if (!elsewhere) return { projectRoot };
-        return { owner: threadOwner(parent.thread), projectRoot, occupants: yield* occupants() };
-      });
-      const workspaceAuthority = yield* readWorkspaceAuthority;
-      const agentTask =
-        input.agentTask === undefined || taskProjectId === parent.thread.projectId
-          ? input.agentTask
-          : { ...input.agentTask, projectId: taskProjectId };
-      const prepared =
-        managedService === undefined || agentTask === undefined
-          ? undefined
-          : yield* Effect.gen(function* () {
-              const runtimeMode = yield* resolveRuntimeMode(
-                parent.thread.runtimeMode,
-                input.runtimeMode,
-                undefined,
-                yield* childRuntimeDefault,
-              );
-              // The first choice's cached reading may hide that it is out of allowance, so
-              // it is re-read before the task starts there.
-              return yield* ProviderRegistry.chooseWithFreshUsage(
-                providerRegistry,
-                eligibleProviders.filter(
-                  (provider) =>
-                    (input.target?.providerInstanceId === undefined ||
-                      provider.instanceId === input.target.providerInstanceId) &&
-                    (input.target?.driverKind === undefined ||
-                      provider.driver === input.target.driverKind),
+              .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
+            if (binding.workUnitId !== undefined)
+              yield* experiments
+                .workDispatchPolicy({
+                  workUnitId: binding.workUnitId,
+                  owner: yield* internalWorkOwner(scope, parent),
+                  role: binding.role,
+                  followup: true,
+                })
+                .pipe(Effect.mapError(workError));
+            yield* resolveRuntimeMode(parent.thread.runtimeMode, child.thread.runtimeMode);
+            yield* resolveInteractionMode(
+              parent.thread.interactionMode,
+              child.thread.interactionMode,
+            );
+            if (Option.isSome(champions))
+              yield* champions.value
+                .delegationOutcome({
+                  ownerThreadId: parent.thread.id,
+                  request: binding,
+                  followup: true,
+                  clientRequestId: input.clientRequestId,
+                  state: "started",
+                  commandId,
+                })
+                .pipe(Effect.mapError((e) => failure("orchestration_error", e.message)));
+            yield* threadManagement
+              .sendToThread({
+                projectId: child.thread.projectId,
+                threadId: child.thread.id,
+                commandId,
+                messageId,
+                senderThreadId: parent.thread.id,
+                ...(followup.sourceRevision === undefined
+                  ? {}
+                  : { followupSourceRevision: followup.sourceRevision }),
+                text,
+                attachments: [],
+                mode: "queue",
+                createdBy: "agent",
+                creationSource: "mcp",
+              })
+              .pipe(
+                Effect.tap(() =>
+                  Option.isSome(champions)
+                    ? champions.value
+                        .delegationOutcome({
+                          ownerThreadId: parent.thread.id,
+                          request: binding,
+                          clientRequestId: input.clientRequestId,
+                          state: "finished",
+                          commandId,
+                        })
+                        .pipe(Effect.mapError((e) => failure("orchestration_error", e.message)))
+                    : Effect.void,
                 ),
-                (providers) =>
-                  managedService
-                    .prepare({
-                      runtimeMode,
-                      projectId: taskProjectId,
-                      request: agentTask,
-                      requestFingerprint,
-                      ...(workUnit === undefined ? {} : { policyHash: workUnit.policyHash }),
-                      ...(recordedBinding === undefined ? {} : { recordedBinding }),
-                      providers,
-                      ceiling: parent.thread.runtimeMode,
-                      workspacePath: leadCheckout ?? null,
-                      ...workspaceAuthority,
-                      callerModel: parent.thread.modelSelection.model,
-                      caller: parent.thread.modelSelection,
-                      ...selectionOf(input.target),
-                    })
-                    .pipe(Effect.mapError((error) => failure("capability_denied", error.message))),
-                (result) => result.binding.effective.instanceId,
+                Effect.mapError((error) =>
+                  isThreadManagementError(error)
+                    ? threadManagementFailure(error)
+                    : failure("orchestration_error", "Unable to continue the agent."),
+                ),
+                Effect.provideService(DispatchModeLimit, {
+                  runtimeMode: parent.thread.runtimeMode,
+                  interactionMode: parent.thread.interactionMode,
+                }),
               );
-            });
-      let target = yield* resolveTargetRechecking({
-        parent,
-        target:
-          prepared === undefined
-            ? input.target
-            : {
-                providerInstanceId: prepared.binding.requested.instanceId,
-                model: prepared.binding.requested.model,
-                options: prepared.binding.requested.options,
-              },
-        providers,
-        skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
-        roleSelection: prepared !== undefined,
-      });
-      const taskAssignments = yield* (
-        isRetryOfAcceptedDelegation
-          ? experiments.assignments({ threadId: deriveIds.delegatedTaskThread({ commandId }) })
-          : experiments.assignForTask({
-              ...(prepared === undefined ? {} : { agentTask: prepared.binding }),
-              threadId: deriveIds.delegatedTaskThread({ commandId }),
-              projectId: taskProjectId,
-              modelSelection: target.modelSelection,
-              unitId: deriveIds.delegatedTaskNode({ commandId }),
-              unitCreatedAt: DateTime.formatIso(yield* DateTime.now),
-              taskLever: (
-                input.agentTask === undefined
-                  ? input.role === "review"
-                  : isReviewerRole(input.agentTask.role)
-              )
-                ? "reviewer"
-                : "delegation",
-              taskCategory:
-                input.role ??
-                (input.agentTask === undefined
-                  ? "general"
-                  : AGENT_ROLE_COARSE_KIND[input.agentTask.role]),
-              enrollment: "new",
-            })
-      ).pipe(
-        Effect.mapError(() =>
-          failure("orchestration_error", "Unable to assign the delegated experiment."),
-        ),
-      );
-      const assignments = [
-        ...taskAssignments,
-        ...(workUnit === undefined
-          ? []
-          : (yield* experiments.assignments({}).pipe(Effect.mapError(workError))).filter((a) =>
-              workUnit.assignmentIds.includes(a.id),
-            )),
-      ];
-      // A refused child fails its own task assignment; the work unit's policy assignment
-      // measures the whole unit, which an optional refused child does not fail.
-      const recordExperimentFailure = (
-        note = "The delegated request failed before a child run was accepted.",
-      ) =>
-        Effect.forEach(
-          taskAssignments,
-          (assignment) =>
-            experiments.recordOutcome({
-              id: `${assignment.id}:dispatch-failure:${commandId}`,
-              assignmentId: assignment.id,
-              runId: null,
-              kind: "failure",
-              source: "independent-evidence",
-              evidence: [`command:${commandId}`],
-              note,
-              actualModelSelection: null,
-              fallbackReason: null,
-            }),
-          { discard: true },
-        ).pipe(
-          Effect.mapError(() =>
-            failure("orchestration_error", "Unable to record the experiment dispatch failure."),
-          ),
-        );
-      const experimentSelection = assignments.find(
-        (assignment) => assignment.variant.modelSelection !== undefined,
-      )?.variant.modelSelection;
-      if (experimentSelection !== undefined) {
-        // Resolve again through the ordinary provider capability and permission checks.
-        target = yield* resolveTargetRechecking({
+            return yield* readTask(scope, deriveIds.delegatedTaskNode({ commandId }), false, true);
+          });
+          const accepted = yield* managed.value.exclusive(consultation);
+          if (input.mode !== "wait") return accepted;
+          const waited = yield* waitForTask(
+            scope,
+            accepted.taskId,
+            Math.min(MAX_WAIT_TIMEOUT_MS, Math.max(1, input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS)),
+          );
+          return Option.isSome(waited)
+            ? waited.value
+            : yield* readTask(scope, accepted.taskId, true, true);
+        }
+        const providers = yield* loadProviders;
+        const key = yield* requestKey(input.clientRequestId);
+        const commandId = stableCommandId({
+          scope,
+          requestKey: key,
+          operation: "delegate-task",
+        });
+        const isRetryOfAcceptedDelegation = yield* threadManagement.hasReceipt(commandId);
+        if (input.agentTask !== undefined && input.clientRequestId === undefined)
+          return yield* failure(
+            "invalid_request",
+            "Managed work requires a stable clientRequestId.",
+          );
+        if (input.agentTask !== undefined && input.offPolicyReason !== undefined)
+          return yield* failure(
+            "invalid_request",
+            "offPolicyReason applies only to a delegation without agentTask.",
+          );
+        // Managed identity is required by child capabilities, including native Weave access.
+        if (input.agentTask === undefined && !isRetryOfAcceptedDelegation) {
+          const policyService = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+          // A named but unreadable policy still refuses: an outage must not open free choice.
+          const configured =
+            Option.isSome(policyService) && (yield* policyService.value.configured());
+          if (configured)
+            return yield* failure(
+              "invalid_request",
+              "A role policy is configured: call agent_roles, then delegate_task with agentTask (role, taskClass, workId, attemptId, workspacePath). If no eligible role fits, report the task as blocked.",
+            );
+        }
+        const fingerprintText = yield* encodeDelegateTaskFingerprint({
+          ...input,
+          mode: undefined,
+          timeoutMs: undefined,
+        }).pipe(Effect.orDie);
+        const requestFingerprint = yield* crypto
+          .digest("SHA-256", new TextEncoder().encode(fingerprintText))
+          .pipe(Effect.map(Hex.encode), Effect.orDie);
+        // Managed work compares its binding's fingerprint below; an unmanaged retry compares the
+        // fingerprint recorded on the task its first call created.
+        if (input.agentTask === undefined && isRetryOfAcceptedDelegation) {
+          const prior = parent.subagents.find(
+            (task) => task.id === deriveIds.delegatedTaskNode({ commandId }),
+          );
+          if (prior !== undefined && prior.requestFingerprint !== requestFingerprint)
+            return yield* failure(
+              "invalid_request",
+              "The request identity already belongs to a different task.",
+            );
+        }
+        const managed =
+          input.agentTask === undefined
+            ? undefined
+            : yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+        if (managed !== undefined && Option.isNone(managed))
+          return yield* failure(
+            "capability_denied",
+            "Managed delegation is not configured in this environment.",
+          );
+        const managedService =
+          managed !== undefined && Option.isSome(managed) ? managed.value : undefined;
+        const existing =
+          input.agentTask !== undefined && isRetryOfAcceptedDelegation
+            ? yield* threadManagement
+                .getThreadRecords(deriveIds.delegatedTaskThread({ commandId }), [])
+                .pipe(Effect.mapError(threadManagementFailure))
+            : undefined;
+        if (existing !== undefined) {
+          const prior = existing.thread.agentTask;
+          if (
+            prior === undefined ||
+            prior.requestFingerprint !== requestFingerprint ||
+            prior.workId !== input.agentTask?.workId ||
+            prior.attemptId !== input.agentTask?.attemptId ||
+            prior.role !== input.agentTask?.role ||
+            prior.taskClass !== input.agentTask?.taskClass ||
+            prior.workspacePath !== input.agentTask?.workspacePath ||
+            prior.workspaceAssignment !== input.agentTask?.workspaceAssignment
+          )
+            return yield* failure(
+              "invalid_request",
+              "The request identity already belongs to different managed work.",
+            );
+          return yield* readTask(scope, deriveIds.delegatedTaskNode({ commandId }), false, true);
+        }
+        // A managed task may work in any registered project's repository, not only the caller's;
+        // a workspace the caller has attached names its own project.
+        const attachedTarget =
+          input.agentTask?.projectId == null
+            ? liveWorkspaceAttachments(parent.thread).find(
+                (attachment) => attachment.workspacePath === input.agentTask?.workspacePath,
+              )?.projectId
+            : undefined;
+        const taskProjectId =
+          managedService === undefined || input.agentTask === undefined
+            ? parent.thread.projectId
+            : attachedTarget !== undefined
+              ? attachedTarget
+              : yield* managedService
+                  .targetProject({
+                    request: input.agentTask,
+                    callerProjectId: parent.thread.projectId,
+                    callerCheckout: parent.thread.worktreePath,
+                    projects: listProjects,
+                  })
+                  .pipe(
+                    Effect.mapError((error) =>
+                      Schema.is(ManagedAgent.ManagedAgentError)(error)
+                        ? failure("capability_denied", error.message)
+                        : error,
+                    ),
+                  );
+        // The caller's checkout in the task's project: its primary workspace at home, or a live
+        // attachment elsewhere. Without one, the task never shares a workspace there.
+        const leadCheckout = callerCheckoutIn(parent.thread, taskProjectId);
+        const foreign = leadCheckout === undefined;
+        const eligibleProviders =
+          input.agentTask === undefined
+            ? providers
+            : yield* Effect.filter(providers, (provider) =>
+                threadManagement.isProviderInstanceEnabledForProject({
+                  projectId: taskProjectId,
+                  instanceId: provider.instanceId,
+                }),
+              );
+        const priorAssignments =
+          input.agentTask === undefined
+            ? []
+            : yield* experiments
+                .assignments({ threadId: deriveIds.delegatedTaskThread({ commandId }) })
+                .pipe(
+                  Effect.mapError(() =>
+                    failure("orchestration_error", "Unable to read managed work assignments."),
+                  ),
+                );
+        let recordedBinding = priorAssignments.find(
+          (assignment) => assignment.agentTask !== undefined,
+        )?.agentTask;
+        const workOwner =
+          input.agentTask?.workUnitId === undefined
+            ? undefined
+            : yield* internalWorkOwner(scope, parent);
+        const workUnit =
+          input.agentTask?.workUnitId === undefined
+            ? undefined
+            : yield* experiments
+                .workDispatchPolicy({
+                  workUnitId: input.agentTask.workUnitId,
+                  owner: workOwner!,
+                  role: input.agentTask.role,
+                })
+                .pipe(Effect.mapError(workError));
+        if (workUnit !== undefined && recordedBinding === undefined)
+          recordedBinding = (yield* experiments
+            .readWork({ workUnitId: workUnit.id })
+            .pipe(Effect.mapError(workError))).tasks.find(
+            (t) => t.taskId === deriveIds.delegatedTaskNode({ commandId }),
+          )?.binding;
+        const isolated = input.agentTask?.workspaceAssignment === "isolated";
+        // A pinned reader may use another workspace of the repository, so it is checked
+        // against the writers there just as an isolated helper is.
+        const elsewhere =
+          foreign ||
+          isolated ||
+          (input.agentTask?.sourceRevision !== undefined &&
+            input.agentTask.workspacePath !== leadCheckout);
+        // Read again inside the launch lock, so two helpers cannot both claim one workspace.
+        const readWorkspaceAuthority = Effect.gen(function* () {
+          const bound = leadCheckout != null;
+          if (!elsewhere && bound) return {};
+          // A thread of any project may hold a workspace here as an attachment.
+          const occupants = () => occupantsEverywhere;
+          if (foreign)
+            return {
+              owner: threadOwner(parent.thread),
+              workspacePath: null,
+              projectRoot: (yield* requireProject(taskProjectId)).workspaceRoot,
+              foreignProject: true,
+              occupants: yield* occupantsEverywhere,
+            };
+          // A bound lead's own binding is its workspace; only isolated helpers and unbound
+          // leads compare against the project's main checkout.
+          if (bound && !isolated)
+            return { owner: threadOwner(parent.thread), occupants: yield* occupants() };
+          const projectRoot = (yield* requireProject(taskProjectId)).workspaceRoot;
+          if (!elsewhere) return { projectRoot };
+          return { owner: threadOwner(parent.thread), projectRoot, occupants: yield* occupants() };
+        });
+        const workspaceAuthority = yield* readWorkspaceAuthority;
+        const agentTask =
+          input.agentTask === undefined || taskProjectId === parent.thread.projectId
+            ? input.agentTask
+            : { ...input.agentTask, projectId: taskProjectId };
+        const prepared =
+          managedService === undefined || agentTask === undefined
+            ? undefined
+            : yield* Effect.gen(function* () {
+                const runtimeMode = yield* resolveRuntimeMode(
+                  parent.thread.runtimeMode,
+                  input.runtimeMode,
+                  undefined,
+                  yield* childRuntimeDefault,
+                );
+                // The first choice's cached reading may hide that it is out of allowance, so
+                // it is re-read before the task starts there.
+                return yield* ProviderRegistry.chooseWithFreshUsage(
+                  providerRegistry,
+                  eligibleProviders.filter(
+                    (provider) =>
+                      (input.target?.providerInstanceId === undefined ||
+                        provider.instanceId === input.target.providerInstanceId) &&
+                      (input.target?.driverKind === undefined ||
+                        provider.driver === input.target.driverKind),
+                  ),
+                  (providers) =>
+                    managedService
+                      .prepare({
+                        runtimeMode,
+                        projectId: taskProjectId,
+                        request: agentTask,
+                        requestFingerprint,
+                        ...(workUnit === undefined ? {} : { policyHash: workUnit.policyHash }),
+                        ...(recordedBinding === undefined ? {} : { recordedBinding }),
+                        providers,
+                        ceiling: parent.thread.runtimeMode,
+                        workspacePath: leadCheckout ?? null,
+                        ...workspaceAuthority,
+                        ...(specLead && taskProjectId === parent.thread.projectId
+                          ? { allocatesWorkspace: true }
+                          : {}),
+                        callerModel: parent.thread.modelSelection.model,
+                        caller: parent.thread.modelSelection,
+                        ...selectionOf(input.target),
+                      })
+                      .pipe(
+                        Effect.mapError((error) => failure("capability_denied", error.message)),
+                      ),
+                  (result) => result.binding.effective.instanceId,
+                );
+              });
+        let target = yield* resolveTargetRechecking({
           parent,
+          target:
+            prepared === undefined
+              ? input.target
+              : {
+                  providerInstanceId: prepared.binding.requested.instanceId,
+                  model: prepared.binding.requested.model,
+                  options: prepared.binding.requested.options,
+                },
           providers,
-          target: {
-            providerInstanceId: experimentSelection.instanceId,
-            model: experimentSelection.model,
-            options: experimentSelection.options,
-          },
           skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
           roleSelection: prepared !== undefined,
-        }).pipe(Effect.tapError(() => recordExperimentFailure()));
-      }
-      // Child modes are checked before the task is reserved, then policy after, so a refusal
-      // for either reason is visible without reserving work that could never launch.
-      const runtimeMode = yield* resolveRuntimeMode(
-        parent.thread.runtimeMode,
-        input.runtimeMode,
-        target,
-        yield* childRuntimeDefault,
-      ).pipe(Effect.tapError((error) => recordExperimentFailure(error.message)));
-      const interactionMode = yield* resolveInteractionMode(
-        parent.thread.interactionMode,
-        input.interactionMode,
-      ).pipe(Effect.tapError((error) => recordExperimentFailure(error.message)));
-      let workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy | undefined;
-      if (input.forgeItem !== undefined && !isRetryOfAcceptedDelegation) {
-        // SlipJay's attach-issue always receives the canonical number, so a ref is resolved first.
-        const forgeItem =
-          typeof input.forgeItem === "string"
-            ? (yield* forgeWorkItems.resolve(input.forgeItem).pipe(
-                Effect.mapError((error) => failure("invalid_request", error.message)),
-                Effect.tapError((error) => recordExperimentFailure(error.message)),
-              )).number
-            : input.forgeItem;
-        workspaceStrategy = { type: "worktree", baseRef: "HEAD", forgeItem };
-      }
-      if (input.isolation === "worktree" && !isRetryOfAcceptedDelegation) {
-        const project = yield* requireProject(parent.thread.projectId).pipe(
-          Effect.tapError((error) => recordExperimentFailure(error.message)),
+        });
+        const taskAssignments = yield* (
+          isRetryOfAcceptedDelegation
+            ? experiments.assignments({ threadId: deriveIds.delegatedTaskThread({ commandId }) })
+            : experiments.assignForTask({
+                ...(prepared === undefined ? {} : { agentTask: prepared.binding }),
+                threadId: deriveIds.delegatedTaskThread({ commandId }),
+                projectId: taskProjectId,
+                modelSelection: target.modelSelection,
+                unitId: deriveIds.delegatedTaskNode({ commandId }),
+                unitCreatedAt: DateTime.formatIso(yield* DateTime.now),
+                taskLever: (
+                  input.agentTask === undefined
+                    ? input.role === "review"
+                    : isReviewerRole(input.agentTask.role)
+                )
+                  ? "reviewer"
+                  : "delegation",
+                taskCategory:
+                  input.role ??
+                  (input.agentTask === undefined
+                    ? "general"
+                    : AGENT_ROLE_COARSE_KIND[input.agentTask.role]),
+                enrollment: "new",
+              })
+        ).pipe(
+          Effect.mapError(() =>
+            failure("orchestration_error", "Unable to assign the delegated experiment."),
+          ),
         );
-        // A SlipJay workspace starts from the integration branch, so the
-        // parent's commit (which a jj workspace may not expose to git) is unused.
-        let baseRef = "HEAD";
-        if ((yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay") {
-          const base = yield* gitDriver
-            .resolveCommit({
-              cwd: parent.thread.worktreePath ?? project.workspaceRoot,
-              revision: "HEAD",
-            })
-            .pipe(
-              Effect.mapError(() =>
-                failure("invalid_request", "Unable to resolve the parent checkout commit."),
-              ),
-              Effect.tapError((error) => recordExperimentFailure(error.message)),
-            );
-          // Launch preparation creates the worktree from the project root, so a
-          // parent checkout in another repository (such as a Git folder inside
-          // Scratch) would hand it a commit it cannot find.
-          if (parent.thread.worktreePath !== null) {
-            yield* gitDriver
-              .resolveCommit({ cwd: project.workspaceRoot, revision: base.commitSha })
+        const assignments = [
+          ...taskAssignments,
+          ...(workUnit === undefined
+            ? []
+            : (yield* experiments.assignments({}).pipe(Effect.mapError(workError))).filter((a) =>
+                workUnit.assignmentIds.includes(a.id),
+              )),
+        ];
+        // A refused child fails its own task assignment; the work unit's policy assignment
+        // measures the whole unit, which an optional refused child does not fail.
+        const recordExperimentFailure = (
+          note = "The delegated request failed before a child run was accepted.",
+        ) =>
+          Effect.forEach(
+            taskAssignments,
+            (assignment) =>
+              experiments.recordOutcome({
+                id: `${assignment.id}:dispatch-failure:${commandId}`,
+                assignmentId: assignment.id,
+                runId: null,
+                kind: "failure",
+                source: "independent-evidence",
+                evidence: [`command:${commandId}`],
+                note,
+                actualModelSelection: null,
+                fallbackReason: null,
+              }),
+            { discard: true },
+          ).pipe(
+            Effect.mapError(() =>
+              failure("orchestration_error", "Unable to record the experiment dispatch failure."),
+            ),
+          );
+        const experimentSelection = assignments.find(
+          (assignment) => assignment.variant.modelSelection !== undefined,
+        )?.variant.modelSelection;
+        if (experimentSelection !== undefined) {
+          // Resolve again through the ordinary provider capability and permission checks.
+          target = yield* resolveTargetRechecking({
+            parent,
+            providers,
+            target: {
+              providerInstanceId: experimentSelection.instanceId,
+              model: experimentSelection.model,
+              options: experimentSelection.options,
+            },
+            skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
+            roleSelection: prepared !== undefined,
+          }).pipe(Effect.tapError(() => recordExperimentFailure()));
+        }
+        // Child modes are checked before the task is reserved, then policy after, so a refusal
+        // for either reason is visible without reserving work that could never launch.
+        const runtimeMode = yield* resolveRuntimeMode(
+          parent.thread.runtimeMode,
+          input.runtimeMode,
+          target,
+          yield* childRuntimeDefault,
+        ).pipe(Effect.tapError((error) => recordExperimentFailure(error.message)));
+        const interactionMode = yield* resolveInteractionMode(
+          parent.thread.interactionMode,
+          input.interactionMode,
+        ).pipe(Effect.tapError((error) => recordExperimentFailure(error.message)));
+        let workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy | undefined;
+        if (input.forgeItem !== undefined && !isRetryOfAcceptedDelegation) {
+          // SlipJay's attach-issue always receives the canonical number, so a ref is resolved first.
+          const forgeItem =
+            typeof input.forgeItem === "string"
+              ? (yield* forgeWorkItems.resolve(input.forgeItem).pipe(
+                  Effect.mapError((error) => failure("invalid_request", error.message)),
+                  Effect.tapError((error) => recordExperimentFailure(error.message)),
+                )).number
+              : input.forgeItem;
+          workspaceStrategy = { type: "worktree", baseRef: "HEAD", forgeItem };
+        }
+        if (input.isolation === "worktree" && !isRetryOfAcceptedDelegation) {
+          const project = yield* requireProject(parent.thread.projectId).pipe(
+            Effect.tapError((error) => recordExperimentFailure(error.message)),
+          );
+          // A SlipJay workspace starts from the integration branch, so the
+          // parent's commit (which a jj workspace may not expose to git) is unused.
+          let baseRef = "HEAD";
+          if ((yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay") {
+            const base = yield* gitDriver
+              .resolveCommit({
+                cwd: parent.thread.worktreePath ?? project.workspaceRoot,
+                revision: "HEAD",
+              })
               .pipe(
                 Effect.mapError(() =>
-                  failure(
-                    "invalid_request",
-                    `Isolation "worktree" creates the child checkout in project "${project.title}" (${project.workspaceRoot}), which does not contain the parent checkout's commit. Use isolation "shared" to work in the parent's checkout.`,
-                  ),
+                  failure("invalid_request", "Unable to resolve the parent checkout commit."),
                 ),
                 Effect.tapError((error) => recordExperimentFailure(error.message)),
               );
+            // Launch preparation creates the worktree from the project root, so a
+            // parent checkout in another repository (such as a Git folder inside
+            // Scratch) would hand it a commit it cannot find.
+            if (parent.thread.worktreePath !== null) {
+              yield* gitDriver
+                .resolveCommit({ cwd: project.workspaceRoot, revision: base.commitSha })
+                .pipe(
+                  Effect.mapError(() =>
+                    failure(
+                      "invalid_request",
+                      `Isolation "worktree" creates the child checkout in project "${project.title}" (${project.workspaceRoot}), which does not contain the parent checkout's commit. Use isolation "shared" to work in the parent's checkout.`,
+                    ),
+                  ),
+                  Effect.tapError((error) => recordExperimentFailure(error.message)),
+                );
+            }
+            baseRef = base.commitSha;
           }
-          baseRef = base.commitSha;
+          workspaceStrategy = { type: "worktree", baseRef, startFromOrigin: false };
         }
-        workspaceStrategy = { type: "worktree", baseRef, startFromOrigin: false };
-      }
-      if (workUnit !== undefined && prepared !== undefined)
-        yield* experiments
-          .registerWorkTask({
-            workUnitId: workUnit.id,
-            owner: workOwner!,
-            binding: {
-              ...prepared.binding,
-              assigned: experimentSelection ?? null,
-              effective: target.modelSelection,
-            },
-            taskId: deriveIds.delegatedTaskNode({ commandId }),
-            threadId: deriveIds.delegatedTaskThread({ commandId }),
-          })
-          .pipe(Effect.mapError(workError));
-      const parentNodeId = parentRun.rootNodeId;
-      const launch = Effect.gen(function* () {
-        if (prepared !== undefined && managedService !== undefined) {
-          yield* managedService
-            .validate({
-              binding: prepared.binding,
+        if (workUnit !== undefined && prepared !== undefined)
+          yield* experiments
+            .registerWorkTask({
+              workUnitId: workUnit.id,
+              owner: workOwner!,
+              binding: {
+                ...prepared.binding,
+                assigned: experimentSelection ?? null,
+                effective: target.modelSelection,
+              },
+              taskId: deriveIds.delegatedTaskNode({ commandId }),
+              threadId: deriveIds.delegatedTaskThread({ commandId }),
+            })
+            .pipe(Effect.mapError(workError));
+        const parentNodeId = parentRun.rootNodeId;
+        const launch = Effect.gen(function* () {
+          if (prepared !== undefined && managedService !== undefined) {
+            yield* managedService
+              .validate({
+                binding: prepared.binding,
+                runtimeMode,
+                selection: target.modelSelection,
+                projectId: taskProjectId,
+                providers: eligibleProviders,
+                ceiling: parent.thread.runtimeMode,
+                workspacePath: leadCheckout ?? null,
+                ...(yield* readWorkspaceAuthority),
+                ...(specLead && taskProjectId === parent.thread.projectId
+                  ? { allocatesWorkspace: true }
+                  : {}),
+              })
+              .pipe(
+                Effect.tapError((error) =>
+                  Effect.gen(function* () {
+                    if (workUnit !== undefined)
+                      yield* experiments
+                        .recordWorkTaskLaunch({
+                          taskId: deriveIds.delegatedTaskNode({ commandId }),
+                          state: "refused",
+                        })
+                        .pipe(Effect.mapError(workError));
+                    yield* recordExperimentFailure(error.message);
+                  }),
+                ),
+                Effect.mapError((error) => failure("capability_denied", error.message)),
+              );
+          }
+          // ThreadManagementService.dispatch is the chokepoint for this command
+          // type's own enablement check, using the same command id and its
+          // receipt-replay exemption, so no separate assert runs here.
+          if (Option.isSome(champions))
+            yield* champions.value
+              .delegationOutcome({
+                ownerThreadId: parent.thread.id,
+                request: input.agentTask,
+                clientRequestId: input.clientRequestId,
+                state: "started",
+                commandId,
+              })
+              .pipe(Effect.mapError((e) => failure("orchestration_error", e.message)));
+          return yield* threadManagement
+            .dispatch({
+              type: "delegated_task.request",
+              createdBy: "agent",
+              creationSource: "mcp",
+              commandId,
+              parentThreadId: scope.thread.threadId,
+              parentRunId: parentRun.id,
+              parentNodeId,
+              requestFingerprint,
+              ...(prepared === undefined
+                ? {}
+                : {
+                    agentTask: {
+                      ...prepared.binding,
+                      assigned: experimentSelection ?? null,
+                      effective: target.modelSelection,
+                    },
+                  }),
+              task:
+                prepared === undefined
+                  ? taskPrompt(input)
+                  : `${prepared.brief}\n\n${taskPrompt(input)}`,
+              ...(prepared === undefined
+                ? input.title === undefined
+                  ? {}
+                  : { title: input.title }
+                : { title: managedTaskTitle(prepared.binding.role, input.task, input.title) }),
+              modelSelection: target.modelSelection,
               runtimeMode,
-              selection: target.modelSelection,
-              projectId: taskProjectId,
-              providers: eligibleProviders,
-              ceiling: parent.thread.runtimeMode,
-              workspacePath: leadCheckout ?? null,
-              ...(yield* readWorkspaceAuthority),
+              interactionMode,
+              ...(workspaceStrategy === undefined ? {} : { workspaceStrategy }),
+              // Async delegations wake the parent on every child terminal; wait
+              // delegations deliver through the blocking tool call, so a wake is
+              // only needed if the parent settled first (timeout, disconnect).
+              completionWake: input.mode === "wait" ? "settled_only" : "always",
             })
             .pipe(
-              Effect.tapError((error) =>
+              Effect.tap(() =>
+                Option.isSome(champions)
+                  ? champions.value
+                      .delegationOutcome({
+                        ownerThreadId: parent.thread.id,
+                        request: input.agentTask,
+                        clientRequestId: input.clientRequestId,
+                        state: "finished",
+                        commandId,
+                      })
+                      .pipe(Effect.mapError((e) => failure("orchestration_error", e.message)))
+                  : Effect.void,
+              ),
+              Effect.tapError(() =>
                 Effect.gen(function* () {
-                  if (workUnit !== undefined)
+                  if (workUnit !== undefined) {
+                    const receipt = yield* threadManagement.hasReceipt(commandId).pipe(
+                      Effect.map((accepted) =>
+                        accepted ? ("accepted" as const) : ("refused" as const),
+                      ),
+                      Effect.catchCause(() => Effect.succeed("launch-unknown" as const)),
+                    );
                     yield* experiments
                       .recordWorkTaskLaunch({
                         taskId: deriveIds.delegatedTaskNode({ commandId }),
-                        state: "refused",
+                        state: receipt,
                       })
                       .pipe(Effect.mapError(workError));
-                  yield* recordExperimentFailure(error.message);
+                  }
+                  yield* recordExperimentFailure();
                 }),
               ),
-              Effect.mapError((error) => failure("capability_denied", error.message)),
+              Effect.mapError((error) =>
+                error._tag === "ThreadManagementProviderInstanceDisabledError"
+                  ? threadManagementFailure(error)
+                  : failure(
+                      "orchestration_error",
+                      `Unable to create delegated task: ${errorMessage(error)}`,
+                    ),
+              ),
             );
+        });
+        // Isolated writers and pinned readers elsewhere share one lock, so neither can launch
+        // into a workspace the other has just claimed.
+        const result = yield* elsewhere && managedService !== undefined
+          ? managedService.exclusive(launch)
+          : launch;
+        if (workUnit !== undefined)
+          yield* experiments
+            .recordWorkTaskLaunch({
+              taskId: deriveIds.delegatedTaskNode({ commandId }),
+              state: "accepted",
+            })
+            .pipe(Effect.mapError(workError));
+        const taskEvent = result.storedEvents.find(
+          (stored) =>
+            stored.event.type === "subagent.updated" && stored.event.payload.origin === "app_owned",
+        );
+        if (taskEvent?.event.type !== "subagent.updated") {
+          return yield* failure(
+            "orchestration_error",
+            "Delegated task command did not produce a task projection.",
+          );
         }
-        // ThreadManagementService.dispatch is the chokepoint for this command
-        // type's own enablement check, using the same command id and its
-        // receipt-replay exemption, so no separate assert runs here.
-        return yield* threadManagement
-          .dispatch({
-            type: "delegated_task.request",
-            createdBy: "agent",
-            creationSource: "mcp",
+        const taskId = taskEvent.event.payload.id;
+        const childThreadId = taskEvent.event.payload.childThreadId;
+        const childRunEvent = result.storedEvents.find(
+          (stored) =>
+            stored.event.type === "run.created" && stored.event.threadId === childThreadId,
+        );
+        if (
+          childThreadId !== null &&
+          childRunEvent?.event.type === "run.created" &&
+          childRunEvent.event.payload.workspacePreparation !== undefined
+        ) {
+          yield* threadLaunch.prepareRun({
             commandId,
+            threadId: childThreadId,
+            runId: childRunEvent.event.payload.id,
+          });
+        }
+
+        if (input.mode !== "wait") {
+          return yield* readTask(scope, taskId, false, true);
+        }
+        const timeoutMs = Math.min(
+          MAX_WAIT_TIMEOUT_MS,
+          Math.max(1, input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS),
+        );
+        const waited = yield* waitForTask(scope, taskId, timeoutMs);
+        if (Option.isSome(waited) && isTerminalTaskStatus(waited.value.status)) {
+          return waited.value;
+        }
+        // An incomplete wait gives up delivery: upgrade so a later terminal
+        // wakes the parent even mid-turn.
+        yield* threadManagement
+          .dispatch({
+            type: "delegated_task.wake-policy",
+            commandId: stableCommandId({
+              scope,
+              requestKey: key,
+              operation: "delegate-task-wake-policy",
+            }),
             parentThreadId: scope.thread.threadId,
-            parentRunId: parentRun.id,
-            parentNodeId,
-            requestFingerprint,
-            ...(prepared === undefined
-              ? {}
-              : {
-                  agentTask: {
-                    ...prepared.binding,
-                    assigned: experimentSelection ?? null,
-                    effective: target.modelSelection,
-                  },
-                }),
-            task:
-              prepared === undefined
-                ? taskPrompt(input)
-                : `${prepared.brief}\n\n${taskPrompt(input)}`,
-            ...(prepared === undefined
-              ? input.title === undefined
-                ? {}
-                : { title: input.title }
-              : { title: managedTaskTitle(prepared.binding.role, input.task, input.title) }),
-            modelSelection: target.modelSelection,
-            runtimeMode,
-            interactionMode,
-            ...(workspaceStrategy === undefined ? {} : { workspaceStrategy }),
-            // Async delegations wake the parent on every child terminal; wait
-            // delegations deliver through the blocking tool call, so a wake is
-            // only needed if the parent settled first (timeout, disconnect).
-            completionWake: input.mode === "wait" ? "settled_only" : "always",
+            taskId,
+            completionWake: "always",
           })
           .pipe(
-            Effect.tapError(() =>
-              Effect.gen(function* () {
-                if (workUnit !== undefined) {
-                  const receipt = yield* threadManagement.hasReceipt(commandId).pipe(
-                    Effect.map((accepted) =>
-                      accepted ? ("accepted" as const) : ("refused" as const),
-                    ),
-                    Effect.catchCause(() => Effect.succeed("launch-unknown" as const)),
-                  );
-                  yield* experiments
-                    .recordWorkTaskLaunch({
-                      taskId: deriveIds.delegatedTaskNode({ commandId }),
-                      state: receipt,
-                    })
-                    .pipe(Effect.mapError(workError));
-                }
-                yield* recordExperimentFailure();
+            Effect.catch((error) =>
+              Effect.logWarning("orchestrator-mcp.delegate-task.wake-policy-failed", {
+                taskId,
+                outcome:
+                  error._tag === "OrchestratorCommandPreviouslyRejectedError"
+                    ? "previously_rejected"
+                    : "dispatch_failed",
+                error,
               }),
             ),
-            Effect.mapError((error) =>
-              error._tag === "ThreadManagementProviderInstanceDisabledError"
-                ? threadManagementFailure(error)
-                : failure(
-                    "orchestration_error",
-                    `Unable to create delegated task: ${errorMessage(error)}`,
-                  ),
+            Effect.catchCause((cause) =>
+              Effect.logWarning("orchestrator-mcp.delegate-task.wake-policy-failed", {
+                taskId,
+                outcome: "defect",
+                cause,
+              }),
             ),
           );
-      });
-      // Isolated writers and pinned readers elsewhere share one lock, so neither can launch
-      // into a workspace the other has just claimed.
-      const result = yield* elsewhere && managedService !== undefined
-        ? managedService.exclusive(launch)
-        : launch;
-      if (workUnit !== undefined)
-        yield* experiments
-          .recordWorkTaskLaunch({
-            taskId: deriveIds.delegatedTaskNode({ commandId }),
-            state: "accepted",
-          })
-          .pipe(Effect.mapError(workError));
-      const taskEvent = result.storedEvents.find(
-        (stored) =>
-          stored.event.type === "subagent.updated" && stored.event.payload.origin === "app_owned",
-      );
-      if (taskEvent?.event.type !== "subagent.updated") {
-        return yield* failure(
-          "orchestration_error",
-          "Delegated task command did not produce a task projection.",
-        );
-      }
-      const taskId = taskEvent.event.payload.id;
-      const childThreadId = taskEvent.event.payload.childThreadId;
-      const childRunEvent = result.storedEvents.find(
-        (stored) => stored.event.type === "run.created" && stored.event.threadId === childThreadId,
-      );
-      if (
-        childThreadId !== null &&
-        childRunEvent?.event.type === "run.created" &&
-        childRunEvent.event.payload.workspacePreparation !== undefined
-      ) {
-        yield* threadLaunch.prepareRun({
-          commandId,
-          threadId: childThreadId,
-          runId: childRunEvent.event.payload.id,
-        });
-      }
-
-      if (input.mode !== "wait") {
-        return yield* readTask(scope, taskId, false, true);
-      }
-      const timeoutMs = Math.min(
-        MAX_WAIT_TIMEOUT_MS,
-        Math.max(1, input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS),
-      );
-      const waited = yield* waitForTask(scope, taskId, timeoutMs);
-      if (Option.isSome(waited) && isTerminalTaskStatus(waited.value.status)) {
-        return waited.value;
-      }
-      // An incomplete wait gives up delivery: upgrade so a later terminal
-      // wakes the parent even mid-turn.
-      yield* threadManagement
-        .dispatch({
-          type: "delegated_task.wake-policy",
-          commandId: stableCommandId({
-            scope,
-            requestKey: key,
-            operation: "delegate-task-wake-policy",
+        return yield* readTask(scope, taskId, Option.isNone(waited), true);
+      },
+      (effect, callerScope, input) =>
+        effect.pipe(
+          Effect.tapError(() => {
+            if (Option.isNone(champions) || callerScope.thread === undefined) return Effect.void;
+            const ownerThreadId = callerScope.thread.threadId;
+            return Effect.gen(function* () {
+              let request = input.agentTask;
+              if (input.followup !== undefined) {
+                const records = yield* threadManagement.getThreadRecords(ownerThreadId, [
+                  "subagents",
+                ]);
+                const task = records.subagents.find((t) => t.id === input.followup?.taskId);
+                if (task?.childThreadId !== null && task?.childThreadId !== undefined)
+                  request = (yield* threadManagement.getThreadShell(task.childThreadId))?.agentTask;
+              }
+              yield* champions.value.delegationOutcome({
+                ownerThreadId,
+                request,
+                clientRequestId: input.clientRequestId,
+                state: "failed",
+                followup: input.followup !== undefined,
+              });
+            }).pipe(Effect.ignore);
           }),
-          parentThreadId: scope.thread.threadId,
-          taskId,
-          completionWake: "always",
-        })
-        .pipe(
-          Effect.catch((error) =>
-            Effect.logWarning("orchestrator-mcp.delegate-task.wake-policy-failed", {
-              taskId,
-              outcome:
-                error._tag === "OrchestratorCommandPreviouslyRejectedError"
-                  ? "previously_rejected"
-                  : "dispatch_failed",
-              error,
-            }),
-          ),
-          Effect.catchCause((cause) =>
-            Effect.logWarning("orchestrator-mcp.delegate-task.wake-policy-failed", {
-              taskId,
-              outcome: "defect",
-              cause,
-            }),
-          ),
-        );
-      return yield* readTask(scope, taskId, Option.isNone(waited), true);
-    }),
+        ),
+    ),
     taskStatus: Effect.fn("OrchestratorMcpService.taskStatus")(
       function* (callerScope, taskId, timeoutMs) {
         const budget =

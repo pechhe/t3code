@@ -23,6 +23,10 @@
       "types": "./src/threadWorkflow.ts",
       "default": "./src/threadWorkflow.ts"
     },
+    "./champions": {
+      "types": "./src/champions.ts",
+      "default": "./src/champions.ts"
+    },
     "./away": {
       "types": "./src/away.ts",
       "default": "./src/away.ts"

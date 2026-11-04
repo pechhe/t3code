@@ -137,6 +137,7 @@ function threadRunStatusIsActive(status: ThreadRuntimeSummary["status"]): boolea
 }
 
 export interface EnvironmentThreadShell {
+  readonly champion?: OrchestrationV2ThreadShell["champion"];
   readonly environmentId: EnvironmentId;
   readonly id: ThreadId;
   readonly projectId: ProjectId;
@@ -303,6 +304,7 @@ export function presentThreadShell(
     runtime?.status === "starting" ||
     runtime?.status === "running";
   return {
+    champion: thread.champion,
     environmentId,
     id: thread.id,
     projectId: thread.projectId,

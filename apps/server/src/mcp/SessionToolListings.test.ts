@@ -1,4 +1,5 @@
 import * as DecisionService from "../decisions/DecisionService.ts";
+import * as Champions from "../champions/ChampionService.ts";
 import * as WebResearch from "./WebResearch.ts";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -55,6 +56,7 @@ import * as McpToolAccessTestkit from "./McpToolAccess.testkit.ts";
  */
 const serviceMocks = Layer.mergeAll(
   Layer.mock(DecisionService.DecisionService)({}),
+  Layer.mock(Champions.ChampionService)({}),
   Layer.mock(WebResearch.WebResearch)({}),
   Layer.mock(OrchestratorMcpService.OrchestratorMcpService)({}),
   Layer.mock(ThreadMetadataMcpService.ThreadMetadataMcpService)({}),

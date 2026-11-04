@@ -653,3 +653,36 @@ describe("subagent live state", () => {
     ).toBeUndefined();
   });
 });
+
+it("hides quiet champion owners from shared lists while retaining direct links and actionable attention", () => {
+  const harness = makeHarness();
+  const champion = { ...v2ThreadShell, champion: { id: "quality", attention: false } };
+  const list = harness.threads.quietThreadShellsAtom;
+  const projectList = harness.threads.threadShellsForProjectRefsAtom([
+    { environmentId, projectId: champion.projectId },
+  ]);
+  const direct = harness.threads.threadShellAtom({ environmentId, threadId: champion.id });
+  const disposeList = harness.registry.mount(list);
+  const disposeProject = harness.registry.mount(projectList);
+  const disposeDirect = harness.registry.mount(direct);
+  try {
+    harness.registry.set(harness.snapshotAtom(environmentId), {
+      ...v2ShellSnapshot,
+      threads: [champion],
+    });
+    expect(harness.registry.get(list)).toEqual([]);
+    expect(harness.registry.get(projectList)).toEqual([]);
+    expect(harness.registry.get(direct)?.id).toBe(champion.id);
+    harness.registry.set(harness.snapshotAtom(environmentId), {
+      ...v2ShellSnapshot,
+      threads: [{ ...champion, champion: { id: "quality", attention: true } }],
+    });
+    expect(harness.registry.get(list).map((t) => t.id)).toEqual([champion.id]);
+    expect(harness.registry.get(projectList).map((t) => t.id)).toEqual([champion.id]);
+  } finally {
+    disposeList();
+    disposeProject();
+    disposeDirect();
+    harness.registry.dispose();
+  }
+});

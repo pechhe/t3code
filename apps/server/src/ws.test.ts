@@ -1,3 +1,4 @@
+import * as Champions from "./champions/ChampionService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -477,6 +478,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(SlipJayReleases.SlipJayReleases)({}),
   Layer.mock(SlipJaySettings.SlipJaySettings)({}),
   Layer.mock(WorkspaceAttachments.WorkspaceAttachments)({}),
+  Layer.mock(Champions.ChampionService)({}),
   Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
   Layer.mock(GuestShareService.GuestShareService)({}),

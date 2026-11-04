@@ -426,6 +426,7 @@ export interface ThreadManagementServiceShape {
   }) => Effect.Effect<boolean>;
   /** Receipt replays start no work; skip enablement checks with the same command id so settings cannot reject accepted retries. */
   readonly hasReceipt: (commandId: CommandId) => Effect.Effect<boolean>;
+  readonly getReceipt: CommandReceiptStore.CommandReceiptStoreV2["Service"]["getByCommandId"];
   readonly waitForThread: (
     input: ThreadManagementWaitInput,
   ) => Effect.Effect<ThreadManagementWaitResult, ThreadManagementError>;
@@ -811,6 +812,29 @@ const make = Effect.gen(function* () {
     externalWorkOwner?: NonNullable<AgentTaskBinding["externalOwner"]>,
   ) {
     const command = yield* routePoolCommand(input);
+    if (
+      command.type === "thread.archive" ||
+      command.type === "thread.delete" ||
+      (command.type === "thread.metadata.update" && command.worktreePath !== undefined)
+    ) {
+      const shell = yield* orchestrator.getThreadShell(command.threadId);
+      if (shell?.champion !== undefined) {
+        const { subagents } = yield* orchestrator.getThreadRecords(command.threadId, ["subagents"]);
+        if (
+          subagents.some(
+            (task) =>
+              task.origin === "app_owned" &&
+              task.childThreadId !== null &&
+              !["completed", "failed", "cancelled", "interrupted"].includes(task.status),
+          )
+        )
+          return yield* new Orchestrator.OrchestratorCommandRejectedError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "A champion owner with live children must retain its thread and workspace.",
+          });
+      }
+    }
     // Raw agent messages cannot bypass external work ownership. The owning
     // service may continue a validated task with its authenticated principal.
     if (
@@ -1453,6 +1477,7 @@ const make = Effect.gen(function* () {
     assertProviderInstanceEnabled,
     isProviderInstanceEnabledForProject,
     hasReceipt,
+    getReceipt: receipts.getByCommandId,
     waitForThread,
     settleAfterRun,
     settleThread,

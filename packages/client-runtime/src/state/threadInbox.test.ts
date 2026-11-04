@@ -2,6 +2,7 @@ import { EnvironmentId, ProviderInstanceId, RunId, ThreadId } from "@t3tools/con
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  championNeedsInbox,
   createInboxReturnTracker,
   isThreadWorking,
   sortInboxThreadsByReturn,
@@ -240,4 +241,15 @@ describe("sortWorkingThreadsBySend", () => {
       sortWorkingThreadsBySend([launched, sentFirst, sentLast]).map((thread) => thread.id),
     ).toEqual(["sent-last", "sent-first", "launched"]);
   });
+});
+
+it("keeps ordinary champion runs quiet and retains actionable champion attention", () => {
+  const ordinary = thread("champion", true);
+  const quiet = { ...ordinary, champion: { id: "quality", attention: false } };
+  expect(championNeedsInbox(quiet)).toBe(false);
+  expect(championNeedsInbox({ ...quiet, runtime: null })).toBe(false);
+  expect(championNeedsInbox({ ...quiet, champion: { id: "quality", attention: true } })).toBe(true);
+  expect(championNeedsInbox({ ...quiet, hasPendingApprovals: true })).toBe(true);
+  expect(championNeedsInbox({ ...quiet, pendingSubagentRequest: "user_input" })).toBe(true);
+  expect(championNeedsInbox(ordinary)).toBe(true);
 });

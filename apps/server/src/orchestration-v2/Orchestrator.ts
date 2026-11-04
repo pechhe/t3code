@@ -3999,6 +3999,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               ? {}
               : {
                   worktreePath: command.worktreePath,
+                  ...(command.worktreePath !== null &&
+                  thread.agentTask?.role === "lead" &&
+                  (command.workspaceIssue !== undefined || thread.workspaceIssue !== undefined)
+                    ? { agentTask: { ...thread.agentTask, workspacePath: command.worktreePath } }
+                    : {}),
                   // A thread on the project checkout keeps its Build item, which only a failed
                   // workspace replacement leaves there, until a workspace takes it over.
                   workspaceIssue:

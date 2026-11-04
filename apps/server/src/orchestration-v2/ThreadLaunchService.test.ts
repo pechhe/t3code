@@ -4039,3 +4039,41 @@ it.effect("replays an accepted send after the project disables the instance", ()
     }
   }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerFiles)));
 });
+
+it.effect(
+  "binds a managed Spec lead to its allocated Spec checkout before its provider turn starts",
+  () => {
+    const assigned = "/slipjay/workspaces/spec-42";
+    const harness = makeHarness({
+      slipjay: true,
+      allocateWorkspace: () => Effect.succeed(allocated(assigned, true, 42)),
+      runSetup: () => Effect.die("A managed Spec lead must not run shared-root setup"),
+    });
+    const agentTask = { ...managedTaskBinding(project.workspaceRoot), role: "lead" as const };
+    return Effect.gen(function* () {
+      const launch = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const result = yield* launch.launch(
+        launchInput({
+          command: "champion:spec-lead",
+          thread: "champion:spec-thread",
+          message: "Run Spec 42",
+          workspace: forgeItemStrategy,
+          agentTask,
+        }),
+      );
+      yield* waitForThreadProjection(threads, result.threadId, () =>
+        threads
+          .getThreadProjection(result.threadId)
+          .pipe(Effect.map((p) => p.runs[0]?.status === "starting")),
+      );
+      const projection = yield* threads.getThreadProjection(result.threadId);
+      assert.equal(projection.thread.worktreePath, assigned);
+      assert.equal(projection.thread.agentTask?.workspacePath, assigned);
+      assert.notEqual(projection.thread.agentTask?.workspacePath, project.workspaceRoot);
+      const allocation = harness.allocateWorkspace.mock.calls[0]?.[0];
+      assert.isDefined(allocation);
+      assert.equal(allocation!.issue?.number, 42);
+    }).pipe(Effect.provide(harness.layer));
+  },
+);

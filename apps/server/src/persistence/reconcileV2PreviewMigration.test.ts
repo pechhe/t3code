@@ -75,6 +75,8 @@ describe("V2 preview upgrade", () => {
         [93, "IntermediateEventCompaction"],
         [94, "EventLogWriteIndexes"],
         [95, "ProjectionReadIndexes"],
+        [96, "Champions"],
+        [97, "ChampionRecovery"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -193,6 +195,8 @@ describe("V2 preview upgrade", () => {
         [93, "IntermediateEventCompaction"],
         [94, "EventLogWriteIndexes"],
         [95, "ProjectionReadIndexes"],
+        [96, "Champions"],
+        [97, "ChampionRecovery"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

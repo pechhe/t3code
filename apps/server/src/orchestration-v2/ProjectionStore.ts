@@ -6755,7 +6755,25 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           ),
         ),
       ]);
+      const championRows = yield* sql<{
+        owner_thread_id: string;
+        setup_thread_id: string | null;
+        id: string;
+        attention: number;
+        setup_attention: number;
+      }>`
+        SELECT json_extract(document_json, '$.champion.ownerThreadId') AS owner_thread_id,
+          json_extract(document_json, '$.champion.setupThreadId') AS setup_thread_id,
+          id, json_array_length(json_extract(document_json, '$.champion.attention')) AS attention,
+          CASE WHEN json_extract(document_json, '$.champion.pendingProposal') = 1 OR
+            EXISTS (SELECT 1 FROM json_each(document_json, '$.champion.attention') WHERE value LIKE 'Setup %')
+            THEN 1 ELSE 0 END AS setup_attention
+        FROM champions
+        WHERE json_extract(document_json, '$.champion.ownerThreadId') IN ${sql.in([...targetThreadIds])}
+          OR json_extract(document_json, '$.champion.setupThreadId') IN ${sql.in([...targetThreadIds])}
+      `;
       return {
+        championRows,
         targetThreadIds,
         threadRows,
         runRows,
@@ -6768,6 +6786,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
     });
 
     const decodeShellSnapshot = Effect.fn("ProjectionStore.decodeShellSnapshot")(function* ({
+      championRows,
       targetThreadIds,
       threadRows,
       runRows,
@@ -6796,6 +6815,21 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       );
       const statesByThreadId = new Map(states.map((state) => [state.thread.id, state]));
 
+      const champions = new Map(
+        championRows.flatMap((row) =>
+          [row.owner_thread_id, ...(row.setup_thread_id === null ? [] : [row.setup_thread_id])].map(
+            (threadId) =>
+              [
+                threadId,
+                {
+                  id: row.id,
+                  attention:
+                    (threadId === row.owner_thread_id ? row.attention : row.setup_attention) > 0,
+                },
+              ] as const,
+          ),
+        ),
+      );
       const shells = states
         .filter((state) => targetThreadIds.has(state.thread.id))
         .map((state) =>
@@ -6811,8 +6845,18 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       return {
         schemaVersion: ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION,
         snapshotSequence: sequenceRows[0]?.snapshot_sequence ?? 0,
-        threads: shells.filter((thread) => thread.archivedAt === null),
-        archivedThreads: shells.filter((thread) => thread.archivedAt !== null),
+        threads: shells
+          .filter((thread) => thread.archivedAt === null)
+          .map((thread) => ({
+            ...thread,
+            ...(champions.has(thread.id) ? { champion: champions.get(thread.id)! } : {}),
+          })),
+        archivedThreads: shells
+          .filter((thread) => thread.archivedAt !== null)
+          .map((thread) => ({
+            ...thread,
+            ...(champions.has(thread.id) ? { champion: champions.get(thread.id)! } : {}),
+          })),
       };
     }, Effect.mapError(shellSnapshotReadError));
 

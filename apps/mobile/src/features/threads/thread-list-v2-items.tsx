@@ -659,13 +659,14 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const subagentActivity = useAtomValue(
     environmentThreadShells.subagentActivityAtom(scopeThreadRef(thread.environmentId, thread.id)),
   );
-  const delegatedLabel =
+  const delegatedStatusLabel =
     status === "waiting" &&
     (subagentActivity?.status === "working" || subagentActivity?.status === "waiting")
-      ? {
-          ...STATUS_LABEL_BY_STATUS[subagentActivity.status],
-          label: subagentActivityLabel(subagentActivity),
-        }
+      ? STATUS_LABEL_BY_STATUS[subagentActivity.status]
+      : undefined;
+  const delegatedLabel =
+    delegatedStatusLabel && subagentActivity
+      ? { ...delegatedStatusLabel, label: subagentActivityLabel(subagentActivity) }
       : undefined;
   const statusLabel =
     delegatedLabel ??

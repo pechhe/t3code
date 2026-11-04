@@ -3,6 +3,32 @@ import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts"
 import { toSortableTimestamp } from "./threadSort.ts";
 import { effectiveSnoozed } from "./threadSettled.ts";
 
+export function championNeedsInbox(
+  thread: Pick<
+    EnvironmentThreadShell,
+    | "champion"
+    | "hasPendingApprovals"
+    | "hasPendingUserInput"
+    | "hasActionableProposedPlan"
+    | "pendingSubagentRequest"
+    | "pendingGuestMessageCount"
+    | "runtime"
+    | "latestRun"
+  >,
+): boolean {
+  return (
+    thread.champion === undefined ||
+    thread.champion.attention ||
+    thread.hasPendingApprovals ||
+    thread.hasPendingUserInput ||
+    thread.hasActionableProposedPlan ||
+    thread.pendingSubagentRequest != null ||
+    (thread.pendingGuestMessageCount ?? 0) > 0 ||
+    thread.runtime?.lastError != null ||
+    thread.latestRun?.status === "failed"
+  );
+}
+
 type WorkingThreadInput = Pick<
   EnvironmentThreadShell,
   | "hasActionableProposedPlan"

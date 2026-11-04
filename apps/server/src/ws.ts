@@ -1,3 +1,4 @@
+import * as Champions from "./champions/ChampionService.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
 import * as ManagedAgent from "./agents/ManagedAgentService.ts";
@@ -105,6 +106,7 @@ import {
   type PullRequestRef,
   WS_METHODS,
   WsCoreRpcGroup,
+  WsChampionsRpcGroup,
   WsGuestShareRpcGroup,
   WsHqRpcGroup,
   WsPeersRpcGroup,
@@ -591,6 +593,7 @@ const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
 // RpcGroup.toLayer derives each handler's requirements by scanning every RPC in the group, so
 // its type cost grows with handlers × RPCs; near 200 methods the layer's requirements degrade to
 // `any`. The contracts split the group by feature, and each part registers its own handler layer.
+const ServerWsChampionsRpcGroup = WsChampionsRpcGroup.middleware(RpcInstrumentation);
 const ServerWsCoreRpcGroup = WsCoreRpcGroup.middleware(RpcInstrumentation);
 const ServerWsPullRequestRpcGroup = WsPullRequestRpcGroup.middleware(RpcInstrumentation);
 const ServerWsPeersRpcGroup = WsPeersRpcGroup.middleware(RpcInstrumentation);
@@ -3401,6 +3404,27 @@ const layerWsPeersRpc = ServerWsPeersRpcGroup.toLayer(
   }),
 );
 
+const layerWsChampionsRpc = ServerWsChampionsRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const champions = yield* Champions.ChampionService;
+    return ServerWsChampionsRpcGroup.of({
+      [WS_METHODS.championsList]: (input) => champions.list(input),
+      [WS_METHODS.championsSubscribe]: (input) => champions.subscribe(input),
+      [WS_METHODS.championsGet]: (input) => champions.get(input),
+      [WS_METHODS.championsHistory]: (input) => champions.history(input),
+      [WS_METHODS.championsUpsert]: (input) => champions.upsert(input),
+      [WS_METHODS.championsSetLifecycle]: (input) => champions.setLifecycle(input),
+      [WS_METHODS.championsSetup]: (input) => champions.setup(input),
+      [WS_METHODS.championsRunCheck]: (input) => champions.runCheck(input),
+      [WS_METHODS.championsPropose]: (input) => champions.propose(input),
+      [WS_METHODS.championsDiscardProposal]: (input) => champions.discardProposal(input),
+      [WS_METHODS.championsCancelSetup]: (input) => champions.cancelSetup(input),
+      [WS_METHODS.championsAccept]: (input) => champions.accept(input),
+      [WS_METHODS.championsFindingAction]: (input) => champions.findingAction(input),
+    });
+  }),
+);
+
 const layerWsAwayRpc = ServerWsAwayRpcGroup.toLayer(
   Effect.gen(function* () {
     const reactor = yield* UnattendedReactor.UnattendedReactor;
@@ -3619,6 +3643,7 @@ export const layer = Layer.unwrap(
               layerWsGuestShareRpc,
               layerWsThreadStructureRpc,
               layerWsAwayRpc,
+              layerWsChampionsRpc,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Handler-context reporters see only request defects, not server-wide defects.

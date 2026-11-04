@@ -162,6 +162,7 @@ describe("SlipJay runner", () => {
     serial: [],
     deploy: [],
     deploys: [],
+    repositories: [],
     ...overrides,
   });
 
