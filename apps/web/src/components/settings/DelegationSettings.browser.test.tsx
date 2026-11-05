@@ -151,8 +151,7 @@ function fixture(): AgentPolicySettings {
       browser: role("browser", "fast", { toolProfile: "phi" }),
       "ui-verifier": role("ui-verifier", "fast", { toolProfile: "phi" }),
       advisor: role("advisor", "workhorse"),
-      "ticket-reviewer": role("ticket-reviewer", "workhorse"),
-      "spec-reviewer": role("spec-reviewer", "workhorse"),
+      reviewer: { ...role("reviewer", "workhorse"), specList: "workhorse" },
     },
   });
   return {
@@ -317,4 +316,75 @@ it("cannot save to all environments while one has no readable policy", async () 
   expect(text()).toContain("Other Box: Could not read");
   await click("Move claude-test up");
   expect(button("Save").disabled).toBe(true);
+});
+
+const separateReviewerLists = () => {
+  const policy = fixture();
+  const manifest = policy.snapshot.manifest;
+  state.data = {
+    ...policy,
+    snapshot: {
+      ...policy.snapshot,
+      manifest: {
+        ...manifest,
+        lists: {
+          ...manifest.lists,
+          "reviewer-spec": [
+            { model: "sol", effort: "low" },
+            { model: "opus", effort: "low" },
+          ],
+        },
+        roles: {
+          ...manifest.roles,
+          reviewer: { ...manifest.roles.reviewer, specList: "reviewer-spec" },
+        },
+      },
+    },
+  };
+  return manifest;
+};
+
+it("shows the Reviewer with a change list and a Spec list, each editable", async () => {
+  separateReviewerLists();
+  await mount();
+  for (const phrase of [
+    "Change reviews",
+    "A chore or other work with no Spec",
+    "Spec reviews",
+    "The integrated outcome of a Spec",
+    "The lead states on each review task whether it is reviewing a change or a Spec.",
+  ]) {
+    expect(text().split(phrase)).toHaveLength(phrase.endsWith("reviews") ? 3 : 2);
+  }
+  expect(text().match(/Prefer a\s*different provider/g)).toHaveLength(1);
+  expect(text()).not.toContain("Different model for large tasks");
+});
+
+it("saves a Spec list edit without touching the change list", async () => {
+  const manifest = separateReviewerLists();
+  await mount();
+  // Shared job, then the Reviewer's change list and Spec list.
+  await act(async () => userEvent.click(buttons("Move gpt-test down")[2]!));
+  await click("Save");
+  expect(state.save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      input: expect.objectContaining({
+        manifest: expect.objectContaining({
+          lists: expect.objectContaining({
+            "reviewer-spec": [
+              { model: "opus", effort: "low" },
+              { model: "sol", effort: "low" },
+            ],
+            workhorse: manifest.lists["workhorse"],
+          }),
+        }),
+      }),
+    }),
+  );
+});
+
+it("does not warn when a first choice is unavailable", async () => {
+  await mount();
+  expect(text()).not.toContain("will be refused");
+  expect(text()).not.toContain("will use");
 });

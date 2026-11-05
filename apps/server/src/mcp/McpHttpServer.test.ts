@@ -138,8 +138,8 @@ const verifierChild: DelegatedChild = {
   toolProfile: "phi",
 };
 const readerChild: DelegatedChild = {
-  threadId: ThreadId.make("thread-spec-reviewer-child"),
-  role: "spec-reviewer",
+  threadId: ThreadId.make("thread-reviewer-child"),
+  role: "reviewer",
   toolProfile: "source-reader",
 };
 

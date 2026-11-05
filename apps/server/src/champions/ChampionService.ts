@@ -233,8 +233,7 @@ const phaseForRole = (role: string) =>
       "chore-worker": "implementation",
       "ui-worker": "implementation",
       advisor: "advice",
-      "ticket-reviewer": "review",
-      "spec-reviewer": "review",
+      reviewer: "review",
       "ui-verifier": "verification",
       lead: "lead",
     } as Record<string, string>

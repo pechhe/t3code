@@ -1,4 +1,5 @@
 import {
+  AGENT_ROLE_TITLE_LABEL,
   AgentRole,
   type AgentListEntry,
   type AgentPolicyManifest,
@@ -22,8 +23,7 @@ const ROLE_ORDER: ReadonlyArray<AgentRole> = [
   "lead",
   "implementation-worker",
   "ui-worker",
-  "ticket-reviewer",
-  "spec-reviewer",
+  "reviewer",
   "advisor",
   "chore-worker",
   "browser",
@@ -35,8 +35,7 @@ const ROLE_ORDER: ReadonlyArray<AgentRole> = [
 export const ROLE_DESCRIPTIONS: Record<AgentRole, string> = {
   "implementation-worker": "Non-UI code changes",
   "ui-worker": "UI changes",
-  "ticket-reviewer": "Reviews a Ticket's change before it lands",
-  "spec-reviewer": "Reviews a finished Spec across its landings",
+  reviewer: "Reviews a change or a Spec before it lands",
   advisor: "Read-only second opinion",
   "chore-worker": "Mechanical edits",
   browser: "Drives web pages",
@@ -49,16 +48,32 @@ export const ROLE_DESCRIPTIONS: Record<AgentRole, string> = {
 export interface RoleGroup {
   readonly list: string;
   readonly roles: ReadonlyArray<AgentRole>;
+  readonly bindings: ReadonlyArray<{
+    readonly role: AgentRole;
+    readonly field: "list" | "specList";
+  }>;
 }
 
 export function roleGroups(manifest: Manifest): RoleGroup[] {
-  const groups: Array<{ list: string; roles: AgentRole[] }> = [];
+  const groups: Array<{
+    list: string;
+    roles: AgentRole[];
+    bindings: Array<{ role: AgentRole; field: "list" | "specList" }>;
+  }> = [];
   for (const role of ROLE_ORDER) {
-    const list = manifest.roles[role]?.list;
-    if (list === undefined) continue;
-    const group = groups.find((candidate) => candidate.list === list);
-    if (group) group.roles.push(role);
-    else groups.push({ list, roles: [role] });
+    const policy = manifest.roles[role];
+    if (policy === undefined) continue;
+    for (const field of ["list", "specList"] as const) {
+      const list = policy[field];
+      if (list === undefined) continue;
+      let group = groups.find((candidate) => candidate.list === list);
+      if (group === undefined) {
+        group = { list, roles: [], bindings: [] };
+        groups.push(group);
+      }
+      if (!group.roles.includes(role)) group.roles.push(role);
+      group.bindings.push({ role, field });
+    }
   }
   return groups;
 }
@@ -391,12 +406,98 @@ export function setPreferOtherAuthorProvider(manifest: Manifest, role: AgentRole
 export function splitGroup(manifest: Manifest, group: RoleGroup): Manifest {
   const entries = manifest.lists[group.list] ?? [];
   let next = manifest;
-  for (const role of group.roles) {
-    const list = manifest.lists[role] === undefined || role === group.list ? role : `${role}-list`;
-    next = withRole(withList(next, list, entries), role, (policy) => ({ ...policy, list }));
+  for (const { role, field } of group.bindings) {
+    const base = field === "specList" ? `${role}-spec` : role;
+    let list = base;
+    for (let suffix = 2; next.lists[list] !== undefined; suffix++) list = `${base}-${suffix}`;
+    next = withRole(withList(next, list, entries), role, (policy) => ({
+      ...policy,
+      [field]: list,
+    }));
   }
+  const referenced = Object.values(next.roles).some(
+    (policy) => policy?.list === group.list || policy?.specList === group.list,
+  );
+  if (referenced) return next;
   const { [group.list]: _shared, ...lists } = next.lists;
-  return group.roles.some((role) => next.roles[role]?.list === group.list)
-    ? next
-    : { ...next, lists };
+  return { ...next, lists };
 }
+
+export interface JobSection {
+  readonly list: string;
+  readonly title?: string;
+  readonly hint?: string;
+}
+
+/** A row on the page: roles sharing a list, or the Reviewer with its change and Spec lists. */
+export interface Job {
+  readonly roles: ReadonlyArray<AgentRole>;
+  readonly sections: ReadonlyArray<JobSection>;
+  readonly splitGroups: ReadonlyArray<RoleGroup>;
+}
+
+const REVIEWER_SECTIONS = {
+  list: { title: "Change reviews", hint: "A chore or other work with no Spec" },
+  specList: { title: "Spec reviews", hint: "The integrated outcome of a Spec" },
+} as const;
+
+export function jobsFor(manifest: Manifest, groups: ReadonlyArray<RoleGroup>): Job[] {
+  const reviewer = manifest.roles.reviewer;
+  const jobs: Job[] = [];
+  const alsoUsedBy = (list: string, hint: string) => {
+    const others = groups
+      .find((group) => group.list === list)
+      ?.roles.filter((role) => role !== "reviewer");
+    return others?.length
+      ? `${hint}. Also used by ${others.map((role) => AGENT_ROLE_TITLE_LABEL[role]).join(", ")}`
+      : hint;
+  };
+  for (const group of groups) {
+    const roles = group.roles.filter((role) => role !== "reviewer");
+    const shared = group.bindings.length > 1 ? [group] : [];
+    if (roles.length > 0) {
+      jobs.push({ roles, sections: [{ list: group.list }], splitGroups: shared });
+    }
+    if (reviewer === undefined || group.list !== reviewer.list) continue;
+    const specList = reviewer.specList ?? reviewer.list;
+    jobs.push({
+      roles: ["reviewer"],
+      sections:
+        specList === reviewer.list
+          ? [
+              {
+                list: specList,
+                title: "Change and Spec reviews",
+                hint: alsoUsedBy(specList, "Both kinds of review use this list"),
+              },
+            ]
+          : [
+              {
+                list: reviewer.list,
+                title: REVIEWER_SECTIONS.list.title,
+                hint: alsoUsedBy(reviewer.list, REVIEWER_SECTIONS.list.hint),
+              },
+              {
+                list: specList,
+                title: REVIEWER_SECTIONS.specList.title,
+                hint: alsoUsedBy(specList, REVIEWER_SECTIONS.specList.hint),
+              },
+            ],
+      splitGroups: groups.filter(
+        (candidate) =>
+          candidate.bindings.length > 1 &&
+          candidate.bindings.some(({ role }) => role === "reviewer"),
+      ),
+    });
+  }
+  return jobs;
+}
+
+export const splitJob = (manifest: Manifest, job: Job) => {
+  let next = manifest;
+  for (const { list } of job.splitGroups) {
+    const group = roleGroups(next).find((candidate) => candidate.list === list);
+    if (group !== undefined) next = splitGroup(next, group);
+  }
+  return next;
+};

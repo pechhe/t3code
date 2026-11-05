@@ -57,7 +57,11 @@ const threadOf = (
 const childOf = (id: ThreadId, parent: ThreadId, role: string, overrides = {}) =>
   threadOf(id, {
     lineage: { parentThreadId: parent, relationshipToParent: "subagent", rootThreadId: lead },
-    agentTask: { role, workId: `work-${id}` },
+    agentTask: {
+      role,
+      workId: `work-${id}`,
+      ...(role === "reviewer" ? { review: { scope: "spec" } } : {}),
+    },
     ...overrides,
   });
 
@@ -420,7 +424,7 @@ it.effect("a reviewer child queues its own run times and is never a helper", () 
         lead,
         threadOf(lead, { workItem: { itemId: "spec-1", number: 1, origin } }),
       );
-      state.threads.set(reviewer, childOf(reviewer, lead, "spec-reviewer"));
+      state.threads.set(reviewer, childOf(reviewer, lead, "reviewer"));
       state.subagents.set(reviewer, subagentOf(reviewer, { title: "Review package B" }));
       state.reviewerRuns.push({
         reviewerThreadId: reviewer,
@@ -449,7 +453,7 @@ it.effect("a reviewer round that reported no run does not borrow an earlier roun
         lead,
         threadOf(lead, { workItem: { itemId: "spec-1", number: 1, origin } }),
       );
-      state.threads.set(reviewer, childOf(reviewer, lead, "spec-reviewer"));
+      state.threads.set(reviewer, childOf(reviewer, lead, "reviewer"));
       state.subagents.set(reviewer, subagentOf(reviewer, { title: "Review package B" }));
       state.reviewerRuns.push({
         reviewerThreadId: reviewer,
@@ -474,7 +478,7 @@ it.effect("a reviewer that has reported no run records nothing rather than guess
         lead,
         threadOf(lead, { workItem: { itemId: "spec-1", number: 1, origin } }),
       );
-      state.threads.set(silentReviewer, childOf(silentReviewer, lead, "spec-reviewer"));
+      state.threads.set(silentReviewer, childOf(silentReviewer, lead, "reviewer"));
       state.subagents.set(silentReviewer, subagentOf(silentReviewer));
 
       yield* reactor.recordCompletion(silentReviewer, finishedRunOf(silentReviewer));
@@ -593,7 +597,7 @@ it.effect("a follow-up run's helper record and run times carry that run's own ti
         threadOf(lead, { workItem: { itemId: "spec-1", number: 1, origin } }),
       );
       state.threads.set(child, childOf(child, lead, "implementation-worker"));
-      state.threads.set(reviewer, childOf(reviewer, lead, "spec-reviewer"));
+      state.threads.set(reviewer, childOf(reviewer, lead, "reviewer"));
       // The delegate_task node keeps the times of the task that started first.
       state.subagents.set(child, subagentOf(child));
       state.subagents.set(reviewer, subagentOf(reviewer, { title: "Review package B" }));

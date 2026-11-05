@@ -66,8 +66,7 @@ const run = (invocation: Context.McpInvocationScope, inactive = false) =>
 it.effect.each([
   scope("source-reader", "scout"),
   scope("source-reader", "advisor"),
-  scope("source-reader", "ticket-reviewer"),
-  scope("source-reader", "spec-reviewer"),
+  scope("source-reader", "reviewer"),
   scope("web-research", "researcher"),
   { ...scope(), thread: undefined },
   {
@@ -110,7 +109,7 @@ it("explicitly assigns discovery to decision, excluding source-only and research
   for (const [toolProfile, agentRole] of [
     ["source-reader", "scout"],
     ["web-research", "researcher"],
-    ["implementation", "ticket-reviewer"],
+    ["implementation", "reviewer"],
   ] as const) {
     expect(canUseDecisions({ toolProfile, agentRole })).toBe(false);
     expect(isToolListedForSession("t3_decide", { toolProfile, agentRole, delegated: true })).toBe(

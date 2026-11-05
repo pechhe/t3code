@@ -159,7 +159,18 @@ const make = Effect.gen(function* () {
     );
     const entries = yield* Effect.forEach(Object.entries(manifest.roles), ([role, policy]) =>
       Effect.gen(function* () {
-        const text = yield* read(root, policy.brief);
+        const briefPath =
+          role === "reviewer" &&
+          !(yield* fs
+            .exists(path.join(root, policy.brief))
+            .pipe(
+              Effect.mapError(
+                (cause) => new AgentPolicyLoadError({ reason: "read", path: policy.brief, cause }),
+              ),
+            ))
+            ? "roles/spec-reviewer.md"
+            : policy.brief;
+        const text = yield* read(root, briefPath);
         return [role, { hash: yield* hash(text), text }] as const;
       }),
     );

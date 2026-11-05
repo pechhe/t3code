@@ -86,7 +86,7 @@ const harness = Effect.gen(function* () {
   const roleOf = (threadId: ThreadId) =>
     threadId === helperThread || threadId === unresolvedHelper
       ? "implementation-worker"
-      : "spec-reviewer";
+      : "reviewer";
   const projections = Layer.mock(ProjectionStore.ProjectionStoreV2)({
     getThread: (threadId: ThreadId) =>
       Effect.suspend(() => {
@@ -101,7 +101,7 @@ const harness = Effect.gen(function* () {
                 : {}),
               ...(threadId === leadThread || threadId === unresolvedLead
                 ? {}
-                : { agentTask: { role: roleOf(threadId) } }),
+                : { agentTask: { role: roleOf(threadId), review: { scope: "spec" } } }),
               modelSelection: { model },
             } as never);
       }),
@@ -662,7 +662,7 @@ it.effect(
     }),
 );
 
-it.effect("records a reviewer's own Forge run from the answer its proxied call was given", () =>
+it.effect("records the merged reviewer's own Forge run through its scope-mapped connection", () =>
   Effect.gen(function* () {
     const { weave, connections, boot } = yield* harness;
     const records = yield* boot;
@@ -684,6 +684,16 @@ it.effect("records a reviewer's own Forge run from the answer its proxied call w
       })),
       [{ reviewerThreadId: reviewerThread, runId: "run-7", specId: "spec-1" }],
     );
+    const reviewCall = weave.toolCalls.find(
+      (call) =>
+        call.name === "weave_forge_run" &&
+        weave.agents.some(
+          (agent) => agent.id === call.agentId && agent.agentRef.endsWith(`/thread-reviewer`),
+        ),
+    );
+    const reviewAgent = weave.agents.find((agent) => agent.id === reviewCall?.agentId);
+    assert.strictEqual(reviewAgent?.role, "spec-reviewer");
+    assert.notStrictEqual(reviewAgent?.id, weave.agents.find((agent) => agent.role === "lead")?.id);
     // Reading it is not one-shot: it still names the run whose times are to be recorded.
     assert.lengthOf(yield* records.reviewerRuns, 1);
   }),

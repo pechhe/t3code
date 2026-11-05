@@ -10,7 +10,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { AgentRole } from "./agentPolicy.ts";
+import { StoredAgentRole } from "./agentPolicy.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import {
   OrchestrationV2Actor,
@@ -233,7 +233,7 @@ const ScheduledTaskGroupId = TrimmedNonEmptyString.annotate({
   description: "Shared by tasks saved together across machines and projects.",
 });
 
-const ScheduledTaskAgentRole = AgentRole.annotate({
+const ScheduledTaskAgentRole = StoredAgentRole.annotate({
   description:
     "Subagent role whose policy picks the model and effort at each run. modelSelection holds the last resolved choice and is used when the policy cannot resolve.",
 });

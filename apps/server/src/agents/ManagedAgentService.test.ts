@@ -318,7 +318,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           workspacePath: null,
           projectRoot: f.workspacePath,
           request: request({
-            role: "ticket-reviewer",
+            role: "reviewer",
             workspacePath: f.workspacePath,
             readOnly: true,
             sourceRevision,
@@ -543,7 +543,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       const f = yield* fixture;
       const reviewerRequest = request({
         workspacePath: f.workspacePath,
-        role: "ticket-reviewer",
+        role: "reviewer",
         sourceRevision,
         review: changeReview,
       });
@@ -682,7 +682,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       const f = yield* fixture;
       const reviewer = request({
         workspacePath: f.workspacePath,
-        role: "ticket-reviewer",
+        role: "reviewer",
         sourceRevision,
         review: changeReview,
       });
@@ -710,7 +710,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       const accepted = yield* f.prepare({
         request: request({
           workspacePath: f.workspacePath,
-          role: "ticket-reviewer",
+          role: "reviewer",
           sourceRevision,
           review: changeReview,
         }),
@@ -752,7 +752,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       const reviewer = (path: string) =>
         request({
           workspacePath: path,
-          role: "ticket-reviewer",
+          role: "reviewer",
           sourceRevision,
           review: changeReview,
         });
@@ -1035,7 +1035,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       });
       // A pinned read-only view tolerates other readers but not a live writer.
       const reviewer = isolated(helper, {
-        role: "ticket-reviewer",
+        role: "reviewer",
         sourceRevision,
         review: changeReview,
       });
@@ -1052,7 +1052,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       yield* f.fs.makeDirectory(released);
       const pinnedReviewer = request({
         workspacePath: helper,
-        role: "ticket-reviewer",
+        role: "reviewer",
         sourceRevision,
         review: changeReview,
       });
@@ -1187,6 +1187,13 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
   it.effect("discovers the reviewer as a change review unless another scope is asked", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
+      yield* f.writeManifest({
+        ...f.manifest,
+        roles: {
+          ...f.manifest.roles,
+          reviewer: { ...f.manifest.roles.reviewer, specList: "advisor" },
+        },
+      });
       const reviewer = (reviewScope?: "change" | "spec") =>
         f.service
           .roles({
@@ -1200,10 +1207,11 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           })
           .pipe(
             Effect.provideService(ConfigProvider.ConfigProvider, f.config),
-            Effect.map((result) => result.roles.find((role) => role.role === "ticket-reviewer")!),
+            Effect.map((result) => result.roles.find((role) => role.role === "reviewer")!),
           );
-      expect((yield* reviewer()).refusal).toBeNull();
-      expect((yield* reviewer("spec")).refusal).toBeNull();
+      expect((yield* reviewer()).selection?.model).toBe(claudeModel);
+      expect((yield* reviewer("change")).selection?.model).toBe(claudeModel);
+      expect((yield* reviewer("spec")).selection?.model).toBe("claude-fable-test");
     }),
   );
 
@@ -1232,7 +1240,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           request: { taskClass: "non-ui", sourceRevision },
         })
         .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
-      const reviewer = discovered.roles.find((role) => role.role === "ticket-reviewer")!;
+      const reviewer = discovered.roles.find((role) => role.role === "reviewer")!;
       expect(reviewer.selection?.model).toBe(codexModel);
       expect(reviewer.usageLimited).toContainEqual(
         expect.objectContaining({ model: claudeModel, providerInstanceId: claude.instanceId }),
@@ -1245,7 +1253,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         })
         .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
       expect(
-        unlimited.roles.find((role) => role.role === "ticket-reviewer")!.usageLimited,
+        unlimited.roles.find((role) => role.role === "reviewer")!.usageLimited,
       ).toBeUndefined();
     }),
   );
@@ -1504,11 +1512,11 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         "selection-denied: claude-sonnet-test is not eligible for advisor",
       );
       // Model identity is a preference; an explicit eligible author-model choice is allowed.
-      const reviewer = yield* roles(codexModel, "ticket-reviewer");
+      const reviewer = yield* roles(codexModel, "reviewer");
       expect(reviewer.refusal).toBeNull();
       const accepted = yield* f.prepare({
         request: request({
-          role: "ticket-reviewer",
+          role: "reviewer",
           workspacePath: f.workspacePath,
           sourceRevision,
           review: changeReview,
@@ -1534,7 +1542,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         (yield* f.validate({ ...accepted.binding, workspacePath: f.root }).pipe(Effect.flip))
           .reason,
       ).toBe("workspace");
-      expect((yield* roles(claudeModel, "ticket-reviewer")).selection?.model).toBe(claudeModel);
+      expect((yield* roles(claudeModel, "reviewer")).selection?.model).toBe(claudeModel);
       // A launch names why the choice was refused.
       const refused = yield* f.prepare({ selection: { model: claudeModel } }).pipe(Effect.flip);
       expect(refused.message).toContain("selection-denied");

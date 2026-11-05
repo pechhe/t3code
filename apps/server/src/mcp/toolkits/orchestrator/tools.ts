@@ -104,7 +104,7 @@ const AgentSessionAttachTool = Tool.make("agent_session_attach", {
   .annotate(Tool.Idempotent, true);
 const AgentRolesTool = Tool.make("agent_roles", {
   description:
-    "Discover eligible delegation roles, model/effort choices and refusal causes without launching. Pass model to check a choice in each role's pool; usageLimited reports exhausted accounts. Browser/ui-verifier default to integrated; pass browser.backend='phi' to check Phi availability. Discovery grants no launch authority.",
+    "Discover eligible delegation roles, model/effort choices and refusal causes without launching. Pass model to check a choice in each role's pool; usageLimited reports exhausted accounts. Browser/ui-verifier default to integrated; pass browser.backend='phi' to check Phi availability. Pass reviewScope=spec for the Reviewer Spec list; discovery defaults to its change list. Discovery grants no launch authority.",
   parameters: AgentRolesInput,
   success: AgentRolesResult,
   failure: OrchestratorMcpFailure,

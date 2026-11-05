@@ -881,7 +881,7 @@ it.effect(
             evidence: "No actual landing operation",
           }),
         );
-        f.installChild(finding, "review clean", "ticket-reviewer");
+        f.installChild(finding, "review clean", "reviewer");
         f.setLanding("abc123", "1970-01-01T00:00:00.000Z");
         yield* service.updateDelivery(f.caller(), {
           findingId: finding.id,
@@ -1233,7 +1233,7 @@ it.effect(
           clientRequestId: "review",
           request: {
             ...repair(finding),
-            role: "ticket-reviewer" as const,
+            role: "reviewer" as const,
             readOnly: true,
             sourceRevision: "author-commit",
             review: {
@@ -1245,7 +1245,7 @@ it.effect(
           },
         };
         yield* service.guardDelegation(review);
-        f.installChild(finding, "Needs one fix", "ticket-reviewer");
+        f.installChild(finding, "Needs one fix", "reviewer");
         yield* service.delegationOutcome({ ...review, state: "finished" });
         yield* service.guardDelegation({
           ...implement,
@@ -1264,7 +1264,7 @@ it.effect(
           followup: true,
           clientRequestId: "review-followup",
         });
-        f.installChild(finding, "Clean review", "ticket-reviewer");
+        f.installChild(finding, "Clean review", "reviewer");
         yield* service.runDue;
         assert.equal(
           (yield* service.get({ id: config.id })).findings[0]!.childThreadId,

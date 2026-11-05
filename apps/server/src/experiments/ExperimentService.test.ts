@@ -1190,7 +1190,7 @@ describe("ExperimentService review scope", () => {
   const reviewerBinding = (scope?: "change" | "spec"): AgentTaskBinding => {
     const policy = agentPolicySnapshot();
     const task = agentTaskRequest({
-      role: scope === "spec" ? "spec-reviewer" : "ticket-reviewer",
+      role: scope === "spec" ? "reviewer" : "reviewer",
       sourceRevision: "candidate",
       ...(scope === undefined
         ? {}
@@ -1213,7 +1213,7 @@ describe("ExperimentService review scope", () => {
       requestFingerprint: "c".repeat(64),
       policyHash: policy.hash,
       policyRevision: policy.sourceRevision,
-      briefHash: policy.briefs["ticket-reviewer"].hash,
+      briefHash: policy.briefs["reviewer"].hash,
       sourceAccess: "read-only",
       toolProfile: "source-reader",
       requested: modelSelection,

@@ -1,7 +1,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert } from "@effect/vitest";
-import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { AgentTaskBinding, EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { DEFAULT_WEAVE_ORIGIN } from "@t3tools/shared/weaveOrigins";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
@@ -27,6 +27,7 @@ export const otherDelegation = `yshqd_${"e".repeat(43)}`;
 export const otherOrigin = "https://weave-other.example.test";
 export const weaveEndpoint = "http://127.0.0.1:43123/mcp/weave";
 export const hourMs = 60 * 60 * 1_000;
+const decodeBinding = Schema.decodeEffect(AgentTaskBinding);
 const parseJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const stringifyJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const delegations = new Map([
@@ -215,7 +216,7 @@ export type FakeWeave = ReturnType<typeof makeFakeWeave>;
 
 /**
  * The real WeaveAgentConnections against a fake Weave, with every log line captured, a lead and a
- * spec-reviewer thread prepared once T3 is connected, and a check that no Weave credential
+ * reviewer thread prepared once T3 is connected, and a check that no Weave credential
  * (the delegations and every token Weave minted) reached what a test collected. Given a secrets
  * directory, it uses the real file store there and connects nothing itself.
  */
@@ -301,7 +302,38 @@ export const makeWeaveHarnessAt = Effect.fnUntraced(function* (secretsDirectory?
     yield* connections.prepare({ threadId: leadThread, role: "lead", model: "claude-opus-5-5" });
     yield* connections.prepare({
       threadId: reviewerThread,
-      role: "spec-reviewer",
+      role: WeaveAgentConnections.weaveAgentRole({
+        lineage: {
+          parentThreadId: leadThread,
+          relationshipToParent: "subagent",
+          rootThreadId: leadThread,
+        },
+        agentTask: yield* decodeBinding({
+          role: "reviewer",
+          taskClass: "non-ui",
+          workId: "review",
+          attemptId: "attempt",
+          workspacePath: "/workspace",
+          sourceRevision: "candidate",
+          review: {
+            scope: "spec",
+            baseRevision: "base",
+            includedChanges: ["candidate"],
+            specRef: "spec-1",
+            specRevision: "body-1",
+            coverage: "complete",
+          },
+          requestFingerprint: "a".repeat(64),
+          policyHash: "b".repeat(64),
+          policyRevision: "policy",
+          briefHash: "c".repeat(64),
+          sourceAccess: "read-only",
+          toolProfile: "source-reader",
+          requested: { instanceId: "codex", model: "gpt-5.5" },
+          assigned: null,
+          effective: { instanceId: "codex", model: "gpt-5.5" },
+        }).pipe(Effect.orDie),
+      })!,
       model: "gpt-5.5",
     });
   }

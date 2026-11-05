@@ -192,7 +192,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             task: "Review a pinned mixed change",
             clientRequestId: "one-attempt",
             agentTask: request({
-              role: "ticket-reviewer",
+              role: "reviewer",
               taskClass: "mixed",
               workspacePath: root,
               sourceRevision: "source-pin",
@@ -208,7 +208,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           expect(report.assignments).toHaveLength(1);
           const entry = report.assignments[0]!;
           expect(entry.assignment.assignedModelSelection).toEqual(forbidden);
-          expect(entry.assignment.agentTask?.role).toBe("ticket-reviewer");
+          expect(entry.assignment.agentTask?.role).toBe("reviewer");
           expect(entry.assignment.agentTask?.taskClass).toBe("mixed");
           expect(entry.outcomes).toHaveLength(1);
           expect(entry.outcomes[0]?.kind).toBe("failure");
@@ -647,13 +647,13 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       Effect.gen(function* () {
         const h = yield* harness();
         const reviewer = (result: Effect.Success<ReturnType<typeof h.roles>>) =>
-          result.roles.find((entry) => entry.role === "ticket-reviewer")!;
+          result.roles.find((entry) => entry.role === "reviewer")!;
         expect(reviewer(yield* h.roles()).selection?.model).toBe(claudeModel);
         const explicit = reviewer(yield* h.roles(codexModel));
         expect(explicit.refusal).toBeNull();
         expect(explicit.selection?.model).toBe(codexModel);
         const review = request({
-          role: "ticket-reviewer",
+          role: "reviewer",
           workspacePath: h.lead,
           readOnly: true,
           sourceRevision: "source-pin",
@@ -687,7 +687,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           type: "delegated_task.request",
           modelSelection: explicit.selection,
           agentTask: {
-            role: "ticket-reviewer",
+            role: "reviewer",
             authorModel: codexModel,
             sourceRevision: "source-pin",
             sourceAccess: "read-only",
@@ -805,7 +805,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           providers: [codex, claude, alternate],
         });
         const review = request({
-          role: "spec-reviewer",
+          role: "reviewer",
           workspacePath: h.lead,
           readOnly: true,
           sourceRevision: "source-pin",
@@ -819,9 +819,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             specRevision: "3",
           },
         });
-        const discovered = (yield* h.roles()).roles.find(
-          (entry) => entry.role === "spec-reviewer",
-        )!;
+        const discovered = (yield* h.roles()).roles.find((entry) => entry.role === "reviewer")!;
         const own = {
           instanceId: claude.instanceId,
           model: claudeModel,
@@ -879,7 +877,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         expect(h.dispatched).toHaveLength(5);
         // Naming only an account: discovery and dispatch read it the same way.
         const named = (yield* h.roles(undefined, alternate.instanceId)).roles.find(
-          (entry) => entry.role === "spec-reviewer",
+          (entry) => entry.role === "reviewer",
         )!;
         expect(named.selection).toEqual({ ...own, instanceId: alternate.instanceId });
         yield* h.delegate({
@@ -1095,7 +1093,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       yield* reading.delegate({
         ...isolatedTask(reading.helper, "review"),
         agentTask: request({
-          role: "ticket-reviewer",
+          role: "reviewer",
           workId: "review",
           workspacePath: reading.helper,
           workspaceAssignment: "isolated",
@@ -1109,7 +1107,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       const pinnedReview = (helper: string) => ({
         ...isolatedTask(helper, "pinned-review"),
         agentTask: request({
-          role: "ticket-reviewer",
+          role: "reviewer",
           workId: "pinned-review",
           workspacePath: helper,
           sourceRevision: "source-pin",

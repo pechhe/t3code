@@ -126,3 +126,26 @@ it("a shipped client ignores additive champion owner metadata on an ordinary thr
   });
   assert.deepEqual(Object.keys(decoded).toSorted(), ["id", "title"]);
 });
+
+it("shipped thread shells ignore managed roles and preceding fork clients accept reviewer", () => {
+  const { id, title } = OrchestrationV2ThreadShell.fields;
+  const shippedShell = Schema.Struct({ id, title });
+  // The preceding fork's AgentTaskBinding accepted these three wire role values.
+  const precedingForkShell = Schema.Struct({
+    id,
+    title,
+    agentTask: Schema.Struct({
+      role: Schema.Literals(["reviewer", "ticket-reviewer", "spec-reviewer"]),
+    }),
+  });
+  const wire = { id: "thread-review", title: "Reviewer", agentTask: { role: "reviewer" } };
+  assert.deepEqual(Schema.decodeSync(shippedShell)(wire), {
+    id: "thread-review",
+    title: "Reviewer",
+  });
+  assert.strictEqual(
+    Schema.decodeSync(precedingForkShell)({ ...wire, agentTask: { role: "reviewer" } }).agentTask
+      .role,
+    "reviewer",
+  );
+});

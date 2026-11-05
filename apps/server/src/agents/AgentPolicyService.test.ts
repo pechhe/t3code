@@ -46,8 +46,10 @@ function manifest() {
       browser: role("fast", "browser", "read-only", "phi"),
       "ui-verifier": role("fast", "ui-verifier", "read-only", "phi", ["ui"]),
       advisor: role("advisor", "advisor", "read-only", "source-reader"),
-      "ticket-reviewer": role("workhorse", "ticket-reviewer", "read-only", "source-reader"),
-      "spec-reviewer": role("advisor", "spec-reviewer", "read-only", "source-reader"),
+      reviewer: {
+        ...role("workhorse", "reviewer", "read-only", "source-reader"),
+        specList: "workhorse",
+      },
     },
   };
 }
@@ -73,7 +75,7 @@ describe("policy authority", () => {
     unknownList.roles.advisor.list = "nowhere";
     expect(() => decode(unknownList)).toThrow();
     const access = manifest();
-    access.roles["ticket-reviewer"].sourceAccess = "scoped-write";
+    access.roles["reviewer"].sourceAccess = "scoped-write";
     expect(() => decode(access)).toThrow();
     const browser = manifest();
     browser.roles.browser.toolProfile = "implementation";
@@ -81,9 +83,9 @@ describe("policy authority", () => {
   });
   it("requires every role and contained canonical brief paths", () => {
     const input = manifest();
-    const { "spec-reviewer": _spec, ...roles } = input.roles;
+    const { reviewer: _spec, ...roles } = input.roles;
     expect(() => decode({ ...input, roles })).toThrow();
-    input.roles["ticket-reviewer"].brief = "../secrets";
+    input.roles["reviewer"].brief = "../secrets";
     expect(() => decode(input)).toThrow();
   });
   it("does not allow a UI implementation worker", () => {
@@ -133,6 +135,45 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       );
     }),
   );
+  it.effect("loads split policies through the Spec brief and saves both reviewer lists", () =>
+    Effect.gen(function* () {
+      const service = yield* AgentPolicy.AgentPolicyService;
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* source;
+      const current = manifest();
+      const { reviewer, ...roles } = current.roles;
+      yield* fs.remove(`${root}/roles/reviewer.md`);
+      yield* fs.writeFileString(`${root}/roles/spec-reviewer.md`, "Spec rubric\n");
+      yield* fs.writeFileString(`${root}/roles/ticket-reviewer.md`, "Change rubric\n");
+      yield* fs.writeFileString(
+        `${root}/roles/policy.json`,
+        JSON.stringify({
+          ...current,
+          roles: {
+            ...roles,
+            "ticket-reviewer": { ...reviewer, brief: "roles/ticket-reviewer.md" },
+            "spec-reviewer": { ...reviewer, list: "advisor", brief: "roles/spec-reviewer.md" },
+          },
+        }),
+      );
+      const first = yield* service.snapshot(root);
+      expect(first.briefs.reviewer.text).toBe("Spec rubric\n");
+      expect(first.manifest.roles.reviewer.large).toBeUndefined();
+      expect(first.manifest.roles.reviewer.list).toBe("workhorse");
+      expect(first.manifest.roles.reviewer.specList).toBe("advisor");
+      expect(first.manifest.lists).toEqual(current.lists);
+      const saved = yield* service.save(root, {
+        expectedHash: first.hash,
+        manifest: first.manifest,
+      });
+      const written = JSON.parse(yield* fs.readFileString(`${root}/roles/policy.json`));
+      expect(written.roles.reviewer.brief).toBe("roles/reviewer.md");
+      expect(written.roles.reviewer.specList).toBe("advisor");
+      expect(written.roles).not.toHaveProperty("spec-reviewer");
+      expect(yield* fs.exists(`${root}/roles/reviewer.md`)).toBe(false);
+      expect((yield* service.snapshot(root)).hash).toBe(saved.hash);
+    }),
+  );
   it.effect("reads an unconverted version 1 policy and saves it as version 2", () =>
     Effect.gen(function* () {
       const service = yield* AgentPolicy.AgentPolicyService;
@@ -148,7 +189,7 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
         restrictions: {},
         effort: { [role.list]: { default: "medium" } },
       });
-      const { "ticket-reviewer": reviewer, "spec-reviewer": _spec, ...roles } = current.roles;
+      const { reviewer, ...roles } = current.roles;
       yield* fs.writeFileString(
         `${root}/roles/policy.json`,
         JSON.stringify({
@@ -167,8 +208,8 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
         }),
       );
       const legacy = yield* service.snapshot(root);
-      expect(legacy.manifest.roles["spec-reviewer"].list).toBe("spec-reviewer");
-      expect(legacy.briefs["spec-reviewer"].text).toBe("Brief for roles/spec-reviewer.md\n");
+      expect(legacy.manifest.roles["reviewer"].list).toBe("reviewer");
+      expect(legacy.briefs["reviewer"].text).toBe("Brief for roles/reviewer.md\n");
       yield* service.save(root, { expectedHash: legacy.hash, manifest: legacy.manifest });
       expect(JSON.parse(yield* fs.readFileString(`${root}/roles/policy.json`)).version).toBe(2);
     }),
@@ -195,7 +236,7 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
         ).toBe("stale");
         expect(yield* fs.readFileString(`${root}/roles/policy.json`)).toBe(newerBytes);
         const second = yield* service.snapshot(root);
-        yield* fs.writeFileString(`${root}/roles/ticket-reviewer.md`, "External rubric change");
+        yield* fs.writeFileString(`${root}/roles/reviewer.md`, "External rubric change");
         expect(
           (yield* service
             .save(root, {
@@ -361,24 +402,24 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       const root = yield* source;
       const first = yield* service.snapshot(root);
       const crypto = yield* Digest.Digest;
-      expect(first.briefs["ticket-reviewer"].text).toBe("Brief for roles/ticket-reviewer.md\n");
-      expect(first.briefs["ticket-reviewer"].hash).toBe(
+      expect(first.briefs["reviewer"].text).toBe("Brief for roles/reviewer.md\n");
+      expect(first.briefs["reviewer"].hash).toBe(
         Hex.encode(
           yield* crypto.digest(
             Digest.sha256,
-            new TextEncoder().encode(first.briefs["ticket-reviewer"].text),
+            new TextEncoder().encode(first.briefs["reviewer"].text),
           ),
         ),
       );
       const retry = yield* service.snapshot(root);
       expect(retry.hash).toBe(first.hash);
-      yield* fs.writeFileString(`${root}/roles/ticket-reviewer.md`, "Changed rubric");
+      yield* fs.writeFileString(`${root}/roles/reviewer.md`, "Changed rubric");
       const second = yield* service.snapshot(root);
       expect(second.hash).not.toBe(first.hash);
-      expect(second.briefs["ticket-reviewer"].hash).not.toBe(first.briefs["ticket-reviewer"].hash);
-      expect(first.briefs["ticket-reviewer"].text).not.toBe("Changed rubric");
+      expect(second.briefs["reviewer"].hash).not.toBe(first.briefs["reviewer"].hash);
+      expect(first.briefs["reviewer"].text).not.toBe("Changed rubric");
       expect(Object.isFrozen(first.manifest.lists["workhorse"])).toBe(true);
-      expect(Object.isFrozen(first.briefs["ticket-reviewer"])).toBe(true);
+      expect(Object.isFrozen(first.briefs["reviewer"])).toBe(true);
     }),
   );
   it.effect("refuses missing briefs and symlinks outside the source root", () =>
@@ -386,12 +427,12 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       const service = yield* AgentPolicy.AgentPolicyService;
       const fs = yield* FileSystem.FileSystem;
       const root = yield* source;
-      yield* fs.remove(`${root}/roles/ticket-reviewer.md`);
+      yield* fs.remove(`${root}/roles/reviewer.md`);
       const missing = yield* service.snapshot(root).pipe(Effect.flip);
       expect(missing.reason).toBe("read");
       const other = yield* fs.makeTempDirectoryScoped({ prefix: "agent-policy-outside-" });
       yield* fs.writeFileString(`${other}/brief.md`, "Outside");
-      yield* fs.symlink(`${other}/brief.md`, `${root}/roles/ticket-reviewer.md`);
+      yield* fs.symlink(`${other}/brief.md`, `${root}/roles/reviewer.md`);
       const escaped = yield* service.snapshot(root).pipe(Effect.flip);
       expect(escaped.reason).toBe("outside-root");
     }),

@@ -506,7 +506,13 @@ export const layer = Layer.effect(
           projectId,
           providers,
           ceiling: runtimeMode,
-          request: { taskClass, runtimeMode },
+          request: {
+            taskClass,
+            runtimeMode,
+            ...(role === "reviewer"
+              ? { sourceRevision: "scheduled-task-resolution", reviewScope: "change" as const }
+              : {}),
+          },
         });
         return result.roles.find((entry) => entry.role === role)?.selection ?? null;
       },

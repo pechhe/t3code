@@ -101,9 +101,9 @@ describe("scheduled task MCP contracts", () => {
   it("moves an existing task to another role and reports it back", () => {
     const update = decodeUpdateScheduledTaskInput({
       scheduledTaskId: "scheduled-task:1",
-      agentRole: "spec-reviewer",
+      agentRole: "reviewer",
     });
-    expect(update.agentRole).toBe("spec-reviewer");
+    expect(update.agentRole).toBe("reviewer");
     const summary = decodeScheduledTask({
       scheduledTaskId: "scheduled-task:1",
       title: "Review",
@@ -111,12 +111,12 @@ describe("scheduled task MCP contracts", () => {
       enabled: true,
       projectId: "project:1",
       boundThreadId: null,
-      agentRole: "spec-reviewer",
+      agentRole: "reviewer",
       schedule,
       nextRunAt: null,
       lastRunStatus: "never",
     });
-    expect(summary.agentRole).toBe("spec-reviewer");
+    expect(summary.agentRole).toBe("reviewer");
     // A legacy task saved before roles still decodes.
     expect(
       decodeScheduledTask({

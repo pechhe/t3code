@@ -144,7 +144,9 @@ uses SlipJay. T3 rejects paths on the wrong host or from another repository.
 The returned session key goes in subsequent role and task requests. A task carries
 a canonical role, task class, work ID, attempt ID and transport request ID;
 review tasks also pin the source revision. Role discovery explains unavailable
-models and unsupported execution boundaries before you submit. Every writer runs
+models and unsupported execution boundaries before you submit. For Reviewer discovery,
+set `reviewScope` to `spec` to see the Spec model list; the default is `change`.
+A submitted review selects its list from `review.scope` automatically. Every writer runs
 with shell networking and host filesystem access beyond the assigned checkout,
 so it can install packages, read credentials and commit to the repository store
 it shares; the task's authorised scope remains its assigned work. Claude writers
@@ -173,8 +175,7 @@ outcome, with `specRef` and the `specRevision` of the body read. `coverage` says
 whether the review covers the whole landing or Spec (`complete`) or only part
 (`partial`). A follow-up review of material changes since an earlier one sets
 `priorReview` to that review's work ID and source revision, with the same source
-as its `baseRevision`. Use `ticket-reviewer` for a change and `spec-reviewer`
-for a Spec; both run read-only with fresh context. Codex and Claude enforce that
+as its `baseRevision`. Use `reviewer` for either scope; it runs read-only with fresh context. Codex and Claude enforce that
 read-only access natively; another provider's reviewer runs under its account's
 own permissions.
 

@@ -6,6 +6,7 @@ import {
   effortFor,
   effortForModel,
   ensureModel,
+  jobsFor,
   listModel,
   offersFast,
   readOnlyUnenforcedProviders,
@@ -17,10 +18,12 @@ import {
   setModelFast,
   setModelOptions,
   splitGroup,
+  splitJob,
   unavailableReason,
 } from "./DelegationSettings.logic";
 
 const decodeManifest = Schema.decodeUnknownSync(AgentPolicyManifest);
+const encodeManifest = Schema.encodeSync(AgentPolicyManifest);
 const decodeProvider = Schema.decodeUnknownSync(ServerProvider);
 const isValid = Schema.is(AgentPolicyManifest);
 
@@ -75,8 +78,7 @@ const manifest = () =>
         large: { model: "opus", effort: "max" },
         callers: { haiku: "opus" },
       }),
-      "ticket-reviewer": role("workhorse", { brief: "roles/ticket-reviewer.md" }),
-      "spec-reviewer": role("advisor", { brief: "roles/spec-reviewer.md" }),
+      reviewer: role("workhorse", { brief: "roles/reviewer.md", specList: "workhorse" }),
     },
   });
 
@@ -113,6 +115,89 @@ const provider = (overrides: object = {}) =>
   });
 
 describe("delegation settings", () => {
+  it("edits and saves both reviewer lists without dropping their bindings", () => {
+    const original = manifest();
+    const separate = {
+      ...original,
+      roles: { ...original.roles, reviewer: { ...original.roles.reviewer, specList: "advisor" } },
+    };
+    const group = roleGroups(separate).find((candidate) => candidate.list === "advisor")!;
+    expect(group.bindings).toContainEqual({ role: "reviewer", field: "specList" });
+    const split = splitGroup(separate, group);
+    expect(split.roles.reviewer.list).toBe("workhorse");
+    expect(split.roles.reviewer.specList).toBe("reviewer-spec");
+    expect(split.lists["reviewer-spec"]).toEqual(original.lists.advisor);
+    const edited = removeEntry(split, "reviewer-spec", "sol");
+    const saved = decodeManifest(encodeManifest(edited));
+    expect(saved).toEqual(edited);
+    expect(saved.lists.workhorse).toEqual(original.lists.workhorse);
+    expect(saved.lists["reviewer-spec"]).toEqual([{ model: "opus", effort: "high" }]);
+    expect(isValid(removeEntry(saved, "reviewer-spec", "opus"))).toBe(false);
+  });
+
+  it("shows the Reviewer as one job with a change list and a Spec list", () => {
+    const original = manifest();
+    const separate = {
+      ...original,
+      roles: { ...original.roles, reviewer: { ...original.roles.reviewer, specList: "advisor" } },
+    };
+    for (const policy of [separate]) {
+      const jobs = jobsFor(policy, roleGroups(policy));
+      const reviewers = jobs.filter((job) => job.roles.includes("reviewer"));
+      expect(reviewers).toHaveLength(1);
+      expect(reviewers[0]!.roles).toEqual(["reviewer"]);
+      expect(reviewers[0]!.sections.map((section) => section.title)).toEqual([
+        "Change reviews",
+        "Spec reviews",
+      ]);
+      expect(reviewers[0]!.sections.map((section) => section.list)).toEqual([
+        "workhorse",
+        policy.roles.reviewer.specList,
+      ]);
+      expect(jobs.flatMap((job) => job.roles).toSorted()).toEqual(
+        Object.keys(policy.roles).toSorted(),
+      );
+    }
+  });
+
+  it("edits a list both reviews share once, and names other roles on a Reviewer list", () => {
+    const original = manifest();
+    const policy = {
+      ...original,
+      roles: {
+        ...original.roles,
+        reviewer: { ...original.roles.reviewer, list: "workhorse", specList: "workhorse" },
+      },
+    };
+    const job = jobsFor(policy, roleGroups(policy)).find((candidate) =>
+      candidate.roles.includes("reviewer"),
+    )!;
+    expect(job.sections.map((section) => section.title)).toEqual(["Change and Spec reviews"]);
+    expect(job.sections[0]!.hint).toContain("Also used by Implementation worker");
+    expect(job.splitGroups.map((group) => group.list)).toEqual(["workhorse"]);
+  });
+
+  it("splitting the Reviewer job leaves separate lists for it and for the roles it shared with", () => {
+    const original = manifest();
+    const job = jobsFor(original, roleGroups(original)).find((candidate) =>
+      candidate.roles.includes("reviewer"),
+    )!;
+    const split = splitJob(original, job);
+    expect(isValid(split)).toBe(true);
+    expect(split.roles.reviewer.list).toBe("reviewer");
+    expect(split.roles.reviewer.specList).toBe("reviewer-spec");
+    expect(split.roles["implementation-worker"].list).toBe("implementation-worker");
+  });
+
+  it("splits both reviewer bindings when the scopes share a list", () => {
+    const original = manifest();
+    const group = roleGroups(original).find((candidate) => candidate.list === "workhorse")!;
+    const split = splitGroup(original, group);
+    expect(split.roles.reviewer.list).toBe("reviewer");
+    expect(split.roles.reviewer.specList).toBe("reviewer-spec");
+    expect(isValid(split)).toBe(true);
+  });
+
   it("names only enabled providers that do not declare read-only enforcement", () => {
     expect(
       readOnlyUnenforcedProviders([
@@ -131,8 +216,8 @@ describe("delegation settings", () => {
 
   it("shows roles that share a list as one job, in page order", () => {
     expect(roleGroups(manifest()).map((group) => group.roles)).toEqual([
-      ["implementation-worker", "ticket-reviewer"],
-      ["ui-worker", "spec-reviewer", "advisor"],
+      ["implementation-worker", "reviewer"],
+      ["ui-worker", "advisor"],
       ["chore-worker", "browser", "ui-verifier"],
     ]);
   });

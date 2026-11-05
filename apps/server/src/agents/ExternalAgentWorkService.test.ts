@@ -1454,7 +1454,7 @@ it.effect(
         const attached = yield* fixture.attach(client);
         const reviewRequest = (workId: string) =>
           request({
-            role: "ticket-reviewer",
+            role: "reviewer",
             workId,
             workspacePath: fixture.workspacePath,
             sourceRevision: "fixture-source-revision",

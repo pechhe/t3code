@@ -2346,7 +2346,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         const threadId = ThreadId.make(`thread-${scenario}`);
         yield* weave.connections.prepare({
           threadId,
-          role: "spec-reviewer",
+          role: "reviewer",
           model: "gpt-5.4",
         });
         // An exchanged token, a renewal Weave cannot answer, then a revoked delegation.

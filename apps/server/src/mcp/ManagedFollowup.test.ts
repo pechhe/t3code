@@ -296,7 +296,7 @@ it.effect(
         };
         // A reviewer or UI verifier that stopped partway continues in its own conversation too;
         // a new independent round is still a fresh delegate_task.
-        for (const role of ["ticket-reviewer", "ui-verifier"] as const) {
+        for (const role of ["reviewer", "ui-verifier"] as const) {
           child = {
             ...child,
             thread: { ...child.thread, agentTask: { ...binding, role } },

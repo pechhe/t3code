@@ -32,7 +32,7 @@ const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
 ]);
 
 /** A child that reviews is recorded as its own run, never as work its lead delegated. */
-const REVIEWER_ROLES = new Set(["reviewer", "spec-reviewer", "ticket-reviewer"]);
+const REVIEWER_ROLES = new Set(["ticket-reviewer", "spec-reviewer"]);
 
 /** The longest session reference Weave accepts. */
 const SESSION_REF_MAX_LENGTH = 200;

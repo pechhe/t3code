@@ -12,7 +12,6 @@ import {
   AgentPolicyCandidate,
   isReviewerRole,
   managedExecution,
-  REVIEWER_SCOPE,
   usesPhi,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -152,13 +151,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     const invalidScope = (detail: string) =>
       new AgentRoleError({ reason: "review-scope-invalid", detail });
     if (!isReviewerRole(request.role))
-      return yield* invalidScope(
-        `review is only for ticket-reviewer and spec-reviewer, not ${request.role}`,
-      );
-    if (review.scope !== REVIEWER_SCOPE[request.role])
-      return yield* invalidScope(
-        `review.scope "${review.scope}" is not valid for ${request.role}; use "${REVIEWER_SCOPE[request.role]}"`,
-      );
+      return yield* invalidScope(`review is only for reviewer, not ${request.role}`);
     if (review.scope === "change" && review.includedChanges.length === 0)
       return yield* invalidScope("review.includedChanges must list at least one change");
     if (
@@ -217,7 +210,9 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   const admission = managedExecution({ readOnly, requested: request.executionRequirement });
   if (!readOnly && !specLead && input.ceiling === "approval-required")
     return yield* new AgentRoleError({ reason: "unsupported-permissions" });
-  const list = snapshot.manifest.lists[role.list] ?? [];
+  const list =
+    snapshot.manifest.lists[reviewer && review?.scope === "spec" ? role.specList! : role.list] ??
+    [];
   const diagnostics: Array<AgentPolicyCandidate> = [];
   const record = (
     alias: string,

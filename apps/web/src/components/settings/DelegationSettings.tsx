@@ -43,12 +43,14 @@ import {
   runsFast,
   setModelFast,
   setPreferOtherAuthorProvider,
-  splitGroup,
   rolePolicy,
   type RolePolicy,
   unavailableReason,
   type CatalogModel,
-  type RoleGroup,
+  type Job,
+  type JobSection,
+  jobsFor,
+  splitJob,
 } from "./DelegationSettings.logic";
 import { AGENT_ROLE_PRESENTATION, AgentRoleChip } from "../AgentRoleChip";
 import ChatMarkdown from "../ChatMarkdown";
@@ -253,7 +255,7 @@ function PolicyEditor({
   const save = useAtomCommand(serverEnvironment.agentPolicySave);
   const catalog = catalogModels(data.providers);
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
-  const groups = roleGroups(draft);
+  const jobs = jobsFor(draft, roleGroups(draft));
   const submit = async () => {
     setPending(true);
     const failures: string[] = [];
@@ -274,9 +276,6 @@ function PolicyEditor({
   const unenforced = readOnlyUnenforcedProviders(data.providers);
   return (
     <>
-      {groups.map((group) => (
-        <FallbackAlert key={group.list} group={group} manifest={draft} providers={data.providers} />
-      ))}
       {unenforced.length > 0 ? (
         <p className="px-3 text-xs text-muted-foreground sm:px-4">
           {unenforced.join(", ")} cannot keep a reader read-only, so their models serve only writer
@@ -292,11 +291,11 @@ function PolicyEditor({
           </Button>
         }
       >
-        {groups.map((group) => (
+        {jobs.map((job) => (
           <JobRow
-            key={group.list}
+            key={job.roles.join("+")}
             environmentId={environmentId}
-            group={group}
+            job={job}
             manifest={draft}
             briefs={data.snapshot.briefs}
             rolesDir={`${data.sourceRoot}/roles`}
@@ -311,7 +310,7 @@ function PolicyEditor({
         <Alert variant="info">
           <AlertDescription>
             {!isValid(draft)
-              ? "Every job needs at least one model before saving."
+              ? "Every list needs at least one model before saving."
               : unsavedEnvironments > 0
                 ? "Every selected environment needs a readable policy before saving. Choose one environment to save to it alone."
                 : "Unsaved changes apply to new tasks once saved."}
@@ -364,37 +363,6 @@ export function describeCheckout(checkout: NonNullable<AgentPolicySettings["chec
   return [revision, local, behind].join(" · ");
 }
 
-/** Names a job whose first choice cannot take work now, and what it uses instead. */
-function FallbackAlert({
-  group,
-  manifest,
-  providers,
-}: {
-  group: RoleGroup;
-  manifest: Manifest;
-  providers: ReadonlyArray<ServerProvider>;
-}) {
-  const entries = manifest.lists[group.list] ?? [];
-  const first = entries[0];
-  if (first === undefined) return null;
-  const reason = unavailableReason(manifest.models[first.model], providers);
-  if (reason === null) return null;
-  const next = entries.find(
-    (entry) => unavailableReason(manifest.models[entry.model], providers) === null,
-  );
-  const label = (alias: string) => modelLabel(manifest.models[alias], alias, providers);
-  return (
-    <Alert variant="warning">
-      <AlertDescription>
-        {label(first.model)} is {reason}. {group.roles.join(" and ")}{" "}
-        {next
-          ? `will use ${label(next.model)} instead.`
-          : "will be refused until a model is available."}
-      </AlertDescription>
-    </Alert>
-  );
-}
-
 /** A role's chip; hovering it shows the brief the role's helpers start from. */
 function RoleBriefChip({
   role,
@@ -421,52 +389,28 @@ function RoleBriefChip({
   );
 }
 
-function JobRow({
+/** One ordered fallback list: its models, how to edit them and a way to add another. */
+function ListEditor({
   environmentId,
-  group,
+  list,
   manifest,
-  briefs,
-  rolesDir,
   providers,
   catalog,
   disabled,
   onChange,
+  children,
 }: {
   environmentId: EnvironmentId;
-  group: RoleGroup;
+  list: string;
   manifest: Manifest;
-  briefs: AgentPolicySettings["snapshot"]["briefs"];
-  rolesDir: string;
   providers: ReadonlyArray<ServerProvider>;
   catalog: ReadonlyArray<CatalogModel>;
   disabled: boolean;
   onChange: (manifest: Manifest) => void;
+  children?: ReactNode;
 }) {
-  const entries = manifest.lists[group.list] ?? [];
+  const entries = manifest.lists[list] ?? [];
   const label = (alias: string) => modelLabel(manifest.models[alias], alias, providers);
-  const reasons = new Map(
-    entries.map((entry) => [
-      entry.model,
-      unavailableReason(manifest.models[entry.model], providers),
-    ]),
-  );
-  const firstAvailable = entries.find((entry) => reasons.get(entry.model) === null);
-  const single = group.roles.length === 1 ? group.roles[0] : undefined;
-  const exceptions = group.roles.flatMap((role) => {
-    const policy = rolePolicy(manifest, role);
-    return [
-      ...(policy.large ? [{ role, kind: "large" as const }] : []),
-      ...Object.keys(policy.callers ?? {}).map((caller) => ({ role, kind: caller })),
-    ];
-  });
-  const largeChoices = [
-    ...new Map(
-      group.roles.flatMap((role) => {
-        const large = rolePolicy(manifest, role).large;
-        return large ? [[`${large.model}:${large.effort ?? ""}`, large] as const] : [];
-      }),
-    ).values(),
-  ];
   const listed = (model: CatalogModel) =>
     entries.some((entry) => {
       const binding = manifest.models[entry.model];
@@ -480,12 +424,165 @@ function JobRow({
     const [next, alias] = ensureModel(manifest, model);
     const effort = effortForModel(model);
     onChange(
-      addEntry(next, group.list, {
+      addEntry(next, list, {
         model: alias,
         ...(effort === undefined ? {} : { effort }),
       }),
     );
   };
+  return (
+    <>
+      <ol className="flex flex-col divide-y divide-border/50 rounded-lg border border-border/60">
+        {entries.map((entry, index) => {
+          const binding = manifest.models[entry.model];
+          const reason = unavailableReason(binding, providers);
+          return (
+            <li key={entry.model} className="flex min-w-0 items-center gap-1.5 px-2 py-1">
+              <span className="w-4 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+                {index + 1}
+              </span>
+              <PolicyModelPicker
+                environmentId={environmentId}
+                catalog={catalog}
+                binding={binding}
+                disabled={disabled}
+                pickDisabledReason={listed}
+                onPick={(model) =>
+                  onChange(
+                    replaceEntry(
+                      manifest,
+                      list,
+                      entry.model,
+                      model,
+                      effortForModel(model, entry.effort),
+                    ),
+                  )
+                }
+              />
+              <PolicyEffortPicker
+                environmentId={environmentId}
+                binding={binding}
+                effort={entry.effort}
+                disabled={disabled}
+                onChange={(effort) => onChange(setEntryEffort(manifest, list, entry.model, effort))}
+                onModelOptionsChange={(options) =>
+                  onChange(setModelOptions(manifest, entry.model, options))
+                }
+              />
+              {offersFast(binding, providers) ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <label className="flex shrink-0 cursor-default items-center gap-1.5 text-xs" />
+                    }
+                  >
+                    <Switch
+                      checked={runsFast(binding)}
+                      disabled={disabled}
+                      onCheckedChange={(fast) =>
+                        onChange(setModelFast(manifest, entry.model, fast))
+                      }
+                    />
+                    Fast
+                  </TooltipTrigger>
+                  <TooltipPopup>
+                    Runs this model on the fast service tier in every job that lists it
+                  </TooltipPopup>
+                </Tooltip>
+              ) : null}
+              <span className="min-w-0 flex-1 truncate text-xs text-warning">{reason}</span>
+              <Button
+                size="icon-xs"
+                variant="ghost-muted"
+                aria-label={`Move ${label(entry.model)} up`}
+                disabled={disabled || index === 0}
+                onClick={() => onChange(moveEntry(manifest, list, index, -1))}
+              >
+                <ArrowUpIcon />
+              </Button>
+              <Button
+                size="icon-xs"
+                variant="ghost-muted"
+                aria-label={`Move ${label(entry.model)} down`}
+                disabled={disabled || index === entries.length - 1}
+                onClick={() => onChange(moveEntry(manifest, list, index, 1))}
+              >
+                <ArrowDownIcon />
+              </Button>
+              <Button
+                size="icon-xs"
+                variant="ghost-muted"
+                aria-label={`Remove ${label(entry.model)}`}
+                disabled={disabled}
+                onClick={() => onChange(removeEntry(manifest, list, entry.model))}
+              >
+                <XIcon />
+              </Button>
+            </li>
+          );
+        })}
+      </ol>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <PolicyModelPicker
+          environmentId={environmentId}
+          catalog={catalog}
+          binding={undefined}
+          disabled={disabled}
+          pickDisabledReason={listed}
+          trigger={
+            <Button size="xs" variant="outline" disabled={disabled}>
+              <PlusIcon />
+              Add model
+            </Button>
+          }
+          onPick={add}
+        />
+        {children}
+      </div>
+    </>
+  );
+}
+
+function JobRow({
+  environmentId,
+  job,
+  manifest,
+  briefs,
+  rolesDir,
+  providers,
+  catalog,
+  disabled,
+  onChange,
+}: {
+  environmentId: EnvironmentId;
+  job: Job;
+  manifest: Manifest;
+  briefs: AgentPolicySettings["snapshot"]["briefs"];
+  rolesDir: string;
+  providers: ReadonlyArray<ServerProvider>;
+  catalog: ReadonlyArray<CatalogModel>;
+  disabled: boolean;
+  onChange: (manifest: Manifest) => void;
+}) {
+  const primary = job.sections[0]!;
+  const primaryEntries = manifest.lists[primary.list] ?? [];
+  const single = job.roles.length === 1 ? job.roles[0] : undefined;
+  const sectioned = job.sections.length > 1;
+  const exceptions = job.roles.flatMap((role) => {
+    const policy = rolePolicy(manifest, role);
+    return [
+      ...(policy.large ? [{ role, kind: "large" as const }] : []),
+      ...Object.keys(policy.callers ?? {}).map((caller) => ({ role, kind: caller })),
+    ];
+  });
+  const largeChoices = [
+    ...new Map(
+      job.roles.flatMap((role) => {
+        const large = rolePolicy(manifest, role).large;
+        return large ? [[`${large.model}:${large.effort ?? ""}`, large] as const] : [];
+      }),
+    ).values(),
+  ];
   const chip = (alias: string, effort?: string) => {
     const binding = manifest.models[alias];
     return binding ? (
@@ -500,147 +597,161 @@ function JobRow({
       <Badge variant="outline">{alias}</Badge>
     );
   };
+  const chips = (section: JobSection, withLarge: boolean) => {
+    const entries = manifest.lists[section.list] ?? [];
+    const reasons = entries.map((entry) =>
+      unavailableReason(manifest.models[entry.model], providers),
+    );
+    const firstAvailable = reasons.findIndex((reason) => reason === null);
+    return (
+      <>
+        {entries.map((entry, index) => (
+          <span
+            key={entry.model}
+            className={cn(
+              "flex min-w-0 items-center gap-1",
+              index !== firstAvailable && "opacity-60",
+              reasons[index] !== null && "line-through",
+            )}
+          >
+            {index > 0 ? <span className="text-xs text-muted-foreground">→</span> : null}
+            {chip(entry.model)}
+          </span>
+        ))}
+        {withLarge
+          ? largeChoices.map((large) => (
+              <span
+                key={`${large.model}:${large.effort ?? ""}`}
+                className="ms-2 flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
+              >
+                large
+                {chip(large.model, large.effort)}
+              </span>
+            ))
+          : null}
+      </>
+    );
+  };
+  const actions = (
+    <>
+      {single &&
+      single !== "reviewer" &&
+      !rolePolicy(manifest, single).large &&
+      primaryEntries.length > 0 ? (
+        <Button
+          size="xs"
+          variant="ghost-muted"
+          disabled={disabled}
+          onClick={() =>
+            onChange(setLarge(manifest, single, primaryEntries[primaryEntries.length - 1]))
+          }
+        >
+          Different model for large tasks
+        </Button>
+      ) : null}
+      {single && primaryEntries.length > 0 ? (
+        <PolicyModelPicker
+          environmentId={environmentId}
+          catalog={catalog}
+          binding={undefined}
+          disabled={disabled}
+          pickDisabledReason={(model) => {
+            const alias = aliasOf(manifest, model);
+            return alias !== undefined &&
+              rolePolicy(manifest, single).callers?.[alias] !== undefined
+              ? "Already has its own choice"
+              : null;
+          }}
+          trigger={
+            <Button size="xs" variant="ghost-muted" disabled={disabled}>
+              Different model for one agent
+            </Button>
+          }
+          onPick={(model) => {
+            const [next, alias] = ensureModel(manifest, model);
+            onChange(
+              setCaller(next, single, alias, primaryEntries[primaryEntries.length - 1]!.model),
+            );
+          }}
+        />
+      ) : null}
+      {job.splitGroups.length > 0 ? (
+        <Button
+          size="xs"
+          variant="ghost-muted"
+          disabled={disabled}
+          onClick={() => onChange(splitJob(manifest, job))}
+        >
+          Split into separate jobs
+        </Button>
+      ) : null}
+    </>
+  );
   return (
     <div className="border-t border-border/60 first:border-t-0">
       <Collapsible>
         <CollapsibleTrigger className="group/job flex w-full items-start gap-3 px-3 py-3 text-left sm:px-4">
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <div className="flex flex-wrap items-center gap-1.5">
-              {group.roles.map((role) => (
+              {job.roles.map((role) => (
                 <span key={role} className="flex items-center gap-1">
                   <RoleBriefChip role={role} brief={briefs[role]?.text} rolesDir={rolesDir} />
                 </span>
               ))}
             </div>
             <p className="text-xs text-muted-foreground">
-              {group.roles.map((role) => ROLE_DESCRIPTIONS[role]).join(" · ")}
+              {job.roles.map((role) => ROLE_DESCRIPTIONS[role]).join(" · ")}
             </p>
-            <div className="flex flex-wrap items-center gap-1">
-              {entries.map((entry, index) => (
-                <span
-                  key={entry.model}
-                  className={cn(
-                    "flex min-w-0 items-center gap-1",
-                    entry !== firstAvailable && "opacity-60",
-                    reasons.get(entry.model) !== null && "line-through",
-                  )}
-                >
-                  {index > 0 ? <span className="text-xs text-muted-foreground">→</span> : null}
-                  {chip(entry.model)}
-                </span>
-              ))}
-              {largeChoices.map((large) => (
-                <span
-                  key={`${large.model}:${large.effort ?? ""}`}
-                  className="ms-2 flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
-                >
-                  large
-                  {chip(large.model, large.effort)}
-                </span>
-              ))}
-            </div>
+            {sectioned ? (
+              <div className="flex flex-col gap-1">
+                {job.sections.map((section, index) => (
+                  <div key={section.title} className="flex flex-wrap items-center gap-1">
+                    <span className="w-28 shrink-0 text-xs text-muted-foreground">
+                      {section.title}
+                    </span>
+                    {chips(section, index === 0)}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-1">{chips(primary, true)}</div>
+            )}
           </div>
           <ChevronRightIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/job:rotate-90" />
         </CollapsibleTrigger>
         <CollapsiblePanel>
           <div className="flex flex-col gap-3 px-3 pb-4 sm:px-4">
-            <ol className="flex flex-col divide-y divide-border/50 rounded-lg border border-border/60">
-              {entries.map((entry, index) => {
-                const binding = manifest.models[entry.model];
-                const reason = reasons.get(entry.model) ?? null;
-                return (
-                  <li key={entry.model} className="flex min-w-0 items-center gap-1.5 px-2 py-1">
-                    <span className="w-4 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
-                      {index + 1}
-                    </span>
-                    <PolicyModelPicker
-                      environmentId={environmentId}
-                      catalog={catalog}
-                      binding={binding}
-                      disabled={disabled}
-                      pickDisabledReason={listed}
-                      onPick={(model) =>
-                        onChange(
-                          replaceEntry(
-                            manifest,
-                            group.list,
-                            entry.model,
-                            model,
-                            effortForModel(model, entry.effort),
-                          ),
-                        )
-                      }
-                    />
-                    <PolicyEffortPicker
-                      environmentId={environmentId}
-                      binding={binding}
-                      effort={entry.effort}
-                      disabled={disabled}
-                      onChange={(effort) =>
-                        onChange(setEntryEffort(manifest, group.list, entry.model, effort))
-                      }
-                      onModelOptionsChange={(options) =>
-                        onChange(setModelOptions(manifest, entry.model, options))
-                      }
-                    />
-                    {offersFast(binding, providers) ? (
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <label className="flex shrink-0 cursor-default items-center gap-1.5 text-xs" />
-                          }
-                        >
-                          <Switch
-                            checked={runsFast(binding)}
-                            disabled={disabled}
-                            onCheckedChange={(fast) =>
-                              onChange(setModelFast(manifest, entry.model, fast))
-                            }
-                          />
-                          Fast
-                        </TooltipTrigger>
-                        <TooltipPopup>
-                          Runs this model on the fast service tier in every job that lists it
-                        </TooltipPopup>
-                      </Tooltip>
-                    ) : null}
-                    <span className="min-w-0 flex-1 truncate text-xs text-warning">{reason}</span>
-                    <Button
-                      size="icon-xs"
-                      variant="ghost-muted"
-                      aria-label={`Move ${label(entry.model)} up`}
-                      disabled={disabled || index === 0}
-                      onClick={() => onChange(moveEntry(manifest, group.list, index, -1))}
-                    >
-                      <ArrowUpIcon />
-                    </Button>
-                    <Button
-                      size="icon-xs"
-                      variant="ghost-muted"
-                      aria-label={`Move ${label(entry.model)} down`}
-                      disabled={disabled || index === entries.length - 1}
-                      onClick={() => onChange(moveEntry(manifest, group.list, index, 1))}
-                    >
-                      <ArrowDownIcon />
-                    </Button>
-                    <Button
-                      size="icon-xs"
-                      variant="ghost-muted"
-                      aria-label={`Remove ${label(entry.model)}`}
-                      disabled={disabled}
-                      onClick={() => onChange(removeEntry(manifest, group.list, entry.model))}
-                    >
-                      <XIcon />
-                    </Button>
-                  </li>
-                );
-              })}
-            </ol>
+            {sectioned ? (
+              <p className="text-xs text-muted-foreground">
+                The lead states on each review task whether it is reviewing a change or a Spec.
+              </p>
+            ) : null}
+            {job.sections.map((section) => (
+              <div key={section.title ?? section.list} className="flex flex-col gap-3">
+                {section.title ? (
+                  <div className="flex flex-col">
+                    <p className="text-sm font-medium">{section.title}</p>
+                    <p className="text-xs text-muted-foreground">{section.hint}</p>
+                  </div>
+                ) : null}
+                <ListEditor
+                  environmentId={environmentId}
+                  list={section.list}
+                  manifest={manifest}
+                  providers={providers}
+                  catalog={catalog}
+                  disabled={disabled}
+                  onChange={onChange}
+                >
+                  {sectioned ? null : actions}
+                </ListEditor>
+              </div>
+            ))}
             {exceptions.map(({ role, kind }) => (
               <ExceptionLine
                 key={`${role}:${kind}`}
                 environmentId={environmentId}
-                role={group.roles.length > 1 ? role : undefined}
+                role={job.roles.length > 1 ? role : undefined}
                 kind={kind}
                 policy={rolePolicy(manifest, role)}
                 catalog={catalog}
@@ -649,67 +760,10 @@ function JobRow({
                 onChange={(edit) => onChange(edit(manifest, role))}
               />
             ))}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <PolicyModelPicker
-                environmentId={environmentId}
-                catalog={catalog}
-                binding={undefined}
-                disabled={disabled}
-                pickDisabledReason={listed}
-                trigger={
-                  <Button size="xs" variant="outline" disabled={disabled}>
-                    <PlusIcon />
-                    Add model
-                  </Button>
-                }
-                onPick={add}
-              />
-              {single && !rolePolicy(manifest, single).large && entries.length > 0 ? (
-                <Button
-                  size="xs"
-                  variant="ghost-muted"
-                  disabled={disabled}
-                  onClick={() => onChange(setLarge(manifest, single, entries[entries.length - 1]))}
-                >
-                  Different model for large tasks
-                </Button>
-              ) : null}
-              {single && entries.length > 0 ? (
-                <PolicyModelPicker
-                  environmentId={environmentId}
-                  catalog={catalog}
-                  binding={undefined}
-                  disabled={disabled}
-                  pickDisabledReason={(model) => {
-                    const alias = aliasOf(manifest, model);
-                    return alias !== undefined &&
-                      rolePolicy(manifest, single).callers?.[alias] !== undefined
-                      ? "Already has its own choice"
-                      : null;
-                  }}
-                  trigger={
-                    <Button size="xs" variant="ghost-muted" disabled={disabled}>
-                      Different model for one agent
-                    </Button>
-                  }
-                  onPick={(model) => {
-                    const [next, alias] = ensureModel(manifest, model);
-                    onChange(setCaller(next, single, alias, entries[entries.length - 1]!.model));
-                  }}
-                />
-              ) : null}
-              {group.roles.length > 1 ? (
-                <Button
-                  size="xs"
-                  variant="ghost-muted"
-                  disabled={disabled}
-                  onClick={() => onChange(splitGroup(manifest, group))}
-                >
-                  Split into separate jobs
-                </Button>
-              ) : null}
-            </div>
-            {group.roles.filter(isReviewerRole).map((role) => (
+            {sectioned ? (
+              <div className="flex flex-wrap items-center gap-1.5">{actions}</div>
+            ) : null}
+            {job.roles.filter(isReviewerRole).map((role) => (
               <label key={role} className="flex items-center gap-2 text-xs">
                 <Switch
                   checked={manifest.roles[role].preferOtherAuthorProvider === true}
@@ -718,7 +772,7 @@ function JobRow({
                     onChange(setPreferOtherAuthorProvider(manifest, role, value))
                   }
                 />
-                {group.roles.length > 1 ? `${AGENT_ROLE_PRESENTATION[role].label}: ` : ""}Prefer a
+                {job.roles.length > 1 ? `${AGENT_ROLE_PRESENTATION[role].label}: ` : ""}Prefer a
                 different provider from the author. Never defaults to the author&apos;s own model.
               </label>
             ))}

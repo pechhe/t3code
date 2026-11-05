@@ -26,9 +26,10 @@ no trial.
 
 On web and desktop, **Settings → Delegation** edits the configured source
 policy. Settings permission is required; agents have no MCP tool to edit it.
-Each role has an ordered list of models, and records an effort for each model that
-has an effort setting. Any installed provider's models can be listed, not only Codex
-and Claude. A role may also start large
+Each role has an ordered model `list`, with effort for models that offer it.
+The Reviewer also requires `specList`, an alias into `lists` for Spec reviews;
+`review.scope` selects the list automatically. Other roles cannot set `specList`.
+Any installed provider's models can be listed, not only Codex and Claude. A role may also start large
 (`demanding`) tasks with a different model, and start with a different model
 when a named model asks. Reviewers can prefer a provider other than the author's.
 Briefs remain read-only.
@@ -40,7 +41,9 @@ current values. The page shows the installed agent-config revision, whether it h
 unlanded changes, and how far it trails main, until you publish agent-config through
 its normal workflow; saving does not commit or land it.
 Unavailable accounts remain visible and are skipped. A policy still at version 1
-is read as one list per role and written as version 2 on its first save.
+is read as one list per role (both reviewer scopes share it) and written as version 2
+on its first save. Split reviewer policies keep their exact change and Spec lists;
+the change role supplies `large` and `callers` if present.
 Version 2 has no per-task-class restrictions: a version 1 restriction survives
 only when it covers every task class the role takes, and otherwise the role
 lists its whole pool for every class. UI implementation belongs to `ui-worker`, whose
@@ -158,15 +161,17 @@ its revision and the role names, or the reason the policy is refused.
   starts with the role's `large` model, and a caller whose model has a `callers`
   entry starts with that model instead; the rest of the list follows. A caller
   may name any listed model with `target.model`. `agent_roles` resolves for the
-  same caller, so it shows the model a launch will use.
+  same caller; pass `reviewScope: "spec"` for the Spec list. Without it, discovery
+  shows the change list. Role-based schedules have no review scope and use that
+  change default.
 - A follow-up to a task launched on a source revision must state the revision
   its workspace is at now. A task launched without one, as outside a
   repository, continues without one. A message a person types into the task's
   thread after its workspace moved re-pins it to the workspace's current commit,
   and the message opens with the new revision so the agent knows to re-read.
-- `ticket-reviewer` reviews a `change` scope and `spec-reviewer` a `spec` scope;
-  each task declares its scope and coverage. Tasks recorded under the earlier
-  `reviewer` name read as `ticket-reviewer`. A new reviewer trial names the
+- `reviewer` judges either `change` or `spec`, as `review.scope` declares;
+  each task declares its coverage. Stored `ticket-reviewer` and `spec-reviewer`
+  tasks read as `reviewer` and keep their recorded scope. A new reviewer trial names the
   scopes it compares. A trial created
   before scopes existed admits only reviews that declare none, so the two kinds
   of review are never pooled.

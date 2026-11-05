@@ -123,7 +123,7 @@ it.effect("recognises the roles whose own listing drives a browser", () =>
     for (const [role, toolProfile, expected] of [
       ["browser", "phi", true],
       ["ui-verifier", "phi", true],
-      ["spec-reviewer", "source-reader", false],
+      ["reviewer", "source-reader", false],
       ["scout", "source-reader", false],
       ["implementation-worker", "implementation", false],
     ] as const) {

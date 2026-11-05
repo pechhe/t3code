@@ -26,7 +26,6 @@ import {
   isReviewerRole,
   managedExecution,
   readOnlyToolProfile,
-  REVIEWER_SCOPE,
   usesPhi,
   type AgentToolProfile,
 } from "@t3tools/contracts";
@@ -664,7 +663,7 @@ const make = Effect.gen(function* () {
                 ? {}
                 : {
                     review: {
-                      scope: REVIEWER_SCOPE[role],
+                      scope: input.request.reviewScope ?? "change",
                       baseRevision: "capability-discovery",
                       includedChanges: ["capability-discovery"],
                       specRef: "capability-discovery",
@@ -876,7 +875,13 @@ const make = Effect.gen(function* () {
       const current = yield* currentPolicy;
       const role = current.manifest.roles[input.binding.role];
       if (role === undefined) return yield* new ManagedAgentError({ reason: "revoked" });
-      const allowed = (current.manifest.lists[role.list] ?? []).map((entry) => entry.model);
+      const allowed = (
+        current.manifest.lists[
+          input.binding.role === "reviewer" && input.binding.review?.scope === "spec"
+            ? role.specList!
+            : role.list
+        ] ?? []
+      ).map((entry) => entry.model);
       if (
         !role.taskClasses.includes(input.binding.taskClass) ||
         (input.binding.sourceAccess === "scoped-write" && role.sourceAccess === "read-only") ||

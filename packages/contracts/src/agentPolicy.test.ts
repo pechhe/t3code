@@ -4,6 +4,7 @@ import {
   AgentPolicyManifest,
   AgentPolicySnapshot,
   AgentTaskRequest,
+  AgentTaskBinding,
   agentTaskTopic,
 } from "./agentPolicy.ts";
 
@@ -11,6 +12,8 @@ const decodeManifest = Schema.decodeUnknownSync(AgentPolicyManifest);
 const encodeManifest = Schema.encodeSync(AgentPolicyManifest);
 const decodeManifestExit = Schema.decodeUnknownExit(AgentPolicyManifest);
 const decodeSnapshot = Schema.decodeUnknownSync(AgentPolicySnapshot);
+const decodeBinding = Schema.decodeUnknownSync(AgentTaskBinding);
+const encodeBinding = Schema.encodeSync(AgentTaskBinding);
 const encodeRequest = Schema.encodeSync(AgentTaskRequest);
 const decodeRequest = Schema.decodeUnknownSync(AgentTaskRequest);
 
@@ -97,17 +100,118 @@ describe("AgentPolicyManifest", () => {
     expect(manifest.lists["browser"]).toEqual([{ model: "haiku", effort: "medium" }]);
     // The first model with a demanding effort becomes the large-task model.
     expect(manifest.roles["implementation-worker"].large).toEqual({ model: "sol", effort: "high" });
-    // Both reviewer roles keep the old reviewer's order; a requirement becomes a preference.
-    expect(manifest.lists["ticket-reviewer"]?.map((entry) => entry.model)).toEqual([
-      "sonnet",
-      "sol",
-    ]);
-    expect(manifest.roles["spec-reviewer"]).toMatchObject({
-      brief: "roles/spec-reviewer.md",
+    // The reviewer keeps its order; a requirement becomes a preference.
+    expect(manifest.lists["reviewer"]?.map((entry) => entry.model)).toEqual(["sonnet", "sol"]);
+    expect(manifest.roles["reviewer"]).toMatchObject({
+      brief: "roles/reviewer.md",
+      specList: "reviewer",
       preferOtherAuthorProvider: true,
     });
     // It is written back only in the current version.
     expect(encodeManifest(manifest).version).toBe(2);
+  });
+
+  it("preserves exact split reviewer lists and decodes stored snapshots", () => {
+    const current = decodeManifest(legacy);
+    const { reviewer, ...roles } = current.roles;
+    const split = {
+      ...current,
+      lists: {
+        ...current.lists,
+        changes: [
+          { model: "sol", effort: "medium" },
+          { model: "sonnet", effort: "low" },
+        ],
+        specs: [
+          { model: "opus", effort: "high" },
+          { model: "sol", effort: "high" },
+        ],
+      },
+      roles: {
+        ...roles,
+        "ticket-reviewer": {
+          ...reviewer,
+          list: "changes",
+          brief: "roles/ticket-reviewer.md",
+          preferOtherAuthorProvider: false,
+        },
+        "spec-reviewer": {
+          ...reviewer,
+          list: "specs",
+          brief: "roles/spec-reviewer.md",
+          preferOtherAuthorProvider: true,
+        },
+      },
+    };
+    const merged = decodeManifest(split);
+    expect(merged.lists).toEqual(split.lists);
+    expect(merged.roles.reviewer.list).toBe("changes");
+    expect(merged.roles.reviewer.specList).toBe("specs");
+    expect(merged.roles.reviewer.large).toBeUndefined();
+    expect(merged.roles.reviewer.preferOtherAuthorProvider).toBe(true);
+    expect(encodeManifest(merged).roles).not.toHaveProperty("spec-reviewer");
+    expect(encodeManifest(merged).roles).not.toHaveProperty("ticket-reviewer");
+    const brief = { hash: "b".repeat(64), text: "Spec rubric" };
+    const snapshot = decodeSnapshot({
+      hash: "a".repeat(64),
+      sourceRevision: "stored",
+      manifest: split,
+      briefs: Object.fromEntries(
+        Object.keys(split.roles).map((name) => [
+          name,
+          name === "ticket-reviewer" ? { ...brief, text: "Change rubric" } : brief,
+        ]),
+      ),
+    });
+    expect(snapshot.briefs.reviewer).toEqual(brief);
+    expect(snapshot.manifest).toEqual(merged);
+    expect(
+      decodeManifestExit({
+        ...split,
+        roles: {
+          ...split.roles,
+          "spec-reviewer": { ...split.roles["spec-reviewer"], sourceAccess: "scoped-write" },
+        },
+      })._tag,
+    ).toBe("Failure");
+  });
+
+  it("requires a valid specList only on reviewer", () => {
+    const manifest = decodeManifest(legacy);
+    const edit = (name: "reviewer" | "advisor", extra: object) =>
+      decodeManifestExit({
+        ...manifest,
+        roles: { ...manifest.roles, [name]: { ...manifest.roles[name], ...extra } },
+      })._tag;
+    expect(edit("reviewer", { specList: undefined })).toBe("Failure");
+    expect(edit("reviewer", { specList: "missing" })).toBe("Failure");
+    expect(edit("reviewer", { specList: "Invalid Alias" })).toBe("Failure");
+    expect(edit("advisor", { specList: "reviewer" })).toBe("Failure");
+    expect(manifest.roles.reviewer.specList).toBe(manifest.roles.reviewer.list);
+  });
+
+  it("keeps change-role exceptions when old reviewers disagree", () => {
+    const current = decodeManifest(legacy);
+    const { reviewer, ...roles } = current.roles;
+    const change = {
+      ...reviewer,
+      brief: "roles/ticket-reviewer.md",
+      large: { model: "sol", effort: "high" },
+      callers: { opus: "sol" },
+    };
+    const spec = {
+      ...reviewer,
+      brief: "roles/spec-reviewer.md",
+      large: { model: "sonnet", effort: "high" },
+      callers: { opus: "sonnet" },
+    };
+    const merged = decodeManifest({
+      ...current,
+      roles: { ...roles, "ticket-reviewer": change, "spec-reviewer": spec },
+    });
+    expect(merged.roles.reviewer.large).toEqual(change.large);
+    expect(merged.roles.reviewer.callers).toEqual(change.callers);
+    expect(merged.lists).toEqual(current.lists);
   });
 
   it("refuses a role whose large-task or caller model is outside its list", () => {
@@ -252,7 +356,7 @@ describe("AgentPolicyManifest", () => {
     ).toBe("Failure");
   });
 
-  it("reads a stored version 1 snapshot with its reviewer brief for both reviewers", () => {
+  it("reads a stored version 1 snapshot with its reviewer brief", () => {
     const brief = { hash: "b".repeat(64), text: "Brief\n" };
     const snapshot = decodeSnapshot({
       hash: "a".repeat(64),
@@ -260,8 +364,7 @@ describe("AgentPolicyManifest", () => {
       manifest: legacy,
       briefs: Object.fromEntries(Object.keys(legacy.roles).map((name) => [name, brief])),
     });
-    expect(snapshot.briefs["ticket-reviewer"]).toEqual(brief);
-    expect(snapshot.briefs["spec-reviewer"]).toEqual(brief);
+    expect(snapshot.briefs.reviewer).toEqual(brief);
   });
 });
 
@@ -280,10 +383,34 @@ describe("AgentTaskRequest", () => {
     coverage: "complete",
   });
 
-  it("reads a recorded reviewer task as the reviewer for its scope", () => {
-    expect(decodeRequest(recorded).role).toBe("ticket-reviewer");
-    expect(decodeRequest({ ...recorded, review: review("change") }).role).toBe("ticket-reviewer");
-    expect(decodeRequest({ ...recorded, review: review("spec") }).role).toBe("spec-reviewer");
+  it("normalizes every stored reviewer request and binding without changing its scope", () => {
+    for (const role of ["reviewer", "ticket-reviewer", "spec-reviewer"]) {
+      for (const scope of [undefined, "change", "spec"]) {
+        const input = {
+          ...recorded,
+          role,
+          ...(scope === undefined ? {} : { review: review(scope) }),
+        };
+        const request = decodeRequest(input);
+        expect(request.role).toBe("reviewer");
+        expect(request.review?.scope).toBe(scope);
+        const binding = decodeBinding({
+          ...input,
+          requestFingerprint: "a".repeat(64),
+          policyHash: "b".repeat(64),
+          policyRevision: "policy",
+          briefHash: "c".repeat(64),
+          sourceAccess: "read-only",
+          toolProfile: "source-reader",
+          requested: { instanceId: "codex", model: "model" },
+          assigned: null,
+          effective: { instanceId: "codex", model: "model" },
+        });
+        expect(binding.role).toBe("reviewer");
+        expect(binding.review?.scope).toBe(scope);
+        expect(encodeBinding(binding).role).toBe("reviewer");
+      }
+    }
   });
 });
 
@@ -293,6 +420,9 @@ describe("agentTaskTopic", () => {
       "Smoke edit",
     );
     expect(agentTaskTopic("Advisor", "advisor")).toBe("");
+    expect(agentTaskTopic("Ticket reviewer · Smoke edit", "reviewer")).toBe("Smoke edit");
+    expect(agentTaskTopic("Spec reviewer · Smoke edit", "reviewer")).toBe("Smoke edit");
+    expect(agentTaskTopic("Reviewer · Smoke edit", "reviewer")).toBe("Smoke edit");
   });
 
   it("keeps a title that does not start with the role's label", () => {

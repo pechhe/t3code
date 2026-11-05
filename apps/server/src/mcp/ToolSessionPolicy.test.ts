@@ -91,8 +91,8 @@ const session = (
 // child lists its own work family and the leaf tools only. A change that needs a higher
 // ceiling states the new number and what bought it.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
-  // Upstream 4192 schemas plus bounded decisions measure 44,010 characters.
-  ["ordinary", undefined, 44_100],
+  // Upstream 4192 schemas, bounded decisions and discovery's reviewScope measure 44,161 characters.
+  ["ordinary", undefined, 44_200],
   // The preview endpoint is a browser session's listing, so it carries no control plane.
   // Bounded decisions adds the same 2,061 characters to the browser catalogue.
   ["browser/preview", session("phi", "browser"), 34_900],
@@ -111,7 +111,7 @@ const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> =
   // The updated web tools and leaf listing measure 19,470 characters.
   ["delegated researcher", session("web-research", "researcher", true), 19_500],
   ["delegated scout", session("source-reader", "scout", true), 15_000],
-  ["delegated reviewer", session("source-reader", "ticket-reviewer", true), 15_000],
+  ["delegated reviewer", session("source-reader", "reviewer", true), 15_000],
 ];
 
 it("keeps every session endpoint under its payload budget", () => {
@@ -154,7 +154,7 @@ const instructionCases: ReadonlyArray<[string, SessionToolProfile | undefined]> 
   ["delegated implementation-worker", session("implementation", "implementation-worker", true)],
   ["delegated researcher", session("web-research", "researcher", true)],
   ["delegated scout", session("source-reader", "scout", true)],
-  ["delegated reviewer", session("source-reader", "ticket-reviewer", true)],
+  ["delegated reviewer", session("source-reader", "reviewer", true)],
 ];
 
 const textFor = (profile: SessionToolProfile | undefined) => {

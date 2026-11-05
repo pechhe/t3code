@@ -39,8 +39,7 @@ it("states t3_thread_read page size limits in the parameter descriptions", () =>
   }
 });
 
-// The retired `reviewer` role must stay callable without a second copy of every agentTask field
-// in the listing: it is one role value, decoded to the reviewer it became (packages/contracts).
+// Legacy role names stay callable in the compact request schema.
 it("advertises delegate_task's agentTask fields once, with the retired role as a value", () => {
   const schema = Tool.getJsonSchema(OrchestratorToolkit.tools.delegate_task) as {
     readonly properties: Readonly<Record<string, unknown>>;
@@ -51,8 +50,9 @@ it("advertises delegate_task's agentTask fields once, with the retired role as a
     agentTask.split('"workspacePath":').length - 1,
     "agentTask fields are advertised once",
   ).toBe(1);
-  expect(agentTask, "the retired role stays callable").toContain('"reviewer"');
-  expect(agentTask, "and still decodes to the reviewer it became").toContain('"spec-reviewer"');
+  expect(agentTask).toContain('"ticket-reviewer"');
+  expect(agentTask).toContain('"spec-reviewer"');
+  expect(agentTask).toContain('"reviewer"');
 });
 
 // A managed task continues in its own conversation, and a review round never continues by

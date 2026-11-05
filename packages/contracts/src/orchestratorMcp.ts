@@ -240,7 +240,7 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
 export type OrchestratorMcpDelegateTaskInput = typeof OrchestratorMcpDelegateTaskInput.Type;
 
 /**
- * The wire form advertises `agentTask` once, with the retired `reviewer` role as a value of it;
+ * The wire form advertises `agentTask` once, including the two legacy reviewer role values;
  * the handler decodes it with `AgentTaskRequest` before the service sees it.
  */
 export const OrchestratorMcpDelegateTaskWireInput = Schema.Struct({

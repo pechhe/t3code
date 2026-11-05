@@ -580,7 +580,7 @@ describe("weaveAgentRole", () => {
     assert.isUndefined(weaveAgentRole({ lineage: lineage("fork") }));
   });
 
-  it("is a recorded reviewer task's canonical role, never the retired name", () => {
+  it("maps the merged reviewer to the Forge role for its recorded scope", () => {
     assert.strictEqual(
       weaveAgentRole({ lineage: lineage("subagent"), agentTask: recordedTask() }),
       "ticket-reviewer",

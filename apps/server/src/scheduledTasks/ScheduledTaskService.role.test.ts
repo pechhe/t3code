@@ -13,6 +13,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -88,6 +89,37 @@ const policyLayer = Layer.mergeAll(
       } as never),
   }),
   Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+);
+
+it.effect("reviewer schedules discover the change list with a preview source pin", () =>
+  Effect.gen(function* () {
+    const launched = yield* Ref.make<ReadonlyArray<ModelSelection>>([]);
+    const policy = Layer.mergeAll(
+      Layer.mock(ManagedAgent.ManagedAgentService)({
+        snapshot: () =>
+          Effect.succeed({
+            manifest: { roles: { reviewer: { taskClasses: ["non-ui"] } } },
+          } as unknown as AgentPolicySnapshot),
+        roles: (input) => {
+          assert.equal(input.request.reviewScope, "change");
+          assert.equal(input.request.sourceRevision, "scheduled-task-resolution");
+          return Effect.succeed({ roles: [{ role: "reviewer", selection: policyModel }] } as never);
+        },
+      }),
+      Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+    );
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const { task } = yield* service.upsert({ ...baseInput, agentRole: "reviewer" });
+      assert.deepEqual(task.modelSelection, policyModel);
+      yield* service.runNow({ id: task.id });
+      assert.deepEqual(yield* Ref.get(launched), [policyModel]);
+    }).pipe(Effect.provide(serviceLayer(launched, policy)));
+  }).pipe(
+    Effect.provide(
+      SqlitePersistence.layerMemory.pipe(Layer.provideMerge(ContextManagedPolicy.layerTest())),
+    ),
+  ),
 );
 
 it.effect("a task with a subagent role runs on the model its policy picks", () =>
@@ -220,6 +252,26 @@ it.effect("a caller that names only a model gets the default role, which picks t
       assert.equal(task.agentRole, "implementation-worker");
       yield* service.runNow({ id: task.id });
       assert.deepEqual(yield* Ref.get(launched), [implementerModel]);
+    }).pipe(Effect.provide(serviceLayer(launched, twoRolePolicyLayer)));
+  }).pipe(
+    Effect.provide(
+      SqlitePersistence.layerMemory.pipe(
+        Layer.provideMerge(Layer.mergeAll(ContextManagedPolicy.layerTest())),
+      ),
+    ),
+  ),
+);
+
+it.effect("a task saved under a split reviewer role still lists, as the merged reviewer", () =>
+  Effect.gen(function* () {
+    const launched = yield* Ref.make<ReadonlyArray<ModelSelection>>([]);
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const sql = yield* SqlClient.SqlClient;
+      const { task } = yield* service.upsert({ ...baseInput, agentRole: "chore-worker" });
+      yield* sql`UPDATE scheduled_tasks SET agent_role = 'spec-reviewer' WHERE task_id = ${task.id}`;
+      const { tasks } = yield* service.list();
+      assert.equal(tasks.find((listed) => listed.id === task.id)?.agentRole, "reviewer");
     }).pipe(Effect.provide(serviceLayer(launched, twoRolePolicyLayer)));
   }).pipe(
     Effect.provide(

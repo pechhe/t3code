@@ -40,7 +40,7 @@ const endedThreadId = ThreadId.make("thread:ended");
 const externalManagedThreadId = ThreadId.make("thread:external-managed");
 const browserChildThreadId = ThreadId.make("thread:browser-child");
 const verifierChildThreadId = ThreadId.make("thread:ui-verifier-child");
-const reviewerChildThreadId = ThreadId.make("thread:spec-reviewer-child");
+const reviewerChildThreadId = ThreadId.make("thread:reviewer-child");
 const scoutChildThreadId = ThreadId.make("thread:scout-child");
 const endedBrowserChildThreadId = ThreadId.make("thread:ended-browser-child");
 
@@ -109,7 +109,7 @@ const shells = new Map([
   ],
   [browserChildThreadId, childShell(browserChildThreadId, "browser", "phi")],
   [verifierChildThreadId, childShell(verifierChildThreadId, "ui-verifier", "phi")],
-  [reviewerChildThreadId, childShell(reviewerChildThreadId, "spec-reviewer", "source-reader")],
+  [reviewerChildThreadId, childShell(reviewerChildThreadId, "reviewer", "source-reader")],
   [scoutChildThreadId, childShell(scoutChildThreadId, "scout", "source-reader")],
   [
     endedBrowserChildThreadId,
@@ -370,7 +370,7 @@ const layerShells = Layer.mock(ThreadManagement.ThreadManagementService)({
 });
 const browserChild = childCaller(browserChildThreadId, "browser", "phi");
 const verifierChild = childCaller(verifierChildThreadId, "ui-verifier", "phi");
-const reviewerChild = childCaller(reviewerChildThreadId, "spec-reviewer", "source-reader");
+const reviewerChild = childCaller(reviewerChildThreadId, "reviewer", "source-reader");
 const scoutChild = childCaller(scoutChildThreadId, "scout", "source-reader");
 const endedBrowserChild = childCaller(endedBrowserChildThreadId, "browser", "phi");
 

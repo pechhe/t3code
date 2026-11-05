@@ -353,8 +353,7 @@ function subagentActivityNoun(role: AgentRole | null): string {
       return "Lead";
     case "implementation-worker":
       return "Implementer";
-    case "ticket-reviewer":
-    case "spec-reviewer":
+    case "reviewer":
       return "Reviewer";
     default:
       return AGENT_ROLE_TITLE_LABEL[role];

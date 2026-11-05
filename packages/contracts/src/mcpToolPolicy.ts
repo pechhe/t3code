@@ -301,11 +301,7 @@ export const isToolListedForSession = (
 export const canUseDecisions = (session: SessionToolProfile | undefined): boolean => {
   if (session?.toolProfile === "source-reader" || session?.toolProfile === "web-research")
     return false;
-  if (
-    ["scout", "advisor", "ticket-reviewer", "spec-reviewer", "researcher"].some(
-      (role) => role === session?.agentRole,
-    )
-  )
+  if (["scout", "advisor", "reviewer", "researcher"].some((role) => role === session?.agentRole))
     return false;
   return (
     session?.toolProfile === undefined ||

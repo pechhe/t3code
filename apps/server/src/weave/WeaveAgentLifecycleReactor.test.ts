@@ -45,7 +45,9 @@ const withReactor = <A, E>(
                     id: threadId,
                     projectId,
                     lineage: { parentThreadId: threadId === lead ? null : lead },
-                    ...(threadId === reviewer ? { agentTask: { role: "spec-reviewer" } } : {}),
+                    ...(threadId === reviewer
+                      ? { agentTask: { role: "reviewer", review: { scope: "spec" } } }
+                      : {}),
                   } as never),
               }),
               Layer.mock(WeaveAgentConnections.WeaveAgentConnections)({

@@ -482,7 +482,7 @@ it.effect("re-pins a pinned task when a person writes after its workspace moved"
               getThreadShell: () =>
                 Effect.succeed({
                   agentTask: {
-                    role: "ticket-reviewer",
+                    role: "reviewer",
                     workspacePath: "/workspace",
                     sourceRevision: "pinned-commit",
                   },

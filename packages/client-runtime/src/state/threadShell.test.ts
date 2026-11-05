@@ -895,9 +895,9 @@ describe("subagent live state", () => {
 
   it("raises a lead by what the helpers under it are doing", () => {
     const lead = shell("lead", parent, "lead", { blockedOnThreadWait: true });
-    const working = activityOf(lead, shell("reviewer", lead.id, "spec-reviewer"));
+    const working = activityOf(lead, shell("reviewer", lead.id, "reviewer"));
     expect(subagentActivityLabel(working!)).toBe("Lead");
-    const asking = activityOf(lead, shell("reviewer", lead.id, "spec-reviewer", question));
+    const asking = activityOf(lead, shell("reviewer", lead.id, "reviewer", question));
     expect(subagentActivityLabel(asking!)).toBe("Lead input");
   });
 

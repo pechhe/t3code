@@ -39,21 +39,13 @@ export function snapshot() {
     advisor: role("advisor", "advisor", "read-only", "source-reader", ["non-ui", "ui", "mixed"], {
       callers: { opus: "astra" },
     }),
-    "ticket-reviewer": role(
-      "ticket-reviewer",
+    reviewer: role(
+      "reviewer",
       "workhorse",
       "read-only",
       "source-reader",
       ["non-ui", "ui", "mixed"],
-      { preferOtherAuthorProvider: true },
-    ),
-    "spec-reviewer": role(
-      "spec-reviewer",
-      "workhorse",
-      "read-only",
-      "source-reader",
-      ["non-ui", "ui", "mixed"],
-      { preferOtherAuthorProvider: true },
+      { specList: "workhorse", preferOtherAuthorProvider: true },
     ),
   };
   return decodeSnapshot({

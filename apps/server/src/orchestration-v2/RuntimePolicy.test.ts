@@ -201,7 +201,7 @@ it.layer(layerTest)("RuntimePolicyV2 compact-at", (it) => {
 });
 
 const managedBinding: AgentTaskBinding = {
-  role: "ticket-reviewer",
+  role: "reviewer",
   taskClass: "non-ui",
   workId: "runtime-work",
   attemptId: "runtime-attempt",

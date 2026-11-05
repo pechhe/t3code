@@ -50,7 +50,12 @@ export interface WeaveAgent {
 export const weaveAgentRole = (
   thread: Pick<OrchestrationV2AppThread, "agentTask" | "lineage">,
 ): string | undefined =>
-  thread.agentTask?.role ?? (thread.lineage.parentThreadId === null ? "lead" : undefined);
+  // Forge still authorizes reviewer roles by scope under the pre-merge names.
+  thread.agentTask?.role === "reviewer"
+    ? thread.agentTask.review?.scope === "spec"
+      ? "spec-reviewer"
+      : "ticket-reviewer"
+    : (thread.agentTask?.role ?? (thread.lineage.parentThreadId === null ? "lead" : undefined));
 
 /** The thread's `weave` MCP server. It carries no Weave credential. */
 export interface WeaveMcpConnection {
@@ -943,7 +948,6 @@ const make = Effect.gen(function* () {
     response: WeaveForwardResponse,
   ) {
     const role = threads.get(threadId)?.agent.role;
-    // A reviewer's role is its task's canonical one: `ticket-reviewer` or `spec-reviewer`.
     if (role === undefined || !role.endsWith("-reviewer")) return;
     if (response.status !== 200) return;
     if (!toolCallsOf(request.body).some((call) => forgeToolOf(call.name) === "run")) return;

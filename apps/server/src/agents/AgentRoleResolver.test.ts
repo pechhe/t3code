@@ -37,6 +37,40 @@ const resolve = (value: Input) =>
 const refusal = (value: Input) => resolve(value).pipe(Effect.flip);
 
 it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
+  it.effect("uses separate ordered candidates for change and Spec reviews", () =>
+    Effect.gen(function* () {
+      const original = snapshot();
+      const policy = {
+        ...original,
+        manifest: {
+          ...original.manifest,
+          lists: { ...original.manifest.lists, specs: [{ model: "astra", effort: "high" }] },
+          roles: {
+            ...original.manifest.roles,
+            reviewer: { ...original.manifest.roles.reviewer, specList: "specs" },
+          },
+        },
+      };
+      for (const scope of ["change", "spec"] as const) {
+        const value = input({
+          snapshot: policy,
+          request: request({
+            role: "reviewer",
+            sourceRevision: "candidate",
+            review: { ...changeReview, scope, specRef: "spec", specRevision: "revision" },
+          }),
+        });
+        expect((yield* resolve(value)).model).toBe(
+          scope === "spec" ? "gpt-astra-test" : claudeModel,
+        );
+        const denied = yield* refusal({
+          ...value,
+          selection: { model: scope === "spec" ? claudeModel : "gpt-astra-test" },
+        });
+        expect(denied.reason).toBe("selection-denied");
+      }
+    }),
+  );
   it.effect("preview reports the same decision and explains unavailable accounts", () =>
     Effect.gen(function* () {
       const resolver = yield* Resolver.AgentRoleResolver;
@@ -63,7 +97,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       const resolver = yield* Resolver.AgentRoleResolver;
       const unenforced = { ...claude, readOnlySourceAccess: undefined };
       const reader = request({
-        role: "ticket-reviewer",
+        role: "reviewer",
         sourceRevision: "candidate",
         review: changeReview,
       });
@@ -110,8 +144,8 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
                 ...original.manifest,
                 roles: {
                   ...original.manifest.roles,
-                  "ticket-reviewer": {
-                    ...original.manifest.roles["ticket-reviewer"],
+                  reviewer: {
+                    ...original.manifest.roles["reviewer"],
                     preferOtherAuthorProvider,
                   },
                 },
@@ -119,7 +153,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
             },
             providers,
             request: request({
-              role: "ticket-reviewer",
+              role: "reviewer",
               sourceRevision: "candidate",
               review: changeReview,
               authorModel: "claude-opus-test",
@@ -274,7 +308,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         (yield* resolve({
           ...base,
           request: request({
-            role: "ticket-reviewer",
+            role: "reviewer",
             sourceRevision: "reviewed-commit",
             review: changeReview,
             readOnly: true,
@@ -333,7 +367,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       const value = yield* resolve(
         input({
           request: request({
-            role: "ticket-reviewer",
+            role: "reviewer",
             sourceRevision: "reviewed-commit",
             review: changeReview,
             authorModel: codexModel,
@@ -348,9 +382,9 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
 
   it.effect("requires a pinned source revision for review", () =>
     Effect.gen(function* () {
-      expect(
-        (yield* refusal(input({ request: request({ role: "ticket-reviewer" }) }))).reason,
-      ).toBe("source-pin-required");
+      expect((yield* refusal(input({ request: request({ role: "reviewer" }) }))).reason).toBe(
+        "source-pin-required",
+      );
     }),
   );
 
@@ -359,7 +393,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       const reviewer = (review: Partial<typeof changeReview> | undefined, extra = {}) =>
         input({
           request: request({
-            role: "ticket-reviewer",
+            role: "reviewer",
             sourceRevision: "reviewed-commit",
             ...(review === undefined ? {} : { review: { ...changeReview, ...review } }),
             ...extra,
@@ -371,14 +405,14 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       expect((yield* refusal(reviewer({ includedChanges: [] }))).reason).toBe(
         "review-scope-invalid",
       );
-      // A Spec review judges a specific Spec body revision, and only the Spec reviewer does.
+      // A Spec review judges a specific Spec body revision.
       const spec = { scope: "spec", coverage: "partial" } as const;
-      const specReviewer = { role: "spec-reviewer" } as const;
+      const specReviewer = { role: "reviewer" } as const;
       expect((yield* refusal(reviewer(spec, specReviewer))).reason).toBe("review-scope-invalid");
       const pinned = { ...spec, specRef: "owner/repo#12", specRevision: "body-3" };
       yield* resolve(reviewer(pinned, specReviewer));
-      expect((yield* refusal(reviewer(pinned))).reason).toBe("review-scope-invalid");
-      expect((yield* refusal(reviewer({}, specReviewer))).reason).toBe("review-scope-invalid");
+      yield* resolve(reviewer(pinned));
+      yield* resolve(reviewer({}, specReviewer));
       // A Spec review of a no-Ticket Spec has no Ticket changes to list.
       yield* resolve(reviewer({ ...pinned, includedChanges: [] }, specReviewer));
       // A delta covers exactly the changes since the earlier report.
@@ -400,12 +434,6 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       expect((yield* refusal(reviewer({ includedChanges: [] }))).detail).toContain(
         "review.includedChanges",
       );
-      const changeOnSpec = yield* refusal(
-        reviewer({ scope: "change", includedChanges: ["c"] }, specReviewer),
-      );
-      expect(changeOnSpec.detail).toContain(
-        'review.scope "change" is not valid for spec-reviewer; use "spec"',
-      );
       // Review scope belongs to the reviewer role alone.
       expect((yield* refusal(input({ request: request({ review: changeReview }) }))).reason).toBe(
         "review-scope-invalid",
@@ -417,7 +445,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     Effect.gen(function* () {
       const base = input({
         request: request({
-          role: "ticket-reviewer",
+          role: "reviewer",
           sourceRevision: "reviewed-commit",
           review: changeReview,
         }),
@@ -474,7 +502,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         const unavailable: ServerProvider = { ...codex, availability: "unavailable" };
         const base = input({
           request: request({
-            role: "ticket-reviewer",
+            role: "reviewer",
             sourceRevision: "reviewed-commit",
             review: changeReview,
           }),
@@ -510,9 +538,9 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
   it.effect("lets a reviewer's listed model take UI and mixed work", () =>
     Effect.gen(function* () {
       const reviews = [
-        { role: "ticket-reviewer", review: changeReview },
+        { role: "reviewer", review: changeReview },
         {
-          role: "spec-reviewer",
+          role: "reviewer",
           review: {
             ...changeReview,
             scope: "spec",
@@ -922,7 +950,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       Effect.gen(function* () {
         const resolver = yield* Resolver.AgentRoleResolver;
         const review = request({
-          role: "ticket-reviewer",
+          role: "reviewer",
           sourceRevision: "reviewed-commit",
           review: changeReview,
           authorModel: codexModel,
@@ -971,7 +999,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       };
       const base = input({
         request: request({
-          role: "ticket-reviewer",
+          role: "reviewer",
           sourceRevision: "reviewed-commit",
           review: changeReview,
         }),
@@ -1001,7 +1029,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       });
       const stale = "2026-10-15T00:00:00.000Z";
       const review = request({
-        role: "ticket-reviewer",
+        role: "reviewer",
         sourceRevision: "reviewed-commit",
         review: changeReview,
       });
@@ -1065,7 +1093,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       });
       const review = (authorModel?: string) =>
         request({
-          role: "ticket-reviewer",
+          role: "reviewer",
           sourceRevision: "reviewed-commit",
           review: changeReview,
           ...(authorModel === undefined ? {} : { authorModel }),

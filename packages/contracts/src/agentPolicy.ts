@@ -13,8 +13,7 @@ export const AgentRole = Schema.Literals([
   "browser",
   "ui-verifier",
   "advisor",
-  "ticket-reviewer",
-  "spec-reviewer",
+  "reviewer",
   "researcher",
   "scout",
   "lead",
@@ -28,8 +27,7 @@ export const AGENT_ROLE_TITLE_LABEL = {
   browser: "Browser",
   "ui-verifier": "UI verifier",
   advisor: "Advisor",
-  "ticket-reviewer": "Ticket reviewer",
-  "spec-reviewer": "Spec reviewer",
+  reviewer: "Reviewer",
   researcher: "Researcher",
   scout: "Scout",
   lead: "Spec lead",
@@ -39,9 +37,15 @@ export const AGENT_ROLE_TITLE_LABEL = {
  * a chip. Empty when the title names only the role; unchanged when it lacks the prefix.
  */
 export const agentTaskTopic = (title: string, role: AgentRole): string => {
-  const label = AGENT_ROLE_TITLE_LABEL[role];
-  if (title === label) return "";
-  return title.startsWith(`${label} · `) ? title.slice(label.length + 3) : title;
+  const labels =
+    role === "reviewer"
+      ? [AGENT_ROLE_TITLE_LABEL[role], "Ticket reviewer", "Spec reviewer"]
+      : [AGENT_ROLE_TITLE_LABEL[role]];
+  for (const label of labels) {
+    if (title === label) return "";
+    if (title.startsWith(`${label} · `)) return title.slice(label.length + 3);
+  }
+  return title;
 };
 /**
  * A `lead` task runs one Spec with exactly a top-level thread's privileges; every other role
@@ -55,16 +59,10 @@ export const isLeafSubagentThread = (thread: {
   readonly agentTask?: { readonly role: AgentRole } | undefined;
 }) => thread.lineage.relationshipToParent === "subagent" && thread.agentTask?.role !== "lead";
 /** The roles that judge pinned work: fresh-context, read-only and scoped by `review`. */
-export const isReviewerRole = (role: AgentRole) =>
-  role === "ticket-reviewer" || role === "spec-reviewer";
+export const isReviewerRole = (role: AgentRole) => role === "reviewer";
 /** The read-only roles that answer the lead's questions rather than produce work. */
 export const isConsultingRole = (role: AgentRole) =>
   role === "advisor" || role === "researcher" || role === "scout";
-/** The review scope each reviewer role judges. */
-export const REVIEWER_SCOPE = {
-  "ticket-reviewer": "change",
-  "spec-reviewer": "spec",
-} as const;
 /**
  * The coarse kind that trials, categories and reports already group delegated work by. The
  * canonical role is carried beside it, never in its place.
@@ -76,8 +74,7 @@ export const AGENT_ROLE_COARSE_KIND = {
   browser: "test",
   "ui-verifier": "test",
   advisor: "research",
-  "ticket-reviewer": "review",
-  "spec-reviewer": "review",
+  reviewer: "review",
   researcher: "research",
   scout: "research",
   lead: "implementation",
@@ -132,6 +129,8 @@ export type AgentListEntry = typeof AgentListEntry.Type;
 const RolePolicy = Schema.Struct({
   /** The ordered model list this role uses; roles naming the same list share it. */
   list: Alias,
+  /** Reviewer only: the ordered list for Spec-scope reviews. */
+  specList: Schema.optional(Alias),
   brief: BriefPath,
   sourceAccess: SourceAccess,
   toolProfile: AgentToolProfile,
@@ -156,8 +155,7 @@ const rolesRecord = <S extends Schema.Top>(entry: S) =>
     browser: entry,
     "ui-verifier": entry,
     advisor: entry,
-    "ticket-reviewer": entry,
-    "spec-reviewer": entry,
+    reviewer: entry,
     researcher: Schema.optionalKey(entry),
     scout: Schema.optionalKey(entry),
     lead: Schema.optionalKey(entry),
@@ -194,6 +192,8 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
       (name !== "ui-worker" || role.sourceAccess !== "scoped-write")
     )
       return false;
+    if ((name === "reviewer") !== (role.specList !== undefined)) return false;
+    if (role.specList !== undefined && lists[role.specList] === undefined) return false;
     const list = lists[role.list]?.map((entry) => entry.model);
     if (list === undefined || role.brief !== `roles/${name}.md`) return false;
     if (role.large !== undefined && !list.includes(role.large.model)) return false;
@@ -213,9 +213,7 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
         roles.lead.toolProfile === "implementation")) &&
     readOnly(roles.browser, "phi") &&
     readOnly(roles["ui-verifier"], "phi") &&
-    [roles["ticket-reviewer"], roles["spec-reviewer"], roles.advisor].every((role) =>
-      readOnly(role, "source-reader"),
-    ) &&
+    [roles.reviewer, roles.advisor].every((role) => readOnly(role, "source-reader")) &&
     [roles["chore-worker"], roles["implementation-worker"]].every(
       (role) =>
         role.taskClasses.length === 1 &&
@@ -294,24 +292,22 @@ const upgradeManifest = (legacy: typeof LegacyManifest.Type): typeof Manifest.En
         pool.allow.includes(alias) && role.effort[alias] && restricted?.has(alias) !== false,
     );
     const large = order.find((alias) => role.effort[alias]!.demanding !== undefined);
-    const names: ReadonlyArray<AgentRole> =
-      legacyName === "reviewer" ? ["ticket-reviewer", "spec-reviewer"] : [legacyName as AgentRole];
-    for (const name of names) {
-      lists[name] = order.map((model) => ({ model, effort: role.effort[model]!.default }));
-      roles[name] = {
-        list: name,
-        brief: `roles/${name}.md`,
-        sourceAccess: role.sourceAccess,
-        toolProfile: role.toolProfile,
-        taskClasses: role.taskClasses,
-        ...(large === undefined
-          ? {}
-          : { large: { model: large, effort: role.effort[large]!.demanding! } }),
-        ...(isReviewerRole(name)
-          ? { preferOtherAuthorProvider: legacy.reviewer?.requireDifferentProvider ?? false }
-          : {}),
-      };
-    }
+    const name = legacyName as AgentRole;
+    lists[name] = order.map((model) => ({ model, effort: role.effort[model]!.default }));
+    roles[name] = {
+      list: name,
+      ...(name === "reviewer" ? { specList: name } : {}),
+      brief: `roles/${name}.md`,
+      sourceAccess: role.sourceAccess,
+      toolProfile: role.toolProfile,
+      taskClasses: role.taskClasses,
+      ...(large === undefined
+        ? {}
+        : { large: { model: large, effort: role.effort[large]!.demanding! } }),
+      ...(isReviewerRole(name)
+        ? { preferOtherAuthorProvider: legacy.reviewer?.requireDifferentProvider ?? false }
+        : {}),
+    };
   }
   return {
     version: 2,
@@ -321,8 +317,70 @@ const upgradeManifest = (legacy: typeof LegacyManifest.Type): typeof Manifest.En
     roles: roles as (typeof Manifest.Encoded)["roles"],
   };
 };
+const SplitManifest = Schema.Struct({
+  ...Manifest.fields,
+  roles: Schema.Struct({
+    ...rolesRecord(RolePolicy).fields,
+    reviewer: Schema.optionalKey(RolePolicy),
+    "ticket-reviewer": RolePolicy,
+    "spec-reviewer": RolePolicy,
+  }),
+});
+const mergeReviewers = (split: typeof SplitManifest.Type): typeof Manifest.Encoded => {
+  const {
+    "ticket-reviewer": change,
+    "spec-reviewer": spec,
+    reviewer: _reviewer,
+    ...roles
+  } = split.roles;
+  return {
+    ...split,
+    roles: {
+      ...roles,
+      reviewer: {
+        ...change,
+        specList: spec.list,
+        brief: "roles/reviewer.md",
+        preferOtherAuthorProvider:
+          change.preferOtherAuthorProvider === true || spec.preferOtherAuthorProvider === true,
+      },
+    },
+  };
+};
 export const AgentPolicyManifest = Schema.Union([
   CurrentManifest,
+  SplitManifest.check(
+    Schema.makeFilter((split) => {
+      const {
+        "ticket-reviewer": change,
+        "spec-reviewer": spec,
+        reviewer: _reviewer,
+        ...roles
+      } = split.roles;
+      return (
+        [
+          ["ticket-reviewer", change],
+          ["spec-reviewer", spec],
+        ] as const
+      ).every(([name, role]) => {
+        return (
+          role.brief === `roles/${name}.md` &&
+          validManifest({
+            ...split,
+            roles: {
+              ...roles,
+              reviewer: { ...role, specList: role.list, brief: "roles/reviewer.md" },
+            },
+          })
+        );
+      });
+    }),
+  ).pipe(
+    Schema.decodeTo(CurrentManifest, {
+      decode: SchemaGetter.transform(mergeReviewers),
+      encode: SchemaGetter.forbidden(() => "Split reviewer policies are never written."),
+    }),
+  ),
   LegacyManifest.pipe(
     Schema.decodeTo(CurrentManifest, {
       decode: SchemaGetter.transform(upgradeManifest),
@@ -345,20 +403,26 @@ const Snapshot = Schema.Struct({
 });
 export const AgentPolicySnapshot = Schema.Union([
   Snapshot,
-  // Snapshots stored before the reviewer split; both reviewers read the old brief.
   Schema.Struct({
-    hash: Sha256,
-    sourceRevision: TrimmedNonEmptyString,
-    manifest: LegacyManifest,
-    briefs: Schema.Record(LegacyRole, Brief),
+    ...Snapshot.fields,
+    briefs: Schema.Struct({
+      ...rolesRecord(Brief).fields,
+      reviewer: Schema.optionalKey(Brief),
+      "ticket-reviewer": Brief,
+      "spec-reviewer": Brief,
+    }),
   }).pipe(
     Schema.decodeTo(Snapshot, {
-      decode: SchemaGetter.transform(({ briefs: { reviewer, ...briefs }, ...snapshot }) => ({
-        ...snapshot,
-        manifest: upgradeManifest(snapshot.manifest),
-        briefs: { ...briefs, "ticket-reviewer": reviewer, "spec-reviewer": reviewer },
-      })),
-      encode: SchemaGetter.forbidden(() => "Version 1 snapshots are never written."),
+      decode: SchemaGetter.transform(
+        ({
+          briefs: { "ticket-reviewer": _change, "spec-reviewer": reviewer, ...briefs },
+          ...snapshot
+        }) => ({
+          ...snapshot,
+          briefs: { ...briefs, reviewer },
+        }),
+      ),
+      encode: SchemaGetter.forbidden(() => "Split reviewer snapshots are never written."),
     }),
   ),
 ]);
@@ -372,8 +436,7 @@ export const AgentWorkspaceAssignment = Schema.Literals(["lead", "isolated"]);
 export type AgentWorkspaceAssignment = typeof AgentWorkspaceAssignment.Type;
 
 /**
- * What a review judges: a candidate change (one landing, possibly serving several Tickets)
- * for `ticket-reviewer`, or a Spec's integrated outcome across its slices for `spec-reviewer`.
+ * What a reviewer judges: a candidate change or a Spec's integrated outcome.
  */
 export const AgentReviewScope = Schema.Literals(["change", "spec"]);
 export type AgentReviewScope = typeof AgentReviewScope.Type;
@@ -452,36 +515,33 @@ const agentTaskRequestFields = {
   readOnly: Schema.optional(Schema.Boolean),
   authorModel: Schema.optional(TrimmedNonEmptyString),
 };
-/**
- * Task records written before the reviewer split name `reviewer`. They decode as the
- * reviewer for their scope (a change by default) and are never written again.
- */
-const legacyReviewer = <R extends { readonly review?: { readonly scope: string } | undefined }>(
-  record: R,
-) => ({
-  ...record,
-  role: record.review?.scope === "spec" ? ("spec-reviewer" as const) : ("ticket-reviewer" as const),
-});
+// Persisted split-role tasks retain their review scope while adopting the merged role.
+const legacyReviewer = <R extends object>(record: R) => ({ ...record, role: "reviewer" as const });
+const SplitReviewerRole = Schema.Literals(["ticket-reviewer", "spec-reviewer"]);
+/** A role saved outside a task record, such as on a schedule; split names read as `reviewer`. */
+export const StoredAgentRole = Schema.Union([AgentRole, SplitReviewerRole]).pipe(
+  Schema.decodeTo(AgentRole, {
+    decode: SchemaGetter.transform((role) =>
+      role === "ticket-reviewer" || role === "spec-reviewer" ? "reviewer" : role,
+    ),
+    encode: SchemaGetter.transform((role) => role),
+  }),
+);
 const CurrentAgentTaskRequest = Schema.Struct(agentTaskRequestFields);
 export const AgentTaskRequest = Schema.Union([
   CurrentAgentTaskRequest,
-  Schema.Struct({ ...agentTaskRequestFields, role: Schema.Literal("reviewer") }).pipe(
+  Schema.Struct({ ...agentTaskRequestFields, role: SplitReviewerRole }).pipe(
     Schema.decodeTo(CurrentAgentTaskRequest, {
       decode: SchemaGetter.transform(legacyReviewer),
-      encode: SchemaGetter.forbidden(() => "The reviewer role name is retired."),
+      encode: SchemaGetter.forbidden(() => "Split reviewer role names are never written."),
     }),
   ),
 ]);
 export type AgentTaskRequest = typeof AgentTaskRequest.Type;
 
-/**
- * The wire form advertises `agentTask` as one struct: the retired `reviewer` role is another
- * value of the same fields, not a second copy of every field. Handlers decode it with
- * `AgentTaskRequest`, which still maps that role to the reviewer it became.
- */
 export const AgentTaskWireRequest = Schema.Struct({
   ...agentTaskRequestFields,
-  role: Schema.Union([AgentRole, Schema.Literal("reviewer")]),
+  role: Schema.Union([AgentRole, SplitReviewerRole]),
 });
 export type AgentTaskWireRequest = typeof AgentTaskWireRequest.Type;
 
@@ -510,10 +570,10 @@ const agentTaskBindingFields = {
 const CurrentAgentTaskBinding = Schema.Struct(agentTaskBindingFields);
 export const AgentTaskBinding = Schema.Union([
   CurrentAgentTaskBinding,
-  Schema.Struct({ ...agentTaskBindingFields, role: Schema.Literal("reviewer") }).pipe(
+  Schema.Struct({ ...agentTaskBindingFields, role: SplitReviewerRole }).pipe(
     Schema.decodeTo(CurrentAgentTaskBinding, {
       decode: SchemaGetter.transform(legacyReviewer),
-      encode: SchemaGetter.forbidden(() => "The reviewer role name is retired."),
+      encode: SchemaGetter.forbidden(() => "Split reviewer role names are never written."),
     }),
   ),
 ]);
@@ -549,6 +609,8 @@ export const AgentRolesInput = Schema.Struct({
   model: Schema.optional(TrimmedNonEmptyString),
   /** The model that wrote the work a reviewer would check, as a review delegation states it. */
   authorModel: Schema.optional(TrimmedNonEmptyString),
+  /** Reviewer discovery defaults to the change list when omitted. */
+  reviewScope: Schema.optional(AgentReviewScope),
 });
 export type AgentRolesInput = typeof AgentRolesInput.Type;
 /** How one model and account in a role's list fared when the role was resolved. */
