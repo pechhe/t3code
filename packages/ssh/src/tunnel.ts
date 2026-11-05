@@ -60,6 +60,8 @@ const REMOTE_ARCHIVE_DOWNLOAD_SECONDS = 240;
 const REMOTE_ARCHIVE_LOCK_WAIT_SECONDS = 360;
 const REMOTE_ARCHIVE_LAUNCH_TIMEOUT_MS = 900_000;
 const REMOTE_REUSE_READY_TIMEOUT_MS = 2_000;
+// A service restart waits out RestartSec before the server boots again.
+const REMOTE_SERVICE_READY_TIMEOUT_MS = 30_000;
 
 export interface RemoteT3RunnerOptions {
   readonly nodeScriptPath?: string | null;
@@ -619,6 +621,64 @@ try {
 }
 NODE
 }
+# The default home's server may belong to a user service that is restarting.
+# Its runtime file disappears while the unit is down, so the unit itself, not
+# the file, says whether this home already has a server coming back.
+boot_service_owns_home() {
+  if [ -f "$HOME/.config/systemd/user/t3code.service" ]; then
+    BOOT_UNIT="$HOME/.config/systemd/user/t3code.service"
+    BOOT_KIND=systemd
+  elif [ -f "$HOME/Library/LaunchAgents/com.t3tools.t3code.service.plist" ]; then
+    BOOT_UNIT="$HOME/Library/LaunchAgents/com.t3tools.t3code.service.plist"
+    BOOT_KIND=launchd
+  else
+    return 1
+  fi
+  if [ "$BOOT_KIND" = "launchd" ]; then
+    BOOT_HOME="$(tr '\\n' ' ' <"$BOOT_UNIT" | sed -n 's|.*<key>T3CODE_HOME</key>[[:space:]]*<string>\\([^<]*\\)</string>.*|\\1|p')"
+  else
+    BOOT_HOME="$(sed -n 's/^Environment=T3CODE_HOME=//p' "$BOOT_UNIT" | head -n 1 | sed -e 's/^"//' -e 's/"$//')"
+  fi
+  case "$BOOT_HOME" in
+    %h*) BOOT_HOME="$HOME\${BOOT_HOME#%h}" ;;
+  esac
+  case "$BOOT_HOME" in
+    "") return 1 ;;
+    */) BOOT_HOME="\${BOOT_HOME%/}" ;;
+  esac
+  [ "$BOOT_HOME" = "$DEFAULT_SERVER_HOME" ] || return 1
+  if [ "$BOOT_KIND" = "launchd" ]; then
+    launchctl print "gui/$(id -u)/com.t3tools.t3code.service" >/dev/null 2>&1
+    return
+  fi
+  BOOT_STATE="$(systemctl --user is-active t3code.service 2>/dev/null || true)"
+  case "$BOOT_STATE" in
+    active|activating|reloading) return 0 ;;
+  esac
+  BOOT_ENABLED="$(systemctl --user is-enabled t3code.service 2>/dev/null || true)"
+  case "$BOOT_ENABLED" in
+    enabled|enabled-runtime) return 0 ;;
+  esac
+  return 1
+}
+# Wait for the service to publish its server again, then adopt that server
+# rather than taking the port and the home's ownership lock from it.
+wait_for_boot_service() {
+  SERVICE_ATTEMPTS=$((@@T3_SERVICE_READY_TIMEOUT_MS@@ / 200))
+  while :; do
+    SERVICE_INFO="$(resolve_default_runtime_port 2>/dev/null || true)"
+    if [ -n "$SERVICE_INFO" ]; then
+      REMOTE_PORT="\${SERVICE_INFO#* }"
+      if wait_ready "@@T3_REUSE_READY_TIMEOUT_MS@@"; then
+        return 0
+      fi
+      REMOTE_PORT=""
+    fi
+    [ "$SERVICE_ATTEMPTS" -gt 0 ] || return 1
+    SERVICE_ATTEMPTS=$((SERVICE_ATTEMPTS - 1))
+    sleep 0.2
+  done
+}
 REMOTE_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
 REMOTE_PORT="$(cat "$PORT_FILE" 2>/dev/null || true)"
 REMOTE_MANAGED="$(cat "$MANAGED_FILE" 2>/dev/null || true)"
@@ -690,6 +750,17 @@ else
   REMOTE_PID=""
   REMOTE_PORT=""
   REMOTE_MANAGED=""
+fi
+if [ -z "$REMOTE_PORT" ] && boot_service_owns_home; then
+  if ! wait_for_boot_service; then
+    printf 'The T3 Code background service on this host owns this T3 home and its server did not come back. Retry the connection in a moment; no second server was started.\n' >&2
+    exit 1
+  fi
+  printf '%s\\n' "$REMOTE_PORT" >"$PORT_FILE"
+  printf 'external\\n' >"$MANAGED_FILE"
+  rm -f "$PID_FILE"
+  REMOTE_PID=""
+  REMOTE_MANAGED="external"
 fi
 if [ -z "$REMOTE_PORT" ]; then
   REMOTE_PORT="$(pick_port)" || true
@@ -825,7 +896,10 @@ export function buildRemoteNodeEnvScript(input?: RemoteT3RunnerOptions): string 
   );
 }
 
-function buildRemoteLaunchScript(input?: RemoteT3RunnerOptions): string {
+export function buildRemoteLaunchScript(
+  input?: RemoteT3RunnerOptions,
+  options?: { readonly serviceReadyTimeoutMs?: number },
+): string {
   return applyScriptPlaceholders(REMOTE_LAUNCH_SCRIPT, {
     T3_ARCHIVE_MODE: isNodeScriptRunner(input) ? "0" : "1",
     T3_NODE_ENV_SCRIPT: buildRemoteNodeEnvScript(input),
@@ -837,6 +911,9 @@ function buildRemoteLaunchScript(input?: RemoteT3RunnerOptions): string {
     T3_READY_TIMEOUT_MS: String(REMOTE_READY_TIMEOUT_MS),
     T3_REUSE_READY_TIMEOUT_MS: String(REMOTE_REUSE_READY_TIMEOUT_MS),
     T3_READY_PROBE_TIMEOUT_MS: String(SSH_READY_PROBE_TIMEOUT_MS),
+    T3_SERVICE_READY_TIMEOUT_MS: String(
+      options?.serviceReadyTimeoutMs ?? REMOTE_SERVICE_READY_TIMEOUT_MS,
+    ),
   });
 }
 

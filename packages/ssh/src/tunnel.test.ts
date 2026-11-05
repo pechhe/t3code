@@ -1,4 +1,10 @@
+// @effect-diagnostics nodeBuiltinImport:off - These tests run the generated launch script as a real shell process.
 import { assert, describe, it } from "@effect/vitest";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodeHttp from "node:http";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
@@ -82,6 +88,97 @@ function commandArgs(command: ChildProcess.Command): ReadonlyArray<string> {
 
 const ARCHIVE = { archiveVersion: "1.2.3-preview.20260911.4" } as const;
 
+const lastOutputLine = (output: string) =>
+  output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .at(-1) ?? "";
+
+interface LaunchHomeOptions {
+  readonly bootService?: boolean;
+  readonly readyTimeoutMs?: number;
+  /** The service publishes its runtime file when the launcher next asks about it. */
+  readonly servicePublishes?: { readonly port: number; readonly pid: number };
+}
+
+/** A throwaway remote HOME with stubbed systemctl and a stub `t3` runner. */
+const makeLaunchHome = (options: LaunchHomeOptions = {}) => {
+  const home = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-ssh-launch-"));
+  const binDir = NodePath.join(home, "bin");
+  NodeFS.mkdirSync(binDir, { recursive: true });
+  if (options.bootService !== false) {
+    const unitDir = NodePath.join(home, ".config", "systemd", "user");
+    NodeFS.mkdirSync(unitDir, { recursive: true });
+    NodeFS.writeFileSync(
+      NodePath.join(unitDir, "t3code.service"),
+      `[Service]\nEnvironment=T3CODE_HOME=${home}/.t3\n`,
+    );
+    const publish = options.servicePublishes;
+    const publishScript =
+      publish === undefined
+        ? ""
+        : `mkdir -p "$HOME/.t3/userdata"
+printf '%s' '${JSON.stringify({ pid: publish.pid, port: publish.port, origin: `http://127.0.0.1:${publish.port}` })}' >"$HOME/.t3/userdata/server-runtime.json"
+`;
+    NodeFS.writeFileSync(
+      NodePath.join(binDir, "systemctl"),
+      `#!/bin/sh\n${publishScript}case "$*" in\n  *is-active*) printf 'active\\n' ; exit 0 ;;\n  *is-enabled*) printf 'enabled\\n' ; exit 0 ;;\nesac\nexit 1\n`,
+      { mode: 0o755 },
+    );
+  }
+  const runnerPath = NodePath.join(home, "runner.cjs");
+  const runnerLog = NodePath.join(home, "runner.log");
+  NodeFS.writeFileSync(
+    runnerPath,
+    `const http = require("node:http");
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(runnerLog)}, args.join(" ") + "\\n");
+if (args[0] === "serve") {
+  const port = Number(args[args.indexOf("--port") + 1]);
+  http
+    .createServer((_request, response) => {
+      response.writeHead(200);
+      response.end("ok");
+    })
+    .listen(port, "127.0.0.1");
+}
+`,
+  );
+  const script = SshTunnel.buildRemoteLaunchScript(
+    { nodeScriptPath: runnerPath },
+    options.readyTimeoutMs === undefined
+      ? undefined
+      : { serviceReadyTimeoutMs: options.readyTimeoutMs },
+  );
+  return { home, runnerLog, script };
+};
+
+const startLaunchScript = (home: string, script: string) => {
+  const child = NodeChildProcess.spawn("sh", ["-s", "--", "test-state"], {
+    env: {
+      ...process.env,
+      HOME: home,
+      PATH: `${NodePath.join(home, "bin")}:${process.env.PATH ?? ""}`,
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+  child.stdin.end(script);
+  const done = new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
+  });
+  return { child, done };
+};
+
 describe("ssh tunnel scripts", () => {
   it("rejects archive versions that are not a single exact version segment", () => {
     for (const archiveVersion of [
@@ -103,6 +200,70 @@ describe("ssh tunnel scripts", () => {
       SshTunnel.buildRemoteT3RunnerScript(ARCHIVE),
       "T3_ARCHIVE_VERSION='1.2.3-preview.20260911.4'",
     );
+  });
+
+  it("waits for the service that owns the home and adopts its server", async () => {
+    const server = NodeHttp.createServer((_request, response) => {
+      response.writeHead(200);
+      response.end("ok");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    const port = typeof address === "object" && address !== null ? address.port : 0;
+    // The unit is down, so the launcher finds no runtime file when it first
+    // looks; the service publishes one while the launcher is waiting.
+    const { home, runnerLog, script } = makeLaunchHome({
+      servicePublishes: { port, pid: process.pid },
+    });
+    try {
+      const result = await startLaunchScript(home, script).done;
+      assert.equal(result.code, 0, result.stderr);
+      assert.deepEqual(JSON.parse(lastOutputLine(result.stdout)), {
+        remotePort: port,
+        serverKind: "external",
+      });
+      assert.isFalse(
+        NodeFS.existsSync(runnerLog),
+        "the launcher started its own server while the service was restarting",
+      );
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      NodeFS.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to start a second server when the service owns the home", async () => {
+    const { home, runnerLog, script } = makeLaunchHome({ readyTimeoutMs: 400 });
+    try {
+      const result = await startLaunchScript(home, script).done;
+      assert.equal(result.code, 1);
+      assert.include(result.stderr, "Retry the connection");
+      assert.include(result.stderr, "no second server was started");
+      assert.notInclude(result.stdout, "remotePort");
+      assert.isFalse(
+        NodeFS.existsSync(runnerLog),
+        "the launcher started its own server while the service owned the home",
+      );
+    } finally {
+      NodeFS.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("launches its own server when no service owns the home", async () => {
+    const { home, script } = makeLaunchHome({ bootService: false });
+    try {
+      const result = await startLaunchScript(home, script).done;
+      assert.equal(result.code, 0, result.stderr);
+      const launched = JSON.parse(lastOutputLine(result.stdout));
+      assert.equal(launched.serverKind, "managed");
+      assert.isNumber(launched.remotePort);
+      const pid = Number(
+        NodeFS.readFileSync(NodePath.join(home, ".t3", "ssh-launch", "test-state", "pid"), "utf8"),
+      );
+      process.kill(pid, "SIGKILL");
+    } finally {
+      NodeFS.rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it.effect("accepts launch JSON after remote shell startup noise", () => {
