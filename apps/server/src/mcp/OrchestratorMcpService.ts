@@ -3458,15 +3458,23 @@ const make = Effect.gen(function* () {
           skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
           roleSelection: prepared !== undefined,
         });
+        const experimentUnitId =
+          prepared === undefined
+            ? deriveIds.delegatedTaskNode({ commandId })
+            : Experiments.experimentTaskUnitId({
+                binding: prepared.binding,
+                parentThreadId: parent.thread.id,
+                workItemNumber: parent.thread.workItem?.number ?? parent.thread.workspaceIssue,
+              });
         const taskAssignments = yield* (
           isRetryOfAcceptedDelegation
-            ? experiments.assignments({ threadId: deriveIds.delegatedTaskThread({ commandId }) })
+            ? experiments.assignments({ unitId: experimentUnitId })
             : experiments.assignForTask({
                 ...(prepared === undefined ? {} : { agentTask: prepared.binding }),
                 threadId: deriveIds.delegatedTaskThread({ commandId }),
                 projectId: taskProjectId,
                 modelSelection: target.modelSelection,
-                unitId: deriveIds.delegatedTaskNode({ commandId }),
+                unitId: experimentUnitId,
                 unitCreatedAt: DateTime.formatIso(yield* DateTime.now),
                 taskLever: (
                   input.agentTask === undefined
@@ -3622,6 +3630,7 @@ const make = Effect.gen(function* () {
                 binding: prepared.binding,
                 runtimeMode,
                 selection: target.modelSelection,
+                ...(experimentSelection === undefined ? {} : { treatment: experimentSelection }),
                 projectId: taskProjectId,
                 providers: eligibleProviders,
                 ceiling: parent.thread.runtimeMode,

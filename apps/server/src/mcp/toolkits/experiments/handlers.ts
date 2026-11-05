@@ -1,6 +1,7 @@
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as Effect from "effect/Effect";
 import * as Experiments from "../../../experiments/ExperimentService.ts";
+import * as ExperimentResults from "../../../experiments/ExperimentResults.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import { unavailable } from "../../threadAccess.ts";
@@ -24,6 +25,11 @@ const failure = (error: unknown) =>
           })
         : new OrchestratorMcpFailure({ code: "invalid_request", message: error.message });
 export const handlers = {
+  t3_experiments_results: McpToolAccess.reads((input) =>
+    Effect.flatMap(ExperimentResults.ExperimentResults, (service) => service.results(input)).pipe(
+      Effect.mapError(failure),
+    ),
+  ),
   t3_experiments_create: McpToolAccess.writesEnvironment((input, check) =>
     check.pipe(
       Effect.andThen(

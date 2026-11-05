@@ -340,6 +340,37 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
+  it.effect("runs a trial's assigned model and effort, even off the role's own list", () =>
+    Effect.gen(function* () {
+      const treatment = {
+        instanceId: codex.instanceId,
+        model: "gpt-astra-test",
+        options: [{ id: "reasoning", value: "high" }],
+      };
+      const assigned = input({
+        request: request({ demanding: true }),
+        selection: treatment,
+        treatment,
+      });
+      expect(yield* resolve(assigned)).toEqual({
+        instanceId: codex.instanceId,
+        model: "gpt-astra-test",
+        options: [{ id: "reasoning", value: "high" }],
+      });
+      // Every account and capability check still applies to the assigned treatment.
+      expect(
+        (yield* refusal({
+          ...assigned,
+          providers: [provider("codex", "codex-test", [codexModel, "gpt-astra-test"], ["medium"])],
+        })).reason,
+      ).toBe("selection-denied");
+      const unknown = { ...treatment, model: "not-in-policy" };
+      expect((yield* refusal({ ...assigned, selection: unknown, treatment: unknown })).reason).toBe(
+        "selection-denied",
+      );
+    }),
+  );
+
   it.effect("keeps roles inside their lists and rejects UI implementation classification", () =>
     Effect.gen(function* () {
       expect(

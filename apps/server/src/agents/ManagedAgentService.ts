@@ -165,6 +165,8 @@ export class ManagedAgentService extends Context.Service<
       input: Authority & {
         readonly binding: AgentTaskBinding;
         readonly selection: ModelSelection;
+        /** A running trial's assignment for this task, which replaces the role's list. */
+        readonly treatment?: ModelSelection;
       },
     ) => Effect.Effect<void, ManagedAgentError>;
     /**
@@ -785,6 +787,8 @@ const make = Effect.gen(function* () {
       };
     }),
     validate: Effect.fn("ManagedAgentService.validate")(function* (input) {
+      // A trial's assignment stays the task's treatment for every later round and restart.
+      const treatment = input.treatment ?? input.binding.assigned ?? undefined;
       yield* workspace(input.binding, input, input.binding.sourceAccess === "scoped-write");
       const owner = input.binding.externalOwner;
       if (owner !== undefined) {
@@ -868,7 +872,13 @@ const make = Effect.gen(function* () {
         input.binding,
       );
       yield* resolver
-        .resolve({ ...input, ...context, snapshot, ...(browser === undefined ? {} : { browser }) })
+        .resolve({
+          ...input,
+          ...context,
+          snapshot,
+          ...(treatment === undefined ? {} : { treatment }),
+          ...(browser === undefined ? {} : { browser }),
+        })
         .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "selection", cause })));
       // Preserve the original effort and brief; current policy can revoke authority,
       // but a preference edit cannot rewrite the treatment of an accepted task.
@@ -885,10 +895,11 @@ const make = Effect.gen(function* () {
       if (
         !role.taskClasses.includes(input.binding.taskClass) ||
         (input.binding.sourceAccess === "scoped-write" && role.sourceAccess === "read-only") ||
-        !allowed.some((alias) => {
-          const model = current.manifest.models[alias];
-          return model?.driverKind === provider?.driver && model?.model === input.selection.model;
-        })
+        (treatment?.model !== input.selection.model &&
+          !allowed.some((alias) => {
+            const model = current.manifest.models[alias];
+            return model?.driverKind === provider?.driver && model?.model === input.selection.model;
+          }))
       )
         return yield* new ManagedAgentError({ reason: "revoked" });
     }),

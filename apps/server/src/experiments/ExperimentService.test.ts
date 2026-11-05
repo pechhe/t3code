@@ -996,6 +996,7 @@ describe("ExperimentService", () => {
         yield* start();
         yield* addThread("thread:1");
         yield* addThread("child", "thread:1");
+        yield* addThread("sibling", "thread:1");
         const rollover = (yield* service.assign(assignInput()))[0]!;
         yield* service.create({
           ...definition("review"),
@@ -1018,7 +1019,7 @@ describe("ExperimentService", () => {
           taskLever: "reviewer",
         }))[0]!;
         const unrelated = (yield* service.assignForTask({
-          ...assignInput("child"),
+          ...assignInput("sibling"),
           unitId: "task:unrelated",
           taskLever: "reviewer",
         }))[0]!;
@@ -1041,7 +1042,7 @@ describe("ExperimentService", () => {
           start: base + 1000,
           end: base + 5000,
         });
-        yield* addRunTurn("child", "3", complete, "task:unrelated", {
+        yield* addRunTurn("sibling", "3", complete, "task:unrelated", {
           requested: base + 15000,
           start: base + 15000,
           end: base + 20000,
@@ -1632,3 +1633,184 @@ it.effect("keeps episode captures and evaluations within managed external owners
     assert.lengthOf(bundle.evaluations, 1);
   }).pipe(Effect.provide(layer)),
 );
+
+describe("what one sample of a trial is", () => {
+  const modelTrial = (id: string): ExperimentDefinition => ({
+    ...definition(id),
+    lever: "delegation",
+    variants: [
+      { id: "a", label: "A", modelSelection },
+      { id: "b", label: "B", modelSelection: { ...modelSelection, model: "gpt-5.5" } },
+    ],
+    eligibility: { projectIds: [], models: [], taskCategories: [], agentRoles: ["scout"] },
+  });
+  const binding = (workId: string, role: "scout" | "researcher" = "scout"): AgentTaskBinding => {
+    const { externalOwner: _owner, ...task } = externalBinding();
+    return { ...task, role, workId, attemptId: "1" };
+  };
+  const dispatch = (thread: string, unitId: string, role: "scout" | "researcher" = "scout") => ({
+    ...assignInput(thread),
+    unitId,
+    taskLever: "delegation" as const,
+    agentTask: binding("work", role),
+  });
+
+  it.effect("keeps a sample's variant across dispatches and counts every thread's rounds", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      yield* service.create(modelTrial("trial"));
+      yield* service.transition({ experimentId: "trial", status: "running" });
+      yield* addThread("parent");
+      yield* addThread("first", "parent");
+      yield* addThread("replacement", "parent");
+      const [original] = yield* service.assignForTask(dispatch("first", "sample"));
+      const [retried] = yield* service.assignForTask(dispatch("replacement", "sample"));
+      assert.strictEqual(retried?.id, original?.id);
+      assert.strictEqual(retried?.variant.id, original?.variant.id);
+      const complete: TurnTokenUsage = {
+        usageScope: "main_agent",
+        usageStatus: "complete",
+        inputTokens: 10,
+        outputTokens: 2,
+        hasSubagents: false,
+      };
+      yield* addRunTurn("first", "1", complete, "sample");
+      yield* addRunTurn("first", "2", complete, "a-follow-up-node");
+      yield* addRunTurn("replacement", "3", complete, "another-node");
+      const report = yield* service.report({ experimentId: "trial" });
+      assert.strictEqual(report.totalAssignments, 1);
+      assert.lengthOf(report.assignments[0]!.runs, 3);
+      assert.strictEqual(report.assignments[0]!.usage.inputTokens, 30);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("enrols only the jobs a trial names, and allows other jobs their own trial", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      yield* service.create(modelTrial("scouts"));
+      yield* service.transition({ experimentId: "scouts", status: "running" });
+      assert.lengthOf(yield* service.assignForTask(dispatch("t1", "other", "researcher")), 0);
+      assert.lengthOf(yield* service.assignForTask(dispatch("t2", "mine")), 1);
+      const researchers = modelTrial("researchers");
+      yield* service.create({
+        ...researchers,
+        eligibility: { ...researchers.eligibility, agentRoles: ["researcher"] },
+      });
+      yield* service.transition({ experimentId: "researchers", status: "running" });
+      const clashing = yield* Effect.flip(
+        Effect.andThen(service.create(modelTrial("also-scouts")), () =>
+          service.transition({ experimentId: "also-scouts", status: "running" }),
+        ),
+      );
+      assert.strictEqual(clashing.reason, "conflict");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("refuses variants with nothing to compare", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      const same = modelTrial("same");
+      const refused = yield* Effect.flip(
+        service.create({
+          ...same,
+          variants: [same.variants[0]!, { ...same.variants[0]!, id: "copy" }],
+        }),
+      );
+      assert.strictEqual(refused.reason, "invalid-definition");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("runs an added text against today's instructions", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      yield* service.create({
+        ...instructionDefinition("added"),
+        variants: [
+          { id: "today", label: "Today" },
+          { id: "added", label: "Added", instructions: terse },
+        ],
+      });
+      const value = yield* service.transition({ experimentId: "added", status: "running" });
+      assert.strictEqual(value.status, "running");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("enrols a thread in a delivery-approach trial, which excludes an added text", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      yield* service.create({
+        ...definition("approach"),
+        lever: "orchestration-policy",
+        variants: [
+          { id: "inline", label: "Inline", allocationPolicy: "inline-first" },
+          { id: "earlier", label: "Earlier", allocationPolicy: "delegate-earlier" },
+        ],
+      });
+      yield* service.transition({ experimentId: "approach", status: "running" });
+      const enrol = (thread: string) =>
+        service.assign({
+          ...assignInput(thread),
+          unitId: "delivery:7",
+          threadLever: "orchestration-policy",
+          agentRole: "lead",
+        });
+      const [assigned] = yield* enrol("lead");
+      assert.strictEqual(assigned?.experimentId, "approach");
+      assert.isDefined(assigned?.variant.allocationPolicy);
+      // A fresh thread for the same item joins the same sample and keeps its approach.
+      const [again] = yield* enrol("replacement-lead");
+      assert.strictEqual(again?.id, assigned?.id);
+      const [seen] = yield* service.assignments({ threadId: ThreadId.make("replacement-lead") });
+      assert.strictEqual(seen?.id, assigned?.id);
+      const report = yield* service.report({ experimentId: "approach" });
+      assert.lengthOf(report.assignments, 1);
+      assert.deepStrictEqual(report.assignments[0]?.rootThreadIds, [
+        ThreadId.make("lead"),
+        ThreadId.make("replacement-lead"),
+      ]);
+      yield* service.create(instructionDefinition("text"));
+      const refused = yield* Effect.flip(
+        service.transition({ experimentId: "text", status: "running" }),
+      );
+      assert.strictEqual(refused.reason, "conflict");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("stops a trial and records the variant a person made the default", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      yield* service.create(modelTrial("adopted"));
+      yield* service.transition({ experimentId: "adopted", status: "running" });
+      yield* service.recordAdoption({ experimentId: "adopted", variantId: "b" });
+      const stored = (yield* service.list()).find((e) => e.id === "adopted");
+      assert.strictEqual(stored?.status, "stopped");
+      assert.strictEqual(stored?.adoptedVariantId, "b");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it("treats retries of the same work as one sample, and all of a Spec's reviews as one", () => {
+    const parentThreadId = ThreadId.make("parent");
+    const scout = { role: "scout", workId: "map", attemptId: "1" } as never;
+    assert.strictEqual(
+      Experiments.experimentTaskUnitId({ binding: scout, parentThreadId }),
+      Experiments.experimentTaskUnitId({
+        binding: { ...(scout as object), attemptId: "2" } as never,
+        parentThreadId,
+      }),
+    );
+    const review = (workId: string) =>
+      ({ role: "reviewer", workId, attemptId: "1", review: { scope: "spec" } }) as never;
+    assert.strictEqual(
+      Experiments.experimentTaskUnitId({
+        binding: review("round-1"),
+        parentThreadId,
+        workItemNumber: 7,
+      }),
+      Experiments.experimentTaskUnitId({
+        binding: review("round-2"),
+        parentThreadId: ThreadId.make("new-lead"),
+        workItemNumber: 7,
+      }),
+    );
+  });
+});

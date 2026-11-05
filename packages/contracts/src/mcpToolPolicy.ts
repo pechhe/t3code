@@ -17,6 +17,7 @@ export type ToolFamily =
   | "worktree"
   | "project"
   | "experiments"
+  | "lead-experiments"
   | "work"
   | "inspection"
   | "leaf"
@@ -32,6 +33,13 @@ export interface SessionToolProfile {
    */
   readonly delegated?: boolean | undefined;
 }
+
+const LEAD_EXPERIMENT_TOOLS = new Set([
+  "t3_experiments_list",
+  "t3_experiments_results",
+  "t3_experiments_create",
+  "t3_experiments_transition",
+]);
 
 const SCHEDULING_TOOLS = new Set([
   "schedule_task",
@@ -106,6 +114,8 @@ export const toolFamily = (name: string): ToolFamily => {
   if (LEAF_TOOLS.has(name)) return "leaf";
   if (SCHEDULING_TOOLS.has(name)) return "scheduling";
   if (name.startsWith("t3_champions_")) return "scheduling";
+  // A lead reads and drafts trials; recording evidence stays with the research endpoint.
+  if (LEAD_EXPERIMENT_TOOLS.has(name)) return "lead-experiments";
   if (name.startsWith("t3_experiments_")) return "experiments";
   // Work-unit allocation and evidence are an implementer's tools, not a researcher's.
   if (name.startsWith("t3_work_")) return "work";
@@ -134,6 +144,7 @@ const CONTROL: ReadonlySet<ToolFamily> = new Set([
   "control",
   "scheduling",
   "worktree",
+  "lead-experiments",
   "leaf",
 ]);
 const WORKSPACE: ReadonlySet<ToolFamily> = new Set([
@@ -143,6 +154,7 @@ const WORKSPACE: ReadonlySet<ToolFamily> = new Set([
   "scheduling",
   "queue",
   "worktree",
+  "lead-experiments",
   "project",
   "leaf",
   "report",
@@ -186,6 +198,7 @@ const RESEARCH: ReadonlySet<ToolFamily> = new Set([
   "worktree",
   "project",
   "experiments",
+  "lead-experiments",
   "work",
   "leaf",
   "report",
@@ -196,7 +209,7 @@ const RESEARCH: ReadonlySet<ToolFamily> = new Set([
  * nothing that belongs to the thread that delegated it.
  */
 const CHILD_READER: ReadonlySet<ToolFamily> = new Set(["leaf", "report"]);
-const CHILD_RESEARCH: ReadonlySet<ToolFamily> = new Set(["leaf", "report", "experiments", "web"]);
+const CHILD_RESEARCH: ReadonlySet<ToolFamily> = new Set(["leaf", "report", "web"]);
 const CHILD_PREVIEW: ReadonlySet<ToolFamily> = new Set(["decision", "leaf", "report", "preview"]);
 const CHILD_PREVIEW_DEVICE: ReadonlySet<ToolFamily> = new Set([
   "decision",

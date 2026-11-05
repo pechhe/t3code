@@ -1,8 +1,12 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  Experiment,
+  ExperimentAssignment,
   OrchestrationV2ThreadShell,
   ProjectId,
+  ProviderInstanceId,
   ServerSettings,
+  ThreadId,
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -75,6 +79,8 @@ function violations(value: unknown, schema: JsonSchema, at: string): ReadonlyArr
 }
 
 const encodeSettings = Schema.encodeSync(ServerSettings);
+const encodeExperiment = Schema.encodeSync(Experiment);
+const encodeAssignment = Schema.encodeSync(ExperimentAssignment);
 
 const forkSettings = {
   ...DEFAULT_SERVER_SETTINGS,
@@ -149,3 +155,123 @@ it("shipped thread shells ignore managed roles and preceding fork clients accept
     "reviewer",
   );
 });
+
+// Upstream builds have no experiments; the fork's own clients from before T3-393 read them
+// against these schemas (fork/shipped-client/experiments.schema.json, frozen at bd0027eb).
+const loadFrozenExperimentSchemas = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const text = yield* fs.readFileString(
+    new URL("../../../fork/shipped-client/experiments.schema.json", import.meta.url).pathname,
+  );
+  const parsed = JSON.parse(text);
+  return {
+    experiment: parsed.experiment.schema as JsonSchema,
+    assignment: parsed.assignment.schema as JsonSchema,
+  };
+});
+
+const trial = {
+  id: "trial",
+  title: "Trial",
+  question: "Which is better?",
+  primaryOutcome: "Results",
+  maxAssignments: 40,
+  endsAt: "2999-01-01T00:00:00Z",
+  stopConditions: [],
+  codeRevision: null,
+  briefRevision: null,
+  revision: 1,
+  createdAt: "2026-11-05T00:00:00Z",
+  startedAt: "2026-11-05T00:00:00Z",
+  updatedAt: "2026-11-05T00:00:00Z",
+  eligibility: { projectIds: [], models: [], taskCategories: [] },
+};
+const sol = {
+  instanceId: ProviderInstanceId.make("codex"),
+  model: "gpt-6.1-sol",
+  options: [{ id: "reasoningEffort", value: "high" }],
+};
+const newTrials: ReadonlyArray<Experiment> = [
+  {
+    ...trial,
+    status: "running",
+    lever: "delegation",
+    eligibility: { ...trial.eligibility, agentRoles: ["scout"] },
+    variants: [
+      { id: "a", label: "A", modelSelection: { ...sol, options: [] } },
+      { id: "b", label: "B", modelSelection: sol },
+    ],
+  },
+  {
+    ...trial,
+    status: "paused",
+    lever: "instruction",
+    variants: [
+      { id: "today", label: "Today's instructions" },
+      {
+        id: "added",
+        label: "With checklist",
+        instructions: {
+          sourcePath: "added-text",
+          revision: "added-text",
+          sha256: "a".repeat(64),
+          text: "Add a severity checklist.",
+        },
+      },
+    ],
+  },
+  {
+    ...trial,
+    status: "stopped",
+    adoptedVariantId: "earlier",
+    lever: "orchestration-policy",
+    variants: [
+      { id: "inline", label: "Inline first", allocationPolicy: "inline-first" },
+      { id: "earlier", label: "Delegate earlier", allocationPolicy: "delegate-earlier" },
+    ],
+  },
+];
+
+it.effect("a fork client from before T3-393 reads new trials and their pause and stop", () =>
+  Effect.gen(function* () {
+    const frozen = yield* loadFrozenExperimentSchemas;
+    for (const value of newTrials)
+      assert.deepEqual(
+        violations(encodeExperiment(value), frozen.experiment, value.lever),
+        [],
+      );
+    const assignment: ExperimentAssignment = {
+      id: "assignment",
+      experimentId: "trial",
+      revision: 1,
+      lever: "orchestration-policy",
+      unitKind: "thread",
+      unitId: "delivery:7",
+      threadId: ThreadId.make("lead"),
+      projectId: ProjectId.make("project"),
+      taskCategory: null,
+      boundaryRunId: null,
+      variant: newTrials[2]!.variants[1]!,
+      assignedModelSelection: sol,
+      enrollment: "new",
+      assignmentMethod: "randomized",
+      assignedAt: "2026-11-05T00:00:00Z",
+      codeRevision: null,
+      briefRevision: null,
+      provenance: null,
+    };
+    assert.deepEqual(
+      violations(encodeAssignment(assignment), frozen.assignment, "a"),
+      [],
+    );
+    // The frozen schema still catches what an older client could not read.
+    assert.notDeepEqual(
+      violations(
+        { ...encodeExperiment(newTrials[0]!), lever: "council" },
+        frozen.experiment,
+        "x",
+      ),
+      [],
+    );
+  }).pipe(Effect.provide(NodeServices.layer)),
+);

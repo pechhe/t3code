@@ -1800,6 +1800,7 @@ export const layer: Layer.Layer<
         }));
         const overlay = yield* instructionOverlay.forRun({
           runId: input.run.id,
+          runOrdinal: input.run.ordinal,
           thread: input.appThread,
           modelSelection: input.modelSelection,
           driver: input.providerThread.driver,

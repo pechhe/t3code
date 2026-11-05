@@ -4,12 +4,17 @@ import type * as React from "react";
 
 import { cn } from "~/lib/utils";
 
-const alertVariants = cva("relative rounded-xl border px-3.5 py-3 text-card-foreground text-sm", {
+const alertVariants = cva("relative border text-card-foreground", {
   defaultVariants: {
+    size: "default",
     surface: "default",
     variant: "default",
   },
   variants: {
+    size: {
+      default: "rounded-xl px-3.5 py-3 text-sm",
+      sm: "rounded-lg px-2.5 py-1.5 text-xs",
+    },
     surface: {
       default: "",
       glass: "alert-glass",
@@ -50,6 +55,7 @@ function alertChildSlot(child: React.ReactElement): string | undefined {
 function Alert({
   className,
   variant,
+  size,
   surface,
   controlAlignment = "center",
   children,
@@ -79,7 +85,7 @@ function Alert({
 
   return (
     <div
-      className={cn(alertVariants({ surface, variant }), className)}
+      className={cn(alertVariants({ size, surface, variant }), className)}
       data-slot="alert"
       data-variant={variant ?? "default"}
       role="alert"

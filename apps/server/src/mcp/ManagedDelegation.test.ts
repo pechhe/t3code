@@ -84,6 +84,11 @@ const services = Layer.mergeAll(Managed.layer, Experiments.layer).pipe(
   Layer.provideMerge(dependencies),
 );
 
+const unlistedCodex = provider("codex", codex.instanceId, [
+  ...codex.models.map((model) => model.slug),
+  "gpt-unlisted-test",
+]);
+
 it.layer(services)("managed delegation experiment boundary", (it) => {
   it.effect(
     "retains forbidden assignment and failure across retries without dispatching a child",
@@ -150,8 +155,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
               }),
           }),
           Layer.mock(Providers.ProviderRegistry)({
-            getProviders: Effect.succeed([codex, claude]),
-            refreshInstance: () => Effect.succeed([codex, claude]),
+            getProviders: Effect.succeed([unlistedCodex, claude]),
+            refreshInstance: () => Effect.succeed([unlistedCodex, claude]),
           }),
           Layer.mock(Adapters.ProviderAdapterRegistryV2)({
             list: () => Effect.succeed([codex.instanceId, claude.instanceId]),
@@ -167,7 +172,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         const experiments = yield* Experiments.ExperimentService;
         const forbidden = {
           instanceId: codex.instanceId,
-          model: "gpt-astra-test",
+          // A trial may move a job to any model the policy lists, but never to one it does not.
+          model: "gpt-unlisted-test",
           options: [{ id: "reasoning", value: "medium" }],
         };
         yield* experiments.create({
@@ -176,7 +182,14 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           question: "Guard",
           lever: "reviewer",
           primaryOutcome: "Guard holds",
-          variants: ["a", "b"].map((id) => ({ id, label: id, modelSelection: forbidden })),
+          variants: [
+            { id: "a", label: "a", modelSelection: forbidden },
+            {
+              id: "b",
+              label: "b",
+              modelSelection: { ...forbidden, options: [{ id: "reasoning", value: "high" }] },
+            },
+          ],
           eligibility: {
             projectIds: [],
             models: [],

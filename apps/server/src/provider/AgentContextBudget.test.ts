@@ -6,6 +6,7 @@ import * as ContextTerminalManager from "../terminal/Manager.ts";
 import * as ContextUnattendedReactor from "../orchestration-v2/UnattendedReactor.ts";
 import * as ContextWorkspaceAttachments from "../orchestration-v2/WorkspaceAttachments.ts";
 import * as ContextExperimentService from "../experiments/ExperimentService.ts";
+import * as ContextExperimentResults from "../experiments/ExperimentResults.ts";
 import * as ContextForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ContextWeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
 import * as ContextReleaseApprovals from "../releases/ReleaseApprovals.ts";
@@ -146,6 +147,7 @@ it.effect("only request_secret asks Claude Code to load it up front", () =>
               assignForTask: () => Effect.succeed([]),
               assignments: () => Effect.succeed([]),
             }),
+            Layer.mock(ContextExperimentResults.ExperimentResults)({}),
             Layer.mock(ContextForgeWorkItems.ForgeWorkItems)({}),
             Layer.mock(ContextWeaveAgentConnections.WeaveAgentConnections)({}),
             Layer.mock(ContextReleaseApprovals.ReleaseApprovals)({}),
@@ -201,6 +203,7 @@ it.effect("agent context matches the committed budget", () =>
               assignForTask: () => Effect.succeed([]),
               assignments: () => Effect.succeed([]),
             }),
+            Layer.mock(ContextExperimentResults.ExperimentResults)({}),
             Layer.mock(ContextForgeWorkItems.ForgeWorkItems)({}),
             Layer.mock(ContextWeaveAgentConnections.WeaveAgentConnections)({}),
             Layer.mock(ContextReleaseApprovals.ReleaseApprovals)({}),

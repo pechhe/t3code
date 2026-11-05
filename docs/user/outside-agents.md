@@ -212,8 +212,8 @@ A new sign-in has a new owner and cannot adopt the old sign-in's tasks.
 
 ## Enroll work before choosing how to execute it
 
-An explicitly authorised orchestration-policy experiment compares `inline-first`
-with `delegate-earlier`. Creating a draft or installing this code does not start
+An explicitly authorised orchestration-policy experiment with recorded controls compares
+`inline-first` with `delegate-earlier` on work you enroll yourself. Creating a draft or installing this code does not start
 one. Both arms retain the same parent selection and effort, central agent policy,
 review and verification revisions, and concurrency limit. Running worker-model
 trials cannot overlap this treatment in the same eligible project scope; historical

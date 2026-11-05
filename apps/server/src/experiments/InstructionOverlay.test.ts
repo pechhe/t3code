@@ -72,3 +72,76 @@ it.effect("decides each run's overlay once, so every reader sees what the run wa
     ),
   );
 });
+
+const approachRun = (
+  runOrdinal: number,
+  thread: { readonly workItem?: { readonly number: number }; readonly parent?: string } = {
+    workItem: { number: 7 },
+  },
+) =>
+  Effect.gen(function* () {
+    const overlay = yield* InstructionOverlay.InstructionOverlay;
+    return yield* overlay.forRun({
+      runId: RunId.make(`run:approach:${runOrdinal}:${thread.parent ?? thread.workItem?.number}`),
+      runOrdinal,
+      thread: {
+        id: ThreadId.make("thread:approach"),
+        projectId: ProjectId.make("project:overlay"),
+        createdAt: DateTime.makeUnsafe("2998-01-01T00:00:00Z"),
+        lineage: { parentThreadId: thread.parent ?? null } as never,
+        ...(thread.workItem === undefined ? {} : { workItem: thread.workItem as never }),
+      },
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+      driver: "codex",
+    });
+  });
+
+it.effect("tells a fresh linked lead its approach, and leaves everyone else alone", () => {
+  let enrolled = 0;
+  const delivery = {
+    lever: "orchestration-policy",
+    unitKind: "thread",
+    experimentId: "approach",
+    variant: { id: "earlier", label: "Earlier", allocationPolicy: "delegate-earlier" },
+  };
+  return Effect.gen(function* () {
+    assert.isNull(yield* approachRun(1, {}));
+    assert.isNull(yield* approachRun(1, { workItem: { number: 7 }, parent: "lead" }));
+    assert.isNull(yield* approachRun(2));
+    assert.strictEqual(enrolled, 0);
+    const told = yield* approachRun(1);
+    assert.strictEqual(told?.text, InstructionOverlay.APPROACH_OVERLAYS["delegate-earlier"].text);
+    assert.strictEqual(enrolled, 1);
+    // A later run keeps what the first run was told, without enrolling anything new.
+    const later = yield* approachRun(3);
+    assert.strictEqual(later?.variantId, "earlier");
+    assert.strictEqual(enrolled, 1);
+  }).pipe(
+    Effect.provide(
+      InstructionOverlay.layer.pipe(
+        Layer.provide(
+          Layer.mock(ExperimentService.ExperimentService)({
+            assignForThread: () => Effect.succeed([]),
+            assign: (input) => {
+              assert.strictEqual(input.unitId, "delivery:7");
+              enrolled += 1;
+              return Effect.succeed([delivery] as never);
+            },
+            assignments: () => Effect.succeed((enrolled > 0 ? [delivery] : []) as never),
+          }),
+        ),
+      ),
+    ),
+  );
+});
+
+it.effect("states the hash of the text an approach overlay sends", () =>
+  Effect.gen(function* () {
+    for (const overlay of Object.values(InstructionOverlay.APPROACH_OVERLAYS)) {
+      const digest = yield* Effect.promise(() =>
+        globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(overlay.text)),
+      );
+      assert.strictEqual(Buffer.from(digest).toString("hex"), overlay.sha256);
+    }
+  }),
+);

@@ -94,6 +94,7 @@ import * as WeaveSignIn from "./weave/WeaveSignIn.ts";
 import * as ReleaseApprovals from "./releases/ReleaseApprovals.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
+import * as ExperimentResults from "./experiments/ExperimentResults.ts";
 import * as PeerEnvironments from "./peers/PeerEnvironments.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as SlipJayLandings from "./project/SlipJayLandings.ts";
@@ -746,6 +747,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
   Layer.mock(AgentPolicySettings.AgentPolicySettingsService)({}),
   Layer.mock(ExperimentService.ExperimentService)({}),
+  Layer.mock(ExperimentResults.ExperimentResults)({}),
   Layer.mock(PeerEnvironments.PeerEnvironments)({}),
   Layer.mock(ProjectEnrichmentService.ProjectEnrichmentService)({}),
   Layer.mock(SlipJayLandings.SlipJayLandings)({}),

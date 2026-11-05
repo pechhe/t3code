@@ -91,8 +91,9 @@ const session = (
 // child lists its own work family and the leaf tools only. A change that needs a higher
 // ceiling states the new number and what bought it.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
-  // Upstream 4192 schemas, bounded decisions and discovery's reviewScope measure 44,161 characters.
-  ["ordinary", undefined, 44_200],
+  // Upstream 4192 schemas, bounded decisions, discovery's reviewScope and a lead's trial tools
+  // (list, results, create, transition) measure 48,157 characters.
+  ["ordinary", undefined, 48_200],
   // The preview endpoint is a browser session's listing, so it carries no control plane.
   // Bounded decisions adds the same 2,061 characters to the browser catalogue.
   ["browser/preview", session("phi", "browser"), 34_900],
@@ -225,7 +226,8 @@ it("lists the preview family only for Phi profiles, and device only for a UI ver
   expect(ordinary.has("preview_interact")).toBe(false);
   expect(ordinary.has("preview_open")).toBe(false);
   expect(ordinary.has("device_open")).toBe(false);
-  expect(ordinary.has("t3_experiments_list")).toBe(false);
+  expect(ordinary.has("t3_experiments_list")).toBe(true);
+  expect(ordinary.has("t3_experiments_record_outcome")).toBe(false);
   expect(ordinary.has("t3_worktree_status")).toBe(true);
   expect(ordinary.has("html_render")).toBe(true);
   expect(ordinary.has("t3_thread_move_to_project")).toBe(true);

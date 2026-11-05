@@ -79,6 +79,12 @@ type ResolutionInput = {
   readonly caller?: ModelSelection;
   readonly selection?: RequestedModel;
   /**
+   * A running trial's assigned model and effort for this task. It replaces the role's list and
+   * its demanding-task model, so a trial can compare what Delegation does not choose today;
+   * every account, permission and capability check still applies to it.
+   */
+  readonly treatment?: ModelSelection;
+  /**
    * What the caller found out about the Phi route. A role with the phi tool profile needs it:
    * without a finding it stays refused as unsupported, so no path can start one unchecked.
    */
@@ -210,9 +216,28 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   const admission = managedExecution({ readOnly, requested: request.executionRequirement });
   if (!readOnly && !specLead && input.ceiling === "approval-required")
     return yield* new AgentRoleError({ reason: "unsupported-permissions" });
+  const treatment = input.treatment;
+  const treatmentAlias =
+    treatment === undefined
+      ? undefined
+      : Object.entries(snapshot.manifest.models).find(
+          ([, binding]) => binding.model === treatment.model,
+        );
   const list =
-    snapshot.manifest.lists[reviewer && review?.scope === "spec" ? role.specList! : role.list] ??
-    [];
+    treatment === undefined
+      ? (snapshot.manifest.lists[
+          reviewer && review?.scope === "spec" ? role.specList! : role.list
+        ] ?? [])
+      : treatmentAlias === undefined
+        ? []
+        : [
+            {
+              model: treatmentAlias[0],
+              effort: treatment.options
+                ?.find((option) => option.id === treatmentAlias[1].effortOption)
+                ?.value?.toString(),
+            },
+          ];
   const diagnostics: Array<AgentPolicyCandidate> = [];
   const record = (
     alias: string,
@@ -235,7 +260,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       .map((model) => model.driverKind),
   );
   const authorDriver = authorDrivers.size === 1 ? [...authorDrivers][0] : undefined;
-  const large = request.demanding ? role.large : undefined;
+  const large = request.demanding && treatment === undefined ? role.large : undefined;
   const eligible: Array<{ selection: ModelSelection; alias: string; provider: ServerProvider }> =
     [];
   for (const entry of list) {

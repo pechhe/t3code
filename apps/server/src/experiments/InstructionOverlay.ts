@@ -1,4 +1,5 @@
 import type {
+  ExperimentAllocationPolicy,
   ExperimentInstructionVariant,
   ModelSelection,
   OrchestrationV2AppThread,
@@ -19,6 +20,22 @@ export interface AssignedInstructionOverlay extends ExperimentInstructionVariant
   readonly variantId: string;
 }
 
+/** What a delivery-approach trial tells a lead. Guidance, so its report measures what happened. */
+export const APPROACH_OVERLAYS = {
+  "inline-first": {
+    sourcePath: "delegation-approach",
+    revision: "inline-first",
+    sha256: "9764f097e0f06f460547fe23a9c23fd9a1a7c1b20b8429793b58aadfbb732f52",
+    text: "For this work, do the work yourself first and delegate only what you cannot do inline.",
+  },
+  "delegate-earlier": {
+    sourcePath: "delegation-approach",
+    revision: "delegate-earlier",
+    sha256: "6fcc954efb90774cfb0fda8bba7735ae06682e34cfd3e287d971fad2f67d1045",
+    text: "For this work, hand bounded work to a helper as soon as you can, and keep the coordination yourself.",
+  },
+} as const satisfies Record<ExperimentAllocationPolicy, ExperimentInstructionVariant>;
+
 /** Run decisions kept for the run's later readers; a run is read within moments of starting. */
 const DECISIONS_KEPT = 512;
 
@@ -32,7 +49,12 @@ export class InstructionOverlay extends Context.Service<
     /** The overlay this run delivers, or null for none; never fails a run. */
     readonly forRun: (input: {
       readonly runId: RunId;
-      readonly thread: Pick<OrchestrationV2AppThread, "id" | "projectId" | "createdAt">;
+      /** Absent for a run that cannot start delivery work, such as a tool-only path. */
+      readonly runOrdinal?: number;
+      readonly thread: Pick<OrchestrationV2AppThread, "id" | "projectId" | "createdAt"> &
+        Partial<
+          Pick<OrchestrationV2AppThread, "agentTask" | "lineage" | "workItem" | "workspaceIssue">
+        >;
       readonly modelSelection: ModelSelection;
       readonly driver: string;
     }) => Effect.Effect<AssignedInstructionOverlay | null>;
@@ -46,8 +68,11 @@ export const layer = Layer.effect(
     const decide = Effect.fn("InstructionOverlay.decide")(
       function* (input: Parameters<InstructionOverlay["Service"]["forRun"]>[0]) {
         if (!OVERLAY_DRIVERS.has(input.driver)) return null;
+        const topLevel = input.thread.lineage?.parentThreadId == null;
+        const role = input.thread.agentTask?.role ?? (topLevel ? ("lead" as const) : undefined);
         const assignments = yield* experiments.assignForThread({
           threadLever: "instruction",
+          ...(role === undefined ? {} : { agentRole: role }),
           threadId: input.thread.id,
           projectId: input.thread.projectId,
           modelSelection: input.modelSelection,
@@ -62,12 +87,43 @@ export const layer = Layer.effect(
             candidate.variant.instructions !== undefined,
         );
         const instructions = assignment?.variant.instructions;
-        return assignment === undefined || instructions === undefined
+        if (assignment !== undefined && instructions !== undefined)
+          return {
+            ...instructions,
+            experimentId: assignment.experimentId,
+            variantId: assignment.variant.id,
+          };
+        // Enrolling only a fresh thread linked to its item keeps inline work in the comparison;
+        // a link added after the lead has started is too late to change how it starts.
+        const item = input.thread.workItem?.number ?? input.thread.workspaceIssue ?? undefined;
+        const enrolled =
+          topLevel && item !== undefined && input.runOrdinal === 1
+            ? yield* experiments.assign({
+                unitKind: "thread",
+                unitId: `delivery:${item}`,
+                threadLever: "orchestration-policy",
+                agentRole: "lead",
+                threadId: input.thread.id,
+                projectId: input.thread.projectId,
+                modelSelection: input.modelSelection,
+                enrollment: "new",
+                unitCreatedAt: DateTime.formatIso(input.thread.createdAt),
+              })
+            : topLevel
+              ? yield* experiments.assignments({ threadId: input.thread.id })
+              : [];
+        const delivery = enrolled.find(
+          (candidate) =>
+            candidate.lever === "orchestration-policy" &&
+            candidate.unitKind === "thread" &&
+            candidate.variant.allocationPolicy !== undefined,
+        );
+        return delivery === undefined
           ? null
           : {
-              ...instructions,
-              experimentId: assignment.experimentId,
-              variantId: assignment.variant.id,
+              ...APPROACH_OVERLAYS[delivery.variant.allocationPolicy!],
+              experimentId: delivery.experimentId,
+              variantId: delivery.variant.id,
             };
       },
       (effect, input) =>

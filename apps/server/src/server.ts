@@ -108,6 +108,7 @@ import * as WeaveRepositories from "./weave/WeaveRepositories.ts";
 import * as WeaveAgentLifecycleReactor from "./weave/WeaveAgentLifecycleReactor.ts";
 import * as WeaveForgeRecordingReactor from "./weave/WeaveForgeRecordingReactor.ts";
 import * as ForgeSpecOfThread from "./weave/ForgeSpecOfThread.ts";
+import * as ExperimentResults from "./experiments/ExperimentResults.ts";
 import * as WeaveForgeRecords from "./weave/WeaveForgeRecords.ts";
 import * as WeaveForgeUsage from "./weave/WeaveForgeUsage.ts";
 import * as WeaveMcpRoute from "./weave/WeaveMcpRoute.ts";
@@ -803,6 +804,12 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(layerPersistence),
   Layer.provideMerge(
     Layer.mergeAll(Keybindings.layer, EnvironmentTheme.layer, UsageLimitSources.layer),
+  ),
+  Layer.provideMerge(
+    ExperimentResults.layer.pipe(
+      Layer.provide(ForgeSpecOfThread.layer),
+      Layer.provide(ProjectionStoreV2.layer),
+    ),
   ),
   Layer.provideMerge(AgentPolicySettings.layer),
   Layer.provideMerge(ProviderRegistry.layer),

@@ -1,3 +1,4 @@
+import * as ExperimentResultsService from "../../../experiments/ExperimentResults.ts";
 import {
   Experiment,
   ExperimentDefinition,
@@ -12,6 +13,8 @@ import {
   ExperimentAssignment,
   ExperimentReportInput,
   ExperimentReport,
+  ExperimentResults,
+  ExperimentResultsInput,
   ExperimentOutcomeInput,
   ExperimentOutcome,
   ExperimentHistoricalInput,
@@ -60,7 +63,7 @@ const create = Tool.make("t3_experiments_create", {
 const transition = Tool.make("t3_experiments_transition", {
   ...shared,
   description:
-    "Start, pause, resume or stop an experiment. Existing assignments retain their policy; no replay is launched.",
+    "Start, pause, resume or stop an experiment, only when the user asked. Existing assignments retain their policy; no replay is launched.",
   parameters: ExperimentTransitionInput,
   success: Experiment,
 })
@@ -88,6 +91,16 @@ const report = Tool.make("t3_experiments_report", {
     "Read experiment evidence, actual model selections and usage completeness. Observational imports remain separate.",
   parameters: ExperimentReportInput,
   success: ExperimentReport,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const results = Tool.make("t3_experiments_results", {
+  ...shared,
+  dependencies: [...shared.dependencies, ExperimentResultsService.ExperimentResults],
+  description:
+    "Read a trial's per-variant totals, worked out from Forge and run usage. Null means unknown, not zero.",
+  parameters: ExperimentResultsInput,
+  success: ExperimentResults,
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
@@ -183,6 +196,7 @@ export const ExperimentsToolkit = Toolkit.make(
   list,
   assignments,
   report,
+  results,
   record_outcome,
   record_evidence,
   record_evaluation,

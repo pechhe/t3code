@@ -19,7 +19,6 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -57,6 +56,7 @@ import ChatMarkdown from "../ChatMarkdown";
 import { ModelLabel } from "../ModelLabel";
 import { cn } from "~/lib/utils";
 import { PolicyEffortPicker, PolicyModelPicker } from "./PolicyModelPicker";
+import { SettingsChoice as Choice } from "./SettingsChoice";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { useSettingsScope } from "./SettingsScopeContext";
@@ -65,38 +65,6 @@ import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings"
 
 const isValid = Schema.is(AgentPolicyManifest);
 type Manifest = AgentPolicyManifest;
-
-function Choice({
-  label,
-  value,
-  values,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  values: ReadonlyArray<{ value: string; label: string }>;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <Select
-      value={value}
-      onValueChange={(next) => {
-        if (next !== null) onChange(next);
-      }}
-    >
-      <SelectTrigger size="sm" aria-label={label}>
-        <SelectValue>{values.find((item) => item.value === value)?.label ?? value}</SelectValue>
-      </SelectTrigger>
-      <SelectPopup>
-        {values.map((item) => (
-          <SelectItem key={item.value} value={item.value}>
-            {item.label}
-          </SelectItem>
-        ))}
-      </SelectPopup>
-    </Select>
-  );
-}
 
 export function DelegationSettings() {
   const { environments, environment } = useSettingsScope();

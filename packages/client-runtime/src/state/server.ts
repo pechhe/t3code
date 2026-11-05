@@ -1601,6 +1601,16 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:experiments:report",
       tag: WS_METHODS.experimentsReport,
     }),
+    experimentsResults: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:experiments:results",
+      tag: WS_METHODS.experimentsResults,
+    }),
+    experimentsAdopt: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:experiments:adopt",
+      tag: WS_METHODS.experimentsAdopt,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
     experimentsCreate: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:experiments:create",
       tag: WS_METHODS.experimentsCreate,

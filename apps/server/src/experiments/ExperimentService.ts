@@ -1,6 +1,7 @@
 import {
   Experiment,
   ExperimentAssignment,
+  type ExperimentAdoptInput,
   ExperimentOutcome,
   ExperimentObservation,
   ExperimentEvidence,
@@ -165,6 +166,10 @@ export class ExperimentService extends Context.Service<
       input: ExperimentReportInput,
       reader?: WorkReader,
     ) => Effect.Effect<ExperimentReport, ExperimentError>;
+    /** Stops the trial and records which variant a person made the default. */
+    readonly recordAdoption: (
+      input: ExperimentAdoptInput,
+    ) => Effect.Effect<Experiment, ExperimentError>;
   }
 >()("t3/experiments/ExperimentService") {}
 
@@ -258,13 +263,59 @@ function conflicts(a: Experiment, b: Experiment): boolean {
         [a.lever, b.lever].includes("delegation"))) &&
     overlaps(a.eligibility.projectIds, b.eligibility.projectIds) &&
     (a.lever !== b.lever || overlaps(a.eligibility.models, b.eligibility.models)) &&
-    (a.lever !== b.lever || overlaps(a.eligibility.taskCategories, b.eligibility.taskCategories))
+    (a.lever !== b.lever ||
+      (overlaps(a.eligibility.taskCategories, b.eligibility.taskCategories) &&
+        overlaps(a.eligibility.agentRoles ?? [], b.eligibility.agentRoles ?? [])))
   );
 }
-/** Levers assigned per thread rather than per delegated task. */
-const isThreadLever = (lever: ExperimentDefinition["lever"]) =>
-  // Legacy, read-only: "rollover" experiments are kept so their evidence stays reportable.
-  lever === "rollover" || lever === "instruction";
+/** A top-level thread carries one overlay, so an added text and an approach cannot share one. */
+const sharesOverlay = (a: Experiment, b: Experiment) =>
+  isThreadTrial(a) &&
+  isThreadTrial(b) &&
+  a.lever !== b.lever &&
+  a.lever !== "rollover" &&
+  b.lever !== "rollover" &&
+  overlaps(a.eligibility.projectIds, b.eligibility.projectIds);
+/** Trials assigned per thread rather than per delegated task or enrolled work unit. */
+function isThreadTrial(experiment: ExperimentDefinition): boolean {
+  return (
+    // Legacy, read-only: "rollover" experiments are kept so their evidence stays reportable.
+    experiment.lever === "rollover" ||
+    experiment.lever === "instruction" ||
+    (experiment.lever === "orchestration-policy" && experiment.orchestrationControls === undefined)
+  );
+}
+const encodeModelKey = (selection: ModelSelection | undefined) =>
+  selection === undefined ? "" : encodeSelection(selection);
+/** Two variants that change the same thing the same way have nothing to compare. */
+const variantsDiffer = (input: ExperimentDefinition) =>
+  new Set(
+    input.variants.map((variant) =>
+      encodeKey([
+        encodeModelKey(variant.modelSelection),
+        variant.instructions?.sha256 ?? null,
+        variant.allocationPolicy ?? null,
+      ]),
+    ),
+  ).size === input.variants.length;
+/**
+ * What one sample of a delegated task is, independent of the request that started it: a retry,
+ * a replacement thread or a new lead for the same work lands on the same assignment. A different
+ * workId is a new sample, and stays in the denominator. All reviews of one Spec are one engagement.
+ */
+export const experimentTaskUnitId = (input: {
+  readonly binding: AgentTaskBinding;
+  readonly parentThreadId: ThreadId;
+  readonly workItemNumber?: number | null | undefined;
+}): string => {
+  const owner = input.workItemNumber ?? input.parentThreadId;
+  const scope = input.binding.review?.scope;
+  return scope === "spec"
+    ? encodeKey(["review", "spec", owner])
+    : scope === "change"
+      ? encodeKey(["review", "change", owner, input.binding.workId])
+      : encodeKey(["task", owner, input.binding.role, input.binding.workId]);
+};
 function validDefinition(input: ExperimentDefinition, now: string): boolean {
   // Context rollover is gone, so no new experiment can vary it.
   if (input.lever === "rollover") return false;
@@ -272,7 +323,6 @@ function validDefinition(input: ExperimentDefinition, now: string): boolean {
   if ((input.lever === "reviewer") !== (input.eligibility.reviewScopes !== undefined)) return false;
   if (input.lever === "orchestration-policy")
     return (
-      input.orchestrationControls !== undefined &&
       input.variants.length === 2 &&
       new Set(input.variants.map((v) => v.id)).size === 2 &&
       new Set(input.variants.map((v) => v.allocationPolicy)).size === 2 &&
@@ -295,14 +345,17 @@ function validDefinition(input: ExperimentDefinition, now: string): boolean {
     new Set(input.variants.map((v) => v.id)).size === input.variants.length &&
     Number.isFinite(Date.parse(input.endsAt)) &&
     Date.parse(input.endsAt) > Date.parse(now) &&
+    variantsDiffer(input) &&
+    // An instruction variant with no text is the comparison arm: it keeps today's instructions.
+    (input.lever !== "instruction" || input.variants.some((v) => v.instructions !== undefined)) &&
     input.variants.every((v) =>
       input.lever === "instruction"
-        ? v.instructions !== undefined && v.modelSelection === undefined && v.rollover === undefined
+        ? v.modelSelection === undefined && v.rollover === undefined
         : v.modelSelection !== undefined &&
           v.rollover === undefined &&
           v.instructions === undefined,
     ) &&
-    (!isThreadLever(input.lever) || input.eligibility.taskCategories.length === 0)
+    (!isThreadTrial(input) || input.eligibility.taskCategories.length === 0)
   );
 }
 
@@ -405,22 +458,26 @@ const make = Effect.gen(function* () {
   ) {
     const rows = yield* persist(
       "assignments",
-      input.experimentId ?? input.threadId ?? "",
-      input.experimentId !== undefined && input.threadId !== undefined
+      input.experimentId ?? input.threadId ?? input.unitId ?? "",
+      input.unitId !== undefined
         ? sql<{
             payload_json: string;
-          }>`SELECT payload_json FROM experiment_assignments WHERE experiment_id = ${input.experimentId} AND thread_id = ${input.threadId} ORDER BY rowid`
-        : input.experimentId !== undefined
+          }>`SELECT payload_json FROM experiment_assignments WHERE unit_id = ${input.unitId} ORDER BY rowid`
+        : input.experimentId !== undefined && input.threadId !== undefined
           ? sql<{
               payload_json: string;
-            }>`SELECT payload_json FROM experiment_assignments WHERE experiment_id = ${input.experimentId} ORDER BY rowid`
-          : input.threadId !== undefined
+            }>`SELECT payload_json FROM experiment_assignments WHERE experiment_id = ${input.experimentId} AND thread_id = ${input.threadId} ORDER BY rowid`
+          : input.experimentId !== undefined
             ? sql<{
                 payload_json: string;
-              }>`SELECT payload_json FROM experiment_assignments WHERE thread_id = ${input.threadId} ORDER BY rowid`
-            : sql<{
-                payload_json: string;
-              }>`SELECT payload_json FROM experiment_assignments ORDER BY rowid`,
+              }>`SELECT payload_json FROM experiment_assignments WHERE experiment_id = ${input.experimentId} ORDER BY rowid`
+            : input.threadId !== undefined
+              ? sql<{
+                  payload_json: string;
+                }>`SELECT payload_json FROM experiment_assignments WHERE thread_id = ${input.threadId} OR id IN (SELECT assignment_id FROM experiment_assignment_threads WHERE thread_id = ${input.threadId}) ORDER BY rowid`
+              : sql<{
+                  payload_json: string;
+                }>`SELECT payload_json FROM experiment_assignments ORDER BY rowid`,
     );
     const decoded = yield* Effect.forEach(rows, (row) =>
       persist("assignments", "", decodeAssignment(row.payload_json)),
@@ -522,7 +579,7 @@ const make = Effect.gen(function* () {
                   other.id !== experiment.id &&
                   other.status === "running" &&
                   Date.parse(other.endsAt) > Date.parse(now) &&
-                  conflicts(experiment, other),
+                  (conflicts(experiment, other) || sharesOverlay(experiment, other)),
               )
             )
               return yield* fail("transition", experiment.id, "conflict");
@@ -539,6 +596,24 @@ const make = Effect.gen(function* () {
     ),
   );
 
+  const recordAdoption = Effect.fn("ExperimentService.recordAdoption")(function* (
+    input: ExperimentAdoptInput,
+  ) {
+    const experiment = yield* get(input.experimentId);
+    const now = yield* nowIso;
+    const value: Experiment = {
+      ...experiment,
+      status: "stopped",
+      adoptedVariantId: input.variantId,
+      updatedAt: now,
+    };
+    yield* persist(
+      "adopt",
+      input.experimentId,
+      sql`UPDATE experiments SET definition_json = ${encodeExperiment(value)}, status = 'stopped', updated_at = ${now} WHERE id = ${input.experimentId}`,
+    );
+    return value;
+  });
   const saveAssignment = Effect.fn("ExperimentService.saveAssignment")(function* (
     assignment: ExperimentAssignment,
     stratum: string,
@@ -558,7 +633,12 @@ const make = Effect.gen(function* () {
       input.unitId,
       sql.withTransaction(
         Effect.gen(function* () {
-          if (input.unitKind === "thread" && input.unitId !== input.threadId)
+          // A delivery item is one sample whichever of its threads starts first.
+          if (
+            input.unitKind === "thread" &&
+            input.unitId !== input.threadId &&
+            input.threadLever !== "orchestration-policy"
+          )
             return yield* fail("assign", input.unitId, "invalid-definition");
           if (input.enrollment === "existing-boundary" && input.boundaryRunId === undefined)
             return yield* fail("assign", input.unitId, "invalid-definition");
@@ -569,9 +649,7 @@ const make = Effect.gen(function* () {
             if (unit.assignmentIds.length > 0) return [];
           }
           const now = yield* nowIso;
-          const result = (yield* assignments(
-            input.agentTask?.externalOwner === undefined ? { threadId: input.threadId } : {},
-          )).filter(
+          const result = (yield* assignments({ unitId: input.unitId })).filter(
             (a) =>
               a.unitKind === input.unitKind &&
               a.unitId === input.unitId &&
@@ -598,7 +676,7 @@ const make = Effect.gen(function* () {
             )
               continue;
             if (
-              isThreadLever(experiment.lever) !== (input.unitKind === "thread") ||
+              isThreadTrial(experiment) !== (input.unitKind === "thread") ||
               (input.threadLever !== undefined && experiment.lever !== input.threadLever) ||
               (input.unitKind === "task" && experiment.lever !== input.taskLever)
             )
@@ -610,8 +688,11 @@ const make = Effect.gen(function* () {
                 Date.parse(input.unitCreatedAt) < Date.parse(experiment.startedAt ?? now))
             )
               continue;
-            const { projectIds, models, taskCategories } = experiment.eligibility;
+            const { projectIds, models, taskCategories, agentRoles = [] } = experiment.eligibility;
+            const agentRole = input.agentTask?.role ?? input.agentRole;
             if (
+              (agentRoles.length > 0 &&
+                (agentRole === undefined || !agentRoles.includes(agentRole))) ||
               (experiment.lever === "reviewer" &&
                 !admittedReviewScopes(experiment).includes(reviewScope ?? "unscoped")) ||
               (projectIds.length > 0 && !projectIds.includes(input.projectId)) ||
@@ -665,6 +746,14 @@ const make = Effect.gen(function* () {
             };
             result.push(yield* saveAssignment(assignment, stratum));
           }
+          // One sample can span several threads; each counts towards the variant it kept.
+          if (input.unitKind === "task" || input.unitId !== input.threadId)
+            yield* Effect.forEach(
+              result,
+              (assignment) =>
+                sql`INSERT OR IGNORE INTO experiment_assignment_threads(assignment_id, thread_id) VALUES (${assignment.id}, ${input.threadId})`,
+              { discard: true },
+            );
           return result;
         }),
       ),
@@ -741,6 +830,7 @@ const make = Effect.gen(function* () {
             for (const experiment of all.filter(
               (e) =>
                 e.lever === "orchestration-policy" &&
+                e.orchestrationControls !== undefined &&
                 e.status === "running" &&
                 Date.parse(e.endsAt) > Date.parse(now),
             )) {
@@ -1815,7 +1905,7 @@ const make = Effect.gen(function* () {
               return yield* fail("import", input.unitId, "invalid-evidence");
             if ((yield* assignments({ experimentId: experiment.id })).length >= 1000)
               return yield* fail("import", input.unitId, "invalid-evidence");
-            const unitKind = isThreadLever(experiment.lever) ? "thread" : "task";
+            const unitKind = isThreadTrial(experiment) ? "thread" : "task";
             const existing = (yield* assignments({ experimentId: input.experimentId })).find(
               (a) => a.unitKind === unitKind && a.unitId === input.unitId,
             );
@@ -1972,17 +2062,23 @@ const make = Effect.gen(function* () {
         let telemetryTruncated = false;
         const runs: ExperimentAssignmentReport["runs"][number][] = [];
         const missingThreadIds: ThreadId[] = [];
+        const members = yield* persist(
+          "report",
+          assignment.id,
+          sql<{
+            thread_id: string;
+          }>`SELECT thread_id FROM experiment_assignment_threads WHERE assignment_id = ${assignment.id} ORDER BY rowid`,
+        );
+        // Every round on every thread of the sample counts, not only the dispatch that enrolled it.
         const queue: {
           threadId: ThreadId;
           taskId: string | null;
           root: boolean;
-        }[] = [
-          {
-            threadId: assignment.threadId,
-            taskId: assignment.unitKind === "task" ? assignment.unitId : null,
-            root: true,
-          },
-        ];
+        }[] = (
+          members.length === 0
+            ? [assignment.threadId]
+            : members.map((member) => ThreadId.make(member.thread_id))
+        ).map((threadId) => ({ threadId, taskId: null, root: true }));
         const owner = assignment.agentTask?.externalOwner;
         if (owner !== undefined) {
           // External logical work can have several attempt threads. They have no
@@ -2004,6 +2100,7 @@ const make = Effect.gen(function* () {
             })),
           );
         }
+        const rootThreadIds = queue.map((target) => target.threadId);
         const visited = new Set<string>();
         const seenTurns = new Set<string>();
         const intervals: { start: number; end: number }[] = [];
@@ -2254,6 +2351,7 @@ const make = Effect.gen(function* () {
               : "complete",
           telemetryTruncated,
           missingThreadIds: [...new Set(missingThreadIds)],
+          rootThreadIds,
           wallClockMs,
           activeMs,
           waitMs:
@@ -2265,20 +2363,21 @@ const make = Effect.gen(function* () {
         return entry;
       }),
     );
-    const workCohort =
-      experiment.lever === "orchestration-policy"
-        ? yield* Effect.forEach(samples, (s) => readWork({ workUnitId: s.unitId }, reader))
-        : [];
-    const workRows =
-      experiment.lever === "orchestration-policy"
-        ? yield* persist(
-            "report",
-            experiment.id,
-            sql<{
-              payload_json: string;
-            }>`SELECT payload_json FROM experiment_work_units ORDER BY rowid`,
-          )
-        : [];
+    // Trials with recorded controls enrol work units; delivery-approach trials enrol threads.
+    const enrolledWork =
+      experiment.lever === "orchestration-policy" && experiment.orchestrationControls !== undefined;
+    const workCohort = enrolledWork
+      ? yield* Effect.forEach(samples, (s) => readWork({ workUnitId: s.unitId }, reader))
+      : [];
+    const workRows = enrolledWork
+      ? yield* persist(
+          "report",
+          experiment.id,
+          sql<{
+            payload_json: string;
+          }>`SELECT payload_json FROM experiment_work_units ORDER BY rowid`,
+        )
+      : [];
     const exclusions = [] as { unit: ExperimentWorkUnit; reason: string }[];
     for (const row of workRows) {
       const unit = yield* persist("report", experiment.id, decodeWork(row.payload_json));
@@ -2366,7 +2465,7 @@ const make = Effect.gen(function* () {
       }
     return {
       ...(experiment.lever !== "reviewer" ? {} : { reviewScopes: [...scopeCounts.values()] }),
-      ...(experiment.lever !== "orchestration-policy"
+      ...(!enrolledWork
         ? {}
         : {
             work: workCohort.slice(offset, offset + page.length),
@@ -2405,6 +2504,7 @@ const make = Effect.gen(function* () {
     assignForTask: Effect.fn("ExperimentService.assignForTask")((input) =>
       assign({ ...input, unitKind: "task" }),
     ),
+    recordAdoption,
     recordOutcome,
     recordObservation,
     recordEvidence,

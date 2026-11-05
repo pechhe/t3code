@@ -32,6 +32,10 @@ import {
   ExperimentAssignment,
   ExperimentReportInput,
   ExperimentReport,
+  ExperimentAdoptInput,
+  ExperimentAdoption,
+  ExperimentResults,
+  ExperimentResultsInput,
   ExperimentOutcomeInput,
   ExperimentOutcome,
   ExperimentHistoricalInput,
@@ -657,6 +661,8 @@ export const WS_METHODS = {
   experimentsList: "experiments.list",
   experimentsAssignments: "experiments.assignments",
   experimentsReport: "experiments.report",
+  experimentsResults: "experiments.results",
+  experimentsAdopt: "experiments.adopt",
   experimentsRecordOutcome: "experiments.recordOutcome",
   experimentsImportHistorical: "experiments.importHistorical",
   serverGetUsageSummary: "server.getUsageSummary",
@@ -1156,6 +1162,16 @@ const WsExperimentsAssignmentsRpc = Rpc.make(WS_METHODS.experimentsAssignments, 
 const WsExperimentsReportRpc = Rpc.make(WS_METHODS.experimentsReport, {
   payload: ExperimentReportInput,
   success: ExperimentReport,
+  error: Schema.Union([EnvironmentAuthorizationError, ExperimentError]),
+});
+const WsExperimentsResultsRpc = Rpc.make(WS_METHODS.experimentsResults, {
+  payload: ExperimentResultsInput,
+  success: ExperimentResults,
+  error: Schema.Union([EnvironmentAuthorizationError, ExperimentError]),
+});
+const WsExperimentsAdoptRpc = Rpc.make(WS_METHODS.experimentsAdopt, {
+  payload: ExperimentAdoptInput,
+  success: ExperimentAdoption,
   error: Schema.Union([EnvironmentAuthorizationError, ExperimentError]),
 });
 const WsExperimentsRecordOutcomeRpc = Rpc.make(WS_METHODS.experimentsRecordOutcome, {
@@ -2754,6 +2770,8 @@ export const WsServerOperationsRpcGroup = RpcGroup.make(
   WsExperimentsListRpc,
   WsExperimentsAssignmentsRpc,
   WsExperimentsReportRpc,
+  WsExperimentsResultsRpc,
+  WsExperimentsAdoptRpc,
   WsExperimentsRecordOutcomeRpc,
   WsExperimentsImportHistoricalRpc,
   WsServerGetUsageSummaryRpc,

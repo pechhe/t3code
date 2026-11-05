@@ -1,0 +1,798 @@
+{
+  "source": "pechhe/t3code bd0027eb packages/contracts/src/experiments.ts",
+  "experiment": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "question": { "type": "string" },
+        "lever": {
+          "type": "string",
+          "enum": ["rollover", "reviewer", "delegation", "orchestration-policy", "instruction"]
+        },
+        "orchestrationControls": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "orchestratorSelection": {
+                  "type": "object",
+                  "properties": {
+                    "provider": { "anyOf": [{}, { "type": "null" }] },
+                    "instanceId": { "anyOf": [{}, { "type": "null" }] },
+                    "model": {},
+                    "options": { "anyOf": [{}, { "type": "null" }] }
+                  },
+                  "required": ["model"],
+                  "additionalProperties": true
+                },
+                "policyHash": { "type": "string" },
+                "reviewerPolicyRevision": { "type": "string" },
+                "verificationRevision": { "type": "string" },
+                "concurrency": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+              },
+              "required": [
+                "orchestratorSelection",
+                "policyHash",
+                "reviewerPolicyRevision",
+                "verificationRevision",
+                "concurrency"
+              ],
+              "additionalProperties": true
+            },
+            { "type": "null" }
+          ]
+        },
+        "primaryOutcome": { "type": "string" },
+        "variants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "rollover": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "softLimit": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+                      "hardLimit": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+                    },
+                    "required": ["softLimit", "hardLimit"],
+                    "additionalProperties": true
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "instructions": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "sourcePath": { "type": "string" },
+                      "revision": { "type": "string" },
+                      "sha256": { "type": "string" },
+                      "text": { "type": "string" }
+                    },
+                    "required": ["sourcePath", "revision", "sha256", "text"],
+                    "additionalProperties": true
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "modelSelection": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "provider": { "anyOf": [{}, { "type": "null" }] },
+                      "instanceId": { "anyOf": [{}, { "type": "null" }] },
+                      "model": {},
+                      "options": { "anyOf": [{}, { "type": "null" }] }
+                    },
+                    "required": ["model"],
+                    "additionalProperties": true
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "allocationPolicy": {
+                "anyOf": [
+                  { "type": "string", "enum": ["inline-first", "delegate-earlier"] },
+                  { "type": "null" }
+                ]
+              }
+            },
+            "required": ["id", "label"],
+            "additionalProperties": true
+          }
+        },
+        "eligibility": {
+          "type": "object",
+          "properties": {
+            "projectIds": { "type": "array", "items": { "type": "string" } },
+            "models": { "type": "array", "items": { "type": "string" } },
+            "taskCategories": { "type": "array", "items": { "type": "string" } },
+            "reviewScopes": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": { "type": "string", "enum": ["change", "spec"] },
+                  "minItems": 1
+                },
+                { "type": "null" }
+              ]
+            }
+          },
+          "required": ["projectIds", "models", "taskCategories"],
+          "additionalProperties": true
+        },
+        "maxAssignments": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "endsAt": { "type": "string" },
+        "stopConditions": { "type": "array", "items": { "type": "string" } },
+        "codeRevision": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "briefRevision": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "status": { "type": "string", "enum": ["draft", "running", "paused", "stopped"] },
+        "createdAt": { "type": "string" },
+        "startedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "updatedAt": { "type": "string" }
+      },
+      "required": [
+        "id",
+        "title",
+        "question",
+        "lever",
+        "primaryOutcome",
+        "variants",
+        "eligibility",
+        "maxAssignments",
+        "endsAt",
+        "stopConditions",
+        "codeRevision",
+        "briefRevision",
+        "revision",
+        "status",
+        "createdAt",
+        "startedAt",
+        "updatedAt"
+      ],
+      "additionalProperties": true
+    },
+    "definitions": {}
+  },
+  "assignment": {
+    "dialect": "draft-2020-12",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "work": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "workId": { "type": "string" },
+                "description": { "type": "string" },
+                "taskCategory": { "type": "string" },
+                "taskClass": { "type": "string", "enum": ["non-ui"] },
+                "sourceRevision": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "owner": {
+                  "type": "object",
+                  "properties": {
+                    "environmentId": { "type": "string" },
+                    "projectId": { "type": "string" },
+                    "workspacePath": { "type": "string" },
+                    "parentThreadId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "externalSessionKey": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                    "clientSessionId": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                  },
+                  "required": [
+                    "environmentId",
+                    "projectId",
+                    "workspacePath",
+                    "parentThreadId",
+                    "externalSessionKey",
+                    "clientSessionId"
+                  ],
+                  "additionalProperties": true
+                },
+                "orchestratorSelection": {
+                  "type": "object",
+                  "properties": {
+                    "provider": { "anyOf": [{}, { "type": "null" }] },
+                    "instanceId": { "anyOf": [{}, { "type": "null" }] },
+                    "model": {},
+                    "options": { "anyOf": [{}, { "type": "null" }] }
+                  },
+                  "required": ["model"],
+                  "additionalProperties": true
+                },
+                "modelSource": { "type": "string", "enum": ["run-selection", "self-report"] },
+                "policyHash": { "type": "string" },
+                "policyRevision": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "createdAt": { "type": "string" },
+                "assignmentIds": { "type": "array", "items": { "type": "string" } },
+                "assignedPolicies": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "experimentId": { "type": "string" },
+                      "allocationPolicy": {
+                        "type": "string",
+                        "enum": ["inline-first", "delegate-earlier"]
+                      },
+                      "controls": {
+                        "type": "object",
+                        "properties": {
+                          "orchestratorSelection": {
+                            "type": "object",
+                            "properties": {
+                              "provider": { "anyOf": [{}, { "type": "null" }] },
+                              "instanceId": { "anyOf": [{}, { "type": "null" }] },
+                              "model": {},
+                              "options": { "anyOf": [{}, { "type": "null" }] }
+                            },
+                            "required": ["model"],
+                            "additionalProperties": true
+                          },
+                          "policyHash": { "type": "string" },
+                          "reviewerPolicyRevision": { "type": "string" },
+                          "verificationRevision": { "type": "string" },
+                          "concurrency": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "orchestratorSelection",
+                          "policyHash",
+                          "reviewerPolicyRevision",
+                          "verificationRevision",
+                          "concurrency"
+                        ],
+                        "additionalProperties": true
+                      }
+                    },
+                    "required": ["experimentId", "allocationPolicy", "controls"],
+                    "additionalProperties": true
+                  }
+                },
+                "exclusions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "experimentId": { "type": "string" },
+                      "reason": { "type": "string" }
+                    },
+                    "required": ["experimentId", "reason"],
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "workId",
+                "description",
+                "taskCategory",
+                "taskClass",
+                "sourceRevision",
+                "owner",
+                "orchestratorSelection",
+                "modelSource",
+                "policyHash",
+                "policyRevision",
+                "createdAt",
+                "assignmentIds",
+                "assignedPolicies",
+                "exclusions"
+              ],
+              "additionalProperties": true
+            },
+            { "type": "null" }
+          ]
+        },
+        "agentTask": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "browser": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "backend": { "type": "string", "enum": ["integrated", "phi"] },
+                        "phiLane": {
+                          "anyOf": [
+                            { "type": "string", "enum": ["shadow", "agents", "user"] },
+                            { "type": "null" }
+                          ]
+                        }
+                      },
+                      "required": ["backend"],
+                      "additionalProperties": true
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "executionRequirement": {
+                  "anyOf": [
+                    { "type": "string", "enum": ["sandbox-required", "trusted-host-allowed"] },
+                    { "type": "null" }
+                  ]
+                },
+                "workUnitId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "chore-worker",
+                    "implementation-worker",
+                    "ui-worker",
+                    "browser",
+                    "ui-verifier",
+                    "advisor",
+                    "reviewer",
+                    "researcher",
+                    "scout",
+                    "lead"
+                  ]
+                },
+                "taskClass": { "type": "string", "enum": ["non-ui", "ui", "mixed"] },
+                "workId": { "type": "string" },
+                "attemptId": { "type": "string" },
+                "workspacePath": { "type": "string" },
+                "projectId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "workspaceAssignment": {
+                  "anyOf": [{ "type": "string", "enum": ["lead", "isolated"] }, { "type": "null" }]
+                },
+                "sourceRevision": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "review": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "scope": { "type": "string", "enum": ["change", "spec"] },
+                        "baseRevision": { "type": "string" },
+                        "includedChanges": { "type": "array", "items": { "type": "string" } },
+                        "specRef": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                        "specRevision": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                        "coverage": { "type": "string", "enum": ["complete", "partial"] },
+                        "priorReview": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "workId": { "type": "string" },
+                                "sourceRevision": { "type": "string" }
+                              },
+                              "required": ["workId", "sourceRevision"],
+                              "additionalProperties": true
+                            },
+                            { "type": "null" }
+                          ]
+                        }
+                      },
+                      "required": ["scope", "baseRevision", "includedChanges", "coverage"],
+                      "additionalProperties": true
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "demanding": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+                "readOnly": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+                "authorModel": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "executionBoundary": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["read-only", "workspace-sandbox", "trusted-host-access"]
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "requestFingerprint": { "type": "string" },
+                "policyHash": { "type": "string" },
+                "policyRevision": { "type": "string" },
+                "briefHash": { "type": "string" },
+                "sourceAccess": { "type": "string", "enum": ["read-only", "scoped-write"] },
+                "toolProfile": {
+                  "type": "string",
+                  "enum": [
+                    "source-reader",
+                    "implementation",
+                    "phi",
+                    "implementation-phi",
+                    "web-research"
+                  ]
+                },
+                "requested": {
+                  "type": "object",
+                  "properties": {
+                    "provider": { "anyOf": [{}, { "type": "null" }] },
+                    "instanceId": { "anyOf": [{}, { "type": "null" }] },
+                    "model": {},
+                    "options": { "anyOf": [{}, { "type": "null" }] }
+                  },
+                  "required": ["model"],
+                  "additionalProperties": true
+                },
+                "assigned": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "provider": { "anyOf": [{}, { "type": "null" }] },
+                        "instanceId": { "anyOf": [{}, { "type": "null" }] },
+                        "model": {},
+                        "options": { "anyOf": [{}, { "type": "null" }] }
+                      },
+                      "required": ["model"],
+                      "additionalProperties": true
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "effective": {
+                  "type": "object",
+                  "properties": {
+                    "provider": { "anyOf": [{}, { "type": "null" }] },
+                    "instanceId": { "anyOf": [{}, { "type": "null" }] },
+                    "model": {},
+                    "options": { "anyOf": [{}, { "type": "null" }] }
+                  },
+                  "required": ["model"],
+                  "additionalProperties": true
+                },
+                "externalOwner": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "environmentId": { "type": "string" },
+                        "clientSessionId": { "type": "string" },
+                        "externalSessionKey": { "type": "string" },
+                        "projectId": { "type": "string" },
+                        "ceiling": {
+                          "type": "string",
+                          "enum": ["approval-required", "auto-accept-edits", "auto", "full-access"]
+                        }
+                      },
+                      "required": [
+                        "environmentId",
+                        "clientSessionId",
+                        "externalSessionKey",
+                        "projectId",
+                        "ceiling"
+                      ],
+                      "additionalProperties": true
+                    },
+                    { "type": "null" }
+                  ]
+                }
+              },
+              "required": [
+                "role",
+                "taskClass",
+                "workId",
+                "attemptId",
+                "workspacePath",
+                "requestFingerprint",
+                "policyHash",
+                "policyRevision",
+                "briefHash",
+                "sourceAccess",
+                "toolProfile",
+                "requested",
+                "assigned",
+                "effective"
+              ],
+              "additionalProperties": true
+            },
+            {
+              "type": "object",
+              "properties": {
+                "browser": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "backend": { "type": "string", "enum": ["integrated", "phi"] },
+                        "phiLane": {
+                          "anyOf": [
+                            { "type": "string", "enum": ["shadow", "agents", "user"] },
+                            { "type": "null" }
+                          ]
+                        }
+                      },
+                      "required": ["backend"],
+                      "additionalProperties": true
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "executionRequirement": {
+                  "anyOf": [
+                    { "type": "string", "enum": ["sandbox-required", "trusted-host-allowed"] },
+                    { "type": "null" }
+                  ]
+                },
+                "workUnitId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "role": { "type": "string", "enum": ["ticket-reviewer", "spec-reviewer"] },
+                "taskClass": { "type": "string", "enum": ["non-ui", "ui", "mixed"] },
+                "workId": { "type": "string" },
+                "attemptId": { "type": "string" },
+                "workspacePath": { "type": "string" },
+                "projectId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "workspaceAssignment": {
+                  "anyOf": [{ "type": "string", "enum": ["lead", "isolated"] }, { "type": "null" }]
+                },
+                "sourceRevision": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "review": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "scope": { "type": "string", "enum": ["change", "spec"] },
+                        "baseRevision": { "type": "string" },
+                        "includedChanges": { "type": "array", "items": { "type": "string" } },
+                        "specRef": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                        "specRevision": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                        "coverage": { "type": "string", "enum": ["complete", "partial"] },
+                        "priorReview": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "workId": { "type": "string" },
+                                "sourceRevision": { "type": "string" }
+                              },
+                              "required": ["workId", "sourceRevision"],
+                              "additionalProperties": true
+                            },
+                            { "type": "null" }
+                          ]
+                        }
+                      },
+                      "required": ["scope", "baseRevision", "includedChanges", "coverage"],
+                      "additionalProperties": true
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "demanding": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+                "readOnly": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+                "authorModel": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "executionBoundary": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["read-only", "workspace-sandbox", "trusted-host-access"]
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "requestFingerprint": { "type": "string" },
+                "policyHash": { "type": "string" },
+                "policyRevision": { "type": "string" },
+                "briefHash": { "type": "string" },
+                "sourceAccess": { "type": "string", "enum": ["read-only", "scoped-write"] },
+                "toolProfile": {
+                  "type": "string",
+                  "enum": [
+                    "source-reader",
+                    "implementation",
+                    "phi",
+                    "implementation-phi",
+                    "web-research"
+                  ]
+                },
+                "requested": {
+                  "type": "object",
+                  "properties": {
+                    "provider": { "anyOf": [{}, { "type": "null" }] },
+                    "instanceId": { "anyOf": [{}, { "type": "null" }] },
+                    "model": {},
+                    "options": { "anyOf": [{}, { "type": "null" }] }
+                  },
+                  "required": ["model"],
+                  "additionalProperties": true
+                },
+                "assigned": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "provider": { "anyOf": [{}, { "type": "null" }] },
+                        "instanceId": { "anyOf": [{}, { "type": "null" }] },
+                        "model": {},
+                        "options": { "anyOf": [{}, { "type": "null" }] }
+                      },
+                      "required": ["model"],
+                      "additionalProperties": true
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "effective": {
+                  "type": "object",
+                  "properties": {
+                    "provider": { "anyOf": [{}, { "type": "null" }] },
+                    "instanceId": { "anyOf": [{}, { "type": "null" }] },
+                    "model": {},
+                    "options": { "anyOf": [{}, { "type": "null" }] }
+                  },
+                  "required": ["model"],
+                  "additionalProperties": true
+                },
+                "externalOwner": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "environmentId": { "type": "string" },
+                        "clientSessionId": { "type": "string" },
+                        "externalSessionKey": { "type": "string" },
+                        "projectId": { "type": "string" },
+                        "ceiling": {
+                          "type": "string",
+                          "enum": ["approval-required", "auto-accept-edits", "auto", "full-access"]
+                        }
+                      },
+                      "required": [
+                        "environmentId",
+                        "clientSessionId",
+                        "externalSessionKey",
+                        "projectId",
+                        "ceiling"
+                      ],
+                      "additionalProperties": true
+                    },
+                    { "type": "null" }
+                  ]
+                }
+              },
+              "required": [
+                "role",
+                "taskClass",
+                "workId",
+                "attemptId",
+                "workspacePath",
+                "requestFingerprint",
+                "policyHash",
+                "policyRevision",
+                "briefHash",
+                "sourceAccess",
+                "toolProfile",
+                "requested",
+                "assigned",
+                "effective"
+              ],
+              "additionalProperties": true
+            },
+            { "type": "null" }
+          ]
+        },
+        "id": { "type": "string" },
+        "experimentId": { "type": "string" },
+        "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "lever": {
+          "type": "string",
+          "enum": ["rollover", "reviewer", "delegation", "orchestration-policy", "instruction"]
+        },
+        "unitKind": { "type": "string", "enum": ["thread", "task", "work"] },
+        "unitId": { "type": "string" },
+        "threadId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "projectId": { "type": "string" },
+        "taskCategory": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "boundaryRunId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "variant": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "label": { "type": "string" },
+            "rollover": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "softLimit": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+                    "hardLimit": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+                  },
+                  "required": ["softLimit", "hardLimit"],
+                  "additionalProperties": true
+                },
+                { "type": "null" }
+              ]
+            },
+            "instructions": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "sourcePath": { "type": "string" },
+                    "revision": { "type": "string" },
+                    "sha256": { "type": "string" },
+                    "text": { "type": "string" }
+                  },
+                  "required": ["sourcePath", "revision", "sha256", "text"],
+                  "additionalProperties": true
+                },
+                { "type": "null" }
+              ]
+            },
+            "modelSelection": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "provider": { "anyOf": [{}, { "type": "null" }] },
+                    "instanceId": { "anyOf": [{}, { "type": "null" }] },
+                    "model": {},
+                    "options": { "anyOf": [{}, { "type": "null" }] }
+                  },
+                  "required": ["model"],
+                  "additionalProperties": true
+                },
+                { "type": "null" }
+              ]
+            },
+            "allocationPolicy": {
+              "anyOf": [
+                { "type": "string", "enum": ["inline-first", "delegate-earlier"] },
+                { "type": "null" }
+              ]
+            }
+          },
+          "required": ["id", "label"],
+          "additionalProperties": true
+        },
+        "assignedModelSelection": {
+          "type": "object",
+          "properties": {
+            "provider": { "anyOf": [{}, { "type": "null" }] },
+            "instanceId": { "anyOf": [{}, { "type": "null" }] },
+            "model": {},
+            "options": { "anyOf": [{}, { "type": "null" }] }
+          },
+          "required": ["model"],
+          "additionalProperties": true
+        },
+        "enrollment": { "type": "string", "enum": ["new", "existing-boundary", "historical"] },
+        "assignmentMethod": { "type": "string", "enum": ["randomized", "observational"] },
+        "assignedAt": { "type": "string" },
+        "codeRevision": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "briefRevision": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+        "provenance": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+      },
+      "required": [
+        "id",
+        "experimentId",
+        "revision",
+        "lever",
+        "unitKind",
+        "unitId",
+        "threadId",
+        "projectId",
+        "taskCategory",
+        "boundaryRunId",
+        "variant",
+        "assignedModelSelection",
+        "enrollment",
+        "assignmentMethod",
+        "assignedAt",
+        "codeRevision",
+        "briefRevision",
+        "provenance"
+      ],
+      "additionalProperties": true
+    },
+    "definitions": {}
+  }
+}

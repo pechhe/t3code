@@ -219,16 +219,25 @@ Mobile doesn't have this control yet.
 
 ## Compare configurations on normal work
 
-Open **Settings → Experiments** on the environment where your agents run. Create a draft with a question, eligible projects or models, variants, an end date and a sample limit. Starting it assigns eligible new work to variants; it does not replay tasks or replace your defaults. Reviewer and delegation experiments stay with their delegated task. An instruction experiment, created by an agent with `t3_experiments_create`, also stays with its thread: each variant names a version of a skill or instruction section by source path, agent-config revision and SHA-256, and Claude and Codex threads receive their variant on top of their usual instructions on every run. Each run's setup record names the hash it received; your `~/.agents` checkout is never changed. A review task is one delegated to `reviewer`, with `review.scope` declaring whether it judges a change or a Spec and automatically choosing that scope’s ordered model list.
+Open **Settings → Experiments** on the environment where your agents run and start a trial. A trial can compare a model and effort for one job, instructions added on Claude and Codex, or whether leads work inline first or delegate earlier. Your `~/.agents` checkout is not changed by a trial. It does not replay tasks or replace your defaults, and trials on the same job and projects cannot overlap.
 
-An orchestration-policy draft compares inline-first with delegate-earlier on non-UI work packages. Choose the parent model and effort, and enter the agent policy hash from `t3 agent roles` plus the reviewer policy and verification revisions; both arms hold these fixed. Each work package is assigned when its parent enrolls it, before the parent chooses inline or delegated execution (see [Enroll work before choosing how to execute it](outside-agents.md#enroll-work-before-choosing-how-to-execute-it)). Its report lists every assignment and exclusion, the assigned policy beside the actual allocation, parent and child usage coverage, and any child route that was refused before launch.
+Each variant applies at a set moment. A model trial applies when a helper is dispatched, and an instruction trial when the thread runs. A delegation-approach trial applies when a fresh thread linked to a Forge item starts, so work started without that link is not enrolled. Instruction trials add text to an agent's usual instructions; they do not swap a skill for another version.
 
-Pause stops new assignments. Resume admits new work again. Stop ends enrollment permanently. Existing assignments retain their settings through pauses, stops and retries, so changing a trial's status does not silently change work already under way. Earlier rollover trials stay in the list with their results.
+Work keeps its variant through retries, follow-up rounds and restarts, and all of its rounds count towards that variant. Pause stops new assignments, Resume admits new work again, and Stop ends enrollment permanently. Existing assignments keep their settings through all three. Earlier rollover trials stay in the list with their results, read-only.
 
-On mobile, open **Settings → Experiments** to inspect assigned variants and pause or stop enrollment. Create trials and compare full reports on web or desktop.
+Results fill in as work finishes, from Forge findings and how they were resolved, landings, send-backs and run usage:
 
-Judge the results using evidence of useful completion, corrections and rework alongside time and usage. Reports preserve original thread links, incomplete telemetry and assigned versus actual model selections. Context recovered is not billed tokens saved. Subscription token usage is not a monetary charge. Record outcomes with their evidence and distinguish human review from an automated judgement. Historical imports remain observational and are counted separately from randomized work.
+- **Confirmed blocker:** a blocking finding accepted for a fix.
+- **False positive:** a finding rejected with a reason.
+- **Sent back:** a Send back on the Spec, or for a helper, a further round on its work.
+- **Problem after landing:** a later blocking finding or a repair on the same Spec within 14 days of landing.
+
+A blank result is unknown, not zero: Forge could not be read, or the work has no Spec, as with a change review outside one. Each result says how many samples it covers. About 20 results per variant is a guide for when a comparison starts to mean something, not a statistical test. **Make the default** stops the trial. For a model trial it updates that job in Delegation; for other trials it records the winner and says what to change.
+
+On mobile, open **Settings → Experiments** to inspect assigned variants and pause or stop enrollment. Create trials and compare results on web or desktop.
+
+Reports preserve original thread links, incomplete telemetry and assigned versus actual model selections. Subscription token usage is not a monetary charge. Historical imports remain observational and are counted separately from randomized work.
 
 Experiment reports list evidence episodes separately from outcomes. Agents can read their bounded, immutable bundles with `t3_experiments_read_evidence`, append evidence with `t3_experiments_record_evidence`, and record a versioned assessment with `t3_experiments_record_evaluation`. Follow pagination and missing-evidence markers. Bundles captured before context rollover was removed stay readable, and their rubric requires unknown findings when the necessary evidence is absent. Evaluations can supersede earlier assessments without deleting them, and evaluator usage remains separate from the work being compared. Recording an assessment does not launch an evaluator or start enrollment.
 
-Agents can use the `t3_experiments_*` tools to create drafts, control enrollment, inspect reports, record outcomes and import historical assignments. An experiment does not automatically promote a winning configuration.
+A lead thread can list trials, read their results, create drafts and, when you ask, start or stop them through `t3_experiments_*` tools. Helpers cannot change a trial. An experiment does not automatically promote a winning configuration.

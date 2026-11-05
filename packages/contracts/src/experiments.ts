@@ -1,4 +1,4 @@
-import { AgentReviewScope, AgentTaskBinding, Sha256 } from "./agentPolicy.ts";
+import { AgentReviewScope, AgentRole, AgentTaskBinding, Sha256 } from "./agentPolicy.ts";
 import * as Schema from "effect/Schema";
 import {
   NonNegativeInt,
@@ -80,6 +80,8 @@ export const ExperimentDefinition = Schema.Struct({
      * that declare none, so change and Spec reviews are never silently pooled with it.
      */
     reviewScopes: Schema.optional(Schema.Array(AgentReviewScope).check(Schema.isMinLength(1))),
+    /** The jobs a trial applies to; absent or empty means every job its lever reaches. */
+    agentRoles: Schema.optional(Schema.Array(AgentRole)),
   }),
   maxAssignments: PositiveInt.check(Schema.isLessThanOrEqualTo(1000)),
   endsAt: Schema.String,
@@ -96,6 +98,8 @@ export const Experiment = Schema.Struct({
   createdAt: Schema.String,
   startedAt: Schema.NullOr(Schema.String),
   updatedAt: Schema.String,
+  /** The variant a person made the default, which also stopped the trial. */
+  adoptedVariantId: Schema.optional(TrimmedNonEmptyString),
 });
 export type Experiment = typeof Experiment.Type;
 export const ExperimentTransitionInput = Schema.Struct({
@@ -107,6 +111,7 @@ export const ExperimentListInput = Schema.Struct({});
 export const ExperimentAssignmentsInput = Schema.Struct({
   experimentId: Schema.optional(TrimmedNonEmptyString),
   threadId: Schema.optional(ThreadId),
+  unitId: Schema.optional(TrimmedNonEmptyString),
 });
 export type ExperimentAssignmentsInput = typeof ExperimentAssignmentsInput.Type;
 export const ExperimentWorkOwner = Schema.Struct({
@@ -212,7 +217,9 @@ export const ExperimentAssignInput = Schema.Struct({
   taskCategory: Schema.optional(TrimmedNonEmptyString),
   taskLever: Schema.optional(Schema.Literals(["reviewer", "delegation"])),
   /** For a thread, the one lever to enroll it in; each caller assigns only its own. */
-  threadLever: Schema.optional(Schema.Literals(["instruction"])),
+  threadLever: Schema.optional(Schema.Literals(["instruction", "orchestration-policy"])),
+  /** The job a thread runs as, for a trial limited to some jobs; `lead` for a top-level thread. */
+  agentRole: Schema.optional(AgentRole),
   enrollment: Schema.Literals(["new", "existing-boundary"]),
   unitCreatedAt: Schema.optional(Schema.String),
   boundaryRunId: Schema.optional(RunId),
@@ -467,6 +474,8 @@ export const ExperimentAssignmentReport = Schema.Struct({
   descendantCoverage: Schema.Literals(["complete", "partial"]),
   telemetryTruncated: Schema.Boolean,
   missingThreadIds: Schema.Array(ThreadId),
+  /** The threads that lead the sample, as opposed to work they delegated. */
+  rootThreadIds: Schema.optional(Schema.Array(ThreadId)),
   outcomes: Schema.Array(ExperimentOutcome),
   observations: Schema.Array(ExperimentObservation),
   episodes: Schema.optional(Schema.Array(ExperimentEpisodeReport)),
@@ -580,6 +589,93 @@ export const ExperimentReport = Schema.Struct({
   readAt: Schema.String,
 });
 export type ExperimentReport = typeof ExperimentReport.Type;
+/**
+ * One result across a variant's samples. `value` sums the samples that could be measured, and is
+ * null when none could: unknown, never zero. `covered` says how many samples it stands for.
+ */
+export const ExperimentMeasure = Schema.Struct({
+  value: Schema.NullOr(NonNegativeInt),
+  covered: NonNegativeInt,
+});
+export type ExperimentMeasure = typeof ExperimentMeasure.Type;
+export const ExperimentResultSource = Schema.Struct({
+  measure: Schema.Literals([
+    "confirmed-blocker",
+    "false-positive",
+    "sent-back",
+    "problem-after-landing",
+  ]),
+  origin: Schema.Literals(["forge-finding", "forge-landing", "forge-note", "helper-round", "hand"]),
+  /** The Forge run, landing operation, note, thread run or outcome this result came from. */
+  reference: TrimmedNonEmptyString,
+  findingRef: Schema.optional(TrimmedNonEmptyString),
+});
+export type ExperimentResultSource = typeof ExperimentResultSource.Type;
+export const ExperimentSampleResult = Schema.Struct({
+  assignmentId: TrimmedNonEmptyString,
+  variantId: TrimmedNonEmptyString,
+  threadId: Schema.NullOr(ThreadId),
+  /** The Forge Spec this sample's work counts toward, when it has one. */
+  specId: Schema.NullOr(TrimmedNonEmptyString),
+  tokens: Schema.NullOr(NonNegativeInt),
+  confirmedBlockers: Schema.NullOr(NonNegativeInt),
+  falsePositives: Schema.NullOr(NonNegativeInt),
+  sentBack: Schema.NullOr(NonNegativeInt),
+  problemsAfterLanding: Schema.NullOr(NonNegativeInt),
+  /** Whether the 14 days after landing have passed; null before landing. */
+  landingWindowComplete: Schema.NullOr(Schema.Boolean),
+  /** Helpers the lead actually started, for a delegation-approach sample. */
+  delegatedHelpers: Schema.NullOr(NonNegativeInt),
+  sources: Schema.Array(ExperimentResultSource),
+});
+export type ExperimentSampleResult = typeof ExperimentSampleResult.Type;
+export const ExperimentVariantResults = Schema.Struct({
+  variantId: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  enrolled: NonNegativeInt,
+  tokens: ExperimentMeasure,
+  confirmedBlockers: ExperimentMeasure,
+  falsePositives: ExperimentMeasure,
+  sentBack: ExperimentMeasure,
+  problemsAfterLanding: ExperimentMeasure,
+  landingWindowsComplete: NonNegativeInt,
+  delegatedHelpers: ExperimentMeasure,
+  enteredByHand: NonNegativeInt,
+  tooFewResults: Schema.Boolean,
+});
+export type ExperimentVariantResults = typeof ExperimentVariantResults.Type;
+export const ExperimentResultsInput = Schema.Struct({
+  experimentId: TrimmedNonEmptyString,
+  offset: Schema.optional(NonNegativeInt),
+  limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(100))),
+});
+export type ExperimentResultsInput = typeof ExperimentResultsInput.Type;
+export const ExperimentResults = Schema.Struct({
+  experimentId: TrimmedNonEmptyString,
+  /** Totals over the whole trial, whichever page of samples is returned. */
+  variants: Schema.Array(ExperimentVariantResults),
+  samples: Schema.Array(ExperimentSampleResult),
+  totalSamples: NonNegativeInt,
+  offset: NonNegativeInt,
+  hasMore: Schema.Boolean,
+  /** The results per variant below which a comparison warns; a guide, not a statistical test. */
+  enoughPerVariant: PositiveInt,
+  forgeReadable: Schema.Boolean,
+  readAt: Schema.String,
+});
+export type ExperimentResults = typeof ExperimentResults.Type;
+export const ExperimentAdoptInput = Schema.Struct({
+  experimentId: TrimmedNonEmptyString,
+  variantId: TrimmedNonEmptyString,
+});
+export type ExperimentAdoptInput = typeof ExperimentAdoptInput.Type;
+export const ExperimentAdoption = Schema.Struct({
+  experiment: Experiment,
+  /** `recorded` when no Delegation setting holds this change, so `nextStep` says what to land. */
+  applied: Schema.Literals(["delegation-setting", "recorded"]),
+  nextStep: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type ExperimentAdoption = typeof ExperimentAdoption.Type;
 export class ExperimentError extends Schema.TaggedError<ExperimentError>()("ExperimentError", {
   operation: Schema.String,
   reason: Schema.Literals([

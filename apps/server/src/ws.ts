@@ -1,6 +1,7 @@
 import * as Champions from "./champions/ChampionService.ts";
 import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
+import * as ExperimentResults from "./experiments/ExperimentResults.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
 import * as ManagedAgent from "./agents/ManagedAgentService.ts";
 import { ForgeWorkItemError, OrchestrationDispatchCommandError } from "@t3tools/contracts";
@@ -1524,6 +1525,7 @@ export const layerWsRpc = (
         );
       const experiments = yield* ExperimentService.ExperimentService;
       const agentPolicySettings = yield* AgentPolicySettings.AgentPolicySettingsService;
+      const experimentResults = yield* ExperimentResults.ExperimentResults;
       const usage = yield* UsageService.UsageService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
       const worktreeSetupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
@@ -3397,6 +3399,8 @@ export const layerWsRpc = (
         [WS_METHODS.experimentsList]: (_input) => experiments.list(),
         [WS_METHODS.experimentsAssignments]: (input) => experiments.assignments(input),
         [WS_METHODS.experimentsReport]: (input) => experiments.report(input),
+        [WS_METHODS.experimentsResults]: (input) => experimentResults.results(input),
+        [WS_METHODS.experimentsAdopt]: (input) => experimentResults.adopt(input),
         [WS_METHODS.experimentsRecordOutcome]: (input) => experiments.recordOutcome(input),
         [WS_METHODS.experimentsImportHistorical]: (input) => experiments.importHistorical(input),
         [WS_METHODS.serverGetUsageSummary]: (input) => usage.readSummary(input),

@@ -34,6 +34,7 @@ import * as ThreadProjectMoveService from "../orchestration-v2/ThreadProjectMove
 import * as ThreadSearch from "../orchestration-v2/ThreadSearch.ts";
 import * as DeviceService from "../device/DeviceService.ts";
 import * as ExperimentService from "../experiments/ExperimentService.ts";
+import * as ExperimentResults from "../experiments/ExperimentResults.ts";
 import * as FleetSummaryService from "../fleet/FleetSummaryService.ts";
 import * as UnattendedReactor from "../orchestration-v2/UnattendedReactor.ts";
 import * as PeerEnvironments from "../peers/PeerEnvironments.ts";
@@ -96,6 +97,7 @@ const serviceMocks = Layer.mergeAll(
   Layer.succeed(SqlClient.SqlClient, {} as never),
   Layer.mock(DeviceService.DeviceService)({}),
   Layer.mock(ExperimentService.ExperimentService)({}),
+  Layer.mock(ExperimentResults.ExperimentResults)({}),
   Layer.mock(FleetSummaryService.FleetSummaryService)({}),
   Layer.mock(UnattendedReactor.UnattendedReactor)({}),
   Layer.mock(PeerEnvironments.PeerEnvironments)({}),
@@ -140,10 +142,11 @@ it.effect("registers only the tool families each session endpoint declares", () 
         key === "research" || key === "child-research",
       );
       expect(names.includes("web_fetch"), key).toBe(key === "research" || key === "child-research");
-      if (key === "child-research" || key === "research") {
-        expect(names).toContain("t3_experiments_list");
-        expect(names.includes("t3_work_enroll")).toBe(key === "research");
-      }
+      expect(names.includes("t3_experiments_create"), key).toBe(
+        key === "control" || key === "workspace" || key === "research",
+      );
+      expect(names.includes("t3_experiments_record_outcome"), key).toBe(key === "research");
+      expect(names.includes("t3_work_enroll"), key).toBe(key === "research");
     }
   }).pipe(
     Effect.provide(

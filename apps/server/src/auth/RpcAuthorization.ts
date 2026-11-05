@@ -115,6 +115,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.experimentsList]: AuthOrchestrationReadScope,
   [WS_METHODS.experimentsAssignments]: AuthOrchestrationReadScope,
   [WS_METHODS.experimentsReport]: AuthOrchestrationReadScope,
+  [WS_METHODS.experimentsResults]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetUsageSummary]: AuthDiagnosticsReadScope,
   [WS_METHODS.serverRefreshUsageRates]: AuthDiagnosticsReadScope,
   [WS_METHODS.serverSignalProcess]: AuthEnvironmentMaintainScope,
