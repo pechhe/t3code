@@ -22,6 +22,7 @@ import {
 } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { forgeItemUrl } from "@t3tools/shared/forgeLinks";
+import { weaveRepositoryKeyOf } from "@t3tools/shared/projectIdentity";
 import { sameWeaveAddress } from "@t3tools/shared/weaveOrigins";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Clock from "effect/Clock";
@@ -694,8 +695,7 @@ const make = Effect.gen(function* () {
         (p) =>
           p.deletedAt === null &&
           row.specProject !== null &&
-          p.repositoryIdentity?.canonicalKey.split("/").slice(1).join("/").toLowerCase() ===
-            row.specProject.toLowerCase(),
+          weaveRepositoryKeyOf(p)?.toLowerCase() === row.specProject.toLowerCase(),
       );
       if (project === undefined)
         return yield* undeliverable(

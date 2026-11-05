@@ -372,6 +372,10 @@ const makeHarness = (options: HarnessOptions = {}) => {
         attemptId: "attempt:feature-handoff",
       }),
   );
+  const recordForgeProjectMock = vi.fn(
+    (_input: { projectRoot: string; workspacePath: string; forgeProject: string | null }) =>
+      Effect.void,
+  );
   const settleWorkspace = vi.fn((_attemptId: string) => Effect.void);
   const abandonWorkspace = vi.fn((_attemptId: string) => Effect.void);
   const releaseWorkspace = vi.fn(
@@ -427,6 +431,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
         Layer.succeed(WorkspaceProvider.WorkspaceProvider, {
           resolve: () => Effect.succeed(options.slipjay === true ? "slipjay" : "git-worktree"),
           allocate: allocateWorkspace,
+          recordForgeProject: recordForgeProjectMock,
           settled: settleWorkspace,
           abandon: abandonWorkspace,
           reconcile: () => Effect.void,
@@ -477,6 +482,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
     localStatus,
     runForThread,
     allocateWorkspace,
+    recordForgeProjectMock,
     releaseWorkspace,
     settleWorkspace,
     abandonWorkspace,
@@ -642,6 +648,39 @@ describe("t3_worktree_handoff", () => {
           branch: null,
           expectedWorktreePath: "/slipjay/workspaces/released",
         }),
+      );
+      // Adopted, it files under this thread's project and not whichever it served before.
+      expect(harness.recordForgeProjectMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspacePath: "/slipjay/workspaces/ys-2333",
+          forgeProject: null,
+        }),
+      );
+    });
+  });
+
+  it.effect("refuses to adopt a SlipJay workspace whose old Forge project it cannot clear", () => {
+    const harness = makeHarness({
+      slipjay: true,
+      thread: { worktreePath: "/slipjay/workspaces/released" },
+    });
+    harness.recordForgeProjectMock.mockImplementationOnce(
+      () =>
+        Effect.fail(
+          new WorkspaceProvider.WorkspaceProviderError({
+            operation: "allocate",
+            projectRoot: "/project",
+            cause: "refused",
+          }),
+        ) as never,
+    );
+    return Effect.gen(function* () {
+      const exit = yield* runHandoff(harness, { worktreePath: "/slipjay/workspaces/ys-2333" }).pipe(
+        Effect.exit,
+      );
+      expect(exit._tag).toBe("Failure");
+      expect(harness.dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ worktreePath: "/slipjay/workspaces/ys-2333" }),
       );
     });
   });

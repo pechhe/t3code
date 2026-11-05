@@ -709,13 +709,13 @@ const project: T3Project = {
   title: "YardSmith",
   workspaceRoot: "/yardsmith",
   repositoryIdentity: {
-    canonicalKey: "github.com/pechhe/yardsmith",
+    canonicalKey: "github.com/other/upstream",
     locator: {
       source: "git-remote",
       remoteName: "origin",
       remoteUrl: "git@github.com:pechhe/yardsmith.git",
     },
-    origin: { canonicalKey: "github.com/other/upstream" },
+    origin: { canonicalKey: "github.com/pechhe/yardsmith" },
   },
   defaultModelSelection: {
     instanceId: ProviderInstanceId.make("codex_custom"),
@@ -1206,6 +1206,38 @@ it.effect("replays the same launch receipt after a crash without creating a seco
     );
     assert.strictEqual(deliveries(h.weave).at(-1)?.state, "delivered");
     yield* restarted.stop;
+  }),
+);
+
+it.effect("starts a send-back's new thread in the project linked to the Spec's Forge project", () =>
+  Effect.gen(function* () {
+    const { weave, world, service } = yield* connected;
+    const propsmith: T3Project = {
+      ...project,
+      id: ProjectId.make("project-propsmith"),
+      title: "PropSmith",
+      weaveRepositoryKey: "pechhe/propsmith",
+    };
+    // Both share a checkout, so the Git identity alone would match either.
+    world.projects = [propsmith, project];
+    weave.answer = noteAnswer([
+      note("note-yardsmith", null),
+      {
+        ...note("note-propsmith", null),
+        spec: {
+          id: "spec-2",
+          number: 4531,
+          ref: "PS-1",
+          title: "First",
+          project: "pechhe/propsmith",
+        },
+      },
+    ]);
+    yield* service.settleDeliveries;
+    assert.deepStrictEqual(
+      world.launches.map((launch) => launch.projectId),
+      [project.id, propsmith.id],
+    );
   }),
 );
 

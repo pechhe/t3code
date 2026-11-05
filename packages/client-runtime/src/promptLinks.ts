@@ -38,6 +38,25 @@ export function findPromptLinkProjects<
   );
 }
 
+/**
+ * Where a new-thread link opens. Its `owner/name` may be a Forge project rather than a Git repository: a project linked to
+ * that Forge project comes first, and a project linked to a different one is not a match, since several can share a checkout.
+ */
+export function findNewThreadLinkProjects<
+  P extends {
+    readonly repositoryIdentity?: RepositoryIdentity | null | undefined;
+    readonly weaveRepositoryKey?: string | null | undefined;
+  },
+>(projects: ReadonlyArray<P>, repository: PromptLinkRepository): P[] {
+  const path = `${repository.owner}/${repository.name}`.toLowerCase();
+  const linked = projects.filter((project) => project.weaveRepositoryKey?.toLowerCase() === path);
+  if (linked.length > 0) return linked;
+  return findPromptLinkProjects(
+    projects.filter((project) => !project.weaveRepositoryKey),
+    repository,
+  );
+}
+
 export function findPromptLinkPullRequestThread<
   T extends {
     readonly updatedAt: string;

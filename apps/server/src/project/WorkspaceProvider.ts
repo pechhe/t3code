@@ -115,11 +115,19 @@ export class WorkspaceProvider extends Context.Service<
      * attempt record, not retried; one still running fails naming its attempt, and the same
      * thread-launch owner's retry reconciles that attempt instead of starting another.
      */
+    /** Records the Forge project an adopted workspace's chores file in, or clears it with null. */
+    readonly recordForgeProject: (input: {
+      readonly projectRoot: string;
+      readonly workspacePath: string;
+      readonly forgeProject: string | null;
+    }) => Effect.Effect<void, WorkspaceProviderError>;
     readonly allocate: (input: {
       readonly projectRoot: string;
       readonly task: string;
       readonly owner: WorkspaceOwner;
       readonly issue?: { readonly number: number; readonly mode: "resume" | "attach" };
+      /** The Forge project the thread's project links to, which this workspace's chores file in. */
+      readonly forgeProject?: string;
     }) => Effect.Effect<
       {
         readonly workspacePath: string;
@@ -440,9 +448,22 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  // Fails when SlipJay refuses: an adopted workspace may still hold the project it served before.
+  const recordForgeProject: WorkspaceProvider["Service"]["recordForgeProject"] = ({
+    projectRoot,
+    workspacePath,
+    forgeProject,
+  }) =>
+    slipjay(
+      "allocate",
+      projectRoot,
+      ["attach-project", forgeProject ?? "--clear"],
+      workspacePath,
+    ).pipe(Effect.asVoid);
+
   const allocate: WorkspaceProvider["Service"]["allocate"] = Effect.fn(
     "WorkspaceProvider.allocate",
-  )(({ projectRoot, task, issue, owner }) =>
+  )(({ projectRoot, task, issue, owner, forgeProject }) =>
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
         // A project registered in a subdirectory allocates from its SlipJay root.
@@ -522,6 +543,22 @@ export const make = Effect.gen(function* () {
                   }).pipe(Effect.as(error.message)),
                 ),
               );
+        // `start` clears what a reused workspace served before, so only a named project needs recording.
+        // Never fails the allocation: `start` cleared it, so a chore then files in the repository's own project.
+        if (forgeProject)
+          yield* recordForgeProject({
+            projectRoot: root,
+            workspacePath: result.workspacePath,
+            forgeProject,
+          }).pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("SlipJay workspace not recorded under its Forge project", {
+                workspacePath: result.workspacePath,
+                forgeProject,
+                error: error.message,
+              }),
+            ),
+          );
         const allocation = {
           workspacePath: result.workspacePath,
           created: result.created ?? null,
@@ -660,6 +697,7 @@ export const make = Effect.gen(function* () {
   return WorkspaceProvider.of({
     resolve,
     allocate,
+    recordForgeProject,
     settled,
     abandon,
     reconcile,

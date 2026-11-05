@@ -550,6 +550,7 @@ const make = Effect.gen(function* () {
               projectRoot: project.workspaceRoot,
               task: task || "T3 thread",
               owner: { kind: "thread-launch", ref: threadId },
+              ...(project.weaveRepositoryKey ? { forgeProject: project.weaveRepositoryKey } : {}),
               ...(issue === undefined ? {} : { issue }),
             });
             // Replacing a workspace SlipJay removed must not block the turn, which may need
@@ -1631,6 +1632,9 @@ const make = Effect.gen(function* () {
         projectRoot: released.project.workspaceRoot,
         task: released.thread.title,
         owner: { kind: "terminal", ref: threadId },
+        ...(released.project.weaveRepositoryKey
+          ? { forgeProject: released.project.weaveRepositoryKey }
+          : {}),
         ...(forgeItem === undefined ? {} : { issue: { number: forgeItem, mode: "attach" } }),
       });
       // Compare-and-set: a turn or terminal recovering the thread at the same time keeps its own.

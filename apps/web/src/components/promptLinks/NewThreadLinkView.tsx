@@ -1,6 +1,7 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { getCloneDestinationPath } from "@t3tools/client-runtime/operations/projects";
 import {
+  findNewThreadLinkProjects,
   findPromptLinkProjects,
   findPromptLinkPullRequestThread,
   pickPromptLinkPullRequestThread,
@@ -281,7 +282,12 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
     const pullRequestThread = localPullRequestThread ?? serverPullRequestThread ?? undefined;
     const repository = link.kind === "new" ? link.repository : link.pullRequest;
     const project =
-      repository === null ? undefined : findPromptLinkProjects(recentProjects(), repository)[0];
+      repository === null
+        ? undefined
+        : (link.kind === "new" ? findNewThreadLinkProjects : findPromptLinkProjects)(
+            recentProjects(),
+            repository,
+          )[0];
     if (pullRequestThread !== undefined) {
       setState({ status: "opened" });
       setLaunch({ kind: "thread", thread: pullRequestThread });

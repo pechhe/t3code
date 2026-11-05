@@ -226,7 +226,12 @@ const make = Effect.gen(function* () {
     const { branch } = input;
     let checkout: CheckoutPlan;
     if (input.worktreePath !== undefined) {
-      checkout = existingCheckout(projectCwd, input.worktreePath, slipjay);
+      checkout = existingCheckout(
+        projectCwd,
+        input.worktreePath,
+        slipjay,
+        project.weaveRepositoryKey ?? null,
+      );
     } else if (branch === undefined) {
       return yield* failure(
         "invalid_request",
@@ -234,7 +239,12 @@ const make = Effect.gen(function* () {
       );
     } else {
       checkout = slipjay
-        ? slipjayCheckout(projectCwd, branch, scope.thread.threadId)
+        ? slipjayCheckout(
+            projectCwd,
+            branch,
+            scope.thread.threadId,
+            project.weaveRepositoryKey ?? null,
+          )
         : yield* prepareGitCheckout(projectCwd, project.id, { ...input, branch });
     }
 
@@ -499,6 +509,7 @@ const make = Effect.gen(function* () {
     projectCwd: string,
     worktreePath: string,
     slipjay: boolean,
+    forgeProject: string | null,
   ): CheckoutPlan => ({
     baseRef: null,
     startedFromOrigin: false,
@@ -510,7 +521,17 @@ const make = Effect.gen(function* () {
         );
       }
       // A SlipJay workspace has no branch of its own, like one allocated here.
-      if (slipjay) return { path: worktreePath, branch: null };
+      if (slipjay) {
+        // Refused rather than adopted: the workspace may still hold another project's record.
+        yield* workspaces
+          .recordForgeProject({
+            projectRoot: projectCwd,
+            workspacePath: worktreePath,
+            forgeProject,
+          })
+          .pipe(Effect.mapError((error) => failure("operation_failed", error.message)));
+        return { path: worktreePath, branch: null };
+      }
       const status = yield* gitWorkflow
         .localStatus({ cwd: worktreePath })
         .pipe(asOperationFailed("Unable to read the worktree's status"));
@@ -519,7 +540,12 @@ const make = Effect.gen(function* () {
     remove: () => Effect.void,
   });
 
-  const slipjayCheckout = (projectCwd: string, task: string, threadId: ThreadId): CheckoutPlan => {
+  const slipjayCheckout = (
+    projectCwd: string,
+    task: string,
+    threadId: ThreadId,
+    forgeProject: string | null,
+  ): CheckoutPlan => {
     let attemptId: string | null = null;
     const settled = Effect.suspend(() =>
       attemptId === null ? Effect.void : workspaces.settled(attemptId),
@@ -528,7 +554,12 @@ const make = Effect.gen(function* () {
       baseRef: null,
       startedFromOrigin: false,
       create: workspaces
-        .allocate({ projectRoot: projectCwd, task, owner: { kind: "mcp", ref: threadId } })
+        .allocate({
+          projectRoot: projectCwd,
+          task,
+          owner: { kind: "mcp", ref: threadId },
+          ...(forgeProject ? { forgeProject } : {}),
+        })
         .pipe(
           Effect.map((allocation) => {
             attemptId = allocation.attemptId;
@@ -644,7 +675,7 @@ const make = Effect.gen(function* () {
               ),
               remove: () => Effect.void,
             }
-          : existingCheckout(projectCwd, adopted, slipjay);
+          : existingCheckout(projectCwd, adopted, slipjay, project.weaveRepositoryKey ?? null);
     } else if (input.branch === undefined) {
       return yield* failure(
         "invalid_request",
@@ -652,7 +683,12 @@ const make = Effect.gen(function* () {
       );
     } else {
       checkout = slipjay
-        ? slipjayCheckout(projectCwd, input.branch, scope.thread.threadId)
+        ? slipjayCheckout(
+            projectCwd,
+            input.branch,
+            scope.thread.threadId,
+            project.weaveRepositoryKey ?? null,
+          )
         : yield* prepareGitCheckout(projectCwd, project.id, { ...input, branch: input.branch });
     }
     const ids = yield* handoffIds(scope);

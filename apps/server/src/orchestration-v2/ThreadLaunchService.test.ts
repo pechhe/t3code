@@ -205,6 +205,10 @@ function makeHarness(options: HarnessOptions = {}) {
     (_input: Parameters<WorkspaceProvider.WorkspaceProvider["Service"]["release"]>[0]) =>
       Effect.void,
   );
+  const recordForgeProjectMock = vi.fn(
+    (_input: { projectRoot: string; workspacePath: string; forgeProject: string | null }) =>
+      Effect.void,
+  );
   const settleWorkspace = vi.fn((_attemptId: string) => Effect.void);
   const abandonWorkspace = vi.fn((_attemptId: string) => Effect.void);
   const generateBranchName = vi.fn(
@@ -271,6 +275,7 @@ function makeHarness(options: HarnessOptions = {}) {
     Layer.succeed(WorkspaceProvider.WorkspaceProvider, {
       resolve: () => Effect.succeed(options.slipjay === true ? "slipjay" : "git-worktree"),
       allocate: allocateWorkspace,
+      recordForgeProject: recordForgeProjectMock,
       settled: settleWorkspace,
       abandon: abandonWorkspace,
       reconcile: () => Effect.void,

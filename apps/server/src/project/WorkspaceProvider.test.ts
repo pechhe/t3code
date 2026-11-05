@@ -334,6 +334,79 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
         }).pipe(Effect.provide(layerIntents)),
     );
 
+    it.effect("records the thread's Forge project on the workspace it allocates", () =>
+      Effect.gen(function* () {
+        const { service, commands } = yield* harness({
+          start: () => output(JSON.stringify({ workspacePath: "/fresh", created: true })),
+        });
+        yield* service.allocate({ ...request, forgeProject: "pechhe/propsmith" });
+        expect(commands.at(-1)).toEqual({
+          args: ["slipjay", "attach-project", "pechhe/propsmith"],
+          cwd: "/fresh",
+        });
+      }).pipe(Effect.provide(layerIntents)),
+    );
+
+    it.effect("leaves an unlinked project to start's clearing, with no extra call", () =>
+      Effect.gen(function* () {
+        const { service, commands } = yield* harness({
+          start: () => output(JSON.stringify({ workspacePath: "/fresh", created: true })),
+        });
+        yield* service.allocate(request);
+        expect(commands.map((command) => command.args[1])).toEqual(["start"]);
+      }).pipe(Effect.provide(layerIntents)),
+    );
+
+    it.effect("a workspace still allocates when SlipJay cannot record its Forge project", () =>
+      Effect.gen(function* () {
+        const { service } = yield* harness({
+          start: () => output(JSON.stringify({ workspacePath: "/fresh", created: true })),
+          "attach-project": () => failure("unknown command"),
+        });
+        const allocation = yield* service.allocate({
+          ...request,
+          forgeProject: "pechhe/propsmith",
+        });
+        expect(allocation.workspacePath).toBe("/fresh");
+      }).pipe(Effect.provide(layerIntents)),
+    );
+
+    it.effect("a failed replacement of an adopted workspace's Forge project is an error", () =>
+      Effect.gen(function* () {
+        const { service } = yield* harness({ "attach-project": () => failure("refused") });
+        const exit = yield* service
+          .recordForgeProject({
+            projectRoot: "/project",
+            workspacePath: "/kept",
+            forgeProject: null,
+          })
+          .pipe(Effect.exit);
+        expect(exit._tag).toBe("Failure");
+      }).pipe(Effect.provide(layerIntents)),
+    );
+
+    it.effect(
+      "adopting a workspace replaces its Forge project, clearing it for an unlinked project",
+      () =>
+        Effect.gen(function* () {
+          const { service, commands } = yield* harness({});
+          yield* service.recordForgeProject({
+            projectRoot: "/project",
+            workspacePath: "/kept",
+            forgeProject: "pechhe/weave",
+          });
+          yield* service.recordForgeProject({
+            projectRoot: "/project",
+            workspacePath: "/kept",
+            forgeProject: null,
+          });
+          expect(commands).toEqual([
+            { args: ["slipjay", "attach-project", "pechhe/weave"], cwd: "/kept" },
+            { args: ["slipjay", "attach-project", "--clear"], cwd: "/kept" },
+          ]);
+        }).pipe(Effect.provide(layerIntents)),
+    );
+
     it.effect.each([
       { name: "stderr", stdout: "progress", stderr: "Issue 42 is held by another workspace\n" },
       { name: "stdout when stderr is empty", stdout: "Issue 42 is held\n", stderr: "" },

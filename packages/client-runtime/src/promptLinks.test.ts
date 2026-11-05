@@ -12,6 +12,7 @@ import { AsyncResult } from "effect/reactivity";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  findNewThreadLinkProjects,
   findPromptLinkProjects,
   findPromptLinkPullRequestThread,
   pickPromptLinkPullRequestThread,
@@ -22,6 +23,30 @@ const identity = (canonicalKey: string, origin?: string): RepositoryIdentity => 
   canonicalKey,
   locator: { source: "git-remote", remoteName: "origin", remoteUrl: `https://${canonicalKey}` },
   ...(origin ? { origin: { canonicalKey: origin } } : {}),
+});
+
+describe("findNewThreadLinkProjects", () => {
+  const yardsmith = identity("github.com/pechhe/yardsmith");
+  const projects = [
+    { id: "propsmith", repositoryIdentity: yardsmith, weaveRepositoryKey: "pechhe/propsmith" },
+    { id: "weave", repositoryIdentity: yardsmith, weaveRepositoryKey: "pechhe/weave" },
+    { id: "yardsmith", repositoryIdentity: yardsmith, weaveRepositoryKey: null },
+  ];
+  const ids = (name: string) =>
+    findNewThreadLinkProjects(projects, { owner: "pechhe", name }).map((project) => project.id);
+
+  it("opens the project linked to that Forge project, though it shares a repository", () => {
+    expect(ids("propsmith")).toEqual(["propsmith"]);
+    expect(ids("weave")).toEqual(["weave"]);
+  });
+
+  it("opens the repository's own project, never one linked to another Forge project", () => {
+    expect(ids("yardsmith")).toEqual(["yardsmith"]);
+  });
+
+  it("matches nothing for a key no project holds", () => {
+    expect(ids("elsewhere")).toEqual([]);
+  });
 });
 
 describe("findPromptLinkProjects", () => {
