@@ -205,12 +205,22 @@
     "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
   },
   {
+    "path": "apps/server/src/mcp/TaskCancelUsageLimit.integration.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
     "path": "apps/server/src/mcp/ThreadMetadataMcpService.test.ts",
     "category": "compatibility-aliases",
     "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
   },
   {
     "path": "apps/server/src/mcp/ThreadMetadataMcpService.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/mcp/linkOrigin.test.ts",
     "category": "compatibility-aliases",
     "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
   },
@@ -310,6 +320,21 @@
     "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
   },
   {
+    "path": "apps/server/src/peer/PeerForwarding.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/peer/PeerLinkRequests.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
+    "path": "apps/server/src/peer/RemoteDelegation.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
+  },
+  {
     "path": "apps/server/src/project/ProjectService.test.ts",
     "category": "compatibility-aliases",
     "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
@@ -318,6 +343,11 @@
     "path": "apps/server/src/project/SlipJayReleases.test.ts",
     "category": "compatibility-aliases",
     "reason": "Compatibility fixtures use retained service modules, old origins, stored values or legacy agent-server names."
+  },
+  {
+    "path": "apps/server/src/provider/AgentContextBudget.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Imports retain existing hq service-module paths rather than introducing a second service implementation."
   },
   {
     "path": "apps/server/src/provider/ClaudeTurnTokenUsage.ts",
@@ -513,6 +543,11 @@
     "path": ".repos/alchemy-effect/**",
     "category": "captured-fixtures",
     "reason": "Read-only vendored source uses headquarters examples and integrity hashes unrelated to this product."
+  },
+  {
+    "path": ".repos/effect/**",
+    "category": "captured-fixtures",
+    "reason": "Read-only vendored bundles and integrity hashes contain incidental token matches."
   },
   {
     "path": ".repos/effect-smol/**",
