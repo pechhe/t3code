@@ -1104,6 +1104,22 @@ function itemizedFailedRunIds(
   );
 }
 
+const SHORT_LAST_REPLY_LENGTH = 400;
+const SUBSTANTIAL_REPLY_LENGTH = 800;
+
+/** A wake's brief "nothing new" must not bury the report it follows. */
+function findReportBuriedByLastReply<Entry extends { message: { text: string } }>(
+  terminalEntries: ReadonlyArray<Entry>,
+): Entry | null {
+  const lastEntry = terminalEntries.at(-1);
+  if (!lastEntry || lastEntry.message.text.length >= SHORT_LAST_REPLY_LENGTH) return null;
+  return (
+    terminalEntries
+      .slice(0, -1)
+      .findLast((entry) => entry.message.text.length >= SUBSTANTIAL_REPLY_LENGTH) ?? null
+  );
+}
+
 function deriveTurnFolds(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
   terminalAssistantMessageIds: ReadonlySet<string>;
@@ -1126,7 +1142,7 @@ function deriveTurnFolds(input: {
 
   interface TurnGroup {
     entries: Array<TimelineEntry>;
-    /** Each run's final reply, oldest first; only the last is the answer. */
+    /** Each run's final reply, oldest first. */
     terminalEntries: Array<Extract<TimelineEntry, { kind: "message" }>>;
     hasStreamingMessage: boolean;
     // Entry timestamps omit startup and can collapse steered turns to an instant.
@@ -1230,11 +1246,12 @@ function deriveTurnFolds(input: {
     }
     const hiddenEntryIds = new Set<string>();
     const terminalEntry = group.terminalEntries.at(-1) ?? null;
+    const buriedReport = findReportBuriedByLastReply(group.terminalEntries);
     const terminalEntryIndex = terminalEntry
       ? group.entries.findIndex((entry) => entry.id === terminalEntry.id)
       : group.entries.length;
     for (const [index, entry] of group.entries.entries()) {
-      if (entry.id === terminalEntry?.id) {
+      if (entry.id === terminalEntry?.id || entry.id === buriedReport?.id) {
         continue;
       }
       const isCompaction = timelineEntryIsCompaction(entry);

@@ -3759,6 +3759,64 @@ describe("one request reads as one response", () => {
     expect(ids).toContain("final");
   });
 
+  describe("a short last reply after a report", () => {
+    const reply = (id: string, run: string, second: number, length: number) => {
+      const entry = message(id, run, second, "assistant");
+      return { ...entry, message: { ...entry.message, text: "x".repeat(length) } };
+    };
+    const visibleReplies = (replies: ReadonlyArray<ReturnType<typeof reply>>, expanded = false) =>
+      deriveMessagesTimelineRows({
+        ...input,
+        timelineEntries: [message("prompt", "initial", 0, "user"), ...replies],
+        ...(expanded ? { expandedRunIds: new Set([RunId.make("initial")]) } : {}),
+      }).flatMap((row) => (row.kind === "message" ? [row.id] : []));
+
+    it("keeps the report visible above the short reply", () => {
+      expect(
+        visibleReplies([
+          reply("started", "initial", 1, 80),
+          reply("report", "wake-a", 2, 800),
+          reply("nothing-new", "wake-b", 3, 399),
+        ]),
+      ).toEqual(["prompt", "report", "nothing-new"]);
+    });
+
+    it("keeps only the most recent report", () => {
+      expect(
+        visibleReplies([
+          reply("older-report", "initial", 1, 2000),
+          reply("report", "wake-a", 2, 800),
+          reply("nothing-new", "wake-b", 3, 100),
+        ]),
+      ).toEqual(["prompt", "report", "nothing-new"]);
+    });
+
+    it("folds an earlier report when the last reply is itself substantial", () => {
+      expect(
+        visibleReplies([reply("report", "initial", 1, 2000), reply("answer", "wake-a", 2, 400)]),
+      ).toEqual(["prompt", "answer"]);
+    });
+
+    it("folds earlier replies when none is substantial", () => {
+      expect(
+        visibleReplies([reply("waiting", "initial", 1, 799), reply("done", "wake-a", 2, 100)]),
+      ).toEqual(["prompt", "done"]);
+    });
+
+    it("shows every reply once when the fold is open", () => {
+      expect(
+        visibleReplies(
+          [
+            reply("started", "initial", 1, 80),
+            reply("report", "wake-a", 2, 800),
+            reply("nothing-new", "wake-b", 3, 100),
+          ],
+          true,
+        ),
+      ).toEqual(["prompt", "started", "report", "nothing-new"]);
+    });
+  });
+
   it("keeps settled subagent cards visible, including one started by a later run", () => {
     const rows = deriveMessagesTimelineRows(input);
     expect(findSubagentCardRow(rows, "node-1")).toMatchObject({ rowId: "card-1" });
