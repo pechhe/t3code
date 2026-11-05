@@ -37,7 +37,7 @@ const setup = (
             cliLog: (text: string) => lines.push(text),
             process: { stdout: { write: (_chunk: string, done: () => void) => done() } },
           });
-          yield* Effect.tryPromise(() =>
+          yield* Effect.promise(() =>
             NodeVM.runInContext(`(async () => {${input.stdin}\n})()`, context),
           );
         }

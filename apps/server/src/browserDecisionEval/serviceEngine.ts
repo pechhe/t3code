@@ -96,10 +96,14 @@ export const buildDecisionRequest = (engine: "jev" | "luna", request: DecisionRe
 const chosen = (result: DecisionResult, id: string, offered: readonly string[]) => {
   const answer = result.answers.find((entry) => entry.id === id);
   if (answer?.status !== "answered" || answer.type !== "choice")
-    throw new EngineRefusal(`Question ${id} was refused or unanswered; no action executed.`);
+    throw new EngineRefusal({
+      message: `Question ${id} was refused or unanswered; no action executed.`,
+    });
   const best = Math.max(...Object.values(answer.probabilities));
   if (!offered.includes(answer.choice) || answer.selectedChoiceProbability < best - 1e-6)
-    throw new EngineRefusal(`Question ${id} answer was not a coherent offered choice.`);
+    throw new EngineRefusal({
+      message: `Question ${id} answer was not a coherent offered choice.`,
+    });
   return answer;
 };
 
@@ -118,9 +122,9 @@ export const makeServiceEngine = (
       const code =
         (cause as { code?: string; cause?: { code?: string } } | null)?.code ??
         (cause as { cause?: { code?: string } } | null)?.cause?.code;
-      throw new EngineRefusal(
-        `Decision service failed${code ? `: ${code}` : ""}; no action executed.`,
-      );
+      throw new EngineRefusal({
+        message: `Decision service failed${code ? `: ${code}` : ""}; no action executed.`,
+      });
     }
     const operation = chosen(
       result,

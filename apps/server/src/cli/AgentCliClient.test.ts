@@ -188,6 +188,16 @@ const authorize =
       expect(valid.status).toBe(200);
     });
 
+// Node reads these variables itself, so the test must set the real process environment.
+const setProcessEnv = (name: string, value: string) => {
+  const previous = process.env[name];
+  process.env[name] = value;
+  return () => {
+    if (previous === undefined) delete process.env[name];
+    else process.env[name] = previous;
+  };
+};
+
 it.effect(
   "performs OAuth PKCE login, stores only a protected credential, and returns safe metadata",
   () => {
@@ -247,8 +257,8 @@ it.effect("rejects missing, expired, and changed-environment credentials", () =>
   stubRemote({});
   return withClient(({ client, directory, fs }) =>
     Effect.gen(function* () {
-      process.env.T3_ACP_API_KEY = accessToken;
-      process.env.T3_ACP_BASE_URL = endpoint;
+      yield* Effect.sync(() => setProcessEnv("T3_ACP_API_KEY", accessToken));
+      yield* Effect.sync(() => setProcessEnv("T3_ACP_BASE_URL", endpoint));
       const missing = yield* client.identity(endpoint).pipe(Effect.flip);
       expect(missing.reason).toBe("credentials-missing");
       yield* client.login({ endpoint, showAuthorization: authorize() });

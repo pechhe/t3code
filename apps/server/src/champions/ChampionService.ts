@@ -725,7 +725,7 @@ const make = Effect.gen(function* () {
       policyRevision = result.policyRevision;
     }
     if (selectionClass !== null) yield* validateModel(resolvedSelection);
-    const attempt: typeof ChampionExecutionAttempt.Type = {
+    const attempt: ChampionExecutionAttempt = {
       id: yield* uuid,
       checkId: check.id,
       kind: check.kind,

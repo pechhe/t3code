@@ -72,9 +72,8 @@ const localDependencyLinks = Effect.fn("localDependencyLinks")(function* (root: 
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const realDirectory = (dir: string) =>
-    Effect.tryPromise(() => NodeFSP.lstat(dir)).pipe(
-      Effect.map((stat) => stat.isDirectory()),
-      Effect.orElseSucceed(() => false),
+    Effect.promise(() => NodeFSP.lstat(dir).catch(() => null)).pipe(
+      Effect.map((stat) => stat?.isDirectory() ?? false),
     );
   const modules = path.join(root, "node_modules");
   const store = path.join(modules, ".pnpm");

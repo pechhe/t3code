@@ -29,6 +29,14 @@ import { decodeSessions, EMPTY_SESSIONS, type SessionStore } from "../voiceBridg
 import { makePort } from "../voiceBridge/T3Port.ts";
 import * as AgentCliClient from "./AgentCliClient.ts";
 
+class VoiceBridgeShortcutError extends Schema.TaggedError<VoiceBridgeShortcutError>()(
+  "VoiceBridgeShortcutError",
+  { message: Schema.String, cause: Schema.optional(Schema.Defect()) },
+) {}
+
+const shortcutError = (cause: unknown) =>
+  new VoiceBridgeShortcutError({ message: "The voice bridge shortcut failed.", cause });
+
 const endpointFlag = Flag.String("endpoint").pipe(
   Flag.withDescription(
     "T3 environment MCP URL the bridge speaks to, such as http://127.0.0.1:3773/mcp.",
@@ -138,27 +146,37 @@ const runBridge = (flags: BridgeFlags) =>
         if (platform !== "darwin")
           return yield* Effect.die(new Error("The command shortcut requires macOS."));
         yield* Effect.acquireRelease(
-          Effect.tryPromise(() =>
-            startMacCommandShortcut({
-              helperPath: NodePath.join(stateDir, "command-shortcut.swift"),
-              onTrigger: () => {
-                void runPromiseExit(
-                  captures
-                    .invoke({
-                      isRecording: Effect.tryPromise((signal) => isFluidVoiceRecording(signal)),
-                      toggle: Effect.tryPromise((signal) => toggleFluidVoiceCommand(signal)),
-                    })
-                    .pipe(Effect.catch((error) => Effect.logError("Right Option failed.", error))),
-                );
-              },
-              onCancel: () => {
-                void runPromise(captures.clear());
-              },
-              onFailure: (error) => {
-                void runPromise(Effect.logError(error));
-              },
-            }),
-          ),
+          Effect.tryPromise({
+            try: () =>
+              startMacCommandShortcut({
+                helperPath: NodePath.join(stateDir, "command-shortcut.swift"),
+                onTrigger: () => {
+                  void runPromiseExit(
+                    captures
+                      .invoke({
+                        isRecording: Effect.tryPromise({
+                          try: (signal) => isFluidVoiceRecording(signal),
+                          catch: shortcutError,
+                        }),
+                        toggle: Effect.tryPromise({
+                          try: (signal) => toggleFluidVoiceCommand(signal),
+                          catch: shortcutError,
+                        }),
+                      })
+                      .pipe(
+                        Effect.catch((error) => Effect.logError("Right Option failed.", error)),
+                      ),
+                  );
+                },
+                onCancel: () => {
+                  void runPromise(captures.clear());
+                },
+                onFailure: (error) => {
+                  void runPromise(Effect.logError(error));
+                },
+              }),
+            catch: shortcutError,
+          }),
           (stop) => Effect.sync(stop),
         );
       }

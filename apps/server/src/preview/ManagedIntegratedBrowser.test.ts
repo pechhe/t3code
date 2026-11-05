@@ -66,6 +66,7 @@ const dependencies = Layer.mergeAll(
     available: false,
     attached: Stream.empty,
     detached: Stream.empty,
+    isShown: () => false,
   }),
 ).pipe(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-managed-integrated-" })),

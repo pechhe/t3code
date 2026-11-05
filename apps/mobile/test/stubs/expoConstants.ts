@@ -1,0 +1,11 @@
+const expoConfig = { name: "T3 Code", slug: "t3-code", version: "0.0.0", extra: {} };
+export { expoConfig };
+export const manifest = expoConfig;
+export const manifest2 = null;
+export const appOwnership = null;
+export const executionEnvironment = "bare";
+export const sessionId = "test-session";
+export const platform = {};
+export const isDevice = true;
+export const deviceName = "test";
+export default { expoConfig, manifest, manifest2, executionEnvironment, isDevice, deviceName };

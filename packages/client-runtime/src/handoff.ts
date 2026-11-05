@@ -25,7 +25,7 @@ export type HandoffTimelineRun = Pick<
 export type HandoffEndpoints = ReturnType<typeof resolveHandoffEndpoints>;
 
 export function resolvePendingHandoff(
-  projection: ThreadStructure | null | undefined,
+  projection: Pick<ThreadStructure, "runs" | "visibleTurnItems" | "thread"> | null | undefined,
   selection: ModelSelection | null | undefined,
   providers: ReadonlyArray<ServerProvider>,
   nowMs: number,

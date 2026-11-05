@@ -3,32 +3,32 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.3-nightly.20261025.3669",
-      "sha": "5f64c5eb299a23d278ef043c416bd4dc801bc53c"
-    },
-    "target": {
       "tag": "v0.1.8-nightly.20261104.4192",
       "sha": "7f6f47b27b44456f1c8214d3b566b375c09f629e"
+    },
+    "target": {
+      "tag": "v0.1.8-nightly.20261105.4218",
+      "sha": "337c5858c33bc7f8f6dfd391a2c279fa0f7e4d17"
     }
   },
   "fork": {
-    "base": "da94262632df18ee041a279fc0eb0858aa9c99c7"
+    "base": "bd0027eb0759ebc30f7827bc0730b64994057b18"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "8b17416ae882377adcd6d9043db3d16b5374c903"
+    "blob": "7da85f6b3e606de0d07bc0b160e3d05c951436a7"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.8-nightly.20261104.4179@1793812507",
-  "reviewedAt": "2026-11-04T23:07:58.988Z",
+  "attempt": "v0.1.8-nightly.20261105.4218@1793880581",
+  "reviewedAt": "2026-11-05T17:23:41.000Z",
   "reviewer": {
-    "thread": "thread:project:mcp:2839a4ae-3ff8-46cd-8c81-2763c53b5b42:8e9e0f48-0805-4ce0-a740-ea0e2f5936c8",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:6e5a58e6-09e9-4105-9ca4-7e86d1d62516",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 1798,
+    "upstreamCommits": 37,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
@@ -54,10 +54,12 @@
       "unattended-threads",
       "thread-watches",
       "scheduled-tasks-extensions",
+      "champions",
       "linked-environments",
       "account-pools",
       "phi-browser-backend",
       "managed-browser-roles",
+      "preview-browser-lifetime",
       "screen-recording-video",
       "snapshot-overlay",
       "device-composer",
@@ -96,878 +98,909 @@
       "claude-full-access-no-prompts",
       "bounded-decisions",
       "browser-decision-evaluation",
-      "champions"
+      "ssh-launch-respects-boot-service",
+      "unhandled-rejection-keeps-server"
     ],
     "areas": [
-      "Upstream v0.1.8-nightly.20261025.3669..v0.1.8-nightly.20261104.4192: 1798 commits over five minor versions, 4920 files. Merged as one commit whose parents are the fork tip and the upstream tag.",
-      "378 originally conflicted files, 1476 resolved paths, assembled from a server pass, a client pass and three later merge rounds (the 4192 delta and the fork tip).",
-      "Platform change absorbed: Effect 4.0.6 -> 4.1.2 retired the Crypto service into Digest/SecureRandom, which broke ~140 fork-only files that never conflicted; all four packages typecheck clean under the tsrs/@effect/tsgo checker 4192 introduced.",
-      "Prescribed migration remapping to 096-105; no shipped id changed, and upstream 063-069 stay represented by the fork 072/074/075/076/079/088/090.",
-      "Lint and knip: 123 upstream-tightened lint findings fixed, 5 orphaned files resolved (two upstream leftovers deleted, three fork components re-wired), 9 unused dependencies removed, regenerated lockfile staged.",
-      "Every recorded entry is accounted for in dispositions; entries upstream has not moved are retained as unchanged rather than deferred."
+      "Upstream v0.1.8-nightly.20261104.4192..v0.1.8-nightly.20261105.4218: 37 commits over one nightly, merged as one commit whose parents are the fork tip and the upstream tag.",
+      "Four conflicted files: the client-runtime export map, the contracts RPC group (upstream's getThreadTitles), the ACP MCP-over-ACP bridge (upstream's TaggedError refactor) and pnpm-lock (claude-agent-sdk 0.3.316 against the fork catalog). Seventeen more files conflicted in hunks and are resolved in the same commit.",
+      "Structural changes: Effect error classes became Schema.TaggedError (#31216), Effect.try gained typed catches (#31217) and environment reads moved to HostProcess.Environment (#31218); the rules these enforce now fail fork-only files, 26 errors after the merge and none now.",
+      "Behaviour changes reaching fork code: an interrupted completion wake keeps its surviving siblings (#28204), usage-limit auto-resume is attributed to T3 Code (#29838), Lineage hides a deleted fork and names rows from the thread-title read (#29000), an idle agent tab nobody views gives up its browser slot (#24186), Claude MCP apps render tool output (#29803), and the cloud link store was renamed (#26464).",
+      "Every recorded entry is accounted for: twelve adapted, the rest retained as unchanged because nothing in this nightly reaches their integration points."
     ],
     "exclusions": [
       {
         "what": "Upstream's own code",
-        "why": "Upstream reviewed its own commits; the landing review judges the reconciliation only, never upstream's diff."
+        "why": "Upstream reviewed its own commits; the review judges the reconciliation only, never upstream's diff."
       },
       {
         "what": "`.repos` vendored references",
-        "why": "Synced wholesale from upstream (effect@4.1.2, alchemy-effect@v2.0.0-beta.85); never hand-merged."
+        "why": "Read-only upstream mirrors; never hand-merged."
       }
     ]
   },
   "dispositions": [
     {
       "entry": "compact-line",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
       "requirements": [
-        "Released migration ids and aliases stay fixed. New upstream migrations 070–079 use fork 096–105 in order; upstream 063–069 are already represented by fork 072/074/075/076/079/088/090. Registration, imports and the boolean-repair test cutoffs move together. The migration high-water mark is 105. Source: persistence/Migrations.ts and Migrations/096–105; Migrations.test.ts and reconcileV2PreviewMigration.test.ts pass in server-required-passing-subset.log."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#compact-line",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "compact-model",
-      "upstream": "v0.1.8-nightly.20261104.4192",
+      "upstream": "v0.1.8-nightly.20261105.4218",
       "decision": "retain",
       "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#compact-model",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "experiments",
-      "upstream": "v0.1.8-nightly.20261104.4192",
+      "upstream": "v0.1.8-nightly.20261105.4218",
       "decision": "retain",
       "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#experiments",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "agent-policy-roles",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
       "requirements": [
-        "Retain role-managed capability and read-only enforcement beside upstream managed-organization policy. Effect 4.1.2 splits the retired Crypto service into Digest and SecureRandom, and the fork-only service callers use those services. Source: agents/AgentPolicyService.ts and provider/AntigravityProvider.ts. The assembled server typecheck is clean and the policy, provider and MCP access suites pass."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#agent-policy-roles",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "managed-delegation",
-      "upstream": "v0.1.8-nightly.20261104.4192",
+      "upstream": "v0.1.8-nightly.20261105.4218",
       "decision": "adapt",
       "requirements": [
-        "Retain managed roles, external owned work, revision-bound follow-ups and release approvals beside upstream RemoteDelegation. Local managed follow-ups reject a remote-only child instead of reading a null local thread id; test fixtures carry both service families. Source: mcp/OrchestratorMcpService.ts and its tests. The assembled MCP suites pass on the merged tree. Per-path history for the vendored references could not be audited because the promisor repository lacks the objects, which the receipt records as an evidence limit rather than an outstanding repair."
+        "Orchestrator.ts keeps an interrupted completion wake's surviving siblings and attributes a usage-limit auto-resume to T3 Code, inside the fork's dispose path that still stays silent on a repeated Stop."
       ],
       "evidence": [
         "fork/differences.md#managed-delegation",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
+        "3 failed before the reconciliation; DelegatedCompletionDelivery.test.ts (part of the 335 focused tests) passes"
       ]
     },
     {
       "entry": "t3-agent-cli",
-      "upstream": "v0.1.8-nightly.20261104.4192",
+      "upstream": "v0.1.8-nightly.20261105.4218",
       "decision": "retain",
       "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#t3-agent-cli",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "run-setup-records",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
       "requirements": [
-        "Retain setup recording and reports; declare the new Digest dependency on t3_thread_setup after the Effect crypto split. Source: agents/RunSetupRecorder.ts and mcp/toolkits/thread/tools.ts. The assembled server typecheck is clean."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#run-setup-records",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "delegation-settings",
-      "upstream": "v0.1.8-nightly.20261104.4192",
+      "upstream": "v0.1.8-nightly.20261105.4218",
       "decision": "retain",
       "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#delegation-settings",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "slipjay-workspaces",
-      "upstream": "v0.1.8-nightly.20261104.4192",
+      "upstream": "v0.1.8-nightly.20261105.4218",
       "decision": "adapt",
       "requirements": [
-        "Keep JJ status, SlipJay landing candidates and terminalCwd workspace recovery; adopt upstream terminal viewer-aware attachOutputStream and traced Git methods. Remove the retired terminalRestart handler because upstream removed that contract and manager method. Source: git/GitWorkflowService.ts, vcs/VcsDriver.ts and ws.ts. The git and terminal suites pass on the assembled tree, including the viewer-aware attach stream and workspace recovery paths."
+        "Upstream's optional ghq-style clone folders merge beside the fork's checkout plan with no fork change."
       ],
       "evidence": [
         "fork/differences.md#slipjay-workspaces",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
+        "server typecheck and workspace suites pass"
       ]
     },
     {
       "entry": "slipjay-workspace-archive",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
       "requirements": [
-        "Keep archive-based cleanup through SlipJay while adopting upstream cleanup waiting/kept reporting. Source: storageCleanup.ts. Existing safety checks remain; the archive-cleanup suite passes on the assembled tree (185 tests in storageCleanup.test.ts)."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#slipjay-workspace-archive",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "slipjay-landing",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
       "requirements": [
-        "Keep land/readLog/readDetail routes, their authorization and the independent HQ/peer/thread RPC layers. Source: git/GitWorkflowService.ts, auth/RpcAuthorization.ts, ws.ts. The assembled server typecheck is clean, including the service contexts and the typed RPC inference the merge had broken."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#slipjay-landing",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "slipjay-release-approvals",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
       "requirements": [
-        "Keep ReleaseApprovals and its test-layer dependencies beside upstream RemoteDelegation; no release or approval was performed. Source: mcp/OrchestratorMcpService*.test.ts and auth/RpcAuthorization.ts. The MCP and RPC authorization suites cover the release-approval paths and pass."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#slipjay-release-approvals",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "slipjay-settings",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "adapt",
       "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+        "The fork's scheduled-task parts follow upstream's cloud link store rename."
       ],
       "evidence": [
         "fork/differences.md#slipjay-settings",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
+        "web typecheck clean"
       ]
     },
     {
       "entry": "slipjay-delivery-config",
-      "upstream": "v0.1.8-nightly.20261104.4192",
+      "upstream": "v0.1.8-nightly.20261105.4218",
       "decision": "retain",
       "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#slipjay-delivery-config",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "validation-tooling",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "adapt",
       "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+        "The fork's own files satisfy the Effect rules upstream now enforces: Schema.TaggedError, typed catch on every try/tryPromise, HostProcess.Environment instead of process.env."
       ],
       "evidence": [
         "fork/differences.md#validation-tooling",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
+        "server and web typecheck clean"
       ]
     },
     {
       "entry": "slipjay-command-guard",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
       "requirements": [
-        "Retain the fork guard and its adapter seams. The Claude adapter now carries the guard at its session and SlipJay call sites, and the assembled server typecheck is clean, so the auto-merge references that once broke here are resolved. Source: apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts and apps/server/src/project/SlipJayGuard.ts; the server suites pass."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#slipjay-command-guard",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "landing-test-parallelism",
-      "upstream": "v0.1.8-nightly.20261104.4192",
+      "upstream": "v0.1.8-nightly.20261105.4218",
       "decision": "retain",
       "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#landing-test-parallelism",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "timeline-layout-test-fixture",
-      "upstream": "v0.1.8-nightly.20261104.4192",
+      "upstream": "v0.1.8-nightly.20261105.4218",
       "decision": "retain",
       "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#timeline-layout-test-fixture",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "build-items-hq",
-      "upstream": "v0.1.8-nightly.20261104.4192",
+      "upstream": "v0.1.8-nightly.20261105.4218",
       "decision": "adapt",
       "requirements": [
-        "Keep the Forge usage queue and Build-item access requirements while adopting upstream ProviderUsageAnalytics. Source: server.ts and auth/RpcAuthorization.ts; RpcAuthorization.test.ts and the recording and runtime-layer suites pass on the assembled tree."
+        "The ACP bridge takes upstream's TaggedError construction and keeps the fork's per-server id and multi-server connect."
       ],
       "evidence": [
         "fork/differences.md#build-items-hq",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
+        "ACP suites pass"
       ]
     },
     {
       "entry": "repository-chips-hq",
-      "upstream": "v0.1.8-nightly.20261104.4192",
+      "upstream": "v0.1.8-nightly.20261105.4218",
       "decision": "retain",
       "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#repository-chips-hq",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "thread-workflow-chip",
-      "upstream": "v0.1.8-nightly.20261104.4192",
+      "upstream": "v0.1.8-nightly.20261105.4218",
       "decision": "retain",
       "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#thread-workflow-chip",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "unattended-threads",
-      "upstream": "v0.1.8-nightly.20261104.4192",
+      "upstream": "v0.1.8-nightly.20261105.4218",
       "decision": "retain",
       "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#unattended-threads",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "thread-watches",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "adapt",
       "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+        "Lineage hides a deleted fork from a settled title read and names relationships from that read, inside the fork's watch/advisors/Earlier groups."
       ],
       "evidence": [
         "fork/differences.md#thread-watches",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
+        "ThreadRelationshipsControl.browser.test.tsx 10/10, including upstream's deleted-fork case"
       ]
     },
     {
       "entry": "scheduled-tasks-extensions",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
       "requirements": [
-        "Keep groups, role-selected models, saved fallback selections and queued bound sends. Adopt upstream once schedules, managed policy and promotion retry via sendBound; use batched moveThreadTasks instead of the superseded single-thread moveThreadProject. Source: scheduledTasks/ScheduledTaskService.ts and mcp/OrchestratorMcpToolkit.integration.test.ts. The assembled scheduled-task suites pass, including the MCP toolkit integration tests."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
         "fork/differences.md#scheduled-tasks-extensions",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
-      ]
-    },
-    {
-      "entry": "linked-environments",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
-      "requirements": [
-        "Adopt upstream peer-link routing, delegation, link-origin fencing and v2/hosted thread links, retaining existing fork read-only peer sessions and legacy stored-link support. Legacy read-only peers normalize to read-only when represented as linkOrigin. Both stores remain temporarily because no verified conversion of existing fork peer records to upstream OAuth sessions exists; retire the legacy path only after that conversion and read-visibility parity are proven. Source: auth/EnvironmentAuth.ts, auth/McpOAuth.ts, mcp/linkOrigin.ts, peers/ThreadDirectory.ts, ws.ts. MCP access and authorization suites pass; cross-machine behaviour was not exercised in this run, which the receipt records as an evidence limit."
-      ],
-      "evidence": [
-        "fork/differences.md#linked-environments",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
-      ]
-    },
-    {
-      "entry": "account-pools",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
-      "requirements": [
-        "Keep pool configuration/usage refresh beside upstream managed-provider blocking and secret reloads. Source: provider/ProviderInstanceRegistry.ts, ProviderRegistry.ts and hydration tests. The provider typecheck is clean and the shared and provider suites pass on the assembled tree."
-      ],
-      "evidence": [
-        "fork/differences.md#account-pools",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
-      ]
-    },
-    {
-      "entry": "phi-browser-backend",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
-      "requirements": [
-        "Keep Phi and managed browser contexts while adopting upstream tab ownership metadata and scoped launcher support. Managed launches now pass the executable path through the upstream launcher API. Source: preview/ServerBrowser.ts and ServerBrowserContexts.ts. The focused browser suites pass on the assembled tree."
-      ],
-      "evidence": [
-        "fork/differences.md#phi-browser-backend",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
-      ]
-    },
-    {
-      "entry": "managed-browser-roles",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
-      "requirements": [
-        "Retain managed project policy, isolated contexts, tab budgets and crash refusal beside upstream pending-tab ownership. Source: preview/ServerBrowser.ts and mcp/toolkits/previewControls/handlers.test.ts; the focused preview and managed-browser suites pass on the assembled tree."
-      ],
-      "evidence": [
-        "fork/differences.md#managed-browser-roles",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
-      ]
-    },
-    {
-      "entry": "screen-recording-video",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#screen-recording-video",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "snapshot-overlay",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#snapshot-overlay",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "device-composer",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#device-composer",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "image-annotation",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#image-annotation",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "side-chat",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adopt",
-      "requirements": [
-        "Upstream's side chat is the only one: `useSideChat` forks the thread's latest stable point into a right-panel tab (`SideChatPane`) with Bring back, Delete and Close, merges back only with operate scope, an idle main thread and a finished reply, and discards a side chat whose start failed. The fork adds one header button, Use in main, which puts the latest assistant answer into the main thread's composer draft and is disabled when that answer is absent, empty, still streaming, or the parent composer is unreachable. Source: apps/web/src/components/chat/SideChatPane.tsx, useSideChat.ts and lib/sideChatPane.ts; the fork's SideChatCard, its openSideChat command, model picker and per-thread tracking were deleted."
-      ],
-      "evidence": [
-        "fork/differences.md#side-chat",
-        "apps/web/src/components/chat/SideChatPane.tsx"
-      ]
-    },
-    {
-      "entry": "no-project-chats",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#no-project-chats",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "project-themes",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#project-themes",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "saved-icon-compatibility",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#saved-icon-compatibility",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "fleet-summary",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#fleet-summary",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "live-response-streaming",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
-      "requirements": [
-        "Compose the live-streaming opt-in with upstream secretReferences redaction rather than redacting without client capabilities. Source: serverSettings.ts and ws.ts; shippedClientCompatibility.test.ts is rerun in server-required-passing-subset.log. Client integration landed in this update and the shipped-client compatibility suite passes."
-      ],
-      "evidence": [
-        "fork/differences.md#live-response-streaming",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
-      ]
-    },
-    {
-      "entry": "web-client-customisation",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#web-client-customisation",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "mobile-fork-screens",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#mobile-fork-screens",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "desktop-fork-build",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#desktop-fork-build",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "fork-name",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#fork-name",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "nightly-app-icon",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#nightly-app-icon",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "fork-updater",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#fork-updater",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "fork-guidance",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
-      "requirements": [
-        "Retain the fork-specific authority, runtime safety, Effect service, documentation and SlipJay rules in AGENTS.md. Upstream remote, seeding, composer and sidebar documentation is combined with recorded fork behaviour, and client-facing documentation was checked against the assembled client tree in this update. Source: AGENTS.md and docs/."
-      ],
-      "evidence": [
-        "fork/differences.md#fork-guidance",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
-      ]
-    },
-    {
-      "entry": "perf-persistence-reads",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
-      "requirements": [
-        "Retain reader routing and fork indexed projection/compaction paths while adopting upstream selective read fields. Source: persistence/Migrations.ts and orchestration-v2/ProjectionStore.ts. The four initially failing ProjectionStore cases pass: a full projection read holds its reader transaction through inherited history, shell reads batch ids below SQLite limits, streamed turn-item updates index typed timestamps without parsing payload JSON, and pull-request discovery includes stored legacy links. Subagent consumers are reconciled with upstream targeted reads — OrchestratorMcpService reads bounded task pages and the delegation path uses them — so the selective-read performance claim holds. ProjectionStore.test.ts and serverSettings.test.ts pass all 127 tests."
-      ],
-      "evidence": [
-        "fork/differences.md#perf-persistence-reads",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
-      ]
-    },
-    {
-      "entry": "perf-secret-reads",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
-      "requirements": [
-        "Retain cached secret reads while adopting SecureRandom and upstream key/provider reference behaviour. Source: auth/ServerSecretStore.ts and serverSettings.ts. Shipped-client compatibility redaction is checked, and the secret-store and server-settings suites pass on the assembled tree."
-      ],
-      "evidence": [
-        "fork/differences.md#perf-secret-reads",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
-      ]
-    },
-    {
-      "entry": "perf-landing-refresh",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#perf-landing-refresh",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "perf-persistence-writes",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#perf-persistence-writes",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "perf-markdown-blocks",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#perf-markdown-blocks",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "agent-process-ledger",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#agent-process-ledger",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "dev-state-tooling",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
-      "requirements": [
-        "Keep fork migration-slot collision and orphan checks, JJ workspace isolation and projection observations; adopt upstream peer-link cleanup and bounded automatic dev seeding. Source: scripts/migrate-dev-db.ts and docs/operations/development.md. Focused migrate test results remain in server-focused-tests.log."
-      ],
-      "evidence": [
-        "fork/differences.md#dev-state-tooling",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
-      ]
-    },
-    {
-      "entry": "quiet-run-read-state",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#quiet-run-read-state",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "delegated-work-visibility",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#delegated-work-visibility",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "subagent-return-chip",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#subagent-return-chip",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "session-tool-listings",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#session-tool-listings",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "run-interrupt-cause",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#run-interrupt-cause",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "ws-rpc-group-split",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
-      "requirements": [
-        "Register the contracts WsServerOperationsRpcGroup and WsThreadControlRpcGroup in their own instrumented layers, and put peerLinks handlers in WsPeersRpcGroup. Keep typed feature groups. Source: ws.ts. The contracts RPC groups take the typed split this update reconciled, and the assembled server typecheck passes."
-      ],
-      "evidence": [
-        "fork/differences.md#ws-rpc-group-split",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
-      ]
-    },
-    {
-      "entry": "voice-bridge",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
-      "requirements": [
-        "Retain the agent/voice-bridge CLI commands beside upstream environment/connect/status/up commands. Source: binCli.ts. No bridge runtime or desktop capture verification was performed."
-      ],
-      "evidence": [
-        "fork/differences.md#voice-bridge",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
-      ]
-    },
-    {
-      "entry": "thread-transcript-export",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#thread-transcript-export",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "mcp-orchestration-annotations",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#mcp-orchestration-annotations",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "dpop-forwarded-proto",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "adapt",
-      "requirements": [
-        "Retain forwardedRequestUrl for OAuth metadata and DPoP verification inside upstream's shared DPoP proof mechanism, which v0.1.8-nightly.20261104.4192 moved to effect/jose and shares across web and mobile. Server verification and OAuth metadata still use the forwarded URL, and the TLS-proxy proof regressions pass. Source: auth/dpop.ts, auth/McpOAuth.ts, apps/mobile/src/features/cloud/dpop.ts and EnvironmentAuth.test.ts."
-      ],
-      "evidence": [
-        "fork/differences.md#dpop-forwarded-proto",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF-server.md"
-      ]
-    },
-    {
-      "entry": "claude-missing-transcript-resume",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#claude-missing-transcript-resume",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "claude-full-access-no-prompts",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Nothing in v0.1.8-nightly.20261104.4192 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
-      ],
-      "evidence": [
-        "fork/differences.md#claude-full-access-no-prompts",
-        "/private/tmp/t3-upstream-4179.vxzkhm/HANDOFF.md"
-      ]
-    },
-    {
-      "entry": "bounded-decisions",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Landed on the fork tip during this update (T3-350) and untouched by upstream here: bounded mixed predicate, choice and rubric batches for Jev or Luna Decisions, preserving probability, provider confidence and continuous scores, with malformed correspondence invalidating the batch and refusals staying explicit. Upstream's Decision definitions and DecisionModel are reused, while local validation enforces the stricter foundation contract. No overlap with anything in v0.1.8-nightly.20261104.4192; the decision tool family and its MCP registration are the integration points a later upstream change could reach."
-      ],
-      "evidence": [
-        "fork/differences.md#bounded-decisions",
-        "packages/contracts/src/decisions.ts and the decision tool family in apps/server/src/mcp/toolkits"
-      ]
-    },
-    {
-      "entry": "browser-decision-evaluation",
-      "upstream": "v0.1.8-nightly.20261104.4192",
-      "decision": "retain",
-      "requirements": [
-        "Landed on the fork tip during this update (T3-348) and retained: bounded browser decision evaluation with its harness and comparison. Upstream's Effect 4.0.6 -> 4.1.2 split reached its Effect call sites, which now use the split services; behaviour is unchanged. Source: apps/server/scripts/evaluate-browser-decisions.ts and the decision evaluation runs beside it."
-      ],
-      "evidence": [
-        "fork/differences.md#browser-decision-evaluation"
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
       ]
     },
     {
       "entry": "champions",
-      "upstream": "v0.1.8-nightly.20261104.4192",
+      "upstream": "v0.1.8-nightly.20261105.4218",
       "decision": "retain",
       "requirements": [
-        "Landed on the fork tip during this update (94ce8fea) and retained: continuous product health with owned improvements, thirteen champions MCP tools and their client surface. Upstream's Effect 4.0.6 -> 4.1.2 split reached it because it was written against the retired Crypto service, so its call sites and composition edges moved to SecureRandom and the surrounding ports; the tools raise the committed agent context budget to 103347 bytes, recorded in agentContextBudget.json. Champion schedules exclude the one-off variant, so the form refuses `once` rather than saving it. Source: apps/server/src/champions/ChampionService.ts, apps/web/src/components/champions, apps/mobile/src/features/settings/SettingsChampionsRouteScreen.tsx."
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
       ],
       "evidence": [
-        "fork/differences.md#champions"
+        "fork/differences.md#champions",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "linked-environments",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#linked-environments",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "account-pools",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "adapt",
+      "requirements": [
+        "resolvePendingHandoff keeps the fork's pool routing and takes the thread back at the seam upstream narrowed."
+      ],
+      "evidence": [
+        "fork/differences.md#account-pools",
+        "handoff and context-window suites pass"
+      ]
+    },
+    {
+      "entry": "phi-browser-backend",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#phi-browser-backend",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "managed-browser-roles",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "adapt",
+      "requirements": [
+        "The idle agent tab nobody views gives up its slot; the fork's duplicate capacity assert ahead of the open path was removed so the reclaim runs."
+      ],
+      "evidence": [
+        "fork/differences.md#managed-browser-roles",
+        "ServerBrowser.test.ts 58/58"
+      ]
+    },
+    {
+      "entry": "preview-browser-lifetime",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#preview-browser-lifetime",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "screen-recording-video",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#screen-recording-video",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "snapshot-overlay",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#snapshot-overlay",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "device-composer",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#device-composer",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "image-annotation",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#image-annotation",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "side-chat",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#side-chat",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "no-project-chats",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#no-project-chats",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "project-themes",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#project-themes",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "saved-icon-compatibility",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#saved-icon-compatibility",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "fleet-summary",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#fleet-summary",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "live-response-streaming",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#live-response-streaming",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "web-client-customisation",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "adapt",
+      "requirements": [
+        "Upstream's shared taskListMarkerOffset and its client-runtime compaction helpers are adopted; the fork's duplicate copies are retired."
+      ],
+      "evidence": [
+        "fork/differences.md#web-client-customisation",
+        "ChatMarkdown and context-window suites pass"
+      ]
+    },
+    {
+      "entry": "mobile-fork-screens",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#mobile-fork-screens",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "desktop-fork-build",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#desktop-fork-build",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "fork-name",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#fork-name",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "nightly-app-icon",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#nightly-app-icon",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "fork-updater",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#fork-updater",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "fork-guidance",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#fork-guidance",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "perf-persistence-reads",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#perf-persistence-reads",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "perf-secret-reads",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#perf-secret-reads",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "perf-landing-refresh",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#perf-landing-refresh",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "perf-persistence-writes",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#perf-persistence-writes",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "perf-markdown-blocks",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#perf-markdown-blocks",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "agent-process-ledger",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#agent-process-ledger",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "dev-state-tooling",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#dev-state-tooling",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "quiet-run-read-state",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#quiet-run-read-state",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "delegated-work-visibility",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#delegated-work-visibility",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "subagent-return-chip",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#subagent-return-chip",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "session-tool-listings",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#session-tool-listings",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "run-interrupt-cause",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#run-interrupt-cause",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "ws-rpc-group-split",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "adapt",
+      "requirements": [
+        "Upstream's getThreadTitles joins the thread-structure group and handler layer, not the core group."
+      ],
+      "evidence": [
+        "fork/differences.md#ws-rpc-group-split",
+        "both typechecks clean"
+      ]
+    },
+    {
+      "entry": "voice-bridge",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "adapt",
+      "requirements": [
+        "The command shortcut failures map to VoiceBridgeShortcutError."
+      ],
+      "evidence": [
+        "fork/differences.md#voice-bridge",
+        "server typecheck clean"
+      ]
+    },
+    {
+      "entry": "thread-transcript-export",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#thread-transcript-export",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "mcp-orchestration-annotations",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#mcp-orchestration-annotations",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "dpop-forwarded-proto",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#dpop-forwarded-proto",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "claude-missing-transcript-resume",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#claude-missing-transcript-resume",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "claude-full-access-no-prompts",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#claude-full-access-no-prompts",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "bounded-decisions",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "adapt",
+      "requirements": [
+        "EngineRefusal is a Schema.TaggedError with an object payload."
+      ],
+      "evidence": [
+        "fork/differences.md#bounded-decisions",
+        "decision-engine suites pass"
+      ]
+    },
+    {
+      "entry": "browser-decision-evaluation",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#browser-decision-evaluation",
+        "git -C /tmp/t3fork-4218/fork log --oneline ddb170a9991a152572b9d43f1908d80ac28fbf2f..v0.1.8-nightly.20261105.4218"
+      ]
+    },
+    {
+      "entry": "ssh-launch-respects-boot-service",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update and its recorded requirements stand. The entry is a fork-only capability or a difference upstream has not moved."
+      ],
+      "evidence": [
+        "fork/differences.md#ssh-launch-respects-boot-service"
+      ]
+    },
+    {
+      "entry": "unhandled-rejection-keeps-server",
+      "upstream": "v0.1.8-nightly.20261105.4218",
+      "decision": "retain",
+      "requirements": [
+        "Nothing in v0.1.8-nightly.20261105.4218 reaches this entry's integration points, so the entry is unchanged by the update."
+      ],
+      "evidence": [
+        "fork/differences.md#unhandled-rejection-keeps-server"
       ]
     }
   ],
   "unresolved": [
     {
       "kind": "evidence",
-      "summary": "jose remains a dependency of the fork-only infra/task-cache service and its vendored GitHub OIDC verifier. Upstream moved its own crypto to effect/jose in v0.1.8-nightly.20261104.4192; migrating the task-cache verifier is the remaining step, and the dependency and catalog entry stay until then.",
-      "resumeBy": "A later change to infra/task-cache; nothing in this update depends on it."
+      "summary": "No live T3 Browser-panel look was taken at this update; the review raised it as a should-fix and it is answered rather than fixed. Lineage's visible changes are the deleted-fork filter and the fresher relationship title, and ThreadRelationshipsControl.browser.test.tsx mounts the real panel with the real atoms for both (10/10, including upstream's deleted-fork case). A panel look over empty dev state cannot exhibit a deleted or unloaded fork without seeding sqlite fixtures, so the integrated browser test is the stronger evidence for this rendering change.",
+      "resumeBy": "The next UI change to Lineage, or the first look at the installed build after this update."
     },
     {
       "kind": "evidence",
-      "summary": "No live installed-app verification was performed in this run. The landing gate runs the canonical checks; the Browser-panel look at the side chat and the installed T3 Peach build follow the landing.",
-      "resumeBy": "The landing gate, then the build and install steps of this update."
+      "summary": "Repo-wide `vp lint` reports 126 findings, most in files this merge does not touch and unchanged at the fork base; they predate this update, and the landing gate does not run lint.",
+      "resumeBy": "A later lint cleanup change; nothing in this update depends on it."
+    },
+    {
+      "kind": "evidence",
+      "summary": "apps/mobile/src/features/workspace/android-workspace-navigation-colors.test.ts is quarantined in tests/quarantine.json against Forge T3-390 (#6486): the zenburn dark floating pill leaves the selection label at 4.29 contrast, and no label or indicator position satisfies both its 4.5 and the pill's 1.25 separation without a palette decision.",
+      "resumeBy": "T3-390; the rest of that suite and the other eleven themes still run."
     }
   ],
   "checks": [
     {
       "command": "vp i",
       "result": "passed",
-      "note": "pnpm 12.14.0, strict peer checking, supply-chain policy passed; lockfile regenerated and staged"
+      "note": "pnpm 12.14.0 in the merge clone; lockfile regenerated from upstream's claude-agent-sdk 0.3.316 and the fork's catalog"
     },
     {
-      "command": "vp staged",
+      "command": "vp run --filter t3 typecheck",
       "result": "passed",
-      "note": "format, lint and both knip passes, after fixing the 123 lint findings and 5 orphaned files / 9 unused dependencies the merge exposed"
+      "note": "26 errors after the merge, zero now; the fixes are the reconciliation commit's TaggedError, typed-catch, HostProcess.Environment and mock-session changes"
     },
     {
-      "command": "typecheck (server, web, mobile, desktop)",
+      "command": "vp run --filter @t3tools/web typecheck",
       "result": "passed",
-      "note": "all four current typecheck commands, zero errors or warnings under the tsrs/@effect/tsgo checker upstream 4192 introduced; Effect suggestions only"
+      "note": "10 errors after the merge, zero now"
     },
     {
-      "command": "server suites",
+      "command": "vp test run (server preview, acp, orchestration, agents, decision, terminal and voice suites)",
       "result": "passed",
-      "note": "1,201 tests across 47 files in the lint round; 566 exercised across 47 suites in the final round, plus focused reruns of the two MCP payload baselines after their measured expectations were refreshed"
+      "note": "26 files, 335 tests; ServerBrowser.test.ts separately 58/58"
     },
     {
-      "command": "web suites",
+      "command": "vp test run (web, client-runtime, shared)",
       "result": "passed",
-      "note": "240 tests across seven files, then 180 tests across 12 suites after the fork-tip merge; browser regressions 27 across five files, plus 128 tests across six integration suites"
-    },
-    {
-      "command": "shared/provider suites",
-      "result": "passed",
-      "note": "4,277 passed, four skipped after the lint round; 551 across 21 files after the 4192 merge, including shared DPoP and forwarded-URL verification"
-    },
-    {
-      "command": "vpr sync:repos",
-      "result": "passed",
-      "note": "effect@4.1.2 and alchemy-effect@v2.0.0-beta.85 already current; no change"
+      "note": "5 files 427 tests for the context-window and handoff suites; the ChatMarkdown/ThreadRelationshipsControl browser run failed 1 of 34 until relationship rows took upstream's resolved title, then ThreadRelationshipsControl.browser.test.tsx passed 10/10"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
@@ -975,14 +1008,29 @@
       "note": "plan generated against the merged config; the landing gate itself runs on the SlipJay runner"
     },
     {
-      "command": "absorb the fork tip: 94ce8fea champions, then da942626",
+      "command": "independent review (ticket-reviewer, codex gpt-6.1-sol)",
       "result": "passed",
-      "note": "The fork landed champions and a fork-nightly guidance update while this candidate queued. Champions took migration 096/097, so upstream's ten remapped migrations moved again to 098-107; its 13 tools raised the committed agent context budget to 103347 bytes, recorded in agentContextBudget.json; and its settings route, theme list and thread-details link were carried onto the reconciled client."
+      "note": "0 blocking, 1 should-fix: no live Browser-panel look at the Lineage change. Answered rather than fixed: the panel's own browser suite mounts the panel and asserts both changed behaviours (10/10)."
     },
     {
-      "command": "effect-tsgo tsrs --noEmit (server, web, mobile, desktop)",
+      "command": "absorb the fork tip: a09b228bdf, d4f8a83cd3, 404e67fea6",
       "result": "passed",
-      "note": "Zero errors in all four after porting the champions, T3-348 and T3-356 code onto effect/crypto 4.1.2 — the retried Crypto service became Digest/SecureRandom at their call sites and composition edges. Server 119 tests passed, and the agent context budget test passes at the re-measured 103347 bytes."
+      "note": "Three fork commits landed while this candidate queued: the routing-decision harness, a preview-snapshot crash fix and the HQ-to-Weave rename. The merge was rebased onto the new tip; the record conflicted only where the rename had rewritten the build-items-hq retained-name bullets, and both sides were kept."
+    },
+    {
+      "command": "second rebase onto 8ff14072 and gate retry",
+      "result": "passed",
+      "note": "The first landing attempt failed the gate twice: the receipt check refused a stale fork base after another fork commit landed (8ff14072), and test-landing.ts listed tests for apps/desktop behind an ENOTEMPTY vitest-cache race on the runner. The merge was rebased onto 8ff14072 with no conflicts and both typechecks are clean on that tree."
+    },
+    {
+      "command": "vp test run (apps/mobile, all projects)",
+      "result": "passed",
+      "note": "279 files, 3,299 tests, after inlining @effect/vitest and @material/material-color-utilities and aliasing the Expo JSI packages to Node stubs; this was the gate failure that blocked the first three landing attempts"
+    },
+    {
+      "command": "node scripts/lib/test-landing-vitest.ts list (scripts)",
+      "result": "passed",
+      "note": "after giving each gate child its own Vitest cache directory; the shared node_modules/.vitest-cache raced on rmdir under concurrent runs"
     }
   ],
   "result": "reconciled"

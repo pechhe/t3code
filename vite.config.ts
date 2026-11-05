@@ -97,6 +97,9 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Gate processes list and typecheck concurrently; a shared cache directory races on teardown
+    // (ENOTEMPTY from rmdir), so each child may name its own.
+    cacheDir: process.env.T3_TEST_CACHE_DIR ?? "node_modules/.vitest-cache",
     // Fixture subprocesses must not inherit the outer task runner’s cache policy.
     env: { VP_REMOTE_CACHE: "off", VP_REMOTE_CACHE_URL: "" },
     exclude: TEST_EXCLUDE,

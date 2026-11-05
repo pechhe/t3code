@@ -168,6 +168,7 @@ export function listTests(request: ListRequest) {
       {
         cwd: NodePath.join(request.root, request.directory),
         stdio: ["ignore", "pipe", "inherit"],
+        env: { ...process.env, T3_TEST_CACHE_DIR: privateCacheDir() },
       },
     );
     let output = "";
@@ -179,6 +180,14 @@ export function listTests(request: ListRequest) {
       else reject(new Error(`listing tests in ${request.directory} exited ${code}`));
     });
   });
+}
+
+/** A cache directory owned by one child process, so concurrent Vite runs never share one. */
+let cacheDirSequence = 0;
+
+function privateCacheDir() {
+  cacheDirSequence += 1;
+  return NodePath.join("node_modules/.vitest-cache", `run-${process.pid}-${cacheDirSequence}`);
 }
 
 /** The command that runs a request in its own process, from any directory. */

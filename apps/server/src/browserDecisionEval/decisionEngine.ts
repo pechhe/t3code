@@ -4,6 +4,8 @@
  * that executes the choice.
  */
 
+import * as Schema from "effect/Schema";
+
 export type TargetOperation = "CLICK" | "TYPE_TEXT" | "SELECT";
 export type ControlOperation = "SCROLL_DOWN" | "WAIT" | "DONE" | "BLOCKED";
 export type Operation = TargetOperation | ControlOperation;
@@ -78,9 +80,9 @@ export interface BoundedDecisionEngine {
   decide(request: DecisionRequest, signal?: AbortSignal): Promise<DecisionResult>;
 }
 
-export class EngineRefusal extends Error {
-  override readonly name = "EngineRefusal";
-}
+export class EngineRefusal extends Schema.TaggedError<EngineRefusal>()("EngineRefusal", {
+  message: Schema.String,
+}) {}
 
 export const targetsFor = (observation: Observation) => {
   const targets: Record<TargetOperation, Map<string, string>> = {
@@ -122,7 +124,7 @@ export const assembleDecision = (
   if (operation === "CLICK" || operation === "TYPE_TEXT" || operation === "SELECT") {
     const target = targetFor(operation);
     if (!targetsFor(observation)[operation].has(target))
-      throw new EngineRefusal("Chosen target is not an offered element.");
+      throw new EngineRefusal({ message: "Chosen target is not an offered element." });
     return { operation, target };
   }
   if (
@@ -132,7 +134,7 @@ export const assembleDecision = (
     operation === "BLOCKED"
   )
     return { operation };
-  throw new EngineRefusal("Chosen operation was not offered.");
+  throw new EngineRefusal({ message: "Chosen operation was not offered." });
 };
 
 /**

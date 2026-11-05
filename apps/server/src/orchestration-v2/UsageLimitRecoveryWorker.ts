@@ -141,7 +141,7 @@ export function limitRecoveryCommand(
     text: CONTINUE_TEXT,
     attachments: [],
     dispatchMode: { type: "start_immediately" },
-    createdBy: "user",
+    createdBy: "agent",
     creationSource: "server",
   };
 }

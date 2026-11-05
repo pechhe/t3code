@@ -6,11 +6,8 @@ import type {
   ServerProviderModel,
 } from "@t3tools/contracts";
 import {
-  CLAUDE_RESUME_COMPACTION_NEVER_ANSWER,
-  COMPACTION_SUGGESTION_MIN_TOKENS,
   chooseCompactionModel,
   conversationPromptCacheExpiresAt,
-  isClaudeResumeCompactionQuestion,
 } from "@t3tools/shared/claudeCompaction";
 import { formatModelSlugName } from "@t3tools/shared/model";
 import {
@@ -18,9 +15,6 @@ import {
   type ProviderInstanceEntry,
 } from "../../providerInstances";
 import { getDisplayModelName, type ModelEsque } from "./providerIconUtils";
-
-// Fallback TTL: Claude's 1h cache plus slack.
-const CLAUDE_RESUME_COMPACTION_FALLBACK_MS = 70 * 60_000;
 
 export function providerSupportsManualCompaction(
   provider: ProviderInstanceEntry | null | undefined,
@@ -49,47 +43,6 @@ export function hasAvailableCompactionProvider(input: {
 
   return providerSupportsManualCompaction(
     resolveSelectableProviderInstanceEntry(compatibleProviders, input.instanceId ?? undefined),
-  );
-}
-
-export function hasDismissedResumeCompaction(
-  activities: ReadonlyArray<{ readonly kind: string; readonly payload: unknown }>,
-): boolean {
-  return activities.some((activity) => {
-    if (activity.kind !== "user-input.resolved") return false;
-    const payload = activity.payload;
-    if (!payload || typeof payload !== "object") return false;
-    const answers = (payload as { readonly answers?: unknown }).answers;
-    if (!answers || typeof answers !== "object" || Array.isArray(answers)) return false;
-
-    return Object.entries(answers).some(
-      ([question, answer]) =>
-        isClaudeResumeCompactionQuestion(question) &&
-        answer === CLAUDE_RESUME_COMPACTION_NEVER_ANSWER,
-    );
-  });
-}
-
-export function shouldOfferResumeCompaction(input: {
-  readonly provider: string | null | undefined;
-  readonly usedTokens: number | null | undefined;
-  readonly updatedAt: string | null | undefined;
-  readonly promptCacheTtlMs?: number | undefined;
-  readonly now: string;
-}): boolean {
-  if (
-    input.provider !== "claudeAgent" ||
-    (input.usedTokens ?? 0) < COMPACTION_SUGGESTION_MIN_TOKENS
-  ) {
-    return false;
-  }
-
-  const updatedAt = Date.parse(input.updatedAt ?? "");
-  const now = Date.parse(input.now);
-  return (
-    Number.isFinite(updatedAt) &&
-    Number.isFinite(now) &&
-    now - updatedAt >= (input.promptCacheTtlMs ?? CLAUDE_RESUME_COMPACTION_FALLBACK_MS)
   );
 }
 
@@ -132,7 +85,6 @@ export function resolveCompactionModelDisplayName(input: {
     ? formatModelSlugName(choice.model)
     : getDisplayModelName(chosen, { preferShortName: true }).replace(/^Claude /, "");
 }
-
 export function resolveContextWindowModelDisplayName(
   selection: ModelSelection | null | undefined,
   modelOptionsByInstance: ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>>,

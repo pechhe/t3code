@@ -625,9 +625,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("boot service ins
       const { service, commands, control, makeService } = yield* makeHarness();
       yield* service.install();
       const failure = yield* service
-        .withStopped(
-          Effect.suspend(() => Effect.fail(control.active ? "running" : "repair failed")),
-        )
+        .withStopped(Effect.failSync(() => (control.active ? "running" : "repair failed")))
         .pipe(Effect.flip);
       expect(failure).toBe("repair failed");
       expect(control.active).toBe(true);

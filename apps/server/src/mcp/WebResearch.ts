@@ -6,6 +6,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import type * as Scope from "effect/Scope";
 
 export class WebResearchError extends Schema.TaggedError<WebResearchError>()("WebResearchError", {
@@ -34,14 +35,15 @@ export const layerCredentials = Layer.effect(
     return ExecutorCredentialSource.of({
       read: Effect.gen(function* () {
         const home = NodeOS.homedir();
+        const environment = yield* HostProcess.Environment;
         const result = yield* processes
           .run({
             command: "bws",
             args: ["secret", "list"],
             timeout: "30 seconds",
             env: {
-              ...process.env,
-              PATH: `${home}/.local/bin:${home}/.bun/bin:${home}/.local/share/bws/bin:/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`,
+              ...environment,
+              PATH: `${home}/.local/bin:${home}/.bun/bin:${home}/.local/share/bws/bin:/opt/homebrew/bin:/usr/local/bin:${environment.PATH ?? ""}`,
             },
             maxOutputBytes: 4 * 1024 * 1024,
           })
@@ -86,6 +88,9 @@ export const layerExecutor = Layer.effect(
     return ExecutorWebClient.of({
       connect: Effect.gen(function* () {
         const token = yield* credentials.read;
+        const executorMcpUrl =
+          (yield* HostProcess.Environment).T3CODE_EXECUTOR_MCP_URL ??
+          "https://mcp.executor.sh/org/peach/mcp";
         const client = yield* Effect.acquireRelease(
           Effect.sync(() => new Client({ name: "t3-web-research", version: "1" })),
           (client) => Effect.promise(() => client.close()).pipe(Effect.ignore),
@@ -93,12 +98,9 @@ export const layerExecutor = Layer.effect(
         yield* Effect.tryPromise({
           try: () =>
             client.connect(
-              new StreamableHTTPClientTransport(
-                new URL(
-                  process.env.T3CODE_EXECUTOR_MCP_URL ?? "https://mcp.executor.sh/org/peach/mcp",
-                ),
-                { requestInit: { headers: { Authorization: `Bearer ${token}` } } },
-              ),
+              new StreamableHTTPClientTransport(new URL(executorMcpUrl), {
+                requestInit: { headers: { Authorization: `Bearer ${token}` } },
+              }),
             ),
           catch: (cause) => new WebResearchError({ stage: "connection", cause }),
         });
@@ -190,7 +192,8 @@ export const layer = Layer.effect(
   WebResearch,
   Effect.gen(function* () {
     const executor = yield* ExecutorWebClient;
-    const accountId = process.env.T3CODE_TAVILY_ACCOUNT_ID ?? DEFAULT_ACCOUNT_ID;
+    const accountId =
+      (yield* HostProcess.Environment).T3CODE_TAVILY_ACCOUNT_ID ?? DEFAULT_ACCOUNT_ID;
     const call = Effect.fn("WebResearch.call")(function* (
       path: typeof SEARCH_PATH | typeof FETCH_PATH,
       body: Record<string, unknown>,
