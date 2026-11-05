@@ -273,10 +273,12 @@ omits it for a provider that offers all of them. When the target lists
 `runtimeModes`, an explicit `runtimeMode` outside that list is refused, and an
 inherited mode steps down to the broadest mode the target offers.
 
-Each delegated review round uses a new `delegate_task` call with the original
-brief, prior findings, responses, and unresolved objections. Track each round by
-its own `taskId` and use a distinct `clientRequestId` per round, stable across
-retries of that round.
+A later delegated review round continues the same reviewer with
+`followup.taskId`, so it keeps its model and judgement and does not re-read the
+work. A fresh reviewer, briefed with the original brief, prior findings, responses
+and unresolved objections, is only for one that is gone or whose workspace has
+retired. Use a distinct `clientRequestId` per round, stable across retries of that
+round.
 A follow-up that needs the same child's conversation passes `followup.taskId` to
 `delegate_task`, which continues that task in its existing conversation,
 workspace, model and permissions. An ordinary `t3_thread_send` on a

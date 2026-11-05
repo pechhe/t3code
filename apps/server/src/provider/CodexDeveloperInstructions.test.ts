@@ -73,7 +73,7 @@ describe("Codex orchestration context", () => {
       ),
     );
     NodeAssert.ok(
-      orchestration.includes("For every T3 delegated review round, call `delegate_task` again."),
+      orchestration.includes("Send each later review round to the same reviewer"),
     );
     NodeAssert.ok(
       orchestration.includes(
