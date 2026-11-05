@@ -73,6 +73,10 @@ SIGNING_PASS="$STATE/signing.pass"
 # on that host (a leading ~ is its home).
 VPS="${T3FORK_VPS-slipjay-test}"
 VPS_CLONE="${T3FORK_VPS_CLONE:-~/projects/t3code-fork}"
+# Hosts that run the same fork runtime as VPS without building it: the second VPS.
+# Each keeps a clone at VPS_CLONE for the install script only. A mirror that fails
+# is reported and leaves the build, and VPS, as they are.
+VPS_MIRRORS="${T3FORK_VPS_MIRRORS-peach-box}"
 LABEL=com.pechhe.t3code-fork-nightly
 # A LaunchAgent that `install --on-quit` starts on demand. When T3 Peach is
 # force-quit, macOS unloads jobs an agent inside it `launchctl submit`ted, but
@@ -1290,18 +1294,51 @@ invocation_status() {
 # Installs the built runtime on the VPS. A failed or lost install is read back
 # from the VPS: 0 installed, 1 not switched, 2 switched but unfinished or unknown.
 vps_install() {
-  local version="$1" source="$2" remote
+  local version="$1" source="$2" remote mirrors
+  mirrors="$(mirror_stage "$version")"
   if ssh -n -o BatchMode=yes -o ConnectTimeout=30 "$VPS" \
     "bash -lc '$VPS_CLONE/scripts/fork-vps-runtime.sh install $version $source'"; then
+    mirror_install "$version" "$source" "$mirrors"
     return 0
   fi
   remote="$(ssh -n -o BatchMode=yes -o ConnectTimeout=30 "$VPS" \
     "bash -lc '$VPS_CLONE/scripts/fork-vps-runtime.sh state $version $source'" 2>/dev/null || true)"
   case "$remote" in
-    installed) return 0 ;;
+    installed) mirror_install "$version" "$source" "$mirrors"; return 0 ;;
     absent) return 1 ;;
     *) return 2 ;;
   esac
+}
+
+# Copies the archive VPS built to each mirror before VPS's install consumes it, and
+# prints the mirrors that received it. A mirror's own `t3 update` would fetch upstream's
+# runtime under the same version string, whose migrations differ from the fork's.
+mirror_stage() {
+  local version="$1" mirror pending=".t3/runtime/versions/.fork-pending-$version.tar.gz"
+  for mirror in $VPS_MIRRORS; do
+    if ssh -n -o BatchMode=yes -o ConnectTimeout=30 "$VPS" "cat ~/$pending" |
+      ssh -o BatchMode=yes -o ConnectTimeout=30 "$mirror" "mkdir -p ~/.t3/runtime/versions && cat >~/$pending" &&
+      ssh -n -o BatchMode=yes -o ConnectTimeout=30 "$VPS" "cat ~/$pending.source" |
+      ssh -o BatchMode=yes -o ConnectTimeout=30 "$mirror" "cat >~/$pending.source"; then
+      echo "$mirror"
+    else
+      log "could not copy the fork runtime $version to $mirror" >&2
+      notify "The fork runtime $version did not reach $mirror; it keeps its current runtime"
+    fi
+  done
+}
+
+mirror_install() {
+  local version="$1" source="$2" mirrors="$3" mirror
+  for mirror in $mirrors; do
+    if ssh -n -o BatchMode=yes -o ConnectTimeout=30 "$mirror" \
+      "bash -lc '$VPS_CLONE/scripts/fork-vps-runtime.sh install $version $source'"; then
+      log "installed the fork runtime $version on $mirror"
+    else
+      log "installing the fork runtime $version on $mirror failed"
+      notify "Installing the fork runtime on $mirror for $version failed; $VPS has it"
+    fi
+  done
 }
 
 # Refuses to start over a build that may still be working. Called with the lock held;
