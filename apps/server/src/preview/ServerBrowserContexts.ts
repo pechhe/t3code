@@ -92,8 +92,21 @@ export const presentAsChrome = async (
 export class ServerBrowserContexts {
   private readonly options: Options;
   private readonly contexts = new Map<string, Promise<BrowserContext>>();
-  private readonly clearing = new Map<string, Promise<void>>();
+  private readonly clearing = new Map<
+    string,
+    { readonly clear: boolean; readonly promise: Promise<void> }
+  >();
   private browser: Promise<Browser> | undefined;
+  private readonly held = new Map<
+    BrowserContext,
+    {
+      readonly shared: boolean;
+      readonly key: string | null;
+      holds: number;
+      cache?: Promise<BrowserContext>;
+    }
+  >();
+  private sharedStarts = 0;
   private readonly managedContexts = new Set<BrowserContext>();
   private readonly proxies = new Map<BrowserContext, ManagedBrowserProxy>();
   private readonly managedPolicies = new Map<
@@ -162,10 +175,12 @@ export class ServerBrowserContexts {
     const key = JSON.stringify([profileId, isolationKey ?? null]);
     const cached = this.contexts.get(key);
     if (cached) return cached;
-    const cleared = this.clearing.get(key)?.catch(constVoid) ?? Promise.resolve();
+    const cleared = this.clearing.get(key)?.promise.catch(constVoid) ?? Promise.resolve();
     const pending = cleared
       .then(() => this.createContext(profileId, isolationKey))
       .then(async (context) => {
+        const held = this.held.get(context);
+        if (held) held.cache = pending;
         context.on("close", () => {
           if (this.contexts.get(key) === pending) this.contexts.delete(key);
           this.options.onContextClose?.(context);
@@ -185,22 +200,94 @@ export class ServerBrowserContexts {
   }
 
   private async createContext(profileId: string, isolationKey?: string) {
+    const key = JSON.stringify([profileId, isolationKey ?? null]);
     const contextOptions = { viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 };
     if (isolationKey !== undefined || profileId === INCOGNITO_BROWSER_PROFILE_ID) {
-      const browser = await this.sharedBrowser();
-      return browser.newContext(contextOptions);
+      return this.sharedContext(contextOptions, key);
     }
     const directory = this.profileDirectory(profileId);
     await NodeFSP.mkdir(directory, { recursive: true });
     const { executable, ...options } = await this.launchOptions();
     const { chromium } = loadPlaywright();
-    return this.launch(executable, (executablePath) =>
+    const context = await this.launch(executable, (executablePath) =>
       chromium.launchPersistentContext(directory, {
         ...options,
         ...contextOptions,
         executablePath,
       }),
     );
+    this.track(context, false, key);
+    return context;
+  }
+
+  private async sharedContext(
+    options?: Parameters<Browser["newContext"]>[0],
+    key: string | null = null,
+  ) {
+    this.sharedStarts += 1;
+    try {
+      const context = await (await this.sharedBrowser()).newContext(options);
+      this.track(context, true, key);
+      return context;
+    } finally {
+      this.sharedStarts -= 1;
+      this.closeSharedBrowserIfIdle();
+    }
+  }
+
+  private track(context: BrowserContext, shared: boolean, key: string | null) {
+    if (this.held.has(context)) return;
+    this.held.set(context, { shared, key, holds: 0 });
+    context.once("close", () => {
+      this.held.delete(context);
+      if (shared) this.closeSharedBrowserIfIdle();
+    });
+  }
+
+  hold(context: BrowserContext) {
+    const entry = this.held.get(context);
+    if (entry) entry.holds += 1;
+  }
+
+  release(context: BrowserContext) {
+    const entry = this.held.get(context);
+    if (!entry || entry.holds === 0) return;
+    entry.holds -= 1;
+    if (entry.holds > 0) return;
+    const closing = context.close().catch(constVoid);
+    const key = entry.key;
+    if (key === null) return;
+    // A profile's storage cannot be reopened until its browser has gone, so
+    // the next request for this key waits for the close. A cached reopen owns
+    // its own entry; this release must not drop it.
+    if (this.contexts.get(key) === entry.cache) this.contexts.delete(key);
+    // A clear covers both the close and the storage deletion, so chain the
+    // close behind it rather than replacing it.
+    const current = this.clearing.get(key);
+    const pending = {
+      clear: current?.clear ?? false,
+      promise:
+        current === undefined ? closing : current.promise.catch(constVoid).then(() => closing),
+    };
+    this.clearing.set(key, pending);
+    void pending.promise.finally(() => {
+      if (this.clearing.get(key) === pending) this.clearing.delete(key);
+    });
+  }
+
+  private closeSharedBrowserIfIdle() {
+    if (this.closing || this.sharedStarts > 0) return;
+    for (const entry of this.held.values()) if (entry.shared) return;
+    const launched = this.browser;
+    if (!launched) return;
+    void launched
+      .then(async (browser) => {
+        if (this.closing || this.sharedStarts > 0) return;
+        for (const entry of this.held.values()) if (entry.shared) return;
+        if (this.browser === launched) this.browser = undefined;
+        await browser.close().catch(constVoid);
+      })
+      .catch(constVoid);
   }
 
   async managedContext(options: {
@@ -243,6 +330,7 @@ export class ServerBrowserContexts {
         "Managed browser context could not start within 5 seconds.",
       );
       this.managedContexts.add(context);
+      this.track(context, false, null);
       this.proxies.set(context, proxy);
       this.managedPolicies.set(context, {
         policy: options.policy,
@@ -305,7 +393,7 @@ export class ServerBrowserContexts {
 
   async scratchPage() {
     if (this.closing) throw new Error("The preview browser is closed.");
-    const context = await (await this.sharedBrowser()).newContext();
+    const context = await this.sharedContext();
     const page = await context.newPage();
     page.once("close", () => void context.close().catch(constVoid));
     return page;
@@ -326,21 +414,25 @@ export class ServerBrowserContexts {
     if (profileId === INCOGNITO_BROWSER_PROFILE_ID) return;
     const key = JSON.stringify([profileId, null]);
     const existing = this.clearing.get(key);
-    if (existing) return existing;
-    const clearing = (async () => {
-      const pending = this.contexts.get(key);
-      if (pending) {
-        this.contexts.delete(key);
-        const context = await pending.catch(() => undefined);
+    if (existing?.clear) return existing.promise;
+    const previous = this.contexts.get(key);
+    if (previous !== undefined) this.contexts.delete(key);
+    // A release may still be closing this profile's browser, and its storage
+    // cannot be removed underneath it, so both clear and reopen wait for it.
+    const cleared = existing?.promise.catch(constVoid) ?? Promise.resolve();
+    const promise = cleared.then(async () => {
+      if (previous !== undefined) {
+        const context = await previous.catch(() => undefined);
         await context?.close();
       }
       await NodeFSP.rm(this.profileDirectory(profileId), { recursive: true, force: true });
-    })();
-    this.clearing.set(key, clearing);
+    });
+    const entry = { clear: true, promise };
+    this.clearing.set(key, entry);
     try {
-      await clearing;
+      await promise;
     } finally {
-      if (this.clearing.get(key) === clearing) this.clearing.delete(key);
+      if (this.clearing.get(key) === entry) this.clearing.delete(key);
     }
   }
 
@@ -359,5 +451,6 @@ export class ServerBrowserContexts {
     const browser = await this.browser?.catch(() => undefined);
     await browser?.close().catch(constVoid);
     this.contexts.clear();
+    this.held.clear();
   }
 }

@@ -515,7 +515,10 @@ const make = Effect.gen(function* () {
   const crashedManagedTabs = new Map<string, string>();
 
   const closedPendingTabs = new Set<string>();
-  const adoptedPages = new Map<string, { readonly page: Page; readonly openerTabId: string }>();
+  const adoptedPages = new Map<
+    string,
+    { readonly page: Page; readonly openerTabId: string; readonly release: () => void }
+  >();
   const closedSessions = new Set<string>();
   let hostConnectionId: string | null = null;
   let viewerResizeOrder = 0;
@@ -772,8 +775,11 @@ const make = Effect.gen(function* () {
     for (const viewer of tab.viewers) viewer.push({ _tag: end });
     void tab.control.close().catch(constVoid);
     if (tab.desktop) void tab.desktop.close().catch(constVoid);
-    else void tab.page.close().catch(constVoid);
-    if (tab.isolatedContext) void tab.page.context().close().catch(constVoid);
+    else {
+      const context = tab.page.context();
+      void tab.page.close().catch(constVoid);
+      contexts.release(context);
+    }
     void tab.recording?.encoder.close().catch(constVoid);
     void NodeFSP.rm(downloadDir(tab), { recursive: true, force: true }).catch(constVoid);
     reportLiveTabs();
@@ -847,8 +853,9 @@ const make = Effect.gen(function* () {
     snapshot: PreviewSessionSnapshot,
     opened: Array<() => Promise<void>>,
   ): Promise<ServerTab> => {
-    const adopted = adoptedPages.get(tabKey(snapshot.threadId, snapshot.tabId));
-    adoptedPages.delete(tabKey(snapshot.threadId, snapshot.tabId));
+    const key = tabKey(snapshot.threadId, snapshot.tabId);
+    const adopted = adoptedPages.get(key);
+    adoptedPages.delete(key);
     const managedProject =
       snapshot.automationOwner === undefined
         ? undefined
@@ -877,13 +884,19 @@ const make = Effect.gen(function* () {
       (managedProject === undefined
         ? await contexts.contextFor(
             snapshot.profileId ?? "default",
-            isolatedContext ? tabKey(snapshot.threadId, snapshot.tabId) : undefined,
+            isolatedContext ? key : undefined,
           )
         : await contexts.managedContext({
             serverPort,
             policy: async () => managedPolicy(managedProject),
           }));
-    if (isolatedContext && managedProject === undefined) opened.push(() => context.close());
+    // Ownership starts before any setup await, so a sibling tab closing cannot
+    // end this tab's context while it is still being prepared.
+    if (desktop === null) {
+      contexts.hold(context);
+      opened.push(async () => contexts.release(context));
+    }
+    adopted?.release();
     if (adopted?.page.isClosed()) throw new Error("The popup closed before it opened.");
     if (!desktop) await prepareContext(context);
     const page = adopted?.page ?? desktop?.page ?? (await context.newPage());
@@ -1058,9 +1071,10 @@ const make = Effect.gen(function* () {
     // Popups become tabs and keep `window.opener`, so sign-in popups can report back.
     page.on("popup", (popup) => void adoptPopup(tab, popup));
     // Playwright cannot reload a crashed page, so it must leave the tab list.
-    const key = tabKey(tab.threadId, tab.tabId);
     if (closedPendingTabs.delete(key)) {
       await control.close().catch(constVoid);
+      if (desktop) await desktop.close().catch(constVoid);
+      else await page.close().catch(constVoid);
       throw new ServerBrowserTabNotFoundError({ threadId: tab.threadId, tabId: tab.tabId });
     }
     page.on("close", () => dropUnexpectedTab(tab));
@@ -1384,38 +1398,54 @@ const make = Effect.gen(function* () {
   };
 
   const adoptPopup = async (opener: ServerTab, popup: Page) => {
-    if (opener.closing) {
+    if (opener.closing || popup.isClosed()) {
       await popup.close().catch(constVoid);
       return;
     }
+    // The popup runs in its opener's context; hold that context until the tab
+    // takes it over, so the opener closing cannot end it under the popup.
+    const context = popup.context();
+    contexts.hold(context);
+    let held = true;
+    const release = () => {
+      if (!held) return;
+      held = false;
+      contexts.release(context);
+    };
     const url = popup.url();
-
     const controller = [...opener.viewers].find(
       (viewer) => viewer.id === opener.control.controller,
     );
-    await runPromise(
-      openTab({
-        threadId: opener.threadId,
-        ...(/^https?:/i.test(url) ? { url } : {}),
-        runtime: "server",
-        ...(opener.profileId === undefined ? {} : { profileId: opener.profileId }),
-        ...(opener.control.agentId === null
-          ? {}
-          : { automationOwner: opener.control.agentId, reveal: false }),
-        beforePublish: (snapshot) =>
-          adoptedPages.set(tabKey(snapshot.threadId, snapshot.tabId), {
-            page: popup,
-            openerTabId: opener.tabId,
-          }),
-      }),
-    ).then(
-      (tab) => {
-        if (opener.control.agentId === null) controller?.push({ _tag: "popup", tabId: tab.tabId });
-      },
-      async () => {
-        await popup.close().catch(constVoid);
-      },
-    );
+    let adoptedKey: string | null = null;
+    try {
+      const tab = await runPromise(
+        openTab({
+          threadId: opener.threadId,
+          ...(/^https?:/i.test(url) ? { url } : {}),
+          runtime: "server",
+          ...(opener.profileId === undefined ? {} : { profileId: opener.profileId }),
+          ...(opener.control.agentId === null
+            ? {}
+            : { automationOwner: opener.control.agentId, reveal: false }),
+          beforePublish: (snapshot) => {
+            const key = tabKey(snapshot.threadId, snapshot.tabId);
+            const entry = { page: popup, openerTabId: opener.tabId, release };
+            adoptedKey = key;
+            adoptedPages.set(key, entry);
+            popup.once("close", () => {
+              if (adoptedPages.get(key) !== entry) return;
+              adoptedPages.delete(key);
+              release();
+            });
+          },
+        }),
+      );
+      if (opener.control.agentId === null) controller?.push({ _tag: "popup", tabId: tab.tabId });
+    } catch {
+      if (adoptedKey !== null) adoptedPages.delete(adoptedKey);
+      release();
+      await popup.close().catch(constVoid);
+    }
   };
 
   const ensureTab = (snapshot: PreviewSessionSnapshot): Promise<ServerTab> => {
@@ -2460,7 +2490,16 @@ const make = Effect.gen(function* () {
       }
       const key = tabKey(event.threadId, event.tabId);
       const tab = tabs.get(key);
-      if (event.type === "closed" && !tab && pendingTabs.has(key)) closedPendingTabs.add(key);
+      if (event.type === "closed" && !tab) {
+        // A popup whose session ended before its tab opened must not keep the
+        // opener's context alive for a page nothing will show.
+        const adopted = adoptedPages.get(key);
+        if (adopted !== undefined && !pendingTabs.has(key)) {
+          adoptedPages.delete(key);
+          adopted.release();
+        }
+        if (pendingTabs.has(key)) closedPendingTabs.add(key);
+      }
       if (!tab) return;
       if (event.type === "closed") {
         closedSessions.add(key);

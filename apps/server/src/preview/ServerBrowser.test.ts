@@ -65,6 +65,19 @@ vi.mock("./ServerBrowserContexts.ts", () => ({
     async managedContext() {
       return this.contextFor("default", "managed");
     }
+    hold = vi.fn((context: BrowserContext) => {
+      heldContexts.set(context, (heldContexts.get(context) ?? 0) + 1);
+    });
+    release = vi.fn(async (context: BrowserContext) => {
+      const holds = heldContexts.get(context);
+      if (holds === undefined || holds === 0) return;
+      if (holds > 1) {
+        heldContexts.set(context, holds - 1);
+        return;
+      }
+      heldContexts.delete(context);
+      await context.close();
+    });
     async scratchPage() {
       return makeEncoderPage() as unknown as Page;
     }
@@ -301,6 +314,7 @@ function makeEncoderPage() {
 }
 
 const contexts: ReturnType<typeof makeContext>[] = [];
+const heldContexts = new Map<BrowserContext, number>();
 const encoderStreams: Array<{ frameRate: number | undefined; bitsPerSecond: number }> = [];
 const contextRequests: Array<{ profileId: string; isolated: boolean }> = [];
 let contextGate: PromiseWithResolvers<void> | null = null;
@@ -449,6 +463,7 @@ const openDesktopViewer = Effect.gen(function* () {
 
 beforeEach(() => {
   contexts.length = 0;
+  heldContexts.clear();
   encoderStreams.length = 0;
   contextRequests.length = 0;
   contextGate = null;
@@ -2118,6 +2133,58 @@ it.live(
         });
       }),
     ).pipe(Effect.provide(layer)),
+);
+
+it.live("a crashed profile-backed tab closes its browser context", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { browser, broker } = yield* ready;
+      const reportProfiles = yield* browser.profileReporter;
+      yield* reportProfiles({
+        profiles: [{ id: "profile-work", name: "Work", kind: "persistent" }],
+        defaultProfileId: "profile-work",
+      });
+      const opened = yield* broker.invoke<PreviewAutomationStatus>({
+        scope,
+        operation: "open",
+        input: { reuseExistingTab: false, show: false },
+      });
+      const tabId = PreviewTabId.make(opened.tabId!);
+      const manager = yield* Manager.PreviewManager;
+      const events = yield* manager.subscribeEvents;
+      expect(contextRequests.at(-1)).toEqual({ profileId: "profile-work", isolated: false });
+      const context = contexts.at(-1)!;
+      yield* Effect.promise(() => context.page.emitAsync("crash"));
+      yield* Stream.fromSubscription(events).pipe(
+        Stream.filter((event) => event.type === "closed" && event.tabId === tabId),
+        Stream.take(1),
+        Stream.runDrain,
+      );
+      expect(context.close).toHaveBeenCalled();
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
+it.live("an open that fails while preparing its page releases the tab's context", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { browser, broker } = yield* ready;
+      const reportProfiles = yield* browser.profileReporter;
+      yield* reportProfiles({
+        profiles: [{ id: "profile-work", name: "Work", kind: "persistent" }],
+        defaultProfileId: "profile-work",
+      });
+      pageSetupFailure = new Error("Target page, context or browser has been closed");
+      yield* broker
+        .invoke<PreviewAutomationStatus>({
+          scope,
+          operation: "open",
+          input: { reuseExistingTab: false, show: false },
+        })
+        .pipe(Effect.exit);
+      expect(contexts.at(-1)!.close).toHaveBeenCalled();
+    }),
+  ).pipe(Effect.provide(layer)),
 );
 
 it.live("reports a managed browser crash as a refusal and releases its context", () =>

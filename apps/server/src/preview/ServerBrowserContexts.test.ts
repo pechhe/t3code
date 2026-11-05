@@ -16,7 +16,7 @@ vi.spyOn(chromium, "launch").mockImplementation(launches.launch);
 vi.spyOn(chromium, "launchPersistentContext").mockImplementation(launches.persistent);
 vi.mock("node:fs/promises", () => ({ mkdir: launches.mkdir, rm: launches.rm }));
 
-const makeContext = () => {
+const makeContext = (closeGate?: Promise<void>) => {
   const events = new NodeEvents.EventEmitter();
   let closed = false;
   return {
@@ -24,6 +24,7 @@ const makeContext = () => {
     once: vi.fn((event: string, listener: () => void) => events.once(event, listener)),
     pages: vi.fn(() => []),
     close: vi.fn(async () => {
+      await closeGate;
       if (!closed) {
         closed = true;
         events.emit("close");
@@ -110,6 +111,120 @@ describe("ServerBrowserContexts", () => {
     await pool.close();
     expect(browser.close).toHaveBeenCalledTimes(1);
     for (const context of browser.contexts) expect(context.close).toHaveBeenCalled();
+  });
+
+  it("closes the shared browser once its last isolated context closes", async () => {
+    const browser = makeBrowser();
+    launches.launch.mockResolvedValue(browser as unknown as Browser);
+    const pool = new ServerBrowserContexts(options());
+    const first = await pool.contextFor("default", "agent-a");
+    const second = await pool.contextFor("default", "agent-b");
+    await first.close();
+    expect(browser.close).not.toHaveBeenCalled();
+    await second.close();
+    expect(browser.close).toHaveBeenCalledTimes(1);
+    await pool.close();
+  });
+
+  it("closes a profile context when its last holder releases it", async () => {
+    const human = makeContext();
+    const reopened = makeContext();
+    launches.persistent
+      .mockResolvedValueOnce(human as unknown as BrowserContext)
+      .mockResolvedValueOnce(reopened as unknown as BrowserContext);
+    const pool = new ServerBrowserContexts(options());
+    const persistent = await pool.contextFor("work/team");
+    pool.hold(persistent);
+    pool.hold(persistent);
+    pool.release(persistent);
+    expect(human.close).not.toHaveBeenCalled();
+    pool.release(persistent);
+    expect(human.close).toHaveBeenCalledTimes(1);
+    expect(await pool.contextFor("work/team")).not.toBe(persistent);
+    expect(launches.persistent).toHaveBeenCalledTimes(2);
+    await pool.close();
+  });
+
+  it("waits for a closing profile browser before it clears or reopens the profile", async () => {
+    const gate = Promise.withResolvers<void>();
+    const human = makeContext(gate.promise);
+    const reopened = makeContext();
+    launches.persistent
+      .mockResolvedValueOnce(human as unknown as BrowserContext)
+      .mockResolvedValueOnce(reopened as unknown as BrowserContext);
+    const pool = new ServerBrowserContexts(options());
+    const persistent = await pool.contextFor("work/team");
+    pool.hold(persistent);
+    pool.release(persistent);
+    const clearing = pool.clearProfile("work/team");
+    const reopening = pool.contextFor("work/team");
+    await Promise.resolve();
+    expect(launches.rm).not.toHaveBeenCalled();
+    expect(launches.persistent).toHaveBeenCalledTimes(1);
+    gate.resolve();
+    await clearing;
+    expect(launches.rm).toHaveBeenCalledExactlyOnceWith("/test/profiles/work%2Fteam", {
+      recursive: true,
+      force: true,
+    });
+    expect(await reopening).toBe(reopened);
+    expect(launches.persistent).toHaveBeenCalledTimes(2);
+    await pool.close();
+  });
+
+  it("keeps a clear's storage deletion ahead of a reopen that follows its last tab closing", async () => {
+    const closeGate = Promise.withResolvers<void>();
+    const removing = Promise.withResolvers<void>();
+    const removed = Promise.withResolvers<void>();
+    const human = makeContext(closeGate.promise);
+    const reopened = makeContext();
+    launches.persistent
+      .mockResolvedValueOnce(human as unknown as BrowserContext)
+      .mockResolvedValueOnce(reopened as unknown as BrowserContext);
+    launches.rm.mockImplementationOnce(async () => {
+      removing.resolve();
+      await removed.promise;
+    });
+    const pool = new ServerBrowserContexts(options());
+    const persistent = await pool.contextFor("work/team");
+    pool.hold(persistent);
+    const clearing = pool.clearProfile("work/team");
+    pool.release(persistent);
+    const reopening = pool.contextFor("work/team");
+    closeGate.resolve();
+    await removing.promise;
+    // A macrotask lets any reopen that escaped the clear start its launch.
+    // oxlint-disable-next-line t3code/no-real-time-wait-in-tests -- no promise marks a launch that should not happen; a macrotask turn lets a stray one start first.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(launches.persistent).toHaveBeenCalledTimes(1);
+    removed.resolve();
+    await clearing;
+    expect(await reopening).toBe(reopened);
+    expect(launches.persistent).toHaveBeenCalledTimes(2);
+    await pool.close();
+  });
+
+  it("keeps a reopen already waiting behind a clear when a release follows it", async () => {
+    const closeGate = Promise.withResolvers<void>();
+    const human = makeContext(closeGate.promise);
+    const reopened = makeContext();
+    launches.persistent
+      .mockResolvedValueOnce(human as unknown as BrowserContext)
+      .mockResolvedValueOnce(reopened as unknown as BrowserContext);
+    const pool = new ServerBrowserContexts(options());
+    const persistent = await pool.contextFor("work/team");
+    pool.hold(persistent);
+    const clearing = pool.clearProfile("work/team");
+    const first = pool.contextFor("work/team");
+    pool.release(persistent);
+    const second = pool.contextFor("work/team");
+    expect(second).toBe(first);
+    closeGate.resolve();
+    await clearing;
+    expect(await first).toBe(reopened);
+    expect(await second).toBe(reopened);
+    expect(launches.persistent).toHaveBeenCalledTimes(2);
+    await pool.close();
   });
 
   it("keeps human profiles persistent without sharing their storage with agents", async () => {
