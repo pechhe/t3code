@@ -6,9 +6,11 @@
  * test-landing.test.ts fails on a new undeclared edge.
  */
 export const EXTRA_EDGES: ReadonlyArray<readonly [from: string, to: string]> = [
+  ["apps/desktop", "scripts"],
   ["apps/mobile", "scripts"],
   ["apps/server", "packages/client-runtime"],
   ["apps/server", "scripts"],
+  ["evals", "apps/server"],
   ["oxlint-plugin-t3code", "packages/client-runtime"],
   ["oxlint-plugin-t3code", "packages/shared"],
   ["packages/provider-pi", "packages/client-runtime"],
@@ -43,6 +45,7 @@ const serverTest = (...names: ReadonlyArray<string>) =>
 // The spawned program's imports are invisible to the importing test's graph.
 const SOURCE_SPAWNERS = [
   ...serverTest(
+    "cliCompileCache.test.ts",
     "outboundHttp.test.ts",
     "processRunner.test.ts",
     // Spawns apps/server/src/bin.ts to drive the managed runtime's CLI.
@@ -60,6 +63,7 @@ const REPLAY_TRANSCRIPT_READERS = [
   "apps/server/src/orchestration-v2/testkit/fixtures/index.ts",
   ...serverTest(
     "mcp/OrchestratorMcpToolkit.integration.test.ts",
+    "orchestration-v2/Adapters/KiroAdapterV2.test.ts",
     "orchestration-v2/OpenCode2OrchestratorV2.integration.test.ts",
     "orchestration-v2/testkit/AcpRegistryReplayFixtures.integration.test.ts",
     "orchestration-v2/testkit/ClaudeReplayFixtures1.integration.test.ts",
@@ -75,6 +79,8 @@ const REPLAY_TRANSCRIPT_READERS = [
     "orchestration-v2/testkit/ThreadMergeBack.integration.test.ts",
     "provider/OpenCode2Client.events.test.ts",
   ),
+  // The dev replay agent reads its transcripts from disk when spawned.
+  "apps/server/scripts/dev-replay-agent.test.ts",
 ];
 const ACP_AGENT_SPAWNERS = [
   // The testkits spawn acp-replay-agent.ts; the tests that import them are found from here.
@@ -84,7 +90,9 @@ const ACP_AGENT_SPAWNERS = [
     "orchestration-v2/Adapters/AcpAdapterV2.test.ts",
     "orchestration-v2/Adapters/AcpRegistryAdapterV2.test.ts",
     "orchestration-v2/Adapters/AntigravityAdapterV2.test.ts",
+    "orchestration-v2/Adapters/FxAdapterV2.test.ts",
     "orchestration-v2/Adapters/GrokAdapterV2.test.ts",
+    "orchestration-v2/Adapters/KiroAdapterV2.test.ts",
     "provider/AcpRegistryProbe.test.ts",
     "provider/Drivers/AntigravityDriver.test.ts",
     "provider/GrokProvider.test.ts",
@@ -121,8 +129,63 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
   },
   {
     when: /^\.github\/triage\//,
-    select: serverTest("cli/triagePrompt.test.ts"),
+    select: serverTest("triage/triagePrompt.test.ts"),
     reason: "the bundled playbook must equal the repository copy",
+  },
+  {
+    when: /^apps\/server\/scripts\/dev-replay\//,
+    select: ["apps/server/scripts/dev-replay-agent.test.ts"],
+    reason: "transcripts read from disk",
+  },
+  {
+    when: /^apps\/server\/src\/persistence\/Migrations\//,
+    select: ["apps/server/src/persistence/Migrations.test.ts"],
+    reason: "test reads every migration file's name from disk",
+  },
+  {
+    when: /^apps\/server\/src\/resourceTelemetry\/DesktopTelemetryReceiver\.ts$/,
+    select: ["apps/server/src/resourceTelemetry/DesktopTelemetryReceiver.test.ts"],
+    reason: "the child process imports the module from disk",
+  },
+  {
+    when: /^apps\/mobile\/src\/features\/layout\/AdaptiveWorkspaceLayout\.tsx$/,
+    select: ["apps/mobile/src/features/threads/thread-inspector-navigation.test.tsx"],
+    reason: "test compiles the layout with Babel from disk",
+  },
+  {
+    when: /^apps\/web\/src\/components\/files\/(?:binary|office)Preview\.worker\.ts$/,
+    select: ["apps/web/src/components/files/AttachmentFilePreview.browser.test.tsx"],
+    reason: "workers built from a URL the import graph does not follow",
+  },
+  {
+    when: /^infra\/relay\/migrations\/postgres\//,
+    select: ["infra/relay/src/environments/ManagedTunnelLimits.test.ts"],
+    reason: "test applies the Postgres migrations from disk",
+  },
+  {
+    when: /^infra\/task-cache\/vendor\//,
+    select: ["infra/task-cache/src/Cleanup.test.ts"],
+    reason: "test applies the vendored cache migration from disk",
+  },
+  {
+    when: /^(?:scripts\/check-changed(?:-command)?\.ts|\.github\/scripts\/ci-changes\.cjs)$/,
+    select: ["scripts/check-changed.test.ts", "scripts/check-changed-command.test.ts"],
+    reason: "tests copy and run the checker and its CI entry from disk",
+  },
+  {
+    when: /^scripts\/install\.(?:sh|ps1)$/,
+    select: ["scripts/install.test.ts"],
+    reason: "test runs the installer",
+  },
+  {
+    when: /^scripts\/prepare-server-compile-cache\.cjs$/,
+    select: ["scripts/lib/server-compile-cache.test.ts"],
+    reason: "test requires the prepare script",
+  },
+  {
+    when: /^scripts\/profile-startup\.mjs$/,
+    select: ["scripts/profile-startup.test.ts"],
+    reason: "test runs the profiling preload",
   },
   {
     when: /^docs\/user\/t3-connect-troubleshooting\.md$/,
@@ -141,8 +204,18 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
   },
   {
     when: /^apps\/server\/src\/device\/deviceToolVersions\.json$|^third-party-licenses\.config\.json$|^apps\/mobile\/modules\/t3-terminal\/Vendor\/libghostty\/VERSION$/,
-    select: ["scripts/lib/third-party-licenses.test.ts"],
+    select: ["scripts/lib/third-party-licenses.test.ts", "evals/mcp-tool-use/devices.test.ts"],
     reason: "test reads the license inputs from disk",
+  },
+  {
+    when: /^evals\/mcp-tool-use\/templates\//,
+    select: ["evals/mcp-tool-use/devices.test.ts"],
+    reason: "device templates read from disk",
+  },
+  {
+    when: /^evals\/mcp-tool-use\/cases\//,
+    select: ["evals/mcp-tool-use/run.test.ts"],
+    reason: "eval cases read from disk",
   },
   {
     when: /^scripts\/npm-launcher\//,

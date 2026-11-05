@@ -37,7 +37,7 @@ const SHA = /^[0-9a-f]{40}$/;
 const CODE = /\.[cm]?[jt]sx?$/;
 const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
 const WORKSPACE_MANIFEST =
-  /^(?:(?:apps|packages|infra)\/[^/]+\/|scripts\/|oxlint-plugin-t3code\/)package\.json$/;
+  /^(?:(?:apps|packages|infra)\/[^/]+\/|evals\/|scripts\/|oxlint-plugin-t3code\/)package\.json$/;
 // Non-code files only reach a test through the import graph from these directories.
 const GRAPH_DIRECTORIES = /^(?:src|test|tests|scripts|rules)\//;
 
@@ -52,6 +52,8 @@ const GLOBAL = new RegExp(
     String.raw`^(?:tests\/quarantine\.json|scripts\/test-landing\.ts|scripts\/lib\/test-landing-(?:inputs|replay)\.ts)$`,
     // Test setup, and what the Vitest configs import.
     String.raw`^apps\/web\/vite\/`,
+    String.raw`^apps\/mobile\/babel\.config\.[cm]?[jt]s$`,
+    String.raw`^scripts\/lib\/cached-tests\.ts$`,
     String.raw`^apps\/server\/src\/testUtils\/(?:gitConfig\.setup|weightedShardSequencer)\.ts$`,
     String.raw`^packages\/shared\/src\/(?:testing\/longTempDir|devProxy|HostProcess)\.ts$`,
     // The root Vite config reads the task cache's URL helper, as a Vitest config import.
@@ -474,6 +476,7 @@ export function versionOnlyChange(before: string, after: string): boolean {
 function checkoutWorkspaces() {
   const manifests = [
     "scripts/package.json",
+    "evals/package.json",
     "oxlint-plugin-t3code/package.json",
     ...["apps", "packages", "infra"].flatMap((directory) =>
       NodeFS.readdirSync(NodePath.join(ROOT, directory)).map(

@@ -108,7 +108,7 @@ function walk(directory: string, found: string[] = []): string[] {
 }
 
 const repositoryFiles = () =>
-  ["apps", "packages", "infra", "scripts", "oxlint-plugin-t3code"].flatMap((directory) =>
+  ["apps", "evals", "packages", "infra", "scripts", "oxlint-plugin-t3code"].flatMap((directory) =>
     walk(directory),
   );
 const readRepositoryWorkspaces = () =>
@@ -222,7 +222,10 @@ describe("tests the import graph cannot see", () => {
   });
 
   it("maps a file the tests read from outside the workspace", () => {
-    assert.include(files(".github/triage/PLAYBOOK.md"), "apps/server/src/cli/triagePrompt.test.ts");
+    assert.include(
+      files(".github/triage/PLAYBOOK.md"),
+      "apps/server/src/triage/triagePrompt.test.ts",
+    );
     assert.include(
       files("native/libghostty-vt/VERSION"),
       "apps/web/src/terminal/ghostty/runtimeAbi.test.ts",
@@ -281,11 +284,16 @@ describe("tests the import graph cannot see", () => {
       "compares its own directory against the candidate paths, reading no repository file",
     "apps/web/src/components/diffs/codeViewSearch.test.ts":
       "reads node_modules, which only a lockfile change moves",
+    "scripts/apply-web-brand-assets.test.ts":
+      "lists the repository root for conflicting brand icon names",
     "scripts/build-desktop-artifact.test.ts": "checks the repository root for a tarball",
     "scripts/clean.test.ts": "copies clean.ts into a temporary tree and runs it there",
     "scripts/dev-runner.test.ts": "runs the dev runner in a temporary directory",
     "scripts/legend-list-initial-reveal.test.ts":
       "reads node_modules, which only a lockfile change moves",
+    "scripts/lib/cached-tests.test.ts":
+      "resolves paths against the checkout root, reading no repository file",
+    "scripts/lib/sharded-tests.test.ts": "reads node_modules, which only a lockfile change moves",
     "scripts/test-landing.test.ts": "contains the pattern as text",
   };
 
