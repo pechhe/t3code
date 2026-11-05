@@ -124,13 +124,16 @@ function parseSseOrJson(body: string, contentType: string): JsonRpcResponse {
 const isNullSchema = (value: unknown): boolean =>
   typeof value === "object" && value !== null && (value as { type?: unknown }).type === "null";
 
-/** anyOf: [X, {type: "null"}] is just X; optionality is already carried by required. */
-function collapseNullUnion(schema: unknown): unknown {
-  if (Array.isArray(schema)) return schema.map(collapseNullUnion);
+/**
+ * anyOf: [X, {type: "null"}] on an optional property is just X: omission already
+ * carries it. A required property keeps the branch, since null is a value it accepts.
+ */
+function collapseNullUnion(schema: unknown, required = false): unknown {
+  if (Array.isArray(schema)) return schema.map((entry) => collapseNullUnion(entry));
   if (typeof schema !== "object" || schema === null) return schema;
   const record = schema as Record<string, unknown>;
   const anyOf = Array.isArray(record.anyOf) ? record.anyOf : undefined;
-  if (anyOf !== undefined) {
+  if (anyOf !== undefined && !required) {
     const nonNull = anyOf.filter((entry) => !isNullSchema(entry));
     if (nonNull.length === 1 && nonNull.length !== anyOf.length) {
       const { anyOf: _anyOf, ...rest } = record;
@@ -142,8 +145,23 @@ function collapseNullUnion(schema: unknown): unknown {
       );
     }
   }
+  const requiredNames = Array.isArray(record.required) ? record.required : [];
+  const properties =
+    typeof record.properties === "object" && record.properties !== null && !Array.isArray(record.properties)
+      ? (record.properties as Record<string, unknown>)
+      : undefined;
   return Object.fromEntries(
-    Object.entries(record).map(([key, value]) => [key, collapseNullUnion(value)]),
+    Object.entries(record).map(([key, value]) => [
+      key,
+      properties !== undefined && key === "properties"
+        ? Object.fromEntries(
+            Object.entries(properties).map(([name, property]) => [
+              name,
+              collapseNullUnion(property, requiredNames.includes(name)),
+            ]),
+          )
+        : collapseNullUnion(value),
+    ]),
   );
 }
 

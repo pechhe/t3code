@@ -408,6 +408,53 @@ describe("Pi MCP tool schemas", () => {
       assert.deepEqual(tool.parameters, inputSchema);
     }
   });
+
+  // A required field's null branch is a value the tool accepts, not optionality.
+  it("keeps a required property's null branch", async () => {
+    const nullable = { anyOf: [{ type: "string", minLength: 1 }, { type: "null" }] };
+    const inputSchema = {
+      type: "object",
+      properties: {
+        expectedCurrentId: nullable,
+        filter: {
+          type: "object",
+          properties: { expectedCurrentId: nullable },
+          required: ["expectedCurrentId"],
+        },
+      },
+      required: ["expectedCurrentId"],
+    };
+    const bridge = await loadMcpBridge({ inputSchema });
+    for (const tool of bridge.tools) {
+      assert.deepEqual(tool.parameters, inputSchema);
+    }
+  });
+
+  it("collapses an optional property's null branch", async () => {
+    const bridge = await loadMcpBridge({
+      inputSchema: {
+        type: "object",
+        properties: { note: { anyOf: [{ type: "string" }, { type: "null" }] } },
+      },
+    });
+    for (const tool of bridge.tools) {
+      assert.deepEqual(tool.parameters, {
+        type: "object",
+        properties: { note: { type: "string" } },
+      });
+    }
+  });
+
+  it("forwards a literal null argument to the server unchanged", async () => {
+    const bridge = await loadMcpBridge();
+    const tool = bridge.tools.find((tool) => tool.name === "mcp__t3-code__preview_snapshot")!;
+    await tool.execute("call-null", { expectedCurrentId: null });
+    const call = bridge.requests.find((request) => request.method === "tools/call");
+    assert.deepEqual(call?.params, {
+      name: "preview_snapshot",
+      arguments: { expectedCurrentId: null },
+    });
+  });
 });
 
 describe("Pi tool discovery permissions", () => {
