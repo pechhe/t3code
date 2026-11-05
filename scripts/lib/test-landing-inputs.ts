@@ -103,6 +103,11 @@ const ACP_AGENT_SPAWNERS = [
 
 export const INPUT_RULES: ReadonlyArray<InputRule> = [
   {
+    when: /^(?:apps\/server\/package\.json|packages\/[^/]+\/)/,
+    select: ["apps/server/scripts/dev-watch.test.ts"],
+    reason: "dev watcher reads its command and workspace source directories from disk",
+  },
+  {
     when: /^(?:apps\/server\/(?:src|scripts)\/|packages\/[^/]+\/src\/)/,
     select: SOURCE_SPAWNERS,
     reason: "source spawned in a child process",
