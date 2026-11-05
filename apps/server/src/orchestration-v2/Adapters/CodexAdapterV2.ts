@@ -5695,12 +5695,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
 
             // Full access answers for itself, so asking here would break the mode. One-shot, never
             // for the session: Codex stops asking once approved, and a state-dependent verdict (a
-            // jj command) must be asked again on its next run. Only a guarded repository asks.
-            if (
-              context.input.runtimePolicy.runtimeMode === "full-access" &&
-              context.input.runtimePolicy.cwd !== null &&
-              (yield* guardsGovern(context.input.runtimePolicy.cwd))
-            ) {
+            // jj command) must be asked again on its next run. Any request that reaches a
+            // full-access turn is answered here: whether the repository is guarded is decided at turn
+            // start, and a failed re-check at request time must not become a prompt.
+            if (context.input.runtimePolicy.runtimeMode === "full-access") {
               return {
                 decision: "accept",
               } satisfies CodexSchema.CommandExecutionRequestApprovalResponse;
@@ -5779,11 +5777,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             }
             // A guarded repository makes full access ask about commands; asking must not
             // turn a patch into a prompt the mode never had.
-            if (
-              context.input.runtimePolicy.runtimeMode === "full-access" &&
-              context.input.runtimePolicy.cwd !== null &&
-              (yield* guardsGovern(context.input.runtimePolicy.cwd))
-            ) {
+            if (context.input.runtimePolicy.runtimeMode === "full-access") {
               return {
                 decision: "accept",
               } satisfies CodexSchema.FileChangeRequestApprovalResponse;
@@ -5862,11 +5856,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               );
             }
 
-            if (
-              context.input.runtimePolicy.runtimeMode === "full-access" &&
-              context.input.runtimePolicy.cwd !== null &&
-              (yield* guardsGovern(context.input.runtimePolicy.cwd))
-            ) {
+            if (context.input.runtimePolicy.runtimeMode === "full-access") {
               return {
                 permissions: payload.permissions,
                 scope: "turn",
@@ -6035,11 +6025,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               }
             }
 
-            if (
-              context.input.runtimePolicy.runtimeMode === "full-access" &&
-              context.input.runtimePolicy.cwd !== null &&
-              (yield* guardsGovern(context.input.runtimePolicy.cwd))
-            ) {
+            if (context.input.runtimePolicy.runtimeMode === "full-access") {
               // Once, not for the session: a state-dependent verdict must be asked again.
               return {
                 decision: "approved",
@@ -6115,11 +6101,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 payload,
               );
             }
-            if (
-              context.input.runtimePolicy.runtimeMode === "full-access" &&
-              context.input.runtimePolicy.cwd !== null &&
-              (yield* guardsGovern(context.input.runtimePolicy.cwd))
-            ) {
+            if (context.input.runtimePolicy.runtimeMode === "full-access") {
               return {
                 decision: "approved",
               } satisfies CodexSchema.ApplyPatchApprovalResponse;

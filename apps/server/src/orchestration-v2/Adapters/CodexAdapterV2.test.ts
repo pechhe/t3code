@@ -955,6 +955,7 @@ function codexReplayPreamble(input: {
   readonly prompt: string;
   readonly sentPrompt?: string;
   readonly effort?: string;
+  readonly asksForEdits?: boolean;
 }): Array<CodexReplay.CodexAppServerReplayEntry> {
   return [
     {
@@ -1049,9 +1050,10 @@ function codexReplayPreamble(input: {
           input: [{ type: "text", text: input.sentPrompt ?? input.prompt }],
           cwd: "/workspace",
           model: "gpt-5.4",
-          approvalPolicy: "never",
+          approvalPolicy: input.asksForEdits === true ? "on-request" : "never",
           approvalsReviewer: "user",
-          sandboxPolicy: { type: "dangerFullAccess" },
+          sandboxPolicy:
+            input.asksForEdits === true ? { type: "workspaceWrite" } : { type: "dangerFullAccess" },
           summary: "detailed",
           ...(input.effort === undefined ? {} : { effort: input.effort }),
           collaborationMode: {
@@ -10177,7 +10179,10 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         const harness = yield* makeCodexReplayHarness(
           makeCodexReplayTranscript({
             scenario,
-            entries: [...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt }), ...entries],
+            entries: [
+              ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt, asksForEdits: true }),
+              ...entries,
+            ],
           }),
           (event) =>
             event.type === "runtime_request.updated" && event.runtimeRequest.status === "pending"
@@ -10191,6 +10196,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             now: yield* DateTime.now,
             attemptId: RunAttemptId.make(`${scenario}-attempt`),
             text: prompt,
+            runtimePolicy: { ...CODEX_TEST_RUNTIME_POLICY, runtimeMode: "auto-accept-edits" },
           }),
         );
         return {
@@ -10245,6 +10251,56 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           assert.equal(item.requestKind, "file-change");
           assert.isUndefined(item.prompt);
         }
+        assert.deepEqual(
+          harness.terminalEvents().map((event) => event.status),
+          ["completed"],
+        );
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    );
+
+    it.effect("answers a request that reaches a full-access turn without asking", () =>
+      Effect.gen(function* () {
+        const asked: Array<OrchestrationV2RuntimeRequest> = [];
+        const harness = yield* makeCodexReplayHarness(
+          makeCodexReplayTranscript({
+            scenario: "file-approval-full-access",
+            entries: [
+              ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt }),
+              fileChange("started", nativeTurnId, "patch-a", [addA]),
+              ...approval({ id: 0, turnId: nativeTurnId, itemId: "patch-a" }),
+              fileChange("completed", nativeTurnId, "patch-a", [addA]),
+              turnCompleted(nativeTurnId),
+            ],
+          }),
+          (event) =>
+            event.type === "runtime_request.updated" && event.runtimeRequest.status === "pending"
+              ? Effect.sync(() => {
+                  asked.push(event.runtimeRequest);
+                })
+              : Effect.void,
+        );
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("file-approval-full-access-attempt"),
+            text: prompt,
+          }),
+        );
+        yield* harness.firstTerminal;
+
+        assert.deepEqual(asked, []);
         assert.deepEqual(
           harness.terminalEvents().map((event) => event.status),
           ["completed"],
