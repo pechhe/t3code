@@ -1,3 +1,7 @@
+// @effect-diagnostics nodeBuiltinImport:off - reads pool bodies through git at the retained run's commit
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 import { DecisionError, type DecisionRequest, type DecisionResult } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -325,12 +329,30 @@ it("fixes the downstream check on held-out cases whose rubrics were written befo
   }
 });
 
+const REPOSITORY_ROOT = NodePath.resolve(import.meta.dirname, "../../../../..");
+
+/** Reads a repository file as it stood at the commit a retained run measured. */
+const readAt =
+  (head: string) =>
+  (path: string): string => {
+    const relative = NodePath.relative(REPOSITORY_ROOT, path).replaceAll("\\", "/");
+    // Skill bodies may resolve outside the repository, where only the working tree has them.
+    if (relative.startsWith("..")) return NodeFS.readFileSync(path, "utf8");
+    const result = NodeChildProcess.spawnSync("git", ["show", `${head}:${relative}`], {
+      cwd: REPOSITORY_ROOT,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (result.status !== 0) throw new Error(`git show ${head}:${relative} failed`);
+    return result.stdout.toString("utf8");
+  };
+
 it("hands every downstream arm the governing and requested context whole, outside ranking", () => {
+  const read = readAt(heldoutResults.run.checkout.head);
   for (const d of DOWNSTREAM) {
     const c = HELDOUT_CASES.find((x) => x.id === d.caseId)!;
     const selections = armSelections(heldoutResults as never, c);
     for (const arm of ["all", "lexical", "jev"] as const) {
-      const text = armContext(c, selections[arm], arm);
+      const text = armContext(c, selections[arm], arm, read);
       for (const id of [...c.mandatory, ...c.requested])
         expect(text).toContain(`### ${POOL_BY_ID.get(id)!.title}`);
     }

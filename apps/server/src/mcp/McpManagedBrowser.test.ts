@@ -1,5 +1,6 @@
 import { DecisionToolkit } from "./toolkits/decisions/tools.ts";
 import * as DecisionService from "../decisions/DecisionService.ts";
+import * as BrowserTaskService from "../browserTasks/BrowserTaskService.ts";
 import * as ContextServerSettingsService from "../serverSettings.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
@@ -21,6 +22,7 @@ import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import { MANAGED_BROWSER_TOOL_NAMES } from "./toolkits/managedBrowser/toolNames.ts";
 import {
   ManagedBrowserSnapshotToolkit,
+  ManagedBrowserTaskToolkit,
   ManagedBrowserToolkit,
 } from "./toolkits/managedBrowser/tools.ts";
 
@@ -101,6 +103,7 @@ it("lists exactly the managed browser tools the adapters pre-approve", () => {
   const toolkit = [
     ...Object.keys(DecisionToolkit.tools),
     ...Object.keys(ManagedBrowserToolkit.tools),
+    ...Object.keys(ManagedBrowserTaskToolkit.tools),
     ...Object.keys(ManagedBrowserSnapshotToolkit.tools),
   ];
   expect([...toolkit].sort()).toEqual([...MANAGED_BROWSER_TOOL_NAMES].sort());
@@ -122,6 +125,7 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
       const both = Layer.mergeAll(
         McpHttpServer.layerManagedBrowserToolkit.pipe(
           Layer.provide(Layer.mock(DecisionService.DecisionService)({})),
+          Layer.provide(Layer.mock(BrowserTaskService.BrowserTaskService)({})),
         ),
         McpHttpServer.layerMcpTransport(McpHttpServer.layerPreviewToolkit),
       ).pipe(Layer.provide(registry), Layer.provide(services));

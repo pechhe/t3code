@@ -20,6 +20,7 @@ export const layer = Layer.succeed(
         },
       }),
     resolve: () => Effect.undefined,
+    credentialState: () => Effect.succeed("live" as const),
     touch: () => Effect.void,
     revokeProviderSession: () => Effect.void,
     revokeThread: () => Effect.void,

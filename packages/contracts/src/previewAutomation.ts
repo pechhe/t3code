@@ -669,6 +669,8 @@ export const PreviewAutomationRequest = Schema.Struct({
   /** Supplied by the broker from authenticated scope, never from tool input. */
   agentSessionId: Schema.optional(Schema.String),
   managedBrowser: Schema.optional(Schema.Struct({ projectId: ProjectId })),
+  /** Set only by the bounded task service, for the tab lease it holds; never from tool input. */
+  taskLease: Schema.optional(Schema.String),
   operation: PreviewAutomationOperation,
   input: Schema.Unknown,
   timeoutMs: Schema.Int.check(Schema.isGreaterThan(0)),

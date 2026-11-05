@@ -22,12 +22,15 @@ import { constVoid } from "effect/Function";
 import * as Schema from "effect/Schema";
 import type { CDPSession, ConsoleMessage, Frame, Locator, Page } from "playwright-core";
 import * as NodeCrypto from "node:crypto";
-import { BrowserControlInterrupted } from "./SessionControl.ts";
+import { BrowserControlInterrupted, BrowserTaskLeaseHeld } from "./SessionControl.ts";
 
 const isBrowserControlInterrupted = Schema.is(BrowserControlInterrupted);
+const isBrowserTaskLeaseHeld = Schema.is(BrowserTaskLeaseHeld);
 
 const MAX_EVALUATION_BYTES = 64_000;
 const MAX_VISIBLE_TEXT_LENGTH = 20_000;
+/** A bounded task reads this in process to prove targets unique; none of it reaches a model. */
+export const TASK_SNAPSHOT_TEXT_LENGTH = 1_000_000;
 const MAX_SCREENSHOT_WIDTH = 1280;
 const WAIT_POLL_MS = 100;
 export const DIAGNOSTIC_BUFFER_LIMIT = 200;
@@ -53,6 +56,11 @@ export const toOperationError = (
       tag: "PreviewAutomationControlInterruptedError",
       message: cause.message,
       detail: cause.reason,
+    });
+  if (isBrowserTaskLeaseHeld(cause))
+    return new ServerBrowserOperationError({
+      tag: "PreviewAutomationExecutionError",
+      message: cause.message,
     });
   if (isServerBrowserOperationError(cause)) return cause;
   const message = cause instanceof Error ? cause.message : String(cause);
@@ -516,6 +524,7 @@ const shrinkPng = async (cdp: CDPSession, png: string, scale: number) => {
 
 type SnapshotInput = {
   readonly locator?: string | undefined;
+  readonly textLength?: number | undefined;
   readonly page: Page;
   readonly cdp: CDPSession;
   /** Headless pages render at the scale the server set; a desktop page at its display's. */
@@ -600,8 +609,9 @@ const capture = async (
   // Redacted before the cut, so a payload crossing it can't leave its start showing, and before
   // masking, which could hide the `data:` scheme behind a password value's dots.
   const redacted = withoutTreeDataPayloads(tree);
+  const textLength = input.textLength ?? MAX_VISIBLE_TEXT_LENGTH;
   const accessibilityTree = (dotted ? maskTree(redacted, dotted) : redacted)
-    .slice(0, MAX_VISIBLE_TEXT_LENGTH)
+    .slice(0, textLength)
     .replace(/\[ref=((?:f\d+)?e\d+)\]/g, (_match, nativeRef: string) => {
       const ref = `t3-${generation}-${nativeRef}`;
       state.refs.set(ref, nativeRef);
@@ -611,7 +621,7 @@ const capture = async (
     ...page,
     url: withoutDataPayload(page.url),
     // Mask text before truncating so a value crossing the cut cannot leak its prefix.
-    visibleText: mask(visibleText).slice(0, MAX_VISIBLE_TEXT_LENGTH),
+    visibleText: mask(visibleText).slice(0, textLength),
     accessibilityTree,
     interactiveElements: accessibilityTree.split("\n").flatMap((line) => {
       const role =
@@ -818,6 +828,31 @@ export const type = async (page: Page, input: PreviewAutomationTypeInput) => {
     await page.keyboard.press("Delete");
   }
   await page.keyboard.insertText(input.text);
+};
+
+const SECRET_AUTOCOMPLETE = ["current-password", "new-password", "one-time-code"];
+
+/** A bounded task enters only supplied ordinary text, never an authentication secret. */
+export const refuseSecretField = async (page: Page, input: PreviewAutomationTypeInput) => {
+  const locator = targetLocator(page, input);
+  if (locator === null) return;
+  const secret = await locator.evaluate(
+    (element, autocomplete) => {
+      const field = element as unknown as {
+        readonly type?: string;
+        readonly autocomplete?: string;
+      };
+      return field.type === "password" || autocomplete.includes(field.autocomplete ?? "");
+    },
+    SECRET_AUTOCOMPLETE,
+    { timeout: input.timeoutMs ?? DEFAULT_TIMEOUT_MS },
+  );
+  if (secret)
+    throw new ServerBrowserOperationError({
+      tag: "PreviewAutomationTargetNotEditableError",
+      message:
+        "A bounded browser task does not enter authentication secrets, so no text was typed.",
+    });
 };
 
 export const hover = async (
@@ -1175,3 +1210,76 @@ export const recordingEncoderScript = (frameRate: BrowserRecordingFrameRate) => 
     },
   };
 })()`;
+
+export interface TaskTargetCapture {
+  /** Base64 PNG of exactly the element, taken with no capture scale. */
+  readonly data: string;
+  readonly width: number;
+  readonly height: number;
+  /** CSS pixels, relative to the viewport, after scrolling the element into view. */
+  readonly box: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  readonly viewport: { readonly width: number; readonly height: number };
+  readonly url: string;
+  /** False when something else paints over the element's centre; null when the centre is off-screen. */
+  readonly centreVisible: boolean | null;
+}
+
+const taskCaptureError = (message: string) =>
+  new ServerBrowserOperationError({ tag: "PreviewAutomationExecutionError", message: message });
+
+/** A real crop of one uniquely resolved element, refused rather than framed by luck. */
+export const captureTaskTarget = async (input: {
+  readonly page: Page;
+  readonly locator: string;
+  readonly timeoutMs: number;
+}): Promise<TaskTargetCapture> => {
+  const timeout = input.timeoutMs;
+  const target = targetLocator(input.page, { locator: input.locator })!;
+  const count = await target.count();
+  if (count !== 1)
+    throw taskCaptureError(
+      count === 0 ? "The capture target is gone." : "The capture target is ambiguous.",
+    );
+  if (!(await target.isVisible())) throw taskCaptureError("The capture target is hidden.");
+  await target.scrollIntoViewIfNeeded({ timeout });
+  const box = await target.boundingBox({ timeout });
+  if (box === null || box.width <= 0 || box.height <= 0)
+    throw taskCaptureError("The capture target has no rendered size.");
+  const centreVisible = await target.evaluate((element) => {
+    // Runs in the page, whose DOM types this package does not compile against.
+    const page = globalThis as unknown as {
+      readonly innerWidth: number;
+      readonly innerHeight: number;
+    };
+    const rect = element.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    if (x < 0 || y < 0 || x >= page.innerWidth || y >= page.innerHeight) return null;
+    const root = element.getRootNode() as unknown as {
+      elementFromPoint(x: number, y: number): typeof element | null;
+    };
+    const hit = root.elementFromPoint(x, y);
+    return hit !== null && (element === hit || element.contains(hit) || hit.contains(element));
+  });
+  if (centreVisible === false) throw taskCaptureError("Another element covers the capture target.");
+  const png = await target.screenshot({ type: "png", timeout });
+  const data = png.toString("base64");
+  const { width, height } = pngSize(data);
+  const scale = width / box.width;
+  if (scale <= 0 || Math.abs(height - box.height * scale) > Math.max(2, 2 * scale))
+    throw taskCaptureError("The captured image does not match the target's framing.");
+  return {
+    data,
+    width,
+    height,
+    box,
+    viewport: input.page.viewportSize() ?? { width: 0, height: 0 },
+    url: withoutDataPayload(input.page.url()),
+    centreVisible,
+  };
+};

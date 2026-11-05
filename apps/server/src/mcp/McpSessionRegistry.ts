@@ -58,6 +58,10 @@ export interface McpSessionRegistryShape {
   readonly resolve: (
     rawToken: string,
   ) => Effect.Effect<McpInvocationContext.McpThreadInvocationScope | undefined>;
+  /** A revoked credential never returns; an expired one can, when a trusted turn touches it. */
+  readonly credentialState: (
+    providerSessionId: string,
+  ) => Effect.Effect<"live" | "expired" | "revoked">;
   readonly touch: (threadId: ThreadId) => Effect.Effect<void>;
   readonly revokeProviderSession: (providerSessionId: string) => Effect.Effect<void>;
   readonly revokeThread: (threadId: ThreadId) => Effect.Effect<void>;
@@ -339,6 +343,20 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     },
   );
 
+  const credentialState: McpSessionRegistryShape["credentialState"] = Effect.fn(
+    "McpSessionRegistry.credentialState",
+  )(function* (providerSessionId) {
+    const timestamp = yield* currentTimeMillis;
+    const { records } = yield* SynchronizedRef.get(state);
+    let result: "expired" | "revoked" = "revoked";
+    for (const record of records.values()) {
+      if (record.scope.thread.providerSessionId !== providerSessionId) continue;
+      if (timestamp - record.lastAliveAt <= livenessWindowMs) return "live" as const;
+      result = "expired";
+    }
+    return result;
+  });
+
   const touch: McpSessionRegistryShape["touch"] = Effect.fn("McpSessionRegistry.touch")(
     function* (threadId) {
       const timestamp = yield* currentTimeMillis;
@@ -374,6 +392,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   return McpSessionRegistry.of({
     issue,
     resolve,
+    credentialState,
     touch,
     revokeProviderSession: Effect.fn("McpSessionRegistry.revokeProviderSession")(
       function* (providerSessionId) {

@@ -2435,6 +2435,40 @@ it.live("failed session and browser launches release capacity, as does closing a
   ).pipe(Effect.provide(layer)),
 );
 
+it.live("a full server leaves an idle tab alone while a bounded task leases it", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* Broker.PreviewAutomationBroker;
+      const browser = yield* ServerBrowser.ServerBrowser;
+      yield* Effect.yieldNow;
+      const now = vi.spyOn(Date, "now").mockReturnValue(0);
+      yield* Effect.addFinalizer(() => Effect.sync(() => now.mockRestore()));
+      const open = (providerSessionId: string) => {
+        desktopRendersNext = true;
+        return broker.invoke<PreviewAutomationStatus>({
+          scope: asSession(providerSessionId),
+          operation: "open",
+          input: { reuseExistingTab: false, open: false },
+        });
+      };
+      const opened: Array<string> = [];
+      for (let index = 0; index < 32; index++) {
+        now.mockReturnValue(index);
+        opened.push((yield* open(`agent-${Math.floor(index / 8)}`)).tabId!);
+      }
+      yield* browser.acquireTaskLease({
+        threadId: scope.thread.threadId,
+        tabId: opened[0]!,
+        agentSessionId: Broker.hostAssignmentKey(asSession("agent-0")),
+        lease: "lease",
+      });
+      now.mockReturnValue(31 * 60 * 1000);
+      yield* open("agent-new");
+      expect(releasedDesktopTabs).toEqual([opened[1]]);
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
 it.live("a full server takes back the slot of the longest idle agent tab nobody views", () =>
   Effect.scoped(
     Effect.gen(function* () {

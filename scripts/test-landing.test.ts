@@ -23,6 +23,7 @@ import {
   readQuarantine,
   readWorkspaces,
   relativeImports,
+  runCommands as runLandingCommands,
   selectLandingTests,
   versionOnlyChange,
   writeBudgetReports,
@@ -270,6 +271,12 @@ describe("tests the import graph cannot see", () => {
   // sees. Map it in INPUT_RULES, or list it here with the reason nothing needs mapping.
   const READS_BY_PATH = /new URL\([^)]*import\.meta\.url|import\.meta\.dirname|\b__dirname\b/;
   const REVIEWED_UNMAPPED: Readonly<Record<string, string>> = {
+    "apps/server/src/decisionEvaluations/autoRouting/autoRouting.test.ts":
+      "compares the retained manifest with the lock at its recorded commit",
+    "apps/server/src/decisionEvaluations/contextRanking/contextRanking.test.ts":
+      "reads pool bodies as they stood at the retained run's commit",
+    "apps/server/src/decisionEvaluations/evidenceScreening/evidenceScreening.test.ts":
+      "compares the retained manifest with the lock at its recorded commit",
     "apps/desktop/scripts/electron-launcher.test.mjs":
       "passes its own URL to the launcher under test",
     "apps/desktop/src/snapShot/LinuxSnapShot.dbus.test.ts":
@@ -385,6 +392,110 @@ describe("failing closed", () => {
       "browser",
     ]);
     assert.isUndefined(request(commands[4]!).files);
+  });
+
+  const chained = (script: string) =>
+    readWorkspaces(["packages/mobile/package.json"], () =>
+      JSON.stringify({ name: "@t3tools/mobile", scripts: { test: script } }),
+    )[0]!.test;
+
+  it("parses a test script that chains runs with environment prefixes", () => {
+    assert.deepStrictEqual(
+      chained(
+        "vp test run --project unit && T3_MOBILE_TEST_PLATFORM=android vp test run --project react src/components/FilePreviewModal.test.tsx",
+      ),
+      {
+        flags: ["--project", "unit"],
+        runs: [
+          {
+            env: { T3_MOBILE_TEST_PLATFORM: "android" },
+            flags: ["--project", "react"],
+            files: ["src/components/FilePreviewModal.test.tsx"],
+          },
+        ],
+      },
+    );
+  });
+
+  it("keeps every other shell form opaque", () => {
+    for (const script of [
+      "vp test run --project unit || vp test run",
+      "vp test run --project unit; vp test run",
+      "vp test run --project unit | tee out.txt",
+      "vp test run --project unit && $RUNNER vp test run x.ts",
+      "vp test run --project unit && vp test run --bail x.ts",
+      "vp test run --project unit && npm run test",
+      "vp test run --project unit && vp test run",
+      "vp test run --project unit &",
+      "vp test run --project unit && vp test run --config vite.config.ts",
+      "vp test run --project unit && T3_MOBILE_TEST_PLATFORM='android' vp test run x.test.ts",
+      'vp test run --project unit && T3_MOBILE_TEST_PLATFORM="android" vp test run x.test.ts',
+      "vp test run --project unit && vp test run src/components/*.test.tsx",
+      "vp test run --project unit && vp test run src/x?.test.tsx",
+      "vp test run --project unit && vp test run src/{a,b}.test.tsx",
+      "vp test run --project unit && vp test run ~/x.test.tsx",
+      "vp test run --project unit && vp test run x\\ y.test.tsx",
+      "vp test run --project unit # comment",
+    ]) {
+      assert.strictEqual(chained(script), "opaque", script);
+    }
+  });
+
+  it("runs the mobile android command only for the file it covers, with its env", () => {
+    const mobile: LandingWorkspace = {
+      name: "@t3tools/mobile",
+      directory: "apps/mobile",
+      dependencies: [],
+      test: {
+        flags: ["--project", "unit"],
+        runs: [
+          {
+            env: { T3_MOBILE_TEST_PLATFORM: "android" },
+            flags: ["--project", "react"],
+            files: ["src/components/FilePreviewModal.test.tsx"],
+          },
+        ],
+      },
+    };
+    const runs = (tests?: ReadonlyArray<string>) => [
+      { directory: "apps/mobile", ...(tests ? { tests } : {}) },
+    ];
+    const selected = runCommands(
+      runs(["apps/mobile/src/components/FilePreviewModal.test.tsx"]),
+      [mobile],
+      [],
+      "/reports",
+    );
+    assert.strictEqual(selected.length, 2);
+    assert.strictEqual(selected[1]!.env?.T3_MOBILE_TEST_PLATFORM, "android");
+    assert.deepStrictEqual(request(selected[1]!).flags, ["--project", "react"]);
+    assert.deepStrictEqual(request(selected[1]!).files, [
+      "apps/mobile/src/components/FilePreviewModal.test.tsx",
+    ]);
+    assert.notStrictEqual(selected[0]!.report?.path, selected[1]!.report?.path);
+    const wholeSuite = runCommands(runs(), [mobile], []);
+    assert.strictEqual(wholeSuite.length, 2);
+    assert.strictEqual(wholeSuite[1]!.env?.T3_MOBILE_TEST_PLATFORM, "android");
+    const other = runCommands(runs(["apps/mobile/src/components/Other.test.tsx"]), [mobile], []);
+    assert.strictEqual(other.length, 1);
+    assert.isUndefined(other[0]!.env);
+  });
+
+  it("fails the gate when a chained run fails", () => {
+    const probe = {
+      suite: "@t3tools/mobile",
+      cwd: ".",
+      command: [
+        process.execPath,
+        "-e",
+        "process.exit(process.env.T3_MOBILE_TEST_PLATFORM === 'android' ? 0 : 1)",
+      ],
+      env: { T3_MOBILE_TEST_PLATFORM: "android" },
+    };
+    const ok = { suite: "@t3tools/mobile", cwd: ".", command: [process.execPath, "-e", "0"] };
+    assert.strictEqual(runLandingCommands([ok, probe], undefined), 0);
+    const fail = { ...probe, command: [process.execPath, "-e", "process.exit(1)"] };
+    assert.strictEqual(runLandingCommands([ok, fail], undefined), 1);
   });
 
   it("runs a workspace whose test script it cannot read in full", () => {

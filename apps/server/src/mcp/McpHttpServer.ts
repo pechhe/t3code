@@ -78,12 +78,17 @@ import * as ThreadHandlers from "./toolkits/thread/handlers.ts";
 import * as ThreadMetadataMcpService from "./ThreadMetadataMcpService.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
+import { saveBrowserScreenshot } from "../preview/browserArtifacts.ts";
+import * as BrowserTaskService from "../browserTasks/BrowserTaskService.ts";
 import * as ThreadDirectory from "../peers/ThreadDirectory.ts";
 import * as OrchestratorHandlers from "./toolkits/orchestrator/handlers.ts";
 import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
 import * as PreviewHandlers from "./toolkits/preview/handlers.ts";
 import * as ManagedBrowserHandlers from "./toolkits/managedBrowser/handlers.ts";
-import { ManagedBrowserToolkit } from "./toolkits/managedBrowser/tools.ts";
+import {
+  ManagedBrowserTaskToolkit,
+  ManagedBrowserToolkit,
+} from "./toolkits/managedBrowser/tools.ts";
 import {
   PreviewSnapshotTool,
   PreviewSnapshotToolkit,
@@ -465,50 +470,6 @@ const boundSnapshotMetadata = (metadata: SnapshotMetadata) => {
   return { value: value(), text, omitted };
 };
 
-export class PreviewScreenshotSaveError extends Schema.TaggedError<PreviewScreenshotSaveError>()(
-  "PreviewScreenshotSaveError",
-  { screenshotPath: Schema.String, cause: Schema.Defect() },
-) {
-  override get message(): string {
-    return `Could not save preview screenshot to ${this.screenshotPath}.`;
-  }
-}
-
-const MAX_SCREENSHOT_SITE_SLUG_LENGTH = 40;
-
-const screenshotSiteSlug = (rawUrl: string): string => {
-  try {
-    const slug = new URL(rawUrl).hostname
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, MAX_SCREENSHOT_SITE_SLUG_LENGTH)
-      .replace(/-+$/g, "");
-    return slug || "site";
-  } catch {
-    return "site";
-  }
-};
-
-const saveScreenshot = Effect.fn("McpHttpServer.saveScreenshot")(function* (
-  pageUrl: string,
-  data: Uint8Array,
-) {
-  const config = yield* ServerConfig.ServerConfig;
-  const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const millis = yield* Clock.currentTimeMillis;
-  const random = yield* SecureRandom.SecureRandom;
-  const unique = (yield* random.uuidV4()).slice(0, 8);
-  const fileName = `browser-screenshot-${screenshotSiteSlug(pageUrl)}-${millis.toString(36)}-${unique}.png`;
-  const screenshotPath = path.join(config.browserArtifactsDir, fileName);
-  yield* fileSystem.makeDirectory(config.browserArtifactsDir, { recursive: true }).pipe(
-    Effect.andThen(fileSystem.writeFile(screenshotPath, data)),
-    Effect.mapError((cause) => new PreviewScreenshotSaveError({ screenshotPath, cause })),
-  );
-  return screenshotPath;
-});
-
 /** Decode with the advertised JSON codec, which permits null for optional fields that the raw schema rejects. */
 const decodeAsAdvertised = <Tools extends Record<string, Tool.Any>>(
   toolkit: Toolkit.Toolkit<Tools>,
@@ -611,7 +572,9 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
               const { screenshot, ...page } = snapshot;
               const png = new Uint8Array(Buffer.from(screenshot.data, "base64"));
               const screenshotPath =
-                payload?.save === true ? yield* saveScreenshot(snapshot.url, png) : undefined;
+                payload?.save === true
+                  ? yield* saveBrowserScreenshot(snapshot.url, png)
+                  : undefined;
               // Providers replay images on later requests, and some reject them; include images only when requested.
               const includeImage = payload?.includeImage === true;
               if (screenshotPath !== undefined && !includeImage) {
@@ -1364,6 +1327,7 @@ export const layerManagedBrowserToolkit = Layer.fresh(
   Layer.mergeAll(
     toolkitRegistration(DecisionToolkit, DecisionHandlers.layer),
     toolkitRegistration(ManagedBrowserToolkit, ManagedBrowserHandlers.layer),
+    toolkitRegistration(ManagedBrowserTaskToolkit, ManagedBrowserHandlers.layerTask),
     imageToolRegistration(registerPreviewSnapshot(), ManagedBrowserHandlers.layerSnapshot),
   ).pipe((registrations) =>
     McpServer.layerHttp({
@@ -1437,4 +1401,4 @@ export const layer = Layer.mergeAll(
   layerMcpTransport(layerTools),
   layerManagedBrowserToolkit,
   ...sessionEndpointLayers,
-).pipe(Layer.provide(DecisionService.layer));
+).pipe(Layer.provide(BrowserTaskService.layer), Layer.provide(DecisionService.layer));

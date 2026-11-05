@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import { OrchestratorMcpFailure } from "@t3tools/contracts";
 import type {
   PreviewAutomationResizeResult,
   PreviewAutomationRecordingStatus,
@@ -8,17 +9,25 @@ import type {
   PreviewAutomationSelectResult,
 } from "@t3tools/contracts";
 
+import * as BrowserTaskService from "../../../browserTasks/BrowserTaskService.ts";
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import { assertManagedBrowserCaller } from "../../ManagedBrowserAccess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
-import { unavailable } from "../../threadAccess.ts";
+import { assertLiveCaller, unavailable } from "../../threadAccess.ts";
+import { assertDecisionCaller } from "../decisions/handlers.ts";
 import {
   claimPreviewRecording,
   invoke,
   invokeTargeted,
   normalizePreviewOpenInput,
 } from "../preview/handlers.ts";
-import { ManagedBrowserSnapshotToolkit, ManagedBrowserToolkit } from "./tools.ts";
+import {
+  ManagedBrowserSnapshotToolkit,
+  ManagedBrowserTaskToolkit,
+  ManagedBrowserToolkit,
+} from "./tools.ts";
 
 const scope = McpInvocationContext.requireThreadMcpCapability("preview");
 
@@ -104,4 +113,42 @@ export const layerSnapshot = McpToolAccess.toLayer(ManagedBrowserSnapshotToolkit
     const { includeImage: _includeImage, save: _save, ...operationInput } = input ?? {};
     return invokeTargeted<PreviewAutomationSnapshot>("snapshot", operationInput);
   }),
+});
+
+const taskCaller = Effect.gen(function* () {
+  const invocation = yield* McpInvocationContext.McpInvocationContext;
+  if (invocation.thread === undefined)
+    return yield* new OrchestratorMcpFailure({
+      code: "capability_denied",
+      message: "A bounded browser task needs a managed browser thread.",
+    });
+  return { ...invocation, thread: invocation.thread };
+});
+
+export const layerTask = McpToolAccess.toLayer(ManagedBrowserTaskToolkit, {
+  preview_task: McpToolAccess.asManagedBrowser((request) =>
+    Effect.gen(function* () {
+      const caller = yield* taskCaller;
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      const services = yield* Effect.context<
+        McpInvocationContext.McpInvocationContext | ThreadManagementService.ThreadManagementService
+      >();
+      // Rechecked before each provider call and dispatch, so a long run cannot outlive its authority.
+      const authorize = assertManagedBrowserCaller({ checkSettings: true }).pipe(
+        Effect.flatMap((live) => assertLiveCaller(live)),
+        Effect.andThen(assertDecisionCaller),
+        Effect.asVoid,
+        Effect.provide(services),
+      );
+      return yield* tasks.run({ scope: caller, request, authorize });
+    }),
+  ),
+  // Stopping stays possible after browser access is revoked, like closing a tab.
+  preview_task_cancel: McpToolAccess.cleansUpAsManagedBrowser(({ requestId }) =>
+    Effect.gen(function* () {
+      const caller = yield* taskCaller;
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      return yield* tasks.cancel({ scope: caller, requestId });
+    }),
+  ),
 });

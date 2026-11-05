@@ -16,6 +16,20 @@ export class BrowserControlInterrupted extends Schema.TaggedError<BrowserControl
   },
 ) {}
 
+/** A bounded browser task holds this tab; only passive reads and closing stay available. */
+export class BrowserTaskLeaseHeld extends Schema.TaggedError<BrowserTaskLeaseHeld>()(
+  "BrowserTaskLeaseHeld",
+  {
+    message: Schema.String.pipe(
+      Schema.withConstructorDefault(
+        Effect.succeed(
+          "A bounded browser task holds this tab. Read preview_status, wait for it to finish, or cancel it.",
+        ),
+      ),
+    ),
+  },
+) {}
+
 const settle = (work: Promise<unknown>) =>
   work.then(
     () => undefined,
@@ -33,9 +47,12 @@ export class SessionControl {
   } | null = null;
   private pending: Promise<void> = Promise.resolve();
   private readonly handoff = new Set<Promise<void>>();
+  private readonly observations = new Set<Promise<void>>();
   private owner: string | null = null;
   private epoch = 0;
   private closed = false;
+  private taskLease: string | null = null;
+  private inspectionDue = false;
 
   constructor(agentId: string | null, onGenerationChange: () => void = () => {}) {
     this.agentId = agentId;
@@ -106,11 +123,70 @@ export class SessionControl {
     });
   }
 
+  /** Whether this caller holds the tab's lease, or the tab has none. */
+  private leaseAllows(lease: string | undefined) {
+    return this.taskLease === null || this.taskLease === lease;
+  }
+
+  get taskLeaseHeld() {
+    return this.taskLease !== null;
+  }
+
+  assertLeaseAllows(lease?: string) {
+    if (!this.leaseAllows(lease)) throw new BrowserTaskLeaseHeld();
+  }
+
+  /**
+   * Reserves the tab at once, so nothing new can start, then waits for work already running to
+   * drain. The holder acts only after this resolves.
+   */
+  async acquireTaskLease(agentId: string, lease: string) {
+    this.assertOpen();
+    if (this.agentId !== agentId)
+      throw new BrowserControlInterrupted({
+        message: "This tab belongs to another agent.",
+        reason: "agentMismatch",
+      });
+    if (this.owner !== null)
+      throw new BrowserControlInterrupted({
+        message: "A human controls this tab.",
+        reason: "humanControl",
+      });
+    this.assertLeaseAllows();
+    this.taskLease = lease;
+    await this.tail;
+    // A snapshot already running regenerates refs, so it must end before the holder reads any.
+    await Promise.all(this.observations);
+    this.assertOpen();
+  }
+
+  /** Gives back a lease whose holder dispatched nothing, without waiting on anyone else's work. */
+  abandonTaskLease(lease: string) {
+    if (this.taskLease === lease) this.taskLease = null;
+  }
+
+  /** Ends the lease only once everything it dispatched has quiesced; closing unblocks the wait. */
+  async releaseTaskLease(lease: string, options: { readonly inspectFirst: boolean }) {
+    await this.tail;
+    if (this.taskLease !== lease) return;
+    this.taskLease = null;
+    if (options.inspectFirst) this.inspectionDue = true;
+  }
+
+  /** After an uncertain mutation the page must be read before anything changes it again. */
+  get inspectionRequired() {
+    return this.inspectionDue;
+  }
+
+  markInspected() {
+    this.inspectionDue = false;
+  }
+
   agentMayAct(agentId: string) {
     return this.agentId === null || this.agentId === agentId;
   }
 
-  agent<A>(agentId: string, run: () => Promise<A>, deadlineMs?: number) {
+  agent<A>(agentId: string, run: () => Promise<A>, deadlineMs?: number, lease?: string) {
     if (!this.agentMayAct(agentId))
       return Promise.reject(
         new BrowserControlInterrupted({
@@ -125,7 +201,15 @@ export class SessionControl {
           reason: "humanControl",
         }),
       );
-    return this.action(() => this.agentMayAct(agentId) && this.owner === null, run, deadlineMs);
+    if (!this.leaseAllows(lease)) return Promise.reject(new BrowserTaskLeaseHeld());
+    return this.action(
+      () => this.agentMayAct(agentId) && this.owner === null,
+      async () => {
+        this.assertLeaseAllows(lease);
+        return run();
+      },
+      deadlineMs,
+    );
   }
 
   agentCanActNow(agentId: string) {
@@ -135,7 +219,13 @@ export class SessionControl {
   /** Read without control or queueing so agents can observe without delaying human input. */
   observe<A>(run: () => Promise<A>) {
     this.assertOpen();
-    return run();
+    this.assertLeaseAllows();
+    const work = run();
+    const settled = settle(work).finally(() => {
+      this.observations.delete(settled);
+    });
+    this.observations.add(settled);
+    return work;
   }
 
   system<A>(run: () => Promise<A>) {
@@ -179,6 +269,7 @@ export class SessionControl {
 
   async take(viewerId: string) {
     this.assertOpen();
+    this.assertLeaseAllows();
     if (this.owner !== null && this.owner !== viewerId) {
       throw new BrowserControlInterrupted({ message: "Another viewer controls this browser tab." });
     }

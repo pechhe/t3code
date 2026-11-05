@@ -281,6 +281,20 @@ typing deadlines are also unavailable; navigation accepts a deadline.
 Servers with the skill installed elsewhere can set `phiBrowserSkillDirectory` in server settings;
 the default is `~/.agents/skills/phi-browser`. New sessions use the changed directory.
 
+### Bounded browser tasks
+
+A delegated browser or UI-verifier agent on the integrated browser can hand a defined job to
+`preview_task` instead of driving each step: reach a page, fill a form with values it supplies, or
+capture one element. It runs only when the agent asks, and Phi tasks are refused. The agent names
+the fields, the only clicks or URLs allowed, an explicit submit target and the checks that define
+success; the supplied fields are filled directly, Jev only picks among the other steps, and the result is `passed` only when every check holds
+on the final page. A run defaults to 12 actions, 16 decisions and 60 seconds, up to 24, 32 and 120
+seconds. It holds the tab exclusively while it runs. Afterwards the agent keeps working in the same
+tab, reading the page first if an action's outcome is `uncertain`, since a cancelled or unanswered
+action may still have taken effect. A server restart ends the tab, so retrying the task is refused
+rather than run again; the agent reads the page in a new tab first. It never enters passwords or
+writes text of its own.
+
 New worktrees initialize git submodules recursively. If that step is slow because the repository
 declares many nested submodules, set **Submodules** in **Settings → Worktrees** under Advanced (with the project
 selected to override it there) to **Top level only** to stop at the ones the repository declares

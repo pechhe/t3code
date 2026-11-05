@@ -1,6 +1,116 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { BrowserControlInterrupted, SessionControl } from "./SessionControl.ts";
+import {
+  BrowserControlInterrupted,
+  BrowserTaskLeaseHeld,
+  SessionControl,
+} from "./SessionControl.ts";
+
+describe("SessionControl task lease", () => {
+  it("reserves at once, then waits for running work to drain before the holder acts", async () => {
+    const control = new SessionControl("agent");
+    const finish = Promise.withResolvers<void>();
+    const events: string[] = [];
+    const started = Promise.withResolvers<void>();
+    const running = control.agent("agent", async () => {
+      started.resolve();
+      await finish.promise;
+      events.push("running done");
+    });
+    await started.promise;
+    const acquired = control.acquireTaskLease("agent", "lease").then(() => {
+      events.push("acquired");
+    });
+    await expect(control.agent("agent", async () => "late")).rejects.toThrow(BrowserTaskLeaseHeld);
+    finish.resolve();
+    await Promise.all([running, acquired]);
+    expect(events).toEqual(["running done", "acquired"]);
+  });
+
+  it("waits for a snapshot already running, since it regenerates refs, and refuses a new one", async () => {
+    const control = new SessionControl("agent");
+    const finish = Promise.withResolvers<void>();
+    const events: string[] = [];
+    const running = control.observe(async () => {
+      await finish.promise;
+      events.push("snapshot done");
+    });
+    const acquired = control.acquireTaskLease("agent", "lease").then(() => {
+      events.push("acquired");
+    });
+    expect(() => control.observe(async () => "late")).toThrow(BrowserTaskLeaseHeld);
+    await Promise.resolve();
+    expect(events).toEqual([]);
+    finish.resolve();
+    await Promise.all([running, acquired]);
+    expect(events).toEqual(["snapshot done", "acquired"]);
+  });
+
+  it("does not let a failed snapshot hold the lease back", async () => {
+    const control = new SessionControl("agent");
+    const failed = control.observe(() => Promise.reject(new Error("page changed")));
+    await expect(failed).rejects.toThrow("page changed");
+    await expect(control.acquireTaskLease("agent", "lease")).resolves.toBeUndefined();
+  });
+
+  it("refuses everyone but the holder, including observers and a human taking control", async () => {
+    const control = new SessionControl("agent");
+    await control.acquireTaskLease("agent", "lease");
+    await expect(control.agent("agent", async () => "other")).rejects.toThrow(BrowserTaskLeaseHeld);
+    await expect(control.agent("agent", async () => "wrong", undefined, "stale")).rejects.toThrow(
+      BrowserTaskLeaseHeld,
+    );
+    expect(() => control.observe(async () => "read")).toThrow(BrowserTaskLeaseHeld);
+    await expect(control.take("viewer")).rejects.toThrow(BrowserTaskLeaseHeld);
+    await expect(control.agent("agent", async () => "mine", undefined, "lease")).resolves.toBe(
+      "mine",
+    );
+  });
+
+  it("refuses a second lease, another agent's lease and a tab a human holds", async () => {
+    const control = new SessionControl("agent");
+    await expect(control.acquireTaskLease("someone-else", "lease")).rejects.toThrow(
+      BrowserControlInterrupted,
+    );
+    await control.acquireTaskLease("agent", "lease");
+    await expect(control.acquireTaskLease("agent", "second")).rejects.toThrow(BrowserTaskLeaseHeld);
+    control.abandonTaskLease("lease");
+    await control.take("viewer");
+    await expect(control.acquireTaskLease("agent", "third")).rejects.toThrow(
+      BrowserControlInterrupted,
+    );
+  });
+
+  it("releases only after dispatched work quiesces, and can demand inspection first", async () => {
+    const control = new SessionControl("agent");
+    await control.acquireTaskLease("agent", "lease");
+    const finish = Promise.withResolvers<void>();
+    const dispatched = control.agent("agent", () => finish.promise, undefined, "lease");
+    let released = false;
+    const release = control.releaseTaskLease("lease", { inspectFirst: true }).then(() => {
+      released = true;
+    });
+    await Promise.resolve();
+    expect(released).toBe(false);
+    await expect(control.agent("agent", async () => "other")).rejects.toThrow(BrowserTaskLeaseHeld);
+    finish.resolve();
+    await Promise.all([dispatched, release]);
+    expect(control.inspectionRequired).toBe(true);
+    await expect(control.agent("agent", async () => "next")).resolves.toBe("next");
+    control.markInspected();
+    expect(control.inspectionRequired).toBe(false);
+  });
+
+  it("does not let a released lease's token keep acting", async () => {
+    const control = new SessionControl("agent");
+    await control.acquireTaskLease("agent", "lease");
+    await control.releaseTaskLease("lease", { inspectFirst: false });
+    await control.acquireTaskLease("agent", "next");
+    await expect(control.agent("agent", async () => "old", undefined, "lease")).rejects.toThrow(
+      BrowserTaskLeaseHeld,
+    );
+  });
+});
 
 describe("SessionControl", () => {
   it("replaces waiting hover work without changing the running action or delaying the following click", async () => {

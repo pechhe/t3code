@@ -88,7 +88,16 @@ const BODY_CHARS = 2000;
 const here = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
 const repoRoot = NodePath.resolve(here, "../../../../..");
 
-const bodyOf = (id: string, limit: number = BODY_CHARS): string => {
+/** Reads a pool file's text; the default is the working tree, as a live run sees it. */
+export type ContextReader = (path: string) => string;
+
+const readFromTree: ContextReader = (path) => NodeFS.readFileSync(path, "utf8");
+
+const bodyOf = (
+  id: string,
+  limit: number = BODY_CHARS,
+  read: ContextReader = readFromTree,
+): string => {
   const item = POOL_BY_ID.get(id)!;
   if (item.kind === "finding") return item.description;
   const path = id.startsWith("skill:")
@@ -97,22 +106,33 @@ const bodyOf = (id: string, limit: number = BODY_CHARS): string => {
         NodePath.join(repoRoot, ".agents/skills", id.slice(6), "SKILL.md"),
       ].find((p) => NodeFS.existsSync(p))!
     : NodePath.join(repoRoot, id.slice(5));
-  return NodeFS.readFileSync(path, "utf8").slice(0, limit);
+  return read(path).slice(0, limit);
 };
 
-export const contextText = (ids: ReadonlyArray<string>, seed: string): string =>
+export const contextText = (
+  ids: ReadonlyArray<string>,
+  seed: string,
+  read?: ContextReader,
+): string =>
   shuffled(ids, `ctx:${seed}`)
-    .map((id) => `### ${POOL_BY_ID.get(id)!.title}\n${bodyOf(id)}`)
+    .map((id) => `### ${POOL_BY_ID.get(id)!.title}\n${bodyOf(id, BODY_CHARS, read)}`)
     .join("\n\n");
 
 /** Governing and requested context goes to every arm whole: it sits outside ranking and outside the truncation of candidate bodies. */
-export const fixedContextText = (c: RankingCase): string =>
+export const fixedContextText = (c: RankingCase, read?: ContextReader): string =>
   [...c.mandatory, ...c.requested]
-    .map((id) => `### ${POOL_BY_ID.get(id)!.title}\n${bodyOf(id, Number.POSITIVE_INFINITY)}`)
+    .map((id) => `### ${POOL_BY_ID.get(id)!.title}\n${bodyOf(id, Number.POSITIVE_INFINITY, read)}`)
     .join("\n\n");
 
-export const armContext = (c: RankingCase, ids: ReadonlyArray<string>, arm: Arm): string =>
-  [fixedContextText(c), contextText(ids, `${c.id}:${arm}`)].filter((x) => x !== "").join("\n\n");
+export const armContext = (
+  c: RankingCase,
+  ids: ReadonlyArray<string>,
+  arm: Arm,
+  read?: ContextReader,
+): string =>
+  [fixedContextText(c, read), contextText(ids, `${c.id}:${arm}`, read)]
+    .filter((x) => x !== "")
+    .join("\n\n");
 
 interface Retained {
   records: ReadonlyArray<{

@@ -75,13 +75,28 @@ const validPath = (file: string) =>
   !file.split("/").includes("..") &&
   !/[\n\r\t]/.test(file);
 
+/** One `vp test run` a workspace's test script chains after its primary one with `&&`. */
+export interface LandingExtraRun {
+  /** The `NAME=value` assignments the script puts before the command. */
+  readonly env: Readonly<Record<string, string>>;
+  readonly flags: ReadonlyArray<string>;
+  /** The test files it runs; it always names at least one. */
+  readonly files: ReadonlyArray<string>;
+}
+
 export interface LandingWorkspace {
   readonly name: string;
   readonly directory: string;
   /** Names of the workspace packages this one declares. */
   readonly dependencies: ReadonlyArray<string>;
-  /** The `vp test run` flags of its `test` script; "opaque" when the script is not that shape. */
-  readonly test: { readonly flags: ReadonlyArray<string> } | "opaque" | undefined;
+  /** Its `test` script's primary `vp test run` flags, plus any runs it chains after them; "opaque" when the script is not that shape. */
+  readonly test:
+    | {
+        readonly flags: ReadonlyArray<string>;
+        readonly runs?: ReadonlyArray<LandingExtraRun>;
+      }
+    | "opaque"
+    | undefined;
 }
 
 export type LandingTests =
@@ -293,12 +308,9 @@ export interface BudgetOptions {
 }
 
 /**
- * Runs the selected tests nearest the change that fit the budget, cheapest first within each
- * rank: a changed test or an invariant guard, a direct importer of a changed module, a test named
- * after a changed module, a test beside a changed file, then the rest. The first two ranks are
- * mandatory: they run whatever they cost, and `overBudget` reports when they alone exceed the
- * budget. The optional ranks only fill what the mandatory ones leave. The nightly audit runs what
- * is deferred.
+ * Runs the selected tests nearest the change that fit the budget: changed tests and invariant
+ * guards (mandatory), then importers, namesakes and neighbours, cheapest first within each rank.
+ * The nightly audit runs what is deferred; `overBudget` reports mandatory tests alone exceeding it.
  */
 export function budgetLandingTests(
   candidates: ReadonlyArray<LandingTest>,
@@ -358,11 +370,9 @@ export function budgetLandingTests(
 }
 
 /**
- * Reads an audit's Vitest JSON reports (the manifest in its report directory). A file's cost is
- * its reported duration plus an even share of the worker time its run spent outside any file's
- * duration (imports, transforms and setup), which is most of a small file's cost. Vitest's file
- * times span only test bodies, so the run's own wall time, less the startup the estimate adds
- * per run, bounds the worker time.
+ * Reads an audit's Vitest JSON reports: a file costs its duration plus an even share of the worker
+ * time its run spent outside any file (imports, transforms, setup), bounded by the run's wall time
+ * less the startup each run adds.
  */
 export function durationsFromReports(
   reports: ReadonlyArray<{
@@ -396,6 +406,9 @@ export function durationsFromReports(
 }
 
 const SHELL_SYNTAX = /[&|;<>$`()]/;
+const SHELL_WORD_SYNTAX = /['"\\*?[\]{}~#!]/;
+/** A `NAME=value` prefix a chained segment may put before its command. */
+const ENV_ASSIGNMENT = /^([A-Za-z_][A-Za-z0-9_]*)=(\S+)$/;
 
 /** Whether the gate's Vitest runner can reproduce these `vp test run` flags exactly. */
 function reproducible(flags: ReadonlyArray<string>) {
@@ -406,6 +419,67 @@ function reproducible(flags: ReadonlyArray<string>) {
     index++;
   }
   return true;
+}
+
+/** A script's primary segment, or undefined when it is not a `vp test run` the runner reproduces. */
+function primarySegment(tokens: ReadonlyArray<string>) {
+  return tokens[0] === "vp" &&
+    tokens[1] === "test" &&
+    tokens[2] === "run" &&
+    reproducible(tokens.slice(3))
+    ? tokens.slice(3).filter((flag) => flag !== "--run")
+    : undefined;
+}
+
+/** A chained segment: optional `NAME=value` prefixes, then `vp test run`, its flags and its files. */
+function chainedSegment(tokens: ReadonlyArray<string>): LandingExtraRun | undefined {
+  let index = 0;
+  const env: Record<string, string> = {};
+  while (index < tokens.length) {
+    const assignment = ENV_ASSIGNMENT.exec(tokens[index]!);
+    if (!assignment) break;
+    env[assignment[1]!] = assignment[2]!;
+    index++;
+  }
+  const rest = tokens.slice(index);
+  if (rest[0] !== "vp" || rest[1] !== "test" || rest[2] !== "run") return undefined;
+  const flags: string[] = [];
+  const files: string[] = [];
+  for (index = 3; index < rest.length; index++) {
+    const token = rest[index]!;
+    if (!token.startsWith("-")) {
+      if (!validPath(token)) return undefined;
+      files.push(token);
+      continue;
+    }
+    if (files.length > 0) return undefined;
+    if (token === "--run" || token === "--passWithNoTests") {
+      flags.push(token);
+      continue;
+    }
+    const value = rest[index + 1];
+    if (!(VITEST_FLAGS as ReadonlyArray<string>).includes(token) || value === undefined) {
+      return undefined;
+    }
+    flags.push(token, value);
+    index++;
+  }
+  return files.length > 0 ? { env, flags, files } : undefined;
+}
+
+/** A test script: one `vp test run` segment, or several joined by `&&` with optional env prefixes. */
+function parseTestScript(script: string): LandingWorkspace["test"] {
+  const trimmed = script.trim();
+  // `&&` is the only shell syntax allowed; anything else stays opaque, including quoting,
+  // escapes and expansions, which the runner would otherwise pass on literally.
+  if (SHELL_SYNTAX.test(trimmed.replaceAll("&&", "")) || SHELL_WORD_SYNTAX.test(trimmed))
+    return "opaque";
+  const segments = trimmed.split("&&").map((segment) => segment.trim().split(/\s+/));
+  const flags = primarySegment(segments[0] ?? []);
+  if (flags === undefined) return "opaque";
+  const runs = segments.slice(1).map(chainedSegment);
+  if (runs.some((run) => run === undefined)) return "opaque";
+  return runs.length > 0 ? { flags, runs: runs as ReadonlyArray<LandingExtraRun> } : { flags };
 }
 
 function parseWorkspace(directory: string, manifestText: string): LandingWorkspace {
@@ -419,17 +493,7 @@ function parseWorkspace(directory: string, manifestText: string): LandingWorkspa
   };
   if (!manifest.name) throw new Error(`Unnamed workspace manifest: ${directory}/package.json`);
   const script = manifest.scripts?.test;
-  const tokens = script?.trim().split(/\s+/) ?? [];
-  const test =
-    script === undefined
-      ? undefined
-      : tokens[0] === "vp" &&
-          tokens[1] === "test" &&
-          tokens[2] === "run" &&
-          !SHELL_SYNTAX.test(script) &&
-          reproducible(tokens.slice(3))
-        ? { flags: tokens.slice(3).filter((flag) => flag !== "--run") }
-        : ("opaque" as const);
+  const test = script === undefined ? undefined : parseTestScript(script);
   return {
     name: manifest.name,
     directory,
@@ -676,6 +740,8 @@ export interface LandingCommand {
   readonly suite: string;
   readonly cwd: string;
   readonly command: ReadonlyArray<string>;
+  /** Environment assignments the workspace's test script puts before this command. */
+  readonly env?: Readonly<Record<string, string>>;
   readonly report?: LandingReport;
 }
 
@@ -784,7 +850,37 @@ export function landingCommands(
       workers: LANDING_BUDGET.workers,
       ...(report ? { reportFile: NodePath.join(reportDir!, report.path) } : {}),
     });
-    return [{ suite, cwd, command, ...(report ? { report } : {}) }];
+    const commands: LandingCommand[] = [{ suite, cwd, command, ...(report ? { report } : {}) }];
+    (workspace.test.runs ?? []).forEach((extra, index) => {
+      const extraFiles = extra.files.map((file) => `${run.directory}/${file}`);
+      // An extra run is needed when one of its files was selected, or for a whole-suite run.
+      const files = run.tests ? extraFiles.filter((file) => run.tests!.includes(file)) : extraFiles;
+      if (files.length === 0) return;
+      const extraReport: LandingReport | undefined = reportDir
+        ? {
+            format: "vitest-json",
+            path: `vitest-${slug}-${index + 1}.json`,
+            suite,
+            cwd,
+          }
+        : undefined;
+      commands.push({
+        suite,
+        cwd,
+        command: runCommand({
+          root: ROOT,
+          directory: run.directory,
+          flags: extra.flags,
+          files,
+          ...(exclude.length > 0 ? { exclude } : {}),
+          workers: LANDING_BUDGET.workers,
+          ...(extraReport ? { reportFile: NodePath.join(reportDir!, extraReport.path) } : {}),
+        }),
+        ...(Object.keys(extra.env).length > 0 ? { env: extra.env } : {}),
+        ...(extraReport ? { report: extraReport } : {}),
+      });
+    });
+    return commands;
   });
 }
 
@@ -957,7 +1053,14 @@ async function run(args: ReadonlyArray<string>) {
   const commands = landingCommands(runs, workspaces, quarantine, reportDir);
   if (args.includes("--plan")) {
     console.log(
-      commands.map((entry) => `$ (cd ${entry.cwd} && ${entry.command.join(" ")})`).join("\n"),
+      commands
+        .map(
+          (entry) =>
+            `$ (cd ${entry.cwd} && ${Object.entries(entry.env ?? {})
+              .map(([name, value]) => `${name}=${value} `)
+              .join("")}${entry.command.join(" ")})`,
+        )
+        .join("\n"),
     );
     return 0;
   }
@@ -1014,7 +1117,8 @@ function recordDurations(reportDir: string) {
   console.log(`Recorded ${Object.keys(sorted).length} test durations in tests/durations.json`);
 }
 
-function runCommands(
+/** Runs each command in order; one failing command fails the gate, and its env is added to ours. */
+export function runCommands(
   commands: ReadonlyArray<LandingCommand>,
   snapshot: { readonly assertUnchanged: () => void } | undefined,
   reportDir?: string,
@@ -1023,12 +1127,16 @@ function runCommands(
   let exit = 0;
   const reports: LandingReport[] = [];
   for (const entry of commands) {
-    console.log(`$ (cd ${entry.cwd} && ${entry.command.join(" ")})`);
+    const envPrefix = Object.entries(entry.env ?? {})
+      .map(([name, value]) => `${name}=${value} `)
+      .join("");
+    console.log(`$ (cd ${entry.cwd} && ${envPrefix}${entry.command.join(" ")})`);
     const started = Date.now();
     const status =
       NodeChildProcess.spawnSync(entry.command[0]!, entry.command.slice(1), {
         cwd: NodePath.join(ROOT, entry.cwd),
         stdio: "inherit",
+        env: entry.env ? { ...process.env, ...entry.env } : process.env,
       }).status ?? 1;
     const seconds = (Date.now() - started) / 1000;
     console.log(`landing tests ${entry.suite}: exit ${status} in ${seconds.toFixed(1)}s`);

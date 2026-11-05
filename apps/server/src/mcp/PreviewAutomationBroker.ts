@@ -60,6 +60,8 @@ export interface PreviewAutomationInvokeInput {
   /** Background metadata reads must not change the agent's current tab. */
   readonly updateCurrentTab?: boolean;
   readonly onTargetTab?: (tabId: PreviewTabId | undefined) => void;
+  /** The bounded task's tab lease; set only by the task service. */
+  readonly taskLease?: string;
 }
 
 export interface PreviewAutomationConnectOptions {
@@ -183,7 +185,7 @@ const selectorDiagnosticsFromInput = (
 };
 
 /** Codex/OpenCode share sessions across threads; include thread id to isolate tabs and ownership. */
-const hostAssignmentKey = (scope: McpInvocationContext.McpThreadInvocationScope): string =>
+export const hostAssignmentKey = (scope: McpInvocationContext.McpThreadInvocationScope): string =>
   `${scope.environmentId}\u0000${scope.thread.providerSessionId}\u0000${scope.thread.threadId}`;
 
 const isPreviewTabId = Schema.is(PreviewTabId);
@@ -675,6 +677,7 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
             ...(input.scope.managedBrowser === true && input.scope.managedProjectId !== undefined
               ? { managedBrowser: { projectId: input.scope.managedProjectId } }
               : {}),
+            ...(input.taskLease === undefined ? {} : { taskLease: input.taskLease }),
             operation: input.operation,
             input: input.input,
             timeoutMs,

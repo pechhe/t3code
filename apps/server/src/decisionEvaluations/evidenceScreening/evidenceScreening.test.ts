@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - locates the checkout to read the lock at the run's commit
+import * as NodePath from "node:path";
 import { DecisionError, type DecisionRequest, type DecisionResult } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -14,6 +16,7 @@ import { scoreReply } from "./adjudication.ts";
 import { agreed, hasAllLabels, referenceViews } from "./labels.ts";
 import { ALL_CASES, labelId } from "./labelPacket.ts";
 import { POLICY, screenClaim, screenDecision } from "./policy.ts";
+import { gitFileAt, retainedRunProblems } from "../retainedRunIdentity.ts";
 import { changedSinceFreeze, runDigests } from "./provenance.ts";
 import adjudicationReply from "./results/adjudication-reply.json" with { type: "json" };
 import adjudicationResults from "./results/adjudication.json" with { type: "json" };
@@ -227,9 +230,17 @@ const reproduced = (
     JSON.stringify(evaluate(cases, retained.records as never, referenceViews.agreed!).summary),
   );
 
+const REPOSITORY_ROOT = NodePath.resolve(import.meta.dirname, "../../../../..");
+
 it("keeps the held-out result tied to the code and corpus that made it and reproducible from its records", () => {
   expect(heldoutResults.corpusDigest).toBe(corpusDigest(HELDOUT_CASES));
-  expect(heldoutResults.run.files).toEqual(runDigests());
+  expect(
+    retainedRunProblems(
+      { head: heldoutResults.run.checkout.head, files: heldoutResults.run.files },
+      runDigests(),
+      gitFileAt(REPOSITORY_ROOT),
+    ),
+  ).toEqual([]);
   const keys = heldoutResults.records.map(
     (r: { caseId: string; engine: string }) => `${r.caseId}:${r.engine}`,
   );
@@ -239,7 +250,13 @@ it("keeps the held-out result tied to the code and corpus that made it and repro
 
 it("keeps the tuning result tied to its corpus and reproducible from its records", () => {
   expect(tuneResults.corpusDigest).toBe(corpusDigest(TUNE_CASES));
-  expect(tuneResults.run.files).toEqual(runDigests());
+  expect(
+    retainedRunProblems(
+      { head: tuneResults.run.checkout.head, files: tuneResults.run.files },
+      runDigests(),
+      gitFileAt(REPOSITORY_ROOT),
+    ),
+  ).toEqual([]);
   expect(reproduced(tuneResults, TUNE_CASES)).toEqual(tuneResults.summary);
 });
 

@@ -229,6 +229,23 @@ export interface ServerBrowserViewer {
 
 export type ProfileReporter = (input: PreviewReportProfilesInput) => Effect.Effect<void>;
 
+export class ServerBrowserTaskError extends Schema.TaggedError<ServerBrowserTaskError>()(
+  "ServerBrowserTaskError",
+  { reason: Schema.String },
+) {
+  override get message(): string {
+    return this.reason;
+  }
+}
+
+export interface TaskLeaseInput {
+  readonly threadId: string;
+  readonly tabId: string;
+  /** The broker's owner key for the calling session. */
+  readonly agentSessionId: string;
+  readonly lease: string;
+}
+
 export class ServerBrowser extends Context.Service<
   ServerBrowser,
   {
@@ -262,6 +279,19 @@ export class ServerBrowser extends Context.Service<
     }) => Effect.Effect<Option.Option<{ readonly path: string; readonly fileName: string }>>;
 
     readonly clearProfile: (profileId: string) => Effect.Effect<void, PreviewClearProfileError>;
+
+    /** Exclusive use of one owned tab for a bounded task; see SessionControl's lease. */
+    readonly acquireTaskLease: (
+      input: TaskLeaseInput,
+    ) => Effect.Effect<void, ServerBrowserTaskError>;
+    readonly abandonTaskLease: (input: TaskLeaseInput) => Effect.Effect<void>;
+    /** Completes after quiescence; `tab-lost` when the tab closed instead. */
+    readonly releaseTaskLease: (
+      input: TaskLeaseInput & { readonly inspectFirst: boolean },
+    ) => Effect.Effect<"released" | "tab-lost">;
+    readonly captureTaskTarget: (
+      input: TaskLeaseInput & { readonly locator: string; readonly timeoutMs: number },
+    ) => Effect.Effect<ServerBrowserPage.TaskTargetCapture, ServerBrowserTaskError>;
 
     readonly profileReporter: Effect.Effect<ProfileReporter, never, Scope.Scope>;
   }
@@ -1530,7 +1560,11 @@ const make = Effect.gen(function* () {
   const idleAgentTabs = () => {
     const cutoff = Date.now() - AGENT_TAB_IDLE_MS;
     return [...tabs.values()].filter(
-      (tab) => tab.control.agentId !== null && !isVisible(tab) && tab.usedAt < cutoff,
+      (tab) =>
+        tab.control.agentId !== null &&
+        !isVisible(tab) &&
+        !tab.control.taskLeaseHeld &&
+        tab.usedAt < cutoff,
     );
   };
 
@@ -1761,7 +1795,8 @@ const make = Effect.gen(function* () {
         completedAt,
       })),
     };
-    if (status.url === null || tab.dialog) return status;
+    // A leased page may be busy with the task's action; status stays passive and answers anyway.
+    if (status.url === null || tab.dialog || tab.control.taskLeaseHeld) return status;
     return { ...status, title: (await tab.page.title().catch(() => "")) || null };
   };
 
@@ -2071,7 +2106,20 @@ const make = Effect.gen(function* () {
           "This tab belongs to another agent session. You can read it, but open your own tab to act.",
         reason: "agentMismatch",
       });
+    assertTaskAccess(tab, request);
     return tab;
+  };
+
+  /** The tab's lease and inspect-first state apply to every non-passive operation. */
+  const assertTaskAccess = (tab: ServerTab, request: PreviewAutomationRequest) => {
+    if (request.operation === "status" || request.operation === "close") return;
+    tab.control.assertLeaseAllows(request.taskLease);
+    if (tab.control.inspectionRequired && !READ_OPERATIONS.has(request.operation))
+      throw new ServerBrowserPage.ServerBrowserOperationError({
+        tag: "PreviewAutomationExecutionError",
+        message:
+          "A bounded browser task left an uncertain mutation on this tab. Take a preview_snapshot before changing the page.",
+      });
   };
 
   const markUsed = (request: PreviewAutomationRequest) => {
@@ -2208,6 +2256,7 @@ const make = Effect.gen(function* () {
               "A browser dialog is pending. Read preview_status and use preview_dialog first.",
             reason: "dialogPending",
           });
+        if (existing) assertTaskAccess(existing, request);
         return tab.control.agent(
           request.agentSessionId,
           async () => {
@@ -2307,6 +2356,7 @@ const make = Effect.gen(function* () {
     }
     // Resolve dialogs outside the queue, with ownership checked, to unblock waiting clicks.
     if (request.operation === "dialog") {
+      tab.control.assertLeaseAllows(request.taskLease);
       if (tab.control.controller !== null)
         throw new BrowserControlInterrupted({
           message: "A human controls this tab.",
@@ -2344,7 +2394,9 @@ const make = Effect.gen(function* () {
         tab.agentOperating = !READ_OPERATIONS.has(request.operation);
         updateFileChooserInterception(tab);
         try {
-          return await executeTabOperation(tab, request);
+          const result = await executeTabOperation(tab, request);
+          if (request.operation === "snapshot") tab.control.markInspected();
+          return result;
         } finally {
           tab.agentOperating = false;
           updateFileChooserInterception(tab);
@@ -2352,6 +2404,7 @@ const make = Effect.gen(function* () {
         }
       },
       deadlineMs,
+      request.taskLease,
     );
   };
 
@@ -2395,6 +2448,9 @@ const make = Effect.gen(function* () {
           ServerBrowserPage.snapshot({
             ...tab,
             locator: (input as PreviewAutomationSnapshotInput | undefined)?.locator,
+            ...(request.taskLease === undefined
+              ? {}
+              : { textLength: ServerBrowserPage.TASK_SNAPSHOT_TEXT_LENGTH }),
             renderScale: tab.desktop ? "display" : RENDER_SCALE,
           }),
         );
@@ -2423,6 +2479,8 @@ const make = Effect.gen(function* () {
           uploadFiles(tab, input as PreviewAutomationUploadInput),
         );
       case "type":
+        if (request.taskLease !== undefined)
+          await ServerBrowserPage.refuseSecretField(tab.page, input as PreviewAutomationTypeInput);
         return recordAction(tab, "type", () =>
           ServerBrowserPage.type(tab.page, input as PreviewAutomationTypeInput),
         );
@@ -3067,6 +3125,56 @@ const make = Effect.gen(function* () {
     }),
   );
 
+  const leasedTab = (input: TaskLeaseInput) => {
+    const tab = tabs.get(tabKey(input.threadId, input.tabId));
+    return tab?.control.agentId === input.agentSessionId ? tab : undefined;
+  };
+  const taskError = (cause: unknown) =>
+    new ServerBrowserTaskError({ reason: ServerBrowserPage.toOperationError(cause).message });
+  const acquireTaskLease = (input: TaskLeaseInput) =>
+    Effect.tryPromise({
+      try: async () => {
+        const tab = leasedTab(input);
+        if (!tab) throw new Error("This tab is not open under the calling session.");
+        await tab.control.acquireTaskLease(input.agentSessionId, input.lease);
+      },
+      catch: taskError,
+    });
+  const abandonTaskLease = (input: TaskLeaseInput) =>
+    Effect.sync(() => leasedTab(input)?.control.abandonTaskLease(input.lease));
+  const releaseTaskLease = (input: TaskLeaseInput & { readonly inspectFirst: boolean }) =>
+    Effect.promise(async () => {
+      const tab = leasedTab(input);
+      if (!tab) return "tab-lost" as const;
+      await tab.control.releaseTaskLease(input.lease, { inspectFirst: input.inspectFirst });
+      return tabs.get(tabKey(input.threadId, input.tabId)) === tab
+        ? ("released" as const)
+        : ("tab-lost" as const);
+    });
+  const captureTaskTarget = (
+    input: TaskLeaseInput & { readonly locator: string; readonly timeoutMs: number },
+  ) =>
+    Effect.tryPromise({
+      try: async () => {
+        const tab = leasedTab(input);
+        if (!tab) throw new Error("This tab is not open under the calling session.");
+        return await tab.control.agent(
+          input.agentSessionId,
+          () =>
+            withScreencastsPaused(tab, () =>
+              ServerBrowserPage.captureTaskTarget({
+                page: tab.page,
+                locator: input.locator,
+                timeoutMs: input.timeoutMs,
+              }),
+            ),
+          performance.now() + input.timeoutMs,
+          input.lease,
+        );
+      },
+      catch: taskError,
+    });
+
   const clearProfile = (profileId: string) =>
     Effect.tryPromise({
       try: () => contexts.clearProfile(profileId),
@@ -3076,6 +3184,10 @@ const make = Effect.gen(function* () {
   return ServerBrowser.of({
     attachViewer,
     clearProfile,
+    acquireTaskLease,
+    abandonTaskLease,
+    releaseTaskLease,
+    captureTaskTarget,
     profileReporter,
     openDownload,
     answerFileChooser,

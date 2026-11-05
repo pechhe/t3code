@@ -6,7 +6,8 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { assertLiveCaller, loadCaller } from "../../threadAccess.ts";
 import { DecisionToolkit } from "./tools.ts";
 
-const service = Effect.gen(function* () {
+/** Whether the caller may spend a decision right now, rechecked by long-running callers. */
+export const assertDecisionCaller = Effect.gen(function* () {
   const scope = yield* McpInvocationContext.McpInvocationContext;
   if (
     !canUseDecisions(scope) ||
@@ -34,8 +35,8 @@ const service = Effect.gen(function* () {
       message: "This managed role cannot invoke decisions.",
     });
   }
-  return yield* DecisionService.DecisionService;
 });
+const service = assertDecisionCaller.pipe(Effect.andThen(DecisionService.DecisionService));
 export const layer = McpToolAccess.toLayer(DecisionToolkit, {
   t3_decide: McpToolAccess.reads((input) =>
     service.pipe(Effect.flatMap((decisions) => decisions.decide(input))),
