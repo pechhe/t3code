@@ -36,12 +36,15 @@ export const projectMutationOperation = Effect.fn("projectMutationOperation")(fu
           ? {}
           : { defaultModelSelection: mutation.defaultModelSelection }),
         ...(mutation.autoPull === undefined ? {} : { autoPull: mutation.autoPull }),
-        ...(mutation.hqRepositoryKey === undefined
+        // `null` clears the link, so only an absent current name falls back to the retained one.
+        ...(mutation.weaveRepositoryKey !== undefined
+          ? { weaveRepositoryKey: mutation.weaveRepositoryKey }
+          : mutation.hqRepositoryKey !== undefined
+            ? { weaveRepositoryKey: mutation.hqRepositoryKey }
+            : {}),
+        ...((mutation.weaveSyncLocalOnly ?? mutation.hqSyncLocalOnly) === undefined
           ? {}
-          : { hqRepositoryKey: mutation.hqRepositoryKey }),
-        ...(mutation.hqSyncLocalOnly === undefined
-          ? {}
-          : { hqSyncLocalOnly: mutation.hqSyncLocalOnly }),
+          : { weaveSyncLocalOnly: mutation.weaveSyncLocalOnly ?? mutation.hqSyncLocalOnly }),
         ...(mutation.projectIcon === undefined ? {} : { projectIcon: mutation.projectIcon }),
         ...(mutation.faviconPath === undefined ? {} : { faviconPath: mutation.faviconPath }),
         ...(mutation.defaultThreadEnvMode === undefined

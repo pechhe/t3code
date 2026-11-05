@@ -67,14 +67,14 @@ import packageJson from "../../../package.json" with { type: "json" };
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
-import * as HqForgeUsage from "../../hq/HqForgeUsage.ts";
+import * as WeaveForgeUsage from "../../weave/WeaveForgeUsage.ts";
 import * as EffectWorker from "../EffectWorker.ts";
 import * as Orchestrator from "../Orchestrator.ts";
 import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
-import * as HqTestkit from "../../hq/HqAgentConnections.testkit.ts";
+import * as WeaveTestkit from "../../weave/WeaveAgentConnections.testkit.ts";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
 import { withCodexReplayChildMetadata } from "./CodexAdapterV2.testkit.ts";
 import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
@@ -2339,27 +2339,27 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     "starts a thread with %s Weave registration through renewal and reconnect failures",
     (registration) =>
       Effect.gen(function* () {
-        const hq = yield* HqTestkit.makeHqHarness;
-        const scenario = "hq-connection";
+        const weave = yield* WeaveTestkit.makeWeaveHarness;
+        const scenario = "weave-connection";
         const threadId = ThreadId.make(`thread-${scenario}`);
-        yield* hq.connections.prepare({
+        yield* weave.connections.prepare({
           threadId,
           role: "spec-reviewer",
           model: "gpt-5.4",
         });
         // An exchanged token, a renewal Weave cannot answer, then a revoked delegation.
-        yield* hq.call(threadId);
-        yield* TestClock.adjust(12 * HqTestkit.hourMs);
-        hq.hq.state.unreachable = true;
-        yield* hq.call(threadId);
-        hq.hq.state.unreachable = false;
-        hq.hq.state.delegationRevoked = true;
-        yield* hq.call(threadId);
-        const connection = (yield* hq.connections.connection(threadId))!;
+        yield* weave.call(threadId);
+        yield* TestClock.adjust(12 * WeaveTestkit.hourMs);
+        weave.weave.state.unreachable = true;
+        yield* weave.call(threadId);
+        weave.weave.state.unreachable = false;
+        weave.weave.state.delegationRevoked = true;
+        yield* weave.call(threadId);
+        const connection = (yield* weave.connections.connection(threadId))!;
 
-        const nativeThreadId = "hq-thread";
-        const nativeTurnId = "hq-turn";
-        const prompt = "Record the review in HQ.";
+        const nativeThreadId = "weave-thread";
+        const nativeTurnId = "weave-turn";
+        const prompt = "Record the review in Weave.";
         const preamble = codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt });
         const transcript = makeCodexReplayTranscript({
           scenario,
@@ -2379,7 +2379,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                               (name) => [
                                 name,
                                 {
-                                  url: HqTestkit.hqEndpoint,
+                                  url: WeaveTestkit.weaveEndpoint,
                                   http_headers: { Authorization: connection.authorizationHeader },
                                   default_tools_approval_mode: "approve",
                                 },
@@ -2410,13 +2410,13 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           transcript,
           () => Effect.void,
           (method, params) => Effect.sync(() => void requests.push({ method, params })),
-        ).pipe(Effect.provide(HqTestkit.agentMcpServersFor(hq.connections)));
+        ).pipe(Effect.provide(WeaveTestkit.agentMcpServersFor(weave.connections)));
         yield* harness.runtime.startTurn(
           makeCodexTestTurnInput({
             threadId,
             providerThread: harness.providerThread,
             now: yield* DateTime.now,
-            attemptId: RunAttemptId.make("hq-attempt"),
+            attemptId: RunAttemptId.make("weave-attempt"),
             text: prompt,
           }),
         );
@@ -2427,7 +2427,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           ["initialize", "thread/start", "turn/start"],
         );
         // Every frame T3 sent Codex, the prompt included, and every event it reported.
-        hq.assertNoSecretsIn(requests, harness.events);
+        weave.assertNoSecretsIn(requests, harness.events);
       }).pipe(
         Effect.provideService(AgentMcpServers.CurrentRegistration, registration),
         Effect.scoped,
@@ -2833,9 +2833,9 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           ],
         });
         // What Weave's Build record would receive, kept where the test can read it.
-        const recorded: Array<HqForgeUsage.HqForgeUsageInput> = [];
+        const recorded: Array<WeaveForgeUsage.WeaveForgeUsageInput> = [];
         const harness = yield* makeCodexReplayHarness(transcript).pipe(
-          Effect.provideService(HqForgeUsage.HqForgeUsage, {
+          Effect.provideService(WeaveForgeUsage.WeaveForgeUsage, {
             record: (input) => Effect.sync(() => void recorded.push(input)),
           }),
         );

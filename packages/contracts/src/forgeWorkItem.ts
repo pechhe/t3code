@@ -173,30 +173,35 @@ export const ForgeWorkItemCardResult = Schema.NullOr(ForgeWorkItemCard);
 export type ForgeWorkItemCardResult = typeof ForgeWorkItemCardResult.Type;
 
 /** Where a Connect to Weave sign-in stands. `failed` names why in `reason`; `cancelled` is Weave's consent declined. */
-export const HqSignInState = Schema.Struct({
+export const WeaveSignInState = Schema.Struct({
   status: Schema.Literals(["pending", "cancelled", "failed"]),
   reason: Schema.optional(
     Schema.Literals(["expired", "rejected", "no_access", "unavailable", "invalid_response"]),
   ),
 });
-export type HqSignInState = typeof HqSignInState.Type;
+export type WeaveSignInState = typeof WeaveSignInState.Type;
 
 /**
  * Starts Connect to Weave. `handbackOrigin` is the origin through which the person's browser reaches
  * this environment (Weave sends the browser back to it); the server adds its own callback path.
  */
-export const HqSignInStartInput = Schema.Struct({
+export const WeaveSignInStartInput = Schema.Struct({
   handbackOrigin: Schema.String,
   /** Another Weave than the default, such as a local one. */
+  weaveOrigin: Schema.optional(Schema.String),
+});
+export type WeaveSignInStartInput = typeof WeaveSignInStartInput.Type;
+/** What `hq.signIn.start` accepts: older fork clients name the Weave they sign in to `hqOrigin`. */
+export const RetainedWeaveSignInStartInput = Schema.Struct({
+  ...WeaveSignInStartInput.fields,
   hqOrigin: Schema.optional(Schema.String),
 });
-export type HqSignInStartInput = typeof HqSignInStartInput.Type;
-export const HqSignInStartResult = Schema.Struct({ url: Schema.String });
-export type HqSignInStartResult = typeof HqSignInStartResult.Type;
+export const WeaveSignInStartResult = Schema.Struct({ url: Schema.String });
+export type WeaveSignInStartResult = typeof WeaveSignInStartResult.Type;
 
 /** Disconnects T3 from Weave and returns the resulting connection state. */
-export const HqDisconnectInput = Schema.Struct({});
-export type HqDisconnectInput = typeof HqDisconnectInput.Type;
+export const WeaveDisconnectInput = Schema.Struct({});
+export type WeaveDisconnectInput = typeof WeaveDisconnectInput.Type;
 
 /** Whether T3 is connected to Weave, so its threads can link Forge items. */
 export const BuildConnectionReadInput = Schema.Struct({});
@@ -212,7 +217,7 @@ export const BuildConnectionReadResult = Schema.Struct({
    * The newest Connect to Weave sign-in this environment started that has not connected; null once
    * connected or when none is open. Optional for the same reason as `origin`.
    */
-  signIn: Schema.optional(Schema.NullOr(HqSignInState)),
+  signIn: Schema.optional(Schema.NullOr(WeaveSignInState)),
   /** Weave refused the stored delegation (revoked or expired), so threads cannot act in Weave until it reconnects. */
   refused: Schema.optional(Schema.Boolean),
 });
@@ -255,6 +260,8 @@ export class ForgeWorkItemError extends Schema.TaggedError<ForgeWorkItemError>()
       "thread_not_found",
       "not_connected",
       "invalid_reference",
+      // `other_hq` and `invalid_hq_origin` keep their wire spelling: fork clients older than the
+      // Weave names reject a whole response whose reason they do not know.
       "other_hq",
       "not_found",
       "unsupported_kind",

@@ -153,14 +153,14 @@ it.effect("a No project chat records the agent's project suggestion", () => {
   return Effect.gen(function* () {
     const result = yield* call("t3_thread_suggest_project", {
       projectId: targetProjectId,
-      reason: "HQ tasks for a client",
+      reason: "Weave tasks for a client",
     });
     expect(result.isError).toBe(false);
     expect(dispatched).toMatchObject([
       {
         type: "thread.metadata.update",
         threadId,
-        projectSuggestion: { projectId: targetProjectId, reason: "HQ tasks for a client" },
+        projectSuggestion: { projectId: targetProjectId, reason: "Weave tasks for a client" },
       },
     ]);
   }).pipe(Effect.provide(layerFor(scratchProjectId, dispatched)));

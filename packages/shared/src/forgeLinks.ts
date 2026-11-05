@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
-import { sameHqAddress } from "./hqOrigins.ts";
+import { sameWeaveAddress } from "./weaveOrigins.ts";
 
 /**
  * `#<number>` in prose. Forge numbers start at 1,000,000, so GitHub references such as `#78` never
@@ -79,7 +79,9 @@ export function forgeItemNumberFromUrl(href: string, origin: string): number | n
   // `/build/` still names one: Weave redirects it (YS-185).
   if (!href.includes("/forge/") && !href.includes("/build/")) return null;
   const parsed = parseForgeReference(href);
-  return parsed?.kind === "number" && parsed.origin !== null && sameHqAddress(parsed.origin, origin)
+  return parsed?.kind === "number" &&
+    parsed.origin !== null &&
+    sameWeaveAddress(parsed.origin, origin)
     ? parsed.number
     : null;
 }

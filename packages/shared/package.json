@@ -539,9 +539,9 @@
       "types": "./src/forgeLinks.ts",
       "import": "./src/forgeLinks.ts"
     },
-    "./hqOrigins": {
-      "types": "./src/hqOrigins.ts",
-      "import": "./src/hqOrigins.ts"
+    "./weaveOrigins": {
+      "types": "./src/weaveOrigins.ts",
+      "import": "./src/weaveOrigins.ts"
     },
     "./providerPools": {
       "types": "./src/providerPools.ts",

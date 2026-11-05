@@ -27,12 +27,16 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
-import { delegation, makeHqHarness, origin } from "../../../hq/HqAgentConnections.testkit.ts";
-import * as HqAgentConnections from "../../../hq/HqAgentConnections.ts";
+import {
+  delegation,
+  makeWeaveHarness,
+  origin,
+} from "../../../weave/WeaveAgentConnections.testkit.ts";
+import * as WeaveAgentConnections from "../../../weave/WeaveAgentConnections.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import { liveThreadShell } from "../../McpToolAccess.testkit.ts";
-import * as ForgeWorkItems from "../../../hq/ForgeWorkItems.ts";
+import * as ForgeWorkItems from "../../../weave/ForgeWorkItems.ts";
 import * as DocumentText from "../../../provider/DocumentText.ts";
 import { OrchestratorRuntimeModeAboveCeilingError } from "../../../orchestration-v2/Orchestrator.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
@@ -114,7 +118,7 @@ const clientLaunchHarness = (input: {
           ? Effect.succeed({
               itemId: "build-item:3368",
               number: 3368,
-              origin: "https://hq.example",
+              origin: "https://weave.example",
             })
           : Effect.fail(
               new ForgeWorkItemError({
@@ -650,7 +654,7 @@ const projectOf = (threadId: ThreadId) =>
 const delegationRef = SecretRef.make(`secret_${"r".repeat(43)}`);
 
 const asCaller = (threadId: ThreadId): McpInvocationContext.McpInvocationScope => ({
-  environmentId: EnvironmentId.make("environment-hq"),
+  environmentId: EnvironmentId.make("environment-weave"),
   requestNamespace: `provider:${threadId}`,
   thread: {
     threadId,
@@ -662,11 +666,11 @@ const asCaller = (threadId: ThreadId): McpInvocationContext.McpInvocationScope =
   issuedAt: 0,
 });
 
-it.effect.each(["t3_weave_connection", "t3_hq_connection"] as const)(
+it.effect.each(["t3_weave_connection"] as const)(
   "%s: a connection one project's thread makes serves a thread in another project",
   (connectionTool) =>
     Effect.gen(function* () {
-      const harness = yield* makeHqHarness;
+      const harness = yield* makeWeaveHarness;
       yield* harness.connections.disconnect;
       const call = (threadId: ThreadId, params: Record<string, unknown>) =>
         Effect.gen(function* () {
@@ -695,7 +699,7 @@ it.effect.each(["t3_weave_connection", "t3_hq_connection"] as const)(
                         ? Effect.succeed(delegation)
                         : Effect.fail(new SecretRequestError({ reason: "invalid_ref" })),
                   }),
-                  Layer.succeed(HqAgentConnections.HqAgentConnections, harness.connections),
+                  Layer.succeed(WeaveAgentConnections.WeaveAgentConnections, harness.connections),
                   Layer.mock(Project.ProjectService)({}),
                 ),
               ),

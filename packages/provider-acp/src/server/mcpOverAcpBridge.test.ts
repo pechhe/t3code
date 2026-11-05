@@ -98,8 +98,8 @@ describe("AcpMcpOverAcpBridge", () => {
             authorization: "Bearer t3-credential",
           },
           {
-            serverId: "yardsmith-hq",
-            endpoint: "http://127.0.0.1:1/mcp/yardsmith-hq",
+            serverId: "weave",
+            endpoint: "http://127.0.0.1:1/mcp/weave",
             authorization: "Bearer weave-credential",
           },
         ],
@@ -112,12 +112,12 @@ describe("AcpMcpOverAcpBridge", () => {
           });
         },
       });
-      const weave = yield* bridge.connect({ serverId: "yardsmith-hq" });
+      const weave = yield* bridge.connect({ serverId: "weave" });
       const t3 = yield* bridge.connect({ serverId: "t3-code" });
       yield* bridge.message({ connectionId: weave.connectionId, method: "tools/list" });
       yield* bridge.message({ connectionId: t3.connectionId, method: "tools/list" });
       expect(requests).toEqual([
-        { url: "http://127.0.0.1:1/mcp/yardsmith-hq", authorization: "Bearer weave-credential" },
+        { url: "http://127.0.0.1:1/mcp/weave", authorization: "Bearer weave-credential" },
         { url: "http://127.0.0.1:1/mcp", authorization: "Bearer t3-credential" },
       ]);
     }),

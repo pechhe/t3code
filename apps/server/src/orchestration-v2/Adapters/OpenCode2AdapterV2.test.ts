@@ -2930,7 +2930,7 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
       });
       yield* Effect.addFinalizer(() => mcpSessions.clear(threadId));
       const t3 = "t3-code-thread_opencode2-adapter";
-      const weave = `${t3}-yardsmith-hq`;
+      const weave = `${t3}-weave`;
       const runtime = yield* openCode2ReplayRuntime([
         ...opening,
         out("session.get", { sessionID: SESSION }),
@@ -2962,7 +2962,7 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
           "location[directory]": WORK,
           config: {
             type: "remote",
-            url: "http://127.0.0.1:3773/mcp/yardsmith-hq",
+            url: "http://127.0.0.1:3773/mcp/weave",
             headers: { Authorization: "Bearer thread-weave-credential" },
             oauth: false,
           },
@@ -2990,8 +2990,8 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
                 id === threadId
                   ? [
                       {
-                        name: "yardsmith-hq",
-                        url: "http://127.0.0.1:3773/mcp/yardsmith-hq",
+                        name: "weave",
+                        url: "http://127.0.0.1:3773/mcp/weave",
                         authorizationHeader: "Bearer thread-weave-credential",
                       },
                     ]

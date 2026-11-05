@@ -672,7 +672,7 @@ describe("Pi agent MCP servers", () => {
     name: "yardsmith-hq",
     url: "http://weave.invalid/mcp/yardsmith-hq",
     authorizationHeader: "Bearer thread-weave-credential",
-    tools: ["hq_build_read", "hq_build_update"],
+    tools: ["weave_forge_read", "weave_forge_update"],
   };
   const discoveryContext = {
     model: { api: "anthropic-messages" },
@@ -686,21 +686,21 @@ describe("Pi agent MCP servers", () => {
       agentServers: [weave],
     });
     await bridge.handlers.get("session_start")!({ systemPrompt: "" }, discoveryContext);
-    const read = bridge.tools.find((tool) => tool.name === "mcp__yardsmith-hq__hq_build_read");
+    const read = bridge.tools.find((tool) => tool.name === "mcp__yardsmith-hq__weave_forge_read");
     assert.isDefined(read);
     assert.equal(read!.exposure, "deferred");
     assert.equal(
-      bridge.tools.find((tool) => tool.name === "mcp__yardsmith_hq__hq_build_read")?.exposure,
+      bridge.tools.find((tool) => tool.name === "mcp__yardsmith_hq__weave_forge_read")?.exposure,
       "hidden",
     );
     assert.isDefined(bridge.tools.find((tool) => tool.name === "mcp__t3-code__delegate_task"));
-    assert.isUndefined(bridge.tools.find((tool) => tool.name === "mcp__t3-code__hq_build_read"));
+    assert.isUndefined(bridge.tools.find((tool) => tool.name === "mcp__t3-code__weave_forge_read"));
 
     await read!.execute("read", { ref: "T3-191" });
     assert.equal(bridge.transports.at(-1)?.url, weave.url);
     assert.equal(bridge.transports.at(-1)?.authorization, weave.authorizationHeader);
     assert.deepEqual(bridge.requests.at(-1)?.params, {
-      name: "hq_build_read",
+      name: "weave_forge_read",
       arguments: { ref: "T3-191" },
     });
   });
@@ -711,7 +711,7 @@ describe("Pi agent MCP servers", () => {
       bridge.tools
         .map((tool) => tool.name)
         .filter((name) => name.startsWith("mcp__yardsmith-hq__")),
-      ["mcp__yardsmith-hq__hq_build_read", "mcp__yardsmith-hq__hq_build_update"],
+      ["mcp__yardsmith-hq__weave_forge_read", "mcp__yardsmith-hq__weave_forge_update"],
     );
     assert.isFalse(bridge.tools.some((tool) => tool.name.startsWith("mcp__t3-code__")));
     assert.isFalse(bridge.transports.some((transport) => transport.url.includes("fixture")));
@@ -737,10 +737,10 @@ describe("Pi agent MCP servers", () => {
       },
     };
     assert.isUndefined(
-      await hook({ toolName: "mcp__yardsmith-hq__hq_build_update", input: {} }, ctx),
+      await hook({ toolName: "mcp__yardsmith-hq__weave_forge_update", input: {} }, ctx),
     );
     assert.isUndefined(
-      await hook({ toolName: "mcp__yardsmith_hq__hq_build_update", input: {} }, ctx),
+      await hook({ toolName: "mcp__yardsmith_hq__weave_forge_update", input: {} }, ctx),
     );
     assert.equal(
       (await hook({ toolName: "mcp__t3-code__delegate_task", input: {} }, ctx))?.block,
@@ -748,7 +748,7 @@ describe("Pi agent MCP servers", () => {
     );
     bridge.setBridgeSourcePath("/user/extensions/replacement.ts");
     assert.equal(
-      (await hook({ toolName: "mcp__yardsmith-hq__hq_build_update", input: {} }, ctx))?.block,
+      (await hook({ toolName: "mcp__yardsmith-hq__weave_forge_update", input: {} }, ctx))?.block,
       true,
     );
     assert.equal(confirmations.length, 2);

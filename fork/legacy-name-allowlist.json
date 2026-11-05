@@ -1,0 +1,287 @@
+[
+  {
+    "path": ".repos/alchemy-effect/**",
+    "category": "captured-fixtures",
+    "reason": "Read-only vendored source uses headquarters examples and integrity hashes unrelated to this product."
+  },
+  {
+    "path": ".repos/effect/**",
+    "category": "captured-fixtures",
+    "reason": "Read-only vendored bundles and integrity hashes contain incidental token matches."
+  },
+  {
+    "path": "apps/desktop/resources/dmg/dmg-background-nightly.svg",
+    "category": "captured-fixtures",
+    "reason": "Embedded raster bytes contain the token by chance; it is not product terminology."
+  },
+  {
+    "path": "apps/server/src/decisionEvaluations/contextRanking/**",
+    "category": "captured-fixtures",
+    "reason": "The context-ranking corpus, pool and retained results cite repository paths as they were at each recorded revision; they are recorded data, not product terminology."
+  },
+  {
+    "path": "apps/server/src/decisionEvaluations/failureTriage/corpusAuthentic.json",
+    "category": "captured-fixtures",
+    "reason": "Retained nightly-audit evidence lists the changed file paths of that time; it is recorded data, not product terminology."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Proves a legacy-registered native thread keeps the retained MCP server name."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Proves a legacy-registered native thread keeps the retained MCP server name."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/testkit/fixtures/claude_background_wake_before_queued_prompt/claude_transcript.ndjson",
+    "category": "captured-fixtures",
+    "reason": "Recorded bytes contain the token by chance; it is not product terminology."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/testkit/fixtures/claude_subagent_resume_after_restart/claude_transcript.ndjson",
+    "category": "captured-fixtures",
+    "reason": "Captured provider transcripts contain the token by chance inside recorded identifiers and text."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/testkit/fixtures/grok_background_subagent/grok_transcript.ndjson",
+    "category": "captured-fixtures",
+    "reason": "Recorded bytes contain the token by chance; it is not product terminology."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/testkit/fixtures/opencode2_background/opencode_transcript.ndjson",
+    "category": "captured-fixtures",
+    "reason": "Captured provider transcripts contain the token by chance inside recorded identifiers and text."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/testkit/fixtures/opencode2_resume_after_restart/opencode_transcript.ndjson",
+    "category": "captured-fixtures",
+    "reason": "Captured provider transcripts contain the token by chance inside recorded identifiers and text."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/testkit/fixtures/subagent/kiro_transcript.ndjson",
+    "category": "captured-fixtures",
+    "reason": "Captured provider transcripts contain the token by chance inside recorded identifiers and text."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/testkit/fixtures/todo_list/grok_transcript.ndjson",
+    "category": "captured-fixtures",
+    "reason": "Captured provider transcripts contain the token by chance inside recorded identifiers and text."
+  },
+  {
+    "path": "apps/server/src/orchestration-v2/testkit/fixtures/tool_call_read_only_on_request/fx_transcript.ndjson",
+    "category": "captured-fixtures",
+    "reason": "Captured provider transcripts contain the token by chance inside recorded identifiers and text."
+  },
+  {
+    "path": "apps/server/src/persistence/Migrations.test.ts",
+    "category": "append-only-history",
+    "reason": "Shipped migration names are recorded in each database and must keep matching the manifest."
+  },
+  {
+    "path": "apps/server/src/persistence/Migrations.ts",
+    "category": "append-only-history",
+    "reason": "Shipped migration names are recorded in each database and must keep matching the manifest."
+  },
+  {
+    "path": "apps/server/src/persistence/Migrations/055_OrchestrationV2.test.ts",
+    "category": "append-only-history",
+    "reason": "A shipped migration or its test, which still names what it created at the time and is never rewritten."
+  },
+  {
+    "path": "apps/server/src/persistence/Migrations/077_ProjectHqRepositorySync.test.ts",
+    "category": "append-only-history",
+    "reason": "A shipped migration or its test, which still names what it created at the time and is never rewritten."
+  },
+  {
+    "path": "apps/server/src/persistence/Migrations/077_ProjectHqRepositorySync.ts",
+    "category": "append-only-history",
+    "reason": "A shipped migration or its test, which still names what it created at the time and is never rewritten."
+  },
+  {
+    "path": "apps/server/src/persistence/Migrations/078_BuildSendBackDeliveries.ts",
+    "category": "append-only-history",
+    "reason": "A shipped migration or its test, which still names what it created at the time and is never rewritten."
+  },
+  {
+    "path": "apps/server/src/persistence/Migrations/082_BuildNoteDeliveries.ts",
+    "category": "append-only-history",
+    "reason": "A shipped migration or its test, which still names what it created at the time and is never rewritten."
+  },
+  {
+    "path": "apps/server/src/persistence/Migrations/086_ProjectHqUnregisteredKey.ts",
+    "category": "append-only-history",
+    "reason": "A shipped migration or its test, which still names what it created at the time and is never rewritten."
+  },
+  {
+    "path": "apps/server/src/persistence/Migrations/089_HqBuildRecords.ts",
+    "category": "append-only-history",
+    "reason": "A shipped migration or its test, which still names what it created at the time and is never rewritten."
+  },
+  {
+    "path": "apps/server/src/persistence/Migrations/108_WeaveStoredNames.test.ts",
+    "category": "stored-storage-wire",
+    "reason": "The migration that renames the stored names has to name them."
+  },
+  {
+    "path": "apps/server/src/persistence/Migrations/108_WeaveStoredNames.ts",
+    "category": "stored-storage-wire",
+    "reason": "The migration that renames the stored names has to name them."
+  },
+  {
+    "path": "apps/server/src/persistence/reconcileV2PreviewMigration.test.ts",
+    "category": "append-only-history",
+    "reason": "Lists shipped migration names exactly as databases record them."
+  },
+  {
+    "path": "apps/server/src/project/ProjectMutation.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Applies the project fields older fork clients send under the retained names."
+  },
+  {
+    "path": "apps/server/src/project/ProjectMutation.ts",
+    "category": "compatibility-aliases",
+    "reason": "Applies the project fields older fork clients send under the retained names."
+  },
+  {
+    "path": "apps/server/src/weave/ForgeHome.test.ts",
+    "category": "stored-storage-wire",
+    "reason": "Cleans up the retired hq-build-decisions secret store and proves it."
+  },
+  {
+    "path": "apps/server/src/weave/ForgeHome.ts",
+    "category": "stored-storage-wire",
+    "reason": "Cleans up the retired hq-build-decisions secret store and proves it."
+  },
+  {
+    "path": "apps/server/src/weave/ForgeWorkItems.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Proves the retained MCP server route or the old Weave address."
+  },
+  {
+    "path": "apps/server/src/weave/ForgeWorkItems.ts",
+    "category": "compatibility-aliases",
+    "reason": "Emits the retained other_hq refusal reason."
+  },
+  {
+    "path": "apps/server/src/weave/WeaveAgentConnections.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Proves the secret-store move, the old address and the retained MCP server name."
+  },
+  {
+    "path": "apps/server/src/weave/WeaveAgentConnections.ts",
+    "category": "stored-storage-wire",
+    "reason": "Moves a connection stored under the old secret names to the current one at start."
+  },
+  {
+    "path": "apps/server/src/weave/WeaveMcpRoute.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Proves the retained MCP server route or the old Weave address."
+  },
+  {
+    "path": "apps/server/src/weave/WeaveRepositories.test.ts",
+    "category": "stored-storage-wire",
+    "reason": "Weave's updatedSource value is hq until its stored rows are migrated."
+  },
+  {
+    "path": "apps/server/src/weave/WeaveRepositories.ts",
+    "category": "stored-storage-wire",
+    "reason": "Weave's updatedSource value is hq until its stored rows are migrated."
+  },
+  {
+    "path": "apps/server/src/weave/WeaveSignIn.ts",
+    "category": "compatibility-aliases",
+    "reason": "Emits the retained invalid_hq_origin refusal reason."
+  },
+  {
+    "path": "apps/web/src/components/Icons.tsx",
+    "category": "captured-fixtures",
+    "reason": "Embedded raster bytes contain the token by chance; it is not product terminology."
+  },
+  {
+    "path": "fork/differences.md",
+    "category": "append-only-history",
+    "reason": "Decision history and receipt-pinned entry ids keep their names; current requirements describe what is retained."
+  },
+  {
+    "path": "fork/legacy-name-allowlist.json",
+    "category": "compatibility-aliases",
+    "reason": "This inventory names retained uses and why they remain."
+  },
+  {
+    "path": "fork/upstream-receipt.json",
+    "category": "append-only-history",
+    "reason": "The pinned reconciliation receipt names the entry ids and earlier decisions."
+  },
+  {
+    "path": "packages/contracts/src/forgeWorkItem.ts",
+    "category": "compatibility-aliases",
+    "reason": "Retained hq sign-in input field and refusal reasons for older fork clients."
+  },
+  {
+    "path": "packages/contracts/src/project.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Retained project fields for older fork clients and the retained MCP server name."
+  },
+  {
+    "path": "packages/contracts/src/project.ts",
+    "category": "compatibility-aliases",
+    "reason": "Retained project fields for older fork clients and the retained MCP server name."
+  },
+  {
+    "path": "packages/contracts/src/rpc.ts",
+    "category": "compatibility-aliases",
+    "reason": "hq.signIn.start and hq.disconnect stay served for older fork clients."
+  },
+  {
+    "path": "packages/contracts/src/weaveNames.ts",
+    "category": "compatibility-aliases",
+    "reason": "Retained project fields for older fork clients and the retained MCP server name."
+  },
+  {
+    "path": "packages/provider-core/src/server/AgentMcpServers.ts",
+    "category": "compatibility-aliases",
+    "reason": "Documents or proves the retained MCP server name for legacy-registered native threads."
+  },
+  {
+    "path": "packages/provider-pi/src/server/adapter.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Documents or proves the retained MCP server name for legacy-registered native threads."
+  },
+  {
+    "path": "packages/provider-pi/src/server/mcpExtensionSource.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Documents or proves the retained MCP server name for legacy-registered native threads."
+  },
+  {
+    "path": "packages/shared/src/forgeLinks.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Links and stored connections made at the old hq.yardsmith.co.uk address still canonicalize."
+  },
+  {
+    "path": "packages/shared/src/weaveOrigins.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "Links and stored connections made at the old hq.yardsmith.co.uk address still canonicalize."
+  },
+  {
+    "path": "packages/shared/src/weaveOrigins.ts",
+    "category": "compatibility-aliases",
+    "reason": "Links and stored connections made at the old hq.yardsmith.co.uk address still canonicalize."
+  },
+  {
+    "path": "pnpm-lock.yaml",
+    "category": "stored-storage-wire",
+    "reason": "An integrity hash contains the token by chance; changing it would invalidate the package checksum."
+  },
+  {
+    "path": "scripts/evaluations/test-selection/{corpus,results}/**",
+    "category": "captured-fixtures",
+    "reason": "The test-selection corpus and retained results cite repository paths as they were at each recorded revision; they are recorded data, not product terminology."
+  },
+  {
+    "path": "scripts/legacy-name-allowlist.test.ts",
+    "category": "compatibility-aliases",
+    "reason": "The guard has to spell the name it searches for."
+  }
+]

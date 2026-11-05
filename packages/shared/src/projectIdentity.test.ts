@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { weaveRepositoryKeyOf } from "./projectIdentity.ts";
 
-describe("HQ repository keys", () => {
+describe("Weave repository keys", () => {
   const repositoryIdentity = {
     canonicalKey: "github.com/upstream/app",
     origin: { canonicalKey: "github.com/pechhe/app" },
@@ -15,10 +15,12 @@ describe("HQ repository keys", () => {
     expect(weaveRepositoryKeyOf({ repositoryIdentity })).toBe("pechhe/app");
   });
   it("prefers an explicit link and returns to automatic matching when cleared", () => {
-    expect(weaveRepositoryKeyOf({ repositoryIdentity, hqRepositoryKey: "manual/app" })).toBe(
+    expect(weaveRepositoryKeyOf({ repositoryIdentity, weaveRepositoryKey: "manual/app" })).toBe(
       "manual/app",
     );
-    expect(weaveRepositoryKeyOf({ repositoryIdentity, hqRepositoryKey: null })).toBe("pechhe/app");
+    expect(weaveRepositoryKeyOf({ repositoryIdentity, weaveRepositoryKey: null })).toBe(
+      "pechhe/app",
+    );
     expect(weaveRepositoryKeyOf({})).toBeNull();
   });
 });

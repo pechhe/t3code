@@ -9,7 +9,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
+import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import type * as McpInvocationContext from "./McpInvocationContext.ts";

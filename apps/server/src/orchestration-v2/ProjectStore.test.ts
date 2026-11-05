@@ -41,7 +41,7 @@ it.layer(ProjectStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemor
 
         yield* projects.apply({
           sequence: 2,
-          eventId: EventId.make("event-hq-sync"),
+          eventId: EventId.make("event-weave-sync"),
           aggregateKind: "project",
           aggregateId: projectId,
           occurredAt: "2026-03-24T00:01:00.000Z",
@@ -53,23 +53,23 @@ it.layer(ProjectStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemor
           payload: {
             projectId,
             updatedAt: "2026-03-24T00:01:00.000Z",
-            hqRepositoryKey: "pechhe/yardsmith",
-            hqSyncLocalOnly: true,
-            hqSyncedRevision: 17,
-            hqSyncedValueHash: "baseline-hash",
-            hqUnregisteredKey: "pechhe/yardsmith",
+            weaveRepositoryKey: "pechhe/yardsmith",
+            weaveSyncLocalOnly: true,
+            weaveSyncedRevision: 17,
+            weaveSyncedValueHash: "baseline-hash",
+            weaveUnregisteredKey: "pechhe/yardsmith",
           },
         });
         const synced = Option.getOrThrow(yield* projects.get(projectId));
-        assert.equal(synced.hqRepositoryKey, "pechhe/yardsmith");
-        assert.isTrue(synced.hqSyncLocalOnly);
-        assert.equal(synced.hqSyncedRevision, 17);
-        assert.equal(synced.hqSyncedValueHash, "baseline-hash");
+        assert.equal(synced.weaveRepositoryKey, "pechhe/yardsmith");
+        assert.isTrue(synced.weaveSyncLocalOnly);
+        assert.equal(synced.weaveSyncedRevision, 17);
+        assert.equal(synced.weaveSyncedValueHash, "baseline-hash");
         const shell = Option.getOrThrow(yield* projects.getShell(projectId));
-        assert.equal(shell.hqRepositoryKey, "pechhe/yardsmith");
-        assert.isTrue(shell.hqSyncLocalOnly);
-        assert.equal(shell.hqUnregisteredKey, "pechhe/yardsmith");
-        assert.isFalse("hqSyncedRevision" in shell);
+        assert.equal(shell.weaveRepositoryKey, "pechhe/yardsmith");
+        assert.isTrue(shell.weaveSyncLocalOnly);
+        assert.equal(shell.weaveUnregisteredKey, "pechhe/yardsmith");
+        assert.isFalse("weaveSyncedRevision" in shell);
         const rows = yield* sql<{ readonly defaultModelSelection: string | null }>`
           SELECT default_model_selection_json AS "defaultModelSelection"
           FROM projection_projects

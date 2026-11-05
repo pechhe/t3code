@@ -35,15 +35,15 @@ const PLANNED = {
     specs: [
       {
         number: 2478,
-        title: "Agents act in HQ as themselves",
+        title: "Agents act in Weave as themselves",
         url: "https://github.com/pechhe/yardsmith/issues/2478",
         closedTickets: 2,
         totalTickets: 5,
-        summary: "#2478 Agents act in HQ as themselves: 2 of 5 Tickets closed",
+        summary: "#2478 Agents act in Weave as themselves: 2 of 5 Tickets closed",
       },
     ],
   },
-  subjects: ["One HQ notification path (#2335)"],
+  subjects: ["One Weave notification path (#2335)"],
   next: "After explicit human approval: slipjay promote --confirm bf787f66d9f5.",
 };
 
@@ -94,7 +94,7 @@ describe("promoteResult", () => {
         stdout: JSON.stringify({
           ok: true,
           status: "released",
-          production: { status: "failed", reason: "deploy failed: hq (health check)" },
+          production: { status: "failed", reason: "deploy failed: weave (health check)" },
         }),
         stderr: "",
       }).released,

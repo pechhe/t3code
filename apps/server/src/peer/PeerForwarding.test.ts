@@ -1,7 +1,7 @@
 import * as ContextSqlClient from "../persistence/Sqlite.ts";
 import * as ContextExperimentService from "../experiments/ExperimentService.ts";
-import * as ContextForgeWorkItems from "../hq/ForgeWorkItems.ts";
-import * as ContextHqAgentConnections from "../hq/HqAgentConnections.ts";
+import * as ContextForgeWorkItems from "../weave/ForgeWorkItems.ts";
+import * as ContextWeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
 import * as ContextReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import * as ContextRunSetupStore from "../agents/RunSetupRecorder.ts";
 import * as ContextThreadProjectMoveService from "../orchestration-v2/ThreadProjectMoveService.ts";
@@ -452,7 +452,7 @@ it.effect("an agent here works on a linked environment's threads within its own 
               assignments: () => Effect.succeed([]),
             }),
             Layer.mock(ContextForgeWorkItems.ForgeWorkItems)({}),
-            Layer.mock(ContextHqAgentConnections.HqAgentConnections)({}),
+            Layer.mock(ContextWeaveAgentConnections.WeaveAgentConnections)({}),
             Layer.mock(ContextReleaseApprovals.ReleaseApprovals)({}),
             Layer.mock(ContextRunSetupStore.RunSetupStore)({}),
             Layer.mock(ContextThreadProjectMoveService.ThreadProjectMoveService)({}),
@@ -523,7 +523,7 @@ it.effect("keeps a forwarded wait short and its retries scoped to the caller", (
               assignments: () => Effect.succeed([]),
             }),
             Layer.mock(ContextForgeWorkItems.ForgeWorkItems)({}),
-            Layer.mock(ContextHqAgentConnections.HqAgentConnections)({}),
+            Layer.mock(ContextWeaveAgentConnections.WeaveAgentConnections)({}),
             Layer.mock(ContextReleaseApprovals.ReleaseApprovals)({}),
             Layer.mock(ContextRunSetupStore.RunSetupStore)({}),
             Layer.mock(ContextThreadProjectMoveService.ThreadProjectMoveService)({}),
@@ -595,7 +595,7 @@ it.effect("launches in a linked environment with the caller's modes, retry-safe"
               assignments: () => Effect.succeed([]),
             }),
             Layer.mock(ContextForgeWorkItems.ForgeWorkItems)({}),
-            Layer.mock(ContextHqAgentConnections.HqAgentConnections)({}),
+            Layer.mock(ContextWeaveAgentConnections.WeaveAgentConnections)({}),
             Layer.mock(ContextReleaseApprovals.ReleaseApprovals)({}),
             Layer.mock(ContextRunSetupStore.RunSetupStore)({}),
             Layer.mock(ContextThreadProjectMoveService.ThreadProjectMoveService)({}),
@@ -664,7 +664,7 @@ it.effect("brings a repository to a linked environment, only through full access
               assignments: () => Effect.succeed([]),
             }),
             Layer.mock(ContextForgeWorkItems.ForgeWorkItems)({}),
-            Layer.mock(ContextHqAgentConnections.HqAgentConnections)({}),
+            Layer.mock(ContextWeaveAgentConnections.WeaveAgentConnections)({}),
             Layer.mock(ContextReleaseApprovals.ReleaseApprovals)({}),
             Layer.mock(ContextRunSetupStore.RunSetupStore)({}),
             Layer.mock(ContextThreadProjectMoveService.ThreadProjectMoveService)({}),
@@ -718,7 +718,7 @@ it.effect("runs any tool that takes a linked environment there", () =>
               assignments: () => Effect.succeed([]),
             }),
             Layer.mock(ContextForgeWorkItems.ForgeWorkItems)({}),
-            Layer.mock(ContextHqAgentConnections.HqAgentConnections)({}),
+            Layer.mock(ContextWeaveAgentConnections.WeaveAgentConnections)({}),
             Layer.mock(ContextReleaseApprovals.ReleaseApprovals)({}),
             Layer.mock(ContextRunSetupStore.RunSetupStore)({}),
             Layer.mock(ContextThreadProjectMoveService.ThreadProjectMoveService)({}),
@@ -809,7 +809,7 @@ it.effect("refuses what a linked environment cannot take before anything leaves"
               assignments: () => Effect.succeed([]),
             }),
             Layer.mock(ContextForgeWorkItems.ForgeWorkItems)({}),
-            Layer.mock(ContextHqAgentConnections.HqAgentConnections)({}),
+            Layer.mock(ContextWeaveAgentConnections.WeaveAgentConnections)({}),
             Layer.mock(ContextReleaseApprovals.ReleaseApprovals)({}),
             Layer.mock(ContextRunSetupStore.RunSetupStore)({}),
             Layer.mock(ContextThreadProjectMoveService.ThreadProjectMoveService)({}),

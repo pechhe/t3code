@@ -1,6 +1,6 @@
 import * as Experiments from "../experiments/ExperimentService.ts";
-import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
-import * as HqAgentConnections from "../hq/HqAgentConnections.ts";
+import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
+import * as WeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
 import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import * as RunSetupRecorder from "../agents/RunSetupRecorder.ts";
 import * as ThreadProjectMove from "../orchestration-v2/ThreadProjectMoveService.ts";
@@ -131,7 +131,7 @@ const layerTools = Layer.mergeAll(
         assignments: () => Effect.succeed([]),
       }),
       Layer.mock(ForgeWorkItems.ForgeWorkItems)({}),
-      Layer.mock(HqAgentConnections.HqAgentConnections)({}),
+      Layer.mock(WeaveAgentConnections.WeaveAgentConnections)({}),
       Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
       Layer.mock(RunSetupRecorder.RunSetupStore)({}),
       Layer.mock(ThreadProjectMove.ThreadProjectMoveService)({}),

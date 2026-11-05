@@ -1,4 +1,4 @@
-import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
+import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";

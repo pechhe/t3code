@@ -114,7 +114,7 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
   },
   {
     when: /^(?:apps|packages|scripts|fork)\/|^AGENTS\.md$/,
-    select: ["scripts/hq-allowlist.test.ts"],
+    select: ["scripts/legacy-name-allowlist.test.ts"],
     reason: "test greps every tracked file for the legacy product name outside its allowlist",
   },
   {

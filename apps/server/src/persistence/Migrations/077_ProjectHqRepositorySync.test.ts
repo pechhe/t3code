@@ -10,7 +10,7 @@ it.effect("upgrades existing projects with safe HQ defaults and preserves their 
     yield* runMigrations({ toMigrationInclusive: 76 });
     yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, project_icon_json, created_at, updated_at)
     VALUES ('existing', 'Existing', '/work/existing', '[]', '{"kind":"emoji","emoji":"🦊"}', '2026-10-20T12:00:00.000Z', '2026-10-20T12:00:00.000Z')`;
-    yield* runMigrations();
+    yield* runMigrations({ toMigrationInclusive: 77 });
     const rows =
       yield* sql`SELECT hq_repository_key, hq_sync_local_only, hq_synced_revision, hq_synced_value_hash, project_icon_json FROM projection_projects WHERE project_id = 'existing'`;
     assert.deepEqual(rows, [
@@ -22,6 +22,6 @@ it.effect("upgrades existing projects with safe HQ defaults and preserves their 
         project_icon_json: '{"kind":"emoji","emoji":"🦊"}',
       },
     ]);
-    yield* runMigrations();
+    yield* runMigrations({ toMigrationInclusive: 77 });
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );

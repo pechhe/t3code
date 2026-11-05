@@ -25,7 +25,7 @@ import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as SourceControlRepositoryService from "../sourceControl/SourceControlRepositoryService.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import * as HqAgentConnections from "../hq/HqAgentConnections.ts";
+import * as WeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProviderAdapterRegistryV2 from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -48,7 +48,7 @@ import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
-import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
+import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "./ThreadMetadataMcpService.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
@@ -84,7 +84,7 @@ const serviceMocks = Layer.mergeAll(
   Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({}),
   Layer.mock(TerminalManager.TerminalManager)({}),
   Layer.mock(GitVcsDriver.GitVcsDriver)({}),
-  Layer.mock(HqAgentConnections.HqAgentConnections)({}),
+  Layer.mock(WeaveAgentConnections.WeaveAgentConnections)({}),
   Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/tmp/projects" }),
   Layer.mock(ProviderAdapterRegistryV2.ProviderAdapterRegistryV2)({}),
   Layer.mock(ProviderRegistry.ProviderRegistry)({}),

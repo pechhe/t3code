@@ -100,17 +100,17 @@ import * as PeerLinkRequests from "./peer/PeerLinkRequests.ts";
 import * as PeerLinks from "./peer/PeerLinks.ts";
 import * as PeerMcpClient from "./peer/PeerMcpClient.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
-import * as HqAgentConnections from "./hq/HqAgentConnections.ts";
-import * as HqSignIn from "./hq/HqSignIn.ts";
-import * as HqSignInRoute from "./hq/HqSignInRoute.ts";
-import * as RepositoryChipSync from "./hq/RepositoryChipSync.ts";
-import * as HqRepositories from "./hq/HqRepositories.ts";
-import * as HqAgentLifecycleReactor from "./hq/HqAgentLifecycleReactor.ts";
-import * as HqForgeRecordingReactor from "./hq/HqForgeRecordingReactor.ts";
-import * as ForgeSpecOfThread from "./hq/ForgeSpecOfThread.ts";
-import * as HqForgeRecords from "./hq/HqForgeRecords.ts";
-import * as HqForgeUsage from "./hq/HqForgeUsage.ts";
-import * as HqMcpRoute from "./hq/HqMcpRoute.ts";
+import * as WeaveAgentConnections from "./weave/WeaveAgentConnections.ts";
+import * as WeaveSignIn from "./weave/WeaveSignIn.ts";
+import * as WeaveSignInRoute from "./weave/WeaveSignInRoute.ts";
+import * as RepositoryChipSync from "./weave/RepositoryChipSync.ts";
+import * as WeaveRepositories from "./weave/WeaveRepositories.ts";
+import * as WeaveAgentLifecycleReactor from "./weave/WeaveAgentLifecycleReactor.ts";
+import * as WeaveForgeRecordingReactor from "./weave/WeaveForgeRecordingReactor.ts";
+import * as ForgeSpecOfThread from "./weave/ForgeSpecOfThread.ts";
+import * as WeaveForgeRecords from "./weave/WeaveForgeRecords.ts";
+import * as WeaveForgeUsage from "./weave/WeaveForgeUsage.ts";
+import * as WeaveMcpRoute from "./weave/WeaveMcpRoute.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import * as DeviceHubProxy from "./device/DeviceHubProxy.ts";
@@ -609,8 +609,8 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
   }),
 );
 
-const layerHqForgeUsage = HqForgeUsage.layer.pipe(
-  Layer.provide(HqForgeRecords.layer),
+const layerWeaveForgeUsage = WeaveForgeUsage.layer.pipe(
+  Layer.provide(WeaveForgeRecords.layer),
   // The queue resolves a row's Spec when it sends, with the resolver usage queues with.
   Layer.provide(ForgeSpecOfThread.layer),
   Layer.provide(ProjectionStoreV2.layer),
@@ -620,7 +620,7 @@ const layerHqForgeUsage = HqForgeUsage.layer.pipe(
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
   Layer.provide(layerScheduledTaskWebhookOrigin),
   // Adapters hand each settled turn's token usage to the Build record queue.
-  Layer.provide(layerHqForgeUsage),
+  Layer.provide(layerWeaveForgeUsage),
   Layer.provide(ProviderUsageAnalytics.layer),
   Layer.provide(layerCheckpointStore),
   Layer.provide(layerGitWorkflow),
@@ -759,14 +759,14 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   // because that reactor asks it for a finished run's records before queueing the thread's end.
   Layer.effectDiscard(
     Effect.gen(function* () {
-      yield* (yield* HqForgeRecords.HqForgeRecords).start();
-      yield* (yield* HqForgeRecordingReactor.HqForgeRecordingReactor).start();
-      yield* (yield* HqAgentLifecycleReactor.HqAgentLifecycleReactor).start();
+      yield* (yield* WeaveForgeRecords.WeaveForgeRecords).start();
+      yield* (yield* WeaveForgeRecordingReactor.WeaveForgeRecordingReactor).start();
+      yield* (yield* WeaveAgentLifecycleReactor.WeaveAgentLifecycleReactor).start();
     }),
   ).pipe(
-    Layer.provide(HqAgentLifecycleReactor.layer),
-    Layer.provide(HqForgeRecordingReactor.layer),
-    Layer.provideMerge(HqForgeRecords.layer),
+    Layer.provide(WeaveAgentLifecycleReactor.layer),
+    Layer.provide(WeaveForgeRecordingReactor.layer),
+    Layer.provideMerge(WeaveForgeRecords.layer),
     // The queue resolves a row's Spec when it sends, with the resolver the reactors queue with.
     Layer.provide(ForgeSpecOfThread.layer),
     Layer.provide(ProjectionStoreV2.layer),
@@ -777,7 +777,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       yield* (yield* RepositoryChipSync.RepositoryChipSync).start();
     }),
   ).pipe(
-    Layer.provide(RepositoryChipSync.layer.pipe(Layer.provide(HqRepositories.layer))),
+    Layer.provide(RepositoryChipSync.layer.pipe(Layer.provide(WeaveRepositories.layer))),
     Layer.provide(ProjectStore.layer),
   ),
   ProviderUsageLimitsIngestion.layer,
@@ -808,7 +808,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(ProviderRegistry.layer),
   // The registry builds the adapters, which record each turn's usage.
   Layer.provideMerge(
-    ProviderInstanceRegistryHydration.layer.pipe(Layer.provide(layerHqForgeUsage)),
+    ProviderInstanceRegistryHydration.layer.pipe(Layer.provide(layerWeaveForgeUsage)),
   ),
   Layer.provideMerge(layerPortScanner),
   Layer.provideMerge(
@@ -903,8 +903,8 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerAttachmentUploadRoute,
     GuestHttp.layer,
     DeviceHubProxy.layer,
-    HqMcpRoute.layer,
-    HqSignInRoute.layer,
+    WeaveMcpRoute.layer,
+    WeaveSignInRoute.layer,
     ServerBrowserStream.routeLayer,
     ServerHttp.layerStaticAndDevRoute,
     Ws.layer,
@@ -1317,8 +1317,8 @@ const layerMakeServer = Layer.unwrap(
       Layer.provideMerge(
         Layer.mergeAll(
           McpSessionRegistry.layer.pipe(Layer.provide(PreviewManager.layer)),
-          Layer.mergeAll(HqSignIn.layer, HqAgentConnections.agentMcpServersLayer).pipe(
-            Layer.provideMerge(HqAgentConnections.layer),
+          Layer.mergeAll(WeaveSignIn.layer, WeaveAgentConnections.agentMcpServersLayer).pipe(
+            Layer.provideMerge(WeaveAgentConnections.layer),
           ),
         ).pipe(
           Layer.provide(ServerEnvironment.layer.pipe(Layer.provide(ServerSecretStore.layer))),

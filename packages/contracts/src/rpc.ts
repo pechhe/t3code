@@ -224,9 +224,10 @@ import {
 } from "./forgeHome.ts";
 import {
   BuildConnectionReadInput,
-  HqDisconnectInput,
-  HqSignInStartInput,
-  HqSignInStartResult,
+  WeaveDisconnectInput,
+  RetainedWeaveSignInStartInput,
+  WeaveSignInStartInput,
+  WeaveSignInStartResult,
   BuildConnectionReadResult,
   ForgeWorkItemError,
   ForgeWorkItemLinkInput,
@@ -652,8 +653,11 @@ export const WS_METHODS = {
   serverRefreshUsageRates: "server.refreshUsageRates",
 
   buildConnectionRead: "build.connection.read",
-  hqSignInStart: "hq.signIn.start",
-  hqDisconnect: "hq.disconnect",
+  weaveSignInStart: "weave.signIn.start",
+  weaveDisconnect: "weave.disconnect",
+  // What fork clients older than the Weave names call; served by the same handlers.
+  retainedWeaveSignInStart: "hq.signIn.start",
+  retainedWeaveDisconnect: "hq.disconnect",
   forgeWorkItemRead: "build.workItem.read",
   forgeWorkItemCard: "build.workItem.card",
   forgeWorkItemMentions: "build.workItem.mentions",
@@ -2187,14 +2191,26 @@ const WsForgeConnectionReadRpc = Rpc.make(WS_METHODS.buildConnectionRead, {
   error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
 });
 
-const WsHqSignInStartRpc = Rpc.make(WS_METHODS.hqSignInStart, {
-  payload: HqSignInStartInput,
-  success: HqSignInStartResult,
+const WsWeaveSignInStartRpc = Rpc.make(WS_METHODS.weaveSignInStart, {
+  payload: WeaveSignInStartInput,
+  success: WeaveSignInStartResult,
   error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
 });
 
-const WsHqDisconnectRpc = Rpc.make(WS_METHODS.hqDisconnect, {
-  payload: HqDisconnectInput,
+const WsWeaveDisconnectRpc = Rpc.make(WS_METHODS.weaveDisconnect, {
+  payload: WeaveDisconnectInput,
+  success: BuildConnectionReadResult,
+  error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
+});
+
+const WsRetainedWeaveSignInStartRpc = Rpc.make(WS_METHODS.retainedWeaveSignInStart, {
+  payload: RetainedWeaveSignInStartInput,
+  success: WeaveSignInStartResult,
+  error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
+});
+
+const WsRetainedWeaveDisconnectRpc = Rpc.make(WS_METHODS.retainedWeaveDisconnect, {
+  payload: WeaveDisconnectInput,
   success: BuildConnectionReadResult,
   error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
 });
@@ -2621,9 +2637,12 @@ export const WsThreadStructureRpcGroup = RpcGroup.make(
   WsOrchestrationV2GetOlderSettledThreadsRpc,
 ).middleware(RpcScopeAuthorization);
 
-export const WsHqRpcGroup = RpcGroup.make(WsHqSignInStartRpc, WsHqDisconnectRpc).middleware(
-  RpcScopeAuthorization,
-);
+export const WsWeaveRpcGroup = RpcGroup.make(
+  WsWeaveSignInStartRpc,
+  WsWeaveDisconnectRpc,
+  WsRetainedWeaveSignInStartRpc,
+  WsRetainedWeaveDisconnectRpc,
+).middleware(RpcScopeAuthorization);
 
 export const WsAwayRpcGroup = RpcGroup.make(WsServerSetAwayRpc).middleware(RpcScopeAuthorization);
 
@@ -2733,7 +2752,7 @@ export const WsChampionsRpcGroup = RpcGroup.make(
 /** Every RPC the WebSocket serves. */
 export const WsRpcGroup = WsCoreRpcGroup.merge(WsPullRequestRpcGroup)
   .merge(WsPeersRpcGroup)
-  .merge(WsHqRpcGroup)
+  .merge(WsWeaveRpcGroup)
   .merge(WsGuestShareRpcGroup)
   .merge(WsThreadStructureRpcGroup)
   .merge(WsAwayRpcGroup)

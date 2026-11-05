@@ -37,14 +37,20 @@ describe("RPC authorization scopes", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
   });
 
-  it("keeps Build decisions, which act as the person in HQ, to settings owners", () => {
+  it("keeps Build decisions, which act as the person in Weave, to settings owners", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.forgeHomeDecide)).toBe(AuthSettingsWriteScope);
     expect(requiredScopeForRpcMethod(WS_METHODS.forgeHomeAnswer)).toBe(AuthSettingsWriteScope);
   });
 
-  it("keeps connecting and disconnecting HQ, which replace the person's delegation, to settings owners", () => {
-    expect(requiredScopeForRpcMethod(WS_METHODS.hqSignInStart)).toBe(AuthSettingsWriteScope);
-    expect(requiredScopeForRpcMethod(WS_METHODS.hqDisconnect)).toBe(AuthSettingsWriteScope);
+  it("keeps connecting and disconnecting Weave, which replace the person's delegation, to settings owners", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.weaveSignInStart)).toBe(AuthSettingsWriteScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.weaveDisconnect)).toBe(AuthSettingsWriteScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.retainedWeaveSignInStart)).toBe(
+      AuthSettingsWriteScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.retainedWeaveDisconnect)).toBe(
+      AuthSettingsWriteScope,
+    );
   });
 
   it("restricts policy reads and saves to settings owners", () => {

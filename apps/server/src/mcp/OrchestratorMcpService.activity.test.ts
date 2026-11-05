@@ -1,6 +1,6 @@
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
-import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
+import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import {
   EnvironmentId,
   NodeId,

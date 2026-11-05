@@ -109,7 +109,7 @@ it.layer(layerTest)("thread workflow", (it) => {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const projections = yield* ProjectionStore.ProjectionStoreV2;
       const threadId = ThreadId.make("thread:work-item");
-      const spec = { itemId: "item-spec", number: 1_000_078, origin: "https://hq.example.test" };
+      const spec = { itemId: "item-spec", number: 1_000_078, origin: "https://weave.example.test" };
       const ticket = { itemId: "item-ticket", number: 1_000_079, origin: spec.origin };
       yield* orchestrator.dispatch({
         type: "thread.create",

@@ -306,7 +306,8 @@ function ProjectDetail({
   const { updateProjectGroup, canOrganizeProjectGroup } = useProjectGroupUpdate();
   const updateAllMembers = (
     input:
-      | (ProjectGroupUpdate & Partial<{ hqRepositoryKey: string | null; hqSyncLocalOnly: boolean }>)
+      | (ProjectGroupUpdate &
+          Partial<{ weaveRepositoryKey: string | null; weaveSyncLocalOnly: boolean }>)
       | ((member: SidebarProjectGroupMember) => ProjectGroupUpdate),
     failureTitle: string,
   ) => updateProjectGroup(group.memberProjects, input, failureTitle);
@@ -575,26 +576,26 @@ function ProjectDetail({
           <SettingsRow
             title="Repository (Weave)"
             description={
-              representative.hqRepositoryKey
-                ? representative.hqUnregisteredKey === representative.hqRepositoryKey
+              representative.weaveRepositoryKey
+                ? representative.weaveUnregisteredKey === representative.weaveRepositoryKey
                   ? "Not synced: Weave has not registered this repository. Register it in Weave and it syncs on the next check."
                   : "Linked by hand. Clear to match automatically."
                 : `Automatically matched: ${weaveRepositoryKeyOf(representative) ?? "No repository detected"}`
             }
             control={
               <Input
-                key={representative.hqRepositoryKey ?? "automatic"}
+                key={representative.weaveRepositoryKey ?? "automatic"}
                 size="sm"
                 className="w-full sm:w-64"
                 aria-label="Repository (Weave)"
                 disabled={!canEditGroup}
-                defaultValue={representative.hqRepositoryKey ?? ""}
+                defaultValue={representative.weaveRepositoryKey ?? ""}
                 placeholder={weaveRepositoryKeyOf(representative) ?? "owner/name"}
                 onBlur={(event) => {
                   const key = event.currentTarget.value.trim() || null;
-                  if (key !== (representative.hqRepositoryKey ?? null))
+                  if (key !== (representative.weaveRepositoryKey ?? null))
                     void updateAllMembers(
-                      { hqRepositoryKey: key },
+                      { weaveRepositoryKey: key },
                       "Could not link Weave repository",
                     );
                 }}
@@ -611,9 +612,12 @@ function ProjectDetail({
               <Switch
                 aria-label="Local only"
                 disabled={!canEditGroup}
-                checked={representative.hqSyncLocalOnly ?? false}
+                checked={representative.weaveSyncLocalOnly ?? false}
                 onCheckedChange={(enabled) =>
-                  void updateAllMembers({ hqSyncLocalOnly: enabled }, "Could not change Weave sync")
+                  void updateAllMembers(
+                    { weaveSyncLocalOnly: enabled },
+                    "Could not change Weave sync",
+                  )
                 }
               />
             }

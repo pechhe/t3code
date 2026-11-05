@@ -10,18 +10,18 @@ import {
   parseForgeReference,
   rehypeForgeMentions,
 } from "./forgeLinks.ts";
-import { DEFAULT_HQ_ORIGIN } from "./hqOrigins.ts";
+import { DEFAULT_WEAVE_ORIGIN } from "./weaveOrigins.ts";
 import {
   CHAT_MARKDOWN_REMARK_PLUGINS,
   createChatMarkdownRehypePlugins,
 } from "./markdownPipeline.ts";
 
-const origin = "https://hq.example";
+const origin = "https://weave.example";
 const numbers = (markdown: string) =>
   findForgeMentions(markdown, origin).map(({ number, written }) => `${written}:${number}`);
 
 describe("findForgeMentions", () => {
-  it("finds #<number> of seven or more digits and Forge links on the project's HQ", () => {
+  it("finds #<number> of seven or more digits and Forge links on the project's Weave", () => {
     expect(
       numbers(
         `See #1000123, [the Spec](${origin}/build/specs/1000124) and ${origin}/build/1000125.`,
@@ -29,7 +29,7 @@ describe("findForgeMentions", () => {
     ).toEqual(["reference:1000123", "link:1000124", "link:1000125"]);
   });
 
-  it("leaves GitHub references, code, other HQs and non-mentions alone", () => {
+  it("leaves GitHub references, code, other Weave servers and non-mentions alone", () => {
     expect(
       numbers(
         [
@@ -48,7 +48,7 @@ describe("findForgeMentions", () => {
     expect(
       findForgeMentions(
         "[the Spec](https://hq.yardsmith.co.uk/build/specs/1000124)",
-        DEFAULT_HQ_ORIGIN,
+        DEFAULT_WEAVE_ORIGIN,
       ).map(({ number }) => number),
     ).toEqual([1_000_124]);
   });
@@ -124,7 +124,7 @@ describe("parseForgeReference", () => {
       "2147483648",
       "YS-2147483648",
       "YS-1.2147483648",
-      "https://hq.example/build/2147483648",
+      "https://weave.example/build/2147483648",
     ])
       expect(parseForgeReference(written)).toBeNull();
     expect(parseForgeReference("#2147483647")).toEqual({
@@ -136,7 +136,7 @@ describe("parseForgeReference", () => {
 });
 
 describe("rehypeForgeMentions", () => {
-  const origin = "https://hq.example";
+  const origin = "https://weave.example";
   type Node = {
     type: string;
     tagName?: string;
@@ -159,7 +159,7 @@ describe("rehypeForgeMentions", () => {
     return found;
   };
 
-  it("links #<number> to the project's HQ and keeps the mark through sanitize", () => {
+  it("links #<number> to the project's Weave and keeps the mark through sanitize", () => {
     expect(chips("Fixes #1000123 and #78.")).toMatchObject([
       {
         properties: { href: `${origin}/forge/1000123`, dataForgeMention: "reference" },

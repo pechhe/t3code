@@ -8,6 +8,7 @@ import {
   type ProjectUpdatePayload,
   type ProjectSnapshot,
   type ThreadId,
+  withRetainedWeaveProjectFields,
 } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Context from "effect/Context";
@@ -123,14 +124,14 @@ export class ProjectService extends Context.Service<
       ProjectServiceError
     >;
     readonly update: (input: ProjectUpdateInput) => Effect.Effect<Project, ProjectServiceError>;
-    readonly recordHqSync: (input: {
+    readonly recordWeaveSync: (input: {
       readonly commandId: CommandId;
       readonly expected: ProjectStore.ProjectRow;
       readonly revision: number;
       readonly valueHash: string;
       readonly projectIcon?: ProjectIconOverride;
     }) => Effect.Effect<void, ProjectServiceError>;
-    readonly recordHqUnregistered: (input: {
+    readonly recordWeaveUnregistered: (input: {
       readonly commandId: CommandId;
       readonly expected: ProjectStore.ProjectRow;
       readonly key: string | null;
@@ -181,26 +182,27 @@ export const make = Effect.gen(function* () {
   const toProject = (
     row: ProjectStore.ProjectRow,
     enrichment: ProjectEnrichmentService.ProjectEnrichment | null,
-  ): Project => ({
-    id: row.projectId,
-    title: row.title,
-    workspaceRoot: row.workspaceRoot,
-    repositoryIdentity: enrichment?.repositoryIdentity ?? null,
-    faviconPath: row.faviconPath ?? enrichment?.faviconPath ?? null,
-    defaultModelSelection: row.defaultModelSelection,
-    defaultThreadEnvMode: row.defaultThreadEnvMode,
-    autoPull: row.autoPull,
-    hqRepositoryKey: row.hqRepositoryKey ?? null,
-    hqSyncLocalOnly: row.hqSyncLocalOnly ?? false,
-    hqUnregisteredKey: row.hqUnregisteredKey ?? null,
-    projectIcon: row.projectIcon,
-    scripts: row.scripts,
-    pinnedAt: row.pinnedAt,
-    archivedAt: row.archivedAt,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    deletedAt: row.deletedAt,
-  });
+  ): Project =>
+    withRetainedWeaveProjectFields({
+      id: row.projectId,
+      title: row.title,
+      workspaceRoot: row.workspaceRoot,
+      repositoryIdentity: enrichment?.repositoryIdentity ?? null,
+      faviconPath: row.faviconPath ?? enrichment?.faviconPath ?? null,
+      defaultModelSelection: row.defaultModelSelection,
+      defaultThreadEnvMode: row.defaultThreadEnvMode,
+      autoPull: row.autoPull,
+      weaveRepositoryKey: row.weaveRepositoryKey ?? null,
+      weaveSyncLocalOnly: row.weaveSyncLocalOnly ?? false,
+      weaveUnregisteredKey: row.weaveUnregisteredKey ?? null,
+      projectIcon: row.projectIcon,
+      scripts: row.scripts,
+      pinnedAt: row.pinnedAt,
+      archivedAt: row.archivedAt,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      deletedAt: row.deletedAt,
+    });
 
   const hydrate = Effect.fn("ProjectService.hydrate")(function* (row: ProjectStore.ProjectRow) {
     // A deleted project reports what it stored. Merging live enrichment into it made
@@ -399,8 +401,12 @@ export const make = Effect.gen(function* () {
           ? {}
           : { defaultModelSelection: input.defaultModelSelection }),
         ...(input.autoPull === undefined ? {} : { autoPull: input.autoPull }),
-        ...(input.hqRepositoryKey === undefined ? {} : { hqRepositoryKey: input.hqRepositoryKey }),
-        ...(input.hqSyncLocalOnly === undefined ? {} : { hqSyncLocalOnly: input.hqSyncLocalOnly }),
+        ...(input.weaveRepositoryKey === undefined
+          ? {}
+          : { weaveRepositoryKey: input.weaveRepositoryKey }),
+        ...(input.weaveSyncLocalOnly === undefined
+          ? {}
+          : { weaveSyncLocalOnly: input.weaveSyncLocalOnly }),
         ...(input.projectIcon === undefined ? {} : { projectIcon: input.projectIcon }),
         ...(input.faviconPath === undefined ? {} : { faviconPath: input.faviconPath }),
         ...(input.defaultThreadEnvMode === undefined
@@ -611,24 +617,24 @@ export const make = Effect.gen(function* () {
   );
 
   return ProjectService.of({
-    recordHqSync: Effect.fn("ProjectService.recordHqSync")(function* (input) {
+    recordWeaveSync: Effect.fn("ProjectService.recordWeaveSync")(function* (input) {
       yield* commit({
         type: "project.meta.update",
         commandId: input.commandId,
         projectId: input.expected.projectId,
         expectedSyncState: input.expected,
-        hqSyncedRevision: input.revision,
-        hqSyncedValueHash: input.valueHash,
+        weaveSyncedRevision: input.revision,
+        weaveSyncedValueHash: input.valueHash,
         ...(input.projectIcon === undefined ? {} : { projectIcon: input.projectIcon }),
       });
     }),
-    recordHqUnregistered: Effect.fn("ProjectService.recordHqUnregistered")(function* (input) {
+    recordWeaveUnregistered: Effect.fn("ProjectService.recordWeaveUnregistered")(function* (input) {
       yield* commit({
         type: "project.meta.update",
         commandId: input.commandId,
         projectId: input.expected.projectId,
         expectedSyncState: input.expected,
-        hqUnregisteredKey: input.key,
+        weaveUnregisteredKey: input.key,
       });
     }),
     create,

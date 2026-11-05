@@ -1,5 +1,5 @@
 import { resolveRuntimeMode } from "./delegatedTaskModes.ts";
-import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
+import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as ExternalAgentWork from "../agents/ExternalAgentWorkService.ts";
@@ -99,7 +99,7 @@ const layerOrchestratorService = orchestratorServiceWith({
 });
 
 describe("OrchestratorMcpService", () => {
-  it.effect("refuses a Build watch without T3's HQ connection", () =>
+  it.effect("refuses a Build watch without T3's Weave connection", () =>
     Effect.gen(function* () {
       const watcherId = ThreadId.make("thread:build-watch-refusal");
       const shell = liveThreadShell(watcherId);
@@ -144,7 +144,7 @@ describe("OrchestratorMcpService", () => {
     }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(RemoteDelegation.RemoteDelegation)({})))),
   );
 
-  it.effect("refuses a Build watch on a number T3's HQ cannot see", () =>
+  it.effect("refuses a Build watch on a number T3's Weave cannot see", () =>
     Effect.gen(function* () {
       const watcherId = ThreadId.make("thread:build-watch-unknown");
       const shell = liveThreadShell(watcherId);
@@ -186,7 +186,7 @@ describe("OrchestratorMcpService", () => {
       }).pipe(
         Effect.provide(
           orchestratorServiceWith({
-            connected: Effect.succeed({ connected: true, origin: "https://hq.test" }),
+            connected: Effect.succeed({ connected: true, origin: "https://weave.test" }),
             mentions: () => Effect.succeed({ items: [] }),
           }).pipe(Layer.provide(dependencies)),
         ),
@@ -242,12 +242,12 @@ describe("OrchestratorMcpService", () => {
       }).pipe(
         Effect.provide(
           orchestratorServiceWith({
-            connected: Effect.succeed({ connected: true, origin: "https://hq.test" }),
+            connected: Effect.succeed({ connected: true, origin: "https://weave.test" }),
             resolve: (reference) =>
               Effect.succeed(
                 reference === "ys-12"
-                  ? { itemId: "item-1", number: 1000001, origin: "https://hq.test" }
-                  : { itemId: "item-2", number: 2, origin: "https://hq.test" },
+                  ? { itemId: "item-1", number: 1000001, origin: "https://weave.test" }
+                  : { itemId: "item-2", number: 2, origin: "https://weave.test" },
               ),
             mentions: () =>
               Effect.succeed({
@@ -255,7 +255,7 @@ describe("OrchestratorMcpService", () => {
                   {
                     itemId: "item-1",
                     number: 1000001,
-                    url: "https://hq.test/build/1000001",
+                    url: "https://weave.test/build/1000001",
                     item: {
                       kind: "spec",
                       ref: "YS-12",
@@ -278,7 +278,7 @@ describe("OrchestratorMcpService", () => {
     }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(RemoteDelegation.RemoteDelegation)({})))),
   );
 
-  it.effect("stops a Build watch by number without HQ, and by ref from the watched items", () =>
+  it.effect("stops a Build watch by number without Weave, and by ref from the watched items", () =>
     Effect.gen(function* () {
       const watcherId = ThreadId.make("thread:build-unwatch");
       const shell = {
@@ -324,7 +324,7 @@ describe("OrchestratorMcpService", () => {
         capabilities: new Set(["orchestration"]),
         issuedAt: 1,
       };
-      const unwatch = (number: string, hqDown: boolean) =>
+      const unwatch = (number: string, weaveDown: boolean) =>
         Effect.gen(function* () {
           const service = yield* OrchestratorMcpService.OrchestratorMcpService;
           return yield* service.watchThread(
@@ -336,18 +336,20 @@ describe("OrchestratorMcpService", () => {
           Effect.provide(
             orchestratorServiceWith({
               resolve: () =>
-                Effect.fail(new ForgeWorkItemError({ reason: "unavailable", message: "HQ down" })),
+                Effect.fail(
+                  new ForgeWorkItemError({ reason: "unavailable", message: "Weave down" }),
+                ),
               mentions: () =>
-                hqDown
+                weaveDown
                   ? Effect.fail(
-                      new ForgeWorkItemError({ reason: "unavailable", message: "HQ down" }),
+                      new ForgeWorkItemError({ reason: "unavailable", message: "Weave down" }),
                     )
                   : Effect.succeed({
                       items: [
                         {
                           itemId: "item-1",
                           number: 1000001,
-                          url: "https://hq.test/build/1000001",
+                          url: "https://weave.test/build/1000001",
                           item: {
                             kind: "spec",
                             ref: "YS-12",

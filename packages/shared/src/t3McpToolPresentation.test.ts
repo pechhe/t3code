@@ -46,9 +46,6 @@ it("presents current and legacy Weave connection tools alike", () => {
     displayName: "Configure the Weave connection",
     logo: "t3-code",
   });
-  expect(resolveT3McpToolPresentation("t3_hq_connection")).toEqual(
-    resolveT3McpToolPresentation("t3_weave_connection"),
-  );
 });
 
 describe("resolveT3McpToolDefinition", () => {

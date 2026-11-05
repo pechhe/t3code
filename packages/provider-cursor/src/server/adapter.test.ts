@@ -1814,8 +1814,8 @@ describe("CursorAdapterV2", () => {
 
   it("attaches the thread's agent servers with or without a T3 session", () => {
     const weave = {
-      name: "yardsmith-hq",
-      url: "http://127.0.0.1:43123/mcp/yardsmith-hq",
+      name: "weave",
+      url: "http://127.0.0.1:43123/mcp/weave",
       authorizationHeader: "Bearer thread-weave-credential",
     };
     const server = {
@@ -1823,7 +1823,7 @@ describe("CursorAdapterV2", () => {
       url: weave.url,
       headers: { Authorization: weave.authorizationHeader },
     };
-    assert.deepEqual(cursorMcpServers(undefined, [weave]), { "yardsmith-hq": server });
+    assert.deepEqual(cursorMcpServers(undefined, [weave]), { weave: server });
     assert.deepInclude(
       cursorMcpServers(
         {
@@ -1837,7 +1837,7 @@ describe("CursorAdapterV2", () => {
         },
         [weave],
       ),
-      { "yardsmith-hq": server },
+      { weave: server },
     );
     assert.isUndefined(cursorMcpServers(undefined, []));
   });

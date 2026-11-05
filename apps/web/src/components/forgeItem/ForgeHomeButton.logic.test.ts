@@ -50,7 +50,7 @@ describe("the Forge button", () => {
     expect(buildButtonCount(state("unavailable", 2))).toBe(2);
   });
 
-  it("lists Accept, then Answer, by each entry's group, keeping HQ's order in each", () => {
+  it("lists Accept, then Answer, by each entry's group, keeping Weave's order in each", () => {
     const hold = (id: string, spec: string): ForgeHomeNeed => ({
       kind: "hold",
       spec: { id: spec, number: 2, title: "t", status: "in_progress" },

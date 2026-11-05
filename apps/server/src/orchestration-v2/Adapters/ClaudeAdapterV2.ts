@@ -44,7 +44,7 @@ import {
   settleTurnUsage,
   type TurnUsageBuffer,
 } from "../../provider/TurnUsageRecords.ts";
-import * as HqForgeUsage from "../../hq/HqForgeUsage.ts";
+import * as WeaveForgeUsage from "../../weave/WeaveForgeUsage.ts";
 import { readClaudeSubagentMessages } from "../../claudeHistoryWorker.ts";
 import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 import { toMcpElicitationResponse } from "../../provider/CodexMcpElicitation.ts";
@@ -4889,7 +4889,7 @@ export interface ClaudeAdapterV2Options {
 export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
   adapterOptions: ClaudeAdapterV2Options,
 ) {
-  const buildUsage = yield* HqForgeUsage.HqForgeUsage;
+  const buildUsage = yield* WeaveForgeUsage.WeaveForgeUsage;
   const slipJayGuard = yield* Effect.serviceOption(SlipJayGuard.SlipJayGuard);
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const readAgentServers = yield* AgentMcpServers.makeReader;

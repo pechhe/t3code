@@ -50,7 +50,7 @@ import {
 import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
-import * as HqAgentConnections from "../hq/HqAgentConnections.ts";
+import * as WeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as EventSink from "./EventSink.ts";
@@ -519,29 +519,31 @@ export const layerWithOptions = (
       const isMcpCredentialReserved = (threadId: ThreadId, mcpCredentialId: string) =>
         (mcpCredentialReservations.get(mcpReservationKey(threadId, mcpCredentialId)) ?? 0) > 0;
       const mcpPrepareLock = yield* KeyedLock.make<ThreadId>();
-      const hqConnections = yield* Effect.serviceOption(HqAgentConnections.HqAgentConnections);
+      const weaveConnections = yield* Effect.serviceOption(
+        WeaveAgentConnections.WeaveAgentConnections,
+      );
       /**
        * Every adapter attaches this through the shared agent-server list, so it runs on attach and
        * before every turn: Claude reopens its process for a new MCP server and OpenCode 2
        * re-registers it, while a session that keeps the servers it opened with (Codex, Pi, ACP,
        * Cursor, OpenCode 1, Muse) picks it up when it is next started or resumed.
        */
-      const prepareHqConnection = (threadId: ThreadId, model?: string) =>
-        Option.isNone(hqConnections)
+      const prepareWeaveConnection = (threadId: ThreadId, model?: string) =>
+        Option.isNone(weaveConnections)
           ? Effect.void
           : projectionStore.getThread(threadId).pipe(
               Effect.flatMap((thread) => {
-                const role = HqAgentConnections.hqAgentRole(thread);
+                const role = WeaveAgentConnections.weaveAgentRole(thread);
                 return role === undefined
                   ? Effect.void
-                  : hqConnections.value.prepare({
+                  : weaveConnections.value.prepare({
                       threadId,
                       role,
                       model: model ?? thread.modelSelection.model,
                     });
               }),
               Effect.catchCause((cause) =>
-                Effect.logWarning("Could not prepare the thread's HQ connection", {
+                Effect.logWarning("Could not prepare the thread's Weave connection", {
                   threadId,
                   cause: Cause.pretty(cause),
                 }),
@@ -1541,7 +1543,7 @@ export const layerWithOptions = (
               }
             }
             if (attached !== undefined) {
-              yield* prepareHqConnection(input.threadId);
+              yield* prepareWeaveConnection(input.threadId);
               const entry = (yield* Ref.get(sessions)).get(sessionKey(input.providerSessionId));
               if (entry !== undefined) {
                 yield* withActivityError(
@@ -1988,7 +1990,7 @@ export const layerWithOptions = (
               ),
             ),
           startTurn: (input) =>
-            prepareHqConnection(input.threadId, input.modelSelection.model).pipe(
+            prepareWeaveConnection(input.threadId, input.modelSelection.model).pipe(
               Effect.andThen(
                 observeActivity(
                   providerSessionId,
@@ -2389,7 +2391,7 @@ export const layerWithOptions = (
                 input.threadId,
                 input.modelSelection.instanceId,
               );
-              yield* prepareHqConnection(input.threadId);
+              yield* prepareWeaveConnection(input.threadId);
               const mcpCredentialId = prepared.mcpCredentialId;
               let reservationDropped = mcpCredentialId === undefined;
               const dropReservation = Effect.sync(() => {

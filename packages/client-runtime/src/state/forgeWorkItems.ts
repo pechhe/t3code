@@ -57,12 +57,12 @@ export function createForgeWorkItemAtoms<R, E>(
     }),
     /** Connect to Weave: returns the Weave page to open; the result arrives through `connection`. */
     signInStart: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:build:hq:sign-in",
-      tag: WS_METHODS.hqSignInStart,
+      label: "environment-data:build:weave:sign-in",
+      tag: WS_METHODS.weaveSignInStart,
     }),
     disconnect: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:build:hq:disconnect",
-      tag: WS_METHODS.hqDisconnect,
+      label: "environment-data:build:weave:disconnect",
+      tag: WS_METHODS.weaveDisconnect,
     }),
     link: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:build:work-item:link",

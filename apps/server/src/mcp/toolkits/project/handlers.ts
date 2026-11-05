@@ -30,8 +30,8 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveRuntimeMode } from "../../delegatedTaskModes.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
-import * as ForgeWorkItems from "../../../hq/ForgeWorkItems.ts";
-import * as HqAgentConnections from "../../../hq/HqAgentConnections.ts";
+import * as ForgeWorkItems from "../../../weave/ForgeWorkItems.ts";
+import * as WeaveAgentConnections from "../../../weave/WeaveAgentConnections.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
 import { ProjectToolkit } from "./tools.ts";
@@ -70,10 +70,10 @@ const connectionHandler: McpToolAccess.Handlers<
 >["t3_weave_connection"] = McpToolAccess.writesEnvironment((input) =>
   Effect.gen(function* () {
     const context = yield* readCaller();
-    const connections = yield* HqAgentConnections.HqAgentConnections;
+    const connections = yield* WeaveAgentConnections.WeaveAgentConnections;
     const invalid = (message: string) =>
       new OrchestratorMcpFailure({ code: "invalid_request", message });
-    const hqFailure = (error: HqAgentConnections.HqConnectionError) =>
+    const weaveFailure = (error: WeaveAgentConnections.WeaveConnectionError) =>
       error.reason === "store_failed" ? unavailable() : invalid(error.message);
     if (input.action === "connect") {
       const { origin: requestedOrigin, delegation: ref } = input;
@@ -93,14 +93,14 @@ const connectionHandler: McpToolAccess.Handlers<
       );
       const { origin } = yield* connections
         .connect({ origin: requestedOrigin, delegation })
-        .pipe(Effect.mapError(hqFailure));
+        .pipe(Effect.mapError(weaveFailure));
       return { connected: true, origin };
     }
     if (input.action === "disconnect") {
-      yield* connections.disconnect.pipe(Effect.mapError(hqFailure));
+      yield* connections.disconnect.pipe(Effect.mapError(weaveFailure));
       return { connected: false, origin: null };
     }
-    const current = yield* connections.read.pipe(Effect.mapError(hqFailure));
+    const current = yield* connections.read.pipe(Effect.mapError(weaveFailure));
     return { connected: current !== null, origin: current?.origin ?? null };
   }),
 );
@@ -431,8 +431,7 @@ export const handlers = {
         .pipe(Effect.mapError(projectFailure));
     }),
   ),
-  [WEAVE_NAMES.connectionTools[0]]: connectionHandler,
-  [WEAVE_NAMES.connectionTools[1]]: connectionHandler,
+  [WEAVE_NAMES.connectionTool]: connectionHandler,
   t3_project_delete: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
       const projects = yield* Project.ProjectService;

@@ -225,8 +225,8 @@ function makeHarness(options: HarnessOptions = {}) {
     Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
     Layer.mock(TerminalManager.TerminalManager)({ close: closeTerminal }),
     Layer.succeed(ProjectService.ProjectService, {
-      recordHqSync: () => Effect.die("unused"),
-      recordHqUnregistered: () => Effect.die("unused"),
+      recordWeaveSync: () => Effect.die("unused"),
+      recordWeaveUnregistered: () => Effect.die("unused"),
       create: () => Effect.die("unused"),
       bootstrap: () => Effect.die("unused"),
       update: () => Effect.die("unused"),
@@ -1296,6 +1296,8 @@ it.effect("arms durable title generation after accepting the first message", () 
         threadId: launched.threadId,
         title: "Keep my title",
       });
+      // The launch's own prepared run releases on this tick and moves updatedAt by itself.
+      yield* TestClock.adjust(Duration.seconds(1));
       const renamed = yield* threads.getThreadProjection(launched.threadId);
       yield* TestClock.adjust(Duration.seconds(1));
       yield* threads.dispatch({
@@ -1880,7 +1882,7 @@ it.effect.each([false, true])(
     }),
 );
 
-const forgeItem = { itemId: "build-item:42", number: 42, origin: "https://hq.example" };
+const forgeItem = { itemId: "build-item:42", number: 42, origin: "https://weave.example" };
 
 /**
  * A SlipJay thread working on Build item 42 whose first run ended, so it is idle: linked to

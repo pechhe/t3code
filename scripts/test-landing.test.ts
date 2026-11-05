@@ -732,38 +732,38 @@ describe("what the budget never defers", () => {
       relativeImports(
         "apps/server/src/orchestration-v2/ThreadWatch.test.ts",
         [
-          'import * as HqAgentConnections from "../hq/HqAgentConnections.ts";',
+          'import * as WeaveAgentConnections from "../weave/WeaveAgentConnections.ts";',
           'import { Effect } from "effect";',
           'vi.mock("./ThreadWatch.testkit.ts?worker");',
-          'const later = await import("../hq/Other.js");',
+          'const later = await import("../weave/Other.js");',
         ].join("\n"),
       ),
       [
-        "apps/server/src/hq/HqAgentConnections",
+        "apps/server/src/weave/WeaveAgentConnections",
         "apps/server/src/orchestration-v2/ThreadWatch.testkit",
-        "apps/server/src/hq/Other",
+        "apps/server/src/weave/Other",
       ],
     );
   });
 
   it("keeps a direct importer of a changed module when the optional budget is full", () => {
-    // 9268dfbc changed HqAgentConnections.ts; ThreadWatch.test.ts imports it from another directory.
+    // 9268dfbc changed WeaveAgentConnections.ts; ThreadWatch.test.ts imports it from another directory.
     const importer = "apps/server/src/orchestration-v2/ThreadWatch.test.ts";
     const candidates = [
       test(importer),
-      test("apps/server/src/hq/Beside.test.ts"),
+      test("apps/server/src/weave/Beside.test.ts"),
       test("apps/server/src/far/Far.test.ts"),
     ];
     const durations = {
       [importer]: 8,
-      "apps/server/src/hq/Beside.test.ts": 9,
+      "apps/server/src/weave/Beside.test.ts": 9,
       "apps/server/src/far/Far.test.ts": 9,
     };
     const imports = (file: string) =>
-      file === importer ? ["apps/server/src/hq/HqAgentConnections"] : [];
+      file === importer ? ["apps/server/src/weave/WeaveAgentConnections"] : [];
     const budget = budgetLandingTests(
       candidates,
-      ["apps/server/src/hq/HqAgentConnections.ts"],
+      ["apps/server/src/weave/WeaveAgentConnections.ts"],
       durations,
       LANDING_BUDGET.startupSeconds + 8,
       { imports },
@@ -774,14 +774,14 @@ describe("what the budget never defers", () => {
     );
     assert.deepStrictEqual(
       budget.deferred.map(({ file }) => file),
-      ["apps/server/src/hq/Beside.test.ts", "apps/server/src/far/Far.test.ts"],
+      ["apps/server/src/weave/Beside.test.ts", "apps/server/src/far/Far.test.ts"],
     );
     assert.isFalse(budget.overBudget);
     // Without the import it ranks last by cost and the budget defers it, as 9268dfbc did.
     assert.include(
       budgetLandingTests(
         candidates,
-        ["apps/server/src/hq/HqAgentConnections.ts"],
+        ["apps/server/src/weave/WeaveAgentConnections.ts"],
         durations,
         12,
       ).deferred.map(({ file }) => file),

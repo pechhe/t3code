@@ -1,5 +1,5 @@
 import * as ContextExperimentService from "../experiments/ExperimentService.ts";
-import * as ContextForgeWorkItems from "../hq/ForgeWorkItems.ts";
+import * as ContextForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ContextReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import * as ContextWorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";

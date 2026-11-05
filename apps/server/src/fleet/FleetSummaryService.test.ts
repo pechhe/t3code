@@ -18,7 +18,7 @@ import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Environment from "../environment/ServerEnvironment.ts";
-import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
+import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as PeerEnvironments from "../peers/PeerEnvironments.ts";
@@ -161,7 +161,7 @@ const harness = Effect.gen(function* () {
                 Effect.succeed({
                   itemId: "item",
                   number: 153,
-                  url: "https://hq.test/build/153",
+                  url: "https://weave.test/build/153",
                   readAt: DateTime.formatIso(initial),
                   unavailable: false,
                   item: { kind: "ticket", title: "Fleet", status: "ready", waits: [], holds: [] },
@@ -399,7 +399,7 @@ it.effect(
       const { service, setSettings } = yield* harness;
       setSettings({ ...defaultSettings, sidebarAutoSettleAfterDays: 1 });
       const due = yield* createThread("due", {
-        workItem: { origin: "https://hq.test", itemId: "item", number: 153 },
+        workItem: { origin: "https://weave.test", itemId: "item", number: 153 },
       });
       const pinned = yield* createThread("pinned", { pinnedAt: old });
       yield* createThread("watcher", {

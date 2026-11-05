@@ -32,8 +32,8 @@ import {
   OrchestrationV2ThreadWatch,
   type ForgeWorkItemSummary,
 } from "@t3tools/contracts";
-import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
-import * as HqAgentConnections from "../hq/HqAgentConnections.ts";
+import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
+import * as WeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
 import * as ForgeWatchReactor from "./ForgeWatchReactor.ts";
 import * as LandingWatchReactor from "./LandingWatchReactor.ts";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
@@ -599,8 +599,8 @@ const makeForgeHarness = Effect.gen(function* () {
     resolutions: 0,
     unreachable: false,
   };
-  const connection = { origin: "https://hq.example", connection: "test-connection" };
-  const hq = Layer.mock(HqAgentConnections.HqAgentConnections)({
+  const connection = { origin: "https://weave.example", connection: "test-connection" };
+  const weave = Layer.mock(WeaveAgentConnections.WeaveAgentConnections)({
     read: Effect.succeed(connection),
     buildWriteVersion: Effect.succeed(0),
     observe: (tool, args) =>
@@ -632,7 +632,7 @@ const makeForgeHarness = Effect.gen(function* () {
       }),
   });
   const build = yield* Effect.service(ForgeWorkItems.ForgeWorkItems).pipe(
-    Effect.provide(ForgeWorkItems.layer.pipe(Layer.provide(hq))),
+    Effect.provide(ForgeWorkItems.layer.pipe(Layer.provide(weave))),
   );
   const restart = () =>
     Effect.service(ForgeWatchReactor.ForgeWatchReactor).pipe(
@@ -1256,7 +1256,7 @@ it.layer(layerTest)("thread watches", (it) => {
     }),
   );
   it.effect(
-    "wakes Build unblocked watchers only after waits and holds clear, once, sharing HQ reads",
+    "wakes Build unblocked watchers only after waits and holds clear, once, sharing Weave reads",
     () =>
       Effect.gen(function* () {
         const h = yield* makeForgeHarness;

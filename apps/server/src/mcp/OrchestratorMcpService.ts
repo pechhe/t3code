@@ -1,7 +1,7 @@
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
 import * as Champions from "../champions/ChampionService.ts";
 import * as Digest from "effect/crypto/Digest";
-import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
+import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ExternalWork from "../agents/ExternalAgentWorkService.ts";
 import { assertExternalWorkOwner, canReadExternalWork } from "./threadAccess.ts";
 import * as Hex from "effect/encoding/Hex";

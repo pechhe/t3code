@@ -1,6 +1,8 @@
 import { assert, it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import { RetainedWeaveSignInStartInput } from "./forgeWorkItem.ts";
+import { retainedWeaveSignInStartInput } from "./weaveNames.ts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { OrchestrationProjectShell } from "./orchestrationProject.ts";
@@ -22,7 +24,42 @@ const decodeProjectCreatePayload = Schema.decodeUnknownSync(ProjectCreatePayload
 const decodeProjectUpdatePayload = Schema.decodeUnknownSync(ProjectUpdatePayload);
 const decodeProjectMutation = Schema.decodeUnknownSync(ProjectMutation);
 
-describe("HQ repository identity", () => {
+describe("Weave sign-in from an older fork client", () => {
+  it("still signs in to the Weave the client named as hqOrigin", () => {
+    const decoded = Schema.decodeUnknownSync(RetainedWeaveSignInStartInput)({
+      handbackOrigin: "https://t3.example",
+      hqOrigin: "https://other-weave.example",
+    });
+    expect(retainedWeaveSignInStartInput(decoded)).toEqual({
+      handbackOrigin: "https://t3.example",
+      weaveOrigin: "https://other-weave.example",
+    });
+  });
+
+  it("prefers the current field when both are sent", () => {
+    expect(
+      retainedWeaveSignInStartInput({
+        handbackOrigin: "https://t3.example",
+        weaveOrigin: "https://current.example",
+        hqOrigin: "https://stale.example",
+      }).weaveOrigin,
+    ).toBe("https://current.example");
+  });
+});
+
+describe("Weave repository identity", () => {
+  it("still decodes the field names an older fork client sends", () => {
+    expect(
+      decodeProjectMutation({
+        type: "project.update",
+        commandId: "command-1",
+        projectId: "project-1",
+        hqRepositoryKey: "pechhe/yardsmith",
+        hqSyncLocalOnly: true,
+      }),
+    ).toMatchObject({ hqRepositoryKey: "pechhe/yardsmith", hqSyncLocalOnly: true });
+  });
+
   it("retains old emoji icons and round trips coloured emoji icons", () => {
     for (const schema of [StoredProjectIcon, ReceivedProjectIcon]) {
       const old = { kind: "emoji", emoji: "🦊" };
@@ -36,16 +73,19 @@ describe("HQ repository identity", () => {
   });
 
   it("omits unchanged links, carries explicit links, and clears with null", () => {
-    expect(decodeProjectUpdatePayload({})).not.toHaveProperty("hqRepositoryKey");
+    expect(decodeProjectUpdatePayload({})).not.toHaveProperty("weaveRepositoryKey");
     expect(
-      decodeProjectUpdatePayload({ hqRepositoryKey: "pechhe/yardsmith", hqSyncLocalOnly: true }),
-    ).toMatchObject({ hqRepositoryKey: "pechhe/yardsmith", hqSyncLocalOnly: true });
+      decodeProjectUpdatePayload({
+        weaveRepositoryKey: "pechhe/yardsmith",
+        weaveSyncLocalOnly: true,
+      }),
+    ).toMatchObject({ weaveRepositoryKey: "pechhe/yardsmith", weaveSyncLocalOnly: true });
     expect(
-      decodeProjectUpdatePayload({ hqRepositoryKey: null, hqSyncLocalOnly: false }),
-    ).toMatchObject({ hqRepositoryKey: null, hqSyncLocalOnly: false });
+      decodeProjectUpdatePayload({ weaveRepositoryKey: null, weaveSyncLocalOnly: false }),
+    ).toMatchObject({ weaveRepositoryKey: null, weaveSyncLocalOnly: false });
     expect(
-      decodeProjectUpdatePayload({ hqSyncedRevision: 9, hqSyncedValueHash: "user-supplied" }),
-    ).not.toHaveProperty("hqSyncedRevision");
+      decodeProjectUpdatePayload({ weaveSyncedRevision: 9, weaveSyncedValueHash: "user-supplied" }),
+    ).not.toHaveProperty("weaveSyncedRevision");
   });
 });
 

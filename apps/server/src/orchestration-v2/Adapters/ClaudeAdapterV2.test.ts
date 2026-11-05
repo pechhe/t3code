@@ -101,8 +101,8 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
-import * as HqTestkit from "../../hq/HqAgentConnections.testkit.ts";
-import * as HqForgeUsage from "../../hq/HqForgeUsage.ts";
+import * as WeaveTestkit from "../../weave/WeaveAgentConnections.testkit.ts";
+import * as WeaveForgeUsage from "../../weave/WeaveForgeUsage.ts";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
 import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -1495,31 +1495,31 @@ describe("ClaudeAdapterV2 append-system-prompt-file launch argument", () => {
   );
 });
 
-describe("ClaudeAdapterV2 YardSmith HQ connection", () => {
+describe("ClaudeAdapterV2 Weave connection", () => {
   it.effect.each(["canonical", "legacy"] as const)(
     "launches with %s Weave registration through renewal and reconnect failures",
     (registration) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const hq = yield* HqTestkit.makeHqHarness;
-          const threadId = ThreadId.make("thread-claude-hq");
-          yield* hq.connections.prepare({
+          const weave = yield* WeaveTestkit.makeWeaveHarness;
+          const threadId = ThreadId.make("thread-claude-weave");
+          yield* weave.connections.prepare({
             threadId,
             role: "lead",
             model: CLAUDE_TEST_MODEL_SELECTION.model,
           });
           // An exchanged token, a renewal Weave cannot answer, then a revoked delegation.
-          yield* hq.call(threadId);
-          yield* TestClock.adjust(12 * HqTestkit.hourMs);
-          hq.hq.state.unreachable = true;
-          yield* hq.call(threadId);
-          hq.hq.state.unreachable = false;
-          hq.hq.state.delegationRevoked = true;
-          yield* hq.call(threadId);
+          yield* weave.call(threadId);
+          yield* TestClock.adjust(12 * WeaveTestkit.hourMs);
+          weave.weave.state.unreachable = true;
+          yield* weave.call(threadId);
+          weave.weave.state.unreachable = false;
+          weave.weave.state.delegationRevoked = true;
+          yield* weave.call(threadId);
 
           const fileSystem = yield* FileSystem.FileSystem;
           const attachmentsDir = yield* fileSystem.makeTempDirectoryScoped({
-            prefix: "t3-claude-hq-",
+            prefix: "t3-claude-weave-",
           });
           const opened: Array<unknown> = [];
           const offered: Array<unknown> = [];
@@ -1533,7 +1533,7 @@ describe("ClaudeAdapterV2 YardSmith HQ connection", () => {
             random: yield* SecureRandom.SecureRandom,
             idAllocator: yield* IdAllocator.IdAllocatorV2,
             queryRunner: {
-              allocateSessionId: Effect.succeed("native-thread-claude-hq"),
+              allocateSessionId: Effect.succeed("native-thread-claude-weave"),
               open: (input) =>
                 Effect.sync(() => {
                   opened.push(input);
@@ -1553,10 +1553,10 @@ describe("ClaudeAdapterV2 YardSmith HQ connection", () => {
               subagentLaunchToolUseId: () => Effect.succeed(null),
               assertComplete: Effect.void,
             },
-          }).pipe(Effect.provide(HqTestkit.agentMcpServersFor(hq.connections)));
+          }).pipe(Effect.provide(WeaveTestkit.agentMcpServersFor(weave.connections)));
           const runtime = yield* adapter.openSession({
             threadId,
-            providerSessionId: ProviderSessionId.make("provider-session-claude-hq"),
+            providerSessionId: ProviderSessionId.make("provider-session-claude-weave"),
             modelSelection: CLAUDE_TEST_MODEL_SELECTION,
             runtimePolicy: CLAUDE_TEST_RUNTIME_POLICY,
           });
@@ -1570,8 +1570,8 @@ describe("ClaudeAdapterV2 YardSmith HQ connection", () => {
               threadId,
               providerThread,
               now: yield* DateTime.now,
-              attemptId: RunAttemptId.make("attempt-claude-hq"),
-              text: "Log a note in HQ.",
+              attemptId: RunAttemptId.make("attempt-claude-weave"),
+              text: "Log a note in Weave.",
               attachments: [],
             }),
           );
@@ -1585,16 +1585,20 @@ describe("ClaudeAdapterV2 YardSmith HQ connection", () => {
           );
           assert.deepEqual(options.mcpServers?.["weave"], {
             type: "http",
-            url: HqTestkit.hqEndpoint,
+            url: WeaveTestkit.weaveEndpoint,
             headers: {
-              Authorization: (yield* hq.connections.connection(threadId))!.authorizationHeader,
+              Authorization: (yield* weave.connections.connection(threadId))!.authorizationHeader,
             },
           });
           assert.include(options.allowedTools ?? [], "mcp__weave__*");
           if (registration === "legacy")
             assert.include(options.allowedTools ?? [], "mcp__yardsmith-hq__*");
           // The whole launch: prompt, environment, argv, settings, MCP config and its log form.
-          hq.assertNoSecretsIn(opened, offered, ClaudeAdapterV2.loggedClaudeQueryOptions(options));
+          weave.assertNoSecretsIn(
+            opened,
+            offered,
+            ClaudeAdapterV2.loggedClaudeQueryOptions(options),
+          );
         }).pipe(
           Effect.provideService(AgentMcpServers.CurrentRegistration, registration),
           Effect.provide(
@@ -8267,9 +8271,9 @@ describe("ClaudeAdapterV2 background wake turns", () => {
   it.effect("records each Claude message's own usage once, not one row per snapshot", () =>
     Effect.gen(function* () {
       // What Weave's Build record would receive, kept where the test can read it.
-      const recorded: Array<HqForgeUsage.HqForgeUsageInput> = [];
+      const recorded: Array<WeaveForgeUsage.WeaveForgeUsageInput> = [];
       const harness = yield* makeWakeHarness.pipe(
-        Effect.provideService(HqForgeUsage.HqForgeUsage, {
+        Effect.provideService(WeaveForgeUsage.WeaveForgeUsage, {
           record: (input) => Effect.sync(() => void recorded.push(input)),
         }),
       );

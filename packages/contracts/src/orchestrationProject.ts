@@ -4,6 +4,7 @@ import { IsoDateTime, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts"
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectScript, ReceivedProjectIcon } from "./project.ts";
+import { RetainedWeaveProjectFields } from "./weaveNames.ts";
 
 export const OrchestrationProjectShell = Schema.Struct({
   id: ProjectId,
@@ -14,9 +15,10 @@ export const OrchestrationProjectShell = Schema.Struct({
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   // Opt-in because background sync performs network I/O and may move the checkout.
   autoPull: Schema.optional(Schema.Boolean),
-  hqRepositoryKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  hqSyncLocalOnly: Schema.optional(Schema.Boolean),
-  hqUnregisteredKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  weaveRepositoryKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  weaveSyncLocalOnly: Schema.optional(Schema.Boolean),
+  weaveUnregisteredKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  ...RetainedWeaveProjectFields,
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   projectIcon: Schema.optional(Schema.NullOr(ReceivedProjectIcon)),
   scripts: Schema.Array(ProjectScript),

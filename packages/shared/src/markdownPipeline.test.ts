@@ -169,7 +169,9 @@ it("keeps the marks autolink plugins put on links through the sanitizer", () => 
     .use(markLinks)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(CHAT_MARKDOWN_REHYPE_PLUGINS);
-  const tree = processor.runSync(processor.parse("[#1000123](https://hq.example/build/1000123)"));
+  const tree = processor.runSync(
+    processor.parse("[#1000123](https://weave.example/build/1000123)"),
+  );
   expect(tree.children[0]).toMatchObject({
     children: [
       {

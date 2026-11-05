@@ -417,7 +417,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_project_update: tool(["Update", "Updating", "Updated", "a project"], "project-update"),
   t3_project_delete: tool(["Delete", "Deleting", "Deleted", "a project"], "project-delete"),
   t3_project_clone: tool(["Clone", "Cloning", "Cloned", "a repository"], "project-clone"),
-  [WEAVE_NAMES.connectionTools[0]]: tool(
+  [WEAVE_NAMES.connectionTool]: tool(
     ["Configure", "Configuring", "Configured", "the Weave connection"],
     "project-update",
   ),
@@ -459,10 +459,7 @@ function resolveT3McpToolName(value: string): string | null {
 
 // ACP tool prefixes vary; match loosely but require a known display-name entry.
 function parseT3McpToolName(value: string): string | null {
-  const label = normalizeT3McpToolLabel(value).replace(
-    WEAVE_NAMES.connectionTools[1],
-    WEAVE_NAMES.connectionTools[0],
-  );
+  const label = normalizeT3McpToolLabel(value);
   const mcpMatch = /^mcp__(?<server>.+?)__(?<tool>.+)$/i.exec(label);
   if (mcpMatch?.groups) {
     const { server, tool } = mcpMatch.groups;

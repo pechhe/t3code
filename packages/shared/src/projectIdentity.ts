@@ -65,10 +65,10 @@ export function deriveProjectIdentity(projectName: string): ProjectIdentity {
 }
 
 export function weaveRepositoryKeyOf(project: {
-  readonly hqRepositoryKey?: string | null | undefined;
+  readonly weaveRepositoryKey?: string | null | undefined;
   readonly repositoryIdentity?: RepositoryIdentity | null | undefined;
 }): string | null {
-  if (project.hqRepositoryKey) return project.hqRepositoryKey;
+  if (project.weaveRepositoryKey) return project.weaveRepositoryKey;
   if (!project.repositoryIdentity) return null;
   const parts = repositoryGroupingKeyOf(project.repositoryIdentity).split("/");
   return parts.length >= 3 ? parts.slice(1).join("/") : null;

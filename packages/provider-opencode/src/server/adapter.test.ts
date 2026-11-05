@@ -344,8 +344,8 @@ describe("OpenCodeAdapterV2", () => {
         },
       };
       const weave = {
-        name: "yardsmith-hq",
-        url: "http://127.0.0.1:43123/mcp/yardsmith-hq",
+        name: "weave",
+        url: "http://127.0.0.1:43123/mcp/weave",
         authorizationHeader: "Bearer thread-weave-credential",
       };
       const adapter = yield* makeOpenCodeAdapterV2({
@@ -384,7 +384,7 @@ describe("OpenCodeAdapterV2", () => {
       yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy: policy });
       assert.deepEqual(added, [
         {
-          name: "yardsmith-hq",
+          name: "weave",
           config: {
             type: "remote",
             url: weave.url,
@@ -395,7 +395,7 @@ describe("OpenCodeAdapterV2", () => {
       ]);
       const rules = created[0]?.permission ?? [];
       assert.equal(permissionAction(rules, "bash"), "ask");
-      assert.equal(rules.at(-1)?.permission, "yardsmith-hq_*");
+      assert.equal(rules.at(-1)?.permission, "weave_*");
       assert.equal(rules.at(-1)?.action, "allow");
     }).pipe(
       Effect.provide(Layer.merge(IdAllocator.layer, McpProviderSessions.layer)),

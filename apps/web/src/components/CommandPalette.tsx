@@ -1482,7 +1482,7 @@ function OpenCommandPaletteDialog(props: {
     actionItems.push({
       kind: "action",
       value: "action:link-build-item",
-      searchTerms: ["link", "build", "spec", "ticket", "hq", "yardsmith", "weave"],
+      searchTerms: ["link", "build", "spec", "ticket", "yardsmith", "weave"],
       title: activeThread.workItem ? "Change linked Forge item" : "Link Forge item",
       icon: <LinkIcon className={ITEM_ICON_CLASS} />,
       run: async () => {

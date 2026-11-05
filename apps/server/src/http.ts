@@ -48,7 +48,7 @@ import {
   failEnvironmentInternal,
 } from "./auth/http.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
-import { SIGN_IN_CALLBACK_PATH } from "./hq/signInPath.ts";
+import { SIGN_IN_CALLBACK_PATH } from "./weave/signInPath.ts";
 import { WEBHOOK_ROUTE_PREFIX } from "./scheduledTasks/ScheduledTaskService.ts";
 import {
   browserApiCorsAllowedHeaders,

@@ -52,7 +52,7 @@ describe("presentForgeWorkItem", () => {
   const link = (item: ForgeWorkItemView["item"]): ForgeWorkItemView => ({
     itemId: "item-1",
     number: 4059,
-    url: "https://hq.example/build/4059",
+    url: "https://weave.example/build/4059",
     item,
     unavailable: false,
     readAt: null,
@@ -92,7 +92,7 @@ describe("presentForgeWorkItem", () => {
     });
   });
 
-  it("falls back to #number without a ref, from an older HQ or before anything was read", () => {
+  it("falls back to #number without a ref, from an older Weave or before anything was read", () => {
     for (const item of [summary(), summary(null), null]) {
       const shown = presentForgeWorkItem(link(item));
       expect([shown.label, shown.numberHint]).toEqual(["#4059", undefined]);

@@ -95,7 +95,7 @@ describe("buildThreadActionMenuItems", () => {
     ]);
   });
 
-  it("offers Link Forge item only for a project connected to HQ, and only to operators", () => {
+  it("offers Link Forge item only for a project connected to Weave, and only to operators", () => {
     expect(ids(baseState)).not.toContain("link-build-item");
     expect(ids({ ...baseState, canLinkForgeItem: true })).toContain("link-build-item");
     const readOnly = buildThreadActionMenuItems({

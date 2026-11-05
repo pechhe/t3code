@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { RetainedWeaveProjectFields } from "./weaveNames.ts";
 import {
   CommandId,
   ForwardCompatibleUnion,
@@ -73,7 +74,7 @@ export const ProjectIconColor = Schema.Literals([
 export type ProjectIconColor = typeof ProjectIconColor.Type;
 
 // Weave names a repository `owner/name`; a link it would refuse is rejected when it is typed, not on every sync.
-const HqRepositoryKey = TrimmedNonEmptyString.check(Schema.isPattern(/^[^\s/]+\/[^\s/]+$/));
+const WeaveRepositoryKey = TrimmedNonEmptyString.check(Schema.isPattern(/^[^\s/]+\/[^\s/]+$/));
 
 const ProjectLucideIconName = TrimmedNonEmptyString.check(
   Schema.isMaxLength(64),
@@ -170,10 +171,11 @@ export const Project = Schema.Struct({
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   // Opt-in because background sync performs network I/O and may move the checkout.
   autoPull: Schema.optional(Schema.Boolean),
-  hqRepositoryKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  hqSyncLocalOnly: Schema.optional(Schema.Boolean),
+  weaveRepositoryKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  weaveSyncLocalOnly: Schema.optional(Schema.Boolean),
   // The hand-linked key Weave's last sync found unregistered; only a person registers one in Weave.
-  hqUnregisteredKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  weaveUnregisteredKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  ...RetainedWeaveProjectFields,
   scripts: Schema.Array(ProjectScript),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
@@ -203,8 +205,8 @@ export const ProjectUpdatePayload = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   autoPull: Schema.optional(Schema.Boolean),
-  hqRepositoryKey: Schema.optional(Schema.NullOr(HqRepositoryKey)),
-  hqSyncLocalOnly: Schema.optional(Schema.Boolean),
+  weaveRepositoryKey: Schema.optional(Schema.NullOr(WeaveRepositoryKey)),
+  weaveSyncLocalOnly: Schema.optional(Schema.Boolean),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
@@ -230,6 +232,8 @@ export const ProjectMutation = Schema.Union([
     commandId: CommandId,
     projectId: ProjectId,
     ...ProjectUpdatePayload.fields,
+    hqRepositoryKey: Schema.optional(Schema.NullOr(WeaveRepositoryKey)),
+    hqSyncLocalOnly: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
     type: Schema.Literal("project.delete"),

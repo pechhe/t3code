@@ -520,8 +520,8 @@ describe("MuseAdapterV2", () => {
             read: () =>
               Effect.succeed([
                 {
-                  name: "yardsmith-hq",
-                  url: "http://127.0.0.1:43210/mcp/yardsmith-hq",
+                  name: "weave",
+                  url: "http://127.0.0.1:43210/mcp/weave",
                   authorizationHeader: "Bearer thread-weave-credential",
                 },
               ]),
@@ -531,10 +531,10 @@ describe("MuseAdapterV2", () => {
       const call = yield* fake.takeCall("session/start");
       assert.deepStrictEqual(call.params.config, {
         mcpServers: {
-          "yardsmith-hq": {
+          weave: {
             transport: "streamableHttp",
             mode: "optional",
-            url: "http://127.0.0.1:43210/mcp/yardsmith-hq",
+            url: "http://127.0.0.1:43210/mcp/weave",
             headers: { Authorization: "Bearer thread-weave-credential" },
           },
         },

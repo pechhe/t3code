@@ -89,8 +89,8 @@ describe("pi T3 MCP injection", () => {
 
   it("hands the thread's agent servers to the bridge and never an inherited list", () => {
     const weave = {
-      name: "yardsmith-hq",
-      url: "http://127.0.0.1:43123/mcp/yardsmith-hq",
+      name: "weave",
+      url: "http://127.0.0.1:43123/mcp/weave",
       authorizationHeader: "Bearer thread-weave-credential",
     };
     const launch = buildPiRpcLaunch({

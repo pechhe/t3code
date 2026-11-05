@@ -112,7 +112,9 @@ import {
   WsServerOperationsRpcGroup,
   WsThreadControlRpcGroup,
   WsGuestShareRpcGroup,
-  WsHqRpcGroup,
+  WsWeaveRpcGroup,
+  type WeaveSignInStartInput,
+  retainedWeaveSignInStartInput,
   WsPeersRpcGroup,
   WsPullRequestRpcGroup,
   WsRpcGroup,
@@ -147,9 +149,9 @@ import * as DocumentText from "./provider/DocumentText.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as PeerEnvironments from "./peers/PeerEnvironments.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
-import * as ForgeWorkItems from "./hq/ForgeWorkItems.ts";
-import * as ForgeHome from "./hq/ForgeHome.ts";
-import * as HqSignIn from "./hq/HqSignIn.ts";
+import * as ForgeWorkItems from "./weave/ForgeWorkItems.ts";
+import * as ForgeHome from "./weave/ForgeHome.ts";
+import * as WeaveSignIn from "./weave/WeaveSignIn.ts";
 import * as ReleaseApprovals from "./releases/ReleaseApprovals.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
@@ -662,7 +664,7 @@ const ServerWsChampionsRpcGroup = WsChampionsRpcGroup.middleware(RpcInstrumentat
 const ServerWsCoreRpcGroup = WsCoreRpcGroup.middleware(RpcInstrumentation);
 const ServerWsPullRequestRpcGroup = WsPullRequestRpcGroup.middleware(RpcInstrumentation);
 const ServerWsPeersRpcGroup = WsPeersRpcGroup.middleware(RpcInstrumentation);
-const ServerWsHqRpcGroup = WsHqRpcGroup.middleware(RpcInstrumentation);
+const ServerWsWeaveRpcGroup = WsWeaveRpcGroup.middleware(RpcInstrumentation);
 const ServerWsGuestShareRpcGroup = WsGuestShareRpcGroup.middleware(RpcInstrumentation);
 const ServerWsThreadStructureRpcGroup = WsThreadStructureRpcGroup.middleware(RpcInstrumentation);
 const ServerWsAwayRpcGroup = WsAwayRpcGroup.middleware(RpcInstrumentation);
@@ -1493,7 +1495,7 @@ export const layerWsRpc = (
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const forgeWorkItems = yield* ForgeWorkItems.ForgeWorkItems;
       const forgeHome = yield* ForgeHome.ForgeHome;
-      const hqSignIn = yield* HqSignIn.HqSignIn;
+      const weaveSignIn = yield* WeaveSignIn.WeaveSignIn;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const releaseApprovals = yield* ReleaseApprovals.ReleaseApprovals;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -3032,7 +3034,7 @@ export const layerWsRpc = (
       });
       const serverHandlers = WsServerOperationsRpcGroup.middleware(RpcInstrumentation).of({
         [WS_METHODS.buildConnectionRead]: () =>
-          Effect.all({ connection: forgeWorkItems.connected, signIn: hqSignIn.status }).pipe(
+          Effect.all({ connection: forgeWorkItems.connected, signIn: weaveSignIn.status }).pipe(
             Effect.map(({ connection, signIn }) => ({ ...connection, signIn })),
           ),
         [WS_METHODS.forgeWorkItemRead]: (input) =>
@@ -3417,29 +3419,34 @@ export const layerWsRpc = (
     }),
   );
 
-const layerWsHqRpc = ServerWsHqRpcGroup.toLayer(
+const layerWsWeaveRpc = ServerWsWeaveRpcGroup.toLayer(
   Effect.gen(function* () {
-    const hqSignIn = yield* HqSignIn.HqSignIn;
+    const weaveSignIn = yield* WeaveSignIn.WeaveSignIn;
     const forgeWorkItems = yield* ForgeWorkItems.ForgeWorkItems;
-    return ServerWsHqRpcGroup.of({
-      [WS_METHODS.hqSignInStart]: (input) =>
-        hqSignIn
-          .begin(input)
-          .pipe(
-            Effect.mapError(
-              (cause) => new ForgeWorkItemError({ reason: cause.reason, message: cause.message }),
-            ),
-          ),
-      [WS_METHODS.hqDisconnect]: () =>
-        hqSignIn.disconnect.pipe(
+    const signInStart = (input: WeaveSignInStartInput) =>
+      weaveSignIn
+        .begin(input)
+        .pipe(
           Effect.mapError(
-            (cause) => new ForgeWorkItemError({ reason: "unavailable", message: cause.message }),
+            (cause) => new ForgeWorkItemError({ reason: cause.reason, message: cause.message }),
           ),
-          Effect.andThen(
-            Effect.all({ connection: forgeWorkItems.connected, signIn: hqSignIn.status }),
-          ),
-          Effect.map(({ connection, signIn }) => ({ ...connection, signIn })),
+        );
+    const disconnect = () =>
+      weaveSignIn.disconnect.pipe(
+        Effect.mapError(
+          (cause) => new ForgeWorkItemError({ reason: "unavailable", message: cause.message }),
         ),
+        Effect.andThen(
+          Effect.all({ connection: forgeWorkItems.connected, signIn: weaveSignIn.status }),
+        ),
+        Effect.map(({ connection, signIn }) => ({ ...connection, signIn })),
+      );
+    return ServerWsWeaveRpcGroup.of({
+      [WS_METHODS.weaveSignInStart]: signInStart,
+      [WS_METHODS.weaveDisconnect]: disconnect,
+      [WS_METHODS.retainedWeaveSignInStart]: (input) =>
+        signInStart(retainedWeaveSignInStartInput(input)),
+      [WS_METHODS.retainedWeaveDisconnect]: disconnect,
     });
   }),
 );
@@ -3777,7 +3784,7 @@ export const layer = Layer.unwrap(
               ),
               layerWsPullRequestRpc,
               layerWsPeersRpc,
-              layerWsHqRpc,
+              layerWsWeaveRpc,
               layerWsGuestShareRpc,
               layerWsThreadStructureRpc,
               layerWsAwayRpc,

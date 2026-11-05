@@ -92,8 +92,8 @@ describe("fork project mutation mapping", () => {
     defaultModelSelection: null,
     defaultThreadEnvMode: null,
     autoPull: false,
-    hqRepositoryKey: null,
-    hqSyncLocalOnly: false,
+    weaveRepositoryKey: null,
+    weaveSyncLocalOnly: false,
     scripts: [],
     createdAt: "2026-09-05T00:00:00.000Z",
     updatedAt: "2026-09-05T00:00:00.000Z",
@@ -130,8 +130,8 @@ describe("fork project mutation mapping", () => {
         workspaceRoot: "/work/updated",
         defaultModelSelection: null,
         autoPull: false,
-        hqRepositoryKey: null,
-        hqSyncLocalOnly: false,
+        weaveRepositoryKey: null,
+        weaveSyncLocalOnly: false,
         projectIcon: null,
         faviconPath: null,
         defaultThreadEnvMode: null,
@@ -161,8 +161,8 @@ describe("fork project mutation mapping", () => {
           workspaceRoot: "/work/updated",
           defaultModelSelection: null,
           autoPull: false,
-          hqRepositoryKey: null,
-          hqSyncLocalOnly: false,
+          weaveRepositoryKey: null,
+          weaveSyncLocalOnly: false,
           projectIcon: null,
           faviconPath: null,
           defaultThreadEnvMode: null,
@@ -170,6 +170,50 @@ describe("fork project mutation mapping", () => {
         },
         { commandId: "command:delete", projectId, force: true },
       ]);
+    }),
+  );
+});
+
+describe("projectMutationOperation Weave names", () => {
+  const update = (fields: Record<string, unknown>) =>
+    Effect.gen(function* () {
+      const calls = yield* Ref.make<ReadonlyArray<unknown>>([]);
+      yield* projectMutationOperation(
+        {
+          create: () => Effect.die("unused"),
+          delete: () => Effect.die("unused"),
+          update: (input) =>
+            Ref.update(calls, (entries) => [...entries, input]).pipe(Effect.as(deletedProject)),
+        },
+        {
+          type: "project.update",
+          commandId: CommandId.make("command:weave"),
+          projectId,
+          ...fields,
+        } as never,
+      );
+      return (yield* Ref.get(calls))[0];
+    });
+
+  it.effect("applies the names an older fork client sends", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* update({ hqRepositoryKey: "pechhe/yardsmith", hqSyncLocalOnly: true }),
+      ).toMatchObject({ weaveRepositoryKey: "pechhe/yardsmith", weaveSyncLocalOnly: true });
+      expect(yield* update({ hqRepositoryKey: null })).toMatchObject({ weaveRepositoryKey: null });
+    }),
+  );
+
+  it.effect("keeps a current client's clear and false over anything retained", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* update({
+          weaveRepositoryKey: null,
+          weaveSyncLocalOnly: false,
+          hqRepositoryKey: "stale/key",
+          hqSyncLocalOnly: true,
+        }),
+      ).toMatchObject({ weaveRepositoryKey: null, weaveSyncLocalOnly: false });
     }),
   );
 });

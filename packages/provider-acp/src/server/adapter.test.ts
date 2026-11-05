@@ -7,8 +7,8 @@ import { acpMcpContext, acpToolCallDiffPatch } from "./adapter.ts";
 
 const self = { command: "/usr/bin/node", entrypoint: "/opt/t3/bin.mjs" };
 const weave = {
-  name: "yardsmith-hq",
-  url: "http://127.0.0.1:43123/mcp/yardsmith-hq",
+  name: "weave",
+  url: "http://127.0.0.1:43123/mcp/weave",
   authorizationHeader: "Bearer thread-weave-credential",
 };
 const bridgeEnv = (endpoint: string, authorization: string) => [
@@ -37,12 +37,12 @@ describe("ACP MCP context", () => {
       context.servers.map((server) => ("env" in server ? [server.name, server.env] : [])),
       [
         ["t3-code", bridgeEnv("http://127.0.0.1:43123/mcp", "Bearer t3-credential")],
-        ["yardsmith-hq", bridgeEnv(weave.url, weave.authorizationHeader)],
+        ["weave", bridgeEnv(weave.url, weave.authorizationHeader)],
       ],
     );
     assert.deepEqual(context.acpServers, [
       { type: "acp", name: "t3-code", serverId: "t3-code" },
-      { type: "acp", name: "yardsmith-hq", serverId: "yardsmith-hq" },
+      { type: "acp", name: "weave", serverId: "weave" },
     ]);
     assert.deepEqual(context.httpServers, [
       {
@@ -53,7 +53,7 @@ describe("ACP MCP context", () => {
       },
       {
         type: "http",
-        name: "yardsmith-hq",
+        name: "weave",
         url: weave.url,
         headers: [{ name: "Authorization", value: weave.authorizationHeader }],
       },
@@ -66,10 +66,10 @@ describe("ACP MCP context", () => {
     const context = acpMcpContext(undefined, self, false, [weave]);
     assert.deepEqual(
       context.servers.map((server) => server.name),
-      ["yardsmith-hq"],
+      ["weave"],
     );
     assert.deepEqual(context.bridgeServers, [
-      { serverId: "yardsmith-hq", endpoint: weave.url, authorization: weave.authorizationHeader },
+      { serverId: "weave", endpoint: weave.url, authorization: weave.authorizationHeader },
     ]);
     assert.isUndefined(context.processEnvironment);
   });

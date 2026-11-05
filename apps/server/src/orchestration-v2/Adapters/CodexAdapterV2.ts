@@ -31,7 +31,7 @@ import {
   settleTurnUsage,
   type TurnUsageBuffer,
 } from "../../provider/TurnUsageRecords.ts";
-import * as HqForgeUsage from "../../hq/HqForgeUsage.ts";
+import * as WeaveForgeUsage from "../../weave/WeaveForgeUsage.ts";
 import type { ManagedServerProvider } from "@t3tools/provider-core/server/snapshot";
 import type { CodexEffectiveRuntime } from "../../provider/CodexManagedRuntime.ts";
 import { classifyCodexManagedError } from "../../provider/CodexManagedErrors.ts";
@@ -1879,7 +1879,7 @@ export interface CodexAdapterV2Options {
 export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
   adapterOptions: CodexAdapterV2Options,
 ) {
-  const buildUsage = yield* HqForgeUsage.HqForgeUsage;
+  const buildUsage = yield* WeaveForgeUsage.WeaveForgeUsage;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const readMcpSession = (threadId: ThreadId | null) =>
     threadId === null ? Effect.undefined : mcpSessions.read(threadId);

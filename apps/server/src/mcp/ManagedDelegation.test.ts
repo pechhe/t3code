@@ -4,7 +4,7 @@ import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as ContextRemoteDelegation from "../peer/RemoteDelegation.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { ProviderThreadId, type ChampionFinding } from "@t3tools/contracts";
-import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
+import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {

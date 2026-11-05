@@ -28,7 +28,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as TestClock from "effect/testing/TestClock";
 import * as Layer from "effect/Layer";
-import * as ForgeWorkItems from "../../hq/ForgeWorkItems.ts";
+import * as ForgeWorkItems from "../../weave/ForgeWorkItems.ts";
 import * as Schema from "effect/Schema";
 import { McpAttachmentInput } from "./attachment/input.ts";
 import { McpSchema, McpServer } from "effect/ai";

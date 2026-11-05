@@ -88,9 +88,9 @@ import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as ReviewService from "./review/ReviewService.ts";
-import * as ForgeWorkItems from "./hq/ForgeWorkItems.ts";
-import * as ForgeHome from "./hq/ForgeHome.ts";
-import * as HqSignIn from "./hq/HqSignIn.ts";
+import * as ForgeWorkItems from "./weave/ForgeWorkItems.ts";
+import * as ForgeHome from "./weave/ForgeHome.ts";
+import * as WeaveSignIn from "./weave/WeaveSignIn.ts";
 import * as ReleaseApprovals from "./releases/ReleaseApprovals.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
@@ -742,7 +742,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ReviewService.ReviewService)({}),
   Layer.mock(ForgeWorkItems.ForgeWorkItems)({}),
   Layer.mock(ForgeHome.ForgeHome)({}),
-  Layer.mock(HqSignIn.HqSignIn)({}),
+  Layer.mock(WeaveSignIn.WeaveSignIn)({}),
   Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
   Layer.mock(AgentPolicySettings.AgentPolicySettingsService)({}),
   Layer.mock(ExperimentService.ExperimentService)({}),

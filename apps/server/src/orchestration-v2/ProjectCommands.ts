@@ -34,11 +34,11 @@ export interface ProjectMetaUpdateCommand {
   readonly defaultModelSelection?: ModelSelection | null;
   readonly defaultThreadEnvMode?: ThreadEnvMode | null;
   readonly autoPull?: boolean;
-  readonly hqRepositoryKey?: string | null;
-  readonly hqSyncLocalOnly?: boolean;
-  readonly hqSyncedRevision?: number | null;
-  readonly hqSyncedValueHash?: string | null;
-  readonly hqUnregisteredKey?: string | null;
+  readonly weaveRepositoryKey?: string | null;
+  readonly weaveSyncLocalOnly?: boolean;
+  readonly weaveSyncedRevision?: number | null;
+  readonly weaveSyncedValueHash?: string | null;
+  readonly weaveUnregisteredKey?: string | null;
   readonly expectedSyncState?: ProjectRow;
   readonly faviconPath?: string | null;
   readonly projectIcon?: ProjectIconOverride | null;
@@ -220,21 +220,21 @@ export function planProjectCommand(input: {
             ? {}
             : { defaultThreadEnvMode: command.defaultThreadEnvMode }),
           ...(command.autoPull === undefined ? {} : { autoPull: command.autoPull }),
-          ...(command.hqRepositoryKey === undefined
+          ...(command.weaveRepositoryKey === undefined
             ? {}
-            : { hqRepositoryKey: command.hqRepositoryKey }),
-          ...(command.hqSyncLocalOnly === undefined
+            : { weaveRepositoryKey: command.weaveRepositoryKey }),
+          ...(command.weaveSyncLocalOnly === undefined
             ? {}
-            : { hqSyncLocalOnly: command.hqSyncLocalOnly }),
-          ...(command.hqSyncedRevision === undefined
+            : { weaveSyncLocalOnly: command.weaveSyncLocalOnly }),
+          ...(command.weaveSyncedRevision === undefined
             ? {}
-            : { hqSyncedRevision: command.hqSyncedRevision }),
-          ...(command.hqSyncedValueHash === undefined
+            : { weaveSyncedRevision: command.weaveSyncedRevision }),
+          ...(command.weaveSyncedValueHash === undefined
             ? {}
-            : { hqSyncedValueHash: command.hqSyncedValueHash }),
-          ...(command.hqUnregisteredKey === undefined
+            : { weaveSyncedValueHash: command.weaveSyncedValueHash }),
+          ...(command.weaveUnregisteredKey === undefined
             ? {}
-            : { hqUnregisteredKey: command.hqUnregisteredKey }),
+            : { weaveUnregisteredKey: command.weaveUnregisteredKey }),
           ...(command.faviconPath === undefined ? {} : { faviconPath: command.faviconPath }),
           ...(command.projectIcon === undefined ? {} : { projectIcon: command.projectIcon }),
           ...(command.scripts === undefined ? {} : { scripts: command.scripts }),

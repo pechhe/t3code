@@ -81,8 +81,8 @@ describe("planProjectCommand", () => {
         scripts,
         defaultThreadEnvMode: "worktree",
         autoPull: true,
-        hqRepositoryKey: "pechhe/yardsmith",
-        hqSyncLocalOnly: true,
+        weaveRepositoryKey: "pechhe/yardsmith",
+        weaveSyncLocalOnly: true,
         faviconPath: "brand/icon.svg",
         projectIcon: { kind: "lucide", name: "alarm-clock", color: "violet" },
       }),
@@ -91,18 +91,19 @@ describe("planProjectCommand", () => {
       scripts,
       defaultThreadEnvMode: "worktree",
       autoPull: true,
-      hqRepositoryKey: "pechhe/yardsmith",
-      hqSyncLocalOnly: true,
+      weaveRepositoryKey: "pechhe/yardsmith",
+      weaveSyncLocalOnly: true,
       faviconPath: "brand/icon.svg",
       projectIcon: { kind: "lucide", name: "alarm-clock", color: "violet" },
     });
     const renamed = payloadOf(update({ title: "Renamed" }));
     assert.isFalse("defaultThreadEnvMode" in renamed);
     assert.isNull(payloadOf(update({ defaultThreadEnvMode: null })).defaultThreadEnvMode);
-    assert.isFalse("hqRepositoryKey" in renamed);
-    assert.isNull(payloadOf(update({ hqRepositoryKey: null })).hqRepositoryKey);
+    assert.isFalse("weaveRepositoryKey" in renamed);
+    assert.isNull(payloadOf(update({ weaveRepositoryKey: null })).weaveRepositoryKey);
     assert.equal(
-      failureOf(update({ expectedSyncState: row({ title: "Stale" }), hqSyncedRevision: 3 }))._tag,
+      failureOf(update({ expectedSyncState: row({ title: "Stale" }), weaveSyncedRevision: 3 }))
+        ._tag,
       "ProjectCommandInvariantError",
     );
   });

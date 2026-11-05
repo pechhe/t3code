@@ -126,11 +126,11 @@ it.effect("records one project suggestion per chat and keeps a dismissal final",
       type: "thread.metadata.update",
       commandId: CommandId.make("project-move-suggestion-set"),
       threadId,
-      projectSuggestion: { projectId: targetProjectId, reason: "HQ tasks and a client chaser" },
+      projectSuggestion: { projectId: targetProjectId, reason: "Weave tasks and a client chaser" },
     });
     const suggested = (yield* orchestrator.getThreadProjection(threadId)).thread.projectSuggestion;
     assert.equal(suggested?.projectId, targetProjectId);
-    assert.equal(suggested?.reason, "HQ tasks and a client chaser");
+    assert.equal(suggested?.reason, "Weave tasks and a client chaser");
     assert.isNull(suggested?.dismissedAt);
 
     const second = yield* orchestrator
@@ -150,7 +150,7 @@ it.effect("records one project suggestion per chat and keeps a dismissal final",
       projectSuggestion: "dismissed",
     });
     const dismissed = (yield* orchestrator.getThreadProjection(threadId)).thread.projectSuggestion;
-    assert.equal(dismissed?.reason, "HQ tasks and a client chaser");
+    assert.equal(dismissed?.reason, "Weave tasks and a client chaser");
     assert.isNotNull(dismissed?.dismissedAt);
   }).pipe(Effect.provide(layer)),
 );
