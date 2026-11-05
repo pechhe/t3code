@@ -455,7 +455,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "theme-typeface",
     title: "Let themes set the typeface",
     to: "/settings/appearance",
-    searchTerms: ["typography theme font family serif typewriter interface prompt override custom"],
+    searchTerms: ["typography theme font family serif interface prompt override custom"],
   },
   {
     id: "font-smoothing",

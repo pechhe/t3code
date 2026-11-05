@@ -116,9 +116,6 @@
 :root[data-theme-font="serif"] {
   --font-sans: "Bitstream Charter", Charter, "Iowan Old Style", Georgia, serif;
 }
-:root[data-theme-font="type"] {
-  --font-sans: "Courier 10 Pitch", "American Typewriter", "Courier New", Courier, monospace;
-}
 :root[data-theme-font="mono"] {
   --font-sans: var(--font-mono);
 }
@@ -127,17 +124,9 @@
   --font-sans: "Bitstream Charter", Charter, "Iowan Old Style", Georgia, serif !important;
   --font-composer: var(--font-sans) !important;
 }
-:root[data-theme-typeface][data-theme-font="type"] {
-  --font-sans:
-    "Courier 10 Pitch", "American Typewriter", "Courier New", Courier, monospace !important;
-  --font-composer: var(--font-sans) !important;
-}
 :root[data-theme-typeface][data-theme-font="mono"] {
   --font-sans: var(--font-mono) !important;
   --font-composer: var(--font-sans) !important;
-}
-:root[data-theme-mono="type"] [data-slot="composer-shell"] {
-  --crt-mono: "Courier 10 Pitch", "American Typewriter", "Courier New", Courier, monospace;
 }
 
 /* ---- Screen overlay ---- */
@@ -274,24 +263,6 @@
       color-mix(in oklch, var(--lamp) 22%, transparent),
       transparent 70%
     );
-}
-:root[data-composer-finish="auto"].dark[data-theme-texture="ruled"]
-  .composer-device
-  [data-chat-composer-body]::after {
-  background: repeating-linear-gradient(
-    180deg,
-    transparent 0 19px,
-    color-mix(in oklch, var(--lamp) 26%, transparent) 19px 20px
-  );
-}
-:root[data-composer-finish="auto"]:not(.dark)[data-theme-texture="ruled"]
-  .composer-device
-  [data-chat-composer-body]::after {
-  background: repeating-linear-gradient(
-    180deg,
-    transparent 0 19px,
-    color-mix(in oklch, var(--lamp) 26%, transparent) 19px 20px
-  );
 }
 :root[data-composer-finish="auto"].dark[data-theme-texture="dotgrid"]
   .composer-device

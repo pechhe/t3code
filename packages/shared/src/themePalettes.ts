@@ -171,7 +171,6 @@ export type ThemeCharacter = Readonly<{
   texture?: string;
   cursor?: string;
   font?: string;
-  mono?: string;
   knob?: string;
   ticks?: string;
   needle?: string;

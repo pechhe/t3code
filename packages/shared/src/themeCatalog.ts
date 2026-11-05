@@ -4598,7 +4598,6 @@ export const THEME_FINISHES: Readonly<
     character: {
       texture: "glow",
       cursor: "block",
-      mono: "type",
       knob: "copper",
       ticks: "long",
       needle: "triangle",
@@ -4671,10 +4670,7 @@ export const THEME_FINISHES: Readonly<
       },
     },
     character: {
-      texture: "ruled",
       cursor: "underscore",
-      font: "type",
-      mono: "type",
       knob: "rubber",
       ticks: "hair",
       needle: "notch",
@@ -4894,8 +4890,6 @@ export const THEME_FINISHES: Readonly<
     character: {
       texture: "scan",
       cursor: "block",
-      font: "type",
-      mono: "type",
       knob: "brass",
       ticks: "long",
       needle: "triangle",
@@ -5826,8 +5820,6 @@ export const THEME_FINISHES: Readonly<
     character: {
       texture: "paper",
       cursor: "underscore",
-      font: "type",
-      mono: "type",
       knob: "brass",
       ticks: "long",
       needle: "triangle",
@@ -6059,8 +6051,6 @@ export const THEME_FINISHES: Readonly<
     character: {
       texture: "grain",
       cursor: "bar",
-      font: "type",
-      mono: "type",
       knob: "wood",
       ticks: "dots",
       needle: "dot",

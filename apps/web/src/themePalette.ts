@@ -1651,7 +1651,6 @@ const CHARACTER_ATTRIBUTES = [
   ["texture", "themeTexture"],
   ["cursor", "themeCursor"],
   ["font", "themeFont"],
-  ["mono", "themeMono"],
   ["knob", "themeKnob"],
   ["ticks", "themeTicks"],
   ["needle", "themeNeedle"],
