@@ -1,3 +1,4 @@
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { forgeItemNumberFromUrl } from "@t3tools/shared/forgeLinks";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
@@ -242,6 +243,7 @@ const phaseForRole = (role: string) =>
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const threads = yield* ThreadManagement.ThreadManagementService;
+  const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const launch = yield* ThreadLaunch.ThreadLaunchService;
   const providers = yield* ProviderRegistry.ProviderRegistry;
   const projects = yield* ProjectService.ProjectService;
@@ -550,6 +552,7 @@ const make = Effect.gen(function* () {
         ? "SETUP: inspect the actual product and propose useful measurable metrics with t3_champions_propose_metrics, or call t3_champions_complete_setup with a no-change summary. Proposals require user acceptance. Do not edit the shared root or delegate repairs during setup."
         : "CHECK: call t3_champions_check_context, collect honest observations, and call t3_champions_report before finishing. Dispatch alone is not completion.",
       `Check claim: ${check.id}. Definitions were frozen when this check started. ${check.measureOnly ? "MEASURE ONLY: do not dispatch repairs." : "Own bounded improvements through normal delegate_task managed roles."}`,
+      "Follow each frozen metric method. Copy metricId, version, unit and source verbatim from t3_champions_check_context; never paraphrase source. Put actual execution commands, paths and collection details in evidence. If collection fails, report value null with status error and explain why; never invent a numeric value.",
       "Read and measure at the project root; every writer must use an isolated workspace. Never edit the shared root. Keep this owner thread and its namespace across checks. Do not archive or replace it while children are live.",
       "For metric breaches the server creates deterministic findings. Reconcile qualitative observations with known open findings: supply existingFindingId instead of paraphrasing a duplicate. Read history on demand, never fabricate a measurement.",
       "After reporting, call t3_champions_check_context to read finding workId/attemptId. Use these exact identities in delegate_task. Bounded repair: implementation-worker or chore-worker. Large/open work: advisor on the stronger selection, shape in Forge, then lead the Spec. Use existing role policy and SlipJay. If Forge/SlipJay is unavailable, report it explicitly as attention; never claim a repair was delivered without a revision.",
@@ -686,6 +689,18 @@ const make = Effect.gen(function* () {
                     measureOnly: outstanding.measureOnly || doc.champion.lifecycle !== "active",
                   };
                   yield* saveCheck(retry);
+                  yield* write({
+                    ...doc,
+                    champion: {
+                      ...doc.champion,
+                      attention: doc.champion.attention.filter(
+                        (attention) =>
+                          !attention.startsWith(
+                            `${kind === "setup" ? "Setup" : "Check"} run ended without an authenticated report.`,
+                          ),
+                      ),
+                    },
+                  });
                   yield* activity(
                     id,
                     "check-retry",
@@ -898,6 +913,13 @@ const make = Effect.gen(function* () {
     caller: Caller,
   ) {
     if (caller === undefined) return yield* new ChampionError({ reason: "unauthorized" });
+    const credential = yield* mcpSessions.read(caller.threadId);
+    if (
+      credential === undefined ||
+      credential.providerSessionId !== caller.providerSessionId ||
+      credential.providerInstanceId !== caller.providerInstanceId
+    )
+      return yield* new ChampionError({ reason: "unauthorized" });
     const shell = yield* threads.getThreadShell(caller.threadId).pipe(Effect.mapError(failure));
     if (
       shell === null ||
@@ -918,7 +940,7 @@ const make = Effect.gen(function* () {
     if (
       run === undefined ||
       !ThreadManagement.isActiveRun(run) ||
-      providerThread?.providerSessionId !== caller.providerSessionId ||
+      providerThread === undefined ||
       run.providerThreadId !== providerThread.id
     )
       return yield* new ChampionError({ reason: "unauthorized" });
@@ -1116,22 +1138,38 @@ const make = Effect.gen(function* () {
               if (check.reported) return doc;
               const collectedAt = yield* now;
               if (new Set(input.samples.map((s) => s.metricId)).size !== input.samples.length)
-                return yield* new ChampionError({ reason: "invalid" });
+                return yield* new ChampionError({
+                  reason: "invalid",
+                  validation: { field: "samples" },
+                });
               const samples: ChampionSample[] = [];
               const findings = [...doc.findings];
               let findingsLimited = false;
-              for (const sample of input.samples) {
+              for (const [sampleIndex, sample] of input.samples.entries()) {
                 const metric = check.metrics.find((m) => m.id === sample.metricId);
-                if (
-                  metric === undefined ||
-                  metric.version !== sample.version ||
-                  metric.unit !== sample.unit ||
-                  (sample.status === "measured" && metric.source !== sample.source) ||
-                  (sample.status === "measured") !== (sample.value !== null) ||
-                  (sample.value !== null && !Number.isFinite(sample.value)) ||
-                  !Number.isFinite(Date.parse(sample.observedAt))
-                )
-                  return yield* new ChampionError({ reason: "invalid" });
+                if (metric === undefined)
+                  return yield* new ChampionError({
+                    reason: "invalid",
+                    validation: { sampleIndex, field: "metricId" },
+                  });
+                const field =
+                  metric.version !== sample.version
+                    ? "version"
+                    : metric.unit !== sample.unit
+                      ? "unit"
+                      : sample.status === "measured" && metric.source !== sample.source
+                        ? "source"
+                        : (sample.status === "measured") !== (sample.value !== null) ||
+                            (sample.value !== null && !Number.isFinite(sample.value))
+                          ? "value"
+                          : !Number.isFinite(Date.parse(sample.observedAt))
+                            ? "observedAt"
+                            : undefined;
+                if (field !== undefined)
+                  return yield* new ChampionError({
+                    reason: "invalid",
+                    validation: { sampleIndex, field },
+                  });
                 samples.push({
                   ...sample,
                   championId: check.championId,
@@ -1191,7 +1229,10 @@ const make = Effect.gen(function* () {
                     (metric.required ?? true) && !samples.some((s) => s.metricId === metric.id),
                 )
               )
-                return yield* new ChampionError({ reason: "invalid" });
+                return yield* new ChampionError({
+                  reason: "invalid",
+                  validation: { field: "samples" },
+                });
               for (const qualitative of input.findings) {
                 const existing =
                   qualitative.existingFindingId === undefined
@@ -2065,10 +2106,22 @@ const make = Effect.gen(function* () {
       ]) {
         if (pendingId === null) continue;
         const check = yield* readCheck(pendingId);
+        if (check.reported || check.cancelled) continue;
         if (!check.dispatched) yield* dispatchCheck(check).pipe(Effect.ignore);
         const shell = check.dispatched
           ? yield* threads.getThreadShell(check.threadId).pipe(Effect.mapError(failure))
           : null;
+        const records =
+          shell !== null && check.dispatched
+            ? yield* threads
+                .getThreadRecords(check.threadId, ["runs"])
+                .pipe(Effect.mapError(failure))
+            : undefined;
+        const matchingRuns =
+          records?.runs.filter((run) => run.userMessageId === check.messageId) ?? [];
+        const endedWithoutReport =
+          matchingRuns.some((run) => ThreadManagement.isTerminalRunStatus(run.status)) &&
+          !matchingRuns.some(ThreadManagement.isActiveRun);
         const ownershipLost =
           check.dispatched &&
           (shell === null ||
@@ -2076,11 +2129,20 @@ const make = Effect.gen(function* () {
             shell.archivedAt !== null ||
             shell.status === "failed" ||
             shell.usageLimitResetAt != null);
-        if (ownershipLost || Date.parse(timestamp) - Date.parse(check.startedAt) > 60 * 60 * 1000) {
+        if (
+          endedWithoutReport ||
+          ownershipLost ||
+          Date.parse(timestamp) - Date.parse(check.startedAt) > 60 * 60 * 1000
+        ) {
           yield* mutate(
             Effect.gen(function* () {
               const current = yield* read(doc.champion.id);
-              const attention = `${check.kind === "setup" ? "Setup" : "Check"} report overdue or ownership lost. Inspect the ${check.kind === "setup" ? "setup" : "owner"} thread.`;
+              const latest = yield* readCheck(check.id);
+              if (latest.reported || latest.cancelled || latest.messageId !== check.messageId)
+                return;
+              const attention = endedWithoutReport
+                ? `${check.kind === "setup" ? "Setup" : "Check"} run ended without an authenticated report. ${check.kind === "setup" ? "Run setup" : "Run check"} to retry.`
+                : `${check.kind === "setup" ? "Setup" : "Check"} report overdue or ownership lost. Inspect the ${check.kind === "setup" ? "setup" : "owner"} thread.`;
               if (!current.champion.attention.includes(attention))
                 yield* write({
                   ...current,

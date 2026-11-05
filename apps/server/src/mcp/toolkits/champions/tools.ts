@@ -134,7 +134,7 @@ const propose_metrics = Tool.make("t3_champions_propose_metrics", {
 const report = Tool.make("t3_champions_report", {
   ...shared,
   description:
-    "Complete this check with measured or explicitly null samples and reconciled findings. Server derives all identity and provenance.",
+    "Complete this check using the frozen metric methods from t3_champions_check_context. Copy metricId, version, unit and source verbatim; never paraphrase source. Put execution commands, paths and collection details in evidence. Failed collection uses value null and status error, never a fabricated numeric value. Include each required metric exactly once and reconcile findings. Server derives identity and provenance.",
   parameters: ChampionReportInput,
   success: ChampionDetail,
 })

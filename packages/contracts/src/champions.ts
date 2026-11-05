@@ -255,8 +255,37 @@ export const ChampionFindingDeliveryInput = Schema.Struct({
 export class ChampionError extends Schema.TaggedError<ChampionError>()("ChampionError", {
   reason: Schema.Literals(["not-found", "invalid", "conflict", "unauthorized", "unavailable"]),
   cause: Schema.optional(Schema.Defect()),
+  validation: Schema.optional(
+    Schema.Struct({
+      sampleIndex: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 31 }))),
+      field: Schema.Literals([
+        "samples",
+        "metricId",
+        "version",
+        "unit",
+        "source",
+        "value",
+        "observedAt",
+      ]),
+    }),
+  ),
 }) {
   override get message() {
+    if (this.reason === "invalid" && this.validation !== undefined) {
+      const instruction = {
+        samples:
+          "Include each required frozen metric exactly once; do not duplicate metricId values.",
+        metricId: "Copy metricId from a frozen metric in t3_champions_check_context.",
+        version: "Copy version exactly from the frozen metric in t3_champions_check_context.",
+        unit: "Copy unit exactly from the frozen metric in t3_champions_check_context.",
+        source:
+          "Copy source exactly, without paraphrasing, from the frozen metric in t3_champions_check_context. Put execution commands, paths and collection details in evidence.",
+        value:
+          "Use a finite numeric value only with status measured. Failed collection requires value null and status error; explain the failure in evidence.",
+        observedAt: "Use a valid ISO date-time for observedAt.",
+      }[this.validation.field];
+      return `Champion report invalid: ${this.validation.sampleIndex === undefined ? "" : `sample ${this.validation.sampleIndex} `}${this.validation.field}. ${instruction}`;
+    }
     return `Champion operation failed: ${this.reason}.`;
   }
 }

@@ -185,7 +185,7 @@ export const make = Effect.fn("ProcessGroupLedger.make")(function* (input: {
         Effect.orElseSucceed(() => undefined),
       );
     }
-    // @effect-diagnostics-next-line effectSucceedWithVoid:off - Missing process observations are undefined, not void.
+    // @effect-diagnostics-next-line effectSucceedWithUndefined:off - Missing process observations are undefined, not void.
     return Effect.succeed(undefined);
   };
 

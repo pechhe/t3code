@@ -11564,7 +11564,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       rootNode === undefined ||
       run.activeAttemptId !== attempt.id ||
       run.status !== "running" ||
-      attempt.status === "pending"
+      attempt.status === "pending" ||
+      // The turn's own failure already ended the run it belongs to; Stop must not overwrite it.
+      input.providerTurn.status === "failed" ||
+      input.providerTurn.status === "cancelled"
     )
       return;
     const emitEvent = emit(input.events, input.command);
@@ -12122,13 +12125,37 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         (attempt) => attempt.id === stopped.providerTurn?.runAttemptId,
       )?.runId;
       const stoppedRun = projection.runs.find((run) => run.id === stoppedRunId);
+      const now = yield* DateTime.now;
+      const supersededTurn =
+        command.providerTurnInterrupted === true &&
+        stoppedRun !== undefined &&
+        stopped.providerTurn !== undefined &&
+        stopped.providerTurn.status === "running" &&
+        (stoppedRun.status !== "running" ||
+          stoppedRun.activeAttemptId !== stopped.providerTurn.runAttemptId);
+      if (supersededTurn && stopped.providerTurn !== undefined && stoppedRun !== undefined) {
+        // Its run already ended or moved to a replacement attempt, so the ingestor discards the
+        // turn's own terminal: the interrupt that just succeeded is its outcome. Only the turn
+        // changes; its run, attempt and any replacement attempt stay as they are.
+        yield* emit(
+          events,
+          command,
+        )({
+          type: "provider-turn.updated",
+          threadId: command.threadId,
+          runId: stoppedRun.id,
+          nodeId: stopped.providerTurn.nodeId,
+          providerInstanceId: stoppedRun.providerInstanceId,
+          occurredAt: now,
+          payload: { ...stopped.providerTurn, status: "interrupted", completedAt: now },
+        });
+      }
       if (
         stoppedRun === undefined ||
         (["preparing", "starting", "running"].includes(stoppedRun.status) &&
           stoppedRun.activeAttemptId !== stopped.providerTurn?.runAttemptId)
       )
         return;
-      const now = yield* DateTime.now;
       if (stopped.providerTurn !== undefined && stoppedRun.status === "running") {
         const output = yield* projectionStore
           .getThreadRecords(command.threadId, ["messages"], {

@@ -4021,6 +4021,8 @@ const OrchestrationV2InternalCommand = Schema.Union([
     providerTurnId: ProviderTurnId,
     /** Replaces the Stop's own reason on the result, as Force stop does. */
     reason: Schema.optional(Schema.String),
+    /** The adapter confirmed this turn stopped; absent when a replay or a direct request settles it. */
+    providerTurnInterrupted: Schema.optional(Schema.Boolean),
     subagent: Schema.optional(
       Schema.Struct({
         id: NodeId,

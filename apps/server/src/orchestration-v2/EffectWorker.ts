@@ -198,12 +198,20 @@ export const layerExecutor: Layer.Layer<
                         cause,
                       }),
                 ),
-                Effect.map((outcome) => ({ unresponsive: false, outcome }) as const),
+                Effect.map(
+                  (outcome) =>
+                    ({ unresponsive: false, providerTurnInterrupted: true, outcome }) as const,
+                ),
                 // Settling here would end the run while the agent may still be running; the
                 // user decides with Force stop instead.
                 Effect.catchIf(
                   (cause) => request.subagent === undefined && cause.unresponsive === true,
-                  () => Effect.succeed({ unresponsive: true, outcome: undefined } as const),
+                  () =>
+                    Effect.succeed({
+                      unresponsive: true,
+                      providerTurnInterrupted: false,
+                      outcome: undefined,
+                    } as const),
                 ),
                 Effect.catchIf(
                   (cause) =>
@@ -212,9 +220,14 @@ export const layerExecutor: Layer.Layer<
                       request.type,
                       Cause.pretty(Cause.fail(cause)),
                     ),
-                  () => Effect.succeed({ unresponsive: false, outcome: undefined } as const),
+                  () =>
+                    Effect.succeed({
+                      unresponsive: false,
+                      providerTurnInterrupted: false,
+                      outcome: undefined,
+                    } as const),
                 ),
-                Effect.andThen(({ unresponsive, outcome }) =>
+                Effect.andThen(({ unresponsive, providerTurnInterrupted, outcome }) =>
                   unresponsive
                     ? threads.dispatch({
                         type: "thread.interrupt.unresponsive",
@@ -228,6 +241,7 @@ export const layerExecutor: Layer.Layer<
                       : threads.dispatch({
                           type: "thread.background-work.settle",
                           commandId: CommandId.make(`${effect.id}:background-work-settled`),
+                          ...(providerTurnInterrupted ? { providerTurnInterrupted: true } : {}),
                           ...(request.subagent === undefined || outcome === undefined
                             ? {}
                             : {

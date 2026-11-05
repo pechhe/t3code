@@ -1,3 +1,12 @@
+import * as ChampionHandlers from "../mcp/toolkits/champions/handlers.ts";
+import { ChampionsToolkit } from "../mcp/toolkits/champions/tools.ts";
+import * as McpToolAccess from "../mcp/McpToolAccess.ts";
+import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import { HttpServer } from "effect/http";
+import * as NetAddress from "effect/net/NetAddress";
 import * as Landings from "../project/SlipJayLandings.ts";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
@@ -9,6 +18,7 @@ import { assert, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   ChampionError,
+  EnvironmentId,
   CommandId,
   ProjectId,
   ProviderInstanceId,
@@ -76,7 +86,33 @@ const sample: ChampionSampleInput = {
 };
 
 const fixture = Effect.fn("test.championFixture")(() =>
-  Effect.sync(() => {
+  Effect.gen(function* () {
+    const registry = yield* McpSessionRegistry.__testing.make().pipe(
+      Effect.provide(NodeCrypto.layer),
+      Effect.provideService(
+        ServerEnvironment.ServerEnvironment,
+        ServerEnvironment.ServerEnvironment.of({
+          getEnvironmentId: Effect.succeed(EnvironmentId.make("environment:champions")),
+          getDescriptor: Effect.die("unused"),
+        }),
+      ),
+      Effect.provideService(
+        HttpServer.HttpServer,
+        HttpServer.HttpServer.of({
+          address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 43123),
+          serve: (() => Effect.void) as HttpServer.HttpServer["Service"]["serve"],
+        }),
+      ),
+    );
+    const sessions = yield* McpProviderSessions.McpProviderSessions.pipe(
+      Effect.provide(McpProviderSessions.layer),
+    );
+    let credential: Effect.Success<ReturnType<typeof registry.issue>> | undefined;
+    const bindCredential = Effect.fn("test.bindChampionCredential")(function* (threadId: ThreadId) {
+      credential = yield* registry.issue({ threadId, providerInstanceId: instanceId });
+      yield* sessions.set(credential.config);
+      return credential;
+    });
     let owner: ThreadId | undefined;
     let messageId = "";
     let launches = 0;
@@ -104,13 +140,21 @@ const fixture = Effect.fn("test.championFixture")(() =>
     const caller = () => ({
       threadId: owner!,
       providerInstanceId: instanceId,
-      providerSessionId: "session:check",
+      providerSessionId: credential!.config.providerSessionId,
     });
     // These are external thread/provider boundaries; the champion ledger and SQL remain real.
+    let completedRun = false;
+    let priorCompletedRun = false;
+    let foreignProject = false;
+    let foreignProviderThread = false;
     const shell = () =>
       ({
         id: owner,
-        projectId,
+        projectId: foreignProject ? ProjectId.make("foreign-project") : projectId,
+        providerInstanceId: instanceId,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        status: activeRun ? "running" : "idle",
         activeRunId: activeRun ? runId : null,
         activeProviderThreadId: providerThreadId,
         archivedAt: null,
@@ -122,7 +166,9 @@ const fixture = Effect.fn("test.championFixture")(() =>
           Effect.gen(function* () {
             launches += 1;
             owner = input.threadId;
+            activeRun = true;
             messageId = input.initialMessage!.messageId!;
+            yield* bindCredential(owner!);
             launchRequests.push({
               commandId: input.commandId,
               messageId,
@@ -146,10 +192,21 @@ const fixture = Effect.fn("test.championFixture")(() =>
           Effect.succeed({
             thread: shell(),
             runs: [
+              ...(priorCompletedRun
+                ? [
+                    {
+                      id: RunId.make("prior-completed-run"),
+                      status: "completed",
+                      userMessageId: messageId,
+                    } as OrchestrationV2Run,
+                  ]
+                : []),
               {
                 id: runId,
-                status: "running",
-                providerThreadId,
+                status: completedRun ? "completed" : "running",
+                providerThreadId: foreignProviderThread
+                  ? ProviderThreadId.make("foreign-provider-thread")
+                  : providerThreadId,
                 userMessageId: messageId,
                 providerInstanceId: instanceId,
                 modelSelection: config.routineModelSelection,
@@ -158,7 +215,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
             providerThreads: [
               {
                 id: providerThreadId,
-                providerSessionId: "session:check",
+                providerSessionId: "provider-session:provider-instance:codex:shared",
               } as OrchestrationV2ProviderThread,
             ],
             subagents: childTasks,
@@ -212,10 +269,49 @@ const fixture = Effect.fn("test.championFixture")(() =>
         readDetail: () => landingLookup.pipe(Effect.andThen(Effect.sync(() => landing))),
       }),
       NodeCrypto.layer,
+      Layer.succeed(McpProviderSessions.McpProviderSessions, sessions),
     );
     return {
       layer: Champions.layer.pipe(Layer.provide(dependencies)),
       caller,
+      registry,
+      sessions,
+      reportThroughTool: Effect.fn("test.championReportTool")(function* (
+        service: Champions.ChampionService["Service"],
+        input: Parameters<Champions.ChampionService["Service"]["report"]>[1],
+      ) {
+        const scope = yield* registry.resolve(
+          credential!.config.authorizationHeader.slice("Bearer ".length),
+        );
+        assert.isDefined(scope);
+        const deps = Layer.mergeAll(
+          dependencies,
+          Layer.succeed(Champions.ChampionService, service),
+          Layer.succeed(McpInvocationContext.McpInvocationContext, scope!),
+        );
+        const toolkit = yield* ChampionsToolkit.pipe(
+          Effect.provide(
+            McpToolAccess.HandlersLayer.layer(ChampionHandlers.layer).pipe(Layer.provide(deps)),
+          ),
+        );
+        return yield* toolkit
+          .handle("t3_champions_report", input)
+          .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(deps), Effect.orDie);
+      }),
+      credential: () => credential!,
+      rotateCredential: () => bindCredential(owner!),
+      priorCompletedRun: () => {
+        priorCompletedRun = true;
+      },
+      completeRun: (value: boolean) => {
+        completedRun = value;
+      },
+      foreignProject: (value: boolean) => {
+        foreignProject = value;
+      },
+      foreignProviderThread: (value: boolean) => {
+        foreignProviderThread = value;
+      },
       counts: () => ({ launches, sends }),
       launchRequests,
       endRun: () => {
@@ -308,6 +404,243 @@ const refused = <A>(effect: Effect.Effect<A, ChampionError>) =>
       },
     }),
   );
+
+it.effect(
+  "authenticates registry-issued credentials independently of runtime session IDs and rejects stale or foreign bindings",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* service.upsert(config);
+        yield* service.setup({ id: config.id });
+        const initial = f.credential();
+        const token = initial.config.authorizationHeader.slice("Bearer ".length);
+        const scope = yield* f.registry.resolve(token);
+        assert.isDefined(scope);
+        assert.notEqual(
+          scope!.thread.providerSessionId,
+          "provider-session:provider-instance:codex:shared",
+        );
+        assert.equal((yield* service.checkContext(scope!.thread)).champion.champion.id, config.id);
+        const proposal = { metrics: [metric], reason: "Authenticated setup" };
+        yield* service.proposeFromSetup(scope!.thread, proposal);
+        yield* service.accept({ id: config.id });
+        yield* service.runCheck({ id: config.id });
+        const prior = f.caller();
+        yield* f.rotateCredential();
+        yield* refused(service.checkContext(prior));
+        const current = f.caller();
+        yield* service.checkContext(current);
+        const bound = f.credential().config;
+        yield* f.sessions.set({
+          ...bound,
+          providerInstanceId: ProviderInstanceId.make("foreign-instance"),
+        });
+        yield* refused(service.checkContext(current));
+        yield* f.sessions.set(bound);
+        yield* refused(
+          service.checkContext({
+            ...current,
+            providerInstanceId: ProviderInstanceId.make("foreign-instance"),
+          }),
+        );
+        yield* refused(
+          service.checkContext({ ...current, threadId: ThreadId.make("foreign-thread") }),
+        );
+        f.completeRun(true);
+        yield* refused(service.checkContext(current));
+        f.completeRun(false);
+        f.foreignProviderThread(true);
+        yield* refused(service.checkContext(current));
+        f.foreignProviderThread(false);
+        f.foreignProject(true);
+        yield* refused(service.checkContext(current));
+        f.foreignProject(false);
+        f.wake();
+        yield* refused(service.checkContext(current));
+        f.endRun();
+        yield* service.runCheck({ id: config.id });
+        const issued = f.credential();
+        const liveToken = issued.config.authorizationHeader.slice("Bearer ".length);
+        const liveScope = yield* f.registry.resolve(liveToken);
+        assert.isDefined(liveScope);
+        yield* service.report(liveScope!.thread, {
+          samples: [sample],
+          findings: [],
+          summary: "Authenticated report",
+        });
+        yield* f.registry.revokeProviderSession(issued.config.providerSessionId);
+        assert.isUndefined(yield* f.registry.resolve(liveToken));
+        yield* refused(service.checkContext((yield* f.registry.resolve(liveToken))?.thread));
+        yield* f.sessions.clear(current.threadId);
+        yield* refused(service.checkContext(current));
+      }),
+    ),
+);
+
+it.effect(
+  "explains frozen source mismatches through the report tool and accepts an exact source",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.runCheck({ id: config.id });
+        for (const source of ["logs (counted errors)", "Error count from logs"]) {
+          const result = yield* f.reportThroughTool(service, {
+            samples: [{ ...sample, source }],
+            findings: [],
+            summary: "Observed errors",
+          });
+          assert.match(
+            JSON.stringify(result.at(-1)?.result),
+            /source.*exactly.*t3_champions_check_context/,
+          );
+          assert.equal((yield* service.history({ id: config.id })).samples.length, 0);
+        }
+        const accepted = yield* f.reportThroughTool(service, {
+          samples: [sample],
+          findings: [],
+          summary: "Observed errors",
+        });
+        assert.isFalse(accepted.at(-1)!.isFailure);
+        assert.equal((yield* service.history({ id: config.id })).samples.length, 1);
+      }),
+    ),
+);
+
+it.effect("reports collection failure honestly as a null error sample", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* definitions(service);
+      yield* service.runCheck({ id: config.id });
+      const result = yield* f.reportThroughTool(service, {
+        samples: [
+          {
+            ...sample,
+            status: "error",
+            value: null,
+            evidence: "Collection command failed; logs unavailable",
+          },
+        ],
+        findings: [],
+        summary: "Collection failed",
+      });
+      assert.isFalse(result.at(-1)!.isFailure);
+      const history = yield* service.history({ id: config.id });
+      assert.equal(history.samples[0]!.status, "error");
+      assert.isNull(history.samples[0]!.value);
+    }),
+  ),
+);
+
+it.effect("ignores a terminal run associated with a different message", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* definitions(service);
+      yield* service.runCheck({ id: config.id });
+      f.wake();
+      f.completeRun(true);
+      f.endRun();
+      yield* service.runDue;
+      assert.isFalse(
+        (yield* service.get({ id: config.id })).champion.attention.some((a) =>
+          a.includes("ended without"),
+        ),
+      );
+    }),
+  ),
+);
+
+it.effect(
+  "surfaces completed unreported checks promptly and retries their claim without duplicating live checks",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        const initial = yield* service.runCheck({ id: config.id });
+        const context = yield* service.checkContext(f.caller());
+        f.priorCompletedRun();
+        yield* service.runDue;
+        assert.isFalse(
+          (yield* service.get({ id: config.id })).champion.attention.some((a) =>
+            a.includes("ended without"),
+          ),
+        );
+        yield* service.runCheck({ id: config.id });
+        assert.equal(f.counts().sends, 0);
+        f.completeRun(true);
+        f.endRun();
+        yield* service.runDue;
+        const ended = yield* service.get({ id: config.id });
+        assert.isTrue(
+          ended.champion.attention.some(
+            (a) => a.includes("ended without") && a.includes("Run check"),
+          ),
+        );
+        assert.equal(ended.champion.outstandingCheckId, initial.champion.outstandingCheckId);
+        assert.equal((yield* service.history({ id: config.id })).samples.length, 0);
+        yield* service.runCheck({ id: config.id });
+        f.completeRun(false);
+        assert.equal(f.counts().sends, 1);
+        const retry = yield* service.checkContext(f.caller());
+        assert.equal(retry.checkId, context.checkId);
+        assert.notEqual(retry.messageId, context.messageId);
+        assert.deepEqual(retry.metrics, context.metrics);
+        assert.isFalse(
+          (yield* service.get({ id: config.id })).champion.attention.some((a) =>
+            a.includes("ended without"),
+          ),
+        );
+        yield* service.report(f.caller(), {
+          samples: [sample],
+          findings: [],
+          summary: "Retried measurement",
+        });
+        f.completeRun(true);
+        f.endRun();
+        yield* service.runDue;
+        assert.isFalse(
+          (yield* service.get({ id: config.id })).champion.attention.some((a) =>
+            a.includes("ended without"),
+          ),
+        );
+        assert.equal((yield* service.history({ id: config.id })).samples.length, 1);
+      }),
+    ),
+);
+
+it.effect(
+  "does not flag completed setup proposals or no-change completion as missing reports",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* service.upsert(config);
+        yield* service.setup({ id: config.id });
+        yield* service.proposeFromSetup(f.caller(), {
+          metrics: [metric],
+          reason: "Initial measurement",
+        });
+        f.completeRun(true);
+        f.endRun();
+        yield* service.runDue;
+        assert.isFalse(
+          (yield* service.get({ id: config.id })).champion.attention.some((a) =>
+            a.includes("ended without"),
+          ),
+        );
+        f.completeRun(false);
+        yield* service.setup({ id: config.id });
+        yield* service.completeSetup(f.caller(), { summary: "No changes needed" });
+        f.completeRun(true);
+        f.endRun();
+        yield* service.runDue;
+        assert.isFalse(
+          (yield* service.get({ id: config.id })).champion.attention.some((a) =>
+            a.includes("ended without"),
+          ),
+        );
+      }),
+    ),
+);
 
 it.effect(
   "preserves a metric series for wording/target changes and starts a new series for source/unit/context/direction changes",

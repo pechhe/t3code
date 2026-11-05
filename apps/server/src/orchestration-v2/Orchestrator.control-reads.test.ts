@@ -340,11 +340,42 @@ it.effect("mark unread retires an expired snooze so a dismissed wake stays dismi
     });
     assert.deepEqual(yield* projections.getThread(threadId), {
       ...dismissed,
+      readOnCompletionRunId: null,
       lastVisitedAt: DateTime.subtract(completedAt, { milliseconds: 1 }),
       snoozedUntil: null,
       snoozedAt: null,
       lastSnoozeWakeAt: snoozedUntil,
     });
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("mark unread clears a pending read-on-completion marker", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const { threadId, completedAt, snoozedUntil } = yield* completeAndSnoozeThread(
+      "mark-unread-clears-marker",
+      60,
+    );
+    const pendingRunId = RunId.make("run:mark-unread-clears-marker:pending");
+    yield* orchestrator.dispatch({
+      type: "thread.mark-read",
+      commandId: CommandId.make("read-on-completion"),
+      threadId,
+      whenRunCompletes: pendingRunId,
+    });
+    assert.equal((yield* projections.getThread(threadId)).readOnCompletionRunId, pendingRunId);
+
+    yield* orchestrator.dispatch({
+      type: "thread.mark-unread",
+      commandId: CommandId.make("mark-unread-clears-marker"),
+      threadId,
+    });
+    const cleared = yield* projections.getThread(threadId);
+    assert.isNull(cleared.readOnCompletionRunId);
+    // A marker the dismissed wake could no longer settle is retired with the visit rewind.
+    assert.deepEqual(cleared.lastVisitedAt, DateTime.subtract(completedAt, { milliseconds: 1 }));
+    assert.deepEqual(cleared.snoozedUntil, snoozedUntil);
   }).pipe(Effect.provide(layerTest)),
 );
 
@@ -373,6 +404,7 @@ it.effect("mark unread leaves a future snooze untouched", () =>
     });
     assert.deepEqual(yield* projections.getThread(threadId), {
       ...visited,
+      readOnCompletionRunId: null,
       lastVisitedAt: DateTime.subtract(completedAt, { milliseconds: 1 }),
     });
   }).pipe(Effect.provide(layerTest)),

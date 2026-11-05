@@ -222,6 +222,26 @@ function taskFixture() {
   return { projection: { ...projection, runs: [run] }, run };
 }
 
+/** A delegated child's thread: its result waits with the parent task's grace, not a plain thread's rule. */
+function delegatedTaskFixture() {
+  const fixture = taskFixture();
+  const delegatedParentThreadId = ThreadId.make("thread:delegated-task-parent");
+  return {
+    ...fixture,
+    projection: {
+      ...fixture.projection,
+      thread: {
+        ...fixture.projection.thread,
+        lineage: {
+          parentThreadId: delegatedParentThreadId,
+          relationshipToParent: "subagent" as const,
+          rootThreadId: delegatedParentThreadId,
+        },
+      },
+    },
+  };
+}
+
 it("reports the run that ended last, not the highest ordinal", () => {
   const { projection, run } = taskFixture();
   const ended = (ordinal: number, completedAt: string): OrchestrationV2Run => ({
@@ -259,7 +279,7 @@ it("holds a Spec lead's result while it watches, but not a leaf's", () => {
 });
 
 it("waits for nested work and retains the report across monitor acknowledgements", () => {
-  const { projection, run } = taskFixture();
+  const { projection, run } = delegatedTaskFixture();
   assert.equal(
     progressOf({ ...projection, subagents: [{ status: "running" }] }).state,
     "waiting_for_children",
@@ -364,6 +384,36 @@ it("waits for nested work and retains the report across monitor acknowledgements
   });
   assert.equal(progress.state, "result_available");
   assert.equal(progress.resultRun?.id, report.id);
+});
+
+it("holds a plain thread's result for background work that a delegated child does not", () => {
+  const { projection } = taskFixture();
+  const roster = [
+    {
+      id: ProviderThreadId.make("provider-thread:background-audit"),
+      pendingBackgroundTasks: [{ taskId: "background-audit", kind: "command" as const }],
+    },
+  ];
+  // An ordinary top-level thread still waits for any of its own background work.
+  assert.equal(
+    progressOf({ ...projection, providerThreads: roster }).state,
+    "waiting_for_children",
+  );
+  const { projection: delegated } = delegatedTaskFixture();
+  // A delegated child holds only for work that would produce its result: an awaited command.
+  assert.equal(progressOf({ ...delegated, providerThreads: roster }).state, "result_available");
+  assert.equal(
+    progressOf({
+      ...delegated,
+      providerThreads: [
+        {
+          ...roster[0]!,
+          pendingBackgroundTasks: [{ taskId: "build", kind: "command" as const, awaited: true }],
+        },
+      ],
+    }).state,
+    "waiting_for_children",
+  );
 });
 
 it("holds the result for pending background work and pull request watches, not thread watches", () => {

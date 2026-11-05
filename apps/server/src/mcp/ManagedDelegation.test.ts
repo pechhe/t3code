@@ -1,3 +1,4 @@
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as Champions from "../champions/ChampionService.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as ContextRemoteDelegation from "../peer/RemoteDelegation.ts";
@@ -462,7 +463,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
                     modelSelection: parent.thread.modelSelection,
                   },
                 ],
-                providerThreads: [{ id: providerThreadId, providerSessionId: "lead-session" }],
+                providerThreads: [
+                  { id: providerThreadId, providerSessionId: "runtime:lead-session" },
+                ],
               } as unknown as OrchestrationV2ThreadProjection;
               return { threadId: input.threadId!, projection: parent, resumed: false };
             }),
@@ -474,10 +477,14 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         | { service: Champions.ChampionService["Service"]; finding: ChampionFinding }
         | undefined;
       if (options.champion) {
+        const mcpSessions = yield* McpProviderSessions.McpProviderSessions.pipe(
+          Effect.provide(McpProviderSessions.layer),
+        );
         const service = yield* Champions.ChampionService.pipe(
           Effect.provide(
             Champions.layer.pipe(
               Layer.provide(transport),
+              Layer.provide(Layer.succeed(McpProviderSessions.McpProviderSessions, mcpSessions)),
               Layer.provide(NodeCrypto.layer),
               Layer.provide(Layer.mock(Scheduler.Scheduler)({ register: () => Effect.void })),
             ),
@@ -519,6 +526,15 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         yield* service.accept({ id: doc.champion.id });
         yield* service.setLifecycle({ id: doc.champion.id, lifecycle: "active" });
         yield* service.runCheck({ id: doc.champion.id });
+        yield* mcpSessions.set({
+          environmentId: scope.environmentId,
+          threadId: scope.thread!.threadId,
+          providerSessionId: scope.thread!.providerSessionId,
+          providerInstanceId: scope.thread!.providerInstanceId,
+          endpoint: "http://127.0.0.1/mcp",
+          authorizationHeader: "Bearer fixture",
+          browserToolsAvailable: false,
+        });
         const report = yield* service.report(scope.thread, {
           samples: [
             {

@@ -1,0 +1,1225 @@
+{
+  "schema": "failure-triage-pilot-results-v1",
+  "split": "tune",
+  "rule": {
+    "id": "failure-triage-pilot",
+    "version": "1"
+  },
+  "baselineVersion": "exit-signature-v1",
+  "corpusDigest": "a5c91a79816257670aef35f8da893d9c8b6830ccaf870eeffac10f186a5d37f2",
+  "runAt": "2026-11-04T22:43:35.351Z",
+  "engines": ["jev", "luna"],
+  "run": {
+    "checkout": {
+      "head": "c44a2d5d399b49e9532fd16aeb0b1a90961b8797",
+      "workingCopyDirty": true
+    },
+    "files": {
+      "apps/server/src/decisionEvaluations/failureTriage/run.ts": "5ae205ad31549df4e28e1fb4bc4afdf6f812c36ee1aeda956eefa586c4897384",
+      "apps/server/src/decisionEvaluations/failureTriage/provenance.ts": "3f45a5c37daf10813aa0f30f7502ed23e2ee8850052f3228858f843b43c4d4a9",
+      "apps/server/src/decisionEvaluations/failureTriage/rule.ts": "3b190b2e692057ff338595e6e418038e484cb7cc57106fb89d8aa9c8db2ea3c1",
+      "apps/server/src/decisionEvaluations/failureTriage/baseline.ts": "54e8757ca465ad2c65d6cbe6196bb71aaee317ed486954c96684b52bc14089dd",
+      "apps/server/src/decisionEvaluations/failureTriage/harness.ts": "729ae9e9e73a5dbd24e8880b7cf6d075c11640243d3ab5b57acfa1d850b67b52",
+      "apps/server/src/decisionEvaluations/failureTriage/corpusTypes.ts": "2ae25f7bc48d881757fcf14e34446054419f1670d26f71d41f6c033e28c27e1c",
+      "apps/server/src/decisionEvaluations/failureTriage/corpusAuthentic.ts": "075aca28eb6f972122f9965cf944a901a0e21ec2df784b6d5fac22e4048683b3",
+      "apps/server/src/decisionEvaluations/failureTriage/corpusAuthentic.json": "536e6145e630006eb0bef09c0df8bee0c6695bb52b3887fba3347352ff3e82f7",
+      "apps/server/src/decisionEvaluations/failureTriage/corpusTune.ts": "72bb780de3bddb5e2dc768e36db36b345f67f0b04e0b12421456e65a5701ea17",
+      "apps/server/src/decisionEvaluations/failureTriage/corpusHeldout.ts": "5386a6a1d34a2e1c58ccc7d321d6d71414f0d28bdda8a07764116023b870985b",
+      "apps/server/src/decisions/DecisionService.ts": "e63db78a2a054f1115aed709c53b37a9c16683709bfad94042c4171ec4d0f5f8",
+      "apps/server/src/decisions/adapters.ts": "ce64942a3311d10543b83fe3c9b3c47fcc72b9cec6c7b1efdf0067005913a492",
+      "apps/server/src/decisions/decisions.testkit.ts": "80cebd187858cfa6029c6356822962a363431afb30ff7b6fb08adbd2c15a2016",
+      "packages/contracts/src/decisions.ts": "4225d2f33a0754c8bbe47500e29a59f19d85c795ed17517db4b1f0f262e26f18"
+    }
+  },
+  "scorer": {
+    "files": {
+      "apps/server/src/decisionEvaluations/failureTriage/scoring.ts": "9fbdac42e07fb0e4a7fdf913256f74682ed828f1aeb67d80f2d2542452dc488c",
+      "apps/server/src/decisionEvaluations/failureTriage/labels.ts": "7ba9b6f2be6a404c163f01e6796cd8a62e50ae463797c8a472b92fc37a5922fa",
+      "apps/server/src/decisionEvaluations/failureTriage/results/heldout-labels.json": "cbcc06c159c585032d5f268c70af6b109e4fe5812bcd9e168e1a2b62a2c7d363",
+      "apps/server/src/decisionEvaluations/semanticLint/scoring.ts": "1fc9dd94096e4573aca56aa36236473c8d858445df5e419cc6eb00d01cde1790"
+    }
+  },
+  "records": [
+    {
+      "caseId": "t-audit-10-29",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "regression": 0.03,
+          "fixture": 0.1,
+          "environment": 0.24,
+          "known-flake": 0,
+          "unknown": 0.63
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "e251328b525c4f593ca1de2c684abb8fdcb76f3829389b41343741aa52ec637d",
+      "latencyMs": 1582,
+      "inputTokens": 2240,
+      "outputTokens": 56,
+      "costUsd": 0.00009408000000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-audit-10-29",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "regression": 0,
+          "fixture": 0,
+          "environment": 0,
+          "known-flake": 0,
+          "unknown": 1
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "5601174e99dce352c6f51c9a2bf80b2ed7fde80ef57c8ba6c865a8d834fb5a3c",
+      "latencyMs": 621,
+      "inputTokens": 1817,
+      "outputTokens": 0,
+      "costUsd": 0.00018170000000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-audit-10-30",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "regression": 0.06,
+          "fixture": 0.2,
+          "environment": 0.23,
+          "known-flake": 0,
+          "unknown": 0.51
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "4663852e8dd4dc1f2b4377c221b6983afca6698495b1ea8e24b1cdd9ce4efb18",
+      "latencyMs": 285,
+      "inputTokens": 2161,
+      "outputTokens": 56,
+      "costUsd": 0.000090762,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-audit-10-30",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "regression": 0,
+          "fixture": 0,
+          "environment": 0,
+          "known-flake": 0,
+          "unknown": 1
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "3dee209de5651d9524b236daf3ae1a0f19bcd763182d69da9a3ab9aeb42b94ee",
+      "latencyMs": 398,
+      "inputTokens": 1618,
+      "outputTokens": 0,
+      "costUsd": 0.0001618,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-audit-10-31",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "regression": 0.09,
+          "fixture": 0.23,
+          "environment": 0.23,
+          "known-flake": 0,
+          "unknown": 0.45
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "1b1d2cbad20a45dcb26b5bda96841d719bd6ab2a38041e4e165f9269fc18a24f",
+      "latencyMs": 214,
+      "inputTokens": 2241,
+      "outputTokens": 56,
+      "costUsd": 0.000094122,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-audit-10-31",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "regression": 0,
+          "fixture": 0.02,
+          "environment": 0,
+          "known-flake": 0,
+          "unknown": 0.98
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "20656410a7389ed5b4fb37e3d0ae7f9800ca480b1ab0a174fc0c435baa0c13ba",
+      "latencyMs": 204,
+      "inputTokens": 1687,
+      "outputTokens": 0,
+      "costUsd": 0.0001687,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-syn-regression-1",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "regression",
+        "probabilities": {
+          "regression": 0.83,
+          "fixture": 0.12,
+          "environment": 0,
+          "known-flake": 0,
+          "unknown": 0.05
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "8212278fadd221be16119d28a988a1d5d5d62a0ed8f76b7afa9bf150899ee426",
+      "latencyMs": 173,
+      "inputTokens": 1054,
+      "outputTokens": 58,
+      "costUsd": 0.000044268000000000004,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-syn-regression-1",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "regression",
+        "probabilities": {
+          "regression": 0.54,
+          "fixture": 0.02,
+          "environment": 0,
+          "known-flake": 0,
+          "unknown": 0.44
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "4c50d7e1e3566e8f4cf83be2c7c14467aa90f397ff8aede977f7d10a3724bfde",
+      "latencyMs": 176,
+      "inputTokens": 756,
+      "outputTokens": 0,
+      "costUsd": 0.00007560000000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-syn-fixture-1",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "regression",
+        "probabilities": {
+          "regression": 0.58,
+          "fixture": 0.41,
+          "environment": 0,
+          "known-flake": 0,
+          "unknown": 0.01
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "374b8e0d3c43a4199375ec8bda869470e52ffe2af3221dca537fa696a5d3a809",
+      "latencyMs": 245,
+      "inputTokens": 1018,
+      "outputTokens": 58,
+      "costUsd": 0.000042756,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-syn-fixture-1",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "regression",
+        "probabilities": {
+          "regression": 0.94,
+          "fixture": 0.04,
+          "environment": 0,
+          "known-flake": 0,
+          "unknown": 0.02
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "f413f728a188143108ffd576919f0dbe8f23d4f893d5f2212b3616d4fd07792e",
+      "latencyMs": 217,
+      "inputTokens": 738,
+      "outputTokens": 0,
+      "costUsd": 0.00007379999999999999,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-syn-environment-1",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "environment",
+        "probabilities": {
+          "regression": 0,
+          "fixture": 0,
+          "environment": 0.99,
+          "known-flake": 0,
+          "unknown": 0.01
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "282ec1b07b646eafb17bacbfd7b5ab7e8eaa7cf8da58be1dfa8db52b761d6bbb",
+      "latencyMs": 188,
+      "inputTokens": 1015,
+      "outputTokens": 56,
+      "costUsd": 0.000042630000000000004,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-syn-environment-1",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "environment",
+        "probabilities": {
+          "regression": 0,
+          "fixture": 0,
+          "environment": 0.88,
+          "known-flake": 0.01,
+          "unknown": 0.11
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "76bcfdf7bca1d897f40a94e30e5be31a0fc2435ca7b6ddd305a50f88885a7abb",
+      "latencyMs": 231,
+      "inputTokens": 726,
+      "outputTokens": 0,
+      "costUsd": 0.0000726,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-syn-flake-1",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "known-flake",
+        "probabilities": {
+          "regression": 0,
+          "fixture": 0,
+          "environment": 0,
+          "known-flake": 1,
+          "unknown": 0
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "327d3a3ef67d5335cfcfc3ceefee24b29633905e6cf56e2fa46b614d718bda65",
+      "latencyMs": 204,
+      "inputTokens": 1075,
+      "outputTokens": 58,
+      "costUsd": 0.000045150000000000006,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-syn-flake-1",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "known-flake",
+        "probabilities": {
+          "regression": 0,
+          "fixture": 0,
+          "environment": 0,
+          "known-flake": 1,
+          "unknown": 0
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "194f4b5465523b4244a46c2a65206f3f803b171aa5df508bcf86a42623fd11a4",
+      "latencyMs": 141,
+      "inputTokens": 775,
+      "outputTokens": 0,
+      "costUsd": 0.0000775,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-syn-unknown-1",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "regression": 0,
+          "fixture": 0,
+          "environment": 0,
+          "known-flake": 0,
+          "unknown": 1
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "dba849f5169ad41665ce0ebc5a6786a1aafb87ac60eb67f1572458a8ada79f1a",
+      "latencyMs": 165,
+      "inputTokens": 880,
+      "outputTokens": 56,
+      "costUsd": 0.00003696,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "t-syn-unknown-1",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "regression": 0,
+          "fixture": 0,
+          "environment": 0,
+          "known-flake": 0,
+          "unknown": 1
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "6860a8bac960bf959de90b89c43e113ada7b77a5231c7d94b7a8a4f13d43ed69",
+      "latencyMs": 386,
+      "inputTokens": 617,
+      "outputTokens": 0,
+      "costUsd": 0.00006170000000000001,
+      "costStatus": "estimated"
+    }
+  ],
+  "systems": {
+    "baseline": {
+      "cases": 8,
+      "decided": 8,
+      "noDecision": 0,
+      "explicitUnknown": 4,
+      "ties": 0,
+      "supportedUncertain": 0,
+      "accuracy": {
+        "numerator": 7,
+        "denominator": 8,
+        "interval": {
+          "value": 0.875,
+          "low": 0.5291051942301386,
+          "high": 0.9775830911367038
+        },
+        "cases": [
+          "t-audit-10-29",
+          "t-audit-10-30",
+          "t-audit-10-31",
+          "t-syn-regression-1",
+          "t-syn-environment-1",
+          "t-syn-flake-1",
+          "t-syn-unknown-1"
+        ]
+      },
+      "resolvedRecovery": {
+        "numerator": 4,
+        "denominator": 8,
+        "interval": {
+          "value": 0.5,
+          "low": 0.21521252682444186,
+          "high": 0.7847874731755582
+        },
+        "cases": ["t-syn-regression-1", "t-syn-environment-1", "t-syn-flake-1", "t-syn-unknown-1"]
+      },
+      "dangerousStrict": {
+        "numerator": 0,
+        "denominator": 1,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.7934567085261071
+        },
+        "cases": []
+      },
+      "dangerousWide": {
+        "numerator": 0,
+        "denominator": 2,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.6576280471103807
+        },
+        "cases": []
+      },
+      "unsafeDiversion": {
+        "numerator": 0,
+        "denominator": 2,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.6576280471103807
+        },
+        "cases": []
+      },
+      "falseFlake": {
+        "numerator": 0,
+        "denominator": 7,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.35433884297520657
+        },
+        "cases": []
+      },
+      "overAbstention": {
+        "numerator": 0,
+        "denominator": 4,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.48990002040399916
+        },
+        "cases": []
+      },
+      "appropriateAbstention": {
+        "numerator": 4,
+        "denominator": 4,
+        "interval": {
+          "value": 1,
+          "low": 0.5100999795960008,
+          "high": 1
+        },
+        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
+      },
+      "confusion": {
+        "unknown": {
+          "unknown": 4
+        },
+        "regression": {
+          "regression": 1
+        },
+        "fixture": {
+          "regression": 1
+        },
+        "environment": {
+          "environment": 1
+        },
+        "known-flake": {
+          "known-flake": 1
+        }
+      },
+      "byStratum": {
+        "authentic": {
+          "cases": 3,
+          "accuracy": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31"]
+          },
+          "dangerousWide": {
+            "numerator": 0,
+            "denominator": 0,
+            "interval": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "cases": []
+          }
+        },
+        "synthetic": {
+          "cases": 5,
+          "accuracy": {
+            "numerator": 4,
+            "denominator": 5,
+            "interval": {
+              "value": 0.8,
+              "low": 0.3755282641185388,
+              "high": 0.9637768390302125
+            },
+            "cases": [
+              "t-syn-regression-1",
+              "t-syn-environment-1",
+              "t-syn-flake-1",
+              "t-syn-unknown-1"
+            ]
+          },
+          "dangerousWide": {
+            "numerator": 0,
+            "denominator": 2,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.6576280471103807
+            },
+            "cases": []
+          }
+        }
+      }
+    },
+    "alwaysUnknown": {
+      "cases": 8,
+      "decided": 8,
+      "noDecision": 0,
+      "explicitUnknown": 8,
+      "ties": 0,
+      "supportedUncertain": 0,
+      "accuracy": {
+        "numerator": 4,
+        "denominator": 8,
+        "interval": {
+          "value": 0.5,
+          "low": 0.21521252682444186,
+          "high": 0.7847874731755582
+        },
+        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
+      },
+      "resolvedRecovery": {
+        "numerator": 1,
+        "denominator": 8,
+        "interval": {
+          "value": 0.125,
+          "low": 0.02241690886329617,
+          "high": 0.4708948057698615
+        },
+        "cases": ["t-syn-unknown-1"]
+      },
+      "dangerousStrict": {
+        "numerator": 0,
+        "denominator": 1,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.7934567085261071
+        },
+        "cases": []
+      },
+      "dangerousWide": {
+        "numerator": 0,
+        "denominator": 2,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.6576280471103807
+        },
+        "cases": []
+      },
+      "unsafeDiversion": {
+        "numerator": 0,
+        "denominator": 2,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.6576280471103807
+        },
+        "cases": []
+      },
+      "falseFlake": {
+        "numerator": 0,
+        "denominator": 7,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.35433884297520657
+        },
+        "cases": []
+      },
+      "overAbstention": {
+        "numerator": 4,
+        "denominator": 4,
+        "interval": {
+          "value": 1,
+          "low": 0.5100999795960008,
+          "high": 1
+        },
+        "cases": ["t-syn-regression-1", "t-syn-fixture-1", "t-syn-environment-1", "t-syn-flake-1"]
+      },
+      "appropriateAbstention": {
+        "numerator": 4,
+        "denominator": 4,
+        "interval": {
+          "value": 1,
+          "low": 0.5100999795960008,
+          "high": 1
+        },
+        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
+      },
+      "confusion": {
+        "unknown": {
+          "unknown": 4
+        },
+        "regression": {
+          "unknown": 1
+        },
+        "fixture": {
+          "unknown": 1
+        },
+        "environment": {
+          "unknown": 1
+        },
+        "known-flake": {
+          "unknown": 1
+        }
+      },
+      "byStratum": {
+        "authentic": {
+          "cases": 3,
+          "accuracy": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31"]
+          },
+          "dangerousWide": {
+            "numerator": 0,
+            "denominator": 0,
+            "interval": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "cases": []
+          }
+        },
+        "synthetic": {
+          "cases": 5,
+          "accuracy": {
+            "numerator": 1,
+            "denominator": 5,
+            "interval": {
+              "value": 0.2,
+              "low": 0.03622316096978745,
+              "high": 0.6244717358814613
+            },
+            "cases": ["t-syn-unknown-1"]
+          },
+          "dangerousWide": {
+            "numerator": 0,
+            "denominator": 2,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.6576280471103807
+            },
+            "cases": []
+          }
+        }
+      }
+    },
+    "jev": {
+      "cases": 8,
+      "decided": 8,
+      "noDecision": 0,
+      "explicitUnknown": 4,
+      "ties": 0,
+      "supportedUncertain": 0,
+      "accuracy": {
+        "numerator": 7,
+        "denominator": 8,
+        "interval": {
+          "value": 0.875,
+          "low": 0.5291051942301386,
+          "high": 0.9775830911367038
+        },
+        "cases": [
+          "t-audit-10-29",
+          "t-audit-10-30",
+          "t-audit-10-31",
+          "t-syn-regression-1",
+          "t-syn-environment-1",
+          "t-syn-flake-1",
+          "t-syn-unknown-1"
+        ]
+      },
+      "resolvedRecovery": {
+        "numerator": 4,
+        "denominator": 8,
+        "interval": {
+          "value": 0.5,
+          "low": 0.21521252682444186,
+          "high": 0.7847874731755582
+        },
+        "cases": ["t-syn-regression-1", "t-syn-environment-1", "t-syn-flake-1", "t-syn-unknown-1"]
+      },
+      "dangerousStrict": {
+        "numerator": 0,
+        "denominator": 1,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.7934567085261071
+        },
+        "cases": []
+      },
+      "dangerousWide": {
+        "numerator": 0,
+        "denominator": 2,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.6576280471103807
+        },
+        "cases": []
+      },
+      "unsafeDiversion": {
+        "numerator": 0,
+        "denominator": 2,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.6576280471103807
+        },
+        "cases": []
+      },
+      "falseFlake": {
+        "numerator": 0,
+        "denominator": 7,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.35433884297520657
+        },
+        "cases": []
+      },
+      "overAbstention": {
+        "numerator": 0,
+        "denominator": 4,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.48990002040399916
+        },
+        "cases": []
+      },
+      "appropriateAbstention": {
+        "numerator": 4,
+        "denominator": 4,
+        "interval": {
+          "value": 1,
+          "low": 0.5100999795960008,
+          "high": 1
+        },
+        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
+      },
+      "confusion": {
+        "unknown": {
+          "unknown": 4
+        },
+        "regression": {
+          "regression": 1
+        },
+        "fixture": {
+          "regression": 1
+        },
+        "environment": {
+          "environment": 1
+        },
+        "known-flake": {
+          "known-flake": 1
+        }
+      },
+      "byStratum": {
+        "authentic": {
+          "cases": 3,
+          "accuracy": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31"]
+          },
+          "dangerousWide": {
+            "numerator": 0,
+            "denominator": 0,
+            "interval": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "cases": []
+          }
+        },
+        "synthetic": {
+          "cases": 5,
+          "accuracy": {
+            "numerator": 4,
+            "denominator": 5,
+            "interval": {
+              "value": 0.8,
+              "low": 0.3755282641185388,
+              "high": 0.9637768390302125
+            },
+            "cases": [
+              "t-syn-regression-1",
+              "t-syn-environment-1",
+              "t-syn-flake-1",
+              "t-syn-unknown-1"
+            ]
+          },
+          "dangerousWide": {
+            "numerator": 0,
+            "denominator": 2,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.6576280471103807
+            },
+            "cases": []
+          }
+        }
+      }
+    },
+    "luna": {
+      "cases": 8,
+      "decided": 8,
+      "noDecision": 0,
+      "explicitUnknown": 4,
+      "ties": 0,
+      "supportedUncertain": 0,
+      "accuracy": {
+        "numerator": 7,
+        "denominator": 8,
+        "interval": {
+          "value": 0.875,
+          "low": 0.5291051942301386,
+          "high": 0.9775830911367038
+        },
+        "cases": [
+          "t-audit-10-29",
+          "t-audit-10-30",
+          "t-audit-10-31",
+          "t-syn-regression-1",
+          "t-syn-environment-1",
+          "t-syn-flake-1",
+          "t-syn-unknown-1"
+        ]
+      },
+      "resolvedRecovery": {
+        "numerator": 4,
+        "denominator": 8,
+        "interval": {
+          "value": 0.5,
+          "low": 0.21521252682444186,
+          "high": 0.7847874731755582
+        },
+        "cases": ["t-syn-regression-1", "t-syn-environment-1", "t-syn-flake-1", "t-syn-unknown-1"]
+      },
+      "dangerousStrict": {
+        "numerator": 0,
+        "denominator": 1,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.7934567085261071
+        },
+        "cases": []
+      },
+      "dangerousWide": {
+        "numerator": 0,
+        "denominator": 2,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.6576280471103807
+        },
+        "cases": []
+      },
+      "unsafeDiversion": {
+        "numerator": 0,
+        "denominator": 2,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.6576280471103807
+        },
+        "cases": []
+      },
+      "falseFlake": {
+        "numerator": 0,
+        "denominator": 7,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.35433884297520657
+        },
+        "cases": []
+      },
+      "overAbstention": {
+        "numerator": 0,
+        "denominator": 4,
+        "interval": {
+          "value": 0,
+          "low": 0,
+          "high": 0.48990002040399916
+        },
+        "cases": []
+      },
+      "appropriateAbstention": {
+        "numerator": 4,
+        "denominator": 4,
+        "interval": {
+          "value": 1,
+          "low": 0.5100999795960008,
+          "high": 1
+        },
+        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
+      },
+      "confusion": {
+        "unknown": {
+          "unknown": 4
+        },
+        "regression": {
+          "regression": 1
+        },
+        "fixture": {
+          "regression": 1
+        },
+        "environment": {
+          "environment": 1
+        },
+        "known-flake": {
+          "known-flake": 1
+        }
+      },
+      "byStratum": {
+        "authentic": {
+          "cases": 3,
+          "accuracy": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31"]
+          },
+          "dangerousWide": {
+            "numerator": 0,
+            "denominator": 0,
+            "interval": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "cases": []
+          }
+        },
+        "synthetic": {
+          "cases": 5,
+          "accuracy": {
+            "numerator": 4,
+            "denominator": 5,
+            "interval": {
+              "value": 0.8,
+              "low": 0.3755282641185388,
+              "high": 0.9637768390302125
+            },
+            "cases": [
+              "t-syn-regression-1",
+              "t-syn-environment-1",
+              "t-syn-flake-1",
+              "t-syn-unknown-1"
+            ]
+          },
+          "dangerousWide": {
+            "numerator": 0,
+            "denominator": 2,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.6576280471103807
+            },
+            "cases": []
+          }
+        }
+      }
+    }
+  },
+  "cost": {
+    "jev": {
+      "calls": 8,
+      "latencyMs": {
+        "mean": 382,
+        "p50": 204,
+        "max": 1582
+      },
+      "unobservedAttempts": 0,
+      "inputTokens": 11684,
+      "knownInputTokens": 11684,
+      "costUsd": 0.000490728,
+      "knownCostUsd": 0.000490728,
+      "costKnownCalls": 8,
+      "costStatuses": ["estimated"],
+      "attempts": 8,
+      "failedAttempts": 0,
+      "choiceDisagreesWithArgmax": 0,
+      "knownOutputTokens": 454
+    },
+    "luna": {
+      "calls": 8,
+      "latencyMs": {
+        "mean": 296.75,
+        "p50": 217,
+        "max": 621
+      },
+      "unobservedAttempts": 0,
+      "inputTokens": 8734,
+      "knownInputTokens": 8734,
+      "costUsd": 0.0008734000000000001,
+      "knownCostUsd": 0.0008734000000000001,
+      "costKnownCalls": 8,
+      "costStatuses": ["estimated"],
+      "attempts": 8,
+      "failedAttempts": 0,
+      "choiceDisagreesWithArgmax": 0,
+      "knownOutputTokens": 0
+    }
+  },
+  "predictions": {
+    "baseline": [
+      {
+        "caseId": "t-audit-10-29",
+        "predicted": "unknown"
+      },
+      {
+        "caseId": "t-audit-10-30",
+        "predicted": "unknown"
+      },
+      {
+        "caseId": "t-audit-10-31",
+        "predicted": "unknown"
+      },
+      {
+        "caseId": "t-syn-regression-1",
+        "predicted": "regression"
+      },
+      {
+        "caseId": "t-syn-fixture-1",
+        "predicted": "regression"
+      },
+      {
+        "caseId": "t-syn-environment-1",
+        "predicted": "environment"
+      },
+      {
+        "caseId": "t-syn-flake-1",
+        "predicted": "known-flake"
+      },
+      {
+        "caseId": "t-syn-unknown-1",
+        "predicted": "unknown"
+      }
+    ],
+    "jev": [
+      {
+        "caseId": "t-audit-10-29",
+        "predicted": "unknown"
+      },
+      {
+        "caseId": "t-audit-10-30",
+        "predicted": "unknown"
+      },
+      {
+        "caseId": "t-audit-10-31",
+        "predicted": "unknown"
+      },
+      {
+        "caseId": "t-syn-regression-1",
+        "predicted": "regression"
+      },
+      {
+        "caseId": "t-syn-fixture-1",
+        "predicted": "regression"
+      },
+      {
+        "caseId": "t-syn-environment-1",
+        "predicted": "environment"
+      },
+      {
+        "caseId": "t-syn-flake-1",
+        "predicted": "known-flake"
+      },
+      {
+        "caseId": "t-syn-unknown-1",
+        "predicted": "unknown"
+      }
+    ],
+    "luna": [
+      {
+        "caseId": "t-audit-10-29",
+        "predicted": "unknown"
+      },
+      {
+        "caseId": "t-audit-10-30",
+        "predicted": "unknown"
+      },
+      {
+        "caseId": "t-audit-10-31",
+        "predicted": "unknown"
+      },
+      {
+        "caseId": "t-syn-regression-1",
+        "predicted": "regression"
+      },
+      {
+        "caseId": "t-syn-fixture-1",
+        "predicted": "regression"
+      },
+      {
+        "caseId": "t-syn-environment-1",
+        "predicted": "environment"
+      },
+      {
+        "caseId": "t-syn-flake-1",
+        "predicted": "known-flake"
+      },
+      {
+        "caseId": "t-syn-unknown-1",
+        "predicted": "unknown"
+      }
+    ]
+  }
+}

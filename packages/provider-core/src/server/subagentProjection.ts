@@ -247,7 +247,7 @@ export const delegatedTaskProgressTurnItems = {
 
 export type DelegatedTaskProjection = {
   readonly thread: Pick<OrchestrationV2AppThread, "pullRequests" | "activeProviderThreadId"> &
-    Partial<Pick<OrchestrationV2AppThread, "threadWatches" | "agentTask">>;
+    Partial<Pick<OrchestrationV2AppThread, "threadWatches" | "agentTask" | "lineage">>;
   readonly runs: OrchestrationV2ThreadProjection["runs"];
   /** Active turn items are enough: only those can be pending background work. */
   readonly turnItems: Parameters<typeof derivePendingBackgroundWork>[0]["turnItems"];
@@ -293,13 +293,17 @@ export function delegatedTaskRunHold(
       ].map((task) => [task.taskId, task] as const),
     ).values(),
   ];
-  const hold =
-    projection.thread.agentTask === undefined
-      ? { indefinite: backgroundWork.length > 0, until: null }
-      : delegatedCompletionHold(backgroundWork, {
-          now,
-          endedAt: resultRun.completedAt,
-        });
+  // A delegated child's result waits with its parent, whose managed-task grace applies: an awaited
+  // command or monitor holds until then, while a plain thread's own work holds indefinitely.
+  const graceApplies =
+    projection.thread.agentTask !== undefined ||
+    projection.thread.lineage?.relationshipToParent === "subagent";
+  const hold = graceApplies
+    ? delegatedCompletionHold(backgroundWork, {
+        now,
+        endedAt: resultRun.completedAt,
+      })
+    : { indefinite: backgroundWork.length > 0, until: null };
   const held =
     (projection.thread.agentTask?.role === "lead" &&
       (projection.thread.threadWatches?.length ?? 0) > 0) ||
