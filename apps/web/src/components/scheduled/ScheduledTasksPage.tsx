@@ -43,6 +43,7 @@ import {
   selectProjectGroupingSettings,
 } from "@t3tools/client-runtime/state/project-grouping";
 import { useProjects, useThreadShells } from "../../state/entities";
+import { environmentAtomList, environmentIdsKey } from "../../state/environmentAtomList";
 import { useEnvironments } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAllScheduledTasks, useSeenScheduledFailures } from "../../state/scheduledTasks";
@@ -111,6 +112,26 @@ const WORKSPACE_LABELS: Record<WorkspaceChoice, string> = {
 };
 const ROLE_OPTIONS = AgentRole.literals;
 const DEFAULT_ROLE: AgentRole = "implementation-worker";
+
+const scheduledTaskCreatePermissionsAtom = environmentAtomList(
+  "web-scheduled-task-create-permissions",
+  serverEnvironment.upsertScheduledTask.permissionAtom,
+);
+
+/** The connected machine a new task may be created on, or null when none may. */
+function useCreationEnvironment(): EnvironmentId | null {
+  const { environments } = useEnvironments();
+  const machines = environments.filter(
+    (environment) =>
+      environment.connection.phase === "connected" && environment.serverConfig !== null,
+  );
+  const permissions = useAtomValue(
+    scheduledTaskCreatePermissionsAtom(
+      environmentIdsKey(machines.map((machine) => machine.environmentId)),
+    ),
+  );
+  return machines.find((_machine, index) => permissions[index])?.environmentId ?? null;
+}
 
 interface EditorDraft extends ScheduleDraft, WebhookDraft {
   readonly title: string;
@@ -186,6 +207,14 @@ function useProjectChoices(): ReadonlyArray<
     .toSorted((a, b) => a.title.localeCompare(b.title));
 }
 
+function isSameGroup(left: ScheduledTaskGroup, right: ScheduledTaskGroup): boolean {
+  return (
+    left.key === right.key &&
+    left.members.length === right.members.length &&
+    left.members.every((member, index) => member.task === right.members[index]?.task)
+  );
+}
+
 /**
  * Scheduled tasks across every connected machine: the list on the left, the selected
  * task on the right. Creating a task opens the same detail view, empty.
@@ -208,9 +237,23 @@ export function ScheduledTasksPage(props: {
     ),
   )?.key;
   const [selected, setSelected] = useState<string | "new" | null>(null);
-  const activeKey = selected ?? linkedKey ?? groups[0]?.key ?? "new";
+  const resolvedKey = selected ?? linkedKey ?? groups[0]?.key ?? null;
+  const liveGroup = groups.find((group) => group.key === resolvedKey) ?? null;
+  // While the list is unknown (a disconnect or a reload), the open editor keeps its task, so its
+  // draft survives and a save still updates that task instead of creating another. Once the list
+  // is known, a missing task was deleted, and the editor lets it go.
+  const [shown, setShown] = useState<ScheduledTaskGroup | null>(liveGroup);
+  if (liveGroup !== null && (shown === null || !isSameGroup(shown, liveGroup))) {
+    setShown(liveGroup);
+  }
+  const listKnown = sources.length > 0 && sources.every((source) => source.tasks !== null);
+  const retainedGroup = listKnown ? null : shown;
+  const activeKey = resolvedKey ?? retainedGroup?.key ?? "new";
   const activeGroup =
-    activeKey === "new" ? null : (groups.find((group) => group.key === activeKey) ?? null);
+    activeKey === "new"
+      ? null
+      : (liveGroup ?? (retainedGroup?.key === activeKey ? retainedGroup : null));
+  const creationEnvironment = useCreationEnvironment();
   const [seen, setSeen] = useSeenScheduledFailures();
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- marks the visible scheduler group seen in its persisted failure-notification registry
   useEffect(() => {
@@ -230,7 +273,12 @@ export function ScheduledTasksPage(props: {
           <span className="text-muted-foreground text-xs">
             {groups.length === 1 ? "1 task" : `${groups.length} tasks`}
           </span>
-          <Button size="xs" variant="ghost-muted" onClick={() => setSelected("new")}>
+          <Button
+            size="xs"
+            variant="ghost-muted"
+            disabled={creationEnvironment === null}
+            onClick={() => setSelected("new")}
+          >
             <PlusIcon className="size-3" />
             New task
           </Button>
@@ -253,14 +301,16 @@ export function ScheduledTasksPage(props: {
         </div>
       </div>
       <div className="min-w-0 flex-1 overflow-y-auto">
-        {groups.length === 0 && activeKey !== "new" ? null : (
-          <TaskDetail
-            key={activeKey}
-            group={activeGroup}
-            onSaved={(key) => setSelected(key)}
-            onDeleted={() => setSelected(null)}
-          />
-        )}
+        <TaskDetail
+          key={activeKey}
+          group={activeGroup}
+          defaultMachine={creationEnvironment}
+          onSaved={(key) => setSelected(key)}
+          onDeleted={() => {
+            setSelected(null);
+            setShown(null);
+          }}
+        />
         {!loading && groups.length === 0 && activeKey === "new" && sources.length === 0 ? (
           <Empty>
             <EmptyHeader>
@@ -346,6 +396,7 @@ function draftOf(
 
 function TaskDetail(props: {
   readonly group: ScheduledTaskGroup | null;
+  readonly defaultMachine: EnvironmentId | null;
   readonly onSaved: (key: string) => void;
   readonly onDeleted: () => void;
 }) {
@@ -360,7 +411,7 @@ function TaskDetail(props: {
     projectChoices.find((choice) => choice.projectIdByEnvironment.get(environmentId) === projectId)
       ?.key ?? null;
   const [draft, setDraft] = useState<EditorDraft>(() =>
-    draftOf(group, machines[0]?.environmentId ?? null),
+    draftOf(group, props.defaultMachine ?? machines[0]?.environmentId ?? null),
   );
   const projectKeys =
     draft.projectKeys ??

@@ -47,12 +47,13 @@ const threadFamilyRead = {
   threads: [{ id: task.threadId, title: "Fix login bug" }],
 };
 
-const state = vi.hoisted(() => ({ connected: true, tasksLoaded: true }));
+const state = vi.hoisted(() => ({ connected: true, tasksLoaded: true, taskDeleted: false }));
 const permissions = new Map<string, Atom.Writable<boolean>>();
 
 function setup() {
   state.connected = true;
   state.tasksLoaded = true;
+  state.taskDeleted = false;
   permissions.clear();
   permissions.set(environmentId, Atom.make(true));
   permissions.set("", Atom.make(false));
@@ -93,6 +94,7 @@ vi.mock(import("../../state/server"), async (original) => {
     ...actual,
     serverEnvironment: {
       ...actual.serverEnvironment,
+      agentPolicyRead: ((input: unknown) => ({ policy: input })) as never,
       upsertScheduledTask: {
         ...actual.serverEnvironment.upsertScheduledTask,
         permissionAtom: (id: string | null) => permissions.get(id ?? "")!,
@@ -114,7 +116,9 @@ vi.mock(import("../../state/query"), async (original) => ({
     data:
       request === null || request === threadFamilyRead
         ? request
-        : { tasks: state.tasksLoaded ? [task] : [] },
+        : typeof request === "object" && "policy" in request
+          ? { snapshot: { manifest: { roles: {}, lists: {}, models: {} } } }
+          : { tasks: state.tasksLoaded ? [task] : [] },
     error: null,
     isPending: false,
     refresh: vi.fn(),
@@ -124,12 +128,24 @@ vi.mock(import("../../state/scheduledTasks"), async (original) => ({
   ...(await original()),
   useAllScheduledTasks: (() =>
     state.connected
-      ? [{ environmentId, tasks: state.tasksLoaded ? [task] : null, error: null }]
+      ? [
+          {
+            environmentId,
+            tasks: state.taskDeleted ? [] : state.tasksLoaded ? [task] : null,
+            error: null,
+          },
+        ]
       : []) as never,
 }));
 vi.mock(import("../../state/environments"), async (original) => ({
   ...(await original()),
   useEnvironment: (() => environment()) as never,
+  useEnvironments: (() => ({
+    isReady: true,
+    networkStatus: "online",
+    environments: state.connected ? [environment()] : [],
+    presentationById: new Map(),
+  })) as never,
 }));
 vi.mock(import("../../state/entities"), async (original) => ({
   ...(await original()),
@@ -182,6 +198,62 @@ describe("ScheduledTasksSettings", () => {
     state.connected = false;
     await using _screen = await render(<ScheduledTasksSettings taskId={task.id} />);
     await expect.element(page.getByText("No machines connected")).toBeVisible();
+  });
+
+  it("allows New task only with a connected machine permitted to create one", async () => {
+    setup();
+    const registry = AtomRegistry.make();
+    using _registry = { [Symbol.dispose]: () => registry.dispose() };
+    await using screen = await render(
+      <RegistryContext.Provider value={registry}>
+        <ScheduledTasksSettings />
+      </RegistryContext.Provider>,
+    );
+    const create = page.getByRole("button", { name: "New task" });
+    await expect.element(create).toBeEnabled();
+    await act(() => registry.set(permissions.get(environmentId)!, false));
+    await expect.element(create).toBeDisabled();
+    await act(() => registry.set(permissions.get(environmentId)!, true));
+    await expect.element(create).toBeEnabled();
+
+    state.connected = false;
+    await screen.rerender(
+      <RegistryContext.Provider value={registry}>
+        <ScheduledTasksSettings />
+      </RegistryContext.Provider>,
+    );
+    await expect.element(create).toBeDisabled();
+  });
+
+  it("still edits the same task after a disconnect, while its list reloads", async () => {
+    setup();
+    await using screen = await render(<ScheduledTasksSettings taskId={task.id} />);
+    const name = page.getByRole("textbox", { name: "Task name" });
+    await expect.element(name).toHaveValue("Review issues");
+    await userEvent.fill(name, "Review stale issues");
+
+    state.connected = false;
+    await screen.rerender(<ScheduledTasksSettings taskId={task.id} />);
+    await expect.element(name).toHaveValue("Review stale issues");
+    await expect.element(page.getByRole("button", { name: "Create task" })).not.toBeInTheDocument();
+
+    state.connected = true;
+    state.tasksLoaded = false;
+    await screen.rerender(<ScheduledTasksSettings taskId={task.id} />);
+    await expect.element(name).toHaveValue("Review stale issues");
+    await expect.element(page.getByRole("button", { name: "Create task" })).not.toBeInTheDocument();
+  });
+
+  it("does not keep a task's draft to recreate it once the task is deleted", async () => {
+    setup();
+    await using screen = await render(<ScheduledTasksSettings taskId={task.id} />);
+    const name = page.getByRole("textbox", { name: "Task name" });
+    await userEvent.fill(name, "Review stale issues");
+
+    state.taskDeleted = true;
+    await screen.rerender(<ScheduledTasksSettings taskId={task.id} />);
+
+    await expect.element(name).toHaveValue("");
   });
 
   it("keeps a task the user started when the linked task loads later", async () => {
