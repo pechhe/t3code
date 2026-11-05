@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { describe, expect, it } from "vite-plus/test";
 
 import { render } from "../../test/render";
@@ -13,7 +14,10 @@ function surfaces(element: HTMLElement) {
 describe("selection-covered surfaces", () => {
   it("drops the chip and inline-code surfaces the selection crosses", async () => {
     await using screen = await render(
-      <div className="chat-markdown">
+      <div
+        className="chat-markdown"
+        style={{ "--context-chip-file": "oklch(0.62 0.16 250)" } as CSSProperties}
+      >
         <p>
           Alpha{" "}
           <ContextChip kind="file" data-selection-covered data-testid="covered-chip">

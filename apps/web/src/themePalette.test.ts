@@ -787,3 +787,52 @@ describe("themeChoiceAccent", () => {
     expect(themeChoiceAccent({ theme: "system" }, "dark")).toBeNull();
   });
 });
+
+describe("theme devices", () => {
+  it("gives every built-in theme lit colours for both appearances and a character", () => {
+    for (const theme of BUILT_IN_THEMES) {
+      expect(theme.character?.meter, theme.id).toBeTruthy();
+      for (const appearance of ["light", "dark"] as const) {
+        const device = theme.deviceVariants?.[appearance];
+        expect(device?.lamp, `${theme.id} ${appearance}`).toBeTruthy();
+        expect(device?.metal, `${theme.id} ${appearance}`).toBeTruthy();
+      }
+    }
+  });
+
+  it("paints the device colours of the appearance in use and names the theme's character", () => {
+    const properties = new Map<string, string>();
+    const dataset: Record<string, string | undefined> = {};
+    vi.stubGlobal("window", { localStorage: { getItem: () => null } });
+    vi.stubGlobal("document", {
+      documentElement: {
+        dataset,
+        style: {
+          setProperty: (name: string, value: string) => properties.set(name, value),
+          removeProperty: (name: string) => properties.delete(name),
+        },
+      },
+    });
+    invalidateCustomThemes();
+    try {
+      const matrix = BUILT_IN_THEMES.find((theme) => theme.id === "matrix")!;
+      applyThemePalette("matrix", "dark");
+      expect(properties.get("--theme-lamp")).toBe(matrix.deviceVariants!.dark!.lamp);
+      expect(dataset.themeTexture).toBe(matrix.character!.texture);
+      expect(dataset.themeLit).toBe("");
+      expect(properties.get("--theme-meter-fill")).toContain("oklch(from");
+
+      applyThemePalette("matrix", "light");
+      expect(properties.get("--theme-lamp")).toBe(matrix.deviceVariants!.light!.lamp);
+
+      applyThemePalette("system", "light");
+      expect(properties.has("--theme-lamp")).toBe(false);
+      expect(dataset.themeTexture).toBeUndefined();
+      expect(dataset.themeLit).toBeUndefined();
+      expect(properties.has("--theme-meter-fill")).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+      invalidateCustomThemes();
+    }
+  });
+});

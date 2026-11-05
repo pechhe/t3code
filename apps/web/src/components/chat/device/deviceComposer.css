@@ -74,7 +74,7 @@
   --crt-ink-muted: oklch(0.34 0.005 250);
   --crt-seg: 9px;
   --crt-seg-gap: 3px;
-  --crt-amber: oklch(0.74 0.185 52);
+  --crt-amber: var(--lamp, oklch(0.74 0.185 52));
   /* Hardware labels use the code font chosen in Settings. */
   --crt-mono: var(--font-mono);
   --engrave-shadow: 0 2px 0 oklch(1 0.002 250 / 0.7);
@@ -751,28 +751,28 @@
   height: 100px;
   margin-left: auto;
 }
-.device-dial[data-tone="off"] {
+:is(.device-dial, .device-dial__row)[data-tone="off"] {
   --tone: oklch(0.6 0.03 250);
 }
-.device-dial[data-tone="low"] {
+:is(.device-dial, .device-dial__row)[data-tone="low"] {
   --tone: oklch(0.64 0.13 230);
 }
-.device-dial[data-tone="medium"] {
+:is(.device-dial, .device-dial__row)[data-tone="medium"] {
   --tone: oklch(0.72 0.16 75);
 }
-.device-dial[data-tone="high"] {
+:is(.device-dial, .device-dial__row)[data-tone="high"] {
   --tone: oklch(0.69 0.18 52);
 }
-.device-dial[data-tone="xhigh"] {
+:is(.device-dial, .device-dial__row)[data-tone="xhigh"] {
   --tone: oklch(0.64 0.21 36);
 }
-.device-dial[data-tone="max"] {
+:is(.device-dial, .device-dial__row)[data-tone="max"] {
   --tone: oklch(0.6 0.23 22);
 }
-.device-dial[data-tone="ultra"] {
+:is(.device-dial, .device-dial__row)[data-tone="ultra"] {
   --tone: oklch(0.6 0.22 300);
 }
-.device-dial[data-tone="ultracode"] {
+:is(.device-dial, .device-dial__row)[data-tone="ultracode"] {
   --tone: oklch(0.7 0.2 320);
 }
 
@@ -840,6 +840,7 @@
   text-shadow: var(--engrave-shadow);
 }
 .device-dial__screen {
+  position: relative;
   min-width: 96px;
   max-width: 124px;
   overflow: hidden;
@@ -863,19 +864,159 @@
   transition: color 160ms ease;
 }
 
-/* Ultracode: black glass with iridescent lettering, every tick lit, a halo on the knob. */
-.device-dial[data-tone="ultracode"] .device-dial__screen {
-  color: transparent;
+/* The readout is a drum of every setting; it ratchets a row at a time to the chosen one,
+   each row in its own tone, behind a cylinder shade. */
+.device-dial__window {
+  display: block;
+  height: 14px;
+  overflow: hidden;
+}
+.device-dial__drum {
+  display: block;
+  transform: translateY(calc(var(--row) * -14px));
+  transition: transform 150ms cubic-bezier(0.3, 1.5, 0.5, 1);
+}
+/* A jump of several settings ratchets one row at a time. */
+.device-dial__drum[data-ratchet] {
+  transition: transform calc(var(--steps) * 70ms) steps(var(--steps), jump-start);
+}
+.device-dial__row {
+  display: block;
+  height: 14px;
+  overflow: hidden;
+  color: var(--tone);
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.device-dial__screen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    oklch(0 0 0 / 0.28),
+    transparent 30%,
+    transparent 70%,
+    oklch(0 0 0 / 0.28)
+  );
+}
+
+/* A faint glint of the tone's light crosses the glass in step with the drum moving. */
+.device-dial__fx {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 35%,
+    color-mix(in oklch, var(--tone) 40%, white 15%) 50%,
+    transparent 65%
+  );
+  opacity: 0;
+  animation: dial-sweep 150ms linear;
+}
+.device-dial__fx[data-ratchet] {
+  animation-duration: calc(var(--steps) * 70ms);
+}
+@keyframes dial-sweep {
+  from {
+    opacity: 0.32;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+/* Each tone has its own glass. Off sits dark, low carries scan lines, high and up glow in
+   their tone, max runs hot behind a hazard rule, ultra goes violet, ultracode black glass. */
+.device-dial[data-tone="off"] .device-dial__screen {
+  opacity: 0.8;
   text-shadow: none;
+}
+.device-dial[data-tone="low"] .device-dial__screen {
   background:
-    linear-gradient(90deg, oklch(0.82 0.13 200), oklch(0.74 0.2 300), oklch(0.78 0.19 350)) text,
-    linear-gradient(180deg, oklch(0.21 0.03 295), oklch(0.13 0.02 290));
+    repeating-linear-gradient(180deg, transparent 0 2px, oklch(0.5 0.1 230 / 0.1) 2px 3px),
+    linear-gradient(180deg, var(--cream-bg-lo), var(--cream-bg));
+}
+.device-dial:is([data-tone="high"], [data-tone="xhigh"], [data-tone="max"]) .device-dial__screen {
+  box-shadow:
+    inset 0 2px 3px oklch(0.4 0.02 82 / 0.35),
+    inset 0 0 0 1px color-mix(in oklch, var(--tone) 55%, transparent),
+    inset 0 0 8px color-mix(in oklch, var(--tone) 30%, transparent),
+    0 0 0 1px oklch(0 0 0 / 0.5),
+    0 0 10px color-mix(in oklch, var(--tone) 28%, transparent);
+}
+.device-dial:is([data-tone="xhigh"], [data-tone="max"]) .device-dial__screen {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--tone) 14%, var(--cream-bg-lo)),
+    var(--cream-bg)
+  );
+}
+.device-dial[data-tone="max"] .device-dial__screen {
+  background:
+    repeating-linear-gradient(
+        135deg,
+        transparent 0 4px,
+        color-mix(in oklch, var(--tone) 22%, transparent) 4px 6px
+      )
+      bottom / 100% 2px no-repeat,
+    linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--tone) 20%, var(--cream-bg-lo)),
+      var(--cream-bg)
+    );
+}
+.device-dial[data-tone="ultra"] .device-dial__screen {
+  background: linear-gradient(180deg, oklch(0.23 0.06 300), oklch(0.14 0.04 295));
   box-shadow:
     inset 0 2px 4px oklch(0 0 0 / 0.6),
     inset 0 0 0 1px oklch(0.55 0.17 300 / 0.7),
-    0 0 10px oklch(0.65 0.2 310 / 0.35),
-    0 1px 0 oklch(1 0.002 250 / 0.5);
+    0 0 0 1px oklch(0 0 0 / 0.5),
+    0 0 10px oklch(0.6 0.22 300 / 0.35);
 }
+.device-dial[data-tone="ultra"] .device-dial__row[data-tone="ultra"] {
+  color: oklch(0.8 0.15 300);
+}
+
+/* Ultracode: black glass with iridescent lettering, every tick lit, a halo on the knob. */
+.device-dial[data-tone="ultracode"] .device-dial__screen {
+  text-shadow: none;
+  background: linear-gradient(180deg, oklch(0.21 0.03 295), oklch(0.13 0.02 290));
+  box-shadow:
+    inset 0 2px 4px oklch(0 0 0 / 0.6),
+    inset 0 0 0 1px oklch(0.55 0.17 300 / 0.7),
+    0 0 0 1px oklch(0 0 0 / 0.5),
+    0 0 10px oklch(0.65 0.2 310 / 0.35);
+}
+.device-dial__row[data-tone="ultracode"] {
+  color: transparent;
+  background: linear-gradient(
+      90deg,
+      oklch(0.82 0.13 200),
+      oklch(0.74 0.2 300),
+      oklch(0.78 0.19 350)
+    )
+    text;
+}
+
+/* The ticks up to the chosen one carry a trace of its tone, like a level meter. */
+.device-dial__tick[data-lit]:not([aria-pressed="true"])::before {
+  background: color-mix(in oklch, var(--tone) 60%, var(--crt-ink) 20%);
+}
+.device-dial:is([data-tone="xhigh"], [data-tone="max"], [data-tone="ultra"]) .device-dial__knob {
+  box-shadow:
+    var(--knob-shadow),
+    0 0 0 2px color-mix(in oklch, var(--tone) 45%, transparent),
+    0 0 14px 2px color-mix(in oklch, var(--tone) 32%, transparent);
+}
+
 .device-dial[data-tone="ultracode"] .device-dial__tick::before {
   background: linear-gradient(90deg, oklch(0.8 0.14 200), oklch(0.72 0.2 300));
 }
@@ -1433,10 +1574,14 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .device-dial__fx {
+    animation: none;
+  }
   .device-slider__thumb,
   .device-slider__glow,
   .device-dial__knob::before,
   .device-dial__knob::after,
+  .device-dial__drum,
   .device-switch__thumb,
   .device-key {
     transition: none;

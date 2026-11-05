@@ -9,7 +9,7 @@ import { ThemePreviewCircle } from "./settings/ThemePreviewCircles";
 import { useUiStateStore } from "../uiStateStore";
 import { MonitorIcon, MoonIcon, PaletteIcon, SunIcon } from "lucide-react";
 
-import { useTheme } from "../hooks/useTheme";
+import { useNextRotationTheme, useTheme } from "../hooks/useTheme";
 import { STANDARD_ROTATION_THEME } from "../themeRotation";
 import {
   ADDON_ICON_CLASS,
@@ -52,6 +52,7 @@ export function useCommandPaletteThemeItems() {
     setRotationOverride,
   } = useTheme();
   const inRotation = themeMode === "rotation";
+  const { next: nextRotationTheme, cycle: cycleRotationTheme } = useNextRotationTheme();
   const themeCards = useThemeCards();
   // Inside a project with its own theme, picking a theme changes what is on
   // screen: that project's theme, not the user's own one underneath it.
@@ -85,6 +86,21 @@ export function useCommandPaletteThemeItems() {
             ? "Change theme"
             : "Change project theme",
         items: [
+          ...(nextRotationTheme === null
+            ? []
+            : ([
+                {
+                  kind: "action",
+                  value: "theme:next",
+                  title: "Next theme",
+                  description: "Show the next favourite for today",
+                  searchTerms: ["next theme", "cycle", "rotation", "favourite", "today"],
+                  icon: <PaletteIcon className={ITEM_ICON_CLASS} />,
+                  run: async () => {
+                    if (!cycleRotationTheme()) notifyThemeSaveFailure();
+                  },
+                },
+              ] satisfies CommandPaletteActionItem[])),
           ...(inRotation && rotationToday.overridden
             ? ([
                 {

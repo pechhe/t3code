@@ -35,6 +35,18 @@ rotation carries on from where the calendar left it, and **Back to rotation** re
 schedule. Reordering or adding favourites never changes today's theme. Project themes are kept but
 not shown while the mode is not per-project. The mode and rotation are saved on each device.
 
+In a daily rotation, the key beside the Away key in the sidebar header (also **Next theme** in the
+command palette) moves today on to your next favourite. Without a rotation of two or more
+favourites, the key opens Appearance, where you choose them.
+
+## Each theme's composer
+
+Every built-in theme has a light and a dark side, and dresses the composer in its own way: lit
+colours for the lamps, dial and readouts, a screen texture, a cursor, a knob, a send symbol and a
+motif for the context bar. Under **Composer finish** in the Typography settings, **Match theme** shows
+all of this; any other finish keeps its own look. A theme can also set the interface and prompt
+typeface. Replies stay in the sans typeface, and your choices under Typography always win.
+
 ## Project themes
 
 On web and desktop, open **Project settings** from a project's gear in the sidebar and pick a

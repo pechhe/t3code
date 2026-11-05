@@ -1,3 +1,5 @@
+import { CATALOG_THEMES, THEME_FINISHES } from "./themeCatalog.ts";
+
 export const BUILT_IN_THEME_IDS = [
   "t3-chat",
   "grove",
@@ -9,6 +11,39 @@ export const BUILT_IN_THEME_IDS = [
   "solstice",
   "fjord",
   "rosewater",
+  "alabaster",
+  "amber",
+  "ayu",
+  "catppuccin",
+  "cobalt",
+  "codex",
+  "dawnfox",
+  "dayfox",
+  "dracula",
+  "everforest",
+  "ghost",
+  "github",
+  "gruvbox",
+  "horizon",
+  "kanagawa",
+  "lobster",
+  "matrix",
+  "monokai",
+  "night-owl",
+  "nord",
+  "one",
+  "oxocarbon",
+  "palenight",
+  "peach",
+  "poimandres",
+  "rose-pine",
+  "solarized",
+  "sunset",
+  "synthwave",
+  "tokyo-night",
+  "tomorrow",
+  "vesper",
+  "zenburn",
 ] as const;
 
 export const MOBILE_DEFAULT_THEME_ID = "t3-code";
@@ -116,6 +151,37 @@ export type ThemeDeviceColors = Readonly<{
   screen?: string;
   screenText?: string;
   engraveActive?: string;
+  /** The lit colour of the composer's lamps, readouts and dial; the stock amber when unset. */
+  lamp?: string;
+  recLamp?: string;
+  /** The hot end of the reasoning dial, in place of its reds. */
+  hotLamp?: string;
+  /** The machine switch's two labels, local and remote, when lit. */
+  envLocal?: string;
+  envRemote?: string;
+}>;
+
+/**
+ * How a theme's composer device is made, as names the stylesheet knows (themeCharacter.css):
+ * the screen's texture, the prompt's cursor, the knob, tick and needle style, the send glyph,
+ * the compact-line marker and the context bar's motif, plus the face the interface and prompt
+ * take unless Typography settings choose one.
+ */
+export type ThemeCharacter = Readonly<{
+  texture?: string;
+  cursor?: string;
+  font?: string;
+  mono?: string;
+  knob?: string;
+  ticks?: string;
+  needle?: string;
+  glyph?: string;
+  marker?: string;
+  meter?: string;
+  /** Colours the context bar's fill runs through, left to right. */
+  meterColors?: ReadonlyArray<string>;
+  /** The bar's fill glows in its last colour. */
+  meterGlow?: boolean;
 }>;
 
 export type ThemeDefinition = Readonly<{
@@ -128,6 +194,9 @@ export type ThemeDefinition = Readonly<{
   sidebarArtwork?: boolean;
   managed?: boolean;
   device?: ThemeDeviceColors;
+  /** Device colours for each appearance; `device` serves an appearance with none. */
+  deviceVariants?: Partial<Record<ThemeAppearance, ThemeDeviceColors>>;
+  character?: ThemeCharacter;
 }>;
 
 export const T3_CODE_LIGHT_THEME_COLORS: ThemeColors = {
@@ -1619,7 +1688,8 @@ export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
   SOLSTICE_THEME,
   FJORD_THEME,
   ROSEWATER_THEME,
-];
+  ...CATALOG_THEMES,
+].map((theme) => ({ ...theme, ...THEME_FINISHES[theme.id] }));
 
 export function getThemeColorsForAppearance(
   theme: ThemeDefinition,

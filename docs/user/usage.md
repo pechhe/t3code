@@ -212,8 +212,8 @@ The context bar under the composer shows how full the thread's context window is
 
 - **Drag the line** to set this thread's own compact-at point. Hover for the exact size, or focus it and use the arrow keys (hold `Shift` for larger steps). Press `Escape` mid-drag to cancel. The range follows what the provider accepts for the model's context window.
 - **A faded line** means the point is saved but the provider hasn't applied it yet. Claude applies it at the thread's next turn, or once background work running in the thread finishes; Codex applies it when the thread's session next starts or resumes.
-- **Double-click the line** (double-tap on a touch screen) to open the provider's settings, where **Auto-compact after** sets the default for every thread.
-- **To reset a thread**, choose **use provider setting** beside the token count. The thread follows the provider's setting again.
+- **Double-click the line** (double-tap on a touch screen) to reset a thread you moved it on. The thread follows the provider's setting again.
+- **On a thread that already follows the provider**, double-clicking the line opens the provider's settings, where **Auto-compact after** sets the default for every thread.
 
 Mobile doesn't have this control yet.
 

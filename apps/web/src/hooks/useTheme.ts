@@ -946,6 +946,36 @@ export function refreshTheme({ preservePreview = false } = {}): void {
   emitChange();
 }
 
+/** Moves today's theme to the next favourite, in the order the rotation lists them. */
+function cycleRotationTheme(): boolean {
+  const rotation = readThemeRotation();
+  const { favourites } = rotation;
+  if (favourites.length < 2) return false;
+  const today = rotationDay(rotation, new Date()).theme;
+  const index = today === null ? -1 : favourites.indexOf(today);
+  return setRotationOverride(favourites[(index + 1) % favourites.length]!);
+}
+
+/** The favourite a cycle would show next, or null when there is no rotation to cycle. */
+export function useNextRotationTheme(): { next: string | null; cycle: () => boolean } {
+  const mode = useThemeMode();
+  const rotation = useSyncExternalStore(
+    subscribe,
+    () => getSnapshot().rotation,
+    () => EMPTY_THEME_ROTATION,
+  );
+  const today = useSyncExternalStore(
+    subscribe,
+    () => getSnapshot().rotationToday.theme,
+    () => null,
+  );
+  const { favourites } = rotation;
+  if (mode !== "rotation" || favourites.length < 2)
+    return { next: null, cycle: cycleRotationTheme };
+  const index = today === null ? -1 : favourites.indexOf(today);
+  return { next: favourites[(index + 1) % favourites.length]!, cycle: cycleRotationTheme };
+}
+
 /** The theme mode alone, for components rendered many times over. */
 export function useThemeMode(): ThemeMode {
   return useSyncExternalStore(

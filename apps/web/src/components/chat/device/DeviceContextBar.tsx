@@ -1,4 +1,11 @@
-import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
@@ -55,7 +62,11 @@ export function DeviceContextBar(props: {
   const overloaded = used > 90;
   const maxTokens = usage?.maxTokens ?? null;
   return (
-    <div className="device-context" data-overloaded={overloaded || undefined}>
+    <div
+      className="device-context"
+      data-overloaded={overloaded || undefined}
+      style={{ "--used": used / 100 } as CSSProperties}
+    >
       <div
         className="device-context__track"
         role="progressbar"
@@ -72,6 +83,7 @@ export function DeviceContextBar(props: {
             unreported={compactLine.unreported}
             maxTokens={maxTokens}
             bounds={props.compactAtBounds}
+            hasOwnPoint={props.threadCompactAt !== null}
             onChange={props.onCompactAtChange}
             onOpenProviderSettings={props.onOpenProviderSettings}
           />
@@ -79,25 +91,6 @@ export function DeviceContextBar(props: {
       </div>
       <span className="device-context__label">
         {readout}
-        {props.threadCompactAt !== null && props.onCompactAtChange ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  className="device-context__compact"
-                  onPointerDown={(event) => event.preventDefault()}
-                  onClick={() => props.onCompactAtChange?.(null)}
-                />
-              }
-            >
-              use provider setting
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              Compact this thread at the provider's auto-compact point again
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
         {props.compactBeforeSendTokens !== null ? (
           <CompactOnSendFlag
             tokens={props.compactBeforeSendTokens}
@@ -190,7 +183,8 @@ interface LineDrag {
 /**
  * The compact line. With `onChange` and bounds it drags (and arrow keys nudge it when
  * focused), saving the point for this thread on release; Escape cancels a drag. Double-click
- * or double-tap opens the provider's settings, where its own auto-compact point lives.
+ * or double-tap returns a thread's own point to the provider's setting, or, when it already
+ * follows it, opens the provider's settings where that point lives.
  */
 function CompactLine(props: {
   position: number;
@@ -199,10 +193,12 @@ function CompactLine(props: {
   unreported: boolean;
   maxTokens: number;
   bounds: CompactAtBounds | null;
+  /** This thread sets its own point, so it can be reset to the provider's. */
+  hasOwnPoint: boolean;
   onChange: ((compactAt: number | null) => void) | undefined;
   onOpenProviderSettings: (() => void) | undefined;
 }) {
-  const { bounds, onChange, onOpenProviderSettings } = props;
+  const { bounds, hasOwnPoint, onChange, onOpenProviderSettings } = props;
   const [drag, setDrag] = useState<LineDrag | null>(null);
   // Controlled so the tooltip stays up through a drag and closes on release.
   const [hoverOpen, setHoverOpen] = useState(false);
@@ -247,10 +243,11 @@ function CompactLine(props: {
     if (!drag) return;
     setDrag({ ...drag, value: valueAt(event.clientX, drag) });
   };
-  const openSettings = () => {
+  const resetOrOpenSettings = () => {
     setDrag(null);
     setHoverOpen(false);
-    onOpenProviderSettings?.();
+    if (hasOwnPoint && onChange) onChange(null);
+    else onOpenProviderSettings?.();
   };
   const end = (event: PointerEvent<HTMLSpanElement>) => {
     setHoverOpen(false);
@@ -265,7 +262,7 @@ function CompactLine(props: {
     const now = Date.now();
     if (isDoubleTap(lastTapAt.current, now)) {
       lastTapAt.current = null;
-      openSettings();
+      resetOrOpenSettings();
     } else {
       lastTapAt.current = now;
     }
@@ -320,7 +317,7 @@ function CompactLine(props: {
             onPointerUp={end}
             onPointerCancel={cancel}
             onKeyDown={nudge}
-            onDoubleClick={openSettings}
+            onDoubleClick={resetOrOpenSettings}
           />
         }
       />
@@ -334,8 +331,12 @@ function CompactLine(props: {
         {!dragging ? (
           <span className="block text-muted-foreground">
             {editable ? "Drag to change it for this thread" : null}
-            {editable && onOpenProviderSettings ? " · " : null}
-            {onOpenProviderSettings ? "Double-click for provider settings" : null}
+            {editable && (hasOwnPoint || onOpenProviderSettings) ? " · " : null}
+            {hasOwnPoint && editable
+              ? "Double-click to use the provider's setting"
+              : onOpenProviderSettings
+                ? "Double-click for provider settings"
+                : null}
           </span>
         ) : null}
       </TooltipPopup>

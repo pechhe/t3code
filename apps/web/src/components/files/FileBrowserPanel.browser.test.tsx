@@ -32,7 +32,7 @@ const pathSearch = {
 vi.mock("./useDirectoryEntries", () => ({ useDirectoryEntries: () => directory }));
 vi.mock("~/state/queries", () => ({ useProjectPathSearch: () => pathSearch }));
 vi.mock("~/fileContextMenu", () => ({
-  useFileContextMenu: () => ({ buildItems: () => [], activate: () => Promise.resolve() }),
+  useFileContextMenu: () => ({ forgeItems: () => [], activate: () => Promise.resolve() }),
 }));
 vi.mock("~/hooks/useWorkspaceMutationRefresh", () => ({ useWorkspaceMutationRefresh: () => {} }));
 

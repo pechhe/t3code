@@ -19,6 +19,9 @@ function createStorage(overrides: Partial<Storage> = {}): Storage {
   };
 }
 
+// Importing the theme state pulls in the app's whole client graph, which is slow on a loaded runner.
+vi.setConfig({ testTimeout: 60_000 });
+
 afterEach(() => {
   vi.doUnmock("react");
   vi.resetModules();
@@ -28,7 +31,8 @@ afterEach(() => {
 
 describe("project themes", () => {
   it("paints the open project's theme over the user's mix, and falls back when it cannot", async () => {
-    vi.doMock("react", () => ({
+    vi.doMock("react", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("react")>()),
       useCallback: <A>(callback: A) => callback,
       useEffect: () => undefined,
       useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
@@ -39,7 +43,11 @@ describe("project themes", () => {
     localStorage.setItem("t3code:theme", "ocean");
     localStorage.setItem(THEME_APPEARANCE_MODE_STORAGE_KEY, "dark");
     localStorage.setItem(THEME_HALVES_STORAGE_KEY, JSON.stringify({ dark: "ember" }));
-    vi.stubGlobal("window", { localStorage, matchMedia: () => ({ matches: true }) });
+    vi.stubGlobal("window", {
+      localStorage,
+      location: { search: "" },
+      matchMedia: () => ({ matches: true }),
+    });
 
     const { setActiveProjectTheme, useTheme } = await import("./useTheme");
     const read = () => {
@@ -77,7 +85,8 @@ describe("project themes", () => {
 
 describe("theme mode", () => {
   const mockReact = () =>
-    vi.doMock("react", () => ({
+    vi.doMock("react", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("react")>()),
       useCallback: <A>(callback: A) => callback,
       useEffect: () => undefined,
       useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
@@ -87,7 +96,11 @@ describe("theme mode", () => {
     mockReact();
     const localStorage = createStorage();
     for (const [key, value] of Object.entries(storage)) localStorage.setItem(key, value);
-    vi.stubGlobal("window", { localStorage, matchMedia: () => ({ matches: true }) });
+    vi.stubGlobal("window", {
+      localStorage,
+      location: { search: "" },
+      matchMedia: () => ({ matches: true }),
+    });
     const { setActiveProjectTheme, useTheme } = await import("./useTheme");
     setActiveProjectTheme(projectTheme);
     const { activeTheme, projectTheme: painted, rotationToday } = useTheme();
@@ -159,7 +172,11 @@ describe("theme mode", () => {
       const localStorage = createStorage();
       localStorage.setItem("t3code:theme-mode:v1", "rotation");
       localStorage.setItem("t3code:theme-rotation:v1", JSON.stringify({ favourites }));
-      vi.stubGlobal("window", { localStorage, matchMedia: () => ({ matches: true }) });
+      vi.stubGlobal("window", {
+      localStorage,
+      location: { search: "" },
+      matchMedia: () => ({ matches: true }),
+    });
       const { forgetRotationThemes } = await import("./useTheme");
       forgetRotationThemes(gone);
       return JSON.parse(localStorage.getItem("t3code:theme-rotation:v1")!) as {
@@ -179,5 +196,43 @@ describe("theme mode", () => {
     const afterToday = await forget([today]);
     expect(afterToday.favourites).not.toContain(today);
     expect(afterToday.override).toBeUndefined();
+  });
+
+  it("cycles today's theme through the favourites in order, and does nothing for fewer than two", async () => {
+    const { localDateKey } = await import("../themeRotation");
+    const run = async (favourites: ReadonlyArray<string>, override: string | null) => {
+      vi.resetModules();
+      mockReact();
+      const localStorage = createStorage();
+      localStorage.setItem("t3code:theme-mode:v1", "rotation");
+      localStorage.setItem(
+        "t3code:theme-rotation:v1",
+        JSON.stringify({
+          favourites,
+          ...(override ? { override: { date: localDateKey(new Date()), theme: override } } : {}),
+        }),
+      );
+      vi.stubGlobal("window", {
+      localStorage,
+      location: { search: "" },
+      matchMedia: () => ({ matches: true }),
+    });
+      const { useNextRotationTheme, useTheme } = await import("./useTheme");
+      const before = useNextRotationTheme();
+      const changed = before.cycle();
+      return { next: before.next, changed, today: useTheme().rotationToday };
+    };
+
+    const second = await run(["ocean", "grove", "ember"], "ocean");
+    expect(second.next).toBe("grove");
+    expect(second.today.theme).toBe("grove");
+    expect(second.today.overridden).toBe(true);
+
+    const wrapped = await run(["ocean", "grove", "ember"], "ember");
+    expect(wrapped.today.theme).toBe("ocean");
+
+    const alone = await run(["ocean"], null);
+    expect(alone.next).toBeNull();
+    expect(alone.changed).toBe(false);
   });
 });

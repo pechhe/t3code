@@ -2,6 +2,7 @@
 @layer theme, base, clerk, components, utilities;
 @import "tailwindcss";
 @import "./components/chat/device/deviceComposer.css";
+@import "./components/chat/device/themeCharacter.css";
 @import "./components/sidebarDevice.css";
 @import "./components/chat/imageAnnotator.css";
 

@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, type CSSProperties } from "react";
+import { forwardRef, useImperativeHandle, useState, type CSSProperties } from "react";
 import type { ProviderOptionDescriptor } from "@t3tools/contracts";
 
 import { playRotary } from "~/lib/interfaceSounds";
@@ -46,6 +46,10 @@ const DETENT_DEGREES = 37.5;
 const ARC_DEGREES = 225;
 const ARC_CENTRE = 180 + ARC_DEGREES / 2;
 
+function toneOf(option: EffortOption): string {
+  return EFFORT_TONES[option.id.toLowerCase()] ?? "medium";
+}
+
 function clockAngle(index: number, count: number): number {
   if (count <= 1) return ARC_CENTRE;
   const step = Math.min(DETENT_DEGREES, ARC_DEGREES / (count - 1));
@@ -70,6 +74,14 @@ export const DeviceReasoningDial = forwardRef<DeviceReasoningDialHandle, TraitsS
     );
     const disabled = descriptor === null || controls.ultrathinkInBodyText;
 
+    // The readout is a drum that ratchets one row per setting it passes, so a jump of
+    // three rows ticks three times. Adjusting state while rendering keeps the distance
+    // moved in step with the new index, with no frame at the old one.
+    const [motion, setMotion] = useState({ index: activeIndex, steps: 1 });
+    if (motion.index !== activeIndex) {
+      setMotion({ index: activeIndex, steps: Math.max(1, Math.abs(activeIndex - motion.index)) });
+    }
+
     const select = (index: number) => {
       const option = options[index];
       if (!descriptor || !option || disabled) return;
@@ -90,7 +102,7 @@ export const DeviceReasoningDial = forwardRef<DeviceReasoningDialHandle, TraitsS
     const angle = (angles[activeIndex] ?? 180) - 270;
     const active = options[activeIndex];
     const activeLabel = active?.label ?? "";
-    const tone = active ? (EFFORT_TONES[active.id.toLowerCase()] ?? "medium") : "medium";
+    const tone = active ? toneOf(active) : "medium";
 
     return (
       <div
@@ -109,6 +121,7 @@ export const DeviceReasoningDial = forwardRef<DeviceReasoningDialHandle, TraitsS
                     type="button"
                     disabled={disabled}
                     aria-pressed={index === activeIndex}
+                    data-lit={index <= activeIndex || undefined}
                     aria-label={`Reasoning ${option.label}`}
                     onPointerDown={(event) => event.preventDefault()}
                     onClick={() => select(index)}
@@ -144,8 +157,26 @@ export const DeviceReasoningDial = forwardRef<DeviceReasoningDialHandle, TraitsS
         <div className="device-dial__readout" aria-hidden="true">
           <span className="device-dial__caption">Reasoning</span>
           <span className="device-dial__screen">
-            {tone === "ultracode" ? "✦ " : ""}
-            {active ? shortLabel(active) : ""}
+            <span className="device-dial__window">
+              <span
+                className="device-dial__drum"
+                data-ratchet={motion.steps > 1 || undefined}
+                style={{ "--row": activeIndex, "--steps": motion.steps } as CSSProperties}
+              >
+                {options.map((option) => (
+                  <span key={option.id} className="device-dial__row" data-tone={toneOf(option)}>
+                    {toneOf(option) === "ultracode" ? "✦ " : ""}
+                    {shortLabel(option)}
+                  </span>
+                ))}
+              </span>
+            </span>
+            <span
+              key={activeIndex}
+              className="device-dial__fx"
+              data-ratchet={motion.steps > 1 || undefined}
+              style={{ "--steps": motion.steps } as CSSProperties}
+            />
           </span>
           <span className="device-dial__caption">
             {activeIndex + 1} / {options.length}

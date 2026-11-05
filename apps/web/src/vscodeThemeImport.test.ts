@@ -451,20 +451,20 @@ describe("VS Code theme import", () => {
         },
       });
     const themes = pairVsCodeThemes([
-      make("github-dark", "dark"),
-      make("github-light", "light"),
-      make("github-dark-colorblind", "dark"),
-      make("github-light-colorblind", "light"),
-      make("github-dark-dimmed", "dark"),
+      make("meadow-dark", "dark"),
+      make("meadow-light", "light"),
+      make("meadow-dark-colorblind", "dark"),
+      make("meadow-light-colorblind", "light"),
+      make("meadow-dark-dimmed", "dark"),
     ]);
 
     const labels = themes.map((theme) => theme.label);
-    expect(labels).toEqual(["Github", "Github Colorblind", "Github Dark Dimmed"]);
-    const github = themes[0]!;
-    expect(github.appearance).toBe("light");
-    expect(getThemeColorsForMode(github, "dark")).not.toBeNull();
-    expect(asHex(getThemeColorsForMode(github, "dark")!.canvas)).toBe("#101014");
-    expect(asHex(github.colors.canvas)).toBe("#fdfdfd");
+    expect(labels).toEqual(["Meadow", "Meadow Colorblind", "Meadow Dark Dimmed"]);
+    const meadow = themes[0]!;
+    expect(meadow.appearance).toBe("light");
+    expect(getThemeColorsForMode(meadow, "dark")).not.toBeNull();
+    expect(asHex(getThemeColorsForMode(meadow, "dark")!.canvas)).toBe("#101014");
+    expect(asHex(meadow.colors.canvas)).toBe("#fdfdfd");
     expect(getThemeColorsForMode(themes[2]!, "light")).toBeNull();
   });
 
@@ -484,23 +484,23 @@ describe("VS Code theme import", () => {
   });
 
   it("tells same-named variants apart by their file names", () => {
-    // Both Dracula theme files declare the same internal name.
-    const dracula = (bg: string) =>
+    // Both Orchid theme files declare the same internal name.
+    const orchid = (bg: string) =>
       parseVsCodeThemeFile({
-        name: "Dracula",
+        name: "Orchid",
         type: "dark",
         colors: { "editor.background": bg, "editor.foreground": "#f8f8f2" },
       });
     const themes = resolveThemeLabelCollisions([
-      { theme: dracula("#282a36"), sourceName: "dracula.json" },
-      { theme: dracula("#22232e"), sourceName: "dracula-soft.json" },
+      { theme: orchid("#282a36"), sourceName: "orchid.json" },
+      { theme: orchid("#22232e"), sourceName: "orchid-soft.json" },
     ]);
-    expect(themes.map((theme) => theme.label)).toEqual(["Dracula", "Dracula Soft"]);
-    expect(themes.map((theme) => theme.id)).toEqual(["dracula", "dracula-soft"]);
+    expect(themes.map((theme) => theme.label)).toEqual(["Orchid", "Orchid Soft"]);
+    expect(themes.map((theme) => theme.id)).toEqual(["orchid", "orchid-soft"]);
     const numbered = resolveThemeLabelCollisions([
-      { theme: dracula("#282a36") },
-      { theme: dracula("#22232e") },
+      { theme: orchid("#282a36") },
+      { theme: orchid("#22232e") },
     ]);
-    expect(numbered.map((theme) => theme.label)).toEqual(["Dracula", "Dracula 2"]);
+    expect(numbered.map((theme) => theme.label)).toEqual(["Orchid", "Orchid 2"]);
   });
 });

@@ -20,7 +20,9 @@ import {
   type ThemeAppearance,
   type ThemeColorRole,
   type ThemeColors,
+  type ThemeCharacter,
   type ThemeDefinition,
+  type ThemeDeviceColors,
   type ThemeVariants,
 } from "@t3tools/shared/themePalettes";
 import {
@@ -677,7 +679,8 @@ export function readableThemeColorOn(color: string, surface: string, minContrast
   return themeRgbToHexColor(themeOklchToRgb(solved));
 }
 
-const CONTEXT_CHIP_CONTRAST = 5;
+// A hair over 5:1, so the 8-bit colour the solver returns never rounds to just under it.
+const CONTEXT_CHIP_CONTRAST = 5.01;
 const CONTEXT_CHIP_MESSAGE_VARIABLE = "--context-chip-message";
 const CONTEXT_CHIP_INVALID_VARIABLE = "--context-chip-invalid";
 
@@ -1623,18 +1626,70 @@ const THEME_METAL_TINT_AMOUNT = "35%";
  * A theme's device colours, read by the composer finish rules (deviceComposer.css): they
  * show while the finish is "Match theme" and give way to any other finish.
  */
-function applyThemeDeviceColors(root: HTMLElement, device: ThemeDefinition["device"]): void {
+function applyThemeDeviceColors(root: HTMLElement, device: ThemeDeviceColors | undefined): void {
   const values: ReadonlyArray<readonly [string, string | undefined]> = [
     ["--theme-metal-dye", device?.metal],
     ["--theme-metal-tint-amount", device?.metal ? THEME_METAL_TINT_AMOUNT : undefined],
     ["--theme-device-screen", device?.screen],
     ["--theme-device-screen-text", device?.screenText],
     ["--theme-engrave-active", device?.engraveActive],
+    ["--theme-lamp", device?.lamp],
+    ["--theme-rec-lamp", device?.recLamp],
+    ["--theme-hot-lamp", device?.hotLamp],
+    ["--theme-env-local", device?.envLocal],
+    ["--theme-env-remote", device?.envRemote],
   ];
   for (const [variable, value] of values) {
     if (value) root.style.setProperty(variable, value);
     else root.style.removeProperty(variable);
   }
+  if (device?.lamp) root.dataset.themeLit = "";
+  else delete root.dataset.themeLit;
+}
+
+const CHARACTER_ATTRIBUTES = [
+  ["texture", "themeTexture"],
+  ["cursor", "themeCursor"],
+  ["font", "themeFont"],
+  ["mono", "themeMono"],
+  ["knob", "themeKnob"],
+  ["ticks", "themeTicks"],
+  ["needle", "themeNeedle"],
+  ["glyph", "themeGlyph"],
+  ["marker", "themeMarker"],
+  ["meter", "themeMeter"],
+] as const satisfies ReadonlyArray<readonly [keyof ThemeCharacter, string]>;
+
+/** The context bar's fill: its colours, lifted or dropped to read on the screen, left to right. */
+function meterFillGradient(colors: ReadonlyArray<string>, appearance: ThemeAppearance): string {
+  const max = appearance === "dark" ? 0.93 : 0.62;
+  const stops = colors.length === 1 ? [colors[0]!, colors[0]!] : colors;
+  return `linear-gradient(90deg, ${stops
+    .map((color) => `oklch(from ${color} clamp(0.56, l, ${max}) c h)`)
+    .join(", ")})`;
+}
+
+/** A theme's character as data attributes the device stylesheet (themeCharacter.css) keys on. */
+function applyThemeCharacter(
+  root: HTMLElement,
+  character: ThemeCharacter | undefined,
+  appearance: ThemeAppearance,
+): void {
+  for (const [key, attribute] of CHARACTER_ATTRIBUTES) {
+    const value = character?.[key];
+    if (typeof value === "string") root.dataset[attribute] = value;
+    else delete root.dataset[attribute];
+  }
+  const colors = character?.meterColors;
+  if (colors && colors.length > 0) {
+    root.style.setProperty("--theme-meter-fill", meterFillGradient(colors, appearance));
+    root.style.setProperty("--theme-meter-glow", colors[colors.length > 1 ? 1 : 0]!);
+  } else {
+    root.style.removeProperty("--theme-meter-fill");
+    root.style.removeProperty("--theme-meter-glow");
+  }
+  if (character?.meterGlow) root.dataset.themeMeterGlow = "";
+  else delete root.dataset.themeMeterGlow;
 }
 
 export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppearance): void {
@@ -1645,11 +1700,15 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
 
   setThemePreviewAppearance(null);
   const palette = getThemeDefinition(theme);
-  applyThemeDeviceColors(root, palette?.device);
+  const paletteMode = palette
+    ? (appearance ?? legacyThemeMode(theme) ?? palette.appearance)
+    : (appearance ?? "light");
+  applyThemeDeviceColors(root, palette?.deviceVariants?.[paletteMode] ?? palette?.device);
+  applyThemeCharacter(root, palette?.character, paletteMode);
 
   if (palette) {
     root.dataset.themeId = palette.id;
-    const mode = appearance ?? legacyThemeMode(theme) ?? palette.appearance;
+    const mode = paletteMode;
     const colors = getThemeColorsForMode(palette, mode) ?? palette.colors;
     for (const [role, value] of Object.entries(colors) as Array<[ThemeColorRole, string]>) {
       root.style.setProperty(APP_THEME_VARIABLES[role], value);

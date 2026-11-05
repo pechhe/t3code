@@ -22,6 +22,7 @@ import { primaryServerKeybindingsAtom } from "../../state/server";
 import { cn } from "../../lib/utils";
 import { usePullRequestsSupported } from "../../state/environments";
 import { AwayKey } from "../AwayKey";
+import { NextThemeKey } from "../NextThemeKey";
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -94,6 +95,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
             </div>
           ) : null}
         </div>
+        <NextThemeKey />
         <AwayKey />
         {pillLabel ? (
           <div className="ml-1 flex h-7 items-center">

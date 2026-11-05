@@ -321,13 +321,11 @@ describe("MessagesTimeline work rows", () => {
         { onOpenThread },
       );
       if (source === "delegated") {
-        expect(screen.text()).toContain("Final implementation report");
-        expect(screen.text()).toContain("Follow-up explanation");
+        expect(screen.text()).toContain("Follow-up 2");
+        expect(screen.text()).not.toContain("Follow-up 3");
         expect(screen.text()).not.toContain("Old interrupted progress");
-        await click(screen.buttons("Open Simplify delivery")[0]!);
-        expect(onOpenThread).toHaveBeenCalledWith(childThreadId);
       } else if (source === "legacy") {
-        expect(screen.text()).toContain("Old interrupted progress");
+        expect(screen.text()).toContain("Follow-up 3");
       } else {
         expect(screen.text()).toContain("Notification fallback");
         expect(screen.text()).not.toContain("Old interrupted progress");

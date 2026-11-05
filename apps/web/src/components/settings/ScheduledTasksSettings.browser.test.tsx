@@ -47,22 +47,15 @@ const threadFamilyRead = {
   threads: [{ id: task.threadId, title: "Fix login bug" }],
 };
 
-const state = vi.hoisted(() => ({ connected: true, tasksLoaded: true, secondary: false }));
-const secondaryId = EnvironmentId.make("secondary");
+const state = vi.hoisted(() => ({ connected: true, tasksLoaded: true }));
 const permissions = new Map<string, Atom.Writable<boolean>>();
 
 function setup() {
   state.connected = true;
   state.tasksLoaded = true;
-  state.secondary = false;
   permissions.clear();
   permissions.set(environmentId, Atom.make(true));
-  permissions.set(secondaryId, Atom.make(true));
   permissions.set("", Atom.make(false));
-}
-
-function secondaryEnvironment() {
-  return { ...environment(), environmentId: secondaryId, label: "Secondary" };
 }
 
 function environment() {
@@ -81,12 +74,8 @@ vi.mock(import("./SettingsScopeContext"), async (original) => {
     const entry = environment();
     return {
       scope: { kind: "all", label: "All", members: [], environmentIds: [environmentId] },
-      environments: state.secondary ? [entry, secondaryEnvironment()] : [entry],
-      connectedEnvironments: state.connected
-        ? state.secondary
-          ? [entry, secondaryEnvironment()]
-          : [entry]
-        : [],
+      environments: [entry],
+      connectedEnvironments: state.connected ? [entry] : [],
       environment: entry,
       target: null,
       targets: [],
@@ -131,14 +120,22 @@ vi.mock(import("../../state/query"), async (original) => ({
     refresh: vi.fn(),
   })) as never,
 }));
+vi.mock(import("../../state/scheduledTasks"), async (original) => ({
+  ...(await original()),
+  useAllScheduledTasks: (() =>
+    state.connected
+      ? [{ environmentId, tasks: state.tasksLoaded ? [task] : null, error: null }]
+      : []) as never,
+}));
 vi.mock(import("../../state/environments"), async (original) => ({
   ...(await original()),
-  useEnvironment: ((id: EnvironmentId) =>
-    id === secondaryId ? secondaryEnvironment() : environment()) as never,
+  useEnvironment: (() => environment()) as never,
 }));
 vi.mock(import("../../state/entities"), async (original) => ({
   ...(await original()),
-  useProjects: (() => [{ id: projectId, environmentId, title: "Project" }]) as never,
+  useProjects: (() => [
+    { id: projectId, environmentId, title: "Project", workspaceRoot: "/repo" },
+  ]) as never,
 }));
 vi.mock(import("../../hooks/useSettings"), async (original) => ({
   ...(await original()),
@@ -146,73 +143,59 @@ vi.mock(import("../../hooks/useSettings"), async (original) => ({
 }));
 
 describe("ScheduledTasksSettings", () => {
-  it("creates on a permitted secondary and reacts to permission changes", async () => {
+  it("lists the tasks on connected machines and opens the linked one", async () => {
     setup();
-    state.secondary = true;
+    await using _screen = await render(<ScheduledTasksSettings taskId={task.id} />);
+    await expect.element(page.getByText("1 task")).toBeVisible();
+    await expect
+      .element(page.getByRole("textbox", { name: "Task name" }))
+      .toHaveValue("Review issues");
+  });
+
+  it("follows the permission to change tasks on the machine it runs on", async () => {
+    setup();
     const registry = AtomRegistry.make();
     using _registry = { [Symbol.dispose]: () => registry.dispose() };
-    registry.set(permissions.get(environmentId)!, false);
-    await using screen = await render(
+    await using _screen = await render(
       <RegistryContext.Provider value={registry}>
-        <ScheduledTasksSettings />
+        <ScheduledTasksSettings taskId={task.id} />
       </RegistryContext.Provider>,
     );
-    const create = screen.getByRole("button", { name: "New task" });
-    await expect.element(create).toBeEnabled();
-    await act(() => registry.set(permissions.get(secondaryId)!, false));
-    await expect.element(create).toBeDisabled();
-    await act(() => registry.set(permissions.get(secondaryId)!, true));
-    await expect.element(create).toBeEnabled();
-    await create.click();
-    await expect.element(page.getByLabelText("Runs on")).toHaveTextContent("Secondary");
+    const save = page.getByRole("button", { name: "Save" });
+    await expect.element(save).toBeEnabled();
+    await act(() => registry.set(permissions.get(environmentId)!, false));
+    await expect.element(save).toBeDisabled();
+    await act(() => registry.set(permissions.get(environmentId)!, true));
+    await expect.element(save).toBeEnabled();
   });
 
-  it("keeps the permitted representative as the creation target", async () => {
+  it("opens an empty task from New task", async () => {
     setup();
-    state.secondary = true;
-    await using screen = await render(<ScheduledTasksSettings />);
-    await screen.getByRole("button", { name: "New task" }).click();
-    await expect.element(page.getByLabelText("Runs on")).toHaveTextContent("Laptop");
+    await using _screen = await render(<ScheduledTasksSettings taskId={task.id} />);
+    await userEvent.click(page.getByRole("button", { name: "New task" }));
+    await expect.element(page.getByRole("textbox", { name: "Task name" })).toHaveValue("");
+    await expect.element(page.getByRole("button", { name: "Create task" })).toBeVisible();
   });
 
-  it("disables creation without a connected target", async () => {
+  it("asks for a machine when none is connected", async () => {
     setup();
     state.connected = false;
-    await using screen = await render(<ScheduledTasksSettings />);
-    await expect.element(screen.getByRole("button", { name: "New task" })).toBeDisabled();
+    await using _screen = await render(<ScheduledTasksSettings taskId={task.id} />);
+    await expect.element(page.getByText("No machines connected")).toBeVisible();
   });
 
-  it("keeps a linked task's unsaved edits across a disconnect and reconnect", async () => {
-    setup();
-    await using screen = await render(<ScheduledTasksSettings taskId={task.id} />);
-    await expect.element(page.getByRole("dialog").getByText("Fix login bug")).toBeVisible();
-    const name = page.getByRole("dialog").getByRole("textbox", { name: "Name" });
-    await expect.element(name).toHaveValue("Review issues");
-    await userEvent.fill(name, "Review stale issues");
-
-    state.connected = false;
-    await screen.rerender(<ScheduledTasksSettings taskId={task.id} />);
-
-    await expect.element(name).toHaveValue("Review stale issues");
-
-    state.connected = true;
-    await screen.rerender(<ScheduledTasksSettings taskId={task.id} />);
-    await expect.element(name).toHaveValue("Review stale issues");
-  });
-
-  it("keeps an editor the user opened when the linked task loads later", async () => {
+  it("keeps a task the user started when the linked task loads later", async () => {
     setup();
     state.tasksLoaded = false;
     await using screen = await render(<ScheduledTasksSettings taskId={task.id} />);
     await userEvent.click(page.getByRole("button", { name: "New task" }));
-    const dialog = page.getByRole("dialog");
-    const name = dialog.getByRole("textbox", { name: "Name" });
+    const name = page.getByRole("textbox", { name: "Task name" });
     await userEvent.fill(name, "My draft");
 
     state.tasksLoaded = true;
     await screen.rerender(<ScheduledTasksSettings taskId={task.id} />);
 
-    await expect.element(dialog.getByRole("heading", { name: "New task" })).toBeInTheDocument();
     await expect.element(name).toHaveValue("My draft");
+    await expect.element(page.getByRole("button", { name: "Create task" })).toBeVisible();
   });
 });
