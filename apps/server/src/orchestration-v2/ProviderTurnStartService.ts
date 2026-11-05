@@ -1,7 +1,7 @@
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
-import { checkoutRoot, repositoryWriteRoots } from "../agents/workspaceIdentity.ts";
+import { checkoutOffset, checkoutRoot, repositoryWriteRoots } from "../agents/workspaceIdentity.ts";
 import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
@@ -132,6 +132,14 @@ const workspacesNote = (workspaces: ReadonlyArray<TurnWorkspace>, managed = fals
       return `- ${workspace.project} (${role}): ${workspace.path}${branch}${instructions}`;
     }),
   ].join("\n");
+
+/**
+ * A project registered in a repository subdirectory still binds whole checkouts, and turns start
+ * at their root: provider sandboxes grant writes under the working directory, and the project's
+ * work may need to change shared code outside its folder.
+ */
+const projectFolderNote = (folder: string): string =>
+  `This project is the \`${folder}\` folder of its repository. This turn starts at the repository root so it can also change shared code. Work on that folder's product and read the instruction files in \`${folder}\` before changing it.`;
 
 /**
  * Sent with the turn that runs in a SlipJay workspace allocated after SlipJay removed the
@@ -827,9 +835,10 @@ export const layer: Layer.Layer<
           // Scratch and non-repository projects have no repository identity to preserve.
           if (expected !== null) {
             const actual = yield* identity(worktreePath);
+            // A workspace is allocated whole, so a subdirectory project's is bound at its root.
             invalidWorkspace =
               actual === null ||
-              actual.offset !== expected.offset ||
+              (actual.offset !== expected.offset && actual.offset !== "") ||
               !actual.stores.some((store) => expected.stores.includes(store));
           }
         }
@@ -1791,6 +1800,21 @@ export const layer: Layer.Layer<
         projection.providerTurns,
         run.id,
       );
+      const projectFolder =
+        projection.thread.worktreePath === null
+          ? ""
+          : yield* Effect.gen(function* () {
+              const project = yield* projects.getById(projection.thread.projectId);
+              if (Option.isNone(project)) return "";
+              return (yield* checkoutOffset(projection.thread.worktreePath!)) === ""
+                ? yield* checkoutOffset(project.value.workspaceRoot)
+                : "";
+            }).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.provideService(Path.Path, path),
+              Effect.provideService(ProcessRunner.ProcessRunner, processes),
+              Effect.orElseSucceed(() => ""),
+            );
       const attachments = projection.thread.workspaceAttachments ?? [];
       const turnWorkspaces =
         attachments.length === 0 && resolvedRuntimePolicy.managedAgent !== true
@@ -1913,6 +1937,7 @@ export const layer: Layer.Layer<
             restartNote,
             projection.thread.sideChat === true ? SIDE_CHAT_NOTE : "",
             offersProjectSuggestion ? NO_PROJECT_NOTE : "",
+            projectFolder === "" ? "" : projectFolderNote(projectFolder),
             turnWorkspaces.length === 0
               ? ""
               : workspacesNote(
@@ -1984,6 +2009,7 @@ export const layer: Layer.Layer<
         projection.thread.sideChat !== true &&
         !scheduled &&
         !offersProjectSuggestion &&
+        projectFolder === "" &&
         turnWorkspaces.length === 0 &&
         replaced === null
           ? session

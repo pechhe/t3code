@@ -91,6 +91,15 @@ export const checkoutRoot = Effect.fn("workspaceIdentity.checkoutRoot")(function
   return yield* fs.realPath(top.stdout.trim());
 });
 
+/** Where `directory` sits in the checkout containing it; empty at the checkout's root. */
+export const checkoutOffset = Effect.fn("workspaceIdentity.checkoutOffset")(function* (
+  directory: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  return path.relative(yield* checkoutRoot(directory), yield* fs.realPath(directory));
+});
+
 /** The repository store of the checkout containing `directory`. */
 export const containingRepositoryStore = Effect.fn("workspaceIdentity.containingRepositoryStore")(
   function* (directory: string) {

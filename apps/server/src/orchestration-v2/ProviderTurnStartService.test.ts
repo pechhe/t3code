@@ -1695,7 +1695,14 @@ effectIt.effect("says a delegated task's removed workspace is not replaced", () 
 );
 
 const boundWorkspaceFixture = Effect.fn("test.boundWorkspaceFixture")(function* (
-  kind: "git" | "git-subdirectory" | "jj" | "jj-git" | "scratch" | "non-repository",
+  kind:
+    | "git"
+    | "git-subdirectory"
+    | "git-subdirectory-root"
+    | "jj"
+    | "jj-git"
+    | "scratch"
+    | "non-repository",
 ) {
   const fs = yield* FileSystem.FileSystem;
   const runner = yield* ProcessRunner.ProcessRunner;
@@ -1706,8 +1713,9 @@ const boundWorkspaceFixture = Effect.fn("test.boundWorkspaceFixture")(function* 
     runner
       .run({ command, args, cwd })
       .pipe(Effect.tap((result) => Effect.sync(() => expect(result.code).toBe(0))));
-  if (kind === "git-subdirectory") {
-    // A project rooted in a subdirectory of its repository, bound to the same subdirectory.
+  if (kind === "git-subdirectory" || kind === "git-subdirectory-root") {
+    // A project rooted in a subdirectory of its repository, bound to the same subdirectory or,
+    // as a workspace allocation binds it, to the root of the checkout.
     const repository = `${root}/repository`;
     yield* run("git", ["init", repository]);
     yield* fs.makeDirectory(`${repository}/apps/web`, { recursive: true });
@@ -1722,7 +1730,8 @@ const boundWorkspaceFixture = Effect.fn("test.boundWorkspaceFixture")(function* 
     return {
       fs,
       projectRoot: `${repository}/apps/web`,
-      worktreePath: `${root}/workspace/apps/web`,
+      worktreePath:
+        kind === "git-subdirectory" ? `${root}/workspace/apps/web` : `${root}/workspace`,
       baseDir: root,
     };
   }
@@ -1814,6 +1823,7 @@ effectIt.effect.each([
 effectIt.effect.each([
   "git",
   "git-subdirectory",
+  "git-subdirectory-root",
   "jj",
   "jj-git",
   "scratch",
@@ -1843,6 +1853,64 @@ effectIt.effect.each([
         thread: expect.objectContaining({ worktreePath }),
       }),
     );
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(ProcessRunner.layer.pipe(Layer.provideMerge(NodeServices.layer))),
+  ),
+);
+
+effectIt.effect("refuses a subdirectory project's task bound to a different folder", () =>
+  Effect.gen(function* () {
+    const { fs, projectRoot, worktreePath, baseDir } =
+      yield* boundWorkspaceFixture("git-subdirectory-root");
+    const elsewhere = `${worktreePath}/packages/other`;
+    yield* fs.makeDirectory(elsewhere, { recursive: true });
+    const harness = makeLocalCommandHarness({
+      text: "Start",
+      baseDir,
+      projectRoot,
+      worktreePath: elsewhere,
+      branch: null,
+      delegated: true,
+      fileSystem: fs,
+      failReadsAfterRunning: true,
+    });
+
+    yield* harness.start;
+
+    expect(harness.open).not.toHaveBeenCalled();
+    expect(harness.projection().turnItems[0]).toMatchObject({
+      type: "error",
+      title: "Workspace invalid",
+    });
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(ProcessRunner.layer.pipe(Layer.provideMerge(NodeServices.layer))),
+  ),
+);
+
+effectIt.effect.each([
+  { kind: "git-subdirectory-root", folder: "apps/web" },
+  { kind: "git-subdirectory", folder: null },
+  { kind: "git", folder: null },
+] as const)("names the project's folder from the checkout root: $kind", ({ kind, folder }) =>
+  Effect.gen(function* () {
+    const { fs, projectRoot, worktreePath, baseDir } = yield* boundWorkspaceFixture(kind);
+    const harness = makeLocalCommandHarness({
+      text: "Continue",
+      deliverTurn: true,
+      baseDir,
+      projectRoot,
+      worktreePath,
+      branch: null,
+      fileSystem: fs,
+    });
+
+    yield* harness.start;
+
+    const text = harness.startTurn.mock.calls[0]![0].message.text;
+    if (folder === null) expect(text).toBe("Continue");
+    else expect(text).toContain(`\`${folder}\``);
   }).pipe(
     Effect.scoped,
     Effect.provide(ProcessRunner.layer.pipe(Layer.provideMerge(NodeServices.layer))),
