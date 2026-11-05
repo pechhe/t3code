@@ -1,11 +1,11 @@
-// @effect-diagnostics nodeBuiltinImport:off globalConsole:off -- The guard runs in Node's unhandled-rejection callback, outside an Effect runtime. stderr must match Node's default unhandled-rejection print.
+// @effect-diagnostics nodeBuiltinImport:off globalConsole:off -- The guard runs in Node's unhandled-rejection callback, outside an Effect runtime.
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { loadCursorSdk, loadCursorSqlite } from "./sdk.ts";
 
-// The SDK leaves a shell-error promise unhandled, which would exit the server.
+// The SDK leaves a shell-error promise unhandled; these are named only to log them quietly.
 const CURSOR_SHELL_SPAWN_MARKERS = [
   "dump_zsh_state",
   "dump_bash_state",
@@ -63,8 +63,8 @@ function onUnhandledRejection(reason: unknown): void {
   if (process.listenerCount("unhandledRejection") > 1) {
     return;
   }
-  console.error("Fatal: unhandled promise rejection; exiting the server.", reason);
-  process.exit(1);
+  // One stray rejection must not take every agent on the server down with it.
+  console.error("Unhandled promise rejection; the server keeps running.", reason);
 }
 
 /** Keeps the shell spawn guard armed while in-process agents run. */

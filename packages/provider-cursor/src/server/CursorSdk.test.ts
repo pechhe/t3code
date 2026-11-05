@@ -50,22 +50,23 @@ describe("CursorSdk unhandled rejection guard", () => {
     }),
   );
 
-  it.effect("still exits on other rejections", () =>
+  it.effect("keeps the server running on other rejections", () =>
     Effect.gen(function* () {
-      assert.deepStrictEqual(yield* rejectThroughGuard(new Error("WritableIterable is closed")), [
-        [1],
-      ]);
+      assert.deepStrictEqual(
+        yield* rejectThroughGuard(new Error("WritableIterable is closed")),
+        [],
+      );
     }),
   );
 
-  it.effect("still exits on aborted requests other than a write after end", () =>
+  it.effect("keeps the server running on aborted requests other than a write after end", () =>
     Effect.gen(function* () {
       const cause = Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
       const reason = Object.assign(new Error("[aborted] socket hang up", { cause }), {
         name: "ConnectError",
         code: 10,
       });
-      assert.deepStrictEqual(yield* rejectThroughGuard(reason), [[1]]);
+      assert.deepStrictEqual(yield* rejectThroughGuard(reason), []);
     }),
   );
 });

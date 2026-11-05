@@ -933,3 +933,12 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** upstream's launch script (#2361) starts its own server whenever the runtime file names none; a focused fix could be offered upstream.
 - **Retire when:** upstream's SSH launch waits for a service-owned home itself.
 - **Owner:** none; fixed as a chore.
+
+### unhandled-rejection-keeps-server
+
+- **Kind:** durable behaviour difference
+- **Requirement:** an unhandled promise rejection is logged and the server keeps running. Upstream's Cursor guard exits the whole process with code 1, which stops every agent on the environment; a stale-ref preview snapshot did this repeatedly on peach-box (fixed at its source in `ServerBrowserPage.snapshot`).
+- **Integration points:** `onUnhandledRejection` in `packages/provider-cursor/src/server/CursorSdk.ts`, the only process-wide `unhandledRejection` listener.
+- **Proof:** `CursorSdk.test.ts` ("keeps the server running on other rejections" and the aborted-request case).
+- **Upstream:** none known; a focused fix could be proposed upstream if Henry asks.
+- **Retire when:** upstream stops exiting on an unhandled rejection, or the server reports such rejections some other way.
