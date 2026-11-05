@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - a Node stand-in for expo-crypto has no Effect equivalent.
 /// <reference types="node" />
 import * as NodeCrypto from "node:crypto";
 
