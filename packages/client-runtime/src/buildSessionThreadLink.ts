@@ -1,5 +1,5 @@
 import type { ForgeWorkItemSession } from "@t3tools/contracts";
-import { parseThreadLink } from "@t3tools/shared/threadLinks";
+import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 
 /** Build's T3 session references name an environment and thread, separated by one slash. */
 export function buildSessionThreadLink(session: ForgeWorkItemSession | null) {
@@ -13,7 +13,7 @@ export function buildSessionThreadLink(session: ForgeWorkItemSession | null) {
     parts.some((part) => /[\s?#]/.test(part))
   )
     return null;
-  const link = parseThreadLink(
+  const link = parseThreadLinkHref(
     `t3-thread://v1/${threadId}?environment=${encodeURIComponent(environmentId)}`,
   );
   return link?.environmentId

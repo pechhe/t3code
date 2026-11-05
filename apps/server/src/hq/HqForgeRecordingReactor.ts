@@ -5,7 +5,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FiberSet from "effect/FiberSet";
@@ -83,7 +83,7 @@ const make = Effect.gen(function* () {
   const buildSpec = yield* ForgeSpecOfThread.ForgeSpecOfThread;
   const records = yield* HqForgeRecords.HqForgeRecords;
   const environmentId = yield* environment.getEnvironmentId;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
 
   /**
    * The session reference Weave files a helper's work under.
@@ -225,10 +225,9 @@ const make = Effect.gen(function* () {
       // its first run), and this helper's rows wait for it.
       if (target.leadThreadId !== null) {
         // The helper's own record is owed whether or not that session could be queued.
-        yield* projections.getThread(target.leadThreadId).pipe(
-          Effect.flatMap(recordLeadLink),
-          Effect.catchCause(() => Effect.void),
-        );
+        yield* projections
+          .getThread(target.leadThreadId)
+          .pipe(Effect.flatMap(recordLeadLink), Effect.ignoreCause);
       }
 
       // One Forge helper per finished run: a follow-up run, or one under another model, is its own.

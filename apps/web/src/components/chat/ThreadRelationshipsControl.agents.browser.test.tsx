@@ -205,6 +205,8 @@ it("keeps managed advisor conversations in their own visible section through fol
   state.projection = projection;
   const panel = (
     <ThreadRelationshipsPanel
+      showLineage
+      showSideChats
       environmentId={EnvironmentId.make("test")}
       threadId={ThreadId.make("parent")}
     />
@@ -272,6 +274,8 @@ it("lists a thread the current thread finished watching under Earlier with a Wat
   };
   await render(
     <ThreadRelationshipsPanel
+      showLineage
+      showSideChats
       environmentId={EnvironmentId.make("test")}
       threadId={ThreadId.make("parent")}
     />,

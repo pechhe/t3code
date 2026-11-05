@@ -6,7 +6,7 @@ import * as Logger from "effect/Logger";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http";
 import * as TestClock from "effect/testing/TestClock";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as NodeUtil from "node:util";
 
 import * as HqAgentConnections from "./HqAgentConnections.ts";
@@ -26,7 +26,7 @@ const makeHarness = Effect.gen(function* () {
   const logs: string[] = [];
   const hq = { unreachable: false, accessRevoked: false };
   let minted = 0;
-  const effectCrypto = yield* Crypto.Crypto.pipe(Effect.provide(NodeCryptoLayer.layer));
+  const effectCrypto = yield* Digest.Digest.pipe(Effect.provide(NodeCryptoLayer.layer));
 
   const client = HttpClient.make((request) =>
     Effect.gen(function* () {
@@ -51,7 +51,7 @@ const makeHarness = Effect.gen(function* () {
       codes.delete(body.code);
       const challenge = Buffer.from(
         yield* effectCrypto
-          .digest("SHA-256", new TextEncoder().encode(body.code_verifier))
+          .digest(Digest.sha256, new TextEncoder().encode(body.code_verifier))
           .pipe(Effect.orDie),
       ).toString("base64url");
       if (issued === undefined || issued.challenge !== challenge)

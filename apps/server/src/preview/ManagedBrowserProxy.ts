@@ -259,7 +259,8 @@ export class ManagedBrowserProxy {
           );
         }
         if (head.length) upstream.write(head);
-        client.pipe(upstream).pipe(client);
+        client.pipe(upstream);
+        upstream.pipe(client);
       });
       upstream.once("error", () => {
         clearTimeout(timer);

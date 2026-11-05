@@ -60,11 +60,12 @@ export const decodeJsonReply = <S extends Schema.Top>(
   text: string,
 ) => {
   const decodeOutput = Schema.decodeEffect(Schema.fromJsonString(request.outputSchema));
+  const decodePlainText = Schema.decodeEffect(request.outputSchema);
   const plainText = text.trim();
   return decodeOutput(extractJsonObject(text)).pipe(
     request.plainTextField !== undefined && plainText.length > 0
       ? Effect.catch(() =>
-          Schema.decodeUnknownEffect(request.outputSchema)({
+          decodePlainText({
             [request.plainTextField as string]: plainText,
           }),
         )

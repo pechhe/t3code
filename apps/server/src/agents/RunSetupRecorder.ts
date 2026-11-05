@@ -9,7 +9,7 @@ import {
   type RunSetupSkill,
 } from "@t3tools/contracts";
 import * as Config from "effect/Config";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Hex from "effect/encoding/Hex";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -64,9 +64,9 @@ const policyRoot = Config.option(Config.String("T3CODE_AGENT_POLICY_ROOT"));
 
 const hashFile = Effect.fn("RunSetupRecorder.hashFile")(function* (file: string) {
   const fs = yield* FileSystem.FileSystem;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
   return yield* fs.readFile(file).pipe(
-    Effect.flatMap((bytes) => crypto.digest("SHA-256", bytes)),
+    Effect.flatMap((bytes) => crypto.digest(Digest.sha256, bytes)),
     Effect.map(Hex.encode),
     Effect.orElseSucceed(() => null),
   );
@@ -98,7 +98,7 @@ const skillsIn = Effect.fn("RunSetupRecorder.skillsIn")(function* (
   const visit: (
     folder: string,
     depth: number,
-  ) => Effect.Effect<void, never, FileSystem.FileSystem | Crypto.Crypto> = Effect.fn(
+  ) => Effect.Effect<void, never, FileSystem.FileSystem | Digest.Digest> = Effect.fn(
     "RunSetupRecorder.visit",
   )(function* (folder: string, depth: number) {
     const entries = yield* fs.readDirectory(folder).pipe(Effect.orElseSucceed(() => []));
@@ -296,13 +296,13 @@ export function setupWindow<Run extends Pick<OrchestrationV2Run, "ordinal">>(
 const fileSummary = Effect.fn("RunSetupRecorder.fileSummary")(function* (
   files: ReadonlyArray<{ readonly path: string; readonly sha256: string | null }>,
 ) {
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
   const text = files
     .map((file) => `${file.path}\0${file.sha256 ?? ""}`)
     .sort()
     .join("\n");
   const digest = yield* crypto
-    .digest("SHA-256", new TextEncoder().encode(text))
+    .digest(Digest.sha256, new TextEncoder().encode(text))
     .pipe(Effect.map(Hex.encode), Effect.orDie);
   return { count: files.length, digest };
 });
@@ -380,11 +380,12 @@ export const storeLayer = Layer.effect(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     return RunSetupStore.of({
-      list: (runIds) =>
+      list: Effect.fn("RunSetupStore.list")((runIds) =>
         listRunSetups(runIds).pipe(
           Effect.provideService(SqlClient.SqlClient, sql),
           Effect.mapError((cause) => new RunSetupStoreError({ cause })),
         ),
+      ),
     });
   }),
 );
@@ -409,7 +410,7 @@ export const make = Effect.gen(function* () {
   const settings = yield* ServerSettingsService;
   const sql = yield* SqlClient.SqlClient;
   const context = yield* Effect.context<
-    FileSystem.FileSystem | Path.Path | ProcessRunner.ProcessRunner | Crypto.Crypto
+    FileSystem.FileSystem | Path.Path | ProcessRunner.ProcessRunner | Digest.Digest
   >();
   const recorded = new Set<string>();
   const recorderStartedAt = yield* DateTime.now;

@@ -5,7 +5,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
-import * as Option from "effect/Option";
+
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
@@ -42,10 +42,13 @@ const harness = Effect.gen(function* () {
       threadId === leadThread
         ? specReads.unavailable
           ? Effect.fail(new ForgeSpecOfThread.BuildSpecUnavailable({ threadId, origin }))
-          : Effect.succeed(
-              Option.some({ specId: "spec-1", origin, project: null, leadThreadId: leadThread }),
-            )
-        : Effect.succeed(Option.none()),
+          : Effect.succeedSome({
+              specId: "spec-1",
+              origin,
+              project: null,
+              leadThreadId: leadThread,
+            })
+        : Effect.succeedNone,
   });
   const recordsLayer = HqForgeRecords.layer.pipe(
     Layer.provide(specs),
@@ -76,9 +79,7 @@ const harness = Effect.gen(function* () {
     Layer.provide(specs),
     Layer.provide(NodeCrypto.layer),
   );
-  const bootUsage = Effect.gen(function* () {
-    return yield* HqForgeUsage.HqForgeUsage;
-  }).pipe(Effect.provide(usageLayer));
+  const bootUsage = HqForgeUsage.HqForgeUsage.pipe(Effect.provide(usageLayer));
   const bootRecords = Effect.service(HqForgeRecords.HqForgeRecords).pipe(
     Effect.provide(recordsLayer),
   );

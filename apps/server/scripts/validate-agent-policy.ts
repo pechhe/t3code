@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
@@ -35,7 +36,9 @@ await Effect.runPromise(
       }),
     );
   }).pipe(
-    Effect.provide(AgentPolicy.layer.pipe(Layer.provide(NodeServices.layer))),
+    Effect.provide(
+      AgentPolicy.layer.pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+    ),
     Effect.catch((error) =>
       Effect.gen(function* () {
         yield* Console.error(error.message);

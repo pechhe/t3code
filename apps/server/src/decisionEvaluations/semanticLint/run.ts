@@ -1,8 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off globalDate:off globalConsole:off - command-line entry point, not server code
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import { FetchHttpClient } from "effect/http";
 import * as NodeFS from "node:fs";
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
@@ -44,8 +44,9 @@ const live = DecisionService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
       FetchHttpClient.layer,
-      Layer.mock(ServerSecretStore.ServerSecretStore)({ get: () => Effect.succeed(Option.none()) }),
+      Layer.mock(ServerSecretStore.ServerSecretStore)({ get: () => Effect.succeedNone }),
       NodeServices.layer,
+      NodeCrypto.layer,
     ),
   ),
 );

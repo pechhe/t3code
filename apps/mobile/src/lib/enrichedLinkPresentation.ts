@@ -12,7 +12,7 @@ import {
   formatComposerContextHref,
   parseComposerContextHref,
 } from "@t3tools/shared/composerContextReferences";
-import { hasThreadLinks, parseThreadLink, parseThreadLinkHref } from "@t3tools/shared/threadLinks";
+import { hasThreadLinks, parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 
 export function enrichedContextLinkPresentation(
   href: string,
@@ -58,16 +58,16 @@ export function threadChipTargets(
 ): ReadonlyArray<ThreadChipTarget> {
   const targets = new Map<string, ThreadChipTarget>();
   if (hasThreadLinks(markdown)) {
-    for (const [, href = ""] of markdown.matchAll(/\]\((t3-thread:\/\/v1\/[^\s)]+)\)/g)) {
-      const link = parseThreadLink(href);
-      if (link)
+    for (const [, href = ""] of markdown.matchAll(/\]\((t3-thread:\/\/v[12]\/[^\s)]+)\)/g)) {
+      const link = parseThreadLinkHref(href);
+      if (link) {
         targets.set(href, {
           href,
-          // A link that names its environment draws that environment's icon, not this message's.
           environmentId: link.environmentId ?? environmentId,
           threadId: link.threadId,
           link: true,
         });
+      }
     }
   }
   for (const record of records ?? []) {

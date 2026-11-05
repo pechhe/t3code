@@ -2,6 +2,7 @@ import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
   type OrchestrationV2ThreadWorkflow,
+  type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -13,9 +14,7 @@ import {
 import { ChevronDownIcon } from "lucide-react";
 import {
   memo,
-  useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -23,6 +22,7 @@ import {
   type ReactNode,
 } from "react";
 import { isTrailingDoubleClick } from "../Sidebar.logic";
+import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
@@ -52,6 +52,7 @@ interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
   activeThreadTitle: string;
+  activeThreadLinkOrigin?: string | null | undefined;
   isServerThread: boolean;
   activeProject: EnvironmentProject | null;
   /** The thread's governing workflow; unset or null when none is recorded. */
@@ -63,6 +64,7 @@ interface ChatHeaderProps {
   onOpenProjectSettings?: (() => void) | undefined;
   /** Trailing header controls, kept clear of the pinned title-bar controls. */
   actions?: ReactNode;
+  onFindInThread?: ((threadRef: ScopedThreadRef) => void) | undefined;
 }
 
 function resolveRenameCommit(input: {
@@ -83,6 +85,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadEnvironmentId,
   activeThreadId,
   activeThreadTitle,
+  activeThreadLinkOrigin,
   isServerThread,
   activeProject,
   workflow,
@@ -92,16 +95,14 @@ export const ChatHeader = memo(function ChatHeader({
   onNewThreadInProject,
   onOpenProjectSettings,
   actions,
+  onFindInThread,
 }: ChatHeaderProps) {
   const activeProjectName = activeProject?.isScratch ? "No project" : activeProject?.title;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const interfaceFont = useClientSettings((settings) => settings.fontFamilySans);
   const breadcrumbContainerRef = useRef<HTMLDivElement>(null);
   const [collapseParentTitle, setCollapseParentTitle] = useState(false);
-  const activeThreadRef = useMemo(
-    () => scopeThreadRef(activeThreadEnvironmentId, activeThreadId),
-    [activeThreadEnvironmentId, activeThreadId],
-  );
+  const activeThreadRef = (() => scopeThreadRef(activeThreadEnvironmentId, activeThreadId))();
   const canOperateThread = useEnvironmentScope(
     activeThreadEnvironmentId,
     AuthOrchestrationOperateScope,
@@ -132,6 +133,7 @@ export const ChatHeader = memo(function ChatHeader({
       ? renaming.title
       : null;
   const isRenamingTitle = renamingTitle !== null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the breadcrumb list DOM via ResizeObserver, a frame and font loads to collapse the parent title
   useEffect(() => {
     const list = breadcrumbContainerRef.current?.querySelector("ol");
     if (!list || !parentThreadLink) return;
@@ -163,9 +165,10 @@ export const ChatHeader = memo(function ChatHeader({
       document.fonts.removeEventListener("loadingdone", measure);
       stopObserving();
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- labels and font changes invalidate measured breadcrumb geometry
   }, [activeProjectName, activeThreadTitle, parentThreadLink, interfaceFont, isRenamingTitle]);
   const renameCommittedRef = useRef(false);
-  const startRename = useCallback(() => {
+  const startRename = () => {
     if (
       !isServerThread ||
       !readEnvironmentScope(activeThreadEnvironmentId, AuthOrchestrationOperateScope)
@@ -177,121 +180,112 @@ export const ChatHeader = memo(function ChatHeader({
       threadId: activeThreadId,
       title: activeThreadTitle,
     });
-  }, [activeThreadEnvironmentId, activeThreadId, activeThreadTitle, isServerThread]);
-  const commitRename = useCallback(
-    (title: string) => {
-      setRenaming(null);
-      if (!readEnvironmentScope(activeThreadEnvironmentId, AuthOrchestrationOperateScope)) return;
-      const resolution = resolveRenameCommit({ title, originalTitle: activeThreadTitle });
-      if (resolution.action === "reject-empty") {
-        toastManager.add({ type: "warning", title: "Thread title cannot be empty" });
-        return;
+  };
+  const commitRename = (title: string) => {
+    setRenaming(null);
+    if (!readEnvironmentScope(activeThreadEnvironmentId, AuthOrchestrationOperateScope)) return;
+    const resolution = resolveRenameCommit({
+      title,
+      originalTitle: renamingTitle ?? activeThreadTitle,
+    });
+    if (resolution.action === "reject-empty") {
+      toastManager.add({ type: "warning", title: "Thread title cannot be empty" });
+      return;
+    }
+    if (resolution.action === "noop") return;
+    void updateThreadMetadata({
+      environmentId: activeThreadEnvironmentId,
+      input: { threadId: activeThreadId, title: resolution.title },
+    }).then((result) => {
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add({
+          type: "error",
+          title: "Failed to rename thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
       }
-      if (resolution.action === "noop") return;
-      void updateThreadMetadata({
-        environmentId: activeThreadEnvironmentId,
-        input: { threadId: activeThreadId, title: resolution.title },
-      }).then((result) => {
-        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add({
-            type: "error",
-            title: "Failed to rename thread",
-            description: error instanceof Error ? error.message : "An error occurred.",
-          });
-        }
-      });
-    },
-    [activeThreadEnvironmentId, activeThreadId, activeThreadTitle, updateThreadMetadata],
-  );
+    });
+  };
   const { openMenu, closeMenu, copyThreadId } = useThreadActionMenu({
     threadRef: isServerThread ? activeThreadRef : null,
     projectCwd: activeProjectCwd,
     onStartRename: startRename,
     canLinkForgeItem: buildConnected,
+    onFind: onFindInThread,
     canShareWithGuest,
   });
   const titleGroupRef = useRef<HTMLDivElement | null>(null);
   const titleClickTimerRef = useRef<number | null>(null);
-  const cancelPendingTitleClick = useCallback(() => {
+  const cancelPendingTitleClick = () => {
     if (titleClickTimerRef.current === null) return;
     clearTimeout(titleClickTimerRef.current);
     titleClickTimerRef.current = null;
-  }, []);
+  };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- cancels the pending title clipboard timer when its thread changes or the header unmounts
   useEffect(
     () => () => {
       cancelPendingTitleClick();
     },
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a thread switch must cancel the prior title clipboard timer
     [activeThreadEnvironmentId, activeThreadId, cancelPendingTitleClick],
   );
-  const openTitleMenu = useCallback(() => {
+  const openTitleMenu = () => {
     cancelPendingTitleClick();
     const rect = titleGroupRef.current?.getBoundingClientRect();
     if (!rect) return;
     openMenu({ x: rect.left, y: rect.bottom + 4 });
-  }, [cancelPendingTitleClick, openMenu]);
-  const copyIdFromTitle = useCallback(
-    (event: ReactMouseEvent<HTMLButtonElement>) => {
-      if (isTrailingDoubleClick(event.detail)) return;
-      cancelPendingTitleClick();
-      // Keyboard activation, and a thread that cannot be renamed, have no
-      // double-click to wait for.
-      if (event.detail === 0 || !canOperateThread) {
-        copyThreadId();
-        return;
-      }
-      titleClickTimerRef.current = window.setTimeout(() => {
-        titleClickTimerRef.current = null;
-        copyThreadId();
-      }, TITLE_CLICK_COPY_DELAY_MS);
-    },
-    [canOperateThread, cancelPendingTitleClick, copyThreadId],
-  );
-  const handleTitleDoubleClick = useCallback(
-    (event: ReactMouseEvent) => {
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      cancelPendingTitleClick();
-      closeMenu();
-      startRename();
-    },
-    [cancelPendingTitleClick, closeMenu, startRename],
-  );
-  const handleHeaderContextMenu = useCallback(
-    (event: ReactMouseEvent) => {
-      if (renamingTitle !== null) return;
-      if (!isServerThread && onOpenProjectSettings === undefined) return;
-      cancelPendingTitleClick();
-      event.preventDefault();
-      if (!isServerThread) {
-        const api = readLocalApi();
-        if (!api) return;
-        void api.contextMenu
-          .show([{ id: "project-settings", label: "Project settings", icon: "settings" }], {
-            x: event.clientX,
-            y: event.clientY,
-          })
-          .then((action) => {
-            if (action === "project-settings") onOpenProjectSettings?.();
-          });
-        return;
-      }
-      openMenu({ x: event.clientX, y: event.clientY });
-    },
-    [cancelPendingTitleClick, isServerThread, onOpenProjectSettings, openMenu, renamingTitle],
-  );
-  const handleRenameKeyDown = useCallback(
-    (event: ReactKeyboardEvent<HTMLInputElement>) => {
-      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-      if (event.key === "Enter") {
-        renameCommittedRef.current = true;
-        commitRename(event.currentTarget.value);
-      } else if (event.key === "Escape") {
-        renameCommittedRef.current = true;
-        setRenaming(null);
-      }
-    },
-    [commitRename],
-  );
+  };
+  const copyIdFromTitle = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (isTrailingDoubleClick(event.detail)) return;
+    cancelPendingTitleClick();
+    // Keyboard activation, and a thread that cannot be renamed, have no
+    // double-click to wait for.
+    if (event.detail === 0 || !canOperateThread) {
+      copyThreadId();
+      return;
+    }
+    titleClickTimerRef.current = window.setTimeout(() => {
+      titleClickTimerRef.current = null;
+      copyThreadId();
+    }, TITLE_CLICK_COPY_DELAY_MS);
+  };
+  const handleTitleDoubleClick = (event: ReactMouseEvent) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    cancelPendingTitleClick();
+    closeMenu();
+    startRename();
+  };
+  const handleHeaderContextMenu = (event: ReactMouseEvent) => {
+    if (renamingTitle !== null) return;
+    if (!isServerThread && onOpenProjectSettings === undefined) return;
+    cancelPendingTitleClick();
+    event.preventDefault();
+    if (!isServerThread) {
+      const api = readLocalApi();
+      if (!api) return;
+      void api.contextMenu
+        .show([{ id: "project-settings", label: "Project settings", icon: "settings" }], {
+          x: event.clientX,
+          y: event.clientY,
+        })
+        .then((action) => {
+          if (action === "project-settings") onOpenProjectSettings?.();
+        });
+      return;
+    }
+    openMenu({ x: event.clientX, y: event.clientY });
+  };
+  const handleRenameKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.key === "Enter") {
+      renameCommittedRef.current = true;
+      commitRename(event.currentTarget.value);
+    } else if (event.key === "Escape") {
+      renameCommittedRef.current = true;
+      setRenaming(null);
+    }
+  };
   return (
     <div
       ref={breadcrumbContainerRef}
@@ -466,6 +460,16 @@ export const ChatHeader = memo(function ChatHeader({
               <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
             </Tooltip>
           )}
+          {renamingTitle === null && activeThreadLinkOrigin ? (
+            <Tooltip>
+              <TooltipTrigger render={<Badge variant="info" size="sm" />}>
+                From {activeThreadLinkOrigin}
+              </TooltipTrigger>
+              <TooltipPopup side="top">
+                Started by an agent on {activeThreadLinkOrigin} through a linked environment.
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
       {actions}

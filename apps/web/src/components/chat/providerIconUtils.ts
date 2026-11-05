@@ -1,3 +1,6 @@
+import type { ProviderDriverKind } from "@t3tools/contracts";
+import { resolveModelShortName } from "@t3tools/client-runtime/provider-clients";
+
 export type ModelEsque = {
   slug: string;
   name: string;
@@ -32,6 +35,14 @@ export function getDisplayModelName(
   return stripLeadingQualifier(name, model.subProvider);
 }
 
+export function getTriggerDisplayModelName(
+  model: ModelEsque,
+  driverKind: ProviderDriverKind | null | undefined,
+): string {
+  const shortName = resolveModelShortName(model, driverKind);
+  return getDisplayModelName({ ...model, shortName }, { preferShortName: true });
+}
+
 export function getProviderRowLabel(
   providerDisplayName: string,
   subProvider: string | undefined,
@@ -45,12 +56,4 @@ export function getProviderRowLabel(
     return sub;
   }
   return `${providerDisplayName} · ${sub}`;
-}
-
-export function getTriggerDisplayModelName(model: ModelEsque): string {
-  return getDisplayModelName(model, { preferShortName: true });
-}
-
-export function getTriggerDisplayModelLabel(model: ModelEsque): string {
-  return getTriggerDisplayModelName(model);
 }

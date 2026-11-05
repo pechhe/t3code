@@ -9,6 +9,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   handoffCrossesAccounts,
   resolveHandoffEndpoints,
+  resolveModelSwitchChange,
   resolvePendingHandoff,
   type HandoffTimelineRun,
 } from "./handoff.ts";
@@ -89,18 +90,16 @@ const projection = {
 } as unknown as OrchestrationV2ThreadProjection;
 
 describe("pending context handoff", () => {
-  it.each([from, to])("removes the preview while the handoff to %s starts", (instanceId) => {
-    const selection = { instanceId, model: "destination" };
-    const providers = [
-      { instanceId: from, requiresNewThreadForModelChange: true },
-    ] as unknown as ServerProvider[];
+  it("removes the preview while the handoff starts", () => {
+    const selection = { instanceId: to, model: "destination" };
+    const providers = [{ instanceId: from }] as unknown as ServerProvider[];
     const starting = {
       ...projection,
       runs: [
         ...projection.runs,
         {
           ...projection.runs[0]!,
-          ...run("target", 2, instanceId, "destination"),
+          ...run("target", 2, to, "destination"),
           status: "starting" as const,
           startedAt: null,
           contextHandoffId: ContextHandoffId.make("handoff"),
@@ -169,15 +168,6 @@ describe("pending context handoff", () => {
     expect(
       resolvePendingHandoff(toolRowsOnly, { instanceId: to, model: "first" }, [], 0)?.to.model,
     ).toBe("first");
-  });
-  it("only previews a same-provider model change when it needs a fresh native thread", () => {
-    const providers = [
-      { instanceId: from, requiresNewThreadForModelChange: true },
-    ] as unknown as ServerProvider[];
-    expect(
-      resolvePendingHandoff(projection, { instanceId: from, model: "other" }, providers, 0)?.to
-        .model,
-    ).toBe("other");
   });
   it("resumes compatible account overlays without showing a handoff", () => {
     const providers = [from, to].map((instanceId) => ({
@@ -256,5 +246,101 @@ describe("pending context handoff", () => {
         ),
       ).toBe(false);
     });
+  });
+});
+
+describe("model switch change", () => {
+  const selection = (model: string, options?: Record<string, string>) => ({
+    instanceId: from,
+    model,
+    ...(options === undefined
+      ? {}
+      : { options: Object.entries(options).map(([id, value]) => ({ id, value })) }),
+  });
+  const providers = [
+    {
+      instanceId: from,
+      models: ["gpt", "mini"].map((slug) => ({
+        slug,
+        capabilities: {
+          optionDescriptors: [
+            { id: "serviceTier", type: "select", options: [{ id: "fast", label: "Fast" }] },
+            {
+              id: "thought_level",
+              type: "select",
+              role: "reasoning",
+              options: [
+                { id: "medium", label: "Medium", isDefault: true },
+                { id: "high", label: "High" },
+              ],
+            },
+          ],
+        },
+      })),
+    },
+  ] as unknown as ServerProvider[];
+
+  it("shows only what changed, reading an unset effort as the default", () => {
+    expect(
+      resolveModelSwitchChange(
+        { from: selection("gpt"), to: selection("gpt", { thought_level: "high" }) },
+        providers,
+      ),
+    ).toEqual({ modelChanged: false, effort: { from: "Medium", to: "High" } });
+    expect(
+      resolveModelSwitchChange({ from: selection("gpt"), to: selection("mini") }, providers),
+    ).toEqual({ modelChanged: true, effort: null });
+  });
+
+  it("ignores changes the user cannot see", () => {
+    expect(
+      resolveModelSwitchChange(
+        { from: selection("gpt"), to: selection("gpt", { thought_level: "medium" }) },
+        providers,
+      ),
+    ).toBeNull();
+    expect(
+      resolveModelSwitchChange(
+        { from: selection("gpt"), to: selection("gpt", { serviceTier: "fast" }) },
+        providers,
+      ),
+    ).toBeNull();
+    // A cataloged model without an effort control ignores stale effort options.
+    expect(
+      resolveModelSwitchChange(
+        {
+          from: selection("plain", { reasoningEffort: "low" }),
+          to: selection("plain", { reasoningEffort: "high" }),
+        },
+        [{ instanceId: from, models: [{ slug: "plain" }] }] as unknown as ServerProvider[],
+      ),
+    ).toBeNull();
+  });
+
+  it("falls back to stated efforts without a catalog", () => {
+    expect(
+      resolveModelSwitchChange(
+        {
+          from: selection("gpt", { reasoningEffort: "low" }),
+          to: selection("gpt", { reasoningEffort: "high" }),
+        },
+        [],
+      ),
+    ).toEqual({ modelChanged: false, effort: { from: "low", to: "high" } });
+    expect(
+      resolveModelSwitchChange(
+        {
+          from: selection("pi", { thinking: "low" }),
+          to: selection("pi", { thinking: "high" }),
+        },
+        [],
+      ),
+    ).toEqual({ modelChanged: false, effort: { from: "low", to: "high" } });
+    expect(
+      resolveModelSwitchChange(
+        { from: selection("gpt"), to: selection("gpt", { reasoningEffort: "high" }) },
+        [],
+      ),
+    ).toBeNull();
   });
 });

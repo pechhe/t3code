@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -27,7 +28,7 @@ const layerIntents = WorkspaceAllocationIntents.layer.pipe(
   Layer.provideMerge(SqlitePersistence.layerMemory),
 );
 
-it.layer(NodeServices.layer)("WorkspaceAllocationSweep", (it) => {
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("WorkspaceAllocationSweep", (it) => {
   it.effect(
     "releases a finished checkout nothing can adopt and settles one a thread is bound to",
     () =>

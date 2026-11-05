@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -166,7 +167,7 @@ describe("SlipJayReleases.promote", () => {
                     ),
                   ),
             })),
-          ).pipe(Layer.provide(NodeServices.layer));
+          ).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
           const runner = Layer.succeed(ProcessRunner.ProcessRunner, {
             run: (input) =>
               input.command === "slipjay" && input.args[1] === "--confirm"
@@ -193,7 +194,7 @@ describe("SlipJayReleases.promote", () => {
           const layer = Layer.effect(SlipJayReleases, make).pipe(
             Layer.provide(runner),
             Layer.provide(files),
-            Layer.provide(NodeServices.layer),
+            Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
           );
           const results = yield* Effect.gen(function* () {
             const releases = yield* SlipJayReleases;
@@ -218,7 +219,7 @@ describe("SlipJayReleases.promote", () => {
           assert.strictEqual(results.second.released, true);
           assert.include(results.other.detail, "bf787f66 is still running");
         }),
-      ).pipe(Effect.provide(NodeServices.layer)),
+      ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
   it.effect("refuses a directory that is not a SlipJay project, without running SlipJay", () =>
@@ -235,13 +236,13 @@ describe("SlipJayReleases.promote", () => {
           Effect.provide(
             Layer.effect(SlipJayReleases, make).pipe(
               Layer.provide(runner),
-              Layer.provide(NodeServices.layer),
+              Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
             ),
           ),
           Effect.flip,
         );
         assert.strictEqual(error.detail, "This is not a SlipJay project.");
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 });

@@ -1,3 +1,4 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { MAC_PERMISSION_SETTINGS_URLS } from "../permissions/MacPermission.ts";
 import {
   REMOTE_CAPABLE_EDITOR_IDS,
@@ -54,8 +55,8 @@ export function parseSafeExternalUrl(rawUrl: unknown): Option.Option<string> {
 
 // Phi raises a kiosk window for links from other apps; activating Phi as well
 // would bring every Phi window forward. Other browsers need activation to be seen.
-const shouldActivate = (url: string) =>
-  process.platform !== "darwin" ||
+const shouldActivate = (url: string, platform: NodeJS.Platform) =>
+  platform !== "darwin" ||
   !SAFE_WEB_PROTOCOLS.has(new URL(url).protocol) ||
   Electron.app.getApplicationNameForProtocol("https://") !== "Phi";
 
@@ -70,26 +71,32 @@ export class ElectronShell extends Context.Service<
 
 /** @public */
 export const make = ElectronShell.of({
-  openExternal: (rawUrl) =>
-    Option.match(parseSafeExternalUrl(rawUrl), {
+  openExternal: Effect.fn("ElectronShell.openExternal")(function* (rawUrl) {
+    const platform = yield* HostProcess.Platform;
+    return yield* Option.match(parseSafeExternalUrl(rawUrl), {
       onNone: () => Effect.succeed(false),
       onSome: (externalUrl) =>
         Effect.promise(() =>
-          Electron.shell.openExternal(externalUrl, { activate: shouldActivate(externalUrl) }).then(
-            () => true,
-            () => false,
-          ),
+          Electron.shell
+            .openExternal(externalUrl, { activate: shouldActivate(externalUrl, platform) })
+            .then(
+              () => true,
+              () => false,
+            ),
         ),
-    }),
-  openSystemSettings: (pane) =>
-    Effect.promise(() =>
+    });
+  }),
+  openSystemSettings: Effect.fn("ElectronShell.openSystemSettings")(function (pane) {
+    return Effect.promise(() =>
       Electron.shell.openExternal(MAC_PERMISSION_SETTINGS_URLS[pane]).then(
         () => true,
         () => false,
       ),
-    ),
-  copyText: (text) =>
-    Effect.promise(() => Electron.clipboard.writeText(text).catch(() => undefined)),
+    );
+  }),
+  copyText: Effect.fn("ElectronShell.copyText")(function (text) {
+    return Effect.promise(() => Electron.clipboard.writeText(text).catch(() => undefined));
+  }),
 });
 
 export const layer = Layer.succeed(ElectronShell, make);

@@ -1,3 +1,10 @@
+import * as AssetSigner from "../assets/AssetSigner.ts";
+import * as ContextPeerForwarding from "../peer/PeerForwarding.ts";
+import * as ContextPeerLinkRequests from "../peer/PeerLinkRequests.ts";
+import * as ContextPeerLinks from "../peer/PeerLinks.ts";
+import * as ContextProjectCloneTracker from "../project/ProjectCloneTracker.ts";
+import * as ContextDocumentText from "../provider/DocumentText.ts";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as DecisionService from "../decisions/DecisionService.ts";
 import * as Champions from "../champions/ChampionService.ts";
 import * as WebResearch from "./WebResearch.ts";
@@ -55,6 +62,7 @@ import * as McpToolAccessTestkit from "./McpToolAccess.testkit.ts";
  * without any other test noticing.
  */
 const serviceMocks = Layer.mergeAll(
+  Layer.mock(AssetSigner.AssetSigner)({}),
   Layer.mock(DecisionService.DecisionService)({}),
   Layer.mock(Champions.ChampionService)({}),
   Layer.mock(WebResearch.WebResearch)({}),
@@ -111,9 +119,9 @@ const listedToolNames = (key: SessionEndpointKey) =>
   }).pipe(
     Effect.provide(
       McpHttpServer.layerSessionToolkits(SESSION_TOOL_ENDPOINTS[key].families).pipe(
-        Layer.provideMerge(McpServer.McpServer.layer),
+        Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
         Layer.provide(serviceMocks),
-        Layer.provide(NodeServices.layer),
+        Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       ),
     ),
     Effect.scoped,
@@ -137,7 +145,20 @@ it.effect("registers only the tool families each session endpoint declares", () 
         expect(names.includes("t3_work_enroll")).toBe(key === "research");
       }
     }
-  }),
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(ContextDocumentText.layer.pipe(Layer.provide(NodeServices.layer))).pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(
+            Layer.mock(ContextPeerForwarding.PeerForwarding)({}),
+            Layer.mock(ContextPeerLinkRequests.PeerLinkRequests)({}),
+            Layer.mock(ContextPeerLinks.PeerLinks)({}),
+            Layer.mock(ContextProjectCloneTracker.ProjectCloneTracker)({}),
+          ),
+        ),
+      ),
+    ),
+  ),
 );
 
 it.effect("gives an ordinary thread the handoff its instructions name", () =>
@@ -166,5 +187,18 @@ it.effect("gives an ordinary thread the handoff its instructions name", () =>
         "preview_open",
       ]),
     );
-  }),
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(ContextDocumentText.layer.pipe(Layer.provide(NodeServices.layer))).pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(
+            Layer.mock(ContextPeerForwarding.PeerForwarding)({}),
+            Layer.mock(ContextPeerLinkRequests.PeerLinkRequests)({}),
+            Layer.mock(ContextPeerLinks.PeerLinks)({}),
+            Layer.mock(ContextProjectCloneTracker.ProjectCloneTracker)({}),
+          ),
+        ),
+      ),
+    ),
+  ),
 );

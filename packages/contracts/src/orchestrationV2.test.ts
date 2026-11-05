@@ -2,9 +2,10 @@ import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 
-import { NodeId, RunAttemptId, TrimmedNonEmptyString } from "./index.ts";
+import { ThreadId, NodeId, RunAttemptId, TrimmedNonEmptyString } from "./index.ts";
 import {
   compactAtBounds,
+  isSideChatThread,
   latestProviderTurnForAttempt,
   OrchestrationV2ProviderCapabilities,
   OrchestrationV2ProviderThread,
@@ -361,6 +362,9 @@ describe("orchestration V2 contracts", () => {
               index: 1,
               label: "Member",
               state: "completed" as const,
+              model: "claude-opus-5[1m]",
+              effort: "xhigh",
+              speed: "standard",
               prompt: preview,
               result: preview,
             },
@@ -382,10 +386,16 @@ describe("orchestration V2 contracts", () => {
         expect(decode(json).workflow?.agents[0]).toMatchObject({
           prompt: preview,
           result: preview,
+          model: "claude-opus-5[1m]",
+          effort: "xhigh",
+          speed: "standard",
         });
         expect(decode(incoming).workflow?.agents[0]).toMatchObject({
           prompt: preview,
           result: preview,
+          model: "claude-opus-5[1m]",
+          effort: "xhigh",
+          speed: "standard",
         });
       }
     },
@@ -706,4 +716,16 @@ describe("compactAtBounds", () => {
   it("gives Pi a read-only line, since its point comes from its own settings per model", () => {
     expect(compactAtBounds("pi", 200_000)).toBeNull();
   });
+});
+
+it("recognizes stored fork side chats and upstream lineage side chats", () => {
+  const lineage = {
+    parentThreadId: ThreadId.make("parent"),
+    rootThreadId: ThreadId.make("parent"),
+    relationshipToParent: "fork" as const,
+  };
+  expect(isSideChatThread({ sideChat: true })).toBe(true);
+  expect(isSideChatThread({ lineage: { ...lineage, sideChat: true } })).toBe(true);
+  expect(isSideChatThread({ lineage })).toBe(false);
+  expect(isSideChatThread({ sideChat: false, lineage })).toBe(false);
 });

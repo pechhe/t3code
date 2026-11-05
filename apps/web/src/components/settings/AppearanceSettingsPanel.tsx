@@ -4,6 +4,7 @@ import {
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
   DEFAULT_UNIFIED_SETTINGS,
   type ChatWidth,
+  type EffortDisplay,
   type EnvironmentIdentificationMode,
   MAX_APPEARANCE_CONTRAST,
   MAX_GLASS_OPACITY,
@@ -30,11 +31,15 @@ import {
   SettingsSection,
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
+import { AdvancedSettings } from "./AdvancedSettings";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 import { TypographySection } from "./TypographySettings";
+import { ThreadDetailsItemsRow } from "./ThreadDetailsItemsRow";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Version pill",
+  "nightly-artwork": "Version pill",
+  "dev-artwork": "Version pill",
   pill: "Version pill",
   none: "None",
 };
@@ -43,6 +48,11 @@ const CHAT_WIDTH_LABELS: Record<ChatWidth, string> = {
   comfortable: "Comfortable",
   wide: "Wide",
   full: "Full",
+};
+
+const EFFORT_DISPLAY_LABELS: Record<EffortDisplay, string> = {
+  label: "Word",
+  bars: "Bars",
 };
 
 export function AppearanceSettingsPanel() {
@@ -216,100 +226,6 @@ export function AppearanceSettingsPanel() {
           }
         />
 
-        {showEnvironmentIdentification ? (
-          <SettingsRow
-            {...searchableSetting("environment-identification")}
-            description="Choose how Dev and Nightly environments are identified."
-            resetAction={
-              settings.environmentIdentificationMode !== DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE ? (
-                <SettingResetButton
-                  label="environment identification"
-                  onClick={() =>
-                    updateSettings({
-                      environmentIdentificationMode: DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
-                    })
-                  }
-                />
-              ) : null
-            }
-            control={
-              <Select
-                value={settings.environmentIdentificationMode}
-                onValueChange={(value) => {
-                  if (value === "artwork" || value === "pill" || value === "none") {
-                    updateSettings({ environmentIdentificationMode: value });
-                  }
-                }}
-              >
-                <SelectTrigger
-                  size="sm"
-                  className="w-full sm:w-40"
-                  aria-label="Environment identification"
-                >
-                  <SelectValue>
-                    {ENVIRONMENT_IDENTIFICATION_LABELS[settings.environmentIdentificationMode]}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  {/* No artwork option: the machined rail replaces it (useEnvironmentIdentificationMode). */}
-                  {(["pill", "none"] as const).map((value) => (
-                    <SelectItem hideIndicator key={value} value={value}>
-                      {ENVIRONMENT_IDENTIFICATION_LABELS[value]}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            }
-          />
-        ) : null}
-
-        <SettingsRow
-          {...searchableSetting("diff-color-scheme")}
-          description="Choose colors for additions and deletions, including change counts."
-          resetAction={
-            settings.diffColorScheme !== DEFAULT_UNIFIED_SETTINGS.diffColorScheme ? (
-              <SettingResetButton
-                label="diff colors"
-                onClick={() =>
-                  updateSettings({ diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="w-full sm:w-40">
-              <Select
-                value={settings.diffColorScheme}
-                onValueChange={(value) => {
-                  if (value === "red-green" || value === "blue-orange")
-                    updateSettings({ diffColorScheme: value });
-                }}
-              >
-                <SelectTrigger size="sm" className="w-full min-w-0" aria-label="Diff colors">
-                  <span
-                    aria-hidden="true"
-                    className={
-                      settings.diffColorScheme === "blue-orange"
-                        ? "flex shrink-0 flex-row-reverse gap-1"
-                        : "flex shrink-0 gap-1"
-                    }
-                  >
-                    <span className="size-2 rounded-full bg-diff-deletion" />
-                    <span className="size-2 rounded-full bg-diff-addition" />
-                  </span>
-                  <SelectValue>
-                    {settings.diffColorScheme === "blue-orange" ? "Blue & orange" : "Red & green"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  <SelectItem value="red-green">Red & green (default)</SelectItem>
-                  <SelectItem value="blue-orange">Blue & orange</SelectItem>
-                </SelectPopup>
-              </Select>
-            </div>
-          }
-        />
-
         <SettingsRow
           {...searchableSetting("chat-width")}
           description="Set how wide messages and the composer can grow on large screens."
@@ -342,6 +258,40 @@ export function AppearanceSettingsPanel() {
             </div>
           }
         />
+        <ThreadDetailsItemsRow />
+        <SettingsRow
+          {...searchableSetting("effort-display")}
+          description="Show reasoning effort in the composer as its name, such as High, or as bars."
+          resetAction={
+            settings.effortDisplay !== DEFAULT_UNIFIED_SETTINGS.effortDisplay ? (
+              <SettingResetButton
+                label="effort display"
+                onClick={() =>
+                  updateSettings({ effortDisplay: DEFAULT_UNIFIED_SETTINGS.effortDisplay })
+                }
+              />
+            ) : null
+          }
+          control={
+            <div className="w-full sm:w-40">
+              <Select
+                value={settings.effortDisplay}
+                onValueChange={(value) => {
+                  if (value === "bars" || value === "label")
+                    updateSettings({ effortDisplay: value });
+                }}
+              >
+                <SelectTrigger size="sm" className="w-full min-w-0" aria-label="Effort display">
+                  <SelectValue>{EFFORT_DISPLAY_LABELS[settings.effortDisplay]}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem value="label">Word (default)</SelectItem>
+                  <SelectItem value="bars">Bars</SelectItem>
+                </SelectPopup>
+              </Select>
+            </div>
+          }
+        />
         <SettingsRow
           {...searchableSetting("math-rendering")}
           description="Typeset LaTeX math, such as $x^2$ or \[x^2\], in messages and Markdown previews. The composer keeps TeX source editable."
@@ -367,60 +317,111 @@ export function AppearanceSettingsPanel() {
             />
           }
         />
-      </SettingsSection>
-
-      <SettingsSection id="motion" title="Motion">
-        <SettingsRow
-          {...searchableSetting("panel-animations")}
-          description="Set how fast panels open and close."
-          control={
-            <div className="grid w-full grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 sm:w-auto sm:grid-cols-[7rem_13rem] sm:gap-4">
-              <PanelAnimationsPreview durationMs={settings.panelAnimationDurationMs} />
-              <div className="flex w-full items-center gap-3">
-                <output
-                  className="min-w-16 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
-                  htmlFor="panel-animation-duration"
-                >
-                  {settings.panelAnimationDurationMs} ms
-                </output>
-                <input
-                  aria-label="Panel animation duration"
-                  className="settings-slider min-w-0 flex-1"
-                  id="panel-animation-duration"
-                  max={MAX_PANEL_ANIMATION_DURATION_MS}
-                  min={MIN_PANEL_ANIMATION_DURATION_MS}
-                  onChange={(event) => {
-                    const panelAnimationDurationMs = Number(event.currentTarget.value);
-                    if (
-                      Number.isInteger(panelAnimationDurationMs) &&
-                      panelAnimationDurationMs >= MIN_PANEL_ANIMATION_DURATION_MS &&
-                      panelAnimationDurationMs <= MAX_PANEL_ANIMATION_DURATION_MS
-                    ) {
-                      updateSettings({ panelAnimationDurationMs });
-                    }
-                  }}
-                  step={25}
-                  style={panelAnimationDurationSliderStyle}
-                  type="range"
-                  value={settings.panelAnimationDurationMs}
-                />
+        <AdvancedSettings
+          targetIds={[
+            searchableSetting("panel-animations").id,
+            searchableSetting("environment-identification").id,
+            // Environment identification's search result lands on this section.
+            "appearance-interface",
+          ]}
+        >
+          <SettingsRow
+            {...searchableSetting("panel-animations")}
+            description="Set how fast panels open and close."
+            control={
+              <div className="grid w-full grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 sm:w-auto sm:grid-cols-[7rem_13rem] sm:gap-4">
+                <PanelAnimationsPreview durationMs={settings.panelAnimationDurationMs} />
+                <div className="flex w-full items-center gap-3">
+                  <output
+                    className="min-w-16 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
+                    htmlFor="panel-animation-duration"
+                  >
+                    {settings.panelAnimationDurationMs} ms
+                  </output>
+                  <input
+                    aria-label="Panel animation duration"
+                    className="settings-slider min-w-0 flex-1"
+                    id="panel-animation-duration"
+                    max={MAX_PANEL_ANIMATION_DURATION_MS}
+                    min={MIN_PANEL_ANIMATION_DURATION_MS}
+                    onChange={(event) => {
+                      const panelAnimationDurationMs = Number(event.currentTarget.value);
+                      if (
+                        Number.isInteger(panelAnimationDurationMs) &&
+                        panelAnimationDurationMs >= MIN_PANEL_ANIMATION_DURATION_MS &&
+                        panelAnimationDurationMs <= MAX_PANEL_ANIMATION_DURATION_MS
+                      ) {
+                        updateSettings({ panelAnimationDurationMs });
+                      }
+                    }}
+                    step={25}
+                    style={panelAnimationDurationSliderStyle}
+                    type="range"
+                    value={settings.panelAnimationDurationMs}
+                  />
+                </div>
               </div>
-            </div>
-          }
-          resetAction={
-            settings.panelAnimationDurationMs !==
-            DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs ? (
-              <SettingResetButton
-                label="panel animations"
-                onClick={() =>
-                  updateSettings({
-                    panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
-                  })
-                }
-              />
-            ) : null
-          }
-        />
+            }
+            resetAction={
+              settings.panelAnimationDurationMs !==
+              DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs ? (
+                <SettingResetButton
+                  label="panel animations"
+                  onClick={() =>
+                    updateSettings({
+                      panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
+                    })
+                  }
+                />
+              ) : null
+            }
+          />
+          {showEnvironmentIdentification ? (
+            <SettingsRow
+              {...searchableSetting("environment-identification")}
+              description="Choose how Dev and Nightly environments are identified."
+              resetAction={
+                settings.environmentIdentificationMode !==
+                DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE ? (
+                  <SettingResetButton
+                    label="environment identification"
+                    onClick={() =>
+                      updateSettings({
+                        environmentIdentificationMode: DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Select
+                  value={settings.environmentIdentificationMode === "none" ? "none" : "pill"}
+                  onValueChange={(value) => {
+                    if (value === "pill" || value === "none")
+                      updateSettings({ environmentIdentificationMode: value });
+                  }}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="w-full sm:w-40"
+                    aria-label="Environment identification"
+                  >
+                    <SelectValue>
+                      {ENVIRONMENT_IDENTIFICATION_LABELS[settings.environmentIdentificationMode]}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    {(["pill", "none"] as const).map((value) => (
+                      <SelectItem hideIndicator key={value} value={value}>
+                        {ENVIRONMENT_IDENTIFICATION_LABELS[value]}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              }
+            />
+          ) : null}
+        </AdvancedSettings>
       </SettingsSection>
 
       <TypographySection />

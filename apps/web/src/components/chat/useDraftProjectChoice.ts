@@ -8,7 +8,7 @@ import { resolveEnvironmentMachineKind, type ScopedProjectRef } from "@t3tools/c
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { useScratchProject } from "~/hooks/useScratchProject";
@@ -17,7 +17,7 @@ import { hasExplicitComposerModelSelection } from "~/lib/chatThreadActions";
 import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
-} from "~/logicalProject";
+} from "@t3tools/client-runtime/state/project-grouping";
 import {
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
@@ -56,62 +56,39 @@ export function useDraftProjectChoice({
   const { scratchEnvironmentId, scratchWorkspaceRootFor, openScratchProject } = useScratchProject();
   const openProjectDraft = useNewThreadHandler();
 
-  const environmentLabelById = useMemo(
-    () =>
-      new Map(
-        environments.map((environment) => [environment.environmentId, environment.label] as const),
-      ),
-    [environments],
-  );
+  const environmentLabelById = (() =>
+    new Map(
+      environments.map((environment) => [environment.environmentId, environment.label] as const),
+    ))();
   // The 30-day window is measured from when the screen opened, so the order holds still.
   const [openedAt] = useState(() => Date.now());
-  const projectGroups = useMemo(
-    () =>
-      sortLogicalProjectsByRecentUse(
-        buildSidebarProjectSnapshots({
-          projects,
-          settings: projectGroupingSettings,
-          primaryEnvironmentId,
-          resolveEnvironmentLabel: (environmentId) =>
-            environmentLabelById.get(environmentId) ?? null,
-        }),
-        threads,
-        openedAt,
-      ),
-    [
-      environmentLabelById,
-      openedAt,
-      primaryEnvironmentId,
-      projectGroupingSettings,
-      projects,
-      threads,
-    ],
-  );
-  const showProjectEnvironments = useMemo(
-    () => projectGroupsSpanEnvironments(projectGroups),
-    [projectGroups],
-  );
-  const environmentMachineById = useMemo(
-    () =>
-      new Map(
-        environments.map(
-          (environment) =>
-            [
-              environment.environmentId,
-              resolveEnvironmentMachineKind(environment.serverConfig),
-            ] as const,
-        ),
-      ),
-    [environments],
-  );
-  const projectPickerEntries = useMemo(
-    () =>
-      buildSidebarProjectPickerEntries({
-        groups: projectGroups,
-        preferredProjectRef: activeProjectRef,
+  const projectGroups = (() =>
+    sortLogicalProjectsByRecentUse(
+      buildSidebarProjectSnapshots({
+        projects,
+        settings: projectGroupingSettings,
+        primaryEnvironmentId,
+        resolveEnvironmentLabel: (environmentId) => environmentLabelById.get(environmentId) ?? null,
       }),
-    [activeProjectRef, projectGroups],
-  );
+      threads,
+      openedAt,
+    ))();
+  const showProjectEnvironments = (() => projectGroupsSpanEnvironments(projectGroups))();
+  const environmentMachineById = (() =>
+    new Map(
+      environments.map(
+        (environment) =>
+          [
+            environment.environmentId,
+            resolveEnvironmentMachineKind(environment.serverConfig),
+          ] as const,
+      ),
+    ))();
+  const projectPickerEntries = (() =>
+    buildSidebarProjectPickerEntries({
+      groups: projectGroups,
+      preferredProjectRef: activeProjectRef,
+    }))();
 
   const activeProjectGroup =
     activeProjectRef === null
@@ -127,7 +104,7 @@ export function useDraftProjectChoice({
   // The project that hosts threads without a project is not a chip of its own:
   // the "No project" chip is the way into it. Chips keep the usage order rather
   // than the picker's chosen-first order, so choosing one never moves the row.
-  const menuEntries = useMemo(() => {
+  const menuEntries = (() => {
     const position = new Map(projectGroups.map((group, index) => [group.projectKey, index]));
     return projectPickerEntries
       .filter(
@@ -138,7 +115,7 @@ export function useDraftProjectChoice({
         (left, right) =>
           (position.get(left.group.projectKey) ?? 0) - (position.get(right.group.projectKey) ?? 0),
       );
-  }, [projectGroups, projectPickerEntries, scratchWorkspaceRootFor]);
+  })();
   const activeProject =
     activeProjectRef === null
       ? null
@@ -157,9 +134,10 @@ export function useDraftProjectChoice({
   // A chip can change the draft's target while the no-project home is
   // still being opened; a stale continuation must not retarget it again.
   const latestTargetRef = useRef({ draftId, activeProjectKey, scratchTargetEnvironmentId });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps pending scratch-project creation aligned with the latest composer destination
   useEffect(() => {
     latestTargetRef.current = { draftId, activeProjectKey, scratchTargetEnvironmentId };
-  }, [activeProjectKey, scratchTargetEnvironmentId, draftId]);
+  }, [activeProjectKey, scratchTargetEnvironmentId, draftId, latestTargetRef]);
   // An empty draft instead opens the chosen project's own draft, like starting a new thread there:
   // moving it would replace that draft and strand whatever it holds, such as the browser tabs of
   // the no-project draft.

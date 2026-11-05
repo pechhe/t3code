@@ -12,6 +12,7 @@ import { findEsmImportsOfExternalPackages } from "./cli-executable-imports.ts";
 import {
   isRuntimeExternalCliDependency,
   findInlinedExternalPackages,
+  selectCliRuntimeExternalDependencies,
   shouldBundleCliDependency,
 } from "./cli-external-packages.ts";
 
@@ -20,6 +21,9 @@ const PackageManifest = Schema.Struct({
   dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   optionalDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   peerDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  peerDependenciesMeta: Schema.optional(
+    Schema.Record(Schema.String, Schema.Struct({ optional: Schema.optional(Schema.Boolean) })),
+  ),
 });
 type PackageManifest = typeof PackageManifest.Type;
 
@@ -40,12 +44,8 @@ describe("shouldBundleCliDependency", () => {
     }
   });
 
-  // The real package is `node-gyp-build-optional-packages`, reached by prefix.
-  // It is transitive to a selected dependency root, so the runtime closure test
-  // below ensures it follows that root into the sidecar.
-  // Cursor loads these from disk, so they ship beside the bundle, but bundled
-  // code that imports one must inline it: a single executable cannot import a
-  // file-backed package.
+  // Cursor loads node-gyp-build-optional-packages from disk, so the sidecar needs its runtime closure.
+  // Bundled imports must inline it because a single executable cannot import a file-backed package.
   it("bundles Cursor's disk-backed dependencies when bundled code imports them", () => {
     for (const id of ["zod", "zod/v4", "undici"]) {
       assert.strictEqual(shouldBundleCliDependency(id), true, id);
@@ -114,9 +114,9 @@ it.layer(NodeServices.layer)("external package dependency closure", (it) => {
         if (!manifest) continue;
 
         const declared = {
-          ...(manifest.dependencies ?? {}),
-          ...(manifest.optionalDependencies ?? {}),
-          ...(manifest.peerDependencies ?? {}),
+          ...manifest.dependencies,
+          ...manifest.optionalDependencies,
+          ...manifest.peerDependencies,
         };
         for (const dependency of Object.keys(declared)) {
           if (!isRuntimeExternal(dependency)) {
@@ -130,6 +130,47 @@ it.layer(NodeServices.layer)("external package dependency closure", (it) => {
         violations,
         [],
         `these dependencies of external packages would be bundled away and fail to resolve under WSL: ${violations.join(", ")}`,
+      );
+    }),
+  );
+
+  // The stage installs only externals the server lists, so a required peer must be reachable from them.
+  it.effect("stages a provider for every required peer of a staged external", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const installed = yield* readInstalledPackages;
+      const server = decodeManifest(
+        yield* fileSystem.readFileString(
+          path.resolve(
+            path.dirname(NodeURL.fileURLToPath(import.meta.url)),
+            "../../apps/server/package.json",
+          ),
+        ),
+      );
+
+      const staged = new Set<string>();
+      const queue = Object.keys(selectCliRuntimeExternalDependencies(server.dependencies ?? {}));
+      for (const name of queue) {
+        if (staged.has(name)) continue;
+        staged.add(name);
+        const manifest = installed.get(name);
+        queue.push(
+          ...Object.keys({ ...manifest?.dependencies, ...manifest?.optionalDependencies }),
+        );
+      }
+
+      const missing = [...staged].flatMap((name) => {
+        const manifest = installed.get(name);
+        return Object.keys(manifest?.peerDependencies ?? {})
+          .filter((peer) => !manifest?.peerDependenciesMeta?.[peer]?.optional && !staged.has(peer))
+          .map((peer) => `${name} -> ${peer}`);
+      });
+
+      assert.deepStrictEqual(
+        missing,
+        [],
+        `these peers of staged external packages are missing from the packaged app; add them to apps/server dependencies: ${missing.join(", ")}`,
       );
     }),
   );

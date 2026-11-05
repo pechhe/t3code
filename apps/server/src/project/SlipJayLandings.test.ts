@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -69,7 +70,7 @@ const landingHost = (result: Land) =>
     const layer = Layer.effect(SlipJayLandings, make).pipe(
       Layer.provide(runner),
       Layer.provide(registry),
-      Layer.provide(NodeServices.layer),
+      Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     );
     return { started, release, resolvedTwice, runs, layer };
   });
@@ -309,7 +310,7 @@ describe("SlipJayLandings.readLog", () => {
         Layer.provide(
           Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({ detect: () => Effect.succeed(null) }),
         ),
-        Layer.provide(NodeServices.layer),
+        Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       );
 
       const [log, other] = yield* Effect.gen(function* () {
@@ -362,7 +363,7 @@ describe("SlipJay failures", () => {
             ),
         }),
       ),
-      Layer.provide(NodeServices.layer),
+      Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     );
 
   it.effect("a failed runner log read says so without SlipJay's output", () =>

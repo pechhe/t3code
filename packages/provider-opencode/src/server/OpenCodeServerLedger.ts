@@ -18,11 +18,19 @@ export class OpenCodeServerLedger extends Context.Service<
 export const layer = Layer.effect(
   OpenCodeServerLedger,
   Effect.map(ProcessGroupLedger.ProcessGroupLedger, (ledger) =>
-    OpenCodeServerLedger.of({ track: ({ pid, args }) => ledger.track({ pid, args }) }),
+    OpenCodeServerLedger.of({
+      track: Effect.fn("OpenCodeServerLedger.track")(({ pid, args }) =>
+        ledger.track({ pid, args }),
+      ),
+    }),
   ),
 );
 
 export const layerTest = Layer.succeed(
   OpenCodeServerLedger,
-  OpenCodeServerLedger.of({ track: () => Effect.succeed(Effect.void) }),
+  OpenCodeServerLedger.of({
+    track: Effect.fn("OpenCodeServerLedger.track")(function () {
+      return Effect.succeed(Effect.void);
+    }),
+  }),
 );

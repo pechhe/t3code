@@ -1,4 +1,5 @@
 import {
+  BrowserNavigationTarget,
   OrchestratorMcpFailure,
   ToolActivityIcon,
   PreviewAutomationDialogInput,
@@ -10,6 +11,7 @@ import {
   PreviewAutomationRecordingStatus,
   PreviewAutomationResizeInput,
   PreviewAutomationResizeResult,
+  PreviewAutomationSelectResult,
   PreviewAutomationSetColorSchemeInput,
   PreviewAutomationSetColorSchemeResult,
   PreviewAutomationSnapshot,
@@ -70,11 +72,17 @@ const PreviewStatusTool = Tool.make("preview_status", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true);
 
+// `url` already covers websites, so open only adds the dev-server target.
+const EnvironmentPortTarget = BrowserNavigationTarget.members[1];
+
 const PreviewOpenTool = browserTool(
   Tool.make("preview_open", {
     description:
-      "Open a preview tab in this thread and show it. `open=false` keeps it in the background. Set `backend=phi` for Phi, which opens outside the inline panel; omit it for the effective default. `phiLane=shadow` is an isolated incognito window, `phiLane=agents` the shared sign-in Space with exclusive task custody, and `phiLane=user` the user's own window, only when the user asks for it: without `url` it takes over the tab they have selected, so you can carry on where they left off, and with `url` it opens a new tab there. Closing a user-lane tab releases it and closes only a tab you opened; the user stays in control, so re-snapshot before each step, and that lane cannot resize or hand off. A tab keeps its backend, profile and lane. Reuses your current tab unless `tabId` or `reuseExistingTab=false` says otherwise. Parallel subagents sharing a provider session must each use `reuseExistingTab=false`, then their own returned `tabId`. `profileId` (an id or name from `preview_status` profiles) opens under a profile and its saved logins. Another agent session's tabs can be read but not operated.",
-    parameters: PreviewAutomationOpenInput,
+      "Open a preview tab in this thread and show it. For a dev server, pass `target` instead of `url`. `open=false` keeps it in the background. Set `backend=phi` for Phi, which opens outside the inline panel; omit it for the effective default. `phiLane=shadow` is an isolated incognito window, `phiLane=agents` the shared sign-in Space with exclusive task custody, and `phiLane=user` the user's own window, only when the user asks for it: without `url` it takes over the tab they have selected, so you can carry on where they left off, and with `url` it opens a new tab there. Closing a user-lane tab releases it and closes only a tab you opened; the user stays in control, so re-snapshot before each step, and that lane cannot resize or hand off. A tab keeps its backend, profile and lane. Reuses your current tab unless `tabId` or `reuseExistingTab=false` says otherwise. Parallel subagents sharing a provider session must each use `reuseExistingTab=false`, then their own returned `tabId`. `profileId` (an id or name from `preview_status` profiles) opens under a profile and its saved logins. Another agent session's tabs can be read but not operated.",
+    parameters: PreviewAutomationOpenInput.mapFields(
+      (fields) => ({ ...fields, target: Schema.optional(EnvironmentPortTarget) }),
+      { unsafePreserveChecks: true },
+    ),
     success: PreviewAutomationStatus,
     failure: PreviewToolFailure,
     dependencies,
@@ -233,14 +241,10 @@ const PreviewInteractTool = browserTool(
         description: "Vertical scroll delta for action=scroll. Positive scrolls down.",
       }),
     }),
-    success: Schema.Struct({
-      ...PreviewActionResult.fields,
-      selected: Schema.optional(
-        Schema.Array(Schema.String).annotate({
-          description: "The values now selected for action=select.",
-        }),
-      ),
-    }),
+    success: Schema.Union([
+      Schema.Struct({ ...PreviewAutomationSelectResult.fields, ...presentationFields }),
+      PreviewActionResult,
+    ]),
     failure: PreviewToolFailure,
     dependencies,
   }).annotate(Tool.Title, "Interact with preview page"),

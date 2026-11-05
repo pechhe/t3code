@@ -9,7 +9,7 @@ import * as Schema from "effect/Schema";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
 
-/** The Forge Spec a thread's work counts toward, and the thread that leads it (Spec #4395). */
+/** The Forge Spec a thread's work counts toward, and the thread that leads it. */
 export interface ForgeSpecOfThreadResult {
   /** The Spec's id in Weave. A thread linked to a Ticket resolves to the Ticket's Spec. */
   readonly specId: string;
@@ -40,13 +40,9 @@ export class BuildSpecUnavailable extends Schema.TaggedError<BuildSpecUnavailabl
 }
 
 /**
- * Says which Spec, if any, a thread's work is recorded on: the thread's own Forge link or, when it
- * has none, the item its workspace was attached to (a lead launched for a Forge item or attached
- * with `slipjay attach-issue`, whose number T3 already reads as a Forge number); failing both, the nearest ancestor's, reached through `parentThreadId`, so every
- * `delegate_task` child at any depth counts. A thread with no linked ancestor, or whose link names no Spec, resolves to
- * none: there is nothing to record. A thread that is linked but whose item cannot be read now
- * fails with `BuildSpecUnavailable` instead, which is what tells a caller to queue its record
- * unresolved rather than drop it.
+ * Resolve the Spec from the thread's Forge link, then workspace attachment, then nearest ancestor.
+ * No Spec link resolves to none; an unreadable linked item fails with BuildSpecUnavailable
+ * so the caller queues unresolved usage rather than dropping it.
  */
 export class ForgeSpecOfThread extends Context.Service<
   ForgeSpecOfThread,
@@ -87,7 +83,7 @@ const make = Effect.gen(function* () {
   ) {
     const unavailable = () => new BuildSpecUnavailable({ threadId, origin: item.origin });
     const connection = yield* weave.read.pipe(Effect.mapError(unavailable));
-    if (connection === null) return yield* Effect.fail(unavailable());
+    if (connection === null) return yield* unavailable();
     const origin = item.origin ?? connection.origin;
     const cacheKey = `${connection.connection}\n${item.itemId ?? `#${item.number}`}`;
     const cached = specByItem.get(cacheKey);
@@ -100,7 +96,7 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError(unavailable));
     const value = decodeForgeItemRead(read.value);
     // An answer T3 cannot read as an item may read fine when it next asks.
-    if (Option.isNone(value)) return yield* Effect.fail(unavailable());
+    if (Option.isNone(value)) return yield* unavailable();
     const specId =
       value.value.kind === "spec"
         ? value.value.id
@@ -129,11 +125,11 @@ const make = Effect.gen(function* () {
         // A thread the projection no longer has records nothing: nothing can act as it again. Any
         // other read failure is "not yet", which keeps the caller's record instead of dropping it.
         const thread = yield* projections.getThread(holder).pipe(
-          Effect.map(Option.some),
+          Effect.asSome,
           Effect.catchTags({
-            ProjectionStoreThreadNotFoundError: () => Effect.succeed(Option.none()),
+            ProjectionStoreThreadNotFoundError: () => Effect.succeedNone,
           }),
-          Effect.catch(() => Effect.fail(new BuildSpecUnavailable({ threadId, origin: null }))),
+          Effect.mapError(() => new BuildSpecUnavailable({ threadId, origin: null })),
         );
         if (Option.isNone(thread)) return Option.none();
         const item = linkedItemOf(thread.value);

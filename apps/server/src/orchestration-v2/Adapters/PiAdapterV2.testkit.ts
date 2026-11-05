@@ -1,7 +1,8 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ProviderReplayEntry,
-  type ProviderInstanceEnvironment,
+  ProviderInstanceId,
+  type ResolvedProviderInstanceEnvironment,
   type ProviderReplayTranscript,
   type ProviderReplayEntry as ProviderReplayEntryType,
 } from "@t3tools/contracts";
@@ -362,25 +363,24 @@ export function layer<E, R>(input: {
   readonly spawner: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner, E, R>;
   readonly binaryPath: string;
   readonly launchArgs: string;
-  readonly environment?: ProviderInstanceEnvironment;
+  readonly environment?: ResolvedProviderInstanceEnvironment;
 }) {
-  return ProviderAdapterRegistry.layerFromDrivers({
-    drivers: [PiAdapterV2Driver],
-    configMap: {
-      [PI_PROVIDER]: {
-        driver: PI_PROVIDER,
-        enabled: true,
-        config: { binaryPath: input.binaryPath, launchArgs: input.launchArgs },
-        // Empty HOME and PI_CODING_AGENT_DIR (which outranks HOME) leave Pi no settings directory,
-        // so a replay never writes the compaction point to the developer's real ~/.pi or sends the
-        // requests that write would need.
-        environment: input.environment ?? [
-          { name: "HOME", value: "", sensitive: false },
-          { name: "PI_CODING_AGENT_DIR", value: "", sensitive: false },
-        ],
+  return ProviderAdapterRegistry.layerFromAdaptersEffect(
+    PiAdapterV2Driver.create({
+      instanceId: ProviderInstanceId.make(PI_PROVIDER),
+      environment: input.environment ?? [
+        { name: "HOME", value: "", sensitive: false },
+        { name: "PI_CODING_AGENT_DIR", value: "", sensitive: false },
+      ],
+      displayName: undefined,
+      enabled: true,
+      config: {
+        ...PiAdapterV2Driver.defaultConfig(),
+        binaryPath: input.binaryPath,
+        launchArgs: input.launchArgs,
       },
-    },
-  }).pipe(
+    }).pipe(Effect.map((adapter) => [adapter])),
+  ).pipe(
     Layer.provide(input.spawner),
     Layer.provide(
       Layer.mergeAll(

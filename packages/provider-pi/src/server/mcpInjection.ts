@@ -254,6 +254,9 @@ export function buildPiRpcLaunch(input: {
   readonly extensionPath: string | undefined;
   readonly sessionPath?: string | undefined;
   readonly ephemeral?: boolean;
+  // T3 stops these processes as soon as they answer. They run --offline because Pi's startup
+  // catalog refresh renews expired OAuth tokens, and a stop mid-request loses the rotated one.
+  readonly shortLived?: boolean;
   readonly disableExtensions?: boolean;
   readonly disableTools?: boolean;
   /** A read-only managed session: mutating built-ins and user extensions are withheld. */
@@ -262,7 +265,6 @@ export function buildPiRpcLaunch(input: {
 }): {
   readonly args: ReadonlyArray<string>;
   readonly env: NodeJS.ProcessEnv;
-  readonly hasT3Mcp: boolean;
 } {
   const hasT3Extension = input.disableExtensions !== true && input.extensionPath !== undefined;
   const hasT3Mcp = hasT3Extension && input.mcpSession !== undefined;
@@ -283,6 +285,7 @@ export function buildPiRpcLaunch(input: {
         ? ["--session", input.sessionPath]
         : []),
     ...launchArgs,
+    ...(input.shortLived === true && !launchArgs.includes("--offline") ? ["--offline"] : []),
     // Restrictions must follow launch args so user flags cannot re-enable unattended tools/extensions.
     ...(input.disableExtensions === true || input.readOnlyTools === true
       ? ["--no-extensions"]
@@ -346,6 +349,5 @@ export function buildPiRpcLaunch(input: {
         ? { [T3_MCP_AGENT_SERVERS_ENV]: JSON.stringify(agentServers) }
         : {}),
     },
-    hasT3Mcp,
   };
 }

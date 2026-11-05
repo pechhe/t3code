@@ -154,6 +154,9 @@ export interface EnvironmentThreadShell {
   /** Shown in its parent's side chat card, never in thread lists. */
   readonly sideChat: boolean;
   readonly forkedFrom: OrchestrationV2ThreadShell["forkedFrom"];
+  readonly linkOrigin: OrchestrationV2ThreadShell["linkOrigin"] | null;
+  /** The thread in a linked environment that delegated this one, if one did. */
+  readonly delegatedFrom: OrchestrationV2ThreadShell["delegatedFrom"] | null;
   readonly activeProviderThreadId: OrchestrationV2ThreadShell["activeProviderThreadId"];
   readonly latestRun: ThreadRunSummary | null;
   readonly runtime: ThreadRuntimeSummary | null;
@@ -298,11 +301,6 @@ export function presentThreadShell(
           assistantMessageId: null,
         } satisfies ThreadRunSummary);
   const runtime = shellRuntime(thread);
-  // Waiting runs have ended their provider turn and are only draining effects.
-  const runtimeIsWorking =
-    runtime?.status === "preparing" ||
-    runtime?.status === "starting" ||
-    runtime?.status === "running";
   return {
     champion: thread.champion,
     environmentId,
@@ -327,6 +325,8 @@ export function presentThreadShell(
     lineage: thread.lineage,
     sideChat: thread.sideChat === true,
     forkedFrom: thread.forkedFrom,
+    linkOrigin: thread.linkOrigin ?? null,
+    delegatedFrom: thread.delegatedFrom ?? null,
     activeProviderThreadId: thread.activeProviderThreadId,
     latestRun,
     runtime,
@@ -341,9 +341,7 @@ export function presentThreadShell(
         thread.pendingRuntimeRequest.kind !== "user_input" &&
         thread.pendingRuntimeRequest.kind !== "auth_refresh"),
     pendingReleaseApprovals: thread.pendingReleaseApprovals ?? [],
-    hasPendingUserInput:
-      thread.pendingRuntimeRequest?.kind === "user_input" &&
-      (thread.pendingRuntimeRequest.blocking !== false || !runtimeIsWorking),
+    hasPendingUserInput: thread.pendingRuntimeRequest?.kind === "user_input",
     pendingSubagentRequest,
     pendingGuestMessageCount: thread.pendingGuestMessageCount ?? 0,
     hasActionableProposedPlan: thread.hasActionableProposedPlan,

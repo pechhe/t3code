@@ -8,7 +8,7 @@ import {
   derivePhysicalProjectKey,
   selectProjectGroupingSettings,
   type ProjectGroupingSettings,
-} from "../logicalProject";
+} from "@t3tools/client-runtime/state/project-grouping";
 import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
 import { useProjects, useThreadShell } from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
@@ -135,6 +135,7 @@ export function setProjectThemeHalf(
 /** Paints the open project's theme, and the user's own theme everywhere else. */
 export function useProjectThemeSync(): void {
   const theme = useProjectTheme(useActiveProjectKey());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the document palette in step with the open project theme
   useEffect(() => {
     setActiveProjectTheme(theme);
   }, [theme]);

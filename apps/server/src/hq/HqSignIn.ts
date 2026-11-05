@@ -1,15 +1,14 @@
 /**
- * Connect to Weave by signing in (pechhe/yardsmith YS-309). T3 sends the person's browser to Weave's
- * `/connect/t3` with a PKCE challenge and a single-use state, Weave hands the browser back to this
- * environment's own callback, and T3 redeems the one-time code for the same delegation the person
- * used to paste. The verifier, state and delegation stay in this process and the secret store; none
- * is logged, and the callback answers with a redirect so the code and state leave the address bar.
+ * Weave sign-in uses PKCE, single-use state and this environment's callback.
+ * Keep verifier, state and delegation in-process or in the secret store; never log them.
+ * Redirect after redemption to remove the one-time code and state from the address bar.
  */
 import type { HqSignInState } from "@t3tools/contracts";
 import { DEFAULT_HQ_ORIGIN } from "@t3tools/shared/hqOrigins";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -76,12 +75,13 @@ export class HqSignIn extends Context.Service<
 
 const make = Effect.gen(function* () {
   const connections = yield* HqAgentConnections.HqAgentConnections;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
+  const secureRandom = yield* SecureRandom.SecureRandom;
   const httpClient = yield* HttpClient.HttpClient;
   const open = new Map<string, OpenRequest>();
   let latest: HqSignInState | null = null;
 
-  const random = crypto.randomBytes(32).pipe(
+  const random = secureRandom.randomBytes(32).pipe(
     Effect.map((bytes) => Buffer.from(bytes).toString("base64url")),
     Effect.orDie,
   );
@@ -125,7 +125,7 @@ const make = Effect.gen(function* () {
     yield* prune;
     const state = yield* random;
     const verifier = yield* random;
-    const challenge = yield* crypto.digest("SHA-256", new TextEncoder().encode(verifier)).pipe(
+    const challenge = yield* crypto.digest(Digest.sha256, new TextEncoder().encode(verifier)).pipe(
       Effect.map((bytes) => Buffer.from(bytes).toString("base64url")),
       Effect.orDie,
     );

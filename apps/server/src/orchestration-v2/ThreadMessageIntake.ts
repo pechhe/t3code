@@ -28,6 +28,7 @@ function dispatchWasNotAccepted(
     case "OrchestratorCommandIdConflictError":
     case "OrchestratorSubagentThreadReadOnlyError":
     case "OrchestratorThreadAboveModeLimitError":
+    case "OrchestratorRuntimeModeAboveCeilingError":
     case "ThreadManagementProviderInstanceDisabledError":
       return true;
     default:
@@ -44,12 +45,13 @@ const releaseUnusedClaims = Effect.fn("ThreadMessageIntake.releaseUnusedClaims")
   if (claimedPaths.length === 0) return;
   const config = yield* ServerConfig.ServerConfig;
   const retained = new Set(
-    accepted.map((attachment) =>
-      resolveAttachmentPath({
+    accepted.flatMap((attachment) => {
+      const path = resolveAttachmentPath({
         attachmentsDir: config.attachmentsDir,
         attachment,
-      }),
-    ),
+      });
+      return path ? [path, `${path}.txt`] : [];
+    }),
   );
   yield* AttachmentClaims.releaseClaimedAttachments(
     claimedPaths.filter((path) => !retained.has(path)),

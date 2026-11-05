@@ -5,7 +5,7 @@ import type { ProviderInstanceEntry } from "../../providerInstances";
 import { type AppModelOption } from "../../modelSelection";
 import { CircleAlertIcon } from "lucide-react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
-import { ComposerControl, ComposerControlSeparator } from "./ComposerControl";
+import { ComposerControl } from "./ComposerControl";
 import { ComposerFastSwitch } from "./ComposerFastSwitch";
 import { ComposerPoolAccount, type useComposerPoolAccount } from "./ComposerPoolAccount";
 import { DeviceModelSlider, type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
@@ -24,17 +24,25 @@ import {
   type RuntimeMode,
   type ServerProvider,
 } from "@t3tools/contracts";
+import type { EffortDisplay } from "@t3tools/contracts/settings";
 import { cn } from "~/lib/utils";
+import { resolveComposerTraitsInput } from "./composerProviderState";
 import {
-  renderProviderTraitsMenuContent,
-  renderProviderTraitsPicker,
-} from "./composerProviderState";
+  ComposerEffortColumn,
+  ComposerPickerFooter,
+  describeComposerEffort,
+} from "./ComposerModelEffort";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
+import { resolveComposerControlsOwnership } from "./composerControlsOwnership";
 
 /**
- * The composer footer controls: model picker, traits, mode controls and the overflow menu for
- * blocks that do not fit. Rendered in the expanded footer or the resting controls host.
+ * The composer footer controls: the model picker (which also holds effort, speed and
+ * permissions), mode controls and the overflow menu for blocks that do not fit. Rendered in the
+ * expanded footer or the resting controls host.
  */
+// Model and effort share one trigger; it stays filled while its popup is open.
+const MODEL_TRIGGER_STATES = "data-popup-open:bg-accent data-popup-open:text-foreground";
+
 export function ComposerControlsBar(props: {
   environmentId: EnvironmentId;
   routeKind: ChatComposerProps["routeKind"];
@@ -50,8 +58,12 @@ export function ComposerControlsBar(props: {
   onPromptEdit: (edit: (prompt: string) => string) => void;
   planModeEnabled: boolean;
   planModeUiEnabled: boolean;
+  effortDisplay: EffortDisplay;
+  /** The strip under a new thread names the permissions, so the row does not repeat them. */
+  permissionsShownInStrip: boolean;
   interactionMode: ProviderInteractionMode;
   compatibleRuntimeMode: RuntimeMode;
+  defaultRuntimeMode: RuntimeMode | undefined;
   compatibleRuntimeModeOptions: ReadonlyArray<RuntimeModeOption>;
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
@@ -109,14 +121,14 @@ export function ComposerControlsBar(props: {
     planModeUiEnabled,
     interactionMode,
     compatibleRuntimeMode,
+    defaultRuntimeMode,
     compatibleRuntimeModeOptions,
     toggleInteractionMode,
     handleRuntimeModeChange,
     composerControlsCollapsed,
     composerControlsHidden,
-    restingHiddenBlockCount,
+    restingHiddenBlockCount: measuredHiddenBlockCount,
     iconOnlyBlockCount,
-    showInlineRestingControls,
     deviceComposer,
     deviceEnvironmentSwitch,
     reasoningDialRef,
@@ -146,7 +158,22 @@ export function ComposerControlsBar(props: {
     modelPickerIconClassName,
     getModelDisabledReason,
   } = props;
-  const providerTraitsMenuContent = renderProviderTraitsMenuContent({
+  const accessMatchesDefault = compatibleRuntimeMode === defaultRuntimeMode;
+  const {
+    accessDisplay,
+    showModeBlock,
+    hiddenBlockCount: restingHiddenBlockCount,
+    hiddenBlockIds: hiddenRestingBlockIds,
+    overflowShowsPermissions,
+    pickerOwnsModeShortcut,
+  } = resolveComposerControlsOwnership({
+    matchesDefault: accessMatchesDefault || props.permissionsShownInStrip,
+    planModeUiEnabled,
+    collapsed: composerControlsCollapsed,
+    measuredHiddenBlockCount,
+  });
+  const controlSize = composerControlsCollapsed ? "xs" : "sm";
+  const traitsInput = resolveComposerTraitsInput({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
     ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
@@ -159,26 +186,30 @@ export function ComposerControlsBar(props: {
     onPromptEdit,
     planModeEnabled,
   });
-  const providerTraitsPickerInput = {
-    provider: selectedProvider,
-    instanceId: selectedInstanceId,
-    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-    ...(routeKind === "draft" && draftId ? { draftId } : {}),
-    model: selectedModel,
-    models: selectedProviderModels,
-    modelOptions: composerModelOptions?.[selectedInstanceId],
-    reportedModelSelection,
-    promptUltrathink,
-    onPromptEdit,
-    planModeEnabled,
-    isComposerOwned: true,
-  } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
-  const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
-  const restingProviderTraitsPicker = renderProviderTraitsPicker({
-    ...providerTraitsPickerInput,
-    size: composerControlsCollapsed ? "xs" : "sm",
-    hidden: composerControlsHidden || restingHiddenBlockCount > 2,
-  });
+  const effort = describeComposerEffort(traitsInput, props.effortDisplay, controlSize);
+  const restingBlockDefs = showModeBlock
+    ? [
+        {
+          id: "mode",
+          content: (
+            <ComposerFooterModeControls
+              showInteractionModeToggle={planModeUiEnabled}
+              interactionMode={interactionMode}
+              runtimeMode={compatibleRuntimeMode}
+              runtimeModeOptions={compatibleRuntimeModeOptions}
+              size={controlSize}
+              hidden={composerControlsHidden || restingHiddenBlockCount > 0}
+              accessDisplay={accessDisplay}
+              emphasized={!accessMatchesDefault}
+              onToggleInteractionMode={toggleInteractionMode}
+              onRuntimeModeChange={handleRuntimeModeChange}
+            />
+          ),
+        },
+      ]
+    : [];
+  // Its own element, so typing (which rebuilds the controls around it) leaves it cached.
+  const providerTraitsPickerInput = traitsInput;
   const composerFastSwitchInput = {
     provider: selectedProvider,
     instanceId: selectedInstanceId,
@@ -189,58 +220,13 @@ export function ComposerControlsBar(props: {
     modelOptions: composerModelOptions?.[selectedInstanceId],
     planModeEnabled,
   };
-  // Blocks hide from the end as space runs out, so Fast goes before mode and after traits, whose
-  // menu still offers Fast once the switch is hidden.
-  const restingBlockDefs = [
-    ...(providerTraitsPicker
-      ? [
-          {
-            id: "traits",
-            content: (
-              <>
-                <ComposerControlSeparator size={composerControlsCollapsed ? "xs" : "sm"} />
-                {restingProviderTraitsPicker}
-              </>
-            ),
-          },
-        ]
-      : []),
-    {
-      id: "fast",
-      content: (
-        <>
-          <ComposerControlSeparator size={composerControlsCollapsed ? "xs" : "sm"} />
-          <ComposerFastSwitch
-            {...composerFastSwitchInput}
-            size={composerControlsCollapsed ? "xs" : "sm"}
-          />
-        </>
-      ),
-    },
-    {
-      id: "mode",
-      content: (
-        <ComposerFooterModeControls
-          showInteractionModeToggle={planModeUiEnabled}
-          interactionMode={interactionMode}
-          runtimeMode={compatibleRuntimeMode}
-          runtimeModeOptions={compatibleRuntimeModeOptions}
-          size={composerControlsCollapsed ? "xs" : "sm"}
-          hidden={composerControlsHidden || restingHiddenBlockCount > 0}
-          onToggleInteractionMode={toggleInteractionMode}
-          onRuntimeModeChange={handleRuntimeModeChange}
-        />
-      ),
-    },
-  ];
-  const hiddenRestingBlockIds = restingBlockDefs
-    .slice(restingBlockDefs.length - restingHiddenBlockCount)
-    .map((def) => def.id);
   const composerModelPicker = (
     <ComposerModelPicker
       environmentId={environmentId}
       compact={false}
       isComposerOwned
+      // The trigger grows away from this edge when its model or effort label changes.
+      popupAlign={composerControlsCollapsed ? "start" : "end"}
       disabled={providerCatalogPending || isSendBusy}
       multipleModelsEnabled={multipleModelsEnabled}
       multipleModelSelections={multipleModelSelections}
@@ -262,15 +248,25 @@ export function ComposerControlsBar(props: {
       instanceEntries={providerInstanceEntries}
       keybindings={keybindings}
       modelOptionsByInstance={modelOptionsByInstance}
-      size={composerControlsCollapsed ? "xs" : "sm"}
-      triggerClassName={
-        composerControlsCollapsed
-          ? cn(
-              "min-w-13 shrink text-xs!",
-              !showInlineRestingControls &&
-                "@max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none",
-            )
-          : "-ms-2.5 min-w-13"
+      size={controlSize}
+      triggerClassName={cn(
+        "group/model-trigger",
+        MODEL_TRIGGER_STATES,
+        composerControlsCollapsed ? "min-w-13 shrink text-xs!" : "min-w-13",
+      )}
+      triggerSuffix={effort.suffix}
+      triggerDetail={effort.detail}
+      triggerShortcuts={
+        pickerOwnsModeShortcut ? "composer.effort composer.mode" : "composer.effort"
+      }
+      effortColumn={<ComposerEffortColumn traits={traitsInput} />}
+      footer={
+        <ComposerPickerFooter
+          traits={traitsInput}
+          runtimeMode={compatibleRuntimeMode}
+          runtimeModeOptions={compatibleRuntimeModeOptions}
+          onRuntimeModeChange={handleRuntimeModeChange}
+        />
       }
       terminalOpen={terminalOpen}
       open={modelPickerOpen}
@@ -331,7 +327,9 @@ export function ComposerControlsBar(props: {
         lightColor={poolAccount?.next.color}
       />
       {poolAccount ? <ComposerPoolAccount state={poolAccount} isNew={isNewThread} device /> : null}
-      <DeviceReasoningDial ref={reasoningDialRef} {...providerTraitsPickerInput} />
+      {providerTraitsPickerInput ? (
+        <DeviceReasoningDial ref={reasoningDialRef} {...providerTraitsPickerInput} />
+      ) : null}
       <ComposerFastSwitch {...composerFastSwitchInput} device />
     </>
   ) : (
@@ -381,12 +379,11 @@ export function ComposerControlsBar(props: {
             interactionMode={interactionMode}
             runtimeMode={compatibleRuntimeMode}
             runtimeModeOptions={compatibleRuntimeModeOptions}
-            size={composerControlsCollapsed ? "xs" : "sm"}
+            size={controlSize}
             hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
-            showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
-            traitsMenuContent={
-              hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
-            }
+            showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.length > 0}
+            // Permissions join the overflow only when their normal home is in it.
+            showPermissions={overflowShowsPermissions}
             onToggleInteractionMode={toggleInteractionMode}
             onRuntimeModeChange={handleRuntimeModeChange}
           />

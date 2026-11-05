@@ -10,7 +10,6 @@ import {
   NodeId,
   type ProjectId,
   ThreadId,
-  ProviderInstanceId,
   type AgentSessionAttachInput,
   OrchestratorMcpDelegateTaskInput,
   type OrchestratorMcpDelegateTaskResult,
@@ -20,7 +19,7 @@ import {
   isReviewerRole,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Hex from "effect/encoding/Hex";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -43,7 +42,7 @@ import * as Launch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as Managed from "./ManagedAgentService.ts";
 import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
-import { clientRuntimeModeCeiling } from "../mcp/McpInvocationContext.ts";
+import { clientModeCeiling } from "../mcp/McpInvocationContext.ts";
 import { subagentResultForRun } from "@t3tools/provider-core/server/subagentProjection";
 import { followupBinding, followupPrompt } from "./followup.ts";
 import {
@@ -54,6 +53,8 @@ import {
 import * as ServerSettings from "../serverSettings.ts";
 import { defaultChildMode, exceedsCaller } from "./delegationRuntime.ts";
 import { managedTaskTitle } from "./taskTitle.ts";
+
+const isManagedAgentError = Schema.is(Managed.ManagedAgentError);
 
 export class ExternalAgentWorkError extends Schema.TaggedError<ExternalAgentWorkError>()(
   "ExternalAgentWorkError",
@@ -77,7 +78,7 @@ export class ExternalAgentWorkError extends Schema.TaggedError<ExternalAgentWork
   override get message(): string {
     if (this.reason === "advisor-closed") return "This advisor is closed. Start a new advisor.";
     const refusal = `External agent work refused (${this.reason}).`;
-    if (Schema.is(Managed.ManagedAgentError)(this.cause)) return `${refusal} ${this.cause.message}`;
+    if (isManagedAgentError(this.cause)) return `${refusal} ${this.cause.message}`;
     return this.reason === "source" ? `${refusal} ${Managed.sourceRevisionGuidance}` : refusal;
   }
 }
@@ -140,7 +141,7 @@ type WorkRow = {
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const processes = yield* ProcessRunner.ProcessRunner;
@@ -182,7 +183,7 @@ const make = Effect.gen(function* () {
     );
   const hash = (text: string) =>
     crypto
-      .digest("SHA-256", new TextEncoder().encode(text))
+      .digest(Digest.sha256, new TextEncoder().encode(text))
       .pipe(Effect.map(Hex.encode), Effect.orDie);
   const activeClient = Effect.fn(function* (scope: McpInvocationScope, write = false) {
     if (
@@ -468,7 +469,7 @@ const make = Effect.gen(function* () {
           ...input,
           key,
           clientSessionId: client.sessionId,
-          ceiling: clientRuntimeModeCeiling(client),
+          ceiling: clientModeCeiling(client).runtimeMode,
         };
         const prior = yield* storage(
           sql<{
@@ -537,7 +538,7 @@ const make = Effect.gen(function* () {
           if (originalThread.thread.advisorClosedAt !== undefined)
             return yield* new ExternalAgentWorkError({ reason: "advisor-closed" });
           const binding = original.work.binding;
-          const ceiling = clientRuntimeModeCeiling(client);
+          const ceiling = clientModeCeiling(client).runtimeMode;
           if (ceiling !== session.ceiling)
             return yield* new ExternalAgentWorkError({ reason: "authority" });
           if (binding.workUnitId !== undefined)
@@ -669,7 +670,7 @@ const make = Effect.gen(function* () {
               );
         // The registered ceiling is immutable; re-authentication never adopts another
         // client's old work. Revoked/expired credentials cannot submit or resume it.
-        const ceiling = clientRuntimeModeCeiling(client);
+        const ceiling = clientModeCeiling(client).runtimeMode;
         if (
           ceiling !== session.ceiling ||
           (input.runtimeMode !== undefined &&
@@ -967,7 +968,7 @@ const make = Effect.gen(function* () {
     session: readSession,
     submit,
     status,
-    recordOutcome: (scope, input) =>
+    recordOutcome: Effect.fn("ExternalAgentWorkService.recordOutcome")((scope, input) =>
       permit.withPermit(
         Effect.gen(function* () {
           yield* activeClient(scope, true);
@@ -996,7 +997,8 @@ const make = Effect.gen(function* () {
           );
         }),
       ),
-    cancel: (scope, input) =>
+    ),
+    cancel: Effect.fn("ExternalAgentWorkService.cancel")((scope, input) =>
       permit.withPermit(
         Effect.gen(function* () {
           yield* activeClient(scope, true);
@@ -1012,6 +1014,7 @@ const make = Effect.gen(function* () {
           };
         }),
       ),
+    ),
   });
 });
 export const layer = Layer.effect(ExternalAgentWorkService, make);

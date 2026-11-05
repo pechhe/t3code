@@ -1,5 +1,6 @@
 import {
   WorktreeMcpFailure,
+  OrchestratorMcpEnvironmentTarget,
   OrchestratorMcpFailure,
   VcsListRefsInput,
   VcsListRefsResult,
@@ -13,7 +14,6 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import * as GitWorkflowService from "../../../git/GitWorkflowService.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import { Tool, Toolkit } from "effect/ai";
@@ -96,6 +96,7 @@ const WorktreeListTool = Tool.make("t3_worktree_list", {
   description:
     "List branch refs and checkout paths for a thread's workspace. Omit `threadId` for this thread. Detached worktrees with no branch are left out.",
   parameters: Schema.Struct({
+    environmentId: OrchestratorMcpEnvironmentTarget,
     threadId: Schema.optional(ThreadId),
     query: VcsListRefsInput.fields.query,
     cursor: VcsListRefsInput.fields.cursor,
@@ -110,7 +111,7 @@ const WorktreeListTool = Tool.make("t3_worktree_list", {
     McpInvocationContext.McpInvocationContext,
     ThreadManagementService.ThreadManagementService,
     ProjectService.ProjectService,
-    GitWorkflowService.GitWorkflowService,
+    WorktreeMcpService.WorktreeMcpService,
   ],
 })
   .annotate(Tool.Readonly, true)

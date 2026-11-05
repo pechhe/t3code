@@ -7,7 +7,7 @@ import {
 } from "@t3tools/contracts";
 import { turnItemUpdateCanEndBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -99,7 +99,7 @@ const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const sql = yield* SqlClient.SqlClient;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   const serial = yield* Semaphore.make(1);
   /** Watched thread id to the watches on it. Rebuilt from each watcher's own thread events. */
   const byWatched = new Map<ThreadId, ReadonlyArray<Watching>>();
@@ -132,7 +132,7 @@ const make = Effect.gen(function* () {
         watchedThreadRecords.filter,
       );
       if (decideThreadWatch(watched, yield* DateTime.now) === undefined) return;
-      const uuid = yield* crypto.randomUUIDv4();
+      const uuid = yield* crypto.uuidV4();
       yield* engine.dispatch({
         type: "thread.thread-watch.fire",
         commandId: CommandId.make(`server:thread-watch-fire:${watcherId}:${uuid}`),

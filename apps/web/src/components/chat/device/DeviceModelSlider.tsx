@@ -111,7 +111,7 @@ export function DeviceModelSlider(props: {
           entry.continuationGroupKey !== lockedContinuationGroupKey));
     const slug = option?.slug ?? model;
     const key = providerModelKey(instanceId, slug);
-    const modelName = option ? getTriggerDisplayModelName(option) : model;
+    const modelName = option ? getTriggerDisplayModelName(option, entry.driverKind) : model;
     return {
       key,
       instanceId,

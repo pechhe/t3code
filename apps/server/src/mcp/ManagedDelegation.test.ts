@@ -1,5 +1,6 @@
 import * as Champions from "../champions/ChampionService.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
+import * as ContextRemoteDelegation from "../peer/RemoteDelegation.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { ProviderThreadId, type ChampionFinding } from "@t3tools/contracts";
 import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
@@ -58,7 +59,7 @@ import type { McpInvocationScope } from "./McpInvocationContext.ts";
 const encodeManifest = Schema.encodeEffect(Schema.fromJsonString(AgentPolicyManifest));
 const persistence = ProjectionStore.layer.pipe(Layer.provideMerge(Sqlite.layerMemory));
 const dependencies = Layer.mergeAll(
-  NodeServices.layer,
+  Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
   persistence,
   Layer.succeed(Processes.ProcessRunner, {
     run: () =>
@@ -243,7 +244,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: root }),
           ),
         );
-      }),
+      }).pipe(
+        Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+      ),
   );
 
   /**
@@ -393,12 +396,16 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
                 ? (parent.thread as unknown as OrchestrationV2ThreadShell)
                 : (children.get(id) ?? null),
             ),
-          getReceipt: () => Effect.succeed(Option.none()),
+          getReceipt: () => Effect.succeedNone,
           hasReceipt: () => Effect.succeed(false),
           isProviderInstanceEnabledForProject: () => Effect.succeed(true),
           listProjectThreads: (input) =>
             Effect.succeed(
-              occupantsFor(helper, { projectId: input.projectId, foreign, foreignHelper }),
+              occupantsFor(helper, {
+                projectId: input.projectId ?? projectId,
+                foreign,
+                foreignHelper,
+              }),
             ),
           dispatch: (command) =>
             Effect.suspend(() => {
@@ -467,9 +474,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         | { service: Champions.ChampionService["Service"]; finding: ChampionFinding }
         | undefined;
       if (options.champion) {
-        const service = yield* Effect.gen(function* () {
-          return yield* Champions.ChampionService;
-        }).pipe(
+        const service = yield* Champions.ChampionService.pipe(
           Effect.provide(
             Champions.layer.pipe(
               Layer.provide(transport),
@@ -697,7 +702,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           ).toBe("capability_denied");
         }
         expect(h.dispatched).toHaveLength(2);
-      }),
+      }).pipe(
+        Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+      ),
   );
 
   it.effect(
@@ -726,7 +733,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           })).code,
         ).toBe("capability_denied");
         expect(h.dispatched).toHaveLength(1);
-      }),
+      }).pipe(
+        Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+      ),
   );
 
   it.effect("requires a managed role where a policy is configured, even with a reason", () =>
@@ -757,7 +766,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           agentTask: request({ workspacePath: h.lead }),
         })).code,
       ).toBe("invalid_request");
-    }),
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
   );
 
   it.effect(
@@ -874,7 +885,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           modelSelection: own,
           agentTask: { requested: own, effective: own },
         });
-      }),
+      }).pipe(
+        Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+      ),
   );
 
   it.effect("refuses with the current state when an account changed since discovery", () =>
@@ -893,7 +906,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         `claude-fable-test on ${claude.instanceId}: provider-not-installed`,
       );
       expect(h.dispatched).toHaveLength(0);
-    }),
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
   );
 
   it.effect(
@@ -954,7 +969,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         const lead = h.dispatched[1] as { workspaceStrategy: unknown; agentTask: AgentTaskBinding };
         expect(lead.agentTask.role).toBe("lead");
         expect(lead.workspaceStrategy).toEqual({ type: "worktree", baseRef: "HEAD", forgeItem: 9 });
-      }),
+      }).pipe(Effect.provide(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
   );
 
   it.effect("starts a Spec lead in its Forge item's workspace, and lets it delegate leaves", () =>
@@ -1019,7 +1034,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           agentTask: request({ workspacePath: leaf.lead }),
         })).code,
       ).toBe("capability_denied");
-    }),
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
   );
   it.effect("launches an isolated helper in its own workspace and refuses a second writer", () =>
     Effect.gen(function* () {
@@ -1101,7 +1118,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         agentTask: request({ workspacePath: free.lead, workId: "exporter" }),
       });
       expect([...read.locked, ...free.locked]).toEqual([true, true, false]);
-    }),
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
   );
   it.effect(
     "sends pinned readers and isolated writers to another registered project, never a sharing writer",
@@ -1175,7 +1194,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           })).message,
         ).toContain("is not registered");
         expect(h.dispatched).toHaveLength(2);
-      }),
+      }).pipe(
+        Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+      ),
   );
 
   it.effect("asks which project when several are registered in the target repository", () =>
@@ -1201,7 +1222,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       expect((h.dispatched[0] as { agentTask: AgentTaskBinding }).agentTask.projectId).toBe(
         "foreign-project",
       );
-    }),
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
   );
 
   it.effect("lets a No project chat delegate into a registered project and its own folder", () =>
@@ -1241,7 +1264,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         })).message,
       ).toContain("no workspace of its own in that project");
       expect(h.dispatched).toHaveLength(2);
-    }),
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
   );
   it.effect("checks another project's workspaces for writers of every project there", () =>
     Effect.gen(function* () {
@@ -1305,7 +1330,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       });
       expect(helper.message).toContain("another thread is working in");
       expect([...root.dispatched, ...unbound.dispatched, ...twin.dispatched]).toHaveLength(0);
-    }),
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
   );
 
   it.effect("treats a workspace the lead attached in another project as its own checkout", () =>
@@ -1331,7 +1358,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       });
       expect(elsewhere.message).toContain(`must use ${h.foreignHelper}`);
       expect(h.dispatched).toHaveLength(1);
-    }),
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
   );
 
   it.effect("keeps helpers out of a workspace another lead holds as a live attachment", () =>
@@ -1372,6 +1401,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       });
       expect(refused.message).toContain("another thread is working in");
       expect(h.dispatched).toHaveLength(0);
-    }),
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
   );
 });

@@ -88,7 +88,11 @@ describe("buildThreadActionMenuItems", () => {
     const items = buildThreadActionMenuItems({ ...baseState, branch: "main" });
     expect(items.map((item) => item.id)).toContain("copy-thread-id");
     const copy = items.find((item) => item.id === "copy");
-    expect(copy?.children?.map((item) => item.id)).toEqual(["copy-path", "copy-branch"]);
+    expect(copy?.children?.map((item) => item.id)).toEqual([
+      "copy-path",
+      "copy-branch",
+      "copy-thread",
+    ]);
   });
 
   it("offers Link Forge item only for a project connected to HQ, and only to operators", () => {
@@ -115,5 +119,15 @@ describe("buildThreadActionMenuItems", () => {
       (item) => item.id === "archive",
     );
     expect(archiveItem?.disabled).toBe(true);
+  });
+
+  it("disables archive and turning into a project while the thread is running", () => {
+    const items = buildThreadActionMenuItems({
+      ...baseState,
+      isRunning: true,
+      canTurnIntoProject: true,
+    });
+    expect(items.find((item) => item.id === "archive")?.disabled).toBe(true);
+    expect(items.find((item) => item.id === "turn-into-project")?.disabled).toBe(true);
   });
 });

@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { EnvironmentId } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
@@ -166,7 +167,7 @@ const withClient = <A, E, R>(
         return yield* use({ client, directory, fs });
       }).pipe(Effect.provide(layer));
     }),
-  ).pipe(Effect.provide(NodeServices.layer));
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
 const authorize =
   (native: typeof fetch = originalFetch) =>
@@ -254,13 +255,18 @@ it.effect("rejects missing, expired, and changed-environment credentials", () =>
       const secretDir = `${directory}/secrets`;
       const secretFiles = yield* fs.readDirectory(secretDir);
       const secretPath = `${secretDir}/${secretFiles[0]}`;
+      const secrets = yield* Secrets.ServerSecretStore;
+      const secretName = secretFiles[0]!.replace(/\.bin$/, "");
       const saved = JSON.parse(yield* fs.readFileString(secretPath)) as Record<string, unknown>;
-      yield* fs.writeFileString(secretPath, JSON.stringify({ ...saved, expiresAt: 0 }));
+      yield* secrets.set(
+        secretName,
+        new TextEncoder().encode(JSON.stringify({ ...saved, expiresAt: 0 })),
+      );
       const expired = yield* client.identity(endpoint).pipe(Effect.flip);
       expect(expired.reason).toBe("credentials-expired");
-      yield* fs.writeFileString(
-        secretPath,
-        JSON.stringify({ ...saved, expiresAt: Number.MAX_SAFE_INTEGER }),
+      yield* secrets.set(
+        secretName,
+        new TextEncoder().encode(JSON.stringify({ ...saved, expiresAt: Number.MAX_SAFE_INTEGER })),
       );
       stubRemote({ environmentId: EnvironmentId.make("environment:replaced") });
       const changed = yield* client.identity(endpoint).pipe(Effect.flip);

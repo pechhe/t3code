@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Context from "effect/Context";
@@ -100,7 +101,7 @@ describe("EventLoopMonitor", () => {
         assert.strictEqual(row.swapTotalMb, 10 * 1024);
       }
       assert.strictEqual((yield* monitor.latestNoticeableStall)?.durationMs, 5_500);
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
   it.effect("answers a reconnecting client without waiting for the host reads", () =>
     Effect.gen(function* () {
@@ -121,6 +122,6 @@ describe("EventLoopMonitor", () => {
       yield* TestClock.adjust("30 seconds");
       upcoming.push({ ...stalled, delayMaxNs: ms(6_500) });
       assert.strictEqual((yield* monitor.latestNoticeableStall)?.durationMs, 5_500);
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 });

@@ -1,5 +1,6 @@
 import * as Cache from "effect/Cache";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -105,19 +106,10 @@ const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
   const vcsProcess = yield* VcsProcess.VcsProcess;
   // Reads the policy a SlipJay checkout of an older revision lacks; see findSlipJayProject.
   const processes = yield* ProcessRunner.make();
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
+  const secureRandom = yield* SecureRandom.SecureRandom;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-
-  const capabilities = {
-    kind: "jj" as const,
-    supportsWorktrees: true,
-    supportsBookmarks: true,
-    supportsAtomicSnapshot: true,
-    supportsPushDefaultRemote: false,
-    // Jujutsu has no check-ignore; ignores are classified by Git's own matcher.
-    ignoreClassifier: "git-compatible-fallback" as const,
-  };
 
   const jj = (
     operation: string,
@@ -308,7 +300,7 @@ const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
     );
 
   const hashDiff = (cwd: string, diff: string, files: ReadonlyArray<ReviewDiffFileStat>) =>
-    crypto.digest("SHA-256", new TextEncoder().encode(JSON.stringify([diff, files]))).pipe(
+    crypto.digest(Digest.sha256, new TextEncoder().encode(JSON.stringify([diff, files]))).pipe(
       Effect.map(Hex.encode),
       Effect.mapError(
         (cause) =>
@@ -595,7 +587,7 @@ const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
         "root",
         "--ignore-working-copy",
       ]);
-      const indexId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
+      const indexId = yield* secureRandom.uuidV4().pipe(Effect.orDie);
       const indexPath = path.join(store.stdout.trim(), `t3-jj-checkpoint-index-${indexId}`);
       yield* Effect.gen(function* () {
         const env = { ...globalThis.process.env, GIT_INDEX_FILE: indexPath };
@@ -804,7 +796,6 @@ const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
     });
 
   return {
-    capabilities,
     execute,
     checkpoints,
     getStatus,

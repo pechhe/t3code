@@ -35,8 +35,8 @@ import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useSelectWorkspaceDetail } from "../workspace/useSelectWorkspaceDetail";
 import {
-  AndroidSettingsEnvironmentFilter,
   SettingsEnvironmentFilterHeader,
+  useSettingsEnvironmentMenu,
 } from "./components/SettingsEnvironmentFilterHeader";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
@@ -148,7 +148,7 @@ export function SettingsChampionsRouteScreen() {
   return (
     <>
       <SettingsEnvironmentFilterHeader />
-      <SettingsScreen title="Champions" trailing={<AndroidSettingsEnvironmentFilter />}>
+      <SettingsScreen title="Champions" menus={[useSettingsEnvironmentMenu()]}>
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           showsVerticalScrollIndicator={false}

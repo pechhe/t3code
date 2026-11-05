@@ -2,7 +2,6 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
@@ -16,7 +15,7 @@ import {
 } from "./snapShot.ts";
 
 const layerWithoutOverlay = Layer.succeed(DesktopWindow.DesktopWindow, {
-  snapShotOverlayFor: () => Effect.succeed(Option.none()),
+  snapShotOverlayFor: () => Effect.succeedNone,
 } as unknown as DesktopWindow.DesktopWindow["Service"]);
 
 describe("window capture IPC", () => {

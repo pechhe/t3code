@@ -9,7 +9,6 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -77,9 +76,7 @@ const setup = (input: {
         }),
         Layer.mock(ProjectService.ProjectService)({
           getById: (id) =>
-            Effect.succeed(
-              Option.some({ id, title: id, workspaceRoot: `/projects/${id}` } as never),
-            ),
+            Effect.succeedSome({ id, title: id, workspaceRoot: `/projects/${id}` } as never),
         }),
         Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
           namedProjectsRoot: "/unused",
@@ -90,7 +87,7 @@ const setup = (input: {
           resolve: () => Effect.succeed(input.slipjay === false ? "git-worktree" : "slipjay"),
         }),
         Layer.mock(ScheduledTasks.ScheduledTaskService)({
-          moveThreadProject: ({ projectId }) =>
+          moveThreadTasks: ({ projectId }) =>
             input.schedulesFail
               ? Effect.fail({ message: "schedules" } as never)
               : Effect.sync(() => void log.push(`schedules:${projectId}`)),

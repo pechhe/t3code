@@ -3,9 +3,17 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./build-session-thread-link": {
-      "types": "./src/buildSessionThreadLink.ts",
-      "default": "./src/buildSessionThreadLink.ts"
+    "./assembly-highlighting": {
+      "types": "./src/assemblyHighlighting.ts",
+      "default": "./src/assemblyHighlighting.ts"
+    },
+    "./zip/bounded-zip": {
+      "types": "./src/zip/boundedZip.ts",
+      "default": "./src/zip/boundedZip.ts"
+    },
+    "./zip/directory": {
+      "types": "./src/zip/zipDirectory.ts",
+      "default": "./src/zip/zipDirectory.ts"
     },
     "./workspace-basename-lookup": {
       "types": "./src/workspaceBasenameLookup.ts",
@@ -14,26 +22,6 @@
     "./composerThreadItems": {
       "types": "./src/composerThreadItems.ts",
       "default": "./src/composerThreadItems.ts"
-    },
-    "./thread-workspaces": {
-      "types": "./src/threadWorkspaces.ts",
-      "default": "./src/threadWorkspaces.ts"
-    },
-    "./thread-workflow": {
-      "types": "./src/threadWorkflow.ts",
-      "default": "./src/threadWorkflow.ts"
-    },
-    "./champions": {
-      "types": "./src/champions.ts",
-      "default": "./src/champions.ts"
-    },
-    "./away": {
-      "types": "./src/away.ts",
-      "default": "./src/away.ts"
-    },
-    "./experiments": {
-      "types": "./src/experiments.ts",
-      "default": "./src/experiments.ts"
     },
     "./image-attachment-size": {
       "types": "./src/imageAttachmentSize.ts",
@@ -54,10 +42,6 @@
     "./preview/server-browser-stream": {
       "types": "./src/preview/serverBrowserStream.ts",
       "default": "./src/preview/serverBrowserStream.ts"
-    },
-    "./slipjay-checkout": {
-      "types": "./src/slipJayCheckout.ts",
-      "default": "./src/slipJayCheckout.ts"
     },
     "./worktree-setup": {
       "types": "./src/worktreeSetup.ts",
@@ -83,9 +67,9 @@
       "types": "./src/secretRequest.ts",
       "default": "./src/secretRequest.ts"
     },
-    "./release-approval": {
-      "types": "./src/releaseApproval.ts",
-      "default": "./src/releaseApproval.ts"
+    "./link-request": {
+      "types": "./src/linkRequest.ts",
+      "default": "./src/linkRequest.ts"
     },
     "./scheduled-task-webhook": {
       "types": "./src/scheduledTaskWebhook.ts",
@@ -179,6 +163,14 @@
       "types": "./src/webhookAddress.ts",
       "default": "./src/webhookAddress.ts"
     },
+    "./queued-run-edit": {
+      "types": "./src/queuedRunEdit.ts",
+      "default": "./src/queuedRunEdit.ts"
+    },
+    "./clock": {
+      "types": "./src/clock.ts",
+      "default": "./src/clock.ts"
+    },
     "./delayed-status": {
       "types": "./src/delayedStatus.ts",
       "default": "./src/delayedStatus.ts"
@@ -215,6 +207,10 @@
       "types": "./src/state/orchestration.ts",
       "default": "./src/state/orchestration.ts"
     },
+    "./state/thread-history-merge": {
+      "types": "./src/state/threadHistoryMerge.ts",
+      "default": "./src/state/threadHistoryMerge.ts"
+    },
     "./state/orchestration-v2-projection": {
       "types": "./src/state/orchestrationV2Projection.ts",
       "default": "./src/state/orchestrationV2Projection.ts"
@@ -231,6 +227,14 @@
       "types": "./src/state/deviceHubAccess.ts",
       "default": "./src/state/deviceHubAccess.ts"
     },
+    "./state/peerLinks": {
+      "types": "./src/state/peerLinks.ts",
+      "default": "./src/state/peerLinks.ts"
+    },
+    "./state/peerPairingCode": {
+      "types": "./src/state/peerPairingCode.ts",
+      "default": "./src/state/peerPairingCode.ts"
+    },
     "./state/preview": {
       "types": "./src/state/preview.ts",
       "default": "./src/state/preview.ts"
@@ -242,10 +246,6 @@
     "./state/provider-instance-display": {
       "types": "./src/state/providerInstanceDisplay.ts",
       "default": "./src/state/providerInstanceDisplay.ts"
-    },
-    "./state/forge-work-items": {
-      "types": "./src/state/forgeWorkItems.ts",
-      "default": "./src/state/forgeWorkItems.ts"
     },
     "./state/pull-requests": {
       "types": "./src/state/pullRequests.ts",
@@ -295,10 +295,6 @@
       "types": "./src/state/sharedSettings.ts",
       "default": "./src/state/sharedSettings.ts"
     },
-    "./state/peers": {
-      "types": "./src/state/peers.ts",
-      "default": "./src/state/peers.ts"
-    },
     "./state/shell": {
       "types": "./src/state/shell.ts",
       "default": "./src/state/shell.ts"
@@ -343,6 +339,10 @@
       "types": "./src/state/threadExecution.ts",
       "default": "./src/state/threadExecution.ts"
     },
+    "./state/pending-user-input": {
+      "types": "./src/state/pendingUserInput.ts",
+      "default": "./src/state/pendingUserInput.ts"
+    },
     "./state/thread-requests": {
       "types": "./src/state/threadRequests.ts",
       "default": "./src/state/threadRequests.ts"
@@ -370,6 +370,10 @@
     "./state/thread-search": {
       "types": "./src/state/threadSearch.ts",
       "default": "./src/state/threadSearch.ts"
+    },
+    "./state/thread-visits": {
+      "types": "./src/state/threadVisits.ts",
+      "default": "./src/state/threadVisits.ts"
     },
     "./state/turn-item-presentation": {
       "types": "./src/state/turnItemPresentation.ts",
@@ -418,6 +422,10 @@
     "./thread-reference": {
       "types": "./src/threadReference.ts",
       "default": "./src/threadReference.ts"
+    },
+    "./pull-request-project-filter": {
+      "types": "./src/pullRequestProjectFilter.ts",
+      "default": "./src/pullRequestProjectFilter.ts"
     },
     "./thread-pull-request-compatibility": {
       "types": "./src/threadPullRequestCompatibility.ts",
@@ -506,24 +514,78 @@
     "./model-traits": {
       "types": "./src/modelTraits.ts",
       "default": "./src/modelTraits.ts"
+    },
+    "./provider-clients": {
+      "types": "./src/providerClients.ts",
+      "default": "./src/providerClients.ts"
+    },
+    "./build-session-thread-link": {
+      "types": "./src/buildSessionThreadLink.ts",
+      "default": "./src/buildSessionThreadLink.ts"
+    },
+    "./thread-workspaces": {
+      "types": "./src/threadWorkspaces.ts",
+      "default": "./src/threadWorkspaces.ts"
+    },
+    "./thread-workflow": {
+      "types": "./src/threadWorkflow.ts",
+      "default": "./src/threadWorkflow.ts"
+    },
+    "./champions": {
+      "types": "./src/champions.ts",
+      "default": "./src/champions.ts"
+    },
+    "./away": {
+      "types": "./src/away.ts",
+      "default": "./src/away.ts"
+    },
+    "./experiments": {
+      "types": "./src/experiments.ts",
+      "default": "./src/experiments.ts"
+    },
+    "./slipjay-checkout": {
+      "types": "./src/slipJayCheckout.ts",
+      "default": "./src/slipJayCheckout.ts"
+    },
+    "./release-approval": {
+      "types": "./src/releaseApproval.ts",
+      "default": "./src/releaseApproval.ts"
+    },
+    "./state/forge-work-items": {
+      "types": "./src/state/forgeWorkItems.ts",
+      "default": "./src/state/forgeWorkItems.ts"
+    },
+    "./state/peers": {
+      "types": "./src/state/peers.ts",
+      "default": "./src/state/peers.ts"
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "effect-tsgo tsrs --noEmit",
     "test": "vp test run"
   },
   "dependencies": {
     "@pierre/diffs": "catalog:",
     "@t3tools/contracts": "workspace:*",
+    "@t3tools/provider-acp-registry": "workspace:*",
+    "@t3tools/provider-core": "workspace:*",
+    "@t3tools/provider-cursor": "workspace:*",
+    "@t3tools/provider-fx": "workspace:*",
+    "@t3tools/provider-grok": "workspace:*",
+    "@t3tools/provider-kiro": "workspace:*",
+    "@t3tools/provider-muse": "workspace:*",
+    "@t3tools/provider-opencode": "workspace:*",
+    "@t3tools/provider-pi": "workspace:*",
     "@t3tools/shared": "workspace:*",
     "@t3tools/source-control-core": "workspace:*",
     "@t3tools/source-control-definitions": "workspace:*",
     "effect": "catalog:",
-    "three": "0.187.0"
+    "jszip": "3.10.1",
+    "three": "0.180.0"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@types/three": "0.187.0",
+    "@types/three": "0.180.0",
     "vite-plus": "catalog:"
   }
 }

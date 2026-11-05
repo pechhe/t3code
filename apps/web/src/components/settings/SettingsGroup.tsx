@@ -17,6 +17,7 @@ export function SettingsGroup({
   return (
     <div
       data-settings-search-filter={searchFilter ? "" : undefined}
+      data-slot="settings-group"
       {...props}
       className={cn(
         "relative overflow-visible text-foreground",

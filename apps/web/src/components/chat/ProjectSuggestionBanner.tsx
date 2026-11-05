@@ -52,7 +52,6 @@ export function useProjectSuggestionBannerItem(
   return {
     id: `project-suggestion:${thread.id}`,
     variant: "info",
-    priority: "notice",
     icon: <FolderInputIcon />,
     title: `Move to ${project.title}?`,
     description: suggestion.reason,

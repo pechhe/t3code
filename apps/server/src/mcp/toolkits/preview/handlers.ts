@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Record from "effect/Record";
 import * as Schema from "effect/Schema";
 import {
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
@@ -7,13 +8,14 @@ import {
   PreviewAutomationRecordingTransferError,
   PreviewAutomationRecordingDesktopUpdateRequiredError,
   PreviewAutomationRecordingArtifact,
+  PreviewAutomationActInputs,
+  OrchestratorMcpFailure,
   type ToolActivityIcon,
   type ThreadId,
   type PreviewAutomationOperation,
   type PreviewAutomationOpenInput,
   type PreviewAutomationRecordingStatus,
   type PreviewAutomationResizeResult,
-  type PreviewAutomationSelectResult,
   type PreviewAutomationSetColorSchemeResult,
   type PreviewAutomationSnapshot,
   type PreviewAutomationStatus,
@@ -119,6 +121,10 @@ export const invokeTargeted = <A extends object>(
   );
 };
 
+const decodeActInput = Record.map(PreviewAutomationActInputs, (schema) =>
+  Schema.decodeUnknownEffect(schema),
+);
+
 const UploadedRecordingArtifact = Schema.Struct({
   ...PreviewAutomationRecordingArtifact.fields,
   uploadedAttachmentId: Schema.optional(Schema.String),
@@ -204,8 +210,21 @@ const handlers = {
   preview_status: McpToolAccess.readsAsPreviewCaller((input) =>
     invokeTargeted<PreviewAutomationStatus>("status", input ?? {}),
   ),
-  preview_open: McpToolAccess.actsAsPreviewCaller((input) =>
-    invokeTargeted<PreviewAutomationStatus>("open", normalizePreviewOpenInput(input)),
+  // Models often pass a dev server as both `url` and `target`; the target knows the environment.
+  preview_open: McpToolAccess.actsAsPreviewCaller(({ target, url, ...input }) =>
+    Effect.gen(function* () {
+      const opened = yield* invokeTargeted<PreviewAutomationStatus>(
+        "open",
+        normalizePreviewOpenInput(
+          target === undefined && url !== undefined ? { ...input, url } : input,
+        ),
+      );
+      if (target === undefined || opened.tabId === null) return opened;
+      return yield* invokeTargeted<PreviewAutomationStatus>("navigate", {
+        target,
+        tabId: opened.tabId,
+      });
+    }),
   ),
   preview_navigate: McpToolAccess.actsAsPreviewCaller((input) =>
     invokeTargeted<PreviewAutomationStatus>("navigate", input, input.timeoutMs),
@@ -220,24 +239,20 @@ const handlers = {
     const { includeImage: _includeImage, save: _save, ...operationInput } = input ?? {};
     return invokeTargeted<PreviewAutomationSnapshot>("snapshot", operationInput);
   }),
-  preview_interact: McpToolAccess.actsAsPreviewCaller(({ action, ...input }) => {
-    switch (action) {
-      case "click":
-        return invokeTargeted<object>("click", input, input.timeoutMs);
-      case "type":
-        return invokeTargeted<object>("type", input, input.timeoutMs);
-      case "hover":
-        return invokeTargeted<object>("hover", input, input.timeoutMs);
-      case "select":
-        return invokeTargeted<PreviewAutomationSelectResult>("select", input, input.timeoutMs);
-      case "drag":
-        return invokeTargeted<object>("drag", input, input.timeoutMs);
-      case "press":
-        return invokeTargeted<object>("press", input, input.timeoutMs);
-      case "scroll":
-        return invokeTargeted<object>("scroll", input, input.timeoutMs);
-    }
-  }),
+  preview_interact: McpToolAccess.actsAsPreviewCaller(({ action, ...input }) =>
+    decodeActInput[action](input).pipe(
+      Effect.mapError(
+        (cause) => new OrchestratorMcpFailure({ code: "invalid_request", message: cause.message }),
+      ),
+      Effect.flatMap((decoded) =>
+        invokeTargeted<object>(
+          action,
+          decoded,
+          "timeoutMs" in decoded ? decoded.timeoutMs : undefined,
+        ),
+      ),
+    ),
+  ),
   preview_upload: McpToolAccess.actsAsCaller((input) =>
     invokeTargeted<object>("upload", input, input.timeoutMs),
   ),

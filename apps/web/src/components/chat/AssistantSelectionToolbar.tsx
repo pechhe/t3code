@@ -6,7 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import { CopyIcon, QuoteIcon } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   captureAssistantTextSelection,
@@ -25,6 +25,7 @@ import { toastManager } from "../ui/toast";
 function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+import { BackgroundThreadContext } from "./backgroundThread";
 
 export function AssistantSelectionToolbar({
   viewport,
@@ -43,7 +44,9 @@ export function AssistantSelectionToolbar({
   } | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
+  const backgroundThread = use(BackgroundThreadContext);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the toolbar DOM node and clamps its position inside the window before paint
   useLayoutEffect(() => {
     const toolbar = toolbarRef.current;
     if (!toolbar || !selection) return;
@@ -57,6 +60,7 @@ export function AssistantSelectionToolbar({
     toolbar.style.top = `${position.y}px`;
   }, [selection]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to document selectionchange and keydown to track text selections in the viewport
   useEffect(() => {
     if (!viewport) return;
     const clear = () => setSelection(null);
@@ -170,7 +174,8 @@ export function AssistantSelectionToolbar({
       firstAction.focus({ preventScroll: true });
     };
     const coverChips = () => markSelectionCoveredChips(viewport, window.getSelection());
-    document.addEventListener("keydown", focusActions, true);
+    // Tab belongs to the foreground chat; a background timeline only follows its selection.
+    if (!backgroundThread) document.addEventListener("keydown", focusActions, true);
     document.addEventListener("selectionchange", actions.selectionChanged);
     document.addEventListener("selectionchange", coverChips);
     return () => {
@@ -181,7 +186,7 @@ export function AssistantSelectionToolbar({
       actions.dispose();
       actionsRef.current = null;
     };
-  }, [threadRef, viewport]);
+  }, [backgroundThread, threadRef, viewport]);
 
   if (!selection) return null;
   const tooLong = selection.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH;

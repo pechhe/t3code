@@ -1,3 +1,5 @@
+import * as ContextPreviewAgentActivity from "./PreviewAgentActivity.ts";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 // @effect-diagnostics nodeBuiltinImport:off - Real local HTTP fixtures and Chromium verify the managed browser service boundary.
 import * as NodeHttp from "node:http";
 import * as NodeNet from "node:net";
@@ -18,7 +20,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
+
 import * as Stream from "effect/Stream";
 import * as PubSub from "effect/PubSub";
 import * as FileSystem from "effect/FileSystem";
@@ -58,7 +60,7 @@ const dependencies = Layer.mergeAll(
   }),
   Layer.succeed(PreviewBrowser.PreviewBrowser, {
     executable: Effect.succeed(chromium.executablePath()),
-    installed: Effect.succeed(Option.some(chromium.executablePath())),
+    installed: Effect.succeedSome(chromium.executablePath()),
   }),
   Layer.mock(DesktopChannel.DesktopBrowserChannel)({
     available: false,
@@ -67,7 +69,7 @@ const dependencies = Layer.mergeAll(
   }),
 ).pipe(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-managed-integrated-" })),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 it.live.each(["access", "backend", "allow-list"] as const)(
@@ -299,7 +301,13 @@ it.live.each(["access", "backend", "allow-list"] as const)(
           expect(artifacts).toEqual([]);
         }).pipe(Effect.provide(runtime));
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(
+      Effect.provide(
+        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer).pipe(
+          Layer.provideMerge(Layer.mergeAll(ContextPreviewAgentActivity.layer)),
+        ),
+      ),
+    ),
 );
 
 it.live(
@@ -425,5 +433,9 @@ it.live(
           );
         }).pipe(Effect.provide(runtime));
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(
+      Effect.provide(
+        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, ContextPreviewAgentActivity.layer),
+      ),
+    ),
 );

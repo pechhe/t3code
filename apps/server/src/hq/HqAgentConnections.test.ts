@@ -1,3 +1,5 @@
+import * as Layer from "effect/Layer";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { AgentTaskBinding, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
@@ -418,7 +420,11 @@ it.effect(
       const reconnected = yield* restarted.read;
       assert.strictEqual(reconnected?.origin, "https://weave.yardsmith.co.uk");
       assert.isFalse(reconnected?.refused);
-    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+    }).pipe(
+      Effect.provide(NodeServices.layer),
+      Effect.scoped,
+      Effect.provide(Layer.mergeAll(NodeCrypto.layer)),
+    ),
 );
 
 it.effect("a project's stored connection becomes the environment's, stored once", () =>
@@ -442,7 +448,11 @@ it.effect("a project's stored connection becomes the environment's, stored once"
     );
     yield* connections.prepare({ threadId: leadThread, role: "lead", model: "gpt-5.5" });
     assert.isDefined((yield* call(leadThread)).json.result);
-  }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  }).pipe(
+    Effect.provide(NodeServices.layer),
+    Effect.scoped,
+    Effect.provide(Layer.mergeAll(NodeCrypto.layer)),
+  ),
 );
 
 it.effect("projects with different HQ origins keep one and report the other dropped", () =>
@@ -478,7 +488,11 @@ it.effect("projects with different HQ origins keep one and report the other drop
     const report = logs.find((line) => line.includes(otherOrigin));
     assert.isDefined(report, "the dropped HQ origin is reported");
     assert.include(report, origin);
-  }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  }).pipe(
+    Effect.provide(NodeServices.layer),
+    Effect.scoped,
+    Effect.provide(Layer.mergeAll(NodeCrypto.layer)),
+  ),
 );
 
 it.effect("a changed model renews the same agent and records the latest model", () =>

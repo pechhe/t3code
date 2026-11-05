@@ -69,6 +69,9 @@ const EMPTY_VISIBLE_TURN_ITEMS_ATOM = Atom.make(EMPTY_VISIBLE_TURN_ITEMS).pipe(
 const EMPTY_CHECKPOINT_SUMMARIES_ATOM = Atom.make<ReadonlyArray<ThreadCheckpointSummary>>(
   Object.freeze([]),
 ).pipe(Atom.withLabel("web-thread-checkpoint-summaries:empty"));
+const EMPTY_ASSISTANT_MESSAGE_TEXT_ATOM = Atom.make<string | null>(null).pipe(
+  Atom.withLabel("web-assistant-message-text:empty"),
+);
 const EMPTY_LAST_VISITED_AT_ATOM = Atom.make<DateTime.Utc | null>(null).pipe(
   Atom.withLabel("web-thread-last-visited:empty"),
 );
@@ -78,19 +81,6 @@ const EMPTY_UPDATED_AT_ATOM = Atom.make<DateTime.Utc | null>(null).pipe(
 const EMPTY_THREAD_HISTORY_ATOM = Atom.make<ThreadHistoryMeta>(EMPTY_THREAD_HISTORY_META).pipe(
   Atom.withLabel("web-thread-history:empty"),
 );
-
-const activeEnvironmentIdAtom = Atom.make<EnvironmentId | null>(null).pipe(
-  Atom.keepAlive,
-  Atom.withLabel("web-active-environment-id"),
-);
-
-export function useActiveEnvironmentId(): EnvironmentId | null {
-  return useAtomValue(activeEnvironmentIdAtom);
-}
-
-export function setActiveEnvironmentId(environmentId: EnvironmentId | null): void {
-  appAtomRegistry.set(activeEnvironmentIdAtom, environmentId);
-}
 
 export function useThreadRefs(enabled = true): ReadonlyArray<ScopedThreadRef> {
   return useAtomValue(enabled ? environmentThreadShells.threadRefsAtom : EMPTY_THREAD_REFS_ATOM);
@@ -121,12 +111,34 @@ export function useThreadShells(enabled = true): ReadonlyArray<EnvironmentThread
   );
 }
 
+/** Whether any connected environment is hiding tagged threads right now. */
+export function useAnyEnvironmentHiding(): boolean {
+  return useAtomValue(environmentThreadShells.anyEnvironmentHidingAtom);
+}
+
+/** Keys of threads the tag filter hides from display, by `threadKey`. */
+export function useHiddenThreadKeys(): ReadonlySet<string> {
+  return useAtomValue(environmentThreadShells.hiddenThreadKeysAtom);
+}
+
+/** Thread shells minus those the tag filter hides, for lists that show threads to the user. */
+export function useVisibleThreadShells(enabled = true): ReadonlyArray<EnvironmentThreadShell> {
+  return useAtomValue(
+    enabled ? environmentThreadShells.visibleThreadShellsAtom : EMPTY_THREAD_SHELLS_ATOM,
+  );
+}
+
 export function useAllEnvironmentShellsBootstrapped(): boolean {
   return useAtomValue(allEnvironmentShellsBootstrappedAtom);
 }
 
 export function useAllEnvironmentProjectSnapshotsReady(): boolean {
   return useAtomValue(allEnvironmentProjectSnapshotsReadyAtom);
+}
+
+/** Tasks linked environments run for a listed thread, by thread key; lists show them under it. */
+export function useDelegatedUnderParent(): ReadonlySet<string> {
+  return useAtomValue(environmentThreadShells.delegatedUnderParentAtom);
 }
 
 export function useThreadShellsForProjectRefs(
@@ -240,18 +252,6 @@ export function useThreadWatchers(ref: ScopedThreadRef | null) {
   );
 }
 
-const EMPTY_SIDE_CHAT_THREAD_ID_ATOM = Atom.make<ThreadId | null>(null).pipe(
-  Atom.withLabel("web-side-chat-thread-id:empty"),
-);
-
-export function useSideChatThreadId(ref: ScopedThreadRef | null): ThreadId | null {
-  return useAtomValue(
-    ref === null
-      ? EMPTY_SIDE_CHAT_THREAD_ID_ATOM
-      : environmentThreadShells.sideChatThreadIdAtom(ref),
-  );
-}
-
 export function useThreadProjection(ref: ScopedThreadRef | null): EnvironmentThread | null {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_PROJECTION_ATOM : environmentThreadDetails.threadAtom(ref),
@@ -313,6 +313,29 @@ export function useThreadVisibleTurnItems(
   );
 }
 
+/** Visible turn items held through streamed assistant text; see useAssistantMessageText. */
+export function useTimelineVisibleTurnItems(
+  ref: ScopedThreadRef | null,
+): ReadonlyArray<OrchestrationV2ProjectedTurnItem> {
+  return useAtomValue(
+    ref === null
+      ? EMPTY_VISIBLE_TURN_ITEMS_ATOM
+      : environmentThreadDetails.timelineVisibleTurnItemsAtom(ref),
+  );
+}
+
+/** One assistant message's live text, or null when the thread does not hold the item. */
+export function useAssistantMessageText(
+  ref: ScopedThreadRef | null,
+  itemId: string | undefined,
+): string | null {
+  return useAtomValue(
+    ref === null || itemId === undefined
+      ? EMPTY_ASSISTANT_MESSAGE_TEXT_ATOM
+      : environmentThreadDetails.assistantMessageTextAtom(ref, itemId),
+  );
+}
+
 /** Visible turn items without their streamed text; see ThreadStructure. */
 export function useQuietThreadVisibleTurnItems(
   ref: ScopedThreadRef | null,
@@ -336,6 +359,13 @@ export function useThreadCheckpointSummaries(
 
 export function readProject(ref: ScopedProjectRef): EnvironmentProject | null {
   return appAtomRegistry.get(environmentProjects.projectAtom(ref));
+}
+
+export function subscribeProject(
+  ref: ScopedProjectRef,
+  listener: (project: EnvironmentProject | null) => void,
+): () => void {
+  return appAtomRegistry.subscribe(environmentProjects.projectAtom(ref), listener);
 }
 
 export function readProjects(): ReadonlyArray<EnvironmentProject> {
@@ -404,25 +434,8 @@ export function readEnvironmentSupportsServerBrowser(environmentId: EnvironmentI
   );
 }
 
-export function readEnvironmentSupportsTitleRegeneration(environmentId: EnvironmentId): boolean {
-  return (
-    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
-      .threadTitleRegeneration === true
-  );
-}
-
-export function readEnvironmentSupportsPinning(environmentId: EnvironmentId): boolean {
-  return (
-    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
-      .threadPinning === true
-  );
-}
-
-export function readEnvironmentSupportsPinReorder(environmentId: EnvironmentId): boolean {
-  return (
-    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
-      .threadPinReorder === true
-  );
+export function readEnvironmentServerConfigLoaded(environmentId: EnvironmentId): boolean {
+  return appAtomRegistry.get(environmentServerConfigsAtom).has(environmentId);
 }
 
 export function readEnvironmentSupportsAutoSettleOptOut(environmentId: EnvironmentId): boolean {

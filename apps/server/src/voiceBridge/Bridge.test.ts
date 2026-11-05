@@ -81,17 +81,28 @@ const makeHarness = (options: {
       uploadBytes: () => Ref.update(uploads, (count) => count + 1),
       launch: (input) =>
         Effect.gen(function* () {
-          yield* Ref.update(launched, (all) => [...all, input as unknown as Record<string, unknown>]);
-          return { threadId: "thread-new", runId: "run-1", status: "starting" } satisfies TurnResult;
+          yield* Ref.update(launched, (all) => [
+            ...all,
+            input as unknown as Record<string, unknown>,
+          ]);
+          return {
+            threadId: "thread-new",
+            runId: "run-1",
+            status: "starting",
+          } satisfies TurnResult;
         }),
       send: (input) =>
         Effect.gen(function* () {
           yield* Ref.update(sent, (all) => [...all, input as unknown as Record<string, unknown>]);
           const count = yield* Ref.updateAndGet(sendCount, (value) => value + 1);
           if (count === 1 && options.failOnceWith !== undefined) {
-            return yield* Effect.fail(options.failOnceWith);
+            return yield* options.failOnceWith;
           }
-          return { threadId: input.threadId, runId: "run-2", status: "starting" } satisfies TurnResult;
+          return {
+            threadId: input.threadId,
+            runId: "run-2",
+            status: "starting",
+          } satisfies TurnResult;
         }),
       readThread: (_threadId, readOptions) =>
         Effect.gen(function* () {
@@ -125,7 +136,9 @@ const makeHarness = (options: {
 const run = (deps: TurnDeps, request: TurnRequest) =>
   Effect.gen(function* () {
     const emitted = yield* Ref.make<ReadonlyArray<string>>([]);
-    const outcome = yield* runTurn(deps, request, (text) => Ref.update(emitted, (all) => [...all, text]));
+    const outcome = yield* runTurn(deps, request, (text) =>
+      Ref.update(emitted, (all) => [...all, text]),
+    );
     return { outcome, texts: yield* Ref.get(emitted) };
   });
 
@@ -182,33 +195,35 @@ it.effect("a new ask starts a scratch thread with the words, its title and the c
   }),
 );
 
-it.effect("a follow-up continues its thread, streams only what is new, and saves the next history", () =>
-  Effect.gen(function* () {
-    const followUp = FOLLOW_UP;
-    const harness = yield* makeHarness({
-      sessions: sessionsFor(FIRST_ANSWER, "thread-old"),
-      // The baseline read proves the thread's model before the ask is sent.
-      pages: [
-        // The baseline read that also proves the thread's model.
-        page({ modelId: MODEL, nextPosition: 3 }),
-        page({
-          items: [assistantItem(3, "Second answer.")],
-          nextPosition: 4,
-        }),
-      ],
-    });
-    const { outcome, texts } = yield* run(harness.deps, { model: MODEL, messages: followUp });
+it.effect(
+  "a follow-up continues its thread, streams only what is new, and saves the next history",
+  () =>
+    Effect.gen(function* () {
+      const followUp = FOLLOW_UP;
+      const harness = yield* makeHarness({
+        sessions: sessionsFor(FIRST_ANSWER, "thread-old"),
+        // The baseline read proves the thread's model before the ask is sent.
+        pages: [
+          // The baseline read that also proves the thread's model.
+          page({ modelId: MODEL, nextPosition: 3 }),
+          page({
+            items: [assistantItem(3, "Second answer.")],
+            nextPosition: 4,
+          }),
+        ],
+      });
+      const { outcome, texts } = yield* run(harness.deps, { model: MODEL, messages: followUp });
 
-    assert.strictEqual(outcome.threadId, "thread-old");
-    assert.lengthOf(yield* Ref.get(harness.sent), 1);
-    assert.lengthOf(yield* Ref.get(harness.launched), 0);
-    assert.deepStrictEqual(texts, ["Second answer.", "\n\nhttp://127.0.0.1:3773/env-1/thread-old"]);
-    const saved = yield* Ref.get(harness.saved);
-    assert.strictEqual(
-      saved.entries[answerSignature(texts.join(""))]?.threadId,
-      "thread-old",
-    );
-  }),
+      assert.strictEqual(outcome.threadId, "thread-old");
+      assert.lengthOf(yield* Ref.get(harness.sent), 1);
+      assert.lengthOf(yield* Ref.get(harness.launched), 0);
+      assert.deepStrictEqual(texts, [
+        "Second answer.",
+        "\n\nhttp://127.0.0.1:3773/env-1/thread-old",
+      ]);
+      const saved = yield* Ref.get(harness.saved);
+      assert.strictEqual(saved.entries[answerSignature(texts.join(""))]?.threadId, "thread-old");
+    }),
 );
 
 it.effect("continues the conversation even when the client rewrites its system prompt", () =>
@@ -315,7 +330,9 @@ it.effect("a refusal that is not about the capture is reported, not retried", ()
       failOnceWith: new VoiceBridgeError({ reason: "send", detail: "the provider is offline" }),
       pages: [page({ nextPosition: 3 })],
     });
-    const failure = yield* run(harness.deps, { model: MODEL, messages: FOLLOW_UP }).pipe(Effect.flip);
+    const failure = yield* run(harness.deps, { model: MODEL, messages: FOLLOW_UP }).pipe(
+      Effect.flip,
+    );
     assert.strictEqual(failure.reason, "send");
     assert.lengthOf(yield* Ref.get(harness.sent), 1);
   }),
@@ -357,7 +374,11 @@ it.effect("re-reads a message that is still being written and emits only its new
       ],
     });
     const { texts } = yield* run(harness.deps, { model: MODEL, messages: MESSAGES });
-    assert.deepStrictEqual(texts, ["Hello", " world", "\n\nhttp://127.0.0.1:3773/env-1/thread-new"]);
+    assert.deepStrictEqual(texts, [
+      "Hello",
+      " world",
+      "\n\nhttp://127.0.0.1:3773/env-1/thread-new",
+    ]);
   }),
 );
 

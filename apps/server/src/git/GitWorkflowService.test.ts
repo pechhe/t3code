@@ -8,6 +8,7 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as FileSystem from "effect/FileSystem";
 
@@ -35,7 +36,7 @@ function layer(input: {
   );
 }
 
-it.layer(NodeServices.layer)("GitWorkflowService", (it) => {
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("GitWorkflowService", (it) => {
   it.effect(
     "serves live JJ workspace changes through the shared status path without enabling Git actions",
     () =>
@@ -83,7 +84,7 @@ it.layer(NodeServices.layer)("GitWorkflowService", (it) => {
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), { prefix: "t3-jj-workflow-status-" }),
             ),
-            Layer.provideMerge(NodeServices.layer),
+            Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
           ),
         ),
       ),
@@ -191,7 +192,7 @@ it.layer(NodeServices.layer)("GitWorkflowService", (it) => {
           Layer.effect(SlipJayLandings.SlipJayLandings, SlipJayLandings.make).pipe(
             Layer.provide(runner),
             Layer.provide(registry),
-            Layer.provide(NodeServices.layer),
+            Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
           ),
         ),
         Layer.provide(WorkspaceProvider.layerGitWorktree),
@@ -230,7 +231,9 @@ it.layer(NodeServices.layer)("GitWorkflowService", (it) => {
       }).pipe(Effect.provide(services));
     });
   });
+});
 
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("GitWorkflowService", (it) => {
   it.effect("finds a name among the refs of every namespace", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -267,10 +270,10 @@ it.layer(NodeServices.layer)("GitWorkflowService", (it) => {
           Layer.provideMerge(VcsProcess.layer),
           Layer.provideMerge(
             ServerConfig.layerTest(process.cwd(), { prefix: "t3-ref-named-" }).pipe(
-              Layer.provide(NodeServices.layer),
+              Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
             ),
           ),
-          Layer.provideMerge(NodeServices.layer),
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         ),
       ),
     ),

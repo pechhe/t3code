@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it, vi } from "@effect/vitest";
 import {
@@ -65,7 +66,7 @@ const unrelatedProject = Option.some({
 const layerCheckpointRollbackService = CheckpointRollbackService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
-      NodeServices.layer,
+      Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
       Layer.mock(ServerConfig.ServerConfig)({ worktreesDir: "/synthetic-worktrees" } as never),
       ServerSettings.layerTest(),
       Layer.mock(GitWorkflow.GitWorkflowService)({}),
@@ -236,13 +237,13 @@ it.effect.each([
       Layer.provide(
         Layer.mergeAll(
           ThreadCommandExecutor.layer,
-          NodeServices.layer,
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
           Layer.mock(ServerConfig.ServerConfig)({ worktreesDir } as never),
           ServerSettings.layerTest(),
           Layer.mock(ProjectStore.ProjectStoreV2)({
             get: (id) => {
               assert.equal(id, projectId);
-              return Effect.succeed(Option.some({ workspaceRoot } as never));
+              return Effect.succeedSome({ workspaceRoot } as never);
             },
           }),
           Layer.mock(GitWorkflow.GitWorkflowService)({
@@ -356,7 +357,7 @@ it.effect.each([
           : [...rollbackCalls, "cleanup"],
       );
     }).pipe(Effect.provide(testLayer));
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 const seedRollbackHistoryFor = Effect.fn("CheckpointRollbackFixture.seed")(function* (
@@ -960,8 +961,10 @@ it.effect(
           ProjectionStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)),
           IdAllocator.layer,
           McpProviderSessions.layer,
-          TestProviderHost.layer().pipe(Layer.provide(NodeServices.layer)),
-          NodeServices.layer,
+          TestProviderHost.layer().pipe(
+            Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+          ),
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
         ),
       ),
     ),

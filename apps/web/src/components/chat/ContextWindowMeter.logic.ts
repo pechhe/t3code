@@ -17,7 +17,7 @@ import {
   resolveSelectableProviderInstanceEntry,
   type ProviderInstanceEntry,
 } from "../../providerInstances";
-import { getTriggerDisplayModelName, type ModelEsque } from "./providerIconUtils";
+import { getDisplayModelName, type ModelEsque } from "./providerIconUtils";
 
 // Fallback TTL: Claude's 1h cache plus slack.
 const CLAUDE_RESUME_COMPACTION_FALLBACK_MS = 70 * 60_000;
@@ -130,7 +130,7 @@ export function resolveCompactionModelDisplayName(input: {
   // Another account can be offline, so its catalog may not list the model it would run.
   return chosen === undefined
     ? formatModelSlugName(choice.model)
-    : getTriggerDisplayModelName(chosen).replace(/^Claude /, "");
+    : getDisplayModelName(chosen, { preferShortName: true }).replace(/^Claude /, "");
 }
 
 export function resolveContextWindowModelDisplayName(
@@ -145,7 +145,7 @@ export function resolveContextWindowModelDisplayName(
     .get(selection.instanceId)
     ?.find((model) => model.slug === selection.model);
 
-  return selectedModel ? getTriggerDisplayModelName(selectedModel) : selection.model;
+  return selectedModel ? getDisplayModelName(selectedModel) : selection.model;
 }
 
 export function formatContextWindowCompactionMessage(

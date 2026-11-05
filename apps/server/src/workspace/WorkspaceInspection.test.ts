@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -11,7 +12,7 @@ import * as Inspection from "./WorkspaceInspection.ts";
 
 const layer = Layer.effect(Inspection.WorkspaceInspection, Inspection.make).pipe(
   Layer.provideMerge(ProcessRunner.layer),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 const sh = (cwd: string, command: "git" | "jj", ...args: string[]) =>

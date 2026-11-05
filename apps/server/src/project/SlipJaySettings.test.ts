@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -206,7 +207,7 @@ describe("SlipJaySettings", () => {
             Layer.provide(runner),
             Layer.provide(landings),
             Layer.provide(files),
-            Layer.provide(NodeServices.layer),
+            Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
           );
           const change = { cwd: root, base: "a".repeat(40), process: "light" } as const;
           const { first, outcome, machine } = yield* Effect.gen(function* () {
@@ -250,7 +251,7 @@ describe("SlipJaySettings", () => {
           );
           assert.strictEqual(yield* Ref.get(followed), 1);
         }),
-      ).pipe(Effect.provide(NodeServices.layer)),
+      ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
   it.effect("refuses a directory that is not a SlipJay project", () =>
@@ -264,13 +265,13 @@ describe("SlipJaySettings", () => {
         const layer = Layer.effect(SlipJaySettings, make).pipe(
           Layer.provide(runner),
           Layer.provide(SlipJayLandings.layerNone),
-          Layer.provide(NodeServices.layer),
+          Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         );
         const error = yield* Effect.flatMap(SlipJaySettings, (settings) =>
           settings.setSpareLimit({ cwd: root, limit: 0 }),
         ).pipe(Effect.provide(layer), Effect.flip);
         assert.strictEqual(error.detail, "This is not a SlipJay project.");
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 });

@@ -1,3 +1,5 @@
+import * as ContextRemoteDelegation from "../peer/RemoteDelegation.ts";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -5,7 +7,7 @@ import { EnvironmentId, ThreadId, RunId, NodeId, type AgentTaskBinding } from "@
 import { derive } from "@t3tools/provider-core/server/IdAllocator";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
+
 import * as Semaphore from "effect/Semaphore";
 import * as Managed from "../agents/ManagedAgentService.ts";
 import { snapshot, request, codex } from "../agents/agentPolicy.testkit.ts";
@@ -108,7 +110,7 @@ it.effect(
         client: undefined,
       };
       const dependencies = Layer.mergeAll(
-        NodeServices.layer,
+        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
         Settings.layerTest(),
         Layer.mock(Managed.ManagedAgentService)({
           exclusive: (effect) => lock.withPermit(effect),
@@ -121,7 +123,7 @@ it.effect(
               validations++;
               if (revoked) return yield* new Managed.ManagedAgentError({ reason: "revoked" });
             }),
-          handoff: () => Effect.succeed(undefined),
+          handoff: () => Effect.undefined,
         }),
         Layer.mock(Threads.ThreadManagementService)({
           getThreadRecords: (id) => Effect.succeed(id === parentId ? parent : child),
@@ -173,8 +175,7 @@ it.effect(
           list: () => Effect.succeed([codex.instanceId]),
         }),
         Layer.mock(Projects.ProjectService)({
-          getById: () =>
-            Effect.succeed(Option.some({ workspaceRoot: binding.workspacePath } as never)),
+          getById: () => Effect.succeedSome({ workspaceRoot: binding.workspacePath } as never),
           listShells: () => Effect.succeed([{ workspaceRoot: binding.workspacePath } as never]),
         }),
         Layer.mock(Secrets.SecretRequests)({}),
@@ -370,5 +371,7 @@ it.effect(
           ),
         ),
       );
-    }),
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
 );

@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 // @effect-diagnostics nodeBuiltinImport:off - the fake peer is a real Node HTTP server, as the MCP SDK transport needs.
 // @effect-diagnostics globalDate:off - the fake peer is plain Node code outside any Effect.
 import * as NodeHttp from "node:http";
@@ -60,91 +61,97 @@ const startPeer = (
   behavior: PeerBehavior = {},
 ) =>
   Effect.acquireRelease(
-    Effect.promise(
-      () =>
-        new Promise<{ readonly server: NodeHttp.Server; readonly url: string }>((resolve) => {
-          const server = NodeHttp.createServer((request, response) => {
-            const chunks: Array<Buffer> = [];
-            request.on("data", (chunk: Buffer) => chunks.push(chunk));
-            request.on("end", () => {
-              void handle(Buffer.concat(chunks).toString("utf8"));
-            });
-            const bearer = request.headers.authorization?.replace(/^Bearer /, "");
-            const json = (status: number, body: unknown) => {
-              response.writeHead(status, { "content-type": "application/json" });
-              response.end(JSON.stringify(body));
-            };
-            const issue = () => {
-              state.issued += 1;
-              const token = `token-${state.issued}`;
-              state.tokens.add(token);
-              return {
-                token,
-                expiresAt: new Date(Date.now() + state.sessionDays * 86_400_000).toISOString(),
+    Effect.flatMap(Clock.Clock, (clock) =>
+      Effect.promise(
+        () =>
+          new Promise<{ readonly server: NodeHttp.Server; readonly url: string }>((resolve) => {
+            const server = NodeHttp.createServer((request, response) => {
+              const chunks: Array<Buffer> = [];
+              request.on("data", (chunk: Buffer) => chunks.push(chunk));
+              request.on("end", () => {
+                void handle(Buffer.concat(chunks).toString("utf8"));
+              });
+              const bearer = request.headers.authorization?.replace(/^Bearer /, "");
+              const json = (status: number, body: unknown) => {
+                response.writeHead(status, { "content-type": "application/json" });
+                response.end(JSON.stringify(body));
               };
-            };
-            const handle = async (text: string) => {
-              if (request.url === "/.well-known/t3/environment") return json(200, environment);
-              if (request.url === "/api/auth/peer/link") {
-                const { code } = JSON.parse(text) as { code: string };
-                if (!state.codes.delete(code)) return json(401, { error: "invalid" });
-                return json(200, issue());
-              }
-              if (request.url === "/api/auth/peer/renew") {
-                if (bearer === undefined || !state.tokens.delete(bearer)) {
-                  return json(401, { error: "invalid" });
+              const issue = () => {
+                state.issued += 1;
+                const token = `token-${state.issued}`;
+                state.tokens.add(token);
+                return {
+                  token,
+                  expiresAt: new Date(
+                    clock.currentTimeMillisUnsafe() + state.sessionDays * 86_400_000,
+                  ).toISOString(),
+                };
+              };
+              const handle = async (text: string) => {
+                if (request.url === "/.well-known/t3/environment") return json(200, environment);
+                if (request.url === "/api/auth/peer/link") {
+                  const { code } = JSON.parse(text) as { code: string };
+                  if (!state.codes.delete(code)) return json(401, { error: "invalid" });
+                  return json(200, issue());
                 }
-                const renewed = issue();
-                // The peer has committed the renewal; its answer is still on the way.
-                if (state.renewGate !== undefined) {
-                  state.renewGate.reached();
-                  await state.renewGate.released;
+                if (request.url === "/api/auth/peer/renew") {
+                  if (bearer === undefined || !state.tokens.delete(bearer)) {
+                    return json(401, { error: "invalid" });
+                  }
+                  const renewed = issue();
+                  // The peer has committed the renewal; its answer is still on the way.
+                  if (state.renewGate !== undefined) {
+                    state.renewGate.reached();
+                    await state.renewGate.released;
+                  }
+                  return json(200, renewed);
                 }
-                return json(200, renewed);
-              }
-              if (request.url === "/api/auth/peer/unlink") {
-                if (bearer !== undefined) state.unlinked.push(bearer);
-                return json(200, { revoked: bearer !== undefined && state.tokens.delete(bearer) });
-              }
-              if (request.url === "/mcp") {
-                if (behavior.hangMcp === true) return;
-                if (behavior.denyMcp === true) return json(401, { error: "another server" });
-                if (bearer === undefined || !state.tokens.has(bearer)) {
-                  return json(401, { error: "invalid" });
+                if (request.url === "/api/auth/peer/unlink") {
+                  if (bearer !== undefined) state.unlinked.push(bearer);
+                  return json(200, {
+                    revoked: bearer !== undefined && state.tokens.delete(bearer),
+                  });
                 }
-                // Stateless: there is no session to end.
-                if (request.method !== "POST") return json(405, {});
-                const mcp = new McpServer({ name: "peer", version: "1.0.0" });
-                if (state.hasEnvironmentTool) {
-                  mcp.registerTool(
-                    "t3_environment_read",
-                    { description: "Read the environment" },
-                    () => ({
-                      content: [{ type: "text", text: environment.label }],
-                      structuredContent: { environmentId: environment.environmentId },
-                    }),
-                  );
-                } else {
-                  mcp.registerTool("other_tool", { description: "Another tool" }, () => ({
-                    content: [{ type: "text", text: "other" }],
-                  }));
+                if (request.url === "/mcp") {
+                  if (behavior.hangMcp === true) return;
+                  if (behavior.denyMcp === true) return json(401, { error: "another server" });
+                  if (bearer === undefined || !state.tokens.has(bearer)) {
+                    return json(401, { error: "invalid" });
+                  }
+                  // Stateless: there is no session to end.
+                  if (request.method !== "POST") return json(405, {});
+                  const mcp = new McpServer({ name: "peer", version: "1.0.0" });
+                  if (state.hasEnvironmentTool) {
+                    mcp.registerTool(
+                      "t3_environment_read",
+                      { description: "Read the environment" },
+                      () => ({
+                        content: [{ type: "text", text: environment.label }],
+                        structuredContent: { environmentId: environment.environmentId },
+                      }),
+                    );
+                  } else {
+                    mcp.registerTool("other_tool", { description: "Another tool" }, () => ({
+                      content: [{ type: "text", text: "other" }],
+                    }));
+                  }
+                  const transport = new StreamableHTTPServerTransport({
+                    enableJsonResponse: true,
+                  });
+                  await mcp.connect(transport as Transport);
+                  return transport.handleRequest(request, response, JSON.parse(text));
                 }
-                const transport = new StreamableHTTPServerTransport({
-                  enableJsonResponse: true,
-                });
-                await mcp.connect(transport as Transport);
-                return transport.handleRequest(request, response, JSON.parse(text));
-              }
-              return json(404, {});
-            };
-          });
-          server.listen(0, "127.0.0.1", () =>
-            resolve({
-              server,
-              url: `http://127.0.0.1:${(server.address() as NodeNet.AddressInfo).port}`,
-            }),
-          );
-        }),
+                return json(404, {});
+              };
+            });
+            server.listen(0, "127.0.0.1", () =>
+              resolve({
+                server,
+                url: `http://127.0.0.1:${(server.address() as NodeNet.AddressInfo).port}`,
+              }),
+            );
+          }),
+      ),
     ),
     ({ server }) =>
       Effect.promise(
@@ -175,7 +182,7 @@ const layerPeers = PeerEnvironments.layer.pipe(
   ),
   Layer.provide(FetchHttpClient.layer),
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-peers-test-" })),
-  Layer.provide(NodeServices.layer),
+  Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 const withPeers = <A, E>(

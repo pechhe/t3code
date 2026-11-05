@@ -41,7 +41,7 @@ import { useClientSettings } from "../../hooks/useSettings";
 import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
-} from "../../logicalProject";
+} from "@t3tools/client-runtime/state/project-grouping";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
@@ -61,7 +61,7 @@ import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { useRelativeTimeTick } from "../settings/settingsLayout";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { AgentRoleChip } from "../AgentRoleChip";
 import { ModelLabel } from "../ModelLabel";
 import { ProjectChip } from "../ProjectChip";
@@ -98,6 +98,7 @@ import {
 const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
 const WEEKDAY_SHORT = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
 const SCHEDULE_KIND_LABELS: Record<ScheduleKind, string> = {
+  once: "Once",
   interval: "Every few minutes",
   daily: "Every day",
   weekdays: "Every weekday",
@@ -211,12 +212,13 @@ export function ScheduledTasksPage(props: {
   const activeGroup =
     activeKey === "new" ? null : (groups.find((group) => group.key === activeKey) ?? null);
   const [seen, setSeen] = useSeenScheduledFailures();
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- marks the visible scheduler group seen in its persisted failure-notification registry
   useEffect(() => {
     if (activeGroup === null) return;
     const next = markGroupFailuresSeen(activeGroup, seen);
     if (next !== seen) setSeen(next);
   }, [activeGroup, seen, setSeen]);
-  useRelativeTimeTick(60_000);
+  useNowMinute();
   const loading =
     sources.length > 0 && sources.every((source) => source.tasks === null && !source.error);
   const errors = sources.filter((source) => source.error !== null);
@@ -604,6 +606,13 @@ function TaskDetail(props: {
             />
             <span className="text-muted-foreground">minutes</span>
           </>
+        ) : draft.kind === "once" ? (
+          <Input
+            aria-label="Run at"
+            placeholder="2026-11-04T09:00:00+00:00"
+            value={draft.runAt ?? ""}
+            onChange={(event) => update({ runAt: event.target.value })}
+          />
         ) : draft.kind === "webhook" ? null : (
           <>
             <span className="text-muted-foreground">at</span>

@@ -15,7 +15,7 @@ import { toastManager } from "../ui/toast";
 import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
-} from "../../logicalProject";
+} from "@t3tools/client-runtime/state/project-grouping";
 import { useComposerDraftStore, DraftId } from "../../composerDraftStore";
 import { type EnvironmentPresentation, useEnvironmentProviders } from "../../state/environments";
 import { useProjects } from "../../state/entities";
@@ -165,6 +165,7 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
     ...resources,
     pending: resources.pending || applyingRecommendation,
   };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- writes the resolved load-balanced environment into the draft store once the async pick settles
   useEffect(() => {
     if (!needsRecommendation || resources.pending || !draftId || sendInFlightRef.current) return;
     const target = eligibleEnvironments.find(
@@ -185,6 +186,7 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
   ]);
   // A recommendation can outlive a machine-local pin. Apply it only after that
   // pin is removed; caching the recommendation never grants permission to move.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- applies the eligible asynchronous routing recommendation to the shared draft store
   useEffect(() => {
     if (
       !automaticEnvironment ||
@@ -253,10 +255,12 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
     readonly scope: string;
   } | null>(null);
   const environmentChangeScopeRef = useRef("");
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- mirrors the current change scope into a ref that async environment switches compare against
   useLayoutEffect(() => {
     environmentChangeScopeRef.current = environmentChangeScope;
   });
   // Leaving the scope, or unmounting, abandons a change still in flight.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- abandons an in-flight environment change when the draft or project scope changes or unmounts
   useLayoutEffect(
     () => () => {
       if (environmentChangeRef.current?.scope === environmentChangeScope) {

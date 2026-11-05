@@ -91,12 +91,10 @@ const readSessions = Effect.fn("voiceBridge.readSessions")(function* (
   fileSystem: FileSystem.FileSystem,
   sessionsPath: string,
 ) {
-  const text = yield* fileSystem
-    .readFileString(sessionsPath)
-    .pipe(Effect.catch(() => Effect.succeed("")));
+  const text = yield* fileSystem.readFileString(sessionsPath).pipe(Effect.orElseSucceed(() => ""));
   if (text.trim() === "") return EMPTY_SESSIONS;
-  const decoded = yield* Schema.decodeUnknownEffect(sessionFile)(text).pipe(
-    Effect.catch(() => Effect.succeed(undefined)),
+  const decoded = yield* Schema.decodeEffect(sessionFile)(text).pipe(
+    Effect.catch(() => Effect.void),
   );
   return decodeSessions(decoded);
 });
@@ -104,6 +102,9 @@ const readSessions = Effect.fn("voiceBridge.readSessions")(function* (
 const runBridge = (flags: BridgeFlags) =>
   Effect.scoped(
     Effect.gen(function* () {
+      const services = yield* Effect.context<never>();
+      const runPromise = Effect.runPromiseWith(services);
+      const runPromiseExit = Effect.runPromiseExitWith(services);
       const fileSystem = yield* FileSystem.FileSystem;
       const platform = yield* HostProcess.Platform;
       const captureEnabled = Option.getOrElse(flags.capture, () => platform === "darwin");
@@ -141,7 +142,7 @@ const runBridge = (flags: BridgeFlags) =>
             startMacCommandShortcut({
               helperPath: NodePath.join(stateDir, "command-shortcut.swift"),
               onTrigger: () => {
-                void Effect.runPromiseExit(
+                void runPromiseExit(
                   captures
                     .invoke({
                       isRecording: Effect.tryPromise((signal) => isFluidVoiceRecording(signal)),
@@ -151,10 +152,10 @@ const runBridge = (flags: BridgeFlags) =>
                 );
               },
               onCancel: () => {
-                void Effect.runPromise(captures.clear());
+                void runPromise(captures.clear());
               },
               onFailure: (error) => {
-                void Effect.runPromise(Effect.logError(error));
+                void runPromise(Effect.logError(error));
               },
             }),
           ),
@@ -167,9 +168,7 @@ const runBridge = (flags: BridgeFlags) =>
         sessions: {
           read: () => readSessions(fileSystem, sessionsPath),
           write: (store: SessionStore) =>
-            fileSystem
-              .writeFileString(sessionsPath, JSON.stringify(store))
-              .pipe(Effect.catch(() => Effect.void)),
+            fileSystem.writeFileString(sessionsPath, JSON.stringify(store)).pipe(Effect.ignore),
         },
         pollIntervalMs: flags.pollMs,
         maxWaitMs: flags.waitSeconds * 1_000,

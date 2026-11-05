@@ -84,7 +84,7 @@ const runControls = ({
         Effect.provide(
           Layer.merge(
             ServerConfig.layerTest(process.cwd(), { prefix: "t3-preview-controls-" }).pipe(
-              Layer.provide(NodeServices.layer),
+              Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
             ),
             NodeCrypto.layer,
           ),
@@ -94,7 +94,11 @@ const runControls = ({
       const dependencies = Layer.mergeAll(
         PreviewAutomationBroker.layer.pipe(
           Layer.provide(
-            Layer.merge(NodeServices.layer, Layer.succeed(Preview.PreviewManager, manager)),
+            Layer.mergeAll(
+              NodeServices.layer,
+              NodeCrypto.layer,
+              Layer.succeed(Preview.PreviewManager, manager),
+            ),
           ),
         ),
         Layer.succeed(Preview.PreviewManager, manager),

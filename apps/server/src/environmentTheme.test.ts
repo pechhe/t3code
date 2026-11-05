@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { EnvironmentThemeFile } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -66,7 +67,7 @@ const currentThemes = Effect.gen(function* () {
   return yield* environmentTheme.current;
 });
 
-it.layer(NodeServices.layer)("environment theme", (it) => {
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("environment theme", (it) => {
   it.effect("follows the directory rather than the set read at start", () =>
     withEnvironmentThemes(
       { "nightfall.json": encodeThemeFile(NIGHTFALL_THEME) },

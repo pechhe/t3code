@@ -391,6 +391,11 @@ function ChampionFormFields(props: {
       setProblem("Check the cadence. Run every whole number of minutes, at least one.");
       return null;
     }
+    if (timed.type === "once") {
+      setAdvancedOpen(true);
+      setProblem("A champion checks on a cadence, so pick an interval or a time of day.");
+      return null;
+    }
     if (!Number.isInteger(perDay) || perDay < 0 || perDay > MAX_REPAIRS_PER_DAY) {
       setAdvancedOpen(true);
       setProblem(`Repairs per day must be a whole number from 0 to ${MAX_REPAIRS_PER_DAY}.`);

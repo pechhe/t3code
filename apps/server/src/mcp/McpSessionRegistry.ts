@@ -13,7 +13,8 @@ import {
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
@@ -119,7 +120,8 @@ export const mcpEndpointOrigin = (address: HttpServer.HttpServer["Service"]["add
 const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   options: McpSessionRegistryOptions = {},
 ) {
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
+  const digest = yield* Digest.Digest;
   const phi = yield* Effect.serviceOption(PhiBrowser.PhiBrowser);
   const previews = yield* Effect.serviceOption(PreviewManager.PreviewManager);
   const environment = yield* ServerEnvironment.ServerEnvironment;
@@ -178,8 +180,8 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   ) as Record<keyof typeof SESSION_TOOL_ENDPOINTS, string>;
 
   const hashToken = (token: string) =>
-    crypto
-      .digest("SHA-256", new TextEncoder().encode(token))
+    digest
+      .digest(Digest.sha256, new TextEncoder().encode(token))
       .pipe(Effect.map(bytesToHex), Effect.orDie);
 
   // An expired credential stays until revoked so a trusted touch can restore it, but its browser
@@ -212,8 +214,8 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     function* (request) {
       const issuedAt = yield* currentTimeMillis;
       yield* expireDead(issuedAt);
-      const providerSessionId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
-      const rawToken = yield* crypto.randomBytes(32).pipe(Effect.map(tokenFromBytes), Effect.orDie);
+      const providerSessionId = yield* random.uuidV4();
+      const rawToken = yield* random.randomBytes(32).pipe(Effect.map(tokenFromBytes), Effect.orDie);
       const tokenHash = yield* hashToken(rawToken);
       const managedBrowser = request.managedBrowser === true;
       const browserToolsAvailable = managedBrowser || (request.browserToolsAvailable ?? true);
@@ -354,8 +356,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     },
   );
 
-  // oxlint-disable-next-line t3code/prefer-effect-fn -- closes over request state - a predicate closes over the gen.
-  const revokeWhere = (predicate: (record: CredentialRecord) => boolean) =>
+  const revokeWhere = Effect.fn("revokeWhere")((predicate: (record: CredentialRecord) => boolean) =>
     Effect.gen(function* () {
       const sessions = yield* SynchronizedRef.modify(state, ({ records }) => {
         const removed = Array.from(records.values())
@@ -367,7 +368,8 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         ] as const;
       });
       yield* releaseBrowserSessions(sessions);
-    });
+    }),
+  );
 
   return McpSessionRegistry.of({
     issue,
@@ -417,12 +419,6 @@ export const layer = Layer.effect(McpSessionRegistry, make);
 
 export const touchActiveMcpThread = (threadId: ThreadId): Effect.Effect<void> =>
   activeMcpSessionRegistry ? activeMcpSessionRegistry.touch(threadId) : Effect.void;
-
-const revokeActiveMcpThread = (threadId: ThreadId): Effect.Effect<void> =>
-  activeMcpSessionRegistry ? activeMcpSessionRegistry.revokeThread(threadId) : Effect.void;
-
-const revokeAllActiveMcpCredentials = (): Effect.Effect<void> =>
-  activeMcpSessionRegistry ? activeMcpSessionRegistry.revokeAll : Effect.void;
 
 export const __testing = {
   make: makeWithOptions,

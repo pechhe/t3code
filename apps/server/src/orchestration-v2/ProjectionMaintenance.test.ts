@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -91,7 +92,7 @@ it.effect(
         plan.some((row) => row.detail.includes("orchestration_events_compactable_sequence_idx")),
         plan.map((row) => row.detail).join("\n"),
       );
-      const result = yield* maintenance.compactEventStore;
+      const result = yield* maintenance.pruneEventStore();
       assert.equal(result.deletedEventCount, 161);
       const retained = yield* sql<{ event_id: string }>`SELECT event_id FROM orchestration_events`;
       assert.sameMembers(
@@ -111,7 +112,7 @@ it.effect(
           "subagent",
         ],
       );
-      assert.equal((yield* maintenance.compactEventStore).deletedEventCount, 0);
+      assert.equal((yield* maintenance.pruneEventStore()).deletedEventCount, 0);
     }).pipe(Effect.provide(maintenanceLayer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
 );
 
@@ -144,10 +145,12 @@ it.effect("discovers events and receipts on the reader and deletes on the writer
             return span;
           },
         });
-        const result = yield* maintenance.compactEventStore.pipe(
-          Effect.withTracer(tracer),
-          Effect.provideService(Statement.SpanPropagationEnabled, true),
-        );
+        const result = yield* maintenance
+          .pruneEventStore()
+          .pipe(
+            Effect.withTracer(tracer),
+            Effect.provideService(Statement.SpanPropagationEnabled, true),
+          );
         assert.equal(result.deletedEventCount, 1);
         const retained = yield* sql<{ event_id: string }>`
           SELECT event_id FROM orchestration_events ORDER BY sequence
@@ -179,7 +182,7 @@ it.effect("discovers events and receipts on the reader and deletes on the writer
         ),
       );
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("compacts settled intermediate updates while retaining prompt and usage anchors", () =>
@@ -294,7 +297,7 @@ it.effect("compacts settled intermediate updates while retaining prompt and usag
         ) VALUES (${"usage:" + n}, 'thread', 'settled', ${500 + n}, 'provider-turn.updated',
           'now', 'server', ${JSON.stringify({ id: "usage", tokenUsage: { totalTokens: n } })}, '{}', 2)
       `;
-    const result = yield* maintenance.compactEventStore;
+    const result = yield* maintenance.pruneEventStore();
     assert.equal(result.deletedEventCount, 158);
     const rows = yield* sql<{ event_id: string }>`
       SELECT event_id FROM orchestration_events WHERE stream_id = 'settled' ORDER BY sequence
@@ -324,7 +327,7 @@ it.effect("compacts settled intermediate updates while retaining prompt and usag
       SELECT COUNT(*) AS count FROM orchestration_events WHERE stream_id != 'settled'
     `;
     assert.equal(untouched[0]!.count, 990);
-    assert.equal((yield* maintenance.compactEventStore).deletedEventCount, 0);
+    assert.equal((yield* maintenance.pruneEventStore()).deletedEventCount, 0);
   }).pipe(Effect.provide(maintenanceLayer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
 );
 
@@ -359,9 +362,9 @@ it.effect("retains discovered intermediate events when the thread resumes before
         WHERE thread_id = 'resumed'
       `.pipe(Effect.orDie, Effect.as(statement));
     };
-    const result = yield* maintenance.compactEventStore.pipe(
-      Effect.provideService(Statement.CurrentTransformer, resumeBeforeDelete),
-    );
+    const result = yield* maintenance
+      .pruneEventStore()
+      .pipe(Effect.provideService(Statement.CurrentTransformer, resumeBeforeDelete));
     assert.isTrue(resumed);
     assert.equal(result.deletedEventCount, 0);
     assert.equal((yield* sql`SELECT sequence FROM orchestration_events`).length, 3);
@@ -381,13 +384,13 @@ it.effect("returns at most 256 free pages per pass and continues on later passes
         yield* sql`INSERT INTO reclaim_fixture VALUES (zeroblob(4194304))`;
         yield* sql`DELETE FROM reclaim_fixture`;
         const before = (yield* sql<{ page_count: number }>`PRAGMA page_count`)[0]!.page_count;
-        const first = yield* maintenance.compactEventStore;
+        const first = yield* maintenance.pruneEventStore();
         const after = (yield* sql<{ page_count: number }>`PRAGMA page_count`)[0]!.page_count;
         assert.isAtLeast(before - after, 256);
         // Pointer-map pages can disappear along with the 256 data pages.
         assert.isAtMost(before - after, 257);
         assert.isAbove(first.reclaimableBytes, 0);
-        const second = yield* maintenance.compactEventStore;
+        const second = yield* maintenance.pruneEventStore();
         assert.isBelow(second.reclaimableBytes, first.reclaimableBytes);
       }).pipe(
         Effect.provide(
@@ -397,5 +400,5 @@ it.effect("returns at most 256 free pages per pass and continues on later passes
         ),
       );
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

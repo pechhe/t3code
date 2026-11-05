@@ -20,11 +20,8 @@ const TARGETS = [
   "packages/*/.vite-plus",
 ];
 
-// The command this replaces was `rm -rf` run from the repository root. `vp run` hands a
-// package script to the command without a shell, so those globs reached `rm` unexpanded
-// and only the plain paths were ever removed. Globing here keeps every target, resolves
-// against the repository that holds this script so it does not depend on the caller's
-// directory, and leaves source, `.env` files and `.t3` runtime state alone.
+// Expand targets relative to this repository: package commands receive no shell glob expansion.
+// Leave source, environment files and runtime state outside the generated-tree targets.
 const root = NodePath.dirname(import.meta.dirname);
 if (!NodeFS.existsSync(NodePath.join(root, MANIFEST))) {
   throw new Error(`${root} is not a repository root: no ${MANIFEST}`);

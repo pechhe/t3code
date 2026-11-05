@@ -92,6 +92,7 @@ const RunnerReply = Schema.Struct({
   unmet: Schema.optional(Schema.Array(PreviewAutomationWaitCondition)),
 });
 const decodeReply = Schema.decodeUnknownSync(RunnerReply);
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 /** Only the fixed adapter program reaches the installed runner's Node surface. */
 export class PhiBrowserRunner extends Context.Service<
@@ -129,7 +130,11 @@ const make = Effect.gen(function* () {
     // The skill runner calls process.exit() as soon as this script returns, which drops
     // whatever part of a reply larger than the pipe buffer is still unwritten (every
     // snapshot carries a screenshot). Wait for stdout to drain first.
-    const source = `const request = JSON.parse(${JSON.stringify(JSON.stringify(data))});
+    const encodedRequest = yield* encodeJson(data).pipe(
+      Effect.flatMap(encodeJson),
+      Effect.mapError((cause) => new PhiBrowserRunnerError({ reason: "action-failed", cause })),
+    );
+    const source = `const request = JSON.parse(${encodedRequest});
 try {
   await (async () => {
 ${PHI_RUNNER_PROGRAM}

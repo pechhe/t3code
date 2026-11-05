@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -59,7 +60,7 @@ const checkWith = (
   const layer = OtlpEndpointCheck.layer.pipe(
     Layer.provide(httpClientLayer ?? Layer.succeed(HttpClient.HttpClient, httpClient)),
     Layer.provide(configLayer),
-    Layer.provide(NodeServices.layer),
+    Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
   return { requests, layer };
 };

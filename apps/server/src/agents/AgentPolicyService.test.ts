@@ -1,7 +1,8 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, describe, expect } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Hex from "effect/encoding/Hex";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -92,7 +93,9 @@ describe("policy authority", () => {
   });
 });
 
-const testLayer = AgentPolicy.layer.pipe(Layer.provideMerge(NodeServices.layer));
+const testLayer = AgentPolicy.layer.pipe(
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+);
 const source = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const root = yield* fs.makeTempDirectoryScoped({ prefix: "agent-policy-test-" });
@@ -357,12 +360,12 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       const fs = yield* FileSystem.FileSystem;
       const root = yield* source;
       const first = yield* service.snapshot(root);
-      const crypto = yield* Crypto.Crypto;
+      const crypto = yield* Digest.Digest;
       expect(first.briefs["ticket-reviewer"].text).toBe("Brief for roles/ticket-reviewer.md\n");
       expect(first.briefs["ticket-reviewer"].hash).toBe(
         Hex.encode(
           yield* crypto.digest(
-            "SHA-256",
+            Digest.sha256,
             new TextEncoder().encode(first.briefs["ticket-reviewer"].text),
           ),
         ),

@@ -46,7 +46,6 @@ function setup() {
     const state = usePendingThreadRequests({
       environmentId,
       activeThreadId: parentId,
-      activeThread: { id: parentId },
       serverProjection: projection,
       delegatedRequests:
         props.delegated === null ? null : { threadId: leadId, requests: props.delegated },

@@ -1,3 +1,4 @@
+import * as ContextManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
@@ -114,7 +115,13 @@ it.effect("a task with a subagent role runs on the model its policy picks", () =
       assert.equal(updated.agentRole, "chore-worker");
       assert.equal(updated.groupId, "group-1");
     }).pipe(Effect.provide(serviceLayer(launched, policyLayer)));
-  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+  }).pipe(
+    Effect.provide(
+      SqlitePersistence.layerMemory.pipe(
+        Layer.provideMerge(Layer.mergeAll(ContextManagedPolicy.layerTest())),
+      ),
+    ),
+  ),
 );
 
 it.effect("without a role policy the task runs on its saved model", () =>
@@ -126,7 +133,13 @@ it.effect("without a role policy the task runs on its saved model", () =>
       yield* service.runNow({ id: task.id });
       assert.deepEqual(yield* Ref.get(launched), [savedModel]);
     }).pipe(Effect.provide(serviceLayer(launched, null)));
-  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+  }).pipe(
+    Effect.provide(
+      SqlitePersistence.layerMemory.pipe(
+        Layer.provideMerge(Layer.mergeAll(ContextManagedPolicy.layerTest())),
+      ),
+    ),
+  ),
 );
 
 it.effect("a new task names the implementation-worker role when its caller names none", () =>
@@ -138,7 +151,13 @@ it.effect("a new task names the implementation-worker role when its caller names
       assert.equal(task.agentRole, "implementation-worker");
       assert.deepEqual(yield* Ref.get(launched), []);
     }).pipe(Effect.provide(serviceLayer(launched, policyLayer)));
-  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+  }).pipe(
+    Effect.provide(
+      SqlitePersistence.layerMemory.pipe(
+        Layer.provideMerge(Layer.mergeAll(ContextManagedPolicy.layerTest())),
+      ),
+    ),
+  ),
 );
 
 const twoRolePolicyLayer = Layer.mergeAll(
@@ -182,7 +201,13 @@ it.effect("editing a task's role moves its next run to that role's model", () =>
       yield* service.runNow({ id: task.id });
       assert.deepEqual(yield* Ref.get(launched), [policyModel, implementerModel]);
     }).pipe(Effect.provide(serviceLayer(launched, twoRolePolicyLayer)));
-  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+  }).pipe(
+    Effect.provide(
+      SqlitePersistence.layerMemory.pipe(
+        Layer.provideMerge(Layer.mergeAll(ContextManagedPolicy.layerTest())),
+      ),
+    ),
+  ),
 );
 
 it.effect("a caller that names only a model gets the default role, which picks the next run", () =>
@@ -196,5 +221,11 @@ it.effect("a caller that names only a model gets the default role, which picks t
       yield* service.runNow({ id: task.id });
       assert.deepEqual(yield* Ref.get(launched), [implementerModel]);
     }).pipe(Effect.provide(serviceLayer(launched, twoRolePolicyLayer)));
-  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+  }).pipe(
+    Effect.provide(
+      SqlitePersistence.layerMemory.pipe(
+        Layer.provideMerge(Layer.mergeAll(ContextManagedPolicy.layerTest())),
+      ),
+    ),
+  ),
 );

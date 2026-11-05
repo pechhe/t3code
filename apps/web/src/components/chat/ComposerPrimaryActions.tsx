@@ -21,7 +21,7 @@ import { MorphIcon } from "~/components/MorphIcon";
 import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
 import { formatContextWindowTokens } from "~/lib/contextWindow";
 import { dialClicks, pressClick } from "~/lib/interfaceSounds";
-import { cn } from "~/lib/utils";
+import { cn, isMacPlatform } from "~/lib/utils";
 import { useShortcutModifierState } from "../../shortcutModifierState";
 import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../SidebarStageBackdrop";
 import { Button } from "../ui/button";
@@ -56,7 +56,6 @@ interface ComposerPrimaryActionsProps {
   promptHasText: boolean;
   isSendBusy: boolean;
   sendDisabledReason: string | null;
-  isConnecting: boolean;
   isEnvironmentUnavailable: boolean;
   isPreparingWorktree: boolean;
   hasSendableContent: boolean;
@@ -117,7 +116,6 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   promptHasText,
   isSendBusy,
   sendDisabledReason,
-  isConnecting,
   isEnvironmentUnavailable,
   isPreparingWorktree,
   hasSendableContent,
@@ -175,9 +173,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   const isQueuing = !isEditingQueuedMessage && dispatchesQueued;
   const alternateAction = alternateComposerDispatchAction(followUpBehavior);
   const isSendDisabled = !canOperateThread || sendDisabledReason !== null;
-  const stageBackdropVariant = useSidebarStageBackdropVariant(
-    environmentIdentificationMode === "artwork",
-  );
+  const stageBackdropVariant = useSidebarStageBackdropVariant(environmentIdentificationMode);
 
   const renderStopGenerationButton = (insidePendingAction: boolean) => (
     <Tooltip key="interrupt">
@@ -325,9 +321,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   }
 
   if (showPlanFollowUpPrompt && (promptHasText || !canResume)) {
-    const planDisabled = isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable;
+    const planDisabled = isSendBusy || isSendDisabled || isEnvironmentUnavailable;
     if (device) {
-      const sending = isConnecting || isSendBusy;
+      const sending = isSendBusy;
       const dial = (
         <button
           type="submit"
@@ -388,7 +384,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           {...pointerPropsFor(() => dialClicks(false))}
           disabled={planDisabled}
         >
-          {isConnecting || isSendBusy ? "Sending..." : "Refine"}
+          {isSendBusy ? "Sending..." : "Refine"}
         </button>
       );
     }
@@ -401,7 +397,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           {...pointerPropsFor(() => dialClicks(false))}
           disabled={planDisabled}
         >
-          {isConnecting || isSendBusy ? "Sending..." : "Implement"}
+          {isSendBusy ? "Sending..." : "Implement"}
         </button>
         <Menu>
           <MenuTrigger
@@ -469,42 +465,38 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   const submitStatus = isEnvironmentUnavailable
     ? "Environment disconnected"
     : (sendDisabledReason ??
-      (isConnecting
-        ? "Connecting"
-        : isPreparingWorktree
-          ? "Preparing worktree"
-          : isSendBusy
-            ? isEditingQueuedMessage
-              ? "Updating queued message"
-              : "Submitting message"
-            : null));
+      (isPreparingWorktree
+        ? "Preparing worktree"
+        : isSendBusy
+          ? isEditingQueuedMessage
+            ? "Updating queued message"
+            : "Submitting message"
+          : null));
   const submitTooltip =
     submitStatus ??
     (compactsBeforeSend
       ? `Summarize ${compactTokens} tokens of history${compactionModelName ? ` with ${compactionModelName}` : ""}, then send`
       : isRunning && !isEditingQueuedMessage && canSteer
-        ? `Click to ${followUpBehavior}, Ctrl/⌘-click${alternateShortcutLabel ? ` or ${alternateShortcutLabel}` : ""} to ${alternateAction}`
+        ? `Click to ${followUpBehavior}, ${isMacPlatform(navigator.platform) ? "⌘" : "Ctrl"}-click${alternateShortcutLabel ? ` or ${alternateShortcutLabel}` : ""} to ${alternateAction}`
         : submitLabel);
 
   const deviceCaption = isEnvironmentUnavailable
     ? "Offline"
-    : isConnecting
-      ? "Connecting"
-      : isPreparingWorktree
-        ? "Worktree"
-        : isSendBusy
-          ? "Sending"
-          : showResume
-            ? "Resume"
-            : isEditingQueuedMessage
-              ? "Update"
-              : compactsBeforeSend
-                ? "Compact + send"
-                : isQueuing
-                  ? "Queue"
-                  : isRunning
-                    ? "Steer"
-                    : "Send";
+    : isPreparingWorktree
+      ? "Worktree"
+      : isSendBusy
+        ? "Sending"
+        : showResume
+          ? "Resume"
+          : isEditingQueuedMessage
+            ? "Update"
+            : compactsBeforeSend
+              ? "Compact + send"
+              : isQueuing
+                ? "Queue"
+                : isRunning
+                  ? "Steer"
+                  : "Send";
 
   const sendButton = (
     <button
@@ -530,7 +522,6 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       disabled={
         isSendBusy ||
         isSendDisabled ||
-        isConnecting ||
         isEnvironmentUnavailable ||
         (!hasSendableContent && !showResume)
       }
@@ -541,7 +532,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           <StageBackdropButtonArt variant={stageBackdropVariant} />
         </span>
       ) : null}
-      {isConnecting || isSendBusy ? (
+      {isSendBusy ? (
         <Spinner size="sm" aria-hidden="true" />
       ) : showResume ? (
         <PlayIcon className="size-4 fill-current" aria-hidden="true" />
@@ -599,12 +590,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           render={
             <button
               type="button"
-              className={cn(
-                "flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 text-xs tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-64 sm:h-8 [&_svg]:pointer-events-none [&_svg]:size-3.5",
-                keepFullHistory
-                  ? "border-border text-muted-foreground hover:text-foreground"
-                  : "border-warning/40 text-warning hover:bg-warning/8",
-              )}
+              className="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-(--control-radius) px-2 font-medium text-base text-foreground/80 tabular-nums outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-64 sm:text-sm aria-pressed:bg-accent/60 aria-pressed:text-foreground [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:text-muted-foreground"
               {...pointerFocusProps}
               aria-pressed={!keepFullHistory}
               aria-label={`Compact ${compactTokens} tokens of history${compactionModelName ? ` with ${compactionModelName}` : ""} before sending`}

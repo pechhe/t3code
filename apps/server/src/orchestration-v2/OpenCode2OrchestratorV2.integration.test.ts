@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -508,7 +509,12 @@ describe("OpenCode 2 through the orchestrator", () => {
         row.item.type === "assistant_message" ? [row.item.text] : [],
       );
       assert.deepEqual(visible, ["ONE", "ONE"]);
-    }).pipe(Effect.scoped, Effect.provide(Layer.merge(NodeServices.layer, IdAllocator.layer))),
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.merge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer), IdAllocator.layer),
+      ),
+    ),
   );
 
   it.effect("never sends OpenCode a queued message that was cancelled", () =>
@@ -591,7 +597,12 @@ describe("OpenCode 2 through the orchestrator", () => {
         projection.runs.map((candidate) => candidate.status),
         ["completed", "cancelled", "completed"],
       );
-    }).pipe(Effect.scoped, Effect.provide(Layer.merge(NodeServices.layer, IdAllocator.layer))),
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.merge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer), IdAllocator.layer),
+      ),
+    ),
   );
 
   const backgroundReconnect = Effect.fn("backgroundReconnect")(function* (input: {
@@ -745,7 +756,12 @@ describe("OpenCode 2 through the orchestrator", () => {
       );
       const shell = result.shellSnapshot.threads.find((row) => row.id === projection.thread.id);
       assert.deepEqual(shell?.pendingBackgroundTasks ?? [], []);
-    }).pipe(Effect.scoped, Effect.provide(Layer.merge(NodeServices.layer, IdAllocator.layer))),
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.merge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer), IdAllocator.layer),
+      ),
+    ),
   );
 
   it.effect(
@@ -846,7 +862,12 @@ describe("OpenCode 2 through the orchestrator", () => {
         );
         const shell = result.shellSnapshot.threads.find((row) => row.id === projection.thread.id);
         assert.deepEqual(shell?.pendingBackgroundTasks ?? [], []);
-      }).pipe(Effect.scoped, Effect.provide(Layer.merge(NodeServices.layer, IdAllocator.layer))),
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.merge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer), IdAllocator.layer),
+        ),
+      ),
   );
 
   it.effect(
@@ -940,6 +961,11 @@ describe("OpenCode 2 through the orchestrator", () => {
         );
         const shell = result.shellSnapshot.threads.find((row) => row.id === projection!.thread.id);
         assert.deepEqual(shell?.pendingBackgroundTasks ?? [], []);
-      }).pipe(Effect.scoped, Effect.provide(Layer.merge(NodeServices.layer, IdAllocator.layer))),
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.merge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer), IdAllocator.layer),
+        ),
+      ),
   );
 });

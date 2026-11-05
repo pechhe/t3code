@@ -1,3 +1,4 @@
+import * as DocumentText from "../provider/DocumentText.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -163,7 +164,7 @@ const makeHarness = Effect.gen(function* () {
   );
   const platform = Layer.mergeAll(
     NodeCrypto.layer,
-    NodeServices.layer,
+    Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
     Layer.succeed(HttpClient.HttpClient, client),
     Layer.succeed(
       ServerSecretStore.ServerSecretStore,
@@ -238,7 +239,7 @@ const makeHarness = Effect.gen(function* () {
   );
   // One database for every boot, as the file is across a restart.
   const config = ServerConfig.layerTest(process.cwd(), { prefix: "t3code-build-home-test-" }).pipe(
-    Layer.provide(NodeServices.layer),
+    Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
   const database = yield* Layer.build(
     Layer.mergeAll(SqlitePersistence.layerMemory.pipe(Layer.provide(config)), config),
@@ -252,6 +253,11 @@ const makeHarness = Effect.gen(function* () {
       ForgeHome.layer.pipe(
         Layer.provideMerge(Layer.mergeAll(deps, databaseLayer)),
         Layer.provide(logLayer),
+        Layer.provide(
+          DocumentText.layer.pipe(
+            Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+          ),
+        ),
       ),
       scope,
     );

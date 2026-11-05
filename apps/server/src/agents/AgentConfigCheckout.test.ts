@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -8,7 +9,9 @@ import * as Path from "effect/Path";
 import * as ProcessRunner from "../processRunner.ts";
 import * as AgentConfigCheckout from "./AgentConfigCheckout.ts";
 
-const layer = ProcessRunner.layer.pipe(Layer.provideMerge(NodeServices.layer));
+const layer = ProcessRunner.layer.pipe(
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+);
 
 const jj = (cwd: string, ...args: ReadonlyArray<string>) =>
   Effect.gen(function* () {

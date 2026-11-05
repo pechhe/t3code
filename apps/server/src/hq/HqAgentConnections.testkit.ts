@@ -241,8 +241,8 @@ export const makeHqHarnessAt = Effect.fnUntraced(function* (secretsDirectory?: s
         Layer.provide(
           Layer.mergeAll(
             NodeCrypto.layer,
-            NodeServices.layer,
-            store.pipe(Layer.provide(NodeServices.layer)),
+            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+            store.pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
             Layer.succeed(HttpClient.HttpClient, hq.client),
             Layer.succeed(
               ServerEnvironment.ServerEnvironment,

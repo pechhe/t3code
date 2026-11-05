@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as ConfigProvider from "effect/ConfigProvider";
@@ -9,6 +10,8 @@ import { AgentPolicyManifest } from "@t3tools/contracts";
 import * as Settings from "./AgentPolicySettingsService.ts";
 import * as Providers from "../provider/ProviderRegistry.ts";
 import { snapshot, provider } from "./agentPolicy.testkit.ts";
+
+const decodeAgentPolicyManifest = Schema.decodeEffect(AgentPolicyManifest);
 
 const encode = Schema.encodeSync(Schema.fromJsonString(AgentPolicyManifest));
 const fixture = Effect.gen(function* () {
@@ -61,7 +64,7 @@ const fixture = Effect.gen(function* () {
   };
 });
 
-it.layer(NodeServices.layer)("policy settings", (it) => {
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("policy settings", (it) => {
   it.effect("reads source status and the installed catalog without changing policy", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
@@ -113,7 +116,7 @@ it.layer(NodeServices.layer)("policy settings", (it) => {
         Effect.gen(function* () {
           const settings = yield* Settings.AgentPolicySettingsService;
           const first = yield* settings.read();
-          const manifest = yield* Schema.decodeUnknownEffect(AgentPolicyManifest)({
+          const manifest = yield* decodeAgentPolicyManifest({
             ...f.manifest,
             models: {
               ...f.manifest.models,

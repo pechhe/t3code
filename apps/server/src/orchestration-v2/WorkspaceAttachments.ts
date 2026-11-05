@@ -6,7 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -56,7 +56,7 @@ export class WorkspaceAttachments extends Context.Service<
 >()("t3/orchestration-v2/WorkspaceAttachments") {}
 
 const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   const sql = yield* SqlClient.SqlClient;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const projects = yield* ProjectService.ProjectService;
@@ -65,7 +65,7 @@ const make = Effect.gen(function* () {
   const landings = yield* SlipJayLandings.SlipJayLandings;
 
   const commandId = (threadId: ThreadId, action: string) =>
-    crypto.randomUUIDv4().pipe(
+    crypto.uuidV4().pipe(
       Effect.orDie,
       Effect.map((uuid) =>
         CommandId.make(`server:workspace-attachment:${threadId}:${action}:${uuid}`),

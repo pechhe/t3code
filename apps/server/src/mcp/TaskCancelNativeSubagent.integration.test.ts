@@ -1,5 +1,6 @@
 import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -44,6 +45,7 @@ import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
+import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 
 const layerOrchestratorService = OrchestratorMcpService.layer.pipe(
   Layer.provide(
@@ -168,13 +170,15 @@ it.effect("task_cancel ends a delegated child's background native subagent", () 
             Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
             ServerSettings.layerTest(),
             Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
-            Layer.merge(
-              NodeServices.layer,
+            Layer.mergeAll(
+              Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+              NodeCrypto.layer,
               Layer.mock(Experiments.ExperimentService)({
                 assignForTask: () => Effect.succeed([]),
                 assignments: () => Effect.succeed([]),
               }),
             ),
+            Layer.mock(RemoteDelegation.RemoteDelegation)({}),
           ),
         ),
       );
@@ -388,5 +392,14 @@ it.effect("task_cancel ends a delegated child's background native subagent", () 
         assert.notEqual(after.workState, "waiting_for_children");
       }).pipe(Effect.provide(layerTest));
     }),
+  ).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        Layer.mock(Experiments.ExperimentService)({
+          assignForTask: () => Effect.succeed([]),
+          assignments: () => Effect.succeed([]),
+        }),
+      ),
+    ),
   ),
 );

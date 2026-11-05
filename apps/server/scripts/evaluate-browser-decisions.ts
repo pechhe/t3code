@@ -8,6 +8,8 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
+import * as PlatformCrypto from "@effect/platform-node/NodeCrypto";
+import * as PreviewAgentActivity from "../src/preview/PreviewAgentActivity.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { chromium } from "playwright-core";
 import {
@@ -22,7 +24,6 @@ import {
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as ServerSecretStore from "../src/auth/ServerSecretStore.ts";
@@ -114,7 +115,7 @@ const dependencies = Layer.mergeAll(
   } as never),
   Layer.succeed(PreviewBrowser.PreviewBrowser, {
     executable: Effect.succeed(chromium.executablePath()),
-    installed: Effect.succeed(Option.some(chromium.executablePath())),
+    installed: Effect.succeedSome(chromium.executablePath()),
   } as never),
   Layer.mock(DesktopChannel.DesktopBrowserChannel)({
     available: false,
@@ -125,7 +126,9 @@ const dependencies = Layer.mergeAll(
   Layer.provideMerge(
     ServerConfig.layerTest(process.cwd(), { prefix: "t3-browser-decision-eval-" }),
   ),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(
+    Layer.mergeAll(NodeServices.layer, PlatformCrypto.layer, PreviewAgentActivity.layer),
+  ),
 );
 const decisions = DecisionService.layer.pipe(
   Layer.provide(
@@ -133,6 +136,7 @@ const decisions = DecisionService.layer.pipe(
       FetchHttpClient.layer,
       Layer.mock(ServerSecretStore.ServerSecretStore)({ get: () => Effect.succeedNone }),
       NodeServices.layer,
+      PlatformCrypto.layer,
       ConfigProvider.layer(ConfigProvider.fromEnv()),
     ),
   ),
@@ -151,9 +155,9 @@ const program = Effect.gen(function* () {
   const broker = yield* Broker.PreviewAutomationBroker;
   const decisionService = yield* DecisionService.DecisionService;
   yield* Effect.yieldNow;
-  const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
+  const run = Effect.runPromiseWith(yield* Effect.context<never>());
   const client: DecisionClient = (input, options) =>
-    Effect.runPromise(decisionService.decide(input, options)) as never;
+    run(decisionService.decide(input, options)) as never;
 
   const attemptDriver = async (
     scope: McpThreadInvocationScope,

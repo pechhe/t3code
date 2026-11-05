@@ -1,5 +1,5 @@
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -152,8 +152,10 @@ export class ServerSecretStore extends Context.Service<
 >()("t3/auth/ServerSecretStore") {}
 
 /** @public */
-const makeAtDirectory = Effect.fn(function* (secretsDir: string) {
-  const crypto = yield* Crypto.Crypto;
+const makeAtDirectory = Effect.fn("ServerSecretStore.makeAtDirectory")(function* (
+  secretsDir: string,
+) {
+  const crypto = yield* SecureRandom.SecureRandom;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
@@ -232,7 +234,7 @@ const makeAtDirectory = Effect.fn(function* (secretsDir: string) {
 
   const set: ServerSecretStore["Service"]["set"] = (name, value) => {
     const secretPath = resolveSecretPath(name);
-    return crypto.randomUUIDv4().pipe(
+    return crypto.uuidV4().pipe(
       Effect.mapError(
         (cause) =>
           new SecretStoreTemporaryPathError({
@@ -272,7 +274,7 @@ const makeAtDirectory = Effect.fn(function* (secretsDir: string) {
   // AlreadyExists, so a concurrent reader never observes a partially written secret.
   const create: ServerSecretStore["Service"]["create"] = (name, value) => {
     const secretPath = resolveSecretPath(name);
-    return crypto.randomUUIDv4().pipe(
+    return crypto.uuidV4().pipe(
       Effect.mapError(
         (cause) =>
           new SecretStoreTemporaryPathError({

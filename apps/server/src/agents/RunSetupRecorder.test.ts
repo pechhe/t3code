@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -9,7 +10,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as ConfigProvider from "effect/ConfigProvider";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -20,7 +21,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
-import * as Option from "effect/Option";
+
 import * as ExperimentService from "../experiments/ExperimentService.ts";
 import * as InstructionOverlay from "../experiments/InstructionOverlay.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -34,6 +35,8 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as Policy from "./AgentPolicyService.ts";
 import * as RunSetup from "./RunSetupRecorder.ts";
 
+const encodeRunSetupRecord = Schema.encodeEffect(Schema.fromJsonString(RunSetupRecord));
+
 const threadId = ThreadId.make("thread:setup");
 const run = {
   id: RunId.make("run:setup:1"),
@@ -46,7 +49,9 @@ const thread = {
   creationSource: "web",
 } as const;
 
-const layer = ProcessRunner.layer.pipe(Layer.provideMerge(NodeServices.layer));
+const layer = ProcessRunner.layer.pipe(
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+);
 
 const decodeStored = Schema.decodeUnknownSync(Schema.fromJsonString(RunSetupRecord));
 
@@ -60,8 +65,8 @@ const storedSetups = Effect.fn("storedSetups")(function* (thread: ThreadId, limi
 
 const sha256 = (text: string) =>
   Effect.gen(function* () {
-    const crypto = yield* Crypto.Crypto;
-    return Hex.encode(yield* crypto.digest("SHA-256", new TextEncoder().encode(text)));
+    const crypto = yield* Digest.Digest;
+    return Hex.encode(yield* crypto.digest(Digest.sha256, new TextEncoder().encode(text)));
   });
 
 const capture = (root: string | null, workingDirectory: string | null) =>
@@ -266,7 +271,7 @@ describe("setupReport", () => {
             { runOrdinal: 1, driver: "codex", status: "completed" as const, startedAt: started },
           ].map((entry) => ({ ...entry, agentConfig: null, skillSummary: null })),
         );
-      }).pipe(Effect.provide(NodeServices.layer)),
+      }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
   it.effect("reports skills only for drivers that report skill loads", () =>
@@ -284,7 +289,7 @@ describe("setupReport", () => {
           { runId: RunId.make("run:report:1"), invokedSkills: null },
         ],
       );
-    }).pipe(Effect.provide(NodeServices.layer)),
+    }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
   it.effect("summarises files by count and digest and lists them only on request", () =>
@@ -315,7 +320,7 @@ describe("setupReport", () => {
       });
       assert.deepEqual(full?.skills, records[0]!.skills);
       assert.deepEqual(full?.instructions, records[0]!.instructions);
-    }).pipe(Effect.provide(NodeServices.layer)),
+    }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 });
 
@@ -354,7 +359,7 @@ describe("setupReport size", () => {
         driverOf: () => "claudeAgent",
       });
       assert.isBelow(JSON.stringify(report).length, 15_000);
-    }).pipe(Effect.provide(NodeServices.layer)),
+    }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 });
 
@@ -419,7 +424,7 @@ const recorderLayer = (
       Layer.mergeAll(
         Layer.mock(Orchestrator.OrchestratorV2)({}),
         Layer.mock(ProjectionStore.ProjectionStoreV2)({ getThread }),
-        Layer.mock(ProjectStore.ProjectStoreV2)({ get: () => Effect.succeed(Option.none()) }),
+        Layer.mock(ProjectStore.ProjectStoreV2)({ get: () => Effect.succeedNone }),
         Layer.mock(ExperimentService.ExperimentService)({
           assignments: () => Effect.succeed([]),
           list: () => Effect.succeed([]),
@@ -861,7 +866,7 @@ describe("setup cut points", () => {
       // has not seen it, so it captures run 2 again from today's files.
       const [first] = yield* storedSetups(threadId, 1);
       const stored = { ...first!, runId: RunId.make("run:restart:2"), runOrdinal: 2 };
-      const json = yield* Schema.encodeEffect(Schema.fromJsonString(RunSetupRecord))(stored);
+      const json = yield* encodeRunSetupRecord(stored);
       yield* sql`INSERT INTO run_setup_records (run_id, thread_id, captured_at, record_json)
         VALUES (${stored.runId}, ${threadId}, ${stored.capturedAt}, ${json})`;
       yield* fs.writeFileString(agents, "v2");

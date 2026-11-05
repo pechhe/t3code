@@ -16,6 +16,7 @@ import * as ServerConfig from "../config.ts";
 import * as ResourceAttribution from "../resourceTelemetry/ResourceAttribution.ts";
 import * as ServerLogger from "../serverLogger.ts";
 import * as BrowserTraceCollector from "./BrowserTraceCollector.ts";
+import * as HeapAttribution from "./HeapAttribution.ts";
 
 const TRACE_MIN_DURATION_MS = 1;
 const TRACE_MIN_SQL_LOCK_WAIT_MS = 5;
@@ -79,8 +80,11 @@ export const layer = Layer.unwrap(
           ...(delegate ? { delegate } : {}),
         });
 
+        const heapAttribution = yield* HeapAttribution.make(tracer);
+        yield* heapAttribution.run;
+
         return Layer.mergeAll(
-          Layer.succeed(Tracer.Tracer, tracer),
+          Layer.succeed(Tracer.Tracer, heapAttribution.tracer),
           BrowserTraceCollector.layer(sink),
         );
       }),

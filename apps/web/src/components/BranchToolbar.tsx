@@ -68,6 +68,7 @@ import { MiddleTruncate } from "./ui/middle-truncate";
 import { cn } from "~/lib/utils";
 
 interface BranchToolbarProps {
+  layout?: "panel";
   panelSection?: "all" | "workspace" | "branch";
   forceNewWorktree?: boolean;
   environmentId: EnvironmentId;
@@ -88,7 +89,7 @@ interface BranchToolbarProps {
   onAutoEnvironment?: (() => void) | undefined;
   envLocked: boolean;
   onCheckoutPullRequestRequest?: (reference: string) => void;
-  onComposerFocusRequest?: () => void;
+  onComposerFocusRequest?: (() => void) | undefined;
   availableEnvironments?: readonly EnvironmentOption[];
   onEnvironmentChange?: (environmentId: EnvironmentId) => void;
 }

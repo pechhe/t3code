@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -72,7 +73,11 @@ const withServer = <A, E>(
       const sessions = yield* Ref.make<SessionStore>(EMPTY_SESSIONS);
       const readIndex = yield* Ref.make(0);
       const pages = options.pages ?? [
-        page({ items: [{ position: 1, type: "assistant_message", title: null, text: "It is a pricing page." }] }),
+        page({
+          items: [
+            { position: 1, type: "assistant_message", title: null, text: "It is a pricing page." },
+          ],
+        }),
       ];
 
       const port: VoiceBridgePort = {
@@ -84,7 +89,7 @@ const withServer = <A, E>(
         uploadBytes: () => Effect.die("this test never captures"),
         launch: (input) =>
           Effect.gen(function* () {
-            if (options.launchFailure !== undefined) return yield* Effect.fail(options.launchFailure);
+            if (options.launchFailure !== undefined) return yield* options.launchFailure;
             yield* Ref.update(launches, (count) => count + 1);
             return { threadId: `thread-${input.title.length}`, runId: "run-1", status: "starting" };
           }),
@@ -117,7 +122,7 @@ const withServer = <A, E>(
       const http = Context.get(services, HttpClient.HttpClient);
       return yield* run(http, { launches, sessions });
     }),
-  ).pipe(Effect.provide(NodeServices.layer));
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
 const ModelsResponse = Schema.Struct({
   object: Schema.String,
@@ -151,10 +156,15 @@ it.effect("streams the answer as chat-completion deltas, ending with the thread 
   withServer(
     {
       pages: [
-        page({ status: "running", items: [{ position: 1, type: "assistant_message", title: null, text: "It is" }] }),
+        page({
+          status: "running",
+          items: [{ position: 1, type: "assistant_message", title: null, text: "It is" }],
+        }),
         page({
           status: "completed",
-          items: [{ position: 2, type: "assistant_message", title: null, text: " a pricing page." }],
+          items: [
+            { position: 2, type: "assistant_message", title: null, text: " a pricing page." },
+          ],
         }),
       ],
     },
@@ -198,7 +208,10 @@ it.effect("answers a non-streaming completion with the thread's text and a link"
 it.effect("reports a thread it could not start as a provider error, not an answer", () =>
   withServer(
     {
-      launchFailure: new VoiceBridgeError({ reason: "unauthorized", detail: "the bridge is not signed in" }),
+      launchFailure: new VoiceBridgeError({
+        reason: "unauthorized",
+        detail: "the bridge is not signed in",
+      }),
     },
     (http) =>
       Effect.gen(function* () {

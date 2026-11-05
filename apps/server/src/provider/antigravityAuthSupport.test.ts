@@ -445,215 +445,236 @@ describe("Antigravity stderr compatibility", () => {
   );
 });
 
-it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
-  const prepareSpawn = Effect.fn(function* (
-    bundles: ReadonlyArray<string>,
-    baseEnv: NodeJS.ProcessEnv = {},
-    platform: NodeJS.Platform = "linux",
-  ) {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const directory = yield* fs.makeTempDirectoryScoped();
-    const profile = yield* prepareAntigravityProfile({
-      profileDirectory: path.join(directory, "profile"),
-      userHome: path.join(directory, "home"),
-      runtimeExecutablePath: process.execPath,
-      platform,
-      baseEnv,
-    }).pipe(
-      Effect.provideService(FileSystem.FileSystem, {
-        ...fs,
-        exists: (candidate) => Effect.succeed(bundles.includes(candidate)),
-      }),
-    );
-    return buildAntigravityAcpSpawnInput({
-      installation: { executablePath: "/release/acp", harnessPath: "/release/harness" },
-      profile,
-      cwd: directory,
-      baseEnv,
-    }).env;
-  });
-
-  // A Windows Node path cannot preflight the browser helper as a POSIX host.
-  const caTest = it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32");
-
-  caTest(
-    "launches Linux agents with the first available CA bundle, preferring absolute Nix paths",
-    () =>
-      Effect.gen(function* () {
-        const systemBundles = ["/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem"];
-        const nixBundle = "/nix/store/nss-cacert/etc/ssl/certs/ca-bundle.crt";
-        expect((yield* prepareSpawn(systemBundles))?.SSL_CERT_FILE).toBe(systemBundles[0]);
-        expect(
-          (yield* prepareSpawn([nixBundle, ...systemBundles], { NIX_SSL_CERT_FILE: nixBundle }))
-            ?.SSL_CERT_FILE,
-        ).toBe(nixBundle);
-        expect(
-          (yield* prepareSpawn(systemBundles, { NIX_SSL_CERT_FILE: nixBundle }))?.SSL_CERT_FILE,
-        ).toBe(systemBundles[0]);
-        expect(
-          (yield* prepareSpawn(["certs/local.pem", ...systemBundles], {
-            NIX_SSL_CERT_FILE: "certs/local.pem",
-          }))?.SSL_CERT_FILE,
-        ).toBe(systemBundles[0]);
-        expect((yield* prepareSpawn([]))?.SSL_CERT_FILE).toBeUndefined();
-      }),
-  );
-
-  caTest("preserves explicit certificate files and directories in Linux launches", () =>
-    Effect.gen(function* () {
-      const bundles = ["/etc/ssl/certs/ca-certificates.crt"];
-      expect(
-        (yield* prepareSpawn(bundles, { SSL_CERT_FILE: "/custom/ca.pem" }))?.SSL_CERT_FILE,
-      ).toBe("/custom/ca.pem");
-      const directoryEnv = yield* prepareSpawn(bundles, { SSL_CERT_DIR: "/custom/certs" });
-      expect(directoryEnv?.SSL_CERT_DIR).toBe("/custom/certs");
-      expect(directoryEnv?.SSL_CERT_FILE).toBeUndefined();
-    }),
-  );
-
-  it.effect("runs the browser helper with installed Node in standalone builds", () =>
-    Effect.gen(function* () {
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
+  "Antigravity profile preparation",
+  (it) => {
+    const prepareSpawn = Effect.fn(function* (
+      bundles: ReadonlyArray<string>,
+      baseEnv: NodeJS.ProcessEnv = {},
+      platform: NodeJS.Platform = "linux",
+    ) {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const directory = yield* fs.makeTempDirectoryScoped();
       const profile = yield* prepareAntigravityProfile({
         profileDirectory: path.join(directory, "profile"),
-        baseEnv: { PATH: path.dirname(process.execPath) },
-      });
-      expect(profile.browserCommand).not.toContain("/packaged/t3");
-      expect(yield* fs.exists(profile.acpDirectory)).toBe(true);
-    }).pipe(
-      Effect.provideService(HostProcess.IsExecutable, true),
-      Effect.provideService(HostProcess.ExecutablePath, "/packaged/t3"),
-    ),
-  );
+        userHome: path.join(directory, "home"),
+        runtimeExecutablePath: process.execPath,
+        platform,
+        baseEnv,
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, {
+          ...fs,
+          exists: (candidate) => Effect.succeed(bundles.includes(candidate)),
+        }),
+      );
+      return buildAntigravityAcpSpawnInput({
+        installation: { executablePath: "/release/acp", harnessPath: "/release/harness" },
+        profile,
+        cwd: directory,
+        baseEnv,
+      }).env;
+    });
 
-  it.effect("reports missing Node before creating the standalone sign-in profile", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const directory = yield* fs.makeTempDirectoryScoped();
-      const profileDirectory = path.join(directory, "profile");
-      const result = yield* prepareAntigravityProfile({
-        profileDirectory,
-        baseEnv: { PATH: "" },
-      }).pipe(Effect.result);
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure).toMatchObject({
-          _tag: "AcpTransportError",
-          detail: expect.stringContaining("Install Node.js"),
-          cause: {
-            _tag: "NodeRuntimeUnavailableError",
-          },
+    // A Windows Node path cannot preflight the browser helper as a POSIX host.
+    const caTest = it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32");
+
+    caTest(
+      "launches Linux agents with the first available CA bundle, preferring absolute Nix paths",
+      () =>
+        Effect.gen(function* () {
+          const systemBundles = ["/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem"];
+          const nixBundle = "/nix/store/nss-cacert/etc/ssl/certs/ca-bundle.crt";
+          expect((yield* prepareSpawn(systemBundles))?.SSL_CERT_FILE).toBe(systemBundles[0]);
+          expect(
+            (yield* prepareSpawn([nixBundle, ...systemBundles], { NIX_SSL_CERT_FILE: nixBundle }))
+              ?.SSL_CERT_FILE,
+          ).toBe(nixBundle);
+          expect(
+            (yield* prepareSpawn(systemBundles, { NIX_SSL_CERT_FILE: nixBundle }))?.SSL_CERT_FILE,
+          ).toBe(systemBundles[0]);
+          expect(
+            (yield* prepareSpawn(["certs/local.pem", ...systemBundles], {
+              NIX_SSL_CERT_FILE: "certs/local.pem",
+            }))?.SSL_CERT_FILE,
+          ).toBe(systemBundles[0]);
+          expect((yield* prepareSpawn([]))?.SSL_CERT_FILE).toBeUndefined();
+        }),
+    );
+
+    caTest("preserves explicit certificate files and directories in Linux launches", () =>
+      Effect.gen(function* () {
+        const bundles = ["/etc/ssl/certs/ca-certificates.crt"];
+        expect(
+          (yield* prepareSpawn(bundles, { SSL_CERT_FILE: "/custom/ca.pem" }))?.SSL_CERT_FILE,
+        ).toBe("/custom/ca.pem");
+        const directoryEnv = yield* prepareSpawn(bundles, { SSL_CERT_DIR: "/custom/certs" });
+        expect(directoryEnv?.SSL_CERT_DIR).toBe("/custom/certs");
+        expect(directoryEnv?.SSL_CERT_FILE).toBeUndefined();
+      }),
+    );
+
+    it.effect("runs the browser helper with installed Node in standalone builds", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const directory = yield* fs.makeTempDirectoryScoped();
+        const profile = yield* prepareAntigravityProfile({
+          profileDirectory: path.join(directory, "profile"),
+          baseEnv: { PATH: path.dirname(process.execPath) },
         });
-      }
-      expect(yield* fs.exists(profileDirectory)).toBe(false);
-    }).pipe(Effect.provideService(HostProcess.IsExecutable, true)),
-  );
+        expect(profile.browserCommand).not.toContain("/packaged/t3");
+        expect(yield* fs.exists(profile.acpDirectory)).toBe(true);
+      }).pipe(
+        Effect.provideService(HostProcess.IsExecutable, true),
+        Effect.provideService(HostProcess.ExecutablePath, "/packaged/t3"),
+      ),
+    );
 
-  it.effect("preflights the no-browser helper and creates private directories only", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const temporaryDirectory = yield* fs.makeTempDirectoryScoped();
-      const profile = yield* prepareAntigravityProfile({
-        profileDirectory: path.join(temporaryDirectory, "profile"),
-      });
+    it.effect("reports missing Node before creating the standalone sign-in profile", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const directory = yield* fs.makeTempDirectoryScoped();
+        const profileDirectory = path.join(directory, "profile");
+        const result = yield* prepareAntigravityProfile({
+          profileDirectory,
+          baseEnv: { PATH: "" },
+        }).pipe(Effect.result);
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure).toMatchObject({
+            _tag: "AcpTransportError",
+            detail: expect.stringContaining("Install Node.js"),
+            cause: {
+              _tag: "NodeRuntimeUnavailableError",
+            },
+          });
+        }
+        expect(yield* fs.exists(profileDirectory)).toBe(false);
+      }).pipe(Effect.provideService(HostProcess.IsExecutable, true)),
+    );
 
-      expect(profile.geminiHome).toBe(path.join(temporaryDirectory, "profile"));
-      expect(yield* fs.exists(profile.acpDirectory)).toBe(true);
-      expect(yield* fs.exists(profile.tokenPath)).toBe(false);
-      if ((yield* HostProcess.Platform) !== "win32") {
-        expect((yield* fs.stat(profile.geminiHome)).mode & 0o777).toBe(0o700);
-        expect((yield* fs.stat(profile.acpDirectory)).mode & 0o777).toBe(0o700);
-      }
-
-      yield* fs.writeFileString(profile.tokenPath, "synthetic-token-fixture");
-      yield* prepareAntigravityProfile({ profileDirectory: profile.geminiHome });
-      expect(yield* fs.readFileString(profile.tokenPath)).toBe("synthetic-token-fixture");
-    }),
-  );
-
-  it.effect.skipIf(!symlinksSupported)(
-    "links the user's global skill directories into the profile without touching real content",
-    () =>
+    it.effect("preflights the no-browser helper and creates private directories only", () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const temporaryDirectory = yield* fs.makeTempDirectoryScoped();
-        const userHome = path.join(temporaryDirectory, "home");
-        const profileDirectory = path.join(temporaryDirectory, "profile");
-        const configSkills = path.join(userHome, ".gemini", "config", "skills");
-        const cliSkills = path.join(userHome, ".gemini", "antigravity-cli", "skills");
-        yield* fs.makeDirectory(path.join(configSkills, "review"), { recursive: true });
+        const profile = yield* prepareAntigravityProfile({
+          profileDirectory: path.join(temporaryDirectory, "profile"),
+        });
 
-        yield* prepareAntigravityProfile({ profileDirectory, userHome });
-        const configLink = path.join(profileDirectory, "config", "skills");
-        const cliLink = path.join(profileDirectory, "antigravity-cli", "skills");
-        expect(yield* fs.readLink(configLink)).toBe(configSkills);
-        expect(yield* fs.readLink(cliLink)).toBe(cliSkills);
-        expect(yield* fs.exists(path.join(configLink, "review"))).toBe(true);
-        expect(yield* fs.exists(path.join(profileDirectory, "config", "mcp_config.json"))).toBe(
-          false,
-        );
+        expect(profile.geminiHome).toBe(path.join(temporaryDirectory, "profile"));
+        expect(yield* fs.exists(profile.acpDirectory)).toBe(true);
+        expect(yield* fs.exists(profile.tokenPath)).toBe(false);
+        if ((yield* HostProcess.Platform) !== "win32") {
+          expect((yield* fs.stat(profile.geminiHome)).mode & 0o777).toBe(0o700);
+          expect((yield* fs.stat(profile.acpDirectory)).mode & 0o777).toBe(0o700);
+        }
 
-        yield* fs.remove(cliLink);
-        yield* fs.symlink(path.join(temporaryDirectory, "elsewhere"), cliLink);
-        yield* fs.remove(configLink);
-        yield* fs.makeDirectory(path.join(configLink, "own-skill"), { recursive: true });
-        yield* prepareAntigravityProfile({ profileDirectory, userHome });
-        expect(yield* fs.readLink(cliLink)).toBe(cliSkills);
-        expect(yield* fs.exists(path.join(configLink, "own-skill"))).toBe(true);
-        expect((yield* fs.stat(configLink)).type).toBe("Directory");
+        yield* fs.writeFileString(profile.tokenPath, "synthetic-token-fixture");
+        yield* prepareAntigravityProfile({ profileDirectory: profile.geminiHome });
+        expect(yield* fs.readFileString(profile.tokenPath)).toBe("synthetic-token-fixture");
       }),
-  );
+    );
 
-  it.effect("rewrites the GCP block on every launch and never stores the API key", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const temporaryDirectory = yield* fs.makeTempDirectoryScoped();
-      const profile = yield* prepareAntigravityProfile({
-        profileDirectory: temporaryDirectory,
-        auth: {
-          authMethod: "agent-platform",
-          apiKey: "vertex-secret",
-          gcpProject: "proj",
-          gcpLocation: "us-central1",
-        },
-      });
-      const settingsPath = path.join(profile.acpDirectory, "settings.json");
-      const first = yield* fs.readFileString(settingsPath);
-      expect(decodeJson(first)).toEqual({
-        auth: { type: "agent-platform" },
-        gcp: { project: "proj", location: "us-central1" },
-      });
-      expect(first).not.toContain("vertex-secret");
+    it.effect.skipIf(!symlinksSupported)(
+      "links only the user's existing global skill directories without touching real content",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const temporaryDirectory = yield* fs.makeTempDirectoryScoped();
+          const userHome = path.join(temporaryDirectory, "home");
+          const profileDirectory = path.join(temporaryDirectory, "profile");
+          const configSkills = path.join(userHome, ".gemini", "config", "skills");
+          const cliSkills = path.join(userHome, ".gemini", "antigravity-cli", "skills");
+          const isLink = (link: string) =>
+            fs.readLink(link).pipe(
+              Effect.as(true),
+              Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(false)),
+            );
+          yield* fs.makeDirectory(path.join(configSkills, "review"), { recursive: true });
 
-      yield* prepareAntigravityProfile({ profileDirectory: temporaryDirectory });
-      expect(decodeJson(yield* fs.readFileString(settingsPath))).toEqual({
-        auth: { type: "oauth-personal" },
-      });
-    }),
-  );
+          yield* prepareAntigravityProfile({ profileDirectory, userHome });
+          const configLink = path.join(profileDirectory, "config", "skills");
+          const cliLink = path.join(profileDirectory, "antigravity-cli", "skills");
+          expect(yield* fs.readLink(configLink)).toBe(configSkills);
+          expect(yield* isLink(cliLink)).toBe(false);
+          expect(yield* fs.exists(path.join(configLink, "review"))).toBe(true);
+          expect(yield* fs.exists(path.join(profileDirectory, "config", "mcp_config.json"))).toBe(
+            false,
+          );
 
-  it.effect("rejects Python BROWSER delimiter collisions before starting a helper", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const temporaryDirectory = yield* fs.makeTempDirectoryScoped();
-      for (const platform of ["linux", "win32"] as const) {
-        const profileDirectory = path.join(temporaryDirectory, platform);
-        const result = yield* prepareAntigravityProfile({
-          profileDirectory,
-          platform,
-          runtimeExecutablePath: platform === "win32" ? "C:/bad;path/node.exe" : "/bad:path/node",
-        }).pipe(Effect.result);
-        expect(Result.isFailure(result)).toBe(true);
-        expect(yield* fs.exists(profileDirectory)).toBe(false);
-      }
-    }),
-  );
-});
+          // The harness leaves an empty folder where the link was skipped.
+          yield* fs.makeDirectory(cliLink, { recursive: true });
+          yield* prepareAntigravityProfile({ profileDirectory, userHome });
+          expect((yield* fs.stat(cliLink)).type).toBe("Directory");
+
+          yield* fs.makeDirectory(cliSkills, { recursive: true });
+          yield* fs.remove(configLink);
+          yield* fs.makeDirectory(path.join(configLink, "own-skill"), { recursive: true });
+          yield* prepareAntigravityProfile({ profileDirectory, userHome });
+          expect(yield* fs.readLink(cliLink)).toBe(cliSkills);
+          expect(yield* fs.exists(path.join(configLink, "own-skill"))).toBe(true);
+          expect((yield* fs.stat(configLink)).type).toBe("Directory");
+
+          yield* fs.remove(cliLink);
+          yield* fs.symlink(path.join(temporaryDirectory, "elsewhere"), cliLink);
+          yield* prepareAntigravityProfile({ profileDirectory, userHome });
+          expect(yield* fs.readLink(cliLink)).toBe(cliSkills);
+
+          yield* fs.remove(cliSkills, { recursive: true });
+          yield* prepareAntigravityProfile({ profileDirectory, userHome });
+          expect(yield* isLink(cliLink)).toBe(false);
+        }),
+    );
+
+    it.effect("rewrites the GCP block on every launch and never stores the API key", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const temporaryDirectory = yield* fs.makeTempDirectoryScoped();
+        const profile = yield* prepareAntigravityProfile({
+          profileDirectory: temporaryDirectory,
+          auth: {
+            authMethod: "agent-platform",
+            apiKey: "vertex-secret",
+            gcpProject: "proj",
+            gcpLocation: "us-central1",
+          },
+        });
+        const settingsPath = path.join(profile.acpDirectory, "settings.json");
+        const first = yield* fs.readFileString(settingsPath);
+        expect(decodeJson(first)).toEqual({
+          auth: { type: "agent-platform" },
+          gcp: { project: "proj", location: "us-central1" },
+        });
+        expect(first).not.toContain("vertex-secret");
+
+        yield* prepareAntigravityProfile({ profileDirectory: temporaryDirectory });
+        expect(decodeJson(yield* fs.readFileString(settingsPath))).toEqual({
+          auth: { type: "oauth-personal" },
+        });
+      }),
+    );
+
+    it.effect("rejects Python BROWSER delimiter collisions before starting a helper", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const temporaryDirectory = yield* fs.makeTempDirectoryScoped();
+        for (const platform of ["linux", "win32"] as const) {
+          const profileDirectory = path.join(temporaryDirectory, platform);
+          const result = yield* prepareAntigravityProfile({
+            profileDirectory,
+            platform,
+            runtimeExecutablePath: platform === "win32" ? "C:/bad;path/node.exe" : "/bad:path/node",
+          }).pipe(Effect.result);
+          expect(Result.isFailure(result)).toBe(true);
+          expect(yield* fs.exists(profileDirectory)).toBe(false);
+        }
+      }),
+    );
+  },
+);

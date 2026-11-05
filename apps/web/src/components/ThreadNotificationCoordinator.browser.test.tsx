@@ -1,47 +1,126 @@
-import type { ClientSettings } from "@t3tools/contracts/settings";
+import type { AnyRouter } from "@tanstack/react-router";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
-import { WORKING_EXIT_GRACE_MS } from "@t3tools/client-runtime/state/thread-inbox";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { Atom, AtomRegistry } from "effect/reactivity";
+import { expect, it, vi } from "vite-plus/test";
 
-import { fakeTimers, render, stubGlobal, type Screen } from "../../test/render";
+import { stubGlobal } from "../../test/render";
 
 const state = vi.hoisted(() => ({
-  mode: "off" as ClientSettings["notificationMode"],
-  inApp: true,
-  active: { environmentId: "env-1", threadId: "other-thread" },
-  focused: true,
-  visible: "visible",
-  live: true,
-  completedAt: null as string | null,
-  archivedAt: null as string | null,
-  input: false,
-  approval: false,
-  sessionError: false,
-  turnError: false,
-  limited: false,
-  subagent: false,
-  background: [] as Array<{ taskId: string; kind: "command" | "monitor" }>,
-  delegatedChild: null as "running" | "approval" | null,
-  add: vi.fn(
-    (_toast: { title: string; description: string; actionProps: { onClick: () => void } }) =>
-      "toast-1",
-  ),
-  close: vi.fn(),
+  mode: "notifications",
+  inApp: false,
+  toast: vi.fn(),
+  shells: null as unknown as { set: (id: string, value: unknown) => void },
   navigate: vi.fn(),
   sound: vi.fn(),
-  notification: vi.fn(function (_title: string, options: NotificationOptions) {
-    return Object.assign(new EventTarget(), { tag: options.tag, close: vi.fn() });
-  }),
+  badge: vi.fn(),
+  settingsListeners: new Set<() => void>(),
+}));
+vi.mock(import("./ui/toast"), async (original) => {
+  const actual = await original();
+  return { ...actual, toastManager: { ...actual.toastManager, add: state.toast as never } };
+});
+vi.mock(import("../state/shell"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    environmentShell: {
+      ...actual.environmentShell,
+      stateValueAtom: ((id: string) => shellAtom(id)) as never,
+    },
+  };
+});
+vi.mock(import("../state/presentation"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    environmentSummaries: {
+      ...actual.environmentSummaries,
+      // Read lazily: the factory runs before this module's own bindings exist.
+      get environmentIdsAtom() {
+        return environmentIdsAtom as never;
+      },
+    },
+  };
+});
+vi.mock(import("../state/threads"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    environmentThreadShells: {
+      ...actual.environmentThreadShells,
+      pendingSubagentRequestsAtom: (() => noRequestsAtom) as never,
+      get delegatedUnderParentAtom() {
+        return noDelegatedAtom as never;
+      },
+    },
+  };
+});
+vi.mock(import("../hooks/useSettings"), async (original) => ({
+  ...(await original()),
+  subscribeClientSettings: ((listener: () => void) => {
+    state.settingsListeners.add(listener);
+    return () => state.settingsListeners.delete(listener);
+  }) as never,
+  getClientSettings: (() => ({
+    notificationMode: state.mode,
+    inAppNotificationsEnabled: state.inApp,
+  })) as never,
+}));
+vi.mock(import("../threadNotifications"), async (original) => ({
+  ...(await original()),
+  playNotificationSound: state.sound,
+  unlockNotificationAudio: vi.fn(),
+  setNotificationBadge: state.badge,
 }));
 
-const SHELL_NOW = DateTime.makeUnsafe("2026-09-13T09:00:00.000Z");
+import { startThreadNotifications } from "./ThreadNotificationCoordinator";
 
-function mockThreadShell() {
+let registry: AtomRegistry.AtomRegistry;
+const shellAtom = Atom.family((_id: string) => Atom.make<unknown>(null));
+const environmentIdsAtom = Atom.make<ReadonlyArray<string>>([]);
+const noRequestsAtom = Atom.make(new Map());
+const noDelegatedAtom = Atom.make<ReadonlySet<string>>(new Set<string>());
+state.shells = { set: (id, value) => registry.set(shellAtom(id), value) };
+
+class TestNotification extends EventTarget {
+  static permission = "granted";
+  static sent: TestNotification[] = [];
+  close = vi.fn();
+  get tag() {
+    return this.options.tag ?? "";
+  }
+  constructor(
+    readonly title: string,
+    readonly options: NotificationOptions,
+  ) {
+    super();
+    TestNotification.sent.push(this);
+  }
+}
+
+let backgroundTasks: Array<{ taskId: string; kind: "command" | "monitor"; awaited: boolean }> = [];
+
+const thread = {
+  id: "thread",
+  title: "Test thread",
+  archivedAt: null as string | null,
+  hasPendingApprovals: false,
+  hasPendingUserInput: false,
+  session: null as { status: string } | null,
+  latestTurn: { turnId: "turn", state: "running", completedAt: null as string | null },
+};
+let focused = false;
+let visibility = "visible";
+
+const SHELL_NOW = DateTime.makeUnsafe("2026-09-13T07:00:00.000Z");
+
+function toV2ThreadShell(input: typeof thread) {
+  const latestTurn = input.latestTurn;
   return {
-    id: "thread-1",
-    projectId: "project-1",
-    title: "Fix the login form",
+    id: input.id,
+    projectId: "project",
+    title: input.title,
     providerInstanceId: "codex",
     modelSelection: { instanceId: "codex", model: "gpt-5.4" },
     runtimeMode: "full-access",
@@ -50,38 +129,40 @@ function mockThreadShell() {
     worktreePath: null,
     activeProviderThreadId: null,
     lineage: {
-      rootThreadId: "thread-1",
-      parentThreadId: state.subagent ? "parent" : null,
-      relationshipToParent: state.subagent ? "subagent" : null,
+      rootThreadId: input.id,
+      parentThreadId: null,
+      relationshipToParent: null,
     },
     forkedFrom: null,
     createdBy: "user",
     creationSource: "web",
-    latestRunId: "run-1",
+    latestRunId: latestTurn.turnId,
     activeRunId: null,
-    status: state.completedAt
-      ? "completed"
-      : state.sessionError || state.turnError || state.limited
-        ? "failed"
-        : "running",
-    lastErrorClass: state.limited ? "usage_limit" : null,
-    pendingRuntimeRequest: state.input
+    status:
+      latestTurn.state === "completed"
+        ? "completed"
+        : latestTurn.state === "error" || input.session?.status === "error"
+          ? "failed"
+          : "running",
+    pendingRuntimeRequest: input.hasPendingUserInput
       ? { id: "request-1", kind: "user_input", createdAt: SHELL_NOW }
-      : state.approval
+      : input.hasPendingApprovals
         ? { id: "request-1", kind: "command", createdAt: SHELL_NOW }
         : null,
+    pendingBackgroundTasks: backgroundTasks,
     latestVisibleMessage: null,
     latestUserMessageAt: null,
     hasActionableProposedPlan: false,
-    pendingBackgroundTasks: state.background,
     itemCount: 0,
     visibleItemCount: 0,
     createdAt: SHELL_NOW,
     updatedAt: SHELL_NOW,
     latestRunRequestedAt: SHELL_NOW,
     latestRunStartedAt: SHELL_NOW,
-    latestRunCompletedAt: state.completedAt ? DateTime.makeUnsafe(state.completedAt) : undefined,
-    archivedAt: state.archivedAt ? DateTime.makeUnsafe(state.archivedAt) : null,
+    latestRunCompletedAt: latestTurn.completedAt
+      ? DateTime.makeUnsafe(latestTurn.completedAt)
+      : undefined,
+    archivedAt: input.archivedAt ? DateTime.makeUnsafe(input.archivedAt) : null,
     settledOverride: null,
     settledAt: null,
     lastVisitedAt: null,
@@ -89,135 +170,89 @@ function mockThreadShell() {
   };
 }
 
-let stableParent: ReturnType<typeof mockThreadShell> | null = null;
-function mockThreads() {
-  if (state.delegatedChild === null) return [mockThreadShell()];
-  stableParent ??= mockThreadShell();
-  const child = {
-    ...mockThreadShell(),
-    id: "child-1",
-    title: "Review the login form",
-    creationSource: "mcp",
-    lineage: {
-      rootThreadId: "thread-1",
-      parentThreadId: "thread-1",
-      relationshipToParent: "subagent",
-    },
-    pendingRuntimeRequest:
-      state.delegatedChild === "approval"
-        ? { id: "request-2", kind: "command", createdAt: SHELL_NOW }
-        : null,
-  };
-  return [stableParent, child];
-}
-
-vi.mock(import("@effect/atom-react"), async (original) => ({
-  ...(await original()),
-  useAtomValue: (() => ({
-    status: state.live ? "live" : "disconnected",
-    snapshot: Option.some({ threads: mockThreads() }),
-  })) as never,
-}));
-vi.mock(import("@tanstack/react-router"), async (original) => ({
-  ...(await original()),
-  useNavigate: (() => state.navigate) as never,
-  useParams: (() => state.active) as never,
-}));
-vi.mock(import("../hooks/useSettings"), async (original) => ({
-  ...(await original()),
-  useClientSettings: ((
-    select: (
-      settings: Pick<ClientSettings, "notificationMode" | "inAppNotificationsEnabled">,
-    ) => unknown,
-  ) => select({ notificationMode: state.mode, inAppNotificationsEnabled: state.inApp })) as never,
-  getClientSettings: (() => ({ notificationMode: state.mode })) as never,
-}));
-vi.mock(import("../state/environments"), async (original) => ({
-  ...(await original()),
-  useEnvironmentIds: (() => ["env-1"]) as never,
-}));
-vi.mock(import("../threadNotifications"), async (original) => ({
-  ...(await original()),
-  playNotificationSound: state.sound,
-  setNotificationBadge: vi.fn(),
-}));
-vi.mock(import("./ui/toast"), async (original) => {
-  const actual = await original();
+function shell(overrides: Partial<typeof thread> = {}, ...others: Partial<typeof thread>[]) {
   return {
-    ...actual,
-    toastManager: { ...actual.toastManager, add: state.add as never, close: state.close },
+    status: "live",
+    snapshot: Option.some({
+      threads: [overrides, ...others].map((override) =>
+        toV2ThreadShell({ ...thread, ...override }),
+      ),
+    }),
   };
-});
-
-import { ThreadNotificationCoordinator } from "./ThreadNotificationCoordinator";
-
-// The mocked modules read `state`, so every test starts by resetting all of it. The first
-// render is left to the test because some tests change state before the coordinator mounts.
+}
+// The mocked modules read `state` and the focus flags, so every test resets them before
+// starting the service.
 function setup() {
   vi.clearAllMocks();
-  Object.assign(state, {
-    mode: "off",
-    inApp: true,
-    active: { environmentId: "env-1", threadId: "other-thread" },
-    focused: true,
-    visible: "visible",
-    live: true,
-    completedAt: null,
-    archivedAt: null,
-    input: false,
-    approval: false,
-    sessionError: false,
-    turnError: false,
-    limited: false,
-    subagent: false,
-    background: [],
-    delegatedChild: null,
-  });
-  stableParent = null;
   const stack = new AsyncDisposableStack();
+  registry = AtomRegistry.make();
+  const testRegistry = registry;
+  stack.defer(() => testRegistry.dispose());
+  state.mode = "notifications";
+  state.inApp = false;
+  state.settingsListeners.clear();
+  registry.set(environmentIdsAtom, ["one", "two"]);
+  state.shells.set("one", shell());
+  state.shells.set("two", shell());
+  focused = false;
+  visibility = "visible";
+  TestNotification.permission = "granted";
+  TestNotification.sent = [];
+  stack.use(stubGlobal("Notification", TestNotification));
+  stack.use(vi.spyOn(window, "focus").mockImplementation(() => undefined));
+  stack.use(vi.spyOn(document, "hasFocus").mockImplementation(() => focused));
   stack.use(
     vi
       .spyOn(document, "visibilityState", "get")
-      .mockImplementation(() => state.visible as DocumentVisibilityState),
+      .mockImplementation(() => visibility as DocumentVisibilityState),
   );
-  stack.use(vi.spyOn(document, "hasFocus").mockImplementation(() => state.focused));
-  stack.use(
-    stubGlobal("Notification", Object.assign(state.notification, { permission: "granted" })),
-  );
-  let screen: Screen | undefined;
-  const renderCoordinator = async () => {
-    if (screen) await screen.rerender(<ThreadNotificationCoordinator />);
-    else screen = stack.use(await render(<ThreadNotificationCoordinator />));
-  };
+  const router = {
+    state: { matches: [{ params: {} }] },
+    navigate: state.navigate,
+  } as unknown as AnyRouter;
   return {
-    render: renderCoordinator,
-    complete: async () => {
-      state.completedAt = "2026-09-13T10:00:00.000Z";
-      await renderCoordinator();
+    start: () => {
+      stack.defer(startThreadNotifications(testRegistry, router));
+    },
+    setEnvironmentIds: (ids: ReadonlyArray<string>) => testRegistry.set(environmentIdsAtom, ids),
+    changeSettings: () => {
+      for (const listener of state.settingsListeners) listener();
     },
     [Symbol.asyncDispose]: () => stack.disposeAsync(),
   };
 }
 
-describe("thread notifications", () => {
-  it("holds completion alerts until commands and monitors have finished", async () => {
-    await using app = setup();
-    using _timers = fakeTimers();
-    await app.render();
-    state.background = [{ taskId: "watch", kind: "monitor" }];
-    await app.complete();
-    expect(state.add).not.toHaveBeenCalled();
-    state.background = [{ taskId: "dev", kind: "command" }];
-    await app.render();
-    expect(state.add).not.toHaveBeenCalled();
-    expect(state.notification).not.toHaveBeenCalled();
-    state.background = [];
-    await app.render();
-    expect(state.add).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
-    expect(state.add).toHaveBeenCalledTimes(1);
-    expect(state.add).toHaveBeenLastCalledWith(
-      expect.objectContaining({ title: "Thread completed" }),
-    );
-  });
+it("holds completion alerts until awaited commands and monitors have finished", async () => {
+  await using app = setup();
+  state.mode = "off";
+  state.inApp = true;
+  focused = true;
+  backgroundTasks = [];
+  app.start();
+  backgroundTasks = [{ taskId: "watch", kind: "monitor", awaited: true }];
+  state.shells.set(
+    "one",
+    shell({
+      latestTurn: { turnId: "turn", state: "completed", completedAt: "2026-09-13T10:00:00.000Z" },
+    }),
+  );
+  expect(state.toast).not.toHaveBeenCalled();
+  backgroundTasks = [{ taskId: "dev", kind: "command", awaited: true }];
+  state.shells.set(
+    "one",
+    shell({
+      latestTurn: { turnId: "turn", state: "completed", completedAt: "2026-09-13T10:00:00.000Z" },
+    }),
+  );
+  expect(state.toast).not.toHaveBeenCalled();
+  backgroundTasks = [];
+  state.shells.set(
+    "one",
+    shell({
+      latestTurn: { turnId: "turn", state: "completed", completedAt: "2026-09-13T10:00:00.000Z" },
+    }),
+  );
+  expect(state.toast).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ title: "Thread completed" }),
+  );
 });

@@ -2,7 +2,6 @@ import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 
 import type {
-  VcsDriverCapabilities,
   VcsError,
   VcsInitInput,
   VcsListRemotesResult,
@@ -75,11 +74,9 @@ export interface VcsCheckpointOps {
 export class VcsDriver extends Context.Service<
   VcsDriver,
   {
-    readonly capabilities: VcsDriverCapabilities;
     readonly execute: (
       input: Omit<VcsProcess.VcsProcessInput, "command">,
     ) => Effect.Effect<VcsProcess.VcsProcessOutput, VcsError>;
-    readonly checkpoints?: VcsCheckpointOps;
     readonly getStatus?: (input: VcsStatusInput) => Effect.Effect<VcsStatusResult, VcsError>;
     /**
      * Jujutsu only: the change `slipjay land` would submit from `cwd` (the working
@@ -93,6 +90,7 @@ export class VcsDriver extends Context.Service<
       { readonly changeId: string; readonly integrated: boolean } | null,
       VcsError
     >;
+    readonly checkpoints: VcsCheckpointOps;
     readonly detectRepository: (
       cwd: string,
     ) => Effect.Effect<VcsRepositoryIdentity | null, VcsError>;

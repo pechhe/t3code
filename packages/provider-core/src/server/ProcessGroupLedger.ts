@@ -32,11 +32,8 @@ const decodeEntry = Schema.decodeUnknownOption(ProcessGroupEntryJson);
 const encodeEntry = Schema.encodeEffect(ProcessGroupEntryJson);
 
 /**
- * Records each provider process group this server starts, under the state directory, so the
- * groups a crashed or force-killed server left running are stopped by the next server, or by
- * the desktop app once its servers have exited. A provider such as Claude Code stops the
- * commands it started when it gets SIGTERM, but leaves them running when it is killed outright.
- *
+ * Persist provider process groups so the next server or desktop can stop crash survivors.
+ * SIGKILL leaves a provider's child commands running; SIGTERM lets it clean them up.
  * Records nothing unless the server provides `layer`, so tests need no state directory.
  */
 export class ProcessGroupLedger extends Context.Reference<{
@@ -188,6 +185,7 @@ export const make = Effect.fn("ProcessGroupLedger.make")(function* (input: {
         Effect.orElseSucceed(() => undefined),
       );
     }
+    // @effect-diagnostics-next-line effectSucceedWithVoid:off - Missing process observations are undefined, not void.
     return Effect.succeed(undefined);
   };
 

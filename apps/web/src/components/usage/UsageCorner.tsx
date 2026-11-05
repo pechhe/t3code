@@ -10,7 +10,7 @@ import {
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
 import { useNavigate } from "@tanstack/react-router";
-import { Fragment, type ReactNode, useLayoutEffect, useState } from "react";
+import { Fragment, useSyncExternalStore } from "react";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { observeResize } from "../../lib/observeResize";
@@ -73,29 +73,30 @@ function windowLabel(window: LimitPoolWindow): string {
 function useGutterPlacement(
   overlay: HTMLElement | null,
 ): { readonly bottom: number; readonly top: number } | null {
-  const [placement, setPlacement] = useState<{ bottom: number; top: number } | null>(null);
-  useLayoutEffect(() => {
+  const subscribe = (notify: () => void) => {
     const stack = overlay?.querySelector<HTMLElement>("[data-chat-composer-stack]");
-    if (!overlay || !stack) return;
+    if (!overlay || !stack) return () => {};
     const canvas = overlay.closest<HTMLElement>("[data-chat-canvas]");
-    const measure = () => {
-      const lane = overlay.getBoundingClientRect();
-      const composer = stack.getBoundingClientRect();
-      const fits = lane.right - composer.right >= CARD_WIDTH_PX + GUTTER_MARGIN_PX * 2;
-      const bottom = Math.max(0, Math.round(lane.bottom - composer.bottom));
-      const top = Math.round(lane.bottom - bottom - (canvas?.getBoundingClientRect().top ?? 0));
-      setPlacement((current) =>
-        !fits
-          ? null
-          : current?.bottom === bottom && current.top === top
-            ? current
-            : { bottom, top },
-      );
-    };
-    measure();
-    return observeResize(canvas ? [overlay, stack, canvas] : [overlay, stack], measure);
-  }, [overlay]);
-  return placement;
+    return observeResize(canvas ? [overlay, stack, canvas] : [overlay, stack], notify);
+  };
+  const getSnapshot = () => {
+    const stack = overlay?.querySelector<HTMLElement>("[data-chat-composer-stack]");
+    if (!overlay || !stack) return null;
+    const canvas = overlay.closest<HTMLElement>("[data-chat-canvas]");
+    const lane = overlay.getBoundingClientRect();
+    const composer = stack.getBoundingClientRect();
+    if (lane.right - composer.right < CARD_WIDTH_PX + GUTTER_MARGIN_PX * 2) return null;
+    const bottom = Math.max(0, Math.round(lane.bottom - composer.bottom));
+    const top = Math.round(lane.bottom - bottom - (canvas?.getBoundingClientRect().top ?? 0));
+    return `${bottom}:${top}`;
+  };
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, () => null);
+  if (snapshot === null) return null;
+  const separator = snapshot.indexOf(":");
+  return {
+    bottom: Number(snapshot.slice(0, separator)),
+    top: Number(snapshot.slice(separator + 1)),
+  };
 }
 
 /**
@@ -103,14 +104,7 @@ function useGutterPlacement(
  * bar of account segments sized by plan capacity, so the filled area is what is left across
  * the pool. Hover a segment for that account.
  */
-export function UsageCorner({
-  overlay,
-  above,
-}: {
-  readonly overlay: HTMLElement | null;
-  /** A card stacked above usage in the same column, such as the side chat. */
-  readonly above?: ReactNode;
-}) {
+export function UsageCorner({ overlay }: { readonly overlay: HTMLElement | null }) {
   const placement = useGutterPlacement(overlay);
   const canvas = useChatCanvas();
   // Below the inline details card, else below the find bar when it is open.
@@ -123,7 +117,7 @@ export function UsageCorner({
   const rows = collectLimitPools(collectLimitAccounts(presentations), now).flatMap((pool) =>
     cornerWindows(pool).map((window) => ({ pool, window })),
   );
-  if (rows.length === 0 && !above) return null;
+  if (rows.length === 0) return null;
   const maxHeight = Math.max(0, placement.top - columnTop - GUTTER_MARGIN_PX);
   return (
     <div
@@ -135,10 +129,7 @@ export function UsageCorner({
         height: maxHeight,
       }}
     >
-      {above}
-      {rows.length === 0 ? null : (
-        <UsageCard rows={rows} now={now} onOpenUsage={() => void navigate({ to: "/usage" })} />
-      )}
+      <UsageCard rows={rows} now={now} onOpenUsage={() => void navigate({ to: "/usage" })} />
     </div>
   );
 }

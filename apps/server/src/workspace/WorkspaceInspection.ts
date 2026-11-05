@@ -4,7 +4,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
@@ -324,11 +324,11 @@ const GIT_ENV = {
 export const make = Effect.gen(function* () {
   const processes = yield* ProcessRunner.ProcessRunner;
   const fileSystem = yield* FileSystem.FileSystem;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
   const paths = yield* Path.Path;
   const sha = (text: string) =>
     crypto
-      .digest("SHA-256", new TextEncoder().encode(text))
+      .digest(Digest.sha256, new TextEncoder().encode(text))
       .pipe(Effect.map(Hex.encode), Effect.orDie);
 
   const run = (root: string, command: "git" | "jj", args: ReadonlyArray<string>) =>
@@ -765,7 +765,7 @@ export const make = Effect.gen(function* () {
       }
       scannedFiles += 1;
       const text = yield* openText(root, name, INSPECTION_LIMITS.searchFileBytes).pipe(
-        Effect.catch(() => Effect.succeed(null)),
+        Effect.orElseSucceed(() => null),
       );
       if (text === null) {
         startLine = 0;

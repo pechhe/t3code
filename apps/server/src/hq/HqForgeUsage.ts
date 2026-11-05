@@ -1,16 +1,11 @@
 /**
- * What a provider turn spent, recorded into Weave's Forge record under the Weave identity of the
- * thread it describes (Spec #4395). Only T3 records it: a provider turn reports its token counts
- * as ordinary orchestration facts, and the adapter that saw them hands them here.
- *
- * A thread with no Forge link records nothing. Unknown usage records nothing either, because a
- * reader must never take an unmeasured turn for a free one; a queue row is the only place a figure
- * can live, so an unknown figure has no row. What the row is attributed to is resolved when it is
- * delivered, not here: a turn can end before the session it belongs to has reached Weave.
+ * Record measured provider usage only for Forge-linked threads; unknown usage has no queue row.
+ * Resolve attribution on delivery because the turn can finish before its session reaches Weave.
+ * Only T3 records usage; adapters supply orchestration facts.
  */
 import { ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -84,7 +79,7 @@ const USAGE_REF_MAX_LENGTH = 500;
 const make = Effect.gen(function* () {
   const specs = yield* ForgeSpecOfThread.ForgeSpecOfThread;
   const records = yield* HqForgeRecords.HqForgeRecords;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
 
   const record: HqForgeUsageShape["record"] = Effect.fn("HqForgeUsage.record")(
     function* (input) {

@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
@@ -72,11 +73,14 @@ const host = (workspacePath: string, access: "read-only" | "peer-threads" | "ful
         ),
     }),
     Layer.effect(Inspection.WorkspaceInspection, Inspection.make),
-  ).pipe(Layer.provideMerge(ProcessRunner.layer), Layer.provideMerge(NodeServices.layer));
+  ).pipe(
+    Layer.provideMerge(ProcessRunner.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+  );
 
 const outer = Layer.mergeAll(
-  NodeServices.layer,
-  ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer)),
+  Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+  ProcessRunner.layer.pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 const call = <Name extends keyof typeof WorkspaceToolkit.tools & string>(

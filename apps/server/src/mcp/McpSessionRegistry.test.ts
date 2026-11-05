@@ -1,10 +1,12 @@
 import * as PreviewManager from "../preview/Manager.ts";
 import * as Stream from "effect/Stream";
 import * as PhiBrowser from "../preview/PhiBrowser.ts";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Layer from "effect/Layer";
 import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
-import * as Layer from "effect/Layer";
+
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import { HttpServer } from "effect/http";
@@ -35,7 +37,7 @@ const makeRegistry = (now: () => number, httpServer = fakeHttpServer) =>
     .pipe(
       Effect.provideService(HttpServer.HttpServer, httpServer),
       Effect.provideService(ServerEnvironment.ServerEnvironment, fakeEnvironment),
-      Effect.provide(NodeServices.layer),
+      Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     );
 
 it.effect("stores only a token hash, resolves the bearer token, and revokes by thread", () =>
@@ -485,7 +487,13 @@ it.effect.each(["cancel", "expiry", "task-end"] as const)(
         foreign.tabId,
         ordinary.tabId,
       ]);
-    }).pipe(Effect.provide(PreviewManager.layer.pipe(Layer.provideMerge(NodeServices.layer)))),
+    }).pipe(
+      Effect.provide(
+        PreviewManager.layer.pipe(
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        ),
+      ),
+    ),
 );
 
 it.effect("releases an integrated task without depending on Phi cleanup", () =>
@@ -524,5 +532,11 @@ it.effect("releases an integrated task without depending on Phi cleanup", () =>
       Stream.runDrain,
     );
     expect(calls).toEqual([]);
-  }).pipe(Effect.provide(PreviewManager.layer.pipe(Layer.provideMerge(NodeServices.layer)))),
+  }).pipe(
+    Effect.provide(
+      PreviewManager.layer.pipe(
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      ),
+    ),
+  ),
 );

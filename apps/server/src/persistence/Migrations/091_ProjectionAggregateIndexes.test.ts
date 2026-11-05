@@ -47,7 +47,7 @@ it.layer(NodeSqliteClient.layer({ filename: ":memory:" }))("projection aggregate
       yield* check();
       yield* sql
         .withTransaction(insert("rollback", "run").pipe(Effect.andThen(Effect.fail("rollback"))))
-        .pipe(Effect.catch(() => Effect.void));
+        .pipe(Effect.ignore);
       yield* check();
       yield* sql`DELETE FROM orchestration_v2_projection_turn_items`;
       yield* check();

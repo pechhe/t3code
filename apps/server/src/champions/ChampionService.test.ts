@@ -204,7 +204,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
       }),
       Layer.mock(Projects.ProjectService)({
         getById: () =>
-          Effect.succeed(Option.some({ id: projectId, workspaceRoot: "/project/root" } as Project)),
+          Effect.succeedSome({ id: projectId, workspaceRoot: "/project/root" } as Project),
       }),
       Layer.mock(Scheduler.Scheduler)({ register: () => Effect.void }),
       Layer.mock(Landings.SlipJayLandings)({

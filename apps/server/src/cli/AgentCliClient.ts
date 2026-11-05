@@ -12,7 +12,8 @@ import type {
 import { EnvironmentId, OrchestratorMcpCapabilitiesResult } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Clock from "effect/Clock";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Hex from "effect/encoding/Hex";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -146,7 +147,8 @@ const decodeResult = Effect.fn(function* (raw: unknown, token: string) {
 
 const make = Effect.gen(function* () {
   const secrets = yield* Secrets.ServerSecretStore;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
+  const secureRandom = yield* SecureRandom.SecureRandom;
   const endpointUrl = (input: string) =>
     Effect.try({
       try: () => {
@@ -167,7 +169,7 @@ const make = Effect.gen(function* () {
       catch: () => new AgentCliError({ reason: "endpoint" }),
     });
   const key = (endpoint: string) =>
-    crypto.digest("SHA-256", new TextEncoder().encode(endpoint)).pipe(
+    crypto.digest(Digest.sha256, new TextEncoder().encode(endpoint)).pipe(
       Effect.map((bytes) => `agent-client-${Hex.encode(bytes)}`),
       Effect.orDie,
     );
@@ -225,7 +227,7 @@ const make = Effect.gen(function* () {
         return yield* new AgentCliError({ reason: "environment-changed" });
       return { endpoint: credential.endpoint, environmentId, expiresAt: credential.expiresAt };
     }),
-    login: (input) =>
+    login: Effect.fn("AgentCliClient.login")((input) =>
       Effect.scoped(
         Effect.gen(function* () {
           const endpoint = yield* endpointUrl(input.endpoint);
@@ -237,7 +239,7 @@ const make = Effect.gen(function* () {
             return { endpoint, environmentId, expiresAt: existing.success.expiresAt };
           }
           if (existing.failure.reason !== "credentials-missing") return yield* existing.failure;
-          const state = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
+          const state = yield* secureRandom.uuidV4().pipe(Effect.orDie);
           const callback = yield* Deferred.make<string>();
           const server = yield* NodeHttpServer.make(NodeHttp.createServer, {
             host: "127.0.0.1",
@@ -341,6 +343,7 @@ const make = Effect.gen(function* () {
           return { endpoint, environmentId, expiresAt: credential.expiresAt };
         }),
       ),
+    ),
     logout: Effect.fn("AgentCliClient.logout")(function* (input) {
       const endpoint = yield* endpointUrl(input);
       // OAuth credentials are environment-issued. Local logout does not pretend

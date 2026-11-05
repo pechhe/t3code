@@ -12,13 +12,13 @@ import {
 } from "@t3tools/client-runtime/state/forge-work-items";
 import type { ForgeWorkItemCard, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
-import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
+import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { type ReactNode, useState } from "react";
 import { Linking, Platform, ScrollView, View } from "react-native";
 import { Screen, ScreenStack, ScreenStackHeaderConfig } from "react-native-screens";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AndroidSheetHeader } from "../../components/ui/AndroidScreenHeader";
+import { AppBar } from "../../components/ui/AppBar";
 import { AppText as Text } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
 import { ScreenContent } from "../../components/ui/ScreenContent";
@@ -136,7 +136,7 @@ function SessionThreadLink(props: {
   }
   return (
     <SelectableMarkdownText
-      markdown={`${props.role}: ${formatThreadLink(props.link.threadId, label, props.link.environmentId)} · ${props.activity}`}
+      markdown={`${props.role}: ${formatThreadLink(props.link, label)} · ${props.activity}`}
       textStyle={{
         ...styles.nativeTextStyle,
         color: theme["--color-foreground-muted"],
@@ -145,10 +145,12 @@ function SessionThreadLink(props: {
       }}
       marginBottom={0}
       onLinkPress={() =>
-        navigation.navigate("Thread", {
-          environmentId: String(props.link.environmentId),
-          threadId: String(props.link.threadId),
-        })
+        navigation.dispatch(
+          StackActions.push("Thread", {
+            environmentId: String(props.link.environmentId),
+            threadId: String(props.link.threadId),
+          }),
+        )
       }
     />
   );
@@ -385,7 +387,7 @@ export function ThreadForgeItemSheet({ route }: StaticScreenProps<ForgeItemTarge
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
       <NativeStackScreenOptions options={{ sheetCornerRadius: 28 }} />
-      <AndroidSheetHeader title={title} onBack={() => navigation.goBack()} />
+      <AppBar title={title} onBack={() => navigation.goBack()} />
       <ScreenContent insetHorizontal={layout.usesSplitView}>{content}</ScreenContent>
     </View>
   );

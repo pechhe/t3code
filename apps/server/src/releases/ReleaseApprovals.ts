@@ -1,10 +1,7 @@
 /**
- * A release approval asks the owner to approve one candidate of a repository. This service owns
- * the approval itself, in `release_approvals`: at most one is open per repository, joined by
- * every thread that asks for the same candidate, and an approval stays on record for exactly its
- * candidate. Each requesting thread shows it through a `release_approval_request` turn item,
- * which this service rewrites whenever the approval changes, and receives the owner's answer as
- * a queued message. Agents cannot answer: there is no runtime request, only the owner's RPC.
+ * At most one approval is open per repository; requesters share it only for the same candidate.
+ * Each requester gets an updated turn item and the owner's answer as a queued message.
+ * Only the owner's RPC can answer; agents receive no runtime request.
  */
 import {
   CommandId,
@@ -25,7 +22,7 @@ import {
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -119,7 +116,7 @@ const supersededMessageText = (input: {
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const lock = yield* KeyedLock.make<string>();
 
@@ -205,11 +202,8 @@ const make = Effect.gen(function* () {
   });
 
   /**
-   * Each step for each requester stands alone: a card that fails to update (a deleted thread,
-   * say) must not keep that thread from its message, nor the others from theirs. The approval
-   * row is already the record, so a later pass (see `settle`) can repeat the steps. Only the
-   * calling thread's own failure fails the call, after every other step has run, so an agent
-   * never waits on a card the owner cannot see.
+   * Settle each requester's card and message independently so one failure cannot strand others.
+   * The durable approval permits replay; only the caller's own failure fails the call.
    */
   const forEachRequester = Effect.fn("ReleaseApprovals.forEachRequester")(function* <E>(
     approvalId: string,
@@ -295,7 +289,7 @@ const make = Effect.gen(function* () {
           }
 
           const now = DateTime.formatIso(yield* DateTime.now);
-          const revision = yield* crypto.randomUUIDv4();
+          const revision = yield* crypto.uuidV4();
           // A repository has one open card, but rows stored before the key ignored case can
           // leave several: the ask keeps the one for its own candidate and replaces the rest.
           const opens = yield* findApprovals({ repository: input.repository, status: "pending" });
@@ -369,7 +363,7 @@ const make = Effect.gen(function* () {
             };
           }
 
-          const approvalId = `release-approval:${yield* crypto.randomUUIDv4()}`;
+          const approvalId = `release-approval:${yield* crypto.uuidV4()}`;
           // Replacing the open card and opening the new one commit together, so a repository
           // never ends up with a superseded card and nothing in its place.
           yield* sql.withTransaction(
@@ -421,7 +415,7 @@ const make = Effect.gen(function* () {
    * one id, so a thread that already has one never gets it twice.
    */
   const settle = Effect.fn("ReleaseApprovals.settle")(function* (approval: ApprovalRow) {
-    const revision = yield* crypto.randomUUIDv4();
+    const revision = yield* crypto.uuidV4();
     yield* forEachRequester(approval.approvalId, (row) => [recordCard(approval, row, revision)]);
     if (approval.status === "superseded") return yield* notifySuperseded(approval);
     yield* sendAnswer(approval);

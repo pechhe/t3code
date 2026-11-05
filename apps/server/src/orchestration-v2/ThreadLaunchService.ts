@@ -11,6 +11,8 @@ import {
   type ModelSelection,
   type OrchestrationV2Actor,
   type OrchestrationV2CreationSource,
+  type OrchestrationV2DelegatedFrom,
+  type OrchestrationV2LinkOrigin,
   type OrchestrationV2ProviderThreadNativeMetadata,
   type OrchestrationV2ReplacedWorkspaceOutcome,
   type OrchestrationV2WorkspaceReplacement,
@@ -58,6 +60,7 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import type * as Orchestrator from "./Orchestrator.ts";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
+import { DispatchModeLimit } from "./DispatchModeLimit.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 import * as WorkspaceAttachments from "./WorkspaceAttachments.ts";
 
@@ -122,6 +125,10 @@ export interface ThreadLaunchInput {
   };
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
+  /** The linked environment this launch is for, if one asked for it. */
+  readonly linkOrigin?: OrchestrationV2LinkOrigin;
+  /** The parent there, when that environment's agent delegated this as a task. */
+  readonly delegatedFrom?: OrchestrationV2DelegatedFrom;
 }
 
 type PreparationInput = Pick<
@@ -142,6 +149,7 @@ export interface ThreadLaunchResult {
   readonly projection: OrchestrationV2ThreadProjection;
   /** The launch's last write (the initial message, else the thread claim) was accepted before this call. */
   readonly resumed: boolean;
+  readonly sequence?: number;
 }
 
 export class ThreadLaunchError extends Schema.TaggedError<ThreadLaunchError>()(
@@ -409,6 +417,7 @@ const make = Effect.gen(function* () {
     let workspaceReplacement: OrchestrationV2WorkspaceReplacement | undefined;
     // The workspace the thread was bound to when a SlipJay checkout was chosen for it.
     let boundWorktreePath: string | null | undefined;
+    let createdBranch: string | null = null;
     let setupTerminalId: string | null = null;
     let workspaceRecorded = false;
     let runReleased = false;
@@ -591,20 +600,23 @@ const make = Effect.gen(function* () {
       } else if (input.workspaceStrategy.type === "worktree") {
         let startRef = input.workspaceStrategy.baseRef;
         let baseRefName = input.workspaceStrategy.baseRef;
-        const shouldFetch =
-          input.workspaceStrategy.startFromOrigin === true &&
-          (yield* git
-            .resolveWorktreeBaseRemote({
-              cwd: project.workspaceRoot,
-              refName: input.workspaceStrategy.baseRef,
-            })
-            .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)))) !== null;
+        const remote =
+          input.workspaceStrategy.startFromOrigin === true
+            ? yield* git
+                .resolveWorktreeBaseRemote({
+                  cwd: project.workspaceRoot,
+                  refName: input.workspaceStrategy.baseRef,
+                })
+                .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)))
+            : null;
+        const shouldFetch = remote !== null;
         yield* setupTracker.stageStatus(threadId, "fetch", shouldFetch ? "running" : "skipped");
-        if (shouldFetch) {
+        if (remote !== null) {
           const remoteBase = yield* git
             .fetchWorktreeBaseCommit({
               cwd: project.workspaceRoot,
               refName: input.workspaceStrategy.baseRef,
+              remote,
             })
             .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
           if (remoteBase !== null) {
@@ -640,6 +652,7 @@ const make = Effect.gen(function* () {
                 onWorktreeClaimed: (path) =>
                   Effect.sync(() => {
                     createdWorktreePath = path;
+                    createdBranch = branch;
                   }),
                 onCheckoutProgress: (progress) =>
                   setupTracker.stage(threadId, "checkout", { percent: progress.percent }),
@@ -650,6 +663,7 @@ const make = Effect.gen(function* () {
         worktreePath = worktree.worktree.path;
         branch = worktree.worktree.refName;
         createdWorktreePath = worktreePath;
+        createdBranch = branch;
         yield* setupTracker.update(threadId, (snapshot) => ({ ...snapshot, worktreePath, branch }));
         yield* setupTracker.stageStatus(threadId, "checkout", "done");
       }
@@ -731,12 +745,22 @@ const make = Effect.gen(function* () {
         const worktreeCwd = worktreePath;
         branchRename = yield* generateBranchNameFor(worktreeCwd, initialMessage).pipe(
           Effect.flatMap(({ branch: newBranch, exactName }) =>
-            git.renameBranch({
-              cwd: worktreeCwd,
-              oldBranch,
-              newBranch,
-              ...(exactName ? { exactName: true } : {}),
-            }),
+            git
+              .renameBranch({
+                cwd: worktreeCwd,
+                oldBranch,
+                newBranch,
+                ...(exactName ? { exactName: true } : {}),
+              })
+              .pipe(
+                // A cancel must see the renamed branch, or its cleanup deletes the old name.
+                Effect.tap((renamed) =>
+                  Effect.sync(() => {
+                    createdBranch = renamed.branch;
+                  }),
+                ),
+                Effect.uninterruptible,
+              ),
           ),
           Effect.flatMap((renamed) =>
             Effect.gen(function* () {
@@ -761,12 +785,9 @@ const make = Effect.gen(function* () {
               // Update parents first so children inherit names; reread each pass for newly updated descendants.
               const visited = new Set([threadId]);
               while (true) {
-                const snapshot = yield* threads.getShellSnapshot();
+                const snapshot = yield* threads.getShellSnapshot({ worktreePath: worktreeCwd });
                 const sharing = [...snapshot.threads, ...snapshot.archivedThreads].filter(
-                  (thread) =>
-                    !visited.has(thread.id) &&
-                    thread.worktreePath === worktreeCwd &&
-                    thread.branch === oldBranch,
+                  (thread) => !visited.has(thread.id) && thread.branch === oldBranch,
                 );
                 if (sharing.length === 0) break;
                 for (const thread of sharing) {
@@ -929,6 +950,7 @@ const make = Effect.gen(function* () {
           ) {
             if (branchRename !== null) yield* Fiber.interrupt(branchRename);
             const removedPath = createdWorktreePath;
+            const removedBranch = createdBranch;
             // Forget worktrees only after removal succeeds; failed removals must not reuse partially written checkouts.
             const removal: Effect.Effect<
               void,
@@ -937,6 +959,17 @@ const make = Effect.gen(function* () {
               ? workspaces.release({ projectRoot: project.workspaceRoot, path: removedPath })
               : git.removeWorktree({ cwd: project.workspaceRoot, path: removedPath, force: true });
             yield* removal.pipe(
+              Effect.andThen(
+                createdBySlipJay || removedBranch === null
+                  ? Effect.void
+                  : git
+                      .deleteLocalBranch({
+                        cwd: project.workspaceRoot,
+                        refName: removedBranch,
+                        force: true,
+                      })
+                      .pipe(Effect.ignoreCause({ log: true })),
+              ),
               Effect.andThen(
                 threads
                   .dispatch({
@@ -1240,6 +1273,10 @@ const make = Effect.gen(function* () {
                 ...(input.importedNativeThread === undefined
                   ? {}
                   : { importedNativeThread: input.importedNativeThread }),
+                ...(input.linkOrigin === undefined ? {} : { linkOrigin: input.linkOrigin }),
+                ...(input.delegatedFrom === undefined
+                  ? {}
+                  : { delegatedFrom: input.delegatedFrom }),
                 createdBy: input.createdBy,
                 creationSource: input.creationSource,
               });
@@ -1297,6 +1334,7 @@ const make = Effect.gen(function* () {
                 .pipe(Effect.ignore);
 
         let runId: RunId | null = null;
+        let messageSequence: number | undefined;
         let messageWasAlreadyAccepted = false;
         if (input.initialMessage !== undefined) {
           const messageCommandId = CommandId.make(`${input.commandId}:initial-message`);
@@ -1330,10 +1368,21 @@ const make = Effect.gen(function* () {
             })
             .pipe(
               Effect.tapError(() => unwatchLaunched),
+              // An agent's launch can land on a thread that a replay, or a concurrent
+              // launch with the same key, created with broader modes. The orchestrator
+              // refuses the message under the thread's lock; the user's own clients
+              // launch into their own drafts, whatever modes those hold.
+              input.createdBy === "agent"
+                ? Effect.provideService(DispatchModeLimit, {
+                    runtimeMode: input.runtimeMode,
+                    interactionMode: input.interactionMode,
+                  })
+                : (effect) => effect,
               Effect.mapError(mapError(input, "dispatch-message", threadId)),
             );
           // A concurrent retry can read no receipt and still replay the dispatch.
           messageWasAlreadyAccepted ||= dispatched.replayed === true;
+          messageSequence = dispatched.sequence;
           const runCreated = dispatched.storedEvents.find(
             (stored) => stored.event.type === "run.created",
           );
@@ -1399,6 +1448,7 @@ const make = Effect.gen(function* () {
             input.initialMessage === undefined
               ? Option.isSome(launchReceipt) || claimed.replayed === true
               : messageWasAlreadyAccepted,
+          ...(messageSequence === undefined ? {} : { sequence: messageSequence }),
         };
       });
     },
@@ -1408,12 +1458,14 @@ const make = Effect.gen(function* () {
     "ThreadLaunchService.prepareRun",
   )(function* (input) {
     const scheduled = yield* Effect.gen(function* () {
-      const projection = yield* threads.getThreadProjection(input.threadId);
-      const run = projection.runs.find((candidate) => candidate.id === input.runId);
+      const { thread, runs } = yield* threads.getThreadRecords(input.threadId, ["runs"], {
+        runIds: [input.runId],
+      });
+      const run = runs.find((candidate) => candidate.id === input.runId);
       const workspacePreparation = run?.workspacePreparation;
       if (run?.status !== "preparing" || workspacePreparation === undefined) return;
       if (!(yield* reservePreparation(input.commandId))) return;
-      yield* scheduleRunPreparation(input, projection, run, workspacePreparation).pipe(
+      yield* scheduleRunPreparation(input, thread, run, workspacePreparation).pipe(
         Effect.onError(() => releasePreparation(input.commandId)),
       );
     }).pipe(Effect.exit);
@@ -1437,15 +1489,18 @@ const make = Effect.gen(function* () {
 
   const scheduleRunPreparation = Effect.fn("ThreadLaunchService.scheduleRunPreparation")(function* (
     input: ThreadLaunchPreparationInput,
-    projection: OrchestrationV2ThreadProjection,
+    thread: OrchestrationV2ThreadProjection["thread"],
     run: OrchestrationV2ThreadProjection["runs"][number],
     workspacePreparation: ThreadLaunchWorkspaceStrategy,
   ) {
-    const message = projection.messages.find((candidate) => candidate.id === run.userMessageId);
+    const { messages } = yield* threads.getThreadRecords(input.threadId, ["messages"], {
+      messageIds: [run.userMessageId],
+    });
+    const message = messages.find((candidate) => candidate.id === run.userMessageId);
     // A worktree the failed attempt already created is reused, not created again.
     // One SlipJay has released since is gone, so a fresh one is prepared instead.
-    const boundWorktreePath = projection.thread.worktreePath;
-    const project = Option.getOrUndefined(yield* projects.getById(projection.thread.projectId));
+    const boundWorktreePath = thread.worktreePath;
+    const project = Option.getOrUndefined(yield* projects.getById(thread.projectId));
     const reuse =
       workspacePreparation.type === "worktree" &&
       boundWorktreePath !== null &&
@@ -1455,7 +1510,7 @@ const make = Effect.gen(function* () {
             strategy: {
               type: "existing_worktree" as const,
               worktreePath: boundWorktreePath,
-              ...(projection.thread.branch === null ? {} : { branch: projection.thread.branch }),
+              ...(thread.branch === null ? {} : { branch: thread.branch }),
             },
             reusedWorktree: { baseRef: workspacePreparation.baseRef },
           }
@@ -1463,10 +1518,8 @@ const make = Effect.gen(function* () {
     return yield* schedulePreparation(
       {
         commandId: input.commandId,
-        projectId: projection.thread.projectId,
-        ...(projection.thread.agentTask === undefined
-          ? {}
-          : { agentTask: projection.thread.agentTask }),
+        projectId: thread.projectId,
+        ...(thread.agentTask === undefined ? {} : { agentTask: thread.agentTask }),
         workspaceStrategy: reuse?.strategy ?? workspacePreparation,
         ...(reuse === null ? {} : { reusedWorktree: reuse.reusedWorktree }),
         ...(message === undefined
@@ -1673,10 +1726,11 @@ export const layerReleasedWorkspacePreparation = Layer.effect(
     // The turn also learns which attached workspaces SlipJay has released, for example after
     // the agent's own `slipjay land`.
     return {
-      prepare: (input) =>
+      prepare: Effect.fn("ReleasedWorkspacePreparation.prepare")((input) =>
         attachments
           .markReleased(input.threadId)
           .pipe(Effect.andThen(launch.prepareReleasedWorkspace(input))),
+      ),
     };
   }),
 );

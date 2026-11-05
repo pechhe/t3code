@@ -1,3 +1,6 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as Layer from "effect/Layer";
+import * as ContextPortDiscovery from "../../preview/PortScanner.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import { CodexSettings, ProviderSessionId, ThreadId } from "@t3tools/contracts";
@@ -14,7 +17,9 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
 
-describe.skipIf(process.platform === "win32")("Codex process groups", () => {
+const decodeCodexSettings = Schema.decodeEffect(CodexSettings);
+
+describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("Codex process groups", () => {
   it.effect("keeps app-server stdio working in a recorded group and forgets it on exit", () =>
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -65,7 +70,7 @@ describe.skipIf(process.platform === "win32")("Codex process groups", () => {
               interactionMode: "default",
               cwd: null,
             }),
-            settings: yield* Schema.decodeEffect(CodexSettings)({}),
+            settings: yield* decodeCodexSettings({}),
             environment: {},
           });
           const initialized = yield* client.request("initialize", {
@@ -82,6 +87,11 @@ describe.skipIf(process.platform === "win32")("Codex process groups", () => {
       );
       yield* Deferred.await(forgotten);
       assert.deepEqual(yield* fs.readDirectory(path.join(stateDir, "provider-processes")), []);
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        NodeServices.layer.pipe(Layer.provideMerge(Layer.mergeAll(ContextPortDiscovery.layerTest))),
+      ),
+    ),
   );
 });

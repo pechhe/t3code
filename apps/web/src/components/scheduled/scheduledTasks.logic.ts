@@ -275,12 +275,13 @@ export function planGroupSave(input: {
   return { upserts, deletes, skipped };
 }
 
-export type ScheduleKind = "interval" | "daily" | "weekdays" | "days" | "webhook";
+export type ScheduleKind = "once" | "interval" | "daily" | "weekdays" | "days" | "webhook";
 
 const WEEKDAYS = [1, 2, 3, 4, 5] as const;
 
 export interface ScheduleDraft {
   readonly kind: ScheduleKind;
+  readonly runAt?: string;
   readonly intervalMinutes: string;
   readonly timeOfDay: string;
   /** JS weekdays (0 = Sunday) for "days". */
@@ -290,6 +291,7 @@ export interface ScheduleDraft {
 export function scheduleDraftOf(schedule: ScheduledTask["schedule"]): ScheduleDraft {
   const base = { intervalMinutes: "60", timeOfDay: "09:00", weekdays: [...WEEKDAYS] };
   if (schedule.type === "webhook") return { ...base, kind: "webhook" };
+  if (schedule.type === "once") return { ...base, kind: "once", runAt: schedule.runAt };
   if (schedule.type === "interval") {
     return {
       ...base,
@@ -319,6 +321,10 @@ export function scheduleDraftOf(schedule: ScheduledTask["schedule"]): ScheduleDr
 export function timedScheduleOf(
   draft: ScheduleDraft,
 ): Exclude<ScheduledTaskUpsertSchedule, { type: "webhook" }> | null {
+  if (draft.kind === "once") {
+    const runAt = new Date(draft.runAt ?? "");
+    return Number.isNaN(runAt.getTime()) ? null : { type: "once", runAt: runAt.toISOString() };
+  }
   if (draft.kind === "interval") {
     const minutes = Number(draft.intervalMinutes);
     if (!Number.isInteger(minutes) || minutes < 1) return null;

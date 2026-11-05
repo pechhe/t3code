@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   SourceControlProviderKind,
   type SourceControlDiscoveryResult,
@@ -16,6 +17,8 @@ import {
   fakeDiscovery,
   fakeSourceControlProvider,
 } from "@t3tools/source-control-testing/fakeSourceControlDriver";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
 
 import * as ServerConfig from "../config.ts";
@@ -66,7 +69,7 @@ const cliDiscovery = (name: string) => ({
 });
 
 /** A discovery layer whose probes and hosting integrations run commands through `processRun`. */
-const layerDiscoveryWith = (processRun: DiscoveryRun) =>
+const layerDiscoveryWith = (processRun: DiscoveryRun = run) =>
   Layer.effect(
     SourceControlProviderRegistry.SourceControlProviderRegistry,
     SourceControlProviderRegistry.makeWithProviders(
@@ -90,10 +93,8 @@ const layerDiscoveryWith = (processRun: DiscoveryRun) =>
     Layer.provideMerge(
       ServerConfig.layerTest(process.cwd(), { prefix: "t3-source-control-discovery-" }),
     ),
-    Layer.provideMerge(NodeServices.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
-
-const layerDiscovery = layerDiscoveryWith(run);
 
 it.effect("reports every hosting integration in registry order with its sign-in", () =>
   Effect.gen(function* () {
@@ -139,7 +140,48 @@ it.effect("reports every hosting integration in registry order with its sign-in"
         ["jj", "available"],
       ],
     );
-  }).pipe(Effect.provide(SourceControlDiscovery.layer.pipe(Layer.provide(layerDiscovery)))),
+  }).pipe(Effect.provide(SourceControlDiscovery.layer.pipe(Layer.provide(layerDiscoveryWith())))),
+);
+
+it.effect.each(["darwin", "linux"] as const)(
+  "names incompatible executables only on macOS (%s)",
+  (platform) => {
+    const runProcess: typeof run = (input) =>
+      Effect.fail(
+        new VcsProcessSpawnError({
+          operation: input.operation,
+          command: input.command,
+          cwd: input.cwd,
+          cause:
+            input.command === "missing-cli"
+              ? new Error("not found")
+              : Object.assign(new Error("spawn Unknown system error -86"), { errno: -86 }),
+        }),
+      );
+    return Effect.gen(function* () {
+      const discovery = yield* SourceControlDiscovery.SourceControlDiscovery;
+      const result = yield* discovery.discover;
+      for (const item of [...result.versionControlSystems, ...result.sourceControlProviders]) {
+        if (item.kind === kind("gamma")) continue;
+        assert.strictEqual(item.status, "missing");
+        if (platform === "darwin" && item.executable !== "missing-cli") {
+          assert.include(
+            item.installHint,
+            `\`/usr/local/bin/${item.executable}\` is built for another CPU architecture, so this arm64 machine cannot run it. Remove or replace it.`,
+          );
+        } else {
+          assert.notInclude(item.installHint, "CPU architecture");
+        }
+      }
+    }).pipe(
+      Effect.provide(
+        SourceControlDiscovery.layer.pipe(Layer.provide(layerDiscoveryWith(runProcess))),
+      ),
+      Effect.provideService(SpawnExecutableResolution, (command) => `/usr/local/bin/${command}`),
+      Effect.provideService(HostProcess.Platform, platform),
+      Effect.provideService(HostProcess.Architecture, "arm64"),
+    );
+  },
 );
 
 // SlipJay lands changes on top of Jujutsu, so discovery notes it on the jj row instead of listing
@@ -179,7 +221,7 @@ const runWithFailingSlipjay: DiscoveryRun = (input) =>
       )
     : runInstalled({ git: "git version 2.51.0", jj: "jj 0.44.0" })(input);
 
-const discoverWith = (processRun: DiscoveryRun) =>
+const discoverWith = (processRun: DiscoveryRun = run) =>
   Effect.gen(function* () {
     const discovery = yield* SourceControlDiscovery.SourceControlDiscovery;
     return yield* discovery.discover;

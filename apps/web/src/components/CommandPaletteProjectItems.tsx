@@ -5,6 +5,7 @@ import type { Project } from "../types";
 import {
   buildCommandPaletteProjectMetadata,
   buildProjectActionItems,
+  type CommandPaletteItemPin,
   type CommandPaletteProject,
   ITEM_ICON_CLASS,
 } from "./CommandPalette.logic";
@@ -29,6 +30,7 @@ interface ProjectItemsInput {
   readonly projectGroupByTargetKey: ReadonlyMap<string, SidebarProjectSnapshot>;
   readonly locationByEnvironmentId: ReadonlyMap<EnvironmentId, CommandPaletteProjectLocation>;
   readonly runProject: (project: CommandPaletteProject) => Promise<void>;
+  readonly pin?: (project: CommandPaletteProject) => CommandPaletteItemPin | null;
 }
 
 export function projectFaviconIcon(project: Project) {
@@ -66,6 +68,7 @@ export function buildProjectSearchItems(input: ProjectItemsInput) {
     },
     icon: projectFaviconIcon,
     runProject: input.runProject,
+    ...(input.pin ? { pin: input.pin } : {}),
   });
 }
 
@@ -90,4 +93,29 @@ function ProjectLocationDescription(props: {
       <span className="truncate">{props.workspaceRoot}</span>
     </span>
   );
+}
+
+/** Projects as targets of the "New thread in..." submenu. */
+export function buildNewThreadInProjectItems(input: ProjectItemsInput) {
+  return buildProjectActionItems({
+    projects: input.projects,
+    valuePrefix: "new-thread-in",
+    searchTerms: (project) => {
+      const group = input.projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
+      const location = input.locationByEnvironmentId.get(project.environmentId);
+      return [
+        ...(group?.memberProjects.flatMap((member) => [member.title, member.workspaceRoot]) ?? []),
+        ...(location ? [location.label] : []),
+      ];
+    },
+    renderDescription: (project) => (
+      <ProjectLocationDescription
+        location={input.locationByEnvironmentId.get(project.environmentId)}
+        workspaceRoot={project.workspaceRoot}
+      />
+    ),
+    icon: projectFaviconIcon,
+    runProject: input.runProject,
+    ...(input.pin ? { pin: input.pin } : {}),
+  });
 }

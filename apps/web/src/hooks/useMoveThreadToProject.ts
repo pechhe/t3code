@@ -5,7 +5,7 @@ import type { ProjectId } from "@t3tools/contracts";
 import { threadEnvironment } from "../state/threads";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
 import { showThreadUndoNotice } from "./showThreadUndoNotice";
-import * as ThreadUndo from "./threadUndo";
+import * as ThreadUndo from "@t3tools/client-runtime/state/thread-undo";
 
 /**
  * Moves a No project chat into a project in place: the chat keeps its id and history and

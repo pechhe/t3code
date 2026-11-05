@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -118,7 +119,12 @@ function makeRegistry(input: {
         kind: provider.kind,
         label: provider.kind,
         installHint: "unused",
-        probeAuth: Effect.die("unused"),
+        probeAuth: Effect.succeed({
+          status: "unknown",
+          account: Option.none(),
+          host: Option.none(),
+          detail: Option.none(),
+        }),
       },
     })),
   ).pipe(
@@ -151,7 +157,7 @@ function makeRegistry(input: {
           : ServerSettings.ServerSettingsService.layerTest(),
         ServerConfig.layerTest(process.cwd(), {
           prefix: "t3-source-control-registry-test-",
-        }).pipe(Layer.provide(NodeServices.layer)),
+        }).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
       ),
     ),
   );
@@ -192,6 +198,24 @@ it.effect("leaves a remote no integration claims unknown, with its server's addr
     assert.strictEqual(handle.provider.kind, kind("unknown"));
     assert.strictEqual(handle.context?.provider.baseUrl, "https://code.example.test");
   }),
+);
+
+it.effect.each([
+  ["github.com:team/project.git", "github"],
+  ["gitlab.com:team/project.git", "gitlab"],
+  ["bitbucket.org:team/project.git", "bitbucket"],
+  ["code.example.test:team/project.git", "unknown"],
+] as const)(
+  "reads the host of an SSH remote that leaves its user to ssh config: %s",
+  ([url, expected]) =>
+    Effect.gen(function* () {
+      const registry = yield* makeRegistry({ remotes: [{ name: "origin", url }] });
+
+      const handle = yield* registry.resolveHandle({ cwd: "/repo" });
+
+      assert.strictEqual(handle.provider.kind, kind(expected));
+      assert.strictEqual(handle.context?.remoteUrl, url);
+    }),
 );
 
 it.effect("refines the caller-selected remote instead of choosing another configured remote", () =>
@@ -438,5 +462,30 @@ it.effect("asks again once Settings change", () =>
     yield* PubSub.publish(changes, DEFAULT_SERVER_SETTINGS);
     yield* Deferred.await(handled);
     assert.strictEqual((yield* resolveUnknown(registry, "c")).provider.kind, "github");
+  }),
+);
+
+it.effect("answers discovery without waiting on a hosting API that stalls", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry({
+      remotes: [],
+      discovery: [
+        claimingCli("gitlab"),
+        {
+          type: "api",
+          kind: kind("bitbucket"),
+          label: "Bitbucket",
+          installHint: "unused",
+          probeAuth: Effect.never,
+        },
+      ],
+    });
+    const discovering = yield* registry.discover.pipe(Effect.forkChild);
+    yield* TestClock.adjust("3 seconds");
+    const items = yield* Fiber.join(discovering);
+    const bitbucket = items.find((item) => item.kind === "bitbucket");
+    assert.strictEqual(bitbucket?.status, "available");
+    assert.strictEqual(bitbucket?.auth.status, "unknown");
+    assert.strictEqual(items.find((item) => item.kind === "gitlab")?.status, "available");
   }),
 );

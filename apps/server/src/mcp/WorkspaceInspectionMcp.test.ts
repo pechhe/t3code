@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
@@ -87,7 +88,7 @@ const fingerprint = (root: string) =>
 
 const layerFor = (workspacePath: string) =>
   McpHttpServer.layerWorkspaceInspectionToolkit.pipe(
-    Layer.provideMerge(McpServer.McpServer.layer),
+    Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ExternalWork.ExternalAgentWorkService)({
@@ -115,12 +116,12 @@ const layerFor = (workspacePath: string) =>
         ProcessRunner.layer,
       ),
     ),
-    Layer.provide(NodeServices.layer),
+    Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
 
 const outer = Layer.mergeAll(
-  NodeServices.layer,
-  ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer)),
+  Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+  ProcessRunner.layer.pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 const callAs = (access: "read-only" | "peer-threads", name: string, args: object) =>

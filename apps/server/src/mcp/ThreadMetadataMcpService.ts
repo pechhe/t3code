@@ -9,7 +9,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -17,7 +17,7 @@ import * as Layer from "effect/Layer";
 import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
-import { threadNotFound } from "./OrchestratorMcpService.ts";
+import { threadNotFound } from "./threadAccess.ts";
 
 export class ThreadMetadataMcpService extends Context.Service<
   ThreadMetadataMcpService,
@@ -35,14 +35,6 @@ function failure(code: OrchestratorMcpFailure["code"], message: string): Orchest
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function threadLookupFailure(
-  error: ThreadManagementService.ThreadManagementError,
-): OrchestratorMcpFailure {
-  return error._tag === "ThreadManagementThreadNotFoundError"
-    ? failure("thread_not_found", error.message)
-    : failure("orchestration_error", error.message);
 }
 
 function stablePart(value: string): string {
@@ -157,7 +149,7 @@ function resultFromThread(input: {
 }
 
 const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const forgeWorkItems = yield* ForgeWorkItems.ForgeWorkItems;
 
@@ -192,13 +184,8 @@ const make = Effect.gen(function* () {
     if (shell === null || shell.deletedAt !== null) {
       return yield* threadNotFound(threadManagement, threadId, `Thread ${threadId} was not found.`);
     }
-    const target = yield* threadManagement
-      .getProjectThreadRecords({ projectId: shell.projectId, threadId }, [])
-      .pipe(Effect.mapError(threadLookupFailure));
     const requestKey =
-      input.clientRequestId === undefined
-        ? yield* crypto.randomUUIDv4().pipe(Effect.orDie)
-        : input.clientRequestId;
+      input.clientRequestId === undefined ? yield* random.uuidV4() : input.clientRequestId;
     const updateCommandId = commandId({
       scope,
       threadId,
@@ -231,7 +218,7 @@ const make = Effect.gen(function* () {
               metadataCommand({
                 commandId: updateCommandId,
                 threadId,
-                projectId: target.thread.projectId,
+                projectId: shell.projectId,
                 update: { ...input, action: input.action },
               }),
             )
@@ -273,5 +260,7 @@ const make = Effect.gen(function* () {
 export const layer: Layer.Layer<
   ThreadMetadataMcpService,
   never,
-  Crypto.Crypto | ThreadManagementService.ThreadManagementService | ForgeWorkItems.ForgeWorkItems
+  | SecureRandom.SecureRandom
+  | ThreadManagementService.ThreadManagementService
+  | ForgeWorkItems.ForgeWorkItems
 > = Layer.effect(ThreadMetadataMcpService, make);

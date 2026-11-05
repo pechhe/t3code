@@ -9,6 +9,7 @@ import { HttpClient } from "effect/http";
 import { ChildProcessSpawner } from "effect/process";
 
 import * as DesktopObservability from "../app/DesktopObservability.ts";
+import * as DesktopState from "../app/DesktopState.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopTelemetryPublisher from "../telemetry/DesktopTelemetryPublisher.ts";
 import * as DesktopBrowserHost from "../preview/DesktopBrowserHost.ts";
@@ -62,6 +63,7 @@ function layerPool(labelRef: Ref.Ref<string>): Layer.Layer<DesktopBackendPool.De
           currentBootstrapToken: Effect.die("unexpected bootstrap token read"),
         } satisfies DesktopBackendConfiguration.DesktopBackendConfiguration["Service"]),
         DesktopAppSettings.layerTest(),
+        DesktopState.layer,
         DesktopWslEnvironment.layerTest(),
         ElectronDialog.layer,
         ElectronApp.layer,
@@ -81,7 +83,7 @@ function layerPool(labelRef: Ref.Ref<string>): Layer.Layer<DesktopBackendPool.De
           prepareSnapShotOverlay: Effect.void,
           closeSnapShotOverlay: Effect.void,
           hasSnapShotOverlay: Effect.succeed(false),
-          placeSnapShotOverlay: Effect.succeed(Option.none()),
+          placeSnapShotOverlay: Effect.succeedNone,
           showSnapShotOverlay: Effect.succeed(false),
           hideSnapShotOverlay: Effect.void,
           toggleSnapShotOverlay: Effect.void,
@@ -90,7 +92,7 @@ function layerPool(labelRef: Ref.Ref<string>): Layer.Layer<DesktopBackendPool.De
           snapShotOverlayInsets: Effect.succeed({ composer: 0, workArea: 0 }),
           handOffSnapShotDraft: () => Effect.void,
           prepareSnapShotDraftHandoff: () => Effect.void,
-          snapShotOverlayFor: () => Effect.succeed(Option.none()),
+          snapShotOverlayFor: () => Effect.succeedNone,
           openThreadInMain: () => Effect.void,
           zoomMain: () => Effect.die("unexpected zoom"),
           runMainContentsCommand: () => Effect.die("unexpected main contents command"),

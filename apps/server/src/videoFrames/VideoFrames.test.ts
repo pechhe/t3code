@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { type ChatAttachment, PROVIDER_SEND_TURN_MAX_TOTAL_IMAGE_BYTES } from "@t3tools/contracts";
@@ -83,7 +84,7 @@ function harness(
   const layer = VideoFrames.layer.pipe(
     Layer.provide(runner),
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "video-frames-test-" })),
-    Layer.provideMerge(NodeServices.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   );
   return { calls, layer };
 }
@@ -375,7 +376,7 @@ it.effect("extracts real JPEGs from a generated fixture when ffmpeg is installed
       VideoFrames.layer.pipe(
         Layer.provideMerge(ProcessRunner.layer),
         Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "video-frames-real-" })),
-        Layer.provideMerge(NodeServices.layer),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       ),
     ),
   ),
@@ -422,7 +423,7 @@ it.effect("finds a 200 ms toast and a one-frame flicker in a real still recordin
         Layer.provideMerge(
           ServerConfig.layerTest(process.cwd(), { prefix: "video-frames-toast-" }),
         ),
-        Layer.provideMerge(NodeServices.layer),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       ),
     ),
   ),

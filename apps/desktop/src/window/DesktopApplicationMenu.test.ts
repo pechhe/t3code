@@ -2,7 +2,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 
 import type * as Electron from "electron";
@@ -90,7 +89,7 @@ const layerDesktopWindow = (selectedAction: Deferred.Deferred<string>) =>
     prepareSnapShotOverlay: Effect.void,
     closeSnapShotOverlay: Effect.void,
     hasSnapShotOverlay: Effect.succeed(false),
-    placeSnapShotOverlay: Effect.succeed(Option.none()),
+    placeSnapShotOverlay: Effect.succeedNone,
     showSnapShotOverlay: Effect.succeed(false),
     hideSnapShotOverlay: Effect.void,
     toggleSnapShotOverlay: Effect.void,
@@ -99,7 +98,7 @@ const layerDesktopWindow = (selectedAction: Deferred.Deferred<string>) =>
     snapShotOverlayInsets: Effect.succeed({ composer: 0, workArea: 0 }),
     handOffSnapShotDraft: () => Effect.void,
     prepareSnapShotDraftHandoff: () => Effect.void,
-    snapShotOverlayFor: () => Effect.succeed(Option.none()),
+    snapShotOverlayFor: () => Effect.succeedNone,
     openThreadInMain: () => Effect.void,
     zoomMain: (direction) =>
       Deferred.succeed(selectedAction, `zoom-${direction}`).pipe(Effect.asVoid),
@@ -211,6 +210,41 @@ describe("DesktopApplicationMenu", () => {
 
       zoomIn.click({} as Electron.MenuItem, {} as Electron.BrowserWindow, {} as KeyboardEvent);
       assert.equal(yield* Deferred.await(selectedAction), "zoom-in");
+    }),
+  );
+
+  it.effect("never binds Cmd/Ctrl+W to closing the window", () =>
+    Effect.gen(function* () {
+      for (const platform of ["darwin", "linux", "win32"] as const) {
+        const applicationMenuTemplate =
+          yield* Deferred.make<readonly Electron.MenuItemConstructorOptions[]>();
+        yield* configureMenu(yield* Deferred.make<string>(), applicationMenuTemplate, {
+          platform,
+        });
+
+        const items: Electron.MenuItemConstructorOptions[] = [];
+        const collect = (template: readonly Electron.MenuItemConstructorOptions[]) => {
+          for (const item of template) {
+            items.push(item);
+            if (Array.isArray(item.submenu)) collect(item.submenu);
+          }
+        };
+        collect(yield* Deferred.await(applicationMenuTemplate));
+
+        assert.isUndefined(
+          items.find((item) => item.role === "close"),
+          platform,
+        );
+        // Electron's default windowMenu submenu includes a close role.
+        assert.isUndefined(
+          items.find((item) => item.role === "windowMenu" && item.submenu === undefined),
+          platform,
+        );
+        assert.isUndefined(
+          items.find((item) => item.accelerator?.toLowerCase().endsWith("+w")),
+          platform,
+        );
+      }
     }),
   );
 

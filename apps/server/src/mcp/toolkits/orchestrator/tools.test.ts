@@ -1,5 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "@t3tools/provider-core/server/orchestrationInstructions";
+import * as Exit from "effect/Exit";
+import * as Schema from "effect/Schema";
 import { Tool } from "effect/ai";
 
 import { OrchestratorToolkit } from "./tools.ts";
@@ -93,4 +95,15 @@ it("states the managed-child continuation rule across the instructions and tool 
   );
   expect(forbidden, "the review round forbids it").toMatch(/\b(?:Do not|Never)\b/);
   sentenceStating("t3_thread_send", threadSend, "fresh task", "delegate_task", FOLLOWUP);
+});
+
+it("refuses a t3_thread_update whose fields do not fit its action", () => {
+  const decode = Schema.decodeUnknownExit(
+    OrchestratorToolkit.tools.t3_thread_update.parametersSchema,
+  );
+  expect(Exit.isFailure(decode({ action: "rename" }))).toBe(true);
+  expect(Exit.isFailure(decode({ action: "regenerate_title", title: "New" }))).toBe(true);
+  expect(Exit.isSuccess(decode({ action: "rename", title: "New", environmentId: undefined }))).toBe(
+    true,
+  );
 });

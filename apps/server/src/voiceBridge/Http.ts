@@ -27,6 +27,8 @@ const ChatRequest = Schema.Struct({
   stream: Schema.optional(Schema.Boolean),
 });
 
+const decodeChatRequest = Schema.decodeUnknownEffect(ChatRequest);
+
 const openAiError = (message: string, type: string) => ({ error: { message, type } });
 
 const completionId = (now: number) => `chatcmpl-${now.toString(36)}`;
@@ -36,29 +38,21 @@ export type BridgeRoutes = {
 };
 
 /**
- * The OpenAI-compatible surface FluidVoice talks to as a provider: a model list,
- * a chat completion (streamed or not), and a health answer that also says
- * whether this bridge is still signed in to T3.
- *
- * A turn is dispatched before the response starts, so a refusal to start it is an
- * error status the provider reports, not an assistant message that looks like an
- * answer. Only the answer itself streams after that.
+ * Dispatch before starting the OpenAI-compatible response so refusals have error status.
+ * Only the accepted turn's answer streams; health also reports the T3 sign-in state.
  */
 export const routes = ({ deps }: BridgeRoutes) =>
   HttpRouter.use((router) =>
     Effect.gen(function* () {
       const health = Effect.fnUntraced(function* () {
         const now = yield* Clock.currentTimeMillis;
-        const capabilities = yield* deps
-          .port
-          .capabilities()
-          .pipe(
-            Effect.map((value) => ({
-              paired: true,
-              models: modelsFromCapabilities(value, now).length,
-            })),
-            Effect.catch(() => Effect.succeed({ paired: false, models: 0 })),
-          );
+        const capabilities = yield* deps.port.capabilities().pipe(
+          Effect.map((value) => ({
+            paired: true,
+            models: modelsFromCapabilities(value, now).length,
+          })),
+          Effect.orElseSucceed(() => ({ paired: false, models: 0 })),
+        );
         return yield* HttpServerResponse.json({ status: "ok", ...capabilities });
       });
 
@@ -78,7 +72,7 @@ export const routes = ({ deps }: BridgeRoutes) =>
             openAiError("The request body was not JSON.", "invalid_request_error"),
           ),
           Effect.flatMap((value) =>
-            Schema.decodeUnknownEffect(ChatRequest)(value).pipe(
+            decodeChatRequest(value).pipe(
               Effect.mapError(() =>
                 openAiError("The request needs a model and messages.", "invalid_request_error"),
               ),
@@ -138,15 +132,15 @@ export const routes = ({ deps }: BridgeRoutes) =>
                 Effect.ensuring(offer(SSE_DONE)),
               ),
             );
-            return Stream.fromQueue(events).pipe(
-              Stream.takeUntil((event) => event === SSE_DONE),
-            );
+            return Stream.fromQueue(events).pipe(Stream.takeUntil((event) => event === SSE_DONE));
           }),
         );
 
         const head = [
           sseEvent(roleChunk(id, created, body.model)),
-          ...(begun.preface === "" ? [] : [sseEvent(textChunk(id, created, body.model, begun.preface))]),
+          ...(begun.preface === ""
+            ? []
+            : [sseEvent(textChunk(id, created, body.model, begun.preface))]),
         ];
         return HttpServerResponse.stream(
           Stream.concat(Stream.fromIterable(head), deltas).pipe(Stream.encodeText),

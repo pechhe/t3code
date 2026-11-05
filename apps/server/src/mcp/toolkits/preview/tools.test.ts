@@ -4,6 +4,10 @@ import { Tool } from "effect/ai";
 
 import { PreviewToolkit } from "./tools.ts";
 
+const encodeInteractSuccess = Schema.encodeSync(
+  PreviewToolkit.tools.preview_interact.successSchema,
+);
+
 const schemaHasMultipleAllOfDescriptions = (schema: unknown): boolean => {
   if (!schema || typeof schema !== "object") return false;
   const record = schema as Record<string, unknown>;
@@ -39,14 +43,26 @@ it("exports provider-compatible object schemas", () => {
 });
 
 it("keeps a select result when preview_interact encodes it", () => {
-  const tool = PreviewToolkit.tools.preview_interact;
-  const encoded = Schema.encodeSync(tool.successSchema)({ selected: ["b", "c"] });
+  const encoded = encodeInteractSuccess({ selected: ["b", "c"] });
   expect(encoded).toEqual({ selected: ["b", "c"] });
 });
 
+it("preview_open accepts a target while preserving open input constraints", () => {
+  const decode = Schema.decodeUnknownSync(PreviewToolkit.tools.preview_open.parametersSchema);
+  const target = { kind: "environment-port", port: 3000 };
+  expect(decode({ target })).toEqual({ target });
+  expect(decode({})).toEqual({});
+  expect(decode({ url: "https://example.com" })).toEqual({ url: "https://example.com" });
+  expect(decode({ url: "http://localhost:3000", target })).toEqual({
+    url: "http://localhost:3000",
+    target,
+  });
+  expect(() => decode({ target: { ...target, port: 0 } })).toThrow();
+  expect(() => decode({ target, tabId: "tab-1", reuseExistingTab: false })).toThrow();
+});
+
 it("keeps the action, URL and title a Phi interaction reports when preview_interact encodes it", () => {
-  const tool = PreviewToolkit.tools.preview_interact;
-  const encoded = Schema.encodeSync(tool.successSchema)({
+  const encoded = encodeInteractSuccess({
     tabId: "phi-tab",
     backend: "phi",
     action: "click",

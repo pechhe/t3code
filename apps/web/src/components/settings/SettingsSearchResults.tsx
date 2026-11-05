@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { lazy, memo, Suspense, useMemo, type ComponentType } from "react";
+import { lazy, memo, Suspense, type ComponentType } from "react";
 
 import { useEnvironments } from "~/state/environments";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
@@ -41,6 +41,12 @@ const SETTINGS_PAGE_PANELS: Readonly<Record<SettingsPath, ComponentType>> = {
       default: module.AppearanceSettingsPanel,
     })),
   ),
+  "/settings/chat": lazy(() =>
+    import("./SettingsPanels").then((module) => ({ default: module.ChatSettingsPanel })),
+  ),
+  "/settings/diffs": lazy(() =>
+    import("./SettingsPanels").then((module) => ({ default: module.DiffsSettingsPanel })),
+  ),
   "/settings/keybindings": lazy(() =>
     import("./KeybindingsSettings").then((module) => ({
       default: module.KeybindingsSettingsPanel,
@@ -62,30 +68,55 @@ const SETTINGS_PAGE_PANELS: Readonly<Record<SettingsPath, ComponentType>> = {
       },
     })),
   ),
-  "/settings/beta": lazy(() =>
-    import("./BetaSettingsPanel").then((module) => ({ default: module.BetaSettingsPanel })),
-  ),
+
   "/settings/delegation": lazy(() =>
     import("./DelegationSettings").then((module) => ({ default: module.DelegationSettings })),
   ),
-  "/settings/integrations": lazy(() =>
-    import("./IntegrationsSettings").then((module) => ({
-      default: module.IntegrationsSettingsPanel,
-    })),
-  ),
   "/settings/experiments": lazy(() =>
     import("./ExperimentsSettings").then((module) => ({ default: module.ExperimentsSettings })),
+  ),
+  "/settings/threads": lazy(() =>
+    import("./SettingsPanels").then((module) => ({ default: module.ThreadsSettingsPanel })),
+  ),
+  "/settings/browser": lazy(() =>
+    import("./IntegrationsSettings").then((module) => ({ default: module.BrowserSettingsPanel })),
+  ),
+  "/settings/devices": lazy(() =>
+    import("./IntegrationsSettings").then((module) => ({ default: module.DevicesSettingsPanel })),
   ),
   "/settings/source-control": lazy(() =>
     import("./SourceControlSettings").then((module) => ({
       default: module.SourceControlSettingsPanel,
     })),
   ),
-  "/settings/storage": lazy(() =>
-    import("./StorageSettings").then((module) => ({ default: module.StorageSettingsPanel })),
+  "/settings/worktrees": lazy(() =>
+    import("./WorktreesSettings").then((module) => ({ default: module.WorktreesSettingsPanel })),
   ),
   "/settings/connections": lazy(() =>
-    import("./ConnectionsSettings").then((module) => ({ default: module.ConnectionsSettings })),
+    import("./ConnectionsSettings").then((module) => ({
+      default: function ConnectionSearchPanel() {
+        return <module.ConnectionsSettings view="environments" />;
+      },
+    })),
+  ),
+  "/settings/access": lazy(() =>
+    import("./ConnectionsSettings").then((module) => ({
+      default: function ConnectionSearchPanel() {
+        return <module.ConnectionsSettings view="access" />;
+      },
+    })),
+  ),
+  "/settings/secrets": lazy(() =>
+    import("./SecretsSettings").then((module) => ({ default: module.SecretsSettingsPanel })),
+  ),
+  "/settings/maintenance": lazy(() =>
+    import("./SettingsPanels").then((module) => ({ default: module.MaintenanceSettingsPanel })),
+  ),
+  "/settings/labs": lazy(() =>
+    import("./LabsSettingsPanel").then((module) => ({ default: module.LabsSettingsPanel })),
+  ),
+  "/settings/about": lazy(() =>
+    import("./SettingsPanels").then((module) => ({ default: module.AboutSettingsPanel })),
   ),
   "/settings/archived": lazy(() =>
     import("./ArchivedThreadsPanel").then((module) => ({ default: module.ArchivedThreadsPanel })),
@@ -122,7 +153,7 @@ export const SettingsSearchResults = memo(function SettingsSearchResults({
   const { environments } = useEnvironments();
   const searchableItems = useAvailableSettingsSearchItems(search);
 
-  const { matchCount, pages, anchorIds } = useMemo(() => {
+  const { matchCount, pages, anchorIds } = (() => {
     const autoSettlementAvailable = getThreadAutoSettlementSearchAvailability(
       environments,
       scope,
@@ -143,7 +174,7 @@ export const SettingsSearchResults = memo(function SettingsSearchResults({
       pages: [...new Set(visible.map((item) => item.to))],
       anchorIds: [...new Set(visible.map((item) => item.targetId ?? item.id))],
     };
-  }, [connectedEnvironments.length, environments, query, scope, searchableItems]);
+  })();
 
   const mountedPages = useProgressiveMount(pages);
   const scopedPage = pages.find((page) => !SETTINGS_DEVICE_ONLY_PATHS.has(page));

@@ -13,9 +13,9 @@ export function useThreadContextDrop(
   targetKey: string,
   onDrop: (refs: ReadonlyArray<ScopedThreadRef>, isActive: () => boolean) => void,
 ) {
-  // useEffectEvent kept the first render's composer here, so a drop on a reused composer
-  // attached to the thread it was first mounted for.
+  // Reused composers must dispatch a drop to the current thread.
   const handleDrop = useStableCallback(onDrop);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes the target element to thread-context drop events and marks old drops inactive
   useEffect(() => {
     const target = targetRef.current;
     if (!target) return;
@@ -27,6 +27,7 @@ export function useThreadContextDrop(
       active = false;
       target.removeEventListener(THREAD_CONTEXT_DROP_EVENT, listener);
     };
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- retargeting must cancel in-flight drops even when the target DOM node is reused
   }, [environmentId, handleDrop, targetKey, targetRef]);
 }
 

@@ -1,5 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as Scope from "effect/Scope";
 import * as Queue from "effect/Queue";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Deferred from "effect/Deferred";
@@ -8,7 +10,6 @@ import * as Exit from "effect/Exit";
 import * as Cause from "effect/Cause";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
@@ -50,9 +51,10 @@ const setup = (
                 get: () =>
                   options.missing
                     ? Effect.succeedNone
-                    : Effect.succeed(Option.some(new TextEncoder().encode("synthetic-test-key"))),
+                    : Effect.succeedSome(new TextEncoder().encode("synthetic-test-key")),
               }),
               NodeServices.layer,
+              NodeCrypto.layer,
               ConfigProvider.layer(ConfigProvider.fromUnknown({})),
             ),
           ),
@@ -214,12 +216,15 @@ it.effect("bounds the environment admission rate and expires its window", () =>
 it.effect("returns explicit signal cancellation, aborting transport once", () =>
   Effect.gen(function* () {
     const { service, calls, entered, aborted } = yield* setup({ never: true });
-    const controller = new AbortController();
-    const fiber = yield* service
-      .decide(request(), { signal: controller.signal })
-      .pipe(Effect.forkChild);
+    const cancellationScope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
+      Scope.close(scope, Exit.void),
+    );
+    const signal = yield* Effect.abortSignal.pipe(
+      Effect.provideService(Scope.Scope, cancellationScope),
+    );
+    const fiber = yield* service.decide(request(), { signal: signal }).pipe(Effect.forkChild);
     yield* Queue.take(entered);
-    controller.abort();
+    yield* Scope.close(cancellationScope, Exit.void);
     expect((yield* Effect.flip(Fiber.join(fiber))).code).toBe("cancelled");
     yield* Deferred.await(aborted);
     yield* TestClock.adjust("20 seconds");
@@ -229,11 +234,16 @@ it.effect("returns explicit signal cancellation, aborting transport once", () =>
 it.effect("rejects pre-cancelled work without transport or admission", () =>
   Effect.gen(function* () {
     const { service, calls } = yield* setup();
-    const controller = new AbortController();
-    controller.abort();
-    expect(
-      (yield* Effect.flip(service.decide(request(), { signal: controller.signal }))).code,
-    ).toBe("cancelled");
+    const cancellationScope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
+      Scope.close(scope, Exit.void),
+    );
+    const signal = yield* Effect.abortSignal.pipe(
+      Effect.provideService(Scope.Scope, cancellationScope),
+    );
+    yield* Scope.close(cancellationScope, Exit.void);
+    expect((yield* Effect.flip(service.decide(request(), { signal: signal }))).code).toBe(
+      "cancelled",
+    );
     expect(calls).toHaveLength(0);
   }),
 );
@@ -269,9 +279,14 @@ it.effect(
 it.effect("a late cancellation cannot replace a completed result or poison the next call", () =>
   Effect.gen(function* () {
     const { service, calls } = yield* setup();
-    const controller = new AbortController();
-    const result = yield* service.decide(request(), { signal: controller.signal });
-    controller.abort();
+    const cancellationScope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
+      Scope.close(scope, Exit.void),
+    );
+    const signal = yield* Effect.abortSignal.pipe(
+      Effect.provideService(Scope.Scope, cancellationScope),
+    );
+    const result = yield* service.decide(request(), { signal: signal });
+    yield* Scope.close(cancellationScope, Exit.void);
     yield* TestClock.adjust("20 seconds");
     expect(result.answers).toHaveLength(3);
     yield* service.decide(request());

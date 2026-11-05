@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -22,33 +23,36 @@ const gitTopLevel = (stdout: string) =>
       }),
   });
 
-it.layer(NodeServices.layer)("workspaceIdentity.checkoutRoot", (it) => {
-  it.effect("resolves a subdirectory of a jj checkout to the checkout root", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
-      yield* fs.makeDirectory(`${root}/.jj`);
-      yield* fs.makeDirectory(`${root}/apps/web`, { recursive: true });
-      expect(yield* checkoutRoot(`${root}/apps/web`).pipe(Effect.provide(gitTopLevel("")))).toBe(
-        root,
-      );
-    }),
-  );
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
+  "workspaceIdentity.checkoutRoot",
+  (it) => {
+    it.effect("resolves a subdirectory of a jj checkout to the checkout root", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+        yield* fs.makeDirectory(`${root}/.jj`);
+        yield* fs.makeDirectory(`${root}/apps/web`, { recursive: true });
+        expect(yield* checkoutRoot(`${root}/apps/web`).pipe(Effect.provide(gitTopLevel("")))).toBe(
+          root,
+        );
+      }),
+    );
 
-  it.effect("keeps a Git-only repository nested in a jj checkout as its own root", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const outer = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
-      yield* fs.makeDirectory(`${outer}/.jj`);
-      const nested = `${outer}/clones/project`;
-      yield* fs.makeDirectory(`${nested}/.git`, { recursive: true });
-      yield* fs.makeDirectory(`${nested}/src`);
-      // Git reports the nested repository's own top level, as it would for a real clone.
-      for (const directory of [nested, `${nested}/src`]) {
-        expect(
-          yield* checkoutRoot(directory).pipe(Effect.provide(gitTopLevel(`${nested}\n`))),
-        ).toBe(nested);
-      }
-    }),
-  );
-});
+    it.effect("keeps a Git-only repository nested in a jj checkout as its own root", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const outer = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+        yield* fs.makeDirectory(`${outer}/.jj`);
+        const nested = `${outer}/clones/project`;
+        yield* fs.makeDirectory(`${nested}/.git`, { recursive: true });
+        yield* fs.makeDirectory(`${nested}/src`);
+        // Git reports the nested repository's own top level, as it would for a real clone.
+        for (const directory of [nested, `${nested}/src`]) {
+          expect(
+            yield* checkoutRoot(directory).pipe(Effect.provide(gitTopLevel(`${nested}\n`))),
+          ).toBe(nested);
+        }
+      }),
+    );
+  },
+);

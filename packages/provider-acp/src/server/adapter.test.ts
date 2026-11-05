@@ -30,6 +30,7 @@ describe("ACP MCP context", () => {
         browserToolsAvailable: false,
       },
       self,
+      true,
       [weave],
     );
     assert.deepEqual(
@@ -43,12 +44,26 @@ describe("ACP MCP context", () => {
       { type: "acp", name: "t3-code", serverId: "t3-code" },
       { type: "acp", name: "yardsmith-hq", serverId: "yardsmith-hq" },
     ]);
+    assert.deepEqual(context.httpServers, [
+      {
+        type: "http",
+        name: "t3-code",
+        url: "http://127.0.0.1:43123/mcp",
+        headers: [{ name: "Authorization", value: "Bearer t3-credential" }],
+      },
+      {
+        type: "http",
+        name: "yardsmith-hq",
+        url: weave.url,
+        headers: [{ name: "Authorization", value: weave.authorizationHeader }],
+      },
+    ]);
     // The terminal fallback carries only T3's own credential.
     assert.equal(context.processEnvironment?.T3_ACP_MCP_AUTHORIZATION, "Bearer t3-credential");
   });
 
   it("bridges agent servers for a thread without a T3 session", () => {
-    const context = acpMcpContext(undefined, self, [weave]);
+    const context = acpMcpContext(undefined, self, false, [weave]);
     assert.deepEqual(
       context.servers.map((server) => server.name),
       ["yardsmith-hq"],

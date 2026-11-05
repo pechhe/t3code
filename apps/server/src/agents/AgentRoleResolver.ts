@@ -453,8 +453,10 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
 });
 
 export const layer = Layer.succeed(AgentRoleResolver, {
-  resolve: (input) => inspect(input).pipe(Effect.map((result) => result.selection)),
-  preview: (input) =>
+  resolve: Effect.fn("AgentRoleResolver.resolve")((input) =>
+    inspect(input).pipe(Effect.map((result) => result.selection)),
+  ),
+  preview: Effect.fn("AgentRoleResolver.preview")((input) =>
     inspect(input).pipe(
       Effect.catchTags({
         AgentRoleError: (error) =>
@@ -465,4 +467,5 @@ export const layer = Layer.succeed(AgentRoleResolver, {
           }),
       }),
     ),
+  ),
 });

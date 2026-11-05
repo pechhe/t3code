@@ -1,12 +1,26 @@
+import type { EnvironmentTheme } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { environmentThemeDefinition, publishedThemeDefinitions } from "./useEnvironmentTheme";
+const publishedThemes = vi.hoisted(() => ({
+  atom: null as unknown as import("effect/reactivity").Atom.Writable<
+    ReadonlyArray<EnvironmentTheme>
+  >,
+}));
+vi.mock(import("../state/server"), async () => {
+  const { Atom } = await import("effect/reactivity");
+  publishedThemes.atom = Atom.make<ReadonlyArray<EnvironmentTheme>>([]);
+  return { primaryServerEnvironmentThemesAtom: publishedThemes.atom } as never;
+});
+const refreshTheme = vi.hoisted(() => vi.fn());
+vi.mock(import("./useTheme"), () => ({ refreshTheme }) as never);
+
+import { appAtomRegistry } from "../rpc/atomRegistry";
 import {
   applyThemePalette,
   getThemeDefinition,
   installCustomTheme,
   invalidateCustomThemes,
-  setEnvironmentThemes,
+  publishedThemeDefinitions,
 } from "../themePalette";
 
 const NIGHTFALL_THEME = {
@@ -18,7 +32,7 @@ const NIGHTFALL_THEME = {
 } as const;
 
 afterEach(() => {
-  setEnvironmentThemes([]);
+  appAtomRegistry.set(publishedThemes.atom, []);
 });
 
 describe("environment themes", () => {
@@ -86,12 +100,12 @@ describe("environment themes", () => {
       },
     });
     try {
-      setEnvironmentThemes([
-        environmentThemeDefinition({
+      appAtomRegistry.set(publishedThemes.atom, [
+        {
           ...NIGHTFALL_THEME,
           device: { metal: "#360202", screen: "#1e1515", engraveActive: "#907aa9" },
-        }),
-        environmentThemeDefinition({ ...NIGHTFALL_THEME, id: "plain" }),
+        },
+        { ...NIGHTFALL_THEME, id: "plain" },
       ]);
 
       applyThemePalette("nightfall");
@@ -111,6 +125,15 @@ describe("environment themes", () => {
     }
   });
 
+  // Routes without the old root sync component (/connect, prompt-link landings) never saw them.
+  it("resolves published themes without a React subscriber mounted", () => {
+    appAtomRegistry.set(publishedThemes.atom, [NIGHTFALL_THEME]);
+    expect(getThemeDefinition("nightfall")?.label).toBe("Nightfall");
+
+    appAtomRegistry.set(publishedThemes.atom, [{ ...NIGHTFALL_THEME, name: "Nightfall 2" }]);
+    expect(getThemeDefinition("nightfall")?.label).toBe("Nightfall 2");
+  });
+
   it("lets a theme the user saved win an id collision", () => {
     const store = new Map<string, string>();
     vi.stubGlobal("window", {
@@ -124,8 +147,10 @@ describe("environment themes", () => {
     });
     invalidateCustomThemes();
     try {
-      const environment = environmentThemeDefinition(NIGHTFALL_THEME);
-      setEnvironmentThemes([environment]);
+      appAtomRegistry.set(publishedThemes.atom, [NIGHTFALL_THEME]);
+      expect(getThemeDefinition("nightfall")?.label).toBe("Nightfall");
+      const environment = getThemeDefinition("nightfall");
+      if (!environment) throw new Error("expected the published theme");
       installCustomTheme({ ...environment, label: "My Nightfall" });
 
       expect(getThemeDefinition("nightfall")?.label).toBe("My Nightfall");
@@ -134,5 +159,18 @@ describe("environment themes", () => {
       invalidateCustomThemes();
     }
     expect(getThemeDefinition("nightfall")?.label).toBe("Nightfall");
+  });
+
+  it("repaints when the environment publishes themes nothing has read yet", async () => {
+    vi.resetModules();
+    const { appAtomRegistry: registry } = await import("../rpc/atomRegistry");
+    const { startEnvironmentThemeRepaint } = await import("./useEnvironmentTheme");
+    const stop = startEnvironmentThemeRepaint();
+    try {
+      registry.set(publishedThemes.atom, [NIGHTFALL_THEME]);
+      expect(refreshTheme).toHaveBeenCalledTimes(1);
+    } finally {
+      stop();
+    }
   });
 });

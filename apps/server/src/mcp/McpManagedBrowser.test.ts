@@ -1,5 +1,7 @@
 import { DecisionToolkit } from "./toolkits/decisions/tools.ts";
 import * as DecisionService from "../decisions/DecisionService.ts";
+import * as ContextServerSettingsService from "../serverSettings.ts";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -52,7 +54,7 @@ const services = Layer.mergeAll(
   Layer.mock(PreviewManager)({}),
   PreviewAutomationBroker.layer,
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-managed-browser-test-" }),
-).pipe(Layer.provideMerge(NodeServices.layer));
+).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const initialize = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"mcp-test","version":"1.0.0"}}}`;
@@ -121,12 +123,8 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
         McpHttpServer.layerManagedBrowserToolkit.pipe(
           Layer.provide(Layer.mock(DecisionService.DecisionService)({})),
         ),
-        McpHttpServer.layerPreviewToolkit,
-      ).pipe(
-        Layer.provideMerge(McpHttpServer.layerMcpTransport),
-        Layer.provide(registry),
-        Layer.provide(services),
-      );
+        McpHttpServer.layerMcpTransport(McpHttpServer.layerPreviewToolkit),
+      ).pipe(Layer.provide(registry), Layer.provide(services));
       yield* HttpRouter.serve(both, { disableListenLog: true, disableLogger: true }).pipe(
         Layer.build,
       );
@@ -144,5 +142,11 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
       expect((yield* listTools("/mcp", tokens.managed)).status).toBe(401);
       expect((yield* listTools("/mcp/browser", "unknownTokenWithoutDots")).status).toBe(401);
     }),
-  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  ).pipe(
+    Effect.provide(
+      NodeHttpServer.layerTest.pipe(
+        Layer.provideMerge(Layer.mergeAll(ContextServerSettingsService.layerTest())),
+      ),
+    ),
+  ),
 );

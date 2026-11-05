@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
@@ -222,7 +223,7 @@ const withFixture = (
   ).pipe(
     Effect.provide(
       ServerConfig.layerTest(process.cwd(), { prefix: "t3-phi-owned-" }).pipe(
-        Layer.provideMerge(NodeServices.layer),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       ),
     ),
     Effect.provideService(HostProcess.Platform, options.platform ?? "darwin"),
@@ -568,7 +569,11 @@ it.effect("serves a Phi tab through the production broker boundary", () =>
     Effect.gen(function* () {
       const broker = yield* PreviewAutomationBroker.make.pipe(
         Effect.provideService(PhiBrowser.PhiBrowser, browser),
-        Effect.provide(PreviewManager.layer.pipe(Layer.provideMerge(NodeServices.layer))),
+        Effect.provide(
+          PreviewManager.layer.pipe(
+            Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+          ),
+        ),
       );
       const opened = yield* broker.invoke<PreviewAutomationStatus>({
         scope,

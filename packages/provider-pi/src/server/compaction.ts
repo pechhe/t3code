@@ -1,10 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off preferSchemaOverJson:off
 /**
- * Pi compacts natively, but only its settings file decides when: `compaction.reserveTokens`
- * (default 16,384) or one model's `compaction.modelOverrides[...].reserveTokens`. There is no
- * launch flag, environment variable or RPC command for the point, so T3 writes the file and
- * restarts the session it just opened when the value changed, and reports the point the running
- * process then loaded.
+ * Pi reads compaction thresholds only from its settings file, including model overrides.
+ * A changed threshold requires restarting the new session; report the loaded threshold.
  */
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -140,31 +137,29 @@ const readSnapshot = (settingsPath: string) =>
 const readOwnership = Effect.fn("readPiCompactionOwnership")(function* (ownershipPath: string) {
   const text = yield* readText(ownershipPath);
   if (text === undefined) return { models: {} } satisfies PiCompactionOwnership;
-  try {
-    const parsed: unknown = JSON.parse(text);
-    const models = isRecord(parsed) ? parsed["models"] : undefined;
-    // An earlier build recorded only the model names it changed; those replaced nothing known.
-    if (Array.isArray(models)) {
-      return {
-        models: Object.fromEntries(
-          models
-            .filter((model): model is string => typeof model === "string")
-            .map((model) => [model, null]),
-        ),
-      } satisfies PiCompactionOwnership;
-    }
-    if (!isRecord(models)) return { models: {} } satisfies PiCompactionOwnership;
+  const parsed: unknown = yield* Effect.try(() => JSON.parse(text)).pipe(
+    Effect.orElseSucceed(() => undefined),
+  );
+  const models = isRecord(parsed) ? parsed["models"] : undefined;
+  // An earlier build recorded only the model names it changed; those replaced nothing known.
+  if (Array.isArray(models)) {
     return {
       models: Object.fromEntries(
-        Object.entries(models).map(([model, previous]) => [
-          model,
-          nonNegativeInteger(previous) ?? null,
-        ]),
+        models
+          .filter((model): model is string => typeof model === "string")
+          .map((model) => [model, null]),
       ),
     } satisfies PiCompactionOwnership;
-  } catch {
-    return { models: {} } satisfies PiCompactionOwnership;
   }
+  if (!isRecord(models)) return { models: {} } satisfies PiCompactionOwnership;
+  return {
+    models: Object.fromEntries(
+      Object.entries(models).map(([model, previous]) => [
+        model,
+        nonNegativeInteger(previous) ?? null,
+      ]),
+    ),
+  } satisfies PiCompactionOwnership;
 });
 
 const writeFile = Effect.fn("writePiSettingsFile")(function* (file: string, contents: string) {

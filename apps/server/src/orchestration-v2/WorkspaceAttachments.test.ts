@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
@@ -9,7 +10,6 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -71,7 +71,7 @@ const layerFor = (
             }),
         }),
         Layer.mock(ProjectService.ProjectService)({
-          getById: () => Effect.succeed(Option.some({ workspaceRoot: "/repo/api" } as never)),
+          getById: () => Effect.succeedSome({ workspaceRoot: "/repo/api" } as never),
           listShells: () =>
             Effect.succeed([
               { id: apiProject, workspaceRoot: "/repo/api" },
@@ -98,7 +98,7 @@ const layerFor = (
           isLanding: () => Effect.succeed(fixture.landing ?? false),
         }),
         SqlitePersistence.layerMemory,
-        NodeServices.layer,
+        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
       ),
     ),
   );

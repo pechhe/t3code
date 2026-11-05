@@ -1,60 +1,45 @@
+import { resolveContextStripLabelsCompact } from "./BranchToolbar.logic";
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  resolveComposerTimelineInset,
-  resolveRestingComposerControlsLayout,
-} from "./composerFooterLayout";
+import { resolveRestingComposerControlsLayout } from "./composerFooterLayout";
 
-describe("resolveComposerTimelineInset", () => {
-  it("keeps timeline padding stable when the model-only strip appears on collapse", () => {
-    const expanded = resolveComposerTimelineInset({
-      currentInset: 0,
-      overlayHeight: 172,
-      isResting: false,
-    });
-    const collapsed = resolveComposerTimelineInset({
-      currentInset: expanded,
-      overlayHeight: 110,
-      isResting: true,
-      restingOnlyHeight: 32,
-    });
-    expect(collapsed).toBe(expanded);
-    expect(
-      resolveComposerTimelineInset({
-        currentInset: collapsed,
-        overlayHeight: 172,
-        isResting: false,
-      }),
-    ).toBe(expanded);
-  });
+describe("context strip labels and resting composer controls", () => {
+  const stripWidth = 724;
+  const labelWidth = 327;
+  const chromeWidth = 125;
+  const measurement = {
+    gap: 4,
+    naturalFixedWidth: 96.3828125 + 5 + 4,
+    minimumFixedWidth: 52 + 5 + 4,
+    blockWidths: [130.6953125, 119.671875],
+    overflowWidth: 28,
+  };
+  const naturalWidth =
+    measurement.naturalFixedWidth +
+    measurement.blockWidths.reduce((sum, width) => sum + width, 0) +
+    measurement.gap * measurement.blockWidths.length;
 
-  it("keeps the timeline reservation stable through notice expansion and collapse", () => {
-    const collapsed = resolveComposerTimelineInset({
-      currentInset: 0,
-      overlayHeight: 172,
-      isResting: false,
+  function hostWidth(compact: boolean): number {
+    return stripWidth - chromeWidth - (compact ? 0 : labelWidth);
+  }
+
+  it("keeps the labels compact when the full controls only fit beside compact labels", () => {
+    const layout = resolveRestingComposerControlsLayout({
+      ...measurement,
+      hostWidth: hostWidth(true),
     });
-    const expanded = resolveComposerTimelineInset({
-      currentInset: collapsed,
-      overlayHeight: 532,
-      isResting: false,
-      expandedNoticesHeight: 360,
+    expect(layout).toEqual({ hiddenCount: 0, visible: true });
+
+    const compact = resolveContextStripLabelsCompact({
+      compact: true,
+      neededWidth: chromeWidth + labelWidth + naturalWidth,
+      availableWidth: stripWidth,
     });
-    expect(expanded).toBe(collapsed);
-    const resting = resolveComposerTimelineInset({
-      currentInset: expanded,
-      overlayHeight: 470,
-      isResting: true,
-      expandedNoticesHeight: 360,
-    });
-    expect(resting).toBe(collapsed);
+    expect(compact).toBe(true);
+
     expect(
-      resolveComposerTimelineInset({
-        currentInset: resting,
-        overlayHeight: 110,
-        isResting: true,
-      }),
-    ).toBe(collapsed);
+      resolveRestingComposerControlsLayout({ ...measurement, hostWidth: hostWidth(compact) }),
+    ).toEqual(layout);
   });
 });
 

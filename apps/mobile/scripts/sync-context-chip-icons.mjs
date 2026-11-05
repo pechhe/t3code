@@ -44,6 +44,7 @@ const lucideIcons = [
   "messages-square",
   "mouse-pointer-click",
   "pencil",
+  "server",
   "terminal",
 ];
 

@@ -103,11 +103,11 @@ const layerFor = (
     ),
     Layer.provide(
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
-        scratchRoot: Effect.succeed(Option.some("/scratch")),
+        scratchRoot: Effect.succeedSome("/scratch"),
         namedProjectsRoot: "/unused",
       }),
     ),
-    Layer.provideMerge(McpServer.McpServer.layer),
+    Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
     Layer.provide(
       Layer.merge(
         NodeCrypto.layer,

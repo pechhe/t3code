@@ -203,7 +203,11 @@ export const makePort = (
     if (environmentId !== null) return environmentId;
     const decoded = yield* call("orchestrator_capabilities", {}).pipe(
       Effect.flatMap((value) =>
-        decode(Schema.Struct({ environmentId: Schema.optional(Schema.String) }), value, "capabilities"),
+        decode(
+          Schema.Struct({ environmentId: Schema.optional(Schema.String) }),
+          value,
+          "capabilities",
+        ),
       ),
     );
     environmentId = decoded.environmentId ?? null;
@@ -213,7 +217,9 @@ export const makePort = (
   return {
     capabilities: () =>
       call("orchestrator_capabilities", {}).pipe(
-        Effect.mapError((error) => new VoiceBridgeError({ reason: "capabilities", detail: error.detail })),
+        Effect.mapError(
+          (error) => new VoiceBridgeError({ reason: "capabilities", detail: error.detail }),
+        ),
         Effect.flatMap((value) =>
           decode(
             Schema.Struct({
@@ -238,16 +244,23 @@ export const makePort = (
           return { environmentId, providers: decoded.providers };
         }),
       ),
-    threadUrl: (threadId) =>
-      Effect.gen(function* () {
+    threadUrl: Effect.fn("VoiceBridge.threadUrl")(
+      function* (threadId) {
         const id = yield* readEnvironmentId;
         // Without an id the bridge can only offer T3's own link form.
         if (id === null) return `t3-thread://v1/${threadId}`;
         return `${originOf(endpoint)}/${encodeURIComponent(id)}/${encodeURIComponent(threadId)}`;
-      }).pipe(Effect.catch(() => Effect.succeed(`t3-thread://v1/${threadId}`))),
+      },
+      (effect, threadId) => effect.pipe(Effect.orElseSucceed(() => `t3-thread://v1/${threadId}`)),
+    ),
     prepareUpload: (input) =>
       call("t3_attachment_prepare_upload", {
-        upload: { type: "image", name: input.name, mimeType: input.mimeType, sizeBytes: input.sizeBytes },
+        upload: {
+          type: "image",
+          name: input.name,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes,
+        },
       }).pipe(
         Effect.flatMap((value) => decode(PreparedUploadResult, value, "upload")),
         Effect.mapError(
@@ -265,7 +278,11 @@ export const makePort = (
           if (!response.ok) throw new Error(`upload answered ${response.status}`);
         },
         catch: (cause) =>
-          new VoiceBridgeError({ reason: "upload", detail: "The capture could not be uploaded.", cause }),
+          new VoiceBridgeError({
+            reason: "upload",
+            detail: "The capture could not be uploaded.",
+            cause,
+          }),
       }),
     launch: (input) =>
       call("t3_thread_launch", {
@@ -273,7 +290,9 @@ export const makePort = (
         title: input.title,
         modelSelection: input.modelSelection,
         message: input.message,
-        ...(input.attachment === undefined ? {} : { attachments: [mcpAttachment(input.attachment)] }),
+        ...(input.attachment === undefined
+          ? {}
+          : { attachments: [mcpAttachment(input.attachment)] }),
       }).pipe(
         Effect.flatMap((value) => decode(LaunchResult, value, "launch")),
         Effect.map((result) => ({
@@ -290,7 +309,11 @@ export const makePort = (
         input.attachment === undefined ? "t3_thread_send" : "t3_thread_send_attachments",
         input.attachment === undefined
           ? { threadId: input.threadId, message: input.message, mode: "auto" }
-          : { threadId: input.threadId, message: input.message, attachments: [mcpAttachment(input.attachment)] },
+          : {
+              threadId: input.threadId,
+              message: input.message,
+              attachments: [mcpAttachment(input.attachment)],
+            },
       ).pipe(
         Effect.flatMap((value) => decode(SendResult, value, "send")),
         Effect.map((result) => ({
@@ -302,7 +325,7 @@ export const makePort = (
           (error) => new VoiceBridgeError({ reason: "send", detail: error.detail, cause: error }),
         ),
       ),
-    readThread: (threadId, options) =>
+    readThread: Effect.fn("readThread")((threadId, options) =>
       Effect.gen(function* () {
         const page = yield* call("t3_thread_read", {
           threadId,
@@ -350,7 +373,8 @@ export const makePort = (
           hasMore: page.hasMore,
         };
       }),
-    pendingApproval: (threadId) =>
+    ),
+    pendingApproval: Effect.fn("pendingApproval")((threadId) =>
       Effect.gen(function* () {
         // The current approval is the newest one in the thread, which may sit
         // past the first activity page, so every page is read before choosing.
@@ -376,10 +400,15 @@ export const makePort = (
         const source = (named.title ?? named.text ?? "").trim().split("\n")[0]?.trim() ?? "";
         if (source === "") return null;
         return source.length <= 80 ? source : `${source.slice(0, 79)}…`;
-      }).pipe(Effect.catch(() => Effect.succeed(null))),
-    pendingQuestion: (threadId) =>
+      }).pipe(Effect.orElseSucceed(() => null)),
+    ),
+    pendingQuestion: Effect.fn("pendingQuestion")((threadId) =>
       Effect.gen(function* () {
-        const list = yield* decode(PendingListResult, yield* call("t3_pending_request_list", { threadId }), "read");
+        const list = yield* decode(
+          PendingListResult,
+          yield* call("t3_pending_request_list", { threadId }),
+          "read",
+        );
         const requestId = list.requestIds[0];
         if (requestId === undefined) return null;
         const read = yield* decode(
@@ -390,6 +419,7 @@ export const makePort = (
         const question = read.questions[0];
         if (question === undefined) return null;
         return question.header.trim() === "" ? question.question : question.header;
-      }).pipe(Effect.catch(() => Effect.succeed(null))),
+      }).pipe(Effect.orElseSucceed(() => null)),
+    ),
   };
 };

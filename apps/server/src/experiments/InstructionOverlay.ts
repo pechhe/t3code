@@ -23,11 +23,8 @@ export interface AssignedInstructionOverlay extends ExperimentInstructionVariant
 const DECISIONS_KEPT = 512;
 
 /**
- * The instruction experiment variant a thread's runs receive. The first run on a
- * provider that can deliver an overlay enrolls the thread; the assignment then holds for
- * every later run. Each run's overlay is decided once: the provider
- * turn and the run's setup record read the same decision, so the record names exactly what
- * was delivered, even when the lookup failed and nothing was sent.
+ * Enroll on the first overlay-capable run and retain that assignment for later runs.
+ * Decide each overlay once so delivery and setup recording agree, including lookup failure.
  */
 export class InstructionOverlay extends Context.Service<
   InstructionOverlay,
@@ -85,7 +82,7 @@ export const layer = Layer.effect(
     );
     const decisions = new Map<string, Deferred.Deferred<AssignedInstructionOverlay | null>>();
     return InstructionOverlay.of({
-      forRun: (input) =>
+      forRun: Effect.fn("InstructionOverlay.forRun")((input) =>
         Effect.suspend(() => {
           const known = decisions.get(input.runId);
           if (known !== undefined) return Deferred.await(known);
@@ -98,6 +95,7 @@ export const layer = Layer.effect(
             Effect.andThen(Deferred.await(decision)),
           );
         }),
+      ),
     });
   }),
 );
@@ -105,5 +103,7 @@ export const layer = Layer.effect(
 /** No instruction experiments: for code paths and tests without the experiment service. */
 export const layerEmpty = Layer.succeed(
   InstructionOverlay,
-  InstructionOverlay.of({ forRun: () => Effect.succeed(null) }),
+  InstructionOverlay.of({
+    forRun: Effect.fn("InstructionOverlay.forRun")(() => Effect.succeed(null)),
+  }),
 );

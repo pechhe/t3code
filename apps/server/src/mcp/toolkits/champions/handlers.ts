@@ -47,78 +47,67 @@ export const handlers = {
     ),
   ),
   t3_champions_upsert: McpToolAccess.writesEnvironment((input, check) =>
-    check
-      .pipe(
-        Effect.andThen(
-          Effect.flatMap(Champions.ChampionService, (service) => service.upsert(input)),
-        ),
-      )
-      .pipe(Effect.mapError(failure)),
+    check.pipe(
+      Effect.andThen(Effect.flatMap(Champions.ChampionService, (service) => service.upsert(input))),
+      Effect.mapError(failure),
+    ),
   ),
   t3_champions_lifecycle: McpToolAccess.writesEnvironment((input, check) =>
-    check
-      .pipe(
-        Effect.andThen(
-          Effect.flatMap(Champions.ChampionService, (service) => service.setLifecycle(input)),
-        ),
-      )
-      .pipe(Effect.mapError(failure)),
+    check.pipe(
+      Effect.andThen(
+        Effect.flatMap(Champions.ChampionService, (service) => service.setLifecycle(input)),
+      ),
+      Effect.mapError(failure),
+    ),
   ),
   t3_champions_setup: McpToolAccess.writesEnvironment((input, check) =>
-    check
-      .pipe(
-        Effect.andThen(
-          Effect.flatMap(Champions.ChampionService, (service) => service.setup(input)),
-        ),
-      )
-      .pipe(Effect.mapError(failure)),
+    check.pipe(
+      Effect.andThen(Effect.flatMap(Champions.ChampionService, (service) => service.setup(input))),
+      Effect.mapError(failure),
+    ),
   ),
   t3_champions_run_check: McpToolAccess.writesEnvironment((input, check) =>
-    check
-      .pipe(
-        Effect.andThen(
-          Effect.flatMap(Champions.ChampionService, (service) => service.runCheck(input)),
-        ),
-      )
-      .pipe(Effect.mapError(failure)),
+    check.pipe(
+      Effect.andThen(
+        Effect.flatMap(Champions.ChampionService, (service) => service.runCheck(input)),
+      ),
+      Effect.mapError(failure),
+    ),
   ),
   t3_champions_propose: McpToolAccess.writesEnvironment((input, check) =>
-    check
-      .pipe(
-        Effect.andThen(
-          Effect.flatMap(Champions.ChampionService, (service) => service.propose(input)),
-        ),
-      )
-      .pipe(Effect.mapError(failure)),
+    check.pipe(
+      Effect.andThen(
+        Effect.flatMap(Champions.ChampionService, (service) => service.propose(input)),
+      ),
+      Effect.mapError(failure),
+    ),
   ),
   t3_champions_accept: McpToolAccess.writesEnvironment((input, check) =>
-    check
-      .pipe(
-        Effect.flatMap((context) =>
-          Effect.gen(function* () {
-            const service = yield* Champions.ChampionService;
-            const doc = yield* service.get(input);
-            if (
-              context.caller?.id === doc.champion.ownerThreadId ||
-              context.caller?.id === doc.champion.setupThreadId
-            )
-              return yield* new ChampionError({ reason: "unauthorized" });
-            return yield* service.accept(input);
-          }),
-        ),
-      )
-      .pipe(Effect.mapError(failure)),
+    check.pipe(
+      Effect.flatMap((context) =>
+        Effect.gen(function* () {
+          const service = yield* Champions.ChampionService;
+          const doc = yield* service.get(input);
+          if (
+            context.caller?.id === doc.champion.ownerThreadId ||
+            context.caller?.id === doc.champion.setupThreadId
+          )
+            return yield* new ChampionError({ reason: "unauthorized" });
+          return yield* service.accept(input);
+        }),
+      ),
+      Effect.mapError(failure),
+    ),
   ),
   t3_champions_finding_action: McpToolAccess.writesEnvironment((input, check) =>
-    check
-      .pipe(
-        Effect.andThen(
-          Effect.flatMap(Champions.ChampionService, (service) =>
-            service.findingAction(input, "agent"),
-          ),
+    check.pipe(
+      Effect.andThen(
+        Effect.flatMap(Champions.ChampionService, (service) =>
+          service.findingAction(input, "agent"),
         ),
-      )
-      .pipe(Effect.mapError(failure)),
+      ),
+      Effect.mapError(failure),
+    ),
   ),
   t3_champions_check_context: McpToolAccess.readsAsCaller((_input) =>
     Effect.gen(function* () {

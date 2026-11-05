@@ -77,6 +77,10 @@ export type OrchestratorV2ScenarioStep =
       readonly itemType: OrchestrationV2TurnItem["type"];
       /** Items of that type the run must have; defaults to one. */
       readonly count?: number;
+      /** Wait until the item also has this status. */
+      readonly itemStatus?: OrchestrationV2TurnItem["status"];
+      /** Look in the threads of the run's provider subagents instead of the run itself. */
+      readonly inSubagentThreads?: boolean;
     }
   | {
       readonly type: "release_replay_gate_after_waiting";
@@ -150,6 +154,7 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "thread.unpin":
     case "thread.pin.reorder":
     case "thread.active.reorder":
+    case "thread.tag.set":
     case "thread.visit":
     case "thread.mark-read":
     case "thread.mark-unread":
@@ -286,19 +291,18 @@ export function runOrchestratorV2Scenario(
       const capturedShellSnapshots = new Map<string, OrchestrationV2ThreadShellSnapshot>();
       let anonymousBackgroundDispatchIndex = 0;
 
-      const awaitDispatch = (key: string) =>
-        Effect.gen(function* () {
-          const fiber = backgroundDispatches.get(key);
-          if (!fiber) {
-            return yield* new OrchestratorV2ScenarioStepError({
-              scenario: scenario.name,
-              step: `await:${key}`,
-            });
-          }
-          const events = yield* Fiber.join(fiber);
-          backgroundDispatches.delete(key);
-          storedEventGroups.push(events);
-        });
+      const awaitDispatch = Effect.fn("awaitDispatch")(function* (key: string) {
+        const fiber = backgroundDispatches.get(key);
+        if (!fiber) {
+          return yield* new OrchestratorV2ScenarioStepError({
+            scenario: scenario.name,
+            step: `await:${key}`,
+          });
+        }
+        const events = yield* Fiber.join(fiber);
+        backgroundDispatches.delete(key);
+        storedEventGroups.push(events);
+      });
 
       const waitForPendingRuntimeRequest = (
         threadId: ThreadId,
@@ -454,6 +458,8 @@ export function runOrchestratorV2Scenario(
         runId: OrchestrationV2Run["id"],
         itemType: OrchestrationV2TurnItem["type"],
         count: number,
+        itemStatus: OrchestrationV2TurnItem["status"] | undefined,
+        inSubagentThreads: boolean,
         attemptsRemaining = SCENARIO_WAIT_ATTEMPTS,
         deadlineAt = scenarioWaitDeadline(),
       ): Effect.Effect<
@@ -463,16 +469,25 @@ export function runOrchestratorV2Scenario(
       > =>
         Effect.gen(function* () {
           const projection = yield* orchestrator.getThreadProjection(threadId);
-          const hasTurnItems =
-            projection.turnItems.filter((item) => item.runId === runId && item.type === itemType)
-              .length >= count;
-          if (hasTurnItems) {
-            return;
+          const matches = (item: OrchestrationV2TurnItem) =>
+            item.type === itemType && (itemStatus === undefined || item.status === itemStatus);
+          if (!inSubagentThreads) {
+            if (
+              projection.turnItems.filter((item) => item.runId === runId && matches(item)).length >=
+              count
+            )
+              return;
+          } else {
+            for (const subagent of projection.subagents) {
+              if (subagent.runId !== runId || subagent.childThreadId === null) continue;
+              const child = yield* orchestrator.getThreadProjection(subagent.childThreadId);
+              if (child.turnItems.filter(matches).length >= count) return;
+            }
           }
           if (scenarioWaitExhausted(attemptsRemaining, deadlineAt)) {
             return yield* new OrchestratorV2ScenarioStepError({
               scenario: scenario.name,
-              step: `await_run_turn_item:${runId}:${itemType}`,
+              step: `await_run_turn_item:${runId}:${itemType}${itemStatus === undefined ? "" : `:${itemStatus}`}`,
             });
           }
           yield* yieldToRuntime;
@@ -481,6 +496,8 @@ export function runOrchestratorV2Scenario(
             runId,
             itemType,
             count,
+            itemStatus,
+            inSubagentThreads,
             attemptsRemaining - 1,
             deadlineAt,
           );
@@ -670,7 +687,14 @@ export function runOrchestratorV2Scenario(
             yield* finishHeldRun(step);
             break;
           case "await_run_turn_item":
-            yield* waitForRunTurnItem(step.threadId, step.runId, step.itemType, step.count ?? 1);
+            yield* waitForRunTurnItem(
+              step.threadId,
+              step.runId,
+              step.itemType,
+              step.count ?? 1,
+              step.itemStatus,
+              step.inSubagentThreads === true,
+            );
             break;
           case "release_replay_gate_after_waiting":
             yield* releaseReplayGateAfterWaiting(step.label, step.threadId, step.runId);

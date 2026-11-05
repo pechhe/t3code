@@ -9,7 +9,7 @@ import {
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
@@ -86,7 +86,7 @@ const make = Effect.gen(function* () {
   const landings = yield* SlipJayLandings.SlipJayLandings;
   const host = yield* HostResources.HostResources;
   const peers = yield* FleetPeers.FleetPeers;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
   const lastSeen = new Map<string, string>();
 
   const summary: FleetSummaryService["Service"]["summary"] = Effect.fn(
@@ -278,7 +278,9 @@ const make = Effect.gen(function* () {
     const hashes = Object.fromEntries(
       yield* Effect.forEach(rows, (row) =>
         encodeThread(row).pipe(
-          Effect.flatMap((encoded) => crypto.digest("SHA-256", new TextEncoder().encode(encoded))),
+          Effect.flatMap((encoded) =>
+            crypto.digest(Digest.sha256, new TextEncoder().encode(encoded)),
+          ),
           Effect.map((hash) => [row.threadId, Hex.encode(hash)] as const),
           Effect.mapError(failure),
         ),

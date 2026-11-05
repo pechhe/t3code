@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
@@ -16,7 +17,7 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
+
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as PhiBrowser from "../preview/PhiBrowser.ts";
@@ -55,7 +56,11 @@ const processes = Layer.succeed(ProcessRunner.ProcessRunner, {
       stderrInvalidUtf8: false,
     }),
 });
-const dependencies = Layer.mergeAll(Sqlite.layerMemory, NodeServices.layer, processes);
+const dependencies = Layer.mergeAll(
+  Sqlite.layerMemory,
+  Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+  processes,
+);
 const testLayer = Layer.mergeAll(Managed.layer, Store.layer, Policy.layer).pipe(
   Layer.provideMerge(dependencies),
 );
@@ -157,7 +162,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(Projects.ProjectStoreV2)({
-                get: () => Effect.succeed(Option.some({ workspaceRoot: f.workspacePath } as never)),
+                get: () => Effect.succeedSome({ workspaceRoot: f.workspacePath } as never),
               }),
               Layer.mock(Providers.ProviderInstanceRegistry)({
                 getInstance: () =>
@@ -169,10 +174,10 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           ),
           Layer.provide(
             ServerConfig.layerTest(f.workspacePath, { prefix: "t3-managed-policy-" }).pipe(
-              Layer.provide(NodeServices.layer),
+              Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
             ),
           ),
-          Layer.provide(NodeServices.layer),
+          Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         );
         yield* Effect.gen(function* () {
           const runtime = yield* RuntimePolicy.RuntimePolicyV2;
@@ -329,7 +334,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(Projects.ProjectStoreV2)({
-                get: () => Effect.succeed(Option.some({ workspaceRoot: f.workspacePath } as never)),
+                get: () => Effect.succeedSome({ workspaceRoot: f.workspacePath } as never),
               }),
               Layer.mock(Providers.ProviderInstanceRegistry)({
                 getInstance: () =>
@@ -341,10 +346,10 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           ),
           Layer.provide(
             ServerConfig.layerTest(f.workspacePath, { prefix: "t3-managed-policy-" }).pipe(
-              Layer.provide(NodeServices.layer),
+              Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
             ),
           ),
-          Layer.provide(NodeServices.layer),
+          Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         );
         yield* Effect.gen(function* () {
           const runtime = yield* RuntimePolicy.RuntimePolicyV2;
@@ -849,7 +854,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(Projects.ProjectStoreV2)({
-                get: () => Effect.succeed(Option.some({ workspaceRoot: projectRoot } as never)),
+                get: () => Effect.succeedSome({ workspaceRoot: projectRoot } as never),
               }),
               Layer.mock(Providers.ProviderInstanceRegistry)({
                 getInstance: () =>
@@ -861,10 +866,10 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           ),
           Layer.provide(
             ServerConfig.layerTest(projectRoot, { prefix: "t3-managed-policy-" }).pipe(
-              Layer.provide(NodeServices.layer),
+              Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
             ),
           ),
-          Layer.provide(NodeServices.layer),
+          Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         );
         yield* Effect.gen(function* () {
           const runtime = yield* RuntimePolicy.RuntimePolicyV2;

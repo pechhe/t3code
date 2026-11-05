@@ -291,11 +291,9 @@ const make = Effect.gen(function* () {
     );
 
   /**
-   * Replaces a session near its end; the old token stops working on the peer. Runs once per call,
-   * before any route is tried and outside its deadline, with a long timeout of its own: the peer
-   * revokes the old token as it issues the new one, so a response that never arrives strands the
-   * link until it is linked again. A failed attempt is not repeated for a minute.
-   * Returns the peer as stored now, or undefined when it was unlinked meanwhile.
+   * Renewal revokes the old token; a lost response strands the link until relinked.
+   * Try once before routing, outside its deadline; failed renewals wait a minute before retry.
+   * Return the stored peer, or undefined if unlinked meanwhile.
    */
   const freshPeer = Effect.fn("PeerEnvironments.freshPeer")(function* (
     peer: StoredPeer,
@@ -313,7 +311,7 @@ const make = Effect.gen(function* () {
     ).pipe(
       Effect.flatMap((renewed) =>
         renewed.status >= 400
-          ? Effect.succeed(undefined)
+          ? Effect.undefined
           : decodePeerSession(renewed).pipe(Effect.map((session) => session)),
       ),
       Effect.orElseSucceed(() => undefined),

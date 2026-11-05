@@ -13,7 +13,6 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -197,7 +196,7 @@ const withReactor = <A, E>(
                   Effect.succeed(state.subagents.get(childThreadId)),
               }),
               Layer.mock(ProjectStore.ProjectStoreV2)({
-                get: () => Effect.succeed(Option.some(state.project)),
+                get: () => Effect.succeedSome(state.project),
               }),
               Layer.succeed(
                 ServerEnvironment.ServerEnvironment,

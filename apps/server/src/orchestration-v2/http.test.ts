@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   AuthSessionId,
   type AuthEnvironmentScope,
@@ -51,7 +52,7 @@ const decodeTranscript = Schema.decodeUnknownEffect(
 const now = DateTime.makeUnsafe("2026-09-29T00:00:00.000Z");
 const environmentId = EnvironmentId.make("source-بيئة");
 const output = "Full tool output. ".repeat(4_000);
-const thread = Schema.decodeUnknownSync(OrchestrationV2AppThread)({
+const thread = Schema.decodeSync(OrchestrationV2AppThread)({
   id: "source-thread",
   projectId: "source-project",
   title: "Source 界\nconversation",
@@ -153,7 +154,7 @@ const serveOrchestrationHttp = (allowed: () => boolean) =>
       Layer.provide(Layer.mock(ProjectEnrichmentService)({})),
       Layer.provide(HttpPlatform.layer),
       Layer.provide(Etag.layerWeak),
-      Layer.provide(NodeServices.layer),
+      Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     );
     const { handler, dispose } = HttpRouter.toWebHandler(routes, { disableLogger: true });
     yield* Effect.addFinalizer(() => Effect.promise(dispose));

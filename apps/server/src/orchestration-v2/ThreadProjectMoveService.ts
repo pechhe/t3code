@@ -93,7 +93,7 @@ const make = Effect.gen(function* () {
   // The move stands once recorded, so a schedule that fails to follow is logged rather than
   // reported as a failed move; its next dispatch says the thread is in another project.
   const followSchedules = (threadId: ThreadId, projectId: ProjectId) =>
-    scheduledTasks.moveThreadProject({ threadId, projectId }).pipe(
+    scheduledTasks.moveThreadTasks({ threadIds: [threadId], projectId }).pipe(
       Effect.catchCause((cause) =>
         Effect.logError("A moved chat's scheduled tasks did not follow it", {
           threadId,

@@ -8,7 +8,7 @@ const A = raw.A as Labels;
 const B = raw.B as Labels;
 
 /** Two blind labelers decide; the author's label only breaks a split between them; a three-way split is uncertain. */
-export const adjudicate = (author: Label, a: Label, b: Label): Label =>
+const adjudicate = (author: Label, a: Label, b: Label): Label =>
   a === b ? a : author === a || author === b ? author : "uncertain";
 
 export const referenceLabel = (id: string): Label => {
@@ -21,15 +21,6 @@ export const referenceLabel = (id: string): Label => {
     throw new Error(`No reference label for ${id}`);
   return adjudicate(held.authorLabel, a, b);
 };
-
-export const labelAudit = () =>
-  HELDOUT_CASES.map((c) => ({
-    id: c.id,
-    author: c.authorLabel,
-    A: A[c.id]!,
-    B: B[c.id]!,
-    final: referenceLabel(c.id),
-  }));
 
 const heldoutLabel = (labels: Labels) => (id: string) => {
   const label = labels[id];

@@ -25,7 +25,7 @@ import { sameHqAddress } from "@t3tools/shared/hqOrigins";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -343,7 +343,7 @@ const error = (reason: ForgeWorkItemError["reason"], message: string) =>
 const make = Effect.gen(function* () {
   const weave = yield* HqAgentConnections.HqAgentConnections;
   const threads = yield* ThreadManagementService.ThreadManagementService;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   const cache = new Map<string, CachedItem>();
   const numberCache = new Map<string, CachedNumber>();
   const cardCache = new Map<string, CachedCard>();
@@ -352,10 +352,9 @@ const make = Effect.gen(function* () {
   const shellOf = (threadId: ThreadId) =>
     threads.getThreadShell(threadId).pipe(
       Effect.mapError(() => error("unavailable", "T3 could not read the thread.")),
-      Effect.flatMap((shell) =>
-        shell === null || shell.deletedAt !== null
-          ? Effect.fail(error("thread_not_found", `Thread ${threadId} was not found.`))
-          : Effect.succeed(shell),
+      Effect.filterOrFail(
+        (shell): shell is NonNullable<typeof shell> => shell !== null && shell.deletedAt === null,
+        () => error("thread_not_found", `Thread ${threadId} was not found.`),
       ),
     );
 
@@ -516,7 +515,7 @@ const make = Effect.gen(function* () {
               if (Option.isNone(itemId)) unreachable = true;
               return Option.isSome(itemId) && itemId.value !== null
                 ? summaryView(connection, { itemId: itemId.value, number }, options).pipe(
-                    Effect.map(Option.some),
+                    Effect.asSome,
                   )
                 : Effect.succeed(Option.none<ForgeWorkItemView>());
             }),
@@ -588,9 +587,7 @@ const make = Effect.gen(function* () {
       const workItem = input.reference === null ? null : yield* resolve(input.reference);
       const commandId =
         input.commandId ??
-        CommandId.make(
-          `command:build-work-item:${yield* crypto.randomUUIDv4().pipe(Effect.orDie)}`,
-        );
+        CommandId.make(`command:build-work-item:${yield* crypto.uuidV4().pipe(Effect.orDie)}`);
       const dispatch = yield* threads
         .dispatch({ type: "thread.metadata.update", commandId, threadId: input.threadId, workItem })
         .pipe(

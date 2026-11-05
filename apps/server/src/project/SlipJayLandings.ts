@@ -488,9 +488,7 @@ export const make = Effect.gen(function* () {
   const removedWorkspaceLanding: SlipJayLandings["Service"]["removedWorkspaceLanding"] = (cwd) =>
     fs.exists(cwd).pipe(
       Effect.orElseSucceed(() => true),
-      Effect.flatMap((exists) =>
-        exists ? Effect.succeed(undefined) : Cache.get(removedLandings, cwd),
-      ),
+      Effect.flatMap((exists) => (exists ? Effect.undefined : Cache.get(removedLandings, cwd))),
     );
 
   const repositoryOf: SlipJayLandings["Service"]["repositoryOf"] = (cwd) =>
@@ -825,15 +823,17 @@ export const layer = Layer.effect(SlipJayLandings, make).pipe(Layer.provide(Proc
 export const layerNone = Layer.succeed(
   SlipJayLandings,
   SlipJayLandings.of({
-    landingFor: () => Effect.succeed(undefined),
-    removedWorkspaceLanding: () => Effect.succeed(undefined),
+    landingFor: Effect.fn("SlipJayLandings.landingFor")(() => Effect.undefined),
+    removedWorkspaceLanding: Effect.fn("SlipJayLandings.removedWorkspaceLanding")(
+      () => Effect.undefined,
+    ),
     changes: Stream.empty,
     landings: Effect.succeed([]),
     follow: Effect.void,
-    workspaceRoot: () => Effect.succeed(undefined),
+    workspaceRoot: Effect.fn("SlipJayLandings.workspaceRoot")(() => Effect.undefined),
     runner: Stream.make(emptyRunnerOverview),
     followRunnerChange: Effect.void,
-    cancel: () =>
+    cancel: Effect.fn("SlipJayLandings.cancel")(() =>
       Effect.fail(
         new SlipJayCommandError({
           operation: "SlipJayLandings.cancel",
@@ -842,9 +842,10 @@ export const layerNone = Layer.succeed(
           detail: "SlipJay is not available on this host.",
         }),
       ),
-    repositoryOf: () => Effect.succeed(null),
-    isLanding: () => Effect.succeed(false),
-    land: ({ cwd }) =>
+    ),
+    repositoryOf: Effect.fn("SlipJayLandings.repositoryOf")(() => Effect.succeed(null)),
+    isLanding: Effect.fn("SlipJayLandings.isLanding")(() => Effect.succeed(false)),
+    land: Effect.fn("SlipJayLandings.land")(({ cwd }) =>
       Effect.fail(
         new SlipJayCommandError({
           operation: "SlipJayLandings.land",
@@ -853,7 +854,8 @@ export const layerNone = Layer.succeed(
           detail: "SlipJay is not available on this host.",
         }),
       ),
-    readLog: ({ cwd }) =>
+    ),
+    readLog: Effect.fn("SlipJayLandings.readLog")(({ cwd }) =>
       Effect.fail(
         new SlipJayCommandError({
           operation: "SlipJayLandings.readLog",
@@ -862,7 +864,8 @@ export const layerNone = Layer.succeed(
           detail: "SlipJay is not available on this host.",
         }),
       ),
-    readDetail: ({ cwd }) =>
+    ),
+    readDetail: Effect.fn("SlipJayLandings.readDetail")(({ cwd }) =>
       Effect.fail(
         new SlipJayCommandError({
           operation: "SlipJayLandings.readDetail",
@@ -871,5 +874,6 @@ export const layerNone = Layer.succeed(
           detail: "SlipJay is not available on this host.",
         }),
       ),
+    ),
   }),
 );

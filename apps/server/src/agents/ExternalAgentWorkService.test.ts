@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthSessionId,
@@ -38,6 +39,10 @@ import * as External from "./ExternalAgentWorkService.ts";
 import * as Managed from "./ManagedAgentService.ts";
 import { snapshot, request, codex, claude, changeReview } from "./agentPolicy.testkit.ts";
 
+const localChildId = (task: { readonly childThreadId: ThreadId | null }): ThreadId => {
+  if (task.childThreadId === null) throw new Error("Expected a local managed child thread.");
+  return task.childThreadId;
+};
 const environmentId = EnvironmentId.make("environment:external-agent-test");
 const projectId = ProjectId.make("project:external-agent-test");
 const otherProjectId = ProjectId.make("project:external-agent-other");
@@ -103,8 +108,7 @@ const makeTestLayer = (
   const projects = Layer.succeed(
     Projects.ProjectService,
     Projects.ProjectService.of({
-      getById: () =>
-        Effect.succeed(Option.some({ id: projectId, workspaceRoot: projectRoot } as never)),
+      getById: () => Effect.succeedSome({ id: projectId, workspaceRoot: projectRoot } as never),
       listShells: () =>
         Effect.succeed([
           { id: projectId, workspaceRoot: projectRoot },
@@ -252,7 +256,7 @@ const makeTestLayer = (
     providers,
     threads,
     launch,
-  ).pipe(Layer.provideMerge(NodeServices.layer));
+  ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
   const managedServices = Layer.mergeAll(Managed.layer, Experiments.layer).pipe(
     Layer.provideMerge(dependencies),
   );
@@ -325,7 +329,7 @@ const withFixture = <A, E>(
         ),
       );
     }),
-  ).pipe(Effect.provide(NodeServices.layer));
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
 function buildFixture(input: {
   readonly fs: FileSystem.FileSystem;
@@ -773,7 +777,7 @@ it.effect("restores persisted ownership and the invalidation watcher after servi
       const watcherStartedAfterReconnect = yield* Deferred.make<void>();
       const stopped = yield* Deferred.make<void>();
       const persistence = Sqlite.layerFromPath(`${root}/external-agent.sqlite`).pipe(
-        Layer.provide(NodeServices.layer),
+        Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       );
       const fixture = buildFixture({
         fs,
@@ -835,7 +839,7 @@ it.effect("restores persisted ownership and the invalidation watcher after servi
           yield* Ref.update(state, (current) => ({
             ...current,
             activeThreads: new Set<string>(),
-            completedThreads: new Set([submitted.childThreadId]),
+            completedThreads: new Set([localChildId(submitted)]),
             sourceRevision: "revision-two",
           }));
           const input = {
@@ -870,13 +874,13 @@ it.effect("restores persisted ownership and the invalidation watcher after servi
           yield* Deferred.await(watcherStartedAfterReconnect);
           yield* Deferred.succeed(invalidation, undefined);
           yield* Deferred.await(stopped);
-          expect((yield* Ref.get(state)).activeThreads.has(client.submitted.childThreadId)).toBe(
+          expect((yield* Ref.get(state)).activeThreads.has(localChildId(client.submitted))).toBe(
             false,
           );
         }),
       );
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -1292,7 +1296,7 @@ it.effect("runs an isolated helper under the same lead session and hands back it
       // The run records what it hands back as it settles, as run execution does.
       const settled = yield* f.status(client, finished.taskId);
       yield* (yield* Managed.ManagedAgentService).recordHandoff(settled.agentTask!, {
-        threadId: settled.childThreadId,
+        threadId: localChildId(settled),
         runId: settled.latestTerminalRunId!,
       });
       const handedBack = {
@@ -1340,7 +1344,7 @@ it.effect(
         yield* Ref.update(fixture.state, (state) => ({
           ...state,
           activeThreads: new Set<string>(),
-          completedThreads: new Set([initial.childThreadId]),
+          completedThreads: new Set([localChildId(initial)]),
           sourceRevision: "fixture-source-revision-two",
         }));
         const badPin = yield* fixture
@@ -1418,7 +1422,7 @@ it.effect("continues an external worker with a correction in its conversation", 
       yield* Ref.update(fixture.state, (state) => ({
         ...state,
         activeThreads: new Set<string>(),
-        completedThreads: new Set([initial.childThreadId]),
+        completedThreads: new Set([localChildId(initial)]),
       }));
       const correction = yield* fixture.submit(client, {
         externalSessionKey: attached.key,
@@ -1465,7 +1469,7 @@ it.effect(
         yield* Ref.update(fixture.state, (state) => ({
           ...state,
           activeThreads: new Set<string>(),
-          completedThreads: new Set([initial.childThreadId]),
+          completedThreads: new Set([localChildId(initial)]),
         }));
         const resumed = yield* fixture.submit(client, {
           externalSessionKey: attached.key,

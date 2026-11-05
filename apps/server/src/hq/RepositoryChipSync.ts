@@ -1,7 +1,8 @@
 import { CommandId, type ProjectIconOverride } from "@t3tools/contracts";
 import { deriveProjectIdentity, weaveRepositoryKeyOf } from "@t3tools/shared/projectIdentity";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
@@ -48,7 +49,8 @@ const make = Effect.gen(function* () {
   const store = yield* ProjectStore.ProjectStoreV2;
   const events = yield* OrchestrationEventStore.OrchestrationEventStore;
   const lock = yield* Semaphore.make(1);
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
+  const secureRandom = yield* SecureRandom.SecureRandom;
   const sync = Effect.gen(function* () {
     const connection = yield* connections.read;
     if (connection === null) return;
@@ -74,7 +76,7 @@ const make = Effect.gen(function* () {
         let row = listed;
         if ((listed.hqUnregisteredKey ?? null) !== unregistered) {
           yield* projects.recordHqUnregistered({
-            commandId: CommandId.make(`hq-repository-unregistered:${yield* crypto.randomUUIDv4()}`),
+            commandId: CommandId.make(`hq-repository-unregistered:${yield* secureRandom.uuidV4()}`),
             expected: listed,
             key: unregistered,
           });
@@ -86,7 +88,7 @@ const make = Effect.gen(function* () {
         const local = effectiveValue(row);
         const hash = (value: ReturnType<typeof effectiveValue>) =>
           crypto
-            .digest("SHA-256", new TextEncoder().encode(JSON.stringify({ key, ...value })))
+            .digest(Digest.sha256, new TextEncoder().encode(JSON.stringify({ key, ...value })))
             .pipe(Effect.map((bytes) => Buffer.from(bytes).toString("hex")));
         const localHash = yield* hash(local);
         let repository = matched;
@@ -123,7 +125,7 @@ const make = Effect.gen(function* () {
         const valueHash = yield* hash(
           projectIcon ? effectiveValue({ title: row.title, projectIcon }) : local,
         );
-        const commandId = yield* crypto.randomUUIDv4();
+        const commandId = yield* secureRandom.uuidV4();
         yield* projects.recordHqSync({
           commandId: CommandId.make(`hq-repository-sync:${commandId}`),
           expected: row,

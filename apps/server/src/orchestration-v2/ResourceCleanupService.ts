@@ -6,7 +6,12 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import { parseAttachmentUuid, resolveAttachmentPathById } from "../attachmentStore.ts";
+import { resolveAttachmentRelativePath } from "../attachmentPaths.ts";
+import {
+  parseAttachmentUuid,
+  parseAttachmentFileExtension,
+  resolveAttachmentPathById,
+} from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as PreviewManager from "../preview/Manager.ts";
@@ -56,58 +61,84 @@ export const layer = Layer.effect(
     const paths = yield* Path.Path;
     const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
     return {
-      cleanupScheduledTasks: (threadId: ThreadId) =>
-        scheduledTasks
+      cleanupScheduledTasks: Effect.fn("ResourceCleanupService.cleanupScheduledTasks")(function (
+        threadId: ThreadId,
+      ) {
+        return scheduledTasks
           .deleteForThread(threadId)
           .pipe(
             Effect.mapError(
               (cause) =>
                 new ResourceCleanupError({ operation: "scheduled-tasks", threadId, cause }),
             ),
-          ),
-      cleanupTerminals: (threadId: string) =>
-        terminals
+          );
+      }),
+      cleanupTerminals: Effect.fn("ResourceCleanupService.cleanupTerminals")(function (
+        threadId: string,
+      ) {
+        return terminals
           .close({ threadId, deleteHistory: true })
           .pipe(
             Effect.mapError(
               (cause) => new ResourceCleanupError({ operation: "terminal", threadId, cause }),
             ),
-          ),
-      cleanupPreviews: (threadId: string) =>
-        previews
+          );
+      }),
+      cleanupPreviews: Effect.fn("ResourceCleanupService.cleanupPreviews")(function (
+        threadId: string,
+      ) {
+        return previews
           .close({ threadId: ThreadId.make(threadId) })
           .pipe(
             Effect.mapError(
               (cause) => new ResourceCleanupError({ operation: "preview", threadId, cause }),
             ),
-          ),
-      releaseBrowserSessions: (threadId: string) =>
-        mcpSessions.releaseThreadBrowser(ThreadId.make(threadId)),
-      cleanupAttachments: (attachmentIds: ReadonlyArray<string>) =>
-        Effect.forEach(
+          );
+      }),
+      releaseBrowserSessions: Effect.fn("ResourceCleanupService.releaseBrowserSessions")(
+        (threadId: string) => mcpSessions.releaseThreadBrowser(ThreadId.make(threadId)),
+      ),
+      cleanupAttachments: Effect.fn("ResourceCleanupService.cleanupAttachments")(function (
+        attachmentIds: ReadonlyArray<string>,
+      ) {
+        return Effect.forEach(
           attachmentIds,
           (attachmentId) => {
-            const path = resolveAttachmentPathById({
-              attachmentsDir: config.attachmentsDir,
-              attachmentId,
-            });
+            const extension = parseAttachmentFileExtension(attachmentId);
+            const path =
+              resolveAttachmentPathById({
+                attachmentsDir: config.attachmentsDir,
+                attachmentId,
+              }) ??
+              (extension
+                ? resolveAttachmentRelativePath({
+                    attachmentsDir: config.attachmentsDir,
+                    relativePath: `${attachmentId}.${extension}`,
+                  })
+                : null);
             const removeCache = parseAttachmentUuid(attachmentId)
               ? fileSystem.remove(paths.join(config.attachmentsDir, "video-frames", attachmentId), {
                   recursive: true,
                   force: true,
                 })
               : Effect.void;
-            return (path === null ? Effect.void : fileSystem.remove(path, { force: true }))
-              .pipe(Effect.andThen(removeCache))
-              .pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ResourceCleanupError({ operation: "attachment", attachmentId, cause }),
-                ),
-              );
+            return (
+              path === null
+                ? Effect.void
+                : fileSystem
+                    .remove(path, { force: true })
+                    .pipe(Effect.andThen(fileSystem.remove(`${path}.txt`, { force: true })))
+            ).pipe(
+              Effect.andThen(removeCache),
+              Effect.mapError(
+                (cause) =>
+                  new ResourceCleanupError({ operation: "attachment", attachmentId, cause }),
+              ),
+            );
           },
           { discard: true, concurrency: 4 },
-        ),
+        );
+      }),
     };
   }),
 );

@@ -1,7 +1,7 @@
 import { CommandId, ThreadId } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
@@ -28,7 +28,7 @@ const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const build = yield* ForgeWorkItems.ForgeWorkItems;
   const sql = yield* SqlClient.SqlClient;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   const serial = yield* Semaphore.make(1);
 
   // Rebuild from durable watches every pass, including the first pass after a restart.
@@ -77,7 +77,7 @@ const make = Effect.gen(function* () {
             if (condition === undefined) continue;
             yield* engine.dispatch({
               type: "thread.thread-watch.fire",
-              commandId: CommandId.make(`server:build-watch-fire:${yield* crypto.randomUUIDv4()}`),
+              commandId: CommandId.make(`server:build-watch-fire:${yield* crypto.uuidV4()}`),
               threadId: thread.id,
               watchId: watch.id,
               build: {
@@ -100,13 +100,14 @@ const make = Effect.gen(function* () {
 
   return ForgeWatchReactor.of({
     sweep,
-    start: () =>
+    start: Effect.fn("ForgeWatchReactor.start")(() =>
       forkParked(
         sweep.pipe(
           Effect.repeat(Schedule.spaced(`${ForgeWorkItems.BUILD_REREAD_INTERVAL_MS} millis`)),
           Effect.asVoid,
         ),
       ).pipe(Effect.asVoid),
+    ),
   });
 });
 

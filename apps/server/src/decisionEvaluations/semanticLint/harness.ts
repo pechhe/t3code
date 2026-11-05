@@ -88,7 +88,7 @@ export const runEvaluation = Effect.fn("SemanticLint.runEvaluation")(function* (
   return records;
 });
 
-export const flaggedByModel = (outcome: Outcome): boolean =>
+const flaggedByModel = (outcome: Outcome): boolean =>
   outcome.kind === "answered" && outcome.probability >= FLAG_THRESHOLD;
 
 export const evaluate = (

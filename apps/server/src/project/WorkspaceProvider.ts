@@ -1,5 +1,5 @@
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -162,7 +162,7 @@ export const make = Effect.gen(function* () {
   const git = yield* GitVcsDriver.GitVcsDriver;
 
   const intents = yield* WorkspaceAllocationIntents.WorkspaceAllocationIntents;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   // Allocations this process is making or has not yet settled; `reconcile` leaves them alone.
   const live = new Set<string>();
   // Serialises settling an intent against `adoptPrior` claiming it.
@@ -451,7 +451,7 @@ export const make = Effect.gen(function* () {
         const attemptId =
           prior?.attemptId ??
           (yield* crypto
-            .randomUUIDv4()
+            .uuidV4()
             .pipe(
               Effect.mapError(
                 (cause) =>

@@ -154,7 +154,11 @@ export function ForgeWorkItemCard(props: { card: ForgeWorkItemCardData }) {
                 {detail.kind === "spec" ? "Lead" : "Worker"}:{" "}
                 {threadLink ? (
                   <>
-                    <MarkdownThreadLink {...threadLink} label="T3 thread" foreign />
+                    <MarkdownThreadLink
+                      environmentId={threadLink.environmentId}
+                      link={threadLink}
+                      label="T3 thread"
+                    />
                     {` · ${session.activity}`}
                   </>
                 ) : (

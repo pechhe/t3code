@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeEvents from "node:events";
 import * as NodeNet from "node:net";
 
@@ -62,7 +63,7 @@ const layerTestFor = (platform: NodeJS.Platform = "win32") =>
   NodePtyAdapter.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
-        NodeServices.layer,
+        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
         Layer.succeed(HostProcess.Platform, platform),
         Layer.succeed(HostProcess.Architecture, "x64"),
         Layer.succeed(NodePtyAdapter.NodePtyModuleLoaderRef, () => Promise.resolve(fakeNodePty)),

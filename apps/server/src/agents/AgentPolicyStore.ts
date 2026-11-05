@@ -34,12 +34,13 @@ const decode = Schema.decodeUnknownEffect(json);
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   return AgentPolicyStore.of({
-    save: (snapshot) =>
+    save: Effect.fn("AgentPolicyStore.save")((snapshot) =>
       sql`INSERT INTO agent_policy_snapshots (hash, payload_json)
       VALUES (${snapshot.hash}, ${encode(snapshot)}) ON CONFLICT(hash) DO NOTHING`.pipe(
         Effect.asVoid,
         Effect.mapError((cause) => new AgentPolicyStoreError({ reason: "write", cause })),
       ),
+    ),
     get: Effect.fn("AgentPolicyStore.get")(function* (hash) {
       const rows = yield* sql<{
         payload_json: string;

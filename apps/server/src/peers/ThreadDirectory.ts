@@ -1,5 +1,6 @@
 import {
   type EnvironmentId,
+  ThreadId,
   OrchestratorMcpFailure,
   OrchestratorMcpPeerNotice,
   OrchestratorMcpThreadListPage,
@@ -19,6 +20,8 @@ import * as Schema from "effect/Schema";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 
 import * as PeerEnvironments from "./PeerEnvironments.ts";
+
+const decodeThreadReadResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadReadResult);
 
 /** Most threads or matches asked of each peer when a list or search spans every environment. */
 const PEER_LIST_LIMIT = 20;
@@ -43,7 +46,7 @@ export const reportedBesidePage = <Page>(
   answer: PeerAnswer<Page> | undefined,
 ): ReadonlyArray<PeerAnswer<Page>> => (answer === undefined ? [] : [{ ...answer, page: null }]);
 
-type ListPage = typeof OrchestratorMcpThreadListPage.Type;
+type ListPage = OrchestratorMcpThreadListPage;
 type SearchPage = typeof OrchestratorMcpThreadSearchPage.Type;
 
 /**
@@ -304,9 +307,7 @@ const make = Effect.gen(function* () {
           ),
         );
       if (result.isError) return yield* toFailure(result.text);
-      const decoded = yield* Schema.decodeUnknownEffect(OrchestratorMcpThreadReadResult)(
-        result.structuredContent,
-      ).pipe(
+      const decoded = yield* decodeThreadReadResult(result.structuredContent).pipe(
         Effect.mapError(
           () =>
             new OrchestratorMcpFailure({
@@ -406,17 +407,17 @@ const retag = <
             ? {}
             : {
                 matches: answer.page.matches.map((match) => {
-                  const { link, threadId, title, ...rest } = match;
+                  const { link, threadId, ...rest } = match;
+                  delete rest.title;
                   return {
                     ...rest,
                     environmentId,
                     ...(typeof link === "string" && typeof threadId === "string"
                       ? {
-                          link: formatThreadLink(
-                            threadId,
-                            typeof title === "string" ? title : threadId,
+                          link: formatThreadLink({
+                            threadId: ThreadId.make(threadId),
                             environmentId,
-                          ),
+                          }),
                         }
                       : {}),
                   };

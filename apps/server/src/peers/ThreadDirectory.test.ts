@@ -1,4 +1,4 @@
-import { EnvironmentId, OrchestratorMcpPeerNotice } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, OrchestratorMcpPeerNotice } from "@t3tools/contracts";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -45,9 +45,7 @@ const withPeer = (
   callTool: PeerEnvironments.PeerEnvironments["Service"]["callTool"],
   linked: ReadonlyArray<EnvironmentId> = [peerId],
 ) =>
-  Effect.gen(function* () {
-    return yield* ThreadDirectory.ThreadDirectory;
-  }).pipe(
+  ThreadDirectory.ThreadDirectory.pipe(
     Effect.provide(
       ThreadDirectory.layer.pipe(
         Layer.provide(
@@ -142,7 +140,13 @@ it.effect("points a peer's search match link at the peer's environment", () =>
               title: "Peer work",
               source: "title",
               environmentId: "whatever-the-peer-says",
-              link: formatThreadLink("peer-thread", "Peer work"),
+              link: formatThreadLink(
+                {
+                  threadId: ThreadId.make("peer-thread"),
+                  environmentId: EnvironmentId.make("claimed-by-peer"),
+                },
+                "Peer work",
+              ),
             },
           ],
         },
@@ -150,7 +154,10 @@ it.effect("points a peer's search match link at the peer's environment", () =>
     );
     const [answer] = yield* directory.search(peerId, { query: "peer" });
     expect(answer?.page?.matches).toMatchObject([
-      { environmentId: peerId, link: formatThreadLink("peer-thread", "Peer work", peerId) },
+      {
+        environmentId: peerId,
+        link: formatThreadLink({ threadId: ThreadId.make("peer-thread"), environmentId: peerId }),
+      },
     ]);
   }),
 );

@@ -24,7 +24,7 @@ export class FleetPeers extends Context.Service<
 const make = Effect.gen(function* () {
   const peers = yield* PeerEnvironments.PeerEnvironments;
   return FleetPeers.of({
-    read: (cursors) =>
+    read: Effect.fn("FleetPeers.read")((cursors) =>
       peers.stored.pipe(
         Effect.map((stored) =>
           stored.map((peer) => ({
@@ -69,6 +69,7 @@ const make = Effect.gen(function* () {
           ),
         ),
       ),
+    ),
   });
 });
 export const layer = Layer.effect(FleetPeers, make);

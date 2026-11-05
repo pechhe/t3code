@@ -39,7 +39,7 @@ import {
   isReviewerRole,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -298,7 +298,9 @@ function validDefinition(input: ExperimentDefinition, now: string): boolean {
     input.variants.every((v) =>
       input.lever === "instruction"
         ? v.instructions !== undefined && v.modelSelection === undefined && v.rollover === undefined
-        : v.modelSelection !== undefined && v.rollover === undefined && v.instructions === undefined,
+        : v.modelSelection !== undefined &&
+          v.rollover === undefined &&
+          v.instructions === undefined,
     ) &&
     (!isThreadLever(input.lever) || input.eligibility.taskCategories.length === 0)
   );
@@ -346,7 +348,7 @@ const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const policyStore = yield* PolicyStore.AgentPolicyStore;
   const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
   const persist = <A, E>(operation: string, entityId: string, effect: Effect.Effect<A, E>) =>
     effect.pipe(
       Effect.mapError((cause) =>
@@ -457,7 +459,7 @@ const make = Effect.gen(function* () {
     Effect.forEach(input.variants, (variant) =>
       variant.instructions === undefined
         ? Effect.succeed(true)
-        : crypto.digest("SHA-256", new TextEncoder().encode(variant.instructions.text)).pipe(
+        : crypto.digest(Digest.sha256, new TextEncoder().encode(variant.instructions.text)).pipe(
             Effect.map(
               (digest) => Buffer.from(digest).toString("hex") === variant.instructions?.sha256,
             ),
@@ -2397,8 +2399,12 @@ const make = Effect.gen(function* () {
     list,
     assignments,
     assign,
-    assignForThread: (input) => assign({ ...input, unitKind: "thread", unitId: input.threadId }),
-    assignForTask: (input) => assign({ ...input, unitKind: "task" }),
+    assignForThread: Effect.fn("ExperimentService.assignForThread")((input) =>
+      assign({ ...input, unitKind: "thread", unitId: input.threadId }),
+    ),
+    assignForTask: Effect.fn("ExperimentService.assignForTask")((input) =>
+      assign({ ...input, unitKind: "task" }),
+    ),
     recordOutcome,
     recordObservation,
     recordEvidence,

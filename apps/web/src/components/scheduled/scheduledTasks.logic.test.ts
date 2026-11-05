@@ -226,6 +226,7 @@ describe("schedule drafts", () => {
       { type: "fixed_time", timeOfDay: "18:00", weekdays: [0, 6] },
       { type: "fixed_time", timeOfDay: "07:00" },
       { type: "interval", everyMs: 15 * 60_000 },
+      { type: "once", runAt: "2026-11-04T09:00:00.000Z" },
     ] as const) {
       expect(timedScheduleOf(scheduleDraftOf(schedule))).toEqual(schedule);
     }

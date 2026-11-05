@@ -35,9 +35,17 @@ export class ProjectionMaintenanceError extends Schema.TaggedError<ProjectionMai
 ) {}
 
 export interface ProjectionMaintenanceV2Shape {
-  readonly verify: Effect.Effect<ProjectionVerificationV2, ProjectionMaintenanceError>;
-  readonly rebuild: Effect.Effect<ProjectionVerificationV2, ProjectionMaintenanceError>;
-  readonly compactEventStore: Effect.Effect<
+  readonly verify: Effect.Effect<
+    ProjectionVerificationV2,
+    ProjectionMaintenanceError,
+    EventStore.EventStoreV2 | ProjectionStore.ProjectionStoreV2
+  >;
+  readonly rebuild: Effect.Effect<
+    ProjectionVerificationV2,
+    ProjectionMaintenanceError,
+    EventStore.EventStoreV2 | ProjectionStore.ProjectionStoreV2
+  >;
+  readonly pruneEventStore: (betweenPages?: Effect.Effect<void>) => Effect.Effect<
     {
       readonly deletedEventCount: number;
       readonly deletedReceiptCount: number;
@@ -61,18 +69,14 @@ const encodeEntityKey = Schema.encodeSync(
   Schema.fromJsonString(Schema.Tuple([Schema.String, Schema.String, Schema.NullOr(Schema.String)])),
 );
 
-export const layer: Layer.Layer<
-  ProjectionMaintenanceV2,
-  never,
-  EventStore.EventStoreV2 | ProjectionStore.ProjectionStoreV2 | SqlClient.SqlClient
-> = Layer.effect(
+export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlClient> = Layer.effect(
   ProjectionMaintenanceV2,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const eventStore = yield* EventStore.EventStoreV2;
-    const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
 
     const verify = Effect.gen(function* () {
+      const eventStore = yield* EventStore.EventStoreV2;
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
       const expectedThreadRows = yield* sql<{ readonly thread_id: string }>`
         SELECT DISTINCT stream_id AS thread_id
         FROM orchestration_events INDEXED BY orchestration_events_v2_created_threads_idx
@@ -116,9 +120,11 @@ export const layer: Layer.Layer<
         missingThreadIds,
         unexpectedThreadIds,
       } satisfies ProjectionVerificationV2;
-    }).pipe(sql.withTransaction);
+    }).pipe(sql.withTransaction, Effect.withSpan("ProjectionMaintenance.verify"));
 
     const rebuild = Effect.gen(function* () {
+      const eventStore = yield* EventStore.EventStoreV2;
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
       yield* sql.withTransaction(
         Effect.gen(function* () {
           const throughSequence = yield* eventStore.latestSequence();
@@ -192,7 +198,7 @@ export const layer: Layer.Layer<
         }),
       );
       return yield* verify;
-    });
+    }).pipe(Effect.withSpan("ProjectionMaintenance.rebuild"));
 
     const mapError =
       (operation: string) =>
@@ -244,7 +250,9 @@ export const layer: Layer.Layer<
     const COMPACTION_PAGE_SIZE = 50;
 
     // First and latest keyed events preserve replay insertion order and final state.
-    const compactEventStore = Effect.gen(function* () {
+    const pruneEventStore = Effect.fn("ProjectionMaintenance.pruneEventStore")(function* (
+      betweenPages: Effect.Effect<void> = Effect.void,
+    ) {
       const bounds = yield* sql<{
         readonly event_sequence: number;
         readonly receipt_row_id: number;
@@ -386,6 +394,7 @@ export const layer: Layer.Layer<
           deletedEventCount += deleted.length;
           yield* Effect.yieldNow;
         }
+        yield* betweenPages;
         throughSequence = (rows.at(-1)?.sequence ?? 1) - 1;
         if (rows.length < COMPACTION_PAGE_SIZE) break;
       }
@@ -422,6 +431,7 @@ export const layer: Layer.Layer<
           deletedReceiptCount += obsolete.length;
           yield* Effect.yieldNow;
         }
+        yield* betweenPages;
         throughReceiptRowId = (rows.at(-1)?.row_id ?? 1) - 1;
         if (rows.length < COMPACTION_PAGE_SIZE) break;
       }
@@ -447,7 +457,9 @@ export const layer: Layer.Layer<
     return ProjectionMaintenanceV2.of({
       verify: mapError("verify")(verify),
       rebuild: mapError("rebuild")(rebuild),
-      compactEventStore: mapError("compact event store")(compactEventStore),
+      pruneEventStore: Effect.fn("ProjectionMaintenanceV2.pruneEventStore")((betweenPages) =>
+        mapError("prune event store")(pruneEventStore(betweenPages)),
+      ),
     });
   }),
 );

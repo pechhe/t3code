@@ -482,14 +482,10 @@ const make = Effect.gen(function* () {
    * The commits a pinned reader in this checkout sees: the working copy, or also the single
    * parent of an empty jj working copy, the state `jj commit` leaves. A dirty git tree sees none.
    */
-  const pinnableRevisions = Effect.fn("ManagedAgentService.pinnableRevisions")(function* (
-    actual: string,
-  ) {
-    const jj = yield* fs
-      .exists(path.join(actual, ".jj"))
-      .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })));
-    const output = yield* processes
-      .run({
+  const pinnableRevisions = Effect.fn("ManagedAgentService.pinnableRevisions")(
+    function* (actual: string) {
+      const jj = yield* fs.exists(path.join(actual, ".jj"));
+      const output = yield* processes.run({
         command: jj ? "jj" : "git",
         args: jj
           ? [
@@ -504,24 +500,23 @@ const make = Effect.gen(function* () {
         cwd: actual,
         timeout: "10 seconds",
         maxOutputBytes: 4096,
-      })
-      .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })));
-    if (output.code !== 0) return [];
-    const [current = "", ...parents] = output.stdout.trim().split(" ");
-    if (!jj) {
-      const dirty = yield* processes
-        .run({
+      });
+      if (output.code !== 0) return [];
+      const [current = "", ...parents] = output.stdout.trim().split(" ");
+      if (!jj) {
+        const dirty = yield* processes.run({
           command: "git",
           args: ["status", "--porcelain", "--untracked-files=normal"],
           cwd: actual,
           timeout: "10 seconds",
           maxOutputBytes: 4096,
-        })
-        .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })));
-      if (dirty.code !== 0 || dirty.stdout.trim() !== "") return [];
-    }
-    return parents.length === 1 ? [current, parents[0]!] : [current];
-  });
+        });
+        if (dirty.code !== 0 || dirty.stdout.trim() !== "") return [];
+      }
+      return parents.length === 1 ? [current, parents[0]!] : [current];
+    },
+    Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })),
+  );
   const isolatedLaunches = yield* Semaphore.make(1);
   return ManagedAgentService.of({
     targetProject: Effect.fn("ManagedAgentService.targetProject")(function* ({
@@ -559,13 +554,16 @@ const make = Effect.gen(function* () {
         });
       return matches[0]?.id ?? callerProjectId;
     }),
-    configured: () =>
+    configured: Effect.fn("ManagedAgentService.configured")(() =>
       Config.option(Config.String("T3CODE_AGENT_POLICY_ROOT")).pipe(
         Effect.map(Option.isSome),
         Effect.orElseSucceed(() => false),
       ),
-    exclusive: (effect) => isolatedLaunches.withPermit(effect),
-    repositoryRoots: (binding) =>
+    ),
+    exclusive: Effect.fn("ManagedAgentService.exclusive")((effect) =>
+      isolatedLaunches.withPermit(effect),
+    ),
+    repositoryRoots: Effect.fn("ManagedAgentService.repositoryRoots")((binding) =>
       writesStore(binding)
         ? local(repositoryWriteRoots(binding.workspacePath)).pipe(
             Effect.tapError((cause) =>
@@ -576,6 +574,7 @@ const make = Effect.gen(function* () {
             Effect.orElseSucceed((): ReadonlyArray<string> => []),
           )
         : Effect.succeed([]),
+    ),
     recordHandoff: Effect.fn("ManagedAgentService.recordHandoff")(
       function* (binding, run) {
         if (!handsBack(binding)) return;
@@ -601,14 +600,15 @@ const make = Effect.gen(function* () {
       },
       Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })),
     ),
-    movedRevision: (binding) =>
+    movedRevision: Effect.fn("ManagedAgentService.movedRevision")((binding) =>
       pinnableRevisions(binding.workspacePath).pipe(
         // An empty jj working copy's id changes on every snapshot; its parent is the commit.
         Effect.map((revisions) =>
           revisions.includes(binding.sourceRevision) ? undefined : revisions.at(-1),
         ),
       ),
-    snapshot: () =>
+    ),
+    snapshot: Effect.fn("ManagedAgentService.snapshot")(() =>
       currentPolicy.pipe(
         Effect.tap((snapshot) =>
           store
@@ -616,6 +616,7 @@ const make = Effect.gen(function* () {
             .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause }))),
         ),
       ),
+    ),
     roles: Effect.fn("ManagedAgentService.roles")(function* (input) {
       const snapshot = yield* currentPolicy;
       // Only the roles this policy configures; an optional role it leaves out is not offered.

@@ -18,7 +18,7 @@ Ordinary coding tasks need no T3 tools.
 
 An explicit \`workspaceStrategy\` creates or selects the workspace and prepares it before the agent starts: \`{"type":"worktree","baseRef":"feature/base","branch":"feature/ui-cleanup"}\`, \`{"type":"existing_worktree","worktreePath":"/absolute/path"}\`, or \`{"type":"root"}\`. Omitting it selects the project's default instead: a fresh SlipJay workspace in a repository with slipjay.json, otherwise root. It never inherits the caller's worktree, and asking an agent to run \`git worktree add\` does not bind the thread. A known Forge item, given as its number or a friendly ref such as \`YS-12\`, replaces the strategy: \`{"title":"Search filters","forgeItem":3368,"message":"Implement Forge #3368."}\` binds the thread to that item's SlipJay workspace, resuming it or creating one attached to the item. That is the one way to start Forge work: a thread without \`forgeItem\` runs \`slipjay attach-issue <n>\` in its workspace only when its chat becomes Forge work partway through. Put the task in \`message\`, not \`prompt\`. \`create_threads\` always shares the caller's checkout. \`t3_worktree_handoff\` moves the calling thread, into a new workspace or, with \`worktreePath\`, an existing one such as a workspace you allocated with \`slipjay start\`.
 
-\`t3_thread_launch\` has no idempotency key. Retain its returned threadId and inspect it with \`t3_thread_read\` / \`t3_thread_wait\`; preparation can still be running after acceptance. If a launch fails or its response is lost, inspect \`t3_thread_list\` before retrying, since a thread may already exist.`,
+Reuse a stable \`clientRequestId\` for a retry of \`t3_thread_launch\`. Retain its returned threadId and inspect it with \`t3_thread_read\` / \`t3_thread_wait\`; preparation can still be running after acceptance. If a launch fails or its response is lost, inspect \`t3_thread_list\` before retrying, since a thread may already exist.`,
   `- Given a thread id, \`t3_thread_read\` it before you answer about it.
 - In your reply, a thread's first mention is its \`link\` verbatim. No \`link\`: \`[title](t3-thread://v1/<exact id>)\`, with the exact \`threadId\`, not URL-encoded, and \`?environment=<environmentId>\` for a thread from a linked environment. Never a plain title or bare id. T3 Code opens the thread and shows its current title.
 - A secret: call \`request_secret\` yourself, so the user enters it privately. Pass its one-use \`secretRef\` to the tool that needs it, or use \`delivery: "file"\` for a shell command. Never ask for a secret in chat, invent one, or repeat one.
@@ -69,11 +69,19 @@ export const t3ChildInstructions = (options: {
 /** The orchestration text a thread receives: the parent's, or the child's shorter one. */
 export const t3OrchestrationText = (
   delegated: boolean,
-  listing: { readonly preview?: boolean; readonly html?: boolean } = {},
-): string =>
-  delegated
+  listing: {
+    readonly preview?: boolean;
+    readonly html?: boolean;
+    readonly hasDeviceTools?: boolean;
+  } = {},
+): string => {
+  const instructions = delegated
     ? t3ChildInstructions({ preview: listing.preview === true, html: listing.html !== false })
     : T3_CODE_ORCHESTRATION_INSTRUCTIONS;
+  return listing.hasDeviceTools
+    ? `${instructions}\n${T3_CODE_DEVICE_TOOL_INSTRUCTIONS}\n`
+    : instructions;
+};
 
 export const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `
 
@@ -83,6 +91,25 @@ When browser work was asked, \`preview_*\` is the browser you share with the use
 
 Never use \`preview_*\` to verify or show your own edit, even a frontend edit or an open tab. Do not repeat preview calls from an earlier turn. Use them only when the current request asks for browser work or names a page or tab. Public pages: web fetch or search unless browser work was asked; then preview tools only, no web fetch. Close a tab you opened before you reply, unless the user asked for it or uses it.
 `;
+
+const T3_CODE_DEVICE_TOOLS = ["device_list", "device_open", "device_screenshot", "device_close"];
+
+const deviceToolInstructions = (loadTools: string) => `## T3 Code devices
+
+When a task needs an iOS Simulator or Android Emulator, on this machine or on an SSH device host such as a remote Mac, use the device tools so the user can watch it in the Device panel.${loadTools}
+1. Call \`device_list\` unless you already have the device's \`hostId\` and \`id\`.
+2. Call \`device_open\` with both. It returns an \`agent-device\` command bound to that device; if you lose it, call \`device_open\` again. Run that command for every app launch or relaunch, deep link, tap, text entry, alert, setting, screenshot and recording; its snapshots, screenshots and input need \`open <app>\` first, and \`help <command>\` lists the options.
+3. Call \`device_screenshot\` to look at the screen.
+
+Never do those with \`xcrun simctl\`, \`idb\`, \`adb\`, ssh, or scripts that wrap them. ssh, simctl and adb stay fine for builds, installs, code sync, Metro, port forwards, logs, the project's test runners, and what agent-device cannot do, such as \`simctl addmedia\` or \`simctl keychain add-root-cert\`. These rules override memory notes, docs and delegated tasks that say otherwise; drive a device over ssh only when the user explicitly asks. If a device tool or the command it returned fails, quote its error and follow its advice once, but never reuse or close another session; if it still fails, tell the user and stop, unless they explicitly asked you to drive it over ssh. If the platform you need is unavailable, say so. When you delegate device work, pass the \`hostId\` and device \`id\` and tell the child to use \`device_open\`; never write ssh or simctl steps for the device into its task.`;
+
+/** Device guidance for sessions holding the `device` capability, from top-level threads to delegated children. */
+export const T3_CODE_DEVICE_TOOL_INSTRUCTIONS = deviceToolInstructions("");
+
+/** Claude Code defers MCP tools behind ToolSearch, so Claude's copy says how to load them. */
+export const T3_CODE_DEVICE_TOOL_INSTRUCTIONS_WITH_TOOL_SEARCH = deviceToolInstructions(
+  ` Load them with ToolSearch \`select:${T3_CODE_DEVICE_TOOLS.map((tool) => `mcp__t3-code__${tool}`).join(",")}\`.`,
+);
 
 // ACP only: some ACP agents accept the injected MCP server but never expose
 // its tools, so they need the terminal transport other harnesses never use.
@@ -105,6 +132,7 @@ export interface T3AcpInstructionState {
   readonly preview?: boolean;
   /** The thread's listing carries the html tools. */
   readonly html?: boolean;
+  readonly hasDeviceTools?: boolean;
 }
 
 /** ACP lacks system/developer fields; inject context on first prompt and tool/mode changes. */
@@ -120,7 +148,8 @@ export function t3AcpPromptWithInstructions(input: {
     input.previousState.hasT3Mcp === input.state.hasT3Mcp &&
     (input.previousState.delegated ?? false) === (input.state.delegated ?? false) &&
     (input.previousState.preview ?? false) === (input.state.preview ?? false) &&
-    (input.previousState.html ?? true) === (input.state.html ?? true)
+    (input.previousState.html ?? true) === (input.state.html ?? true) &&
+    input.previousState.hasDeviceTools === input.state.hasDeviceTools
   ) {
     return input.prompt;
   }
@@ -135,6 +164,7 @@ export function t3AcpPromptWithInstructions(input: {
             preview: input.state.preview === true,
             html: input.state.html !== false,
           }).trim(),
+          ...(input.state.hasDeviceTools ? [T3_CODE_DEVICE_TOOL_INSTRUCTIONS] : []),
           T3_CODE_ACP_MCP_FALLBACK_INSTRUCTIONS,
         ]
       : []),
@@ -142,38 +172,39 @@ export function t3AcpPromptWithInstructions(input: {
   return `<t3_code_instructions>\n${instructions.join("\n\n")}\n</t3_code_instructions>\n\n<user_request>\n${input.prompt}\n</user_request>`;
 }
 
-/**
- * Keep the wrapper explicit so it cannot be mistaken for text authored by the user.
- */
-function prependT3OrchestrationInstructions(
-  prompt: string,
-  listing: { readonly delegated: boolean; readonly preview: boolean; readonly html: boolean },
-): string {
-  return `<t3_code_orchestration_instructions>${t3OrchestrationText(listing.delegated, listing).trim()}</t3_code_orchestration_instructions>\n\n<user_request>\n${prompt}\n</user_request>`;
+function prependT3OrchestrationInstructions(prompt: string, instructions: string): string {
+  return `<t3_code_orchestration_instructions>${instructions.trim()}</t3_code_orchestration_instructions>\n\n<user_request>\n${prompt}\n</user_request>`;
 }
 
-export function t3OrchestrationPromptForFirstRun(input: {
+/** For providers whose instructions ride on the prompt, so a compacted conversation loses them. */
+export function t3OrchestrationPrompt(input: {
   readonly prompt: string;
-  readonly runOrdinal: number;
   readonly hasT3Mcp: boolean;
   readonly delegated?: boolean;
   /** The thread's listing carries the preview family. */
   readonly preview?: boolean;
   /** The thread's listing carries the html tools. */
   readonly html?: boolean;
+  readonly hasDeviceTools: boolean;
+  readonly orchestrationDelivered: boolean;
+  readonly deviceInstructionsDelivered: boolean;
 }): string {
-  return input.runOrdinal === 1 && input.hasT3Mcp
-    ? prependT3OrchestrationInstructions(input.prompt, {
-        delegated: input.delegated === true,
-        preview: input.preview === true,
-        html: input.html !== false,
-      })
+  if (!input.hasT3Mcp) return input.prompt;
+  if (!input.orchestrationDelivered) {
+    return prependT3OrchestrationInstructions(
+      input.prompt,
+      t3OrchestrationText(input.delegated === true, input),
+    );
+  }
+  return input.hasDeviceTools && !input.deviceInstructionsDelivered
+    ? prependT3OrchestrationInstructions(input.prompt, T3_CODE_DEVICE_TOOL_INSTRUCTIONS)
     : input.prompt;
 }
 
 export function t3OrchestrationSystemPrompt(
   hasT3Mcp: boolean,
   listing: {
+    readonly hasDeviceTools?: boolean;
     readonly delegated?: boolean;
     readonly preview?: boolean;
     readonly html?: boolean;

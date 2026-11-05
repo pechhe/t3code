@@ -5,7 +5,6 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   type KeyboardEvent,
   type ReactNode,
-  useCallback,
   useEffect,
   useEffectEvent,
   useLayoutEffect,
@@ -42,21 +41,19 @@ function useFlip(changeKey: string) {
   const nodes = useRef(new Map<string, HTMLElement>());
   const captured = useRef<{ rects: Map<string, DOMRect>; target: string; at: number } | null>(null);
   const landedKey = useRef(changeKey);
-  const refFor = useCallback(
-    (key: string) => (node: HTMLElement | null) => {
-      if (!node) return;
-      nodes.current.set(key, node);
-      return () => {
-        if (nodes.current.get(key) === node) nodes.current.delete(key);
-      };
-    },
-    [],
-  );
-  const capture = useCallback((target: string) => {
+  const refFor = (key: string) => (node: HTMLElement | null) => {
+    if (!node) return;
+    nodes.current.set(key, node);
+    return () => {
+      if (nodes.current.get(key) === node) nodes.current.delete(key);
+    };
+  };
+  const capture = (target: string) => {
     const rects = new Map<string, DOMRect>();
     for (const [key, node] of nodes.current) rects.set(key, node.getBoundingClientRect());
     captured.current = { rects, target, at: performance.now() };
-  }, []);
+  };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- animates measured project-choice DOM rectangles after the selected project changes
   useLayoutEffect(() => {
     if (landedKey.current === changeKey) return;
     landedKey.current = changeKey;
@@ -114,7 +111,7 @@ export function DraftHeroHeadline({
     primaryEnvironmentId,
     environmentMachineById,
   } = useDraftProjectChoice({ draftId, activeProjectRef, activeProjectTitle });
-  const openAddProject = useCallback(() => openCommandPalette({ open: "add-project" }), []);
+  const openAddProject = () => openCommandPalette({ open: "add-project" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const noProjectShortcut = shortcutLabelForCommand(keybindings, "chat.newWithoutProject");
   const { refFor, capture } = useFlip(chosenGroup?.projectKey ?? NO_PROJECT_KEY);
@@ -143,6 +140,7 @@ export function DraftHeroHeadline({
     capture(next.group.projectKey);
     selectProject(next.targetProject, next.group.projectKey);
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the project-letter keyboard listener for this chooser
   useEffect(() => {
     window.addEventListener("keydown", onProjectLetter);
     return () => window.removeEventListener("keydown", onProjectLetter);

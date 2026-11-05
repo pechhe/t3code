@@ -14,6 +14,7 @@ import {
   type EnvironmentId,
   connectReachabilityHelpUrl,
   formatConnectReachable,
+  managedCapabilityDenial,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
 import {
@@ -41,17 +42,19 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/men
 import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { Button } from "../ui/button";
+import { Button, InlineButton } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import {
   resolveServerConfigVersionMismatch,
   resolveServerSelfUpdateCapability,
   supportsDesktopAppUpdate,
-  supportsServerUpdateThreadContinuation,
 } from "~/versionSkew";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { isElectron } from "~/env";
 import { useCloudLinkController } from "~/cloud/useCloudLinkController";
+import { useManagedTunnelUsage } from "~/cloud/managedRelayState";
+import { useT3ConnectAccountPage } from "../clerk/T3ConnectAccountPages";
+import { TunnelLimitAlert, TunnelUsageMeter } from "../cloud/TunnelUsage";
 import { environmentCatalog } from "~/connection/catalog";
 import { readEnvironmentScope } from "~/state/session";
 import {
@@ -60,6 +63,7 @@ import {
   usePrimaryEnvironmentId,
 } from "~/state/environments";
 import { APP_VERSION } from "~/branding";
+import { usePrimaryManagedPolicy } from "~/state/managedPolicy";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { serverEnvironment } from "~/state/server";
 import {
@@ -380,7 +384,6 @@ export function SavedBackendListRow({
           selfUpdate={resolveServerSelfUpdateCapability(environment.serverConfig)}
           installation={environment.serverConfig?.environment.capabilities.serverInstallation}
           desktopAppUpdate={supportsDesktopAppUpdate(environment.serverConfig)}
-          threadContinuation={supportsServerUpdateThreadContinuation(environment.serverConfig)}
           targetVersion={versionMismatch.clientVersion}
           label={serverUpdateState.status === "failed" ? "Retry update" : "Update"}
           appearance="icon"
@@ -473,6 +476,56 @@ function CloudLinkSwitch({
   );
 }
 
+/** Tunnel meter, plus the upgrade prompt after the relay refuses a tunnel at the cap. */
+function T3ConnectTunnelUsage({ tunnelLimit }: { readonly tunnelLimit: number | null }) {
+  const usage = useManagedTunnelUsage();
+  const accountPage = useT3ConnectAccountPage();
+  const openAccountPage = accountPage.open;
+  // Usage when the relay refused. The relay also counts tunnels still being set up, so only
+  // a freed tunnel or a higher cap clears the alert, not a meter that merely shows room.
+  const [usedAtRefusal, setUsedAtRefusal] = useState<number | null>(null);
+  if (tunnelLimit === null) {
+    if (usedAtRefusal !== null) setUsedAtRefusal(null);
+  } else if (usedAtRefusal === null && usage.used !== null) {
+    setUsedAtRefusal(usage.used);
+  }
+  const showLimitAlert =
+    tunnelLimit !== null &&
+    !(usedAtRefusal !== null && usage.used !== null && usage.used < usedAtRefusal) &&
+    !(usage.limit !== null && usage.limit > tunnelLimit);
+  const meter =
+    usage.used !== null && usage.limit !== null ? (
+      <TunnelUsageMeter
+        used={usage.used}
+        limit={usage.limit}
+        action={
+          // At the cap the alert below carries the same action.
+          usage.upgrade && openAccountPage && !showLimitAlert ? (
+            <InlineButton onClick={() => openAccountPage("t3-chat")}>Get more tunnels</InlineButton>
+          ) : null
+        }
+      />
+    ) : null;
+  return (
+    <>
+      {meter || showLimitAlert ? (
+        <div className="flex flex-col gap-3 pb-3">
+          {meter}
+          {showLimitAlert ? (
+            <TunnelLimitAlert
+              upgrade={usage.upgrade}
+              onLinkT3Chat={openAccountPage ? () => openAccountPage("t3-chat") : null}
+              onManageTunnels={openAccountPage ? () => openAccountPage("t3-connect") : null}
+            />
+          ) : null}
+        </div>
+      ) : null}
+      {/* Kept outside the conditional so an open account page does not remount. */}
+      {accountPage.portals}
+    </>
+  );
+}
+
 function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: boolean }) {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const {
@@ -484,9 +537,12 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
     publishAgentActivity,
     holdWebhooksWhileOffline,
     operationError,
+    tunnelLimit,
     reconcileCloudState,
   } = useCloudLinkController();
   const { openAuthPrompt } = useT3ConnectAuthPrompt();
+  // The server unlinks and refuses relay changes under such a policy; unlinking stays possible.
+  const connectDenial = managedCapabilityDenial(usePrimaryManagedPolicy(), "connect");
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUpdatingPreference, setIsUpdatingPreference] = useState(false);
 
@@ -512,6 +568,7 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
   const refreshLinkState = useEffectEvent(primaryCloudLinkState.refresh);
   // The server rechecks reachability when the tunnel's 30 s readiness poll changes.
   // Poll while mounted, so a failed read does not stop later ones.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- 30 s interval that refreshes the cloud link reachability while mounted
   useEffect(() => {
     const interval = window.setInterval(() => refreshLinkState(), 30_000);
     return () => window.clearInterval(interval);
@@ -607,21 +664,24 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
         <SettingsRow
           title={searchableSetting("t3-connect").title}
           description={
-            signedOut
-              ? "Sign in to make this environment available to your other devices through T3 Connect."
-              : linkRevoked
-                ? "This environment was removed from T3 Connect. Turn it on to link it again."
-                : managedTunnelActive
-                  ? reachability?.status === "unreachable"
-                    ? "T3 Connect is on, but other devices cannot reach this environment."
-                    : reachability?.status === "reachable"
-                      ? "This environment is available to your other devices through T3 Connect."
-                      : "T3 Connect is on. Reachability has not been checked yet."
-                  : managedTunnelOutOfSync
-                    ? "T3 Connect is out of sync. This environment is linked only to publish agent activity, so other devices cannot connect. Turn T3 Connect on to repair it."
-                    : "Make this environment available to your other devices through T3 Connect."
+            connectDenial !== undefined && !managedTunnelActive
+              ? connectDenial
+              : signedOut
+                ? "Sign in to make this environment available to your other devices through T3 Connect."
+                : linkRevoked
+                  ? "This environment was removed from T3 Connect. Turn it on to link it again."
+                  : managedTunnelActive
+                    ? reachability?.status === "unreachable"
+                      ? "T3 Connect is on, but other devices cannot reach this environment."
+                      : reachability?.status === "reachable"
+                        ? "This environment is available to your other devices through T3 Connect."
+                        : "T3 Connect is on. Reachability has not been checked yet."
+                    : managedTunnelOutOfSync
+                      ? "T3 Connect is out of sync. This environment is linked only to publish agent activity, so other devices cannot connect. Turn T3 Connect on to repair it."
+                      : "Make this environment available to your other devices through T3 Connect."
           }
           status={operationError ?? primaryCloudLinkState.error ?? reachabilityStatus}
+          managed={managedTunnelActive ? undefined : connectDenial}
           control={
             signedOut ? (
               signInButton
@@ -634,7 +694,11 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
               />
             )
           }
-        />
+        >
+          {signedOut || connectDenial !== undefined ? null : (
+            <T3ConnectTunnelUsage tunnelLimit={tunnelLimit} />
+          )}
+        </SettingsRow>
       ) : linkRevoked ? (
         <SettingsRow
           title={searchableSetting("t3-connect").title}
@@ -649,6 +713,7 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
               ? "Sign in to send activity to mobile notifications and Live Activities."
               : "Send activity to mobile notifications and Live Activities without T3 Connect."
           }
+          managed={connectDenial}
           control={
             signedOut ? (
               signInButton
@@ -668,6 +733,7 @@ function ConfiguredCloudLinkRow({ canManageRelay }: { readonly canManageRelay: b
         <SettingsRow
           title={searchableSetting("hold-webhooks-while-offline").title}
           description="Keep webhook requests for up to 24 hours while this environment is offline, then deliver them. Off: T3 Connect only forwards requests and stores nothing."
+          managed={connectDenial}
           control={
             <CloudLinkSwitch
               ariaLabel="Hold webhook requests while this environment is offline"

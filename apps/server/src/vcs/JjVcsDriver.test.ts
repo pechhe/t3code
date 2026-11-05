@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -15,7 +16,7 @@ import { runVcsDriverContractSuite } from "./testing/VcsDriverContractHarness.ts
 
 const layerJjContract = JjVcsDriver.layerVcs.pipe(
   Layer.provideMerge(VcsProcess.layer),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 // What `slipjay status` prints to the driver; null makes the CLI fail as if absent.
@@ -53,7 +54,7 @@ const layerJjWithSlipJay = JjVcsDriver.layerVcs.pipe(
       }),
     ).pipe(Layer.provide(VcsProcess.layer)),
   ),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
 const runJj = (cwd: string, args: ReadonlyArray<string>) =>

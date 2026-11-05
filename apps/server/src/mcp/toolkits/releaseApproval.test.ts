@@ -1,3 +1,7 @@
+import * as ContextPeerForwarding from "../../peer/PeerForwarding.ts";
+import * as ContextPeerLinkRequests from "../../peer/PeerLinkRequests.ts";
+import * as ContextPeerLinks from "../../peer/PeerLinks.ts";
+import * as ContextRemoteDelegation from "../../peer/RemoteDelegation.ts";
 import * as Experiments from "../../experiments/ExperimentService.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -127,9 +131,9 @@ const withTool = <A, E>(
         Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
         Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
         Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
-        Layer.provide(NodeServices.layer),
+        Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         Layer.provide(SqlitePersistence.layerMemory),
-        Layer.provideMerge(McpServer.McpServer.layer),
+        Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
         Layer.provide(
           Layer.merge(
             NodeCrypto.layer,
@@ -191,6 +195,18 @@ it.effect("request_release_approval opens a card for a thread with an active run
         joined: true,
       });
     }),
+  ).pipe(
+    Effect.provide(
+      Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({})).pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(
+            Layer.mock(ContextPeerForwarding.PeerForwarding)({}),
+            Layer.mock(ContextPeerLinkRequests.PeerLinkRequests)({}),
+            Layer.mock(ContextPeerLinks.PeerLinks)({}),
+          ),
+        ),
+      ),
+    ),
   ),
 );
 
@@ -206,6 +222,18 @@ it.effect("request_release_approval refuses input that is not a full commit id o
       expect(missing).toMatchObject({ _tag: "InvalidParams" });
       expect(cards).toEqual([]);
     }),
+  ).pipe(
+    Effect.provide(
+      Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({})).pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(
+            Layer.mock(ContextPeerForwarding.PeerForwarding)({}),
+            Layer.mock(ContextPeerLinkRequests.PeerLinkRequests)({}),
+            Layer.mock(ContextPeerLinks.PeerLinks)({}),
+          ),
+        ),
+      ),
+    ),
   ),
 );
 
@@ -216,5 +244,17 @@ it.effect("request_release_approval refuses a thread with no active run", () =>
       expect(declaredFailure(result)).toMatchObject({ code: "parent_not_active" });
       expect(cards).toEqual([]);
     }),
+  ).pipe(
+    Effect.provide(
+      Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({})).pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(
+            Layer.mock(ContextPeerForwarding.PeerForwarding)({}),
+            Layer.mock(ContextPeerLinkRequests.PeerLinkRequests)({}),
+            Layer.mock(ContextPeerLinks.PeerLinks)({}),
+          ),
+        ),
+      ),
+    ),
   ),
 );

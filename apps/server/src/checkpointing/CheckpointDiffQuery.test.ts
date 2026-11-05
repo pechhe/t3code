@@ -190,13 +190,15 @@ it.effect.each([false, true])(
   },
 );
 
-const layerVcsProcess = VcsProcess.layer.pipe(Layer.provide(NodeServices.layer));
+const layerVcsProcess = VcsProcess.layer.pipe(
+  Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+);
 const layerStore = CheckpointStore.layer.pipe(
   Layer.provide(VcsDriverRegistry.layer.pipe(Layer.provide(layerVcsProcess))),
-  Layer.provide(NodeServices.layer),
+  Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 const layerTest = Layer.merge(layerStore, layerVcsProcess).pipe(
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   Layer.provideMerge(NodeCrypto.layer),
 );
 

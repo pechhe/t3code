@@ -1,12 +1,13 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type { ScopedProjectRef } from "@t3tools/contracts";
-import { useLocation, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useNavigate, type AnyRouter } from "@tanstack/react-router";
+
+import { GUEST_PAGE_PATH } from "../../guestPage";
+import { withoutAssistantCitationHash } from "../../lib/assistantCitationNavigation";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
-import { useThreadRouteTarget } from "../../hooks/useThreadRouteTarget";
 import { readThreadShell } from "../../state/entities";
-import type { ThreadRouteTarget } from "../../threadRoutes";
+import { resolveThreadRouteTarget, type ThreadRouteTarget } from "../../threadRoutes";
 
 /** Settings and Usage open as modals over the last main-app view. */
 export function isAppModalPage(pathname: string) {
@@ -22,22 +23,29 @@ export function isSidebarUtilityPage(pathname: string) {
   );
 }
 
+// Pages the root route always renders without the app shell, so they are never
+// a page to return to. Other paths seen before auth or on a prompt-link landing
+// are still recorded; they are real app URLs, so returning to one is harmless.
+const SHELL_LESS_PATHS = new Set(["/pair", "/connect", "/connect-agent", GUEST_PAGE_PATH]);
+
 let mainAppHref: string | null = null;
 let appModalReturnHref: string | null = null;
 let mainAppThreadTarget: ThreadRouteTarget | null = null;
 
-export function MainAppLocationTracker() {
-  const href = useLocation({ select: (location) => location.href });
-  const pathname = useLocation({ select: (location) => location.pathname });
-  const threadTarget = useThreadRouteTarget();
-  useEffect(() => {
-    if (isAppModalPage(pathname)) return;
+/** Remembers where Settings, Usage, and the utility pages lead back to. */
+export function startMainAppLocationTracking(router: AnyRouter): () => void {
+  const record = () => {
+    const { pathname } = router.state.location;
+    if (isAppModalPage(pathname) || SHELL_LESS_PATHS.has(pathname)) return;
+    const href = withoutAssistantCitationHash(router.state.location.href);
     appModalReturnHref = href;
-    if (isSidebarUtilityPage(pathname)) return;
-    mainAppHref = href;
-    mainAppThreadTarget = threadTarget;
-  }, [href, pathname, threadTarget]);
-  return null;
+    if (!isSidebarUtilityPage(pathname)) {
+      mainAppHref = href;
+      mainAppThreadTarget = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
+    }
+  };
+  record();
+  return router.subscribe("onResolved", record);
 }
 
 export function useNavigateToMainApp() {

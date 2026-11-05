@@ -11,8 +11,8 @@ import * as Stream from "effect/Stream";
 import * as Sse from "effect/encoding/Sse";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientError from "effect/http/HttpClientError";
-import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
 
 /** OpenCode 2 accepts only HTTP Basic auth, always with this user name. */
 const OPENCODE_USERNAME = "opencode";
@@ -74,6 +74,7 @@ export class OpenCode2Client extends Context.Service<
 
 // Heartbeats arrive every 10-15 seconds; longer silence means stuck, not idle.
 const SILENT_STREAM_TIMEOUT = "45 seconds";
+const SUBSCRIPTION_TIMEOUT = "10 seconds";
 
 const decodeEvent = Schema.decodeUnknownResult(Schema.fromJsonString(OpenCodeEvent));
 const decodeEnvelope = Schema.decodeUnknownOption(
@@ -146,7 +147,7 @@ const basicAuthorization = (password: string | Redacted.Redacted) => {
 export const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   return OpenCode2Client.of({
-    connect: ({ baseUrl, password }) => {
+    connect: Effect.fn("OpenCode2Client.connect")(function ({ baseUrl, password }) {
       const authenticated = HttpClient.mapRequest(
         httpClient,
         HttpClientRequest.setHeader("Authorization", basicAuthorization(password)),
@@ -158,12 +159,14 @@ export const make = Effect.gen(function* () {
           events: readEvents.pipe(
             Effect.provideService(
               HttpClient.HttpClient,
-              HttpClient.mapRequest(authenticated, HttpClientRequest.prependUrl(baseUrl)),
+              HttpClient.mapRequest(authenticated, HttpClientRequest.prependUrl(baseUrl)).pipe(
+                HttpClient.timeout(SUBSCRIPTION_TIMEOUT),
+              ),
             ),
           ),
         })),
       );
-    },
+    }),
   });
 });
 

@@ -1,3 +1,4 @@
+import * as DocumentText from "../provider/DocumentText.ts";
 /**
  * Forge Home and person-note delivery use the person's delegated Weave connection. The delegation
  * stays on the server. An outbox survives restarts; deterministic command, message and thread
@@ -338,7 +339,9 @@ const make = Effect.gen(function* () {
   const projects = yield* Project.ProjectService;
   const launches = yield* ThreadLaunch.ThreadLaunchService;
   const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
-  const launchContext = yield* Effect.context<FileSystem.FileSystem | ServerConfig.ServerConfig>();
+  const launchContext = yield* Effect.context<
+    FileSystem.FileSystem | ServerConfig.ServerConfig | DocumentText.DocumentText
+  >();
   const lock = yield* KeyedLock.make<string>();
   const scope = yield* Effect.scope;
   let refreshing: Fiber.Fiber<unknown> | undefined;
@@ -699,19 +702,15 @@ const make = Effect.gen(function* () {
           `No registered T3 project matches ${row.specProject ?? "this Spec's repository"}.`,
         );
       if (row.specNumber === null)
-        return yield* Effect.fail(
-          new ForgeHomeError({
-            reason: "launch_failed",
-            message: "The note has no Forge item number.",
-          }),
-        );
+        return yield* new ForgeHomeError({
+          reason: "launch_failed",
+          message: "The note has no Forge item number.",
+        });
       if (project.defaultModelSelection === null)
-        return yield* Effect.fail(
-          new ForgeHomeError({
-            reason: "launch_failed",
-            message: "The matching project has no default model.",
-          }),
-        );
+        return yield* new ForgeHomeError({
+          reason: "launch_failed",
+          message: "The matching project has no default model.",
+        });
       yield* sql`UPDATE build_send_back_deliveries SET delivered_thread_id = ${fallbackId} WHERE finding_id = ${row.findingId}`;
       yield* ThreadMessageIntake.launchThread({
         commandId: CommandId.make(fallbackId),
@@ -743,18 +742,20 @@ const make = Effect.gen(function* () {
     yield* sql`UPDATE build_send_back_deliveries SET delivered_thread_id = ${threadId} WHERE finding_id = ${row.findingId}`;
     const id = `build-send-back:${row.findingId}`;
     // The command id is the finding's, so sending again after a crash replays the first send.
-    yield* threads.sendToThread({
-      projectId: shell.projectId,
-      commandId: CommandId.make(id),
-      threadId,
-      messageId: MessageId.make(id),
-      text,
-      attachments: [],
-      // Never interrupts a running tool; an idle thread starts a turn at once.
-      mode: "queue",
-      createdBy: "user",
-      creationSource: "server",
-    });
+    yield* threads
+      .sendToThread({
+        projectId: shell.projectId,
+        commandId: CommandId.make(id),
+        threadId,
+        messageId: MessageId.make(id),
+        text,
+        attachments: [],
+        // Never interrupts a running tool; an idle thread starts a turn at once.
+        mode: "queue",
+        createdBy: "user",
+        creationSource: "server",
+      })
+      .pipe(Effect.provideContext(launchContext));
     return { state: "delivered" as const, detail: null };
   });
 
@@ -858,12 +859,10 @@ const make = Effect.gen(function* () {
         Option.flatMap((o) => decodeNotes(o.value)),
       );
       if (Option.isNone(decoded))
-        return yield* Effect.fail(
-          new ForgeHomeError({
-            reason: "launch_failed",
-            message: "Weave could not read undelivered notes.",
-          }),
-        );
+        return yield* new ForgeHomeError({
+          reason: "launch_failed",
+          message: "Weave could not read undelivered notes.",
+        });
       for (const note of decoded.value) {
         if (note.claim !== null && note.claim.environmentId !== environmentId) continue;
         const lead = note.leadThread === null ? null : leadThreadOf(note.leadThread);

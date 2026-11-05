@@ -3,16 +3,19 @@ import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import {
+  isRuntimeModeAbove,
+  managedRuntimeModeCeilingMessage,
   ModelSelection,
   resolveProjectProviderInstanceEnabled,
   OrchestrationV2AppThread,
   ProjectId,
   ProviderInstanceId,
-  type RuntimeMode,
   isLeafAgentTask,
+  RuntimeMode,
+  ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
 import * as Layer from "effect/Layer";
@@ -38,7 +41,31 @@ export class RuntimePolicyResolveError extends Schema.TaggedError<RuntimePolicyR
   }
 }
 
-export const RuntimePolicyV2Error = Schema.Union([RuntimePolicyResolveError]);
+/**
+ * A turn would start in a mode above the policy's ceiling. The orchestrator refuses those when
+ * they are dispatched; this catches the ones it never saw, such as a run resumed after a restart
+ * on a thread whose mode predates the policy.
+ */
+export class RuntimePolicyAboveCeilingError extends Schema.TaggedError<RuntimePolicyAboveCeilingError>()(
+  "RuntimePolicyAboveCeilingError",
+  {
+    threadId: ThreadId,
+    runtimeMode: RuntimeMode,
+    maxRuntimeMode: RuntimeMode,
+    organization: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `${managedRuntimeModeCeilingMessage(this.organization, this.maxRuntimeMode)} Switch this thread's mode to continue.`;
+  }
+}
+
+export const isRuntimePolicyAboveCeilingError = Schema.is(RuntimePolicyAboveCeilingError);
+
+export const RuntimePolicyV2Error = Schema.Union([
+  RuntimePolicyResolveError,
+  RuntimePolicyAboveCeilingError,
+]);
 export type RuntimePolicyV2Error = typeof RuntimePolicyV2Error.Type;
 
 export const RuntimePolicyV2Override = Schema.Struct({
@@ -63,13 +90,14 @@ export class RuntimePolicyV2 extends Context.Service<RuntimePolicyV2, RuntimePol
 // The thread's `compactAt` rides on every policy built here. Only the Claude and Codex adapters
 // read it: no other provider is known to compact natively, so the rest ignore it.
 export const layer: Layer.Layer<RuntimePolicyV2> = Layer.succeed(RuntimePolicyV2, {
-  resolve: (input) =>
-    Effect.succeed({
+  resolve: Effect.fn("RuntimePolicyV2.resolve")(function (input) {
+    return Effect.succeed({
       runtimeMode: input.thread.runtimeMode,
       interactionMode: input.thread.interactionMode,
       cwd: input.thread.worktreePath,
       ...(input.thread.compactAt == null ? {} : { compactAt: input.thread.compactAt }),
-    }),
+    });
+  }),
 });
 
 function providerRuntimeMode(
@@ -83,6 +111,44 @@ function providerRuntimeMode(
     : "approval-required";
 }
 
+const refuseAboveCeiling = (
+  managedPolicy: ServerSettings.ServerSettingsService["Service"]["managedPolicy"],
+  thread: OrchestrationV2AppThread,
+) => {
+  const maxRuntimeMode = managedPolicy?.limits?.maxRuntimeMode;
+  return managedPolicy !== undefined &&
+    maxRuntimeMode !== undefined &&
+    isRuntimeModeAbove(thread.runtimeMode, maxRuntimeMode)
+    ? Effect.fail(
+        new RuntimePolicyAboveCeilingError({
+          threadId: thread.id,
+          runtimeMode: thread.runtimeMode,
+          maxRuntimeMode,
+          organization: managedPolicy.organization,
+        }),
+      )
+    : Effect.void;
+};
+
+/** Lays the policy's ceiling over another runtime policy, as `layerFromProjectStore` does. */
+export const layerEnforcingCeiling: Layer.Layer<
+  RuntimePolicyV2,
+  never,
+  RuntimePolicyV2 | ServerSettings.ServerSettingsService
+> = Layer.effect(
+  RuntimePolicyV2,
+  Effect.gen(function* () {
+    const base = yield* RuntimePolicyV2;
+    const { managedPolicy } = yield* ServerSettings.ServerSettingsService;
+    return RuntimePolicyV2.of({
+      resolve: Effect.fn("RuntimePolicyV2.resolveWithinCeiling")(function* (input) {
+        yield* refuseAboveCeiling(managedPolicy, input.thread);
+        return yield* base.resolve(input);
+      }),
+    });
+  }),
+);
+
 export const layerFromProjectStore: Layer.Layer<
   RuntimePolicyV2,
   never,
@@ -90,7 +156,8 @@ export const layerFromProjectStore: Layer.Layer<
   | ProviderInstanceRegistry.ProviderInstanceRegistry
   | ServerConfig.ServerConfig
   | Path.Path
-  | Crypto.Crypto
+  | Digest.Digest
+  | ServerSettings.ServerSettingsService
 > = Layer.effect(
   RuntimePolicyV2,
   Effect.gen(function* () {
@@ -98,7 +165,7 @@ export const layerFromProjectStore: Layer.Layer<
     const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
     const config = yield* ServerConfig.ServerConfig;
     const path = yield* Path.Path;
-    const crypto = yield* Crypto.Crypto;
+    const crypto = yield* Digest.Digest;
     /**
      * One managed task's temp root. Keyed by a digest of the thread, because a delegated id is
      * long and not path-safe; short keeps a tool's socket under macOS's 104-byte cap. The pid
@@ -107,11 +174,15 @@ export const layerFromProjectStore: Layer.Layer<
     const sandboxTempRootFor = Effect.fn("RuntimePolicyV2.sandboxTempRoot")(function* (thread: {
       readonly id: string;
     }) {
-      const digest = yield* crypto.digest("SHA-256", new TextEncoder().encode(thread.id));
+      const digest = yield* crypto.digest(Digest.sha256, new TextEncoder().encode(thread.id));
       return path.join(config.sandboxTempDir, `${process.pid}-${Hex.encode(digest).slice(0, 16)}`);
     });
+    // The same ceiling the orchestrator enforces, fixed for the server's life.
+    const { managedPolicy } = yield* ServerSettings.ServerSettingsService;
+    const maxRuntimeMode = managedPolicy?.limits?.maxRuntimeMode;
     return RuntimePolicyV2.of({
       resolve: Effect.fn("RuntimePolicyV2.resolve")(function* (input) {
+        yield* refuseAboveCeiling(managedPolicy, input.thread);
         const instance = yield* providerInstances.getInstance(input.modelSelection.instanceId);
         const supportedRuntimeModes =
           instance === undefined
@@ -296,6 +367,7 @@ export const layerFromProjectStore: Layer.Layer<
           cwd,
           ...(compactAt == null ? {} : { compactAt }),
           ...(modelCompactAt == null ? {} : { modelCompactAt }),
+          ...(maxRuntimeMode === undefined ? {} : { maxRuntimeMode }),
         });
       }),
     });

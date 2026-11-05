@@ -8,7 +8,8 @@ import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { currentHqOrigin, sameHqAddress } from "@t3tools/shared/hqOrigins";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -446,7 +447,8 @@ const make = Effect.gen(function* () {
   const reportedRuns = yield* Ref.make<ReadonlyArray<HqForgeRunReport>>([]);
   /** What records a reported run before its agent is answered; nothing until the queue installs it. */
   const runReported = yield* Ref.make<HqRunReportedHandler>(() => Effect.void);
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* Digest.Digest;
+  const secureRandom = yield* SecureRandom.SecureRandom;
   const fileSystem = yield* FileSystem.FileSystem;
   const httpClient = yield* HttpClient.HttpClient;
   const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
@@ -462,14 +464,12 @@ const make = Effect.gen(function* () {
 
   const digest = (value: string) =>
     crypto
-      .digest("SHA-256", new TextEncoder().encode(value))
+      .digest(Digest.sha256, new TextEncoder().encode(value))
       .pipe(Effect.map(bytesToHex), Effect.orDie);
   const storeFailed = () => new HqConnectionError({ reason: "store_failed" });
 
   const readStoredState = store.get(STORE_NAME).pipe(
-    Effect.flatMap((bytes) =>
-      Option.isSome(bytes) ? Effect.succeed(bytes) : store.get(LEGACY_STORE_NAME),
-    ),
+    Effect.filterOrElse(Option.isSome, () => store.get(LEGACY_STORE_NAME)),
     Effect.map(Option.flatMap((bytes) => decodeStored(new TextDecoder().decode(bytes)))),
     Effect.map(
       Option.map((stored) => ({
@@ -1064,7 +1064,7 @@ const make = Effect.gen(function* () {
         existing.agent = agent;
         return;
       }
-      const credential = yield* crypto.randomBytes(32).pipe(
+      const credential = yield* secureRandom.randomBytes(32).pipe(
         Effect.map((bytes) => Buffer.from(bytes).toString("base64url")),
         Effect.orDie,
       );
@@ -1128,19 +1128,20 @@ const make = Effect.gen(function* () {
     prepare,
     // The credential stays stable for the thread's life: a live provider process keeps the
     // headers it started with, and Claude reopens its process when its MCP config changes.
-    connection: (threadId) =>
+    connection: Effect.fn("HqAgentConnections.connection")((threadId) =>
       Effect.sync(() => {
         const connection = threads.get(threadId);
         return connection === undefined
           ? undefined
           : { endpoint, authorizationHeader: `Bearer ${connection.credential}` };
       }),
+    ),
     observe,
     decide,
     forward,
     callAs,
     reportedRuns: Ref.get(reportedRuns),
-    forgetReportedRuns: (recorded) =>
+    forgetReportedRuns: Effect.fn("HqAgentConnections.forgetReportedRuns")((recorded) =>
       // Matched by the run it names, not by the object: stamping replaces the entry it stamps.
       Ref.update(reportedRuns, (reported) =>
         reported.filter(
@@ -1148,7 +1149,8 @@ const make = Effect.gen(function* () {
             !recorded.some((done) => done.threadId === run.threadId && done.runId === run.runId),
         ),
       ),
-    stampReportedRun: (stamped) =>
+    ),
+    stampReportedRun: Effect.fn("HqAgentConnections.stampReportedRun")((stamped) =>
       Ref.update(reportedRuns, (reported) =>
         reported.map((run) =>
           run.threadId === stamped.threadId && run.runId === stamped.runId
@@ -1156,8 +1158,11 @@ const make = Effect.gen(function* () {
             : run,
         ),
       ),
+    ),
     reportedRunChanges: Stream.fromPubSub(reportedRunChanges),
-    setRunReportedHook: (hook) => Ref.set(runReported, hook),
+    setRunReportedHook: Effect.fn("HqAgentConnections.setRunReportedHook")((hook) =>
+      Ref.set(runReported, hook),
+    ),
     buildWriteVersion: Effect.sync(() => buildWriteVersion),
     end,
     endAgent,
@@ -1198,20 +1203,22 @@ export const agentMcpServersLayer = Layer.effect(
   Effect.gen(function* () {
     const connections = yield* HqAgentConnections;
     return AgentMcpServers.AgentMcpServers.of({
-      read: (threadId, registration = "canonical") =>
-        connections.connection(threadId).pipe(
-          Effect.map((connection) =>
-            connection === undefined
-              ? []
-              : (registration === "legacy" ? WEAVE_NAMES.servers : [WEAVE_NAMES.servers[0]]).map(
-                  (name) => ({
-                    name,
-                    url: connection.endpoint,
-                    authorizationHeader: connection.authorizationHeader,
-                  }),
-                ),
+      read: Effect.fn("AgentMcpServers.AgentMcpServers.read")(
+        (threadId, registration = "canonical") =>
+          connections.connection(threadId).pipe(
+            Effect.map((connection) =>
+              connection === undefined
+                ? []
+                : (registration === "legacy" ? WEAVE_NAMES.servers : [WEAVE_NAMES.servers[0]]).map(
+                    (name) => ({
+                      name,
+                      url: connection.endpoint,
+                      authorizationHeader: connection.authorizationHeader,
+                    }),
+                  ),
+            ),
           ),
-        ),
+      ),
     });
   }),
 );

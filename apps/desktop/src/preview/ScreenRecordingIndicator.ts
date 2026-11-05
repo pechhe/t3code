@@ -345,7 +345,9 @@ export const layer = Layer.effect(
     const path = yield* Path.Path;
     // Only macOS lets a window sit over the menu bar; elsewhere the app shows its own controls.
     if (environment.platform !== "darwin") {
-      return ScreenRecordingIndicator.of({ set: () => Effect.succeed(false) });
+      return ScreenRecordingIndicator.of({
+        set: Effect.fn("ScreenRecordingIndicator.set")(() => Effect.succeed(false)),
+      });
     }
     const indicator = yield* Effect.acquireRelease(
       Effect.sync(

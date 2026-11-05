@@ -582,7 +582,7 @@ const make = Effect.gen(function* () {
           ? Option.none<HqAgentConnections.HqAgent>()
           : Option.some({ threadId, role, model: thread.modelSelection.model });
       }),
-      Effect.catch(() => Effect.succeed(Option.none())),
+      Effect.catch(() => Effect.succeedNone),
     );
 
   /**
@@ -947,7 +947,7 @@ const make = Effect.gen(function* () {
     }
     const now = yield* Clock.currentTimeMillis;
     return Math.min(Math.max(next - now, RETRY_BASE_MS), RETRY_MAX_MS);
-  }).pipe(Effect.catch(() => Effect.succeed(RETRY_MAX_MS)));
+  }).pipe(Effect.orElseSucceed(() => RETRY_MAX_MS));
 
   /** Makes every waiting row due again: what failed before may work under this process or Weave. */
   const retryWaitingNow = Effect.gen(function* () {
@@ -1030,7 +1030,7 @@ const make = Effect.gen(function* () {
           );
           // Weave has just answered T3 twice over: a row waiting out an outage may work now.
           if (woke === "connection" || woke === "report")
-            yield* retryWaitingNow.pipe(Effect.catchCause(() => Effect.void));
+            yield* retryWaitingNow.pipe(Effect.ignoreCause);
         }
       }),
     );

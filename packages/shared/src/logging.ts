@@ -151,8 +151,10 @@ export class RotatingFileSink {
       const baseName = NodePath.basename(this.filePath);
       for (const entry of NodeFS.readdirSync(dir)) {
         if (!entry.startsWith(`${baseName}.`)) continue;
-        const suffix = Number(entry.slice(baseName.length + 1));
-        if (!Number.isInteger(suffix) || suffix <= this.maxFiles) continue;
+        const suffixText = entry.slice(baseName.length + 1);
+        const suffix = Number(suffixText);
+        if (!Number.isInteger(suffix) || String(suffix) !== suffixText || suffix <= this.maxFiles)
+          continue;
         NodeFS.rmSync(NodePath.join(dir, entry), { force: true });
       }
     } catch (cause) {
@@ -230,7 +232,7 @@ export const makeAsyncRotatingFileSink = Effect.fnUntraced(function* (
     Effect.map((entries) =>
       entries.flatMap((entry) => {
         if (!entry.startsWith(`${basename}.`)) return [];
-        const match = /^(\d+)(\.gz)?$/.exec(entry.slice(basename.length + 1));
+        const match = /^([1-9]\d*)(\.gz)?$/.exec(entry.slice(basename.length + 1));
         return match === null
           ? []
           : [{ index: Number(match[1]), compressed: match[2] !== undefined, entry }];

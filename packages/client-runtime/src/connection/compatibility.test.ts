@@ -32,6 +32,7 @@ describe("orchestration protocol compatibility", () => {
       String(ORCHESTRATION_PROTOCOL_VERSION),
     );
     expect(socketUrl.searchParams.get("liveResponseStreaming")).toBe("1");
+    expect(socketUrl.searchParams.get("clientCapabilities")).toBe("settingsSecretReferences");
     expect(socketUrl.searchParams.get("wsTicket")).toBe("secret");
     expect(socketUrl.searchParams.get("connectionMethod")).toBe("relay");
   });

@@ -13,7 +13,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
@@ -237,7 +237,7 @@ const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const crypto = yield* Crypto.Crypto;
+  const crypto = yield* SecureRandom.SecureRandom;
   const platform = yield* HostProcess.Platform;
   // Phi keeps each driver's agent tasks apart, and the Mac's own driver holds its Agents
   // Space, so a host reaching that Phi remotely keeps a shared Space of its own.
@@ -453,9 +453,7 @@ const make = Effect.gen(function* () {
               }
               if (tabs.some((tab) => tab.lane === "agents")) return yield* failure("human-control");
             }
-            const tabId = PreviewTabId.make(
-              `phi-${yield* crypto.randomUUIDv4().pipe(Effect.orDie)}`,
-            );
+            const tabId = PreviewTabId.make(`phi-${yield* crypto.uuidV4().pipe(Effect.orDie)}`);
             binding = {
               tabId,
               environmentId: request.scope.environmentId,
@@ -648,7 +646,7 @@ const make = Effect.gen(function* () {
           // Refs resolve only through this tab's map, which each snapshot replaces, so a short
           // random token per snapshot is enough to make another tab's or snapshot's ref fail.
           // Long refs would crowd page text out of the bounded snapshot response.
-          const generation = (yield* crypto.randomUUIDv4().pipe(Effect.orDie)).slice(0, 8);
+          const generation = (yield* crypto.uuidV4().pipe(Effect.orDie)).slice(0, 8);
           const refs = new Map<string, string>();
           const names = new Map<string, string>();
           result.observed.elements.forEach((element, index) => {
@@ -748,9 +746,10 @@ const make = Effect.gen(function* () {
   const service = PhiBrowser.of({
     availability,
     invoke,
-    hasTab: (tabId) =>
+    hasTab: Effect.fn("PhiBrowser.hasTab")((tabId) =>
       Ref.get(state).pipe(Effect.map((tabs) => tabs.some((tab) => tab.tabId === tabId))),
-    list: (scope) =>
+    ),
+    list: Effect.fn("PhiBrowser.list")((scope) =>
       Ref.get(state).pipe(
         Effect.map((tabs) =>
           tabs
@@ -774,7 +773,8 @@ const make = Effect.gen(function* () {
             })),
         ),
       ),
-    releaseSession: (sessionId) =>
+    ),
+    releaseSession: Effect.fn("PhiBrowser.releaseSession")((sessionId) =>
       lock.withPermits(1)(
         Effect.gen(function* () {
           retired.add(sessionId);
@@ -784,6 +784,7 @@ const make = Effect.gen(function* () {
           });
         }),
       ),
+    ),
   });
   // Reconcile resources recorded by the previous process. A human-controlled
   // Agents tab refuses close and keeps its custody record for explicit resume.

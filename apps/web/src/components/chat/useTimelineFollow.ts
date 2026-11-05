@@ -145,10 +145,12 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   const cancelTimelineLiveFollowForUserNavigationRef = useRef(
     cancelTimelineLiveFollowForUserNavigationStable,
   );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes the current navigation cancel handler to the timeline scroll controller ref
   useEffect(() => {
     cancelTimelineLiveFollowForUserNavigationRef.current =
       cancelTimelineLiveFollowForUserNavigationStable;
   }, [cancelTimelineLiveFollowForUserNavigationStable]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- positions the timeline for a newly dispatched user item once the streamed projection arrives
   useEffect(() => {
     const previous = observedTimelineActivityRef.current;
     const dispatchedUserItem =
@@ -206,7 +208,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   );
   const handlePageScrollStart = useEffectEvent((key: PageScrollKey) => {
     timelineScrollIntentRef.current = key === "PageUp" ? "away-from-end" : "toward-end";
-    composerRef.current?.collapseForTimelineScrollKey(key);
+
     if (
       (key === "PageUp" && timelineRealContentOverflowsViewportStable()) ||
       !isTimelineAtLogicalEndStable()
@@ -214,6 +216,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
       cancelTimelineLiveFollowForUserNavigationStable();
     }
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- installs the page scroll controller for the timeline DOM element
   useEffect(() => {
     const controller = createPageScrollController({
       getContainer: () => legendListRef.current?.getScrollableNode() ?? null,
@@ -271,8 +274,8 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     });
   };
   const scrollToEndStable = useStableCallback(scrollToEnd);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes the timeline DOM scroll gesture and composer focus listeners
   useEffect(() => {
-    const composer = composerRef;
     let removeListeners: (() => void) | null = null;
     let frame: number | null = null;
     const attach = (remainingAttempts: number) => {
@@ -307,7 +310,6 @@ export function useTimelineFollow(input: TimelineFollowInput) {
           if (event.deltaY > 0) {
             timelineScrollIntentRef.current = "toward-end";
             if (isAtEndRef.current) {
-              composer.current?.restoreAfterTimelineReachedEnd();
             }
           } else if (event.deltaY < 0) {
             timelineScrollIntentRef.current = "away-from-end";
@@ -375,7 +377,6 @@ export function useTimelineFollow(input: TimelineFollowInput) {
               timelineScrollIntentRef.current = "away-from-end";
               if (contentScrollsUp()) {
                 handleManualNavigation();
-                composer.current?.collapseForTimelineScrollKey(event.key);
               }
               break;
             case "PageDown":
@@ -385,9 +386,8 @@ export function useTimelineFollow(input: TimelineFollowInput) {
               if (viewportIsAwayFromEnd()) {
                 handleManualNavigation();
               }
-              composer.current?.collapseForTimelineScrollKey(event.key);
+
               if (isTimelineAtLogicalEndStable()) {
-                composer.current?.restoreAfterTimelineReachedEnd();
               }
               break;
             default:
@@ -587,9 +587,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
   };
   const onTimelineAnchorSizeChangedStable = useStableCallback(onTimelineAnchorSizeChanged);
 
-  const onToolOutputCollapsedAtEnd = () => {
-    composerRef.current?.restoreAfterTimelineReachedEnd();
-  };
+  const onToolOutputCollapsedAtEnd = () => {};
   const onToolOutputCollapsedAtEndStable = useStableCallback(onToolOutputCollapsedAtEnd);
 
   const onIsAtEndChange = (isAtEnd: boolean) => {
@@ -605,7 +603,6 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     isAtEndRef.current = isAtEnd;
     if (isAtEnd) {
       if (timelineScrollIntentRef.current === "toward-end") {
-        composerRef.current?.restoreAfterTimelineReachedEnd();
       }
       timelineScrollModeRef.current = "following-end";
       liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
@@ -633,6 +630,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     setTimelineLiveFollowEnabled(followEnd);
     setShowScrollToBottom(!followEnd);
   }
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- restores the selected thread scroll-controller refs and cancels the prior thread debounce
   useEffect(() => {
     const { followEnd } = timelineThreadReset;
     isAtEndRef.current = followEnd;

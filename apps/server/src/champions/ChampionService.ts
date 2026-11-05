@@ -31,7 +31,7 @@ import {
   type ModelSelection,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -247,13 +247,13 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const scheduler = yield* Scheduler.Scheduler;
   const landings = yield* Effect.serviceOption(SlipJayLandings.SlipJayLandings);
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const lock = yield* Semaphore.make(1);
   const changes = yield* PubSub.sliding<void>(1);
   const shellChanges = yield* PubSub.unbounded<ThreadId>();
   const failure = (cause: unknown) => new ChampionError({ reason: "unavailable", cause });
   const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
-  const uuid = crypto.randomUUIDv4().pipe(Effect.mapError(failure));
+  const uuid = random.uuidV4().pipe(Effect.mapError(failure));
   const mutate = <A, R>(effect: Effect.Effect<A, ChampionError, R>) =>
     Effect.suspend(() => {
       const batch = { changed: false, owners: new Set<ThreadId>() };
@@ -371,13 +371,9 @@ const make = Effect.gen(function* () {
   const byThread = Effect.fn("ChampionService.byThread")(function* (threadId: ThreadId) {
     const rows = yield* sql<{ document_json: string }>`SELECT document_json FROM champions
       WHERE json_extract(document_json, '$.champion.ownerThreadId') = ${threadId}
-      OR json_extract(document_json, '$.champion.setupThreadId') = ${threadId}`.pipe(
-      Effect.mapError(failure),
-    );
-    return rows[0] === undefined
-      ? undefined
-      : yield* decodeDocument(rows[0].document_json).pipe(Effect.mapError(failure));
-  });
+      OR json_extract(document_json, '$.champion.setupThreadId') = ${threadId}`;
+    return rows[0] === undefined ? undefined : yield* decodeDocument(rows[0].document_json);
+  }, Effect.mapError(failure));
   const list: ChampionService["Service"]["list"] = Effect.fn("ChampionService.list")(
     function* (input) {
       const rows =
@@ -537,11 +533,9 @@ const make = Effect.gen(function* () {
   });
   const saveCheck = Effect.fn("ChampionService.saveCheck")(function* (check: Check) {
     yield* sql`INSERT INTO champion_checks (id, champion_id, thread_id, message_id, started_at, status, document_json)
-      VALUES (${check.id}, ${check.championId}, ${check.threadId}, ${check.messageId}, ${check.startedAt}, ${check.cancelled ? "cancelled" : check.reported ? "reported" : "pending"}, ${yield* encodeCheck(check).pipe(Effect.mapError(failure))})
-      ON CONFLICT(id) DO UPDATE SET status = excluded.status, message_id = excluded.message_id, document_json = excluded.document_json`.pipe(
-      Effect.mapError(failure),
-    );
-  });
+      VALUES (${check.id}, ${check.championId}, ${check.threadId}, ${check.messageId}, ${check.startedAt}, ${check.cancelled ? "cancelled" : check.reported ? "reported" : "pending"}, ${yield* encodeCheck(check)})
+      ON CONFLICT(id) DO UPDATE SET status = excluded.status, message_id = excluded.message_id, document_json = excluded.document_json`;
+  }, Effect.mapError(failure));
   const readCheck = Effect.fn("ChampionService.readCheck")(function* (id: string) {
     const rows = yield* sql<{
       document_json: string;
@@ -609,7 +603,9 @@ const make = Effect.gen(function* () {
         (p) => p.instanceId === modelSelection.instanceId,
       );
       if (
-        provider?.requiresNewThreadForModelChange === true &&
+        provider !== undefined &&
+        "requiresNewThreadForModelChange" in provider &&
+        provider.requiresNewThreadForModelChange === true &&
         (existing.modelSelection.instanceId !== modelSelection.instanceId ||
           existing.modelSelection.model !== modelSelection.model)
       )
@@ -2069,7 +2065,7 @@ const make = Effect.gen(function* () {
       ]) {
         if (pendingId === null) continue;
         const check = yield* readCheck(pendingId);
-        if (!check.dispatched) yield* dispatchCheck(check).pipe(Effect.catch(() => Effect.void));
+        if (!check.dispatched) yield* dispatchCheck(check).pipe(Effect.ignore);
         const shell = check.dispatched
           ? yield* threads.getThreadShell(check.threadId).pipe(Effect.mapError(failure))
           : null;

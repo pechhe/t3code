@@ -1,3 +1,5 @@
+import * as ContextRemoteDelegation from "../peer/RemoteDelegation.ts";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import { assert, it } from "@effect/vitest";
 import {
@@ -14,7 +16,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
+
 import * as Ref from "effect/Ref";
 
 import * as Experiments from "../experiments/ExperimentService.ts";
@@ -140,7 +142,7 @@ const dependencies = (input: {
     Layer.provide(
       Layer.mergeAll(
         Layer.merge(
-          NodeServices.layer,
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
           Layer.mock(Experiments.ExperimentService)({
             enrollWork: (value) =>
               input.enrollWork?.(value) ?? Effect.die("unexpected enrollWork call"),
@@ -182,7 +184,7 @@ const dependencies = (input: {
           list: () => Effect.succeed(input.adapters ?? []),
         }),
         Layer.mock(ProjectService.ProjectService)({
-          getById: () => Effect.succeed(Option.some(project)),
+          getById: () => Effect.succeedSome(project),
         }),
         Layer.mock(SecretRequests.SecretRequests)({}),
         Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
@@ -250,7 +252,7 @@ it.effect("derives T3 enrollment ownership and model from the active parent run"
     assert.instanceOf(error, OrchestratorMcpFailure);
     assert.equal(error.code, "invalid_request");
     assert.equal((yield* Ref.get(enrolled)).length, 1);
-  }),
+  }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({})))),
 );
 
 it.effect("derives external enrollment ownership from the attached session", () =>
@@ -296,7 +298,7 @@ it.effect("derives external enrollment ownership from the attached session", () 
       policyRevision: agentPolicySnapshot().sourceRevision,
       alreadyStarted: false,
     });
-  }),
+  }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({})))),
 );
 
 it.effect("refuses stale parents and managed leaves before recording work", () =>
@@ -344,7 +346,7 @@ it.effect("refuses stale parents and managed leaves before recording work", () =
     );
     assert.equal(leaf.code, "capability_denied");
     assert.equal(yield* Ref.get(calls), 0);
-  }),
+  }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({})))),
 );
 
 it.effect("allows an external read-only caller to request its owned work report", () =>
@@ -367,7 +369,7 @@ it.effect("allows an external read-only caller to request its owned work report"
       service.readWork(scope, { workUnitId: "work:owned" }),
     );
     assert.deepEqual(yield* Ref.get(readers), [reader]);
-  }),
+  }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({})))),
 );
 
 it.effect(
@@ -414,7 +416,9 @@ it.effect(
           );
         }),
       );
-    }),
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
 );
 
 it.effect(
@@ -463,7 +467,9 @@ it.effect(
             Effect.map((error) => assert.equal(error.code, "capability_denied")),
           ),
       );
-    }),
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
 );
 
 it.effect(
@@ -578,5 +584,7 @@ it.effect(
               ],
         );
       }
-    }),
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
 );

@@ -1,4 +1,3 @@
-import { useAtomValue } from "@effect/atom-react";
 import { WS_METHODS } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
@@ -35,6 +34,7 @@ const untrackedRpcAckMethods = new Set<string>([
   // A background poll that waits on Weave for up to its 60s timeout; the Forge chip
   // already shows when Weave is unavailable.
   WS_METHODS.forgeHomeRead,
+  WS_METHODS.sourceControlSignInWait,
 ]);
 const longRunningRpcAckMethods = new Set<string>([
   WS_METHODS.serverUpdateProvider,
@@ -139,6 +139,8 @@ function evictOldestPendingRpcRequestIfNeeded(): void {
   }
 }
 
-export function useSlowRpcAckRequests(): ReadonlyArray<SlowRpcAckRequest> {
-  return useAtomValue(slowRpcAckRequestsAtom);
+export function subscribeSlowRpcAckRequests(
+  listener: (requests: ReadonlyArray<SlowRpcAckRequest>) => void,
+): () => void {
+  return appAtomRegistry.subscribe(slowRpcAckRequestsAtom, listener);
 }

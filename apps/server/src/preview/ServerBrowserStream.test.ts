@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -25,7 +26,9 @@ import * as PreviewBrowserHost from "./PreviewBrowserHost.ts";
 import * as ServerBrowser from "./ServerBrowser.ts";
 import { routeLayer } from "./ServerBrowserStream.ts";
 
-const platformLayer = NodeHttpPlatform.layer.pipe(Layer.provideMerge(NodeServices.layer));
+const platformLayer = NodeHttpPlatform.layer.pipe(
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+);
 
 const makeAuth = (
   scopes: ReadonlyArray<AuthEnvironmentScope>,
@@ -90,7 +93,7 @@ it.effect.each([
     });
     const browser = ServerBrowser.ServerBrowser.of({
       clearProfile: () => Effect.void,
-      reportProfiles: () => Effect.void,
+      profileReporter: Effect.succeed(() => Effect.void),
       openDownload: () => Effect.succeedNone,
       answerFileChooser: () => Effect.succeed(false),
       attachViewer: (input) =>
@@ -165,7 +168,7 @@ it.effect("sends replies ahead of stale frames and only the newest frame after a
     });
     const browser = ServerBrowser.ServerBrowser.of({
       clearProfile: () => Effect.void,
-      reportProfiles: () => Effect.void,
+      profileReporter: Effect.succeed(() => Effect.void),
       openDownload: () => Effect.succeedNone,
       answerFileChooser: () => Effect.succeed(false),
       attachViewer: () => Effect.succeed({ output, input: () => Effect.void }),
@@ -236,7 +239,7 @@ it.effect.each([
     let attachments = 0;
     const browser = ServerBrowser.ServerBrowser.of({
       clearProfile: () => Effect.void,
-      reportProfiles: () => Effect.void,
+      profileReporter: Effect.succeed(() => Effect.void),
       openDownload: () => Effect.succeedNone,
       answerFileChooser: () => Effect.succeed(false),
       attachViewer: () => {
@@ -277,7 +280,7 @@ it.effect("serves a tab's download only to an authorized session", () =>
     const requests: Array<unknown> = [];
     const browser = ServerBrowser.ServerBrowser.of({
       clearProfile: () => Effect.void,
-      reportProfiles: () => Effect.void,
+      profileReporter: Effect.succeed(() => Effect.void),
       openDownload: (input) =>
         Effect.sync(() => {
           requests.push(input);
@@ -317,7 +320,7 @@ it.effect("serves a tab's download only to an authorized session", () =>
     expect(yield* Effect.promise(() => response.text())).toBe("report contents");
     const missing = yield* serve([AuthOrchestrationReadScope], `${base}&id=other`);
     expect(missing.status).toBe(404);
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("passes uploaded files to the page's open picker and needs operate scope", () =>
@@ -325,7 +328,7 @@ it.effect("passes uploaded files to the page's open picker and needs operate sco
     const answers: Array<{ chooserId: string; files: Array<{ name: string; text: string }> }> = [];
     const browser = ServerBrowser.ServerBrowser.of({
       clearProfile: () => Effect.void,
-      reportProfiles: () => Effect.void,
+      profileReporter: Effect.succeed(() => Effect.void),
       openDownload: () => Effect.succeedNone,
       answerFileChooser: (input) =>
         Effect.sync(() => {
@@ -394,7 +397,7 @@ it.effect.each([
   Effect.gen(function* () {
     const browser = ServerBrowser.ServerBrowser.of({
       clearProfile: () => Effect.void,
-      reportProfiles: () => Effect.void,
+      profileReporter: Effect.succeed(() => Effect.void),
       openDownload: () => Effect.succeedNone,
       answerFileChooser: () => Effect.succeed(false),
       attachViewer: () => Effect.fail(new ServerBrowser.ServerBrowserLaunchError({ cause: error })),

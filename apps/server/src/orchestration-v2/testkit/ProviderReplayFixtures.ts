@@ -25,16 +25,15 @@ import {
 } from "./ProviderReplayHarness.ts";
 import { materializeReplayTranscriptRuntimeInstructions } from "./ReplayRuntimeInstructions.ts";
 
-// Each driver's fixtures run from its own <Provider>ReplayFixtures<group>.integration.test.ts
-// files, so a focused run loads one adapter. Tests within a file run one after another, so a
-// driver whose fixtures are slow spreads them over several files that run in parallel. A
-// fixture for a driver missing here, or a group whose file is missing, would silently never
-// run, so loading this module fails instead.
+// Each driver has grouped integration files so a focused run loads only one adapter.
+// Fail module loading for an unregistered driver or missing group, which would silently skip fixtures.
 const REPLAY_FIXTURE_FILES: Readonly<Record<string, { stem: string; files: number }>> = {
   acpRegistry: { stem: "AcpRegistryReplayFixtures", files: 1 },
   claudeAgent: { stem: "ClaudeReplayFixtures", files: 6 },
   codex: { stem: "CodexReplayFixtures", files: 1 },
   cursor: { stem: "CursorReplayFixtures", files: 1 },
+  fx: { stem: "FxReplayFixtures", files: 1 },
+  kiro: { stem: "KiroReplayFixtures", files: 1 },
   grok: { stem: "GrokReplayFixtures", files: 2 },
   muse: { stem: "MuseReplayFixtures", files: 1 },
   opencode: { stem: "OpenCodeReplayFixtures", files: 2 },
@@ -187,7 +186,14 @@ const runFixtureProvider = Effect.fn("runOrchestratorReplayFixture")(function* <
   const projection = result.projections.get(projectionThreadId);
   assert.isDefined(projection);
   const latestRun = projection.runs.at(-1);
-  assert.deepEqual(latestRun?.modelSelection, input.driver.modelSelection);
+  // A `set_model` step moves later runs to another model of the same instance.
+  const finalModel = fixtureInput.steps.findLast((step) => step.type === "set_model");
+  assert.deepEqual(
+    latestRun?.modelSelection,
+    finalModel?.type === "set_model"
+      ? { ...input.driver.modelSelection, model: finalModel.model }
+      : input.driver.modelSelection,
+  );
   if (projection.runs.some((run) => run.status === "completed")) {
     const threadStartCheckpoint = projection.checkpoints.find(
       (checkpoint) => checkpoint.ordinalWithinScope === 0 && checkpoint.appRunOrdinal === null,

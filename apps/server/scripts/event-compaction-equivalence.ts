@@ -14,6 +14,8 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+
 import * as EventStore from "../src/orchestration-v2/EventStore.ts";
 import * as Maintenance from "../src/orchestration-v2/ProjectionMaintenance.ts";
 import * as ProjectionStore from "../src/orchestration-v2/ProjectionStore.ts";
@@ -165,7 +167,7 @@ const replay = Effect.gen(function* () {
       if (page.length < 500) break;
     }
     results[thread_id] = NodeCrypto.createHash("sha256")
-      .update(JSON.stringify(projection))
+      .update(yield* encodeJson(projection))
       .digest("hex");
     completed++;
     if (completed % 100 === 0) report("replay-progress", { completed, total: ids.length });
@@ -212,11 +214,9 @@ await Effect.runPromise(
       const original = yield* Effect.promise(async () => snapshot());
       report("original-projections", original);
       const baselineReplay = yield* timed("baseline-replay", replay);
+      const baselineReplayJson = yield* encodeJson(baselineReplay);
       yield* Effect.promise(() =>
-        NodeFSP.writeFile(
-          NodePath.join(directory, "baseline-replay.json"),
-          JSON.stringify(baselineReplay),
-        ),
+        NodeFSP.writeFile(NodePath.join(directory, "baseline-replay.json"), baselineReplayJson),
       );
       const baselineVerification = yield* timed("baseline-rebuild", maintenance.rebuild);
       report("baseline-verification", baselineVerification);
@@ -224,16 +224,17 @@ await Effect.runPromise(
       const before = yield* Effect.promise(async () => snapshot());
       report("baseline-projections", before);
       report("baseline-rebuild-differences", differences(original, before));
+      const baselineProjectionsJson = yield* encodeJson(before);
       yield* Effect.promise(() =>
         NodeFSP.writeFile(
           NodePath.join(directory, "baseline-projections.json"),
-          JSON.stringify(before),
+          baselineProjectionsJson,
         ),
       );
       return { baselineReplay, before };
     });
     report("before-compaction", yield* Effect.promise(accounting));
-    report("compaction", yield* timed("compaction-runtime", maintenance.compactEventStore));
+    report("compaction", yield* timed("compaction-runtime", maintenance.pruneEventStore()));
     report("after-compaction", yield* Effect.promise(accounting));
     const afterReplay = yield* timed("compacted-replay", replay);
     const replayDifferences = differences(baselineReplay, afterReplay);

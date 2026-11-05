@@ -91,15 +91,15 @@ const session = (
 // child lists its own work family and the leaf tools only. A change that needs a higher
 // ceiling states the new number and what bought it.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
-  // Bounded decisions adds 2,061 characters; the ordinary catalogue measures 42,304.
-  ["ordinary", undefined, 42_400],
+  // Upstream 4192 schemas plus bounded decisions measure 44,010 characters.
+  ["ordinary", undefined, 44_100],
   // The preview endpoint is a browser session's listing, so it carries no control plane.
   // Bounded decisions adds the same 2,061 characters to the browser catalogue.
   ["browser/preview", session("phi", "browser"), 34_900],
   ["ui-verifier", session("phi", "ui-verifier"), 120_000],
   ["ui-worker", session("implementation-phi", "ui-worker"), 115_000],
-  // 82,359 measured; the web family's `web_search` and `web_fetch` now count on this endpoint.
-  ["researcher", session("web-research", "researcher"), 82_400],
+  // Upstream schemas with the web family measure 86,159 characters on this endpoint.
+  ["researcher", session("web-research", "researcher"), 86_200],
   ["scout", session("source-reader", "scout"), 90_000],
   ["delegated browser", session("phi", "browser", true), 40_000],
   ["delegated ui-verifier", session("phi", "ui-verifier", true), 40_000],
@@ -108,15 +108,15 @@ const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> =
     session("implementation", "implementation-worker", true),
     45_000,
   ],
-  // 18,638 measured; those two web tools are all this child adds to its leaf listing.
-  ["delegated researcher", session("web-research", "researcher", true), 18_700],
+  // The updated web tools and leaf listing measure 19,470 characters.
+  ["delegated researcher", session("web-research", "researcher", true), 19_500],
   ["delegated scout", session("source-reader", "scout", true), 15_000],
   ["delegated reviewer", session("source-reader", "ticket-reviewer", true), 15_000],
 ];
 
 it("keeps every session endpoint under its payload budget", () => {
   for (const [label, profile, ceiling] of budgets) {
-    expect(payloadChars(profile), `${label} payload chars`).toBeLessThan(ceiling);
+    expect.soft(payloadChars(profile), `${label} payload chars`).toBeLessThan(ceiling);
   }
 });
 

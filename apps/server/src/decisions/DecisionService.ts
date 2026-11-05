@@ -1,4 +1,4 @@
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import {
   DECISION_LIMITS,
   DecisionError,
@@ -68,7 +68,7 @@ const validate = (raw: unknown) =>
   });
 
 const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const digestService = yield* Digest.Digest;
   const http = HttpClient.withScope(yield* HttpClient.HttpClient);
   const secrets = yield* ServerSecretStore.ServerSecretStore;
   let active = 0;
@@ -131,9 +131,9 @@ const make = Effect.gen(function* () {
   ) {
     const started = yield* Clock.currentTimeMillis;
     const input = yield* validate(raw);
-    const digestBytes = yield* crypto
+    const digestBytes = yield* digestService
       .digest(
-        "SHA-256",
+        Digest.sha256,
         new TextEncoder().encode(
           canonical({
             input,

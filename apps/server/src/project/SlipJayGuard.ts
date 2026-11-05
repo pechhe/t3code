@@ -12,16 +12,9 @@ import * as ProcessRunner from "../processRunner.ts";
 import { findSlipJayProject } from "../vcs/SlipJayProject.ts";
 
 /**
- * Whether one command a provider agent wants to run may run, decided by the same
- * `slipjay guard` a harness hook runs. T3 keeps no rules of its own here: it asks
- * SlipJay and reports the answer, so a rule added to the guard reaches every driver
- * at once and no second implementation can drift from it.
- *
- * A call outside a SlipJay repository must stay cheap, and a driver pays this on
- * every command, so the two questions are cached: whether this directory is
- * governed at all (answered without running anything in the common case), and the
- * verdict for a directory and command. A guard that cannot run allows the call, as
- * the hooks do.
+ * Delegate command verdicts to SlipJay so every driver shares the harness guard's rules.
+ * Cache governance and command verdicts to keep per-command checks cheap outside governed repos.
+ * An unavailable guard allows the call, matching the hooks.
  */
 export interface SlipJayGuardDecision {
   readonly allowed: boolean;
@@ -157,13 +150,8 @@ const make = Effect.gen(function* () {
     },
   });
 
-  // A guard that cannot answer, for any reason, must not block the agent: the hooks
-  // let the call through when the guard fails, and so does T3.
-  //
-  // A jj verdict depends on the working copy it runs against: `jj new` is refused
-  // while `@` holds undescribed work and allowed a moment later, so caching it would
-  // refuse a retry the agent has just earned, or allow one it has not. Those commands
-  // ask every time; a branch push's answer does not move with the working copy.
+  // Guard failures allow the command, matching harness hooks.
+  // JJ verdicts depend on the working copy, so ask on every attempt rather than caching them.
   const check = Effect.fn("SlipJayGuard.check")((input: SlipJayGuardInput) =>
     isStateDependentCommand(input.command)
       ? Cache.get(governed, input.cwd).pipe(
@@ -177,7 +165,9 @@ const make = Effect.gen(function* () {
 
   return SlipJayGuard.of({
     check,
-    governs: (directory) => Cache.get(governed, directory).pipe(Effect.orElseSucceed(() => false)),
+    governs: Effect.fn("SlipJayGuard.governs")((directory) =>
+      Cache.get(governed, directory).pipe(Effect.orElseSucceed(() => false)),
+    ),
   });
 });
 

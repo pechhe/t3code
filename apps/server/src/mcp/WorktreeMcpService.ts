@@ -1,5 +1,6 @@
 import {
   CommandId,
+  type GitCommandError,
   MessageId,
   type ProjectId,
   type ThreadId,
@@ -13,15 +14,20 @@ import {
   type WorktreeMcpHandoffResult,
   type WorktreeMcpSetupScriptStatus,
   type WorktreeMcpStatusResult,
+  type VcsListRefsInput,
+  type VcsListRefsResult,
 } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
 import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
+import type * as PlatformError from "effect/PlatformError";
 
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -51,6 +57,12 @@ export class WorktreeMcpService extends Context.Service<
       scope: McpInvocationScope,
       input: WorktreeMcpDetachInput,
     ) => Effect.Effect<WorktreeMcpDetachResult, WorktreeMcpFailure>;
+    readonly listRefs: (
+      input: Omit<VcsListRefsInput, "cwd"> & {
+        readonly worktreePath: string | null;
+        readonly workspaceRoot: string;
+      },
+    ) => Effect.Effect<VcsListRefsResult, GitCommandError | PlatformError.PlatformError>;
   }
 >()("t3/mcp/WorktreeMcpService") {}
 
@@ -86,7 +98,8 @@ const asOperationFailed = (prefix: string) =>
   );
 
 const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
+  const fileSystem = yield* FileSystem.FileSystem;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const projects = yield* ProjectService.ProjectService;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -153,13 +166,17 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const readDefaultStartFromOrigin = serverSettings.getSettings.pipe(
-    Effect.map((settings) => settings.newWorktreesStartFromOrigin),
-    asOperationFailed("Unable to read server settings"),
-  );
+  const readDefaultStartFromOrigin = (projectId: ProjectId) =>
+    serverSettings.getSettings.pipe(
+      Effect.map(
+        (settings) =>
+          resolveProjectSettings(settings, projectId).settings.newWorktreesStartFromOrigin,
+      ),
+      asOperationFailed("Unable to read server settings"),
+    );
 
   const handoffIds = (scope: McpThreadInvocationScope) =>
-    crypto.randomUUIDv4().pipe(
+    random.uuidV4().pipe(
       Effect.map((uuid) => {
         const part = (kind: string, operation: string) =>
           [kind, "mcp", encodeURIComponent(scope.thread.providerSessionId), operation, uuid].join(
@@ -218,19 +235,13 @@ const make = Effect.gen(function* () {
     } else {
       checkout = slipjay
         ? slipjayCheckout(projectCwd, branch, scope.thread.threadId)
-        : yield* prepareGitCheckout(projectCwd, { ...input, branch });
+        : yield* prepareGitCheckout(projectCwd, project.id, { ...input, branch });
     }
 
     const ids = yield* handoffIds(scope);
 
-    // uninterruptibleMask: only the potentially slow worktree creation itself
-    // stays interruptible (restore). From the moment it succeeds, through the
-    // binding, continuation queue, setup script launch, and result
-    // construction, there is no interruptible gap: a client cancel can
-    // therefore neither orphan the created worktree before the rollback is
-    // armed, nor skip setting up a worktree the thread was just bound to
-    // (once the binding commits, the scheduled session detach can sever this
-    // request's connection and interrupt the fiber).
+    // Only creation stays interruptible. After success, protect rollback arming, binding,
+    // continuation and setup from cancellation, including session detach after binding commits.
     return yield* Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
         const created = yield* restore(checkout.create);
@@ -381,6 +392,7 @@ const make = Effect.gen(function* () {
 
   const prepareGitCheckout = Effect.fn("WorktreeMcpService.prepareGitCheckout")(function* (
     projectCwd: string,
+    projectId: ProjectId,
     input: WorktreeMcpHandoffInput & { readonly branch: string },
   ) {
     // The repo check runs regardless of whether baseRef was supplied, so a
@@ -396,12 +408,8 @@ const make = Effect.gen(function* () {
       );
     }
 
-    // Fail fast with an actionable message when the branch already exists:
-    // the git driver deliberately keeps stderr out of its errors, so letting
-    // `git worktree add` fail would surface only an opaque failure. The
-    // existence check uses the complete local branch list (exact match); the
-    // paginated substring search only enriches the message with the checkout
-    // location when available.
+    // The git driver's errors omit stderr, so reject existing branches with an actionable error.
+    // Use the complete branch list for exact existence; paginated search only adds checkout location.
     const localBranchNames = yield* gitWorkflow
       .listLocalBranchNames(projectCwd)
       .pipe(asOperationFailed("Unable to list branches"));
@@ -436,7 +444,7 @@ const make = Effect.gen(function* () {
       baseRef = localStatus.refName;
     }
 
-    const startFromOrigin = input.startFromOrigin ?? (yield* readDefaultStartFromOrigin);
+    const startFromOrigin = input.startFromOrigin ?? (yield* readDefaultStartFromOrigin(projectId));
 
     let worktreeBaseRef = baseRef;
     let baseRefName = baseRef;
@@ -645,7 +653,7 @@ const make = Effect.gen(function* () {
     } else {
       checkout = slipjay
         ? slipjayCheckout(projectCwd, input.branch, scope.thread.threadId)
-        : yield* prepareGitCheckout(projectCwd, { ...input, branch: input.branch });
+        : yield* prepareGitCheckout(projectCwd, project.id, { ...input, branch: input.branch });
     }
     const ids = yield* handoffIds(scope);
     return yield* Effect.uninterruptibleMask((restore) =>
@@ -716,7 +724,9 @@ const make = Effect.gen(function* () {
                       scriptName: result.scriptName,
                       terminalId: result.terminalId,
                     }
-                  : { status: "no-script" },
+                  : result.status === "skipped-for-link"
+                    ? { status: "skipped" }
+                    : { status: "no-script" },
               ),
               Effect.catchCause((cause) =>
                 Effect.succeed<WorktreeMcpSetupScriptStatus>({
@@ -777,7 +787,7 @@ const make = Effect.gen(function* () {
       const projection = yield* loadThread(scope);
       const project = yield* loadProject(scope, projection.thread.projectId);
 
-      const defaultStartFromOrigin = yield* readDefaultStartFromOrigin;
+      const defaultStartFromOrigin = yield* readDefaultStartFromOrigin(project.id);
 
       const result: WorktreeMcpStatusResult = {
         attached: projection.thread.worktreePath !== null,
@@ -791,13 +801,25 @@ const make = Effect.gen(function* () {
     },
   );
 
-  return WorktreeMcpService.of({ handoff, status, attach, detach });
+  const listRefs: WorktreeMcpService["Service"]["listRefs"] = Effect.fn(
+    "WorktreeMcpService.listRefs",
+  )(function* ({ worktreePath, workspaceRoot, ...refs }) {
+    // Storage cleanup removes a worktree but keeps its path on the thread.
+    const cwd =
+      worktreePath !== null && (yield* fileSystem.exists(worktreePath))
+        ? worktreePath
+        : workspaceRoot;
+    return yield* gitWorkflow.listRefs({ ...refs, cwd });
+  });
+
+  return WorktreeMcpService.of({ handoff, status, listRefs, attach, detach });
 });
 
 export const layer: Layer.Layer<
   WorktreeMcpService,
   never,
-  | Crypto.Crypto
+  | SecureRandom.SecureRandom
+  | FileSystem.FileSystem
   | ThreadManagementService.ThreadManagementService
   | ProjectService.ProjectService
   | ServerSettings.ServerSettingsService

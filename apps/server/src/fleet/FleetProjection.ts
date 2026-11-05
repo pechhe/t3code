@@ -54,7 +54,7 @@ export class FleetProjection extends Context.Service<
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   return FleetProjection.of({
-    messageCounts: (now, threadIds) =>
+    messageCounts: Effect.fn("FleetProjection.messageCounts")((now, threadIds) =>
       threadIds.length === 0
         ? Effect.succeed([])
         : sql<{ threadId: ThreadId; senderThreadId: ThreadId; count: number }>`
@@ -70,7 +70,8 @@ const make = Effect.gen(function* () {
       GROUP BY thread_id, json_extract(payload_json, '$.senderThreadId')
       ORDER BY thread_id, "senderThreadId"
     `.pipe(Effect.mapError((cause) => new FleetProjectionError({ operation: "messages", cause }))),
-    pendingRequests: (threadIds) =>
+    ),
+    pendingRequests: Effect.fn("FleetProjection.pendingRequests")((threadIds) =>
       threadIds.length === 0
         ? Effect.succeed([])
         : sql<{ threadId: ThreadId; count: number }>`
@@ -83,6 +84,7 @@ const make = Effect.gen(function* () {
           AND type IN ('secret_request', 'release_approval_request') AND status = 'waiting'
       ) GROUP BY thread_id
     `.pipe(Effect.mapError((cause) => new FleetProjectionError({ operation: "requests", cause }))),
+    ),
     releases: sql<{
       approvalId: string;
       repository: string;

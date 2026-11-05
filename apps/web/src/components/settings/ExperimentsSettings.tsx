@@ -26,15 +26,11 @@ import {
   orchestrationControlsError,
 } from "@t3tools/client-runtime/experiments";
 import { createModelSelection } from "@t3tools/shared/model";
-import { useMemo, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { randomUUID } from "../../lib/utils";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
-import {
-  deriveProviderInstanceEntries,
-  sortProviderInstanceEntries,
-  applyProviderInstanceSettings,
-} from "../../providerInstances";
+import { providerInstanceEntriesFor } from "../../providerInstances";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
@@ -1032,19 +1028,10 @@ function TrialModelPicker({
   const settings = useEnvironmentSettings(environmentId);
   const providers =
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
-  const entries = useMemo(
-    () =>
-      sortProviderInstanceEntries(
-        applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings, null),
-      ),
-    [providers, settings],
-  );
+  const entries = (() => providerInstanceEntriesFor(providers, settings, null))();
   const instanceId = selection?.instanceId ?? entries[0]?.instanceId ?? ("" as ProviderInstanceId);
   const model = selection?.model ?? "";
-  const options = useMemo(
-    () => getCustomModelOptionsByInstance(settings, providers, instanceId, model),
-    [settings, providers, instanceId, model],
-  );
+  const options = (() => getCustomModelOptionsByInstance(settings, providers, instanceId, model))();
   const activeEntry = entries.find((entry) => entry.instanceId === selection?.instanceId);
   return (
     <div className="space-y-2 text-sm">

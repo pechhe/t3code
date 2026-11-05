@@ -1,4 +1,3 @@
-import type { OpencodeClient } from "@opencode-ai/sdk/v2";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderReplayEntry, type ProviderReplayTranscript } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -19,6 +18,10 @@ import {
   OPENCODE_PROVIDER,
   OPENCODE_SDK_PROTOCOL,
 } from "@t3tools/provider-opencode/testing";
+
+type OpencodeClient = ReturnType<
+  OpenCodeRuntime.OpenCodeRuntime["Service"]["createOpenCodeSdkClient"]
+>;
 
 const OPENCODE_SDK_REPLAY_PROTOCOL = OPENCODE_SDK_PROTOCOL;
 
@@ -408,24 +411,10 @@ function layerOpenCodeReplayRuntime(transcript: OpenCodeSdkReplayTranscript) {
               detail: "OpenCode replay does not load inventory.",
             }),
           ),
-        loadInventoryFromCli: () =>
-          Effect.fail(
-            new OpenCodeRuntime.OpenCodeRuntimeError({
-              operation: "loadInventoryFromCli",
-              detail: "OpenCode replay does not load inventory.",
-            }),
-          ),
         loadOpenCodeSkills: () =>
           Effect.fail(
             new OpenCodeRuntime.OpenCodeRuntimeError({
               operation: "loadOpenCodeSkills",
-              detail: "OpenCode replay does not load skills.",
-            }),
-          ),
-        loadSkillsFromCli: () =>
-          Effect.fail(
-            new OpenCodeRuntime.OpenCodeRuntimeError({
-              operation: "loadSkillsFromCli",
               detail: "OpenCode replay does not load skills.",
             }),
           ),
@@ -435,15 +424,15 @@ function layerOpenCodeReplayRuntime(transcript: OpenCodeSdkReplayTranscript) {
 }
 
 function layerOpenCodeProviderAdapterRegistryReplay(transcript: OpenCodeSdkReplayTranscript) {
-  return ProviderAdapterRegistry.layerFromDrivers({
-    drivers: [OpenCodeAdapterV2Driver],
-    configMap: {
-      [OPENCODE_DEFAULT_INSTANCE_ID]: {
-        driver: OPENCODE_PROVIDER,
-        config: { serverUrl: "replay://opencode" },
-      },
-    },
-  }).pipe(
+  return ProviderAdapterRegistry.layerFromAdaptersEffect(
+    OpenCodeAdapterV2Driver.create({
+      instanceId: OPENCODE_DEFAULT_INSTANCE_ID,
+      environment: [],
+      displayName: undefined,
+      enabled: true,
+      config: { ...OpenCodeAdapterV2Driver.defaultConfig(), serverUrl: "replay://opencode" },
+    }).pipe(Effect.map((adapter) => [adapter])),
+  ).pipe(
     Layer.provide(
       Layer.mergeAll(
         layerOpenCodeReplayRuntime(transcript),
