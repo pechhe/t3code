@@ -2,9 +2,22 @@ import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
-import { customThemeNames, renderUniwindThemesCSS } from "./generate-uniwind-themes.mts";
+import {
+  customThemeNames,
+  renderUniwindThemesCSS,
+  renderUniwindTypesDTS,
+} from "./generate-uniwind-themes.mts";
 
 describe("generate mobile Uniwind themes", () => {
+  it("declares every theme the CSS gives variables to, so a named theme typechecks", () => {
+    const declaration = NodeFS.readFileSync(
+      NodePath.resolve(import.meta.dirname, "../uniwind-types.d.ts"),
+      "utf8",
+    );
+
+    expect(declaration).toBe(renderUniwindTypesDTS());
+    expect(declaration).toContain("'alabaster-dark'");
+  });
   it("gives every theme the same variables and a fixed Clerk palette for its appearance", () => {
     const css =
       NodeFS.readFileSync(NodePath.resolve(import.meta.dirname, "../global.css"), "utf8") +

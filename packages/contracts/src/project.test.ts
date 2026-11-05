@@ -23,10 +23,11 @@ import {
 const decodeProjectCreatePayload = Schema.decodeUnknownSync(ProjectCreatePayload);
 const decodeProjectUpdatePayload = Schema.decodeUnknownSync(ProjectUpdatePayload);
 const decodeProjectMutation = Schema.decodeUnknownSync(ProjectMutation);
+const decodeRetainedWeaveSignInStartInput = Schema.decodeSync(RetainedWeaveSignInStartInput);
 
 describe("Weave sign-in from an older fork client", () => {
   it("still signs in to the Weave the client named as hqOrigin", () => {
-    const decoded = Schema.decodeUnknownSync(RetainedWeaveSignInStartInput)({
+    const decoded = decodeRetainedWeaveSignInStartInput({
       handbackOrigin: "https://t3.example",
       hqOrigin: "https://other-weave.example",
     });
