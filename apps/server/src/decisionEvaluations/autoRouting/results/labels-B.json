@@ -1,0 +1,251 @@
+{
+  "source": {
+    "labeler": "B",
+    "role": "implementation-worker (read-only)",
+    "requested": "gpt-6.1-sol reasoningEffort medium serviceTier default",
+    "taskId": "t3-359-labeler-B2",
+    "note": "first attempt B (scout with target gpt-6.1-sol) was refused by dispatch: not eligible for scout; no labels were produced by it"
+  },
+  "labels": {
+    "t-fork-foreground": {
+      "project": "T3Peach",
+      "workflow": "solo",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "t-runtime-mode": {
+      "project": "T3Peach",
+      "workflow": "solo",
+      "mainModel": "routine",
+      "subagentTier": "routine"
+    },
+    "t-bounded-wait": {
+      "project": "T3Peach",
+      "workflow": "solo",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "t-claude-safety": {
+      "project": "T3Peach",
+      "workflow": "solo",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "t-ys-scripts": {
+      "project": "YardSmith",
+      "workflow": "solo",
+      "mainModel": "routine",
+      "subagentTier": "routine"
+    },
+    "t-chat-regex": {
+      "project": "NoProject",
+      "workflow": "chat",
+      "mainModel": "routine",
+      "subagentTier": "unknown"
+    },
+    "t-explicit-sonnet": {
+      "project": "unknown",
+      "workflow": "solo",
+      "mainModel": "routine",
+      "subagentTier": "routine"
+    },
+    "t-amb-cleanup": {
+      "project": "unknown",
+      "workflow": "shape",
+      "mainModel": "demanding",
+      "subagentTier": "unknown"
+    },
+    "h-full-access-codex": {
+      "project": "T3Peach",
+      "workflow": "solo",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-dpop-https": {
+      "project": "T3Peach",
+      "workflow": "solo",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-subdir-projects": {
+      "project": "T3Peach",
+      "workflow": "solo",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-followup-workspace": {
+      "project": "T3Peach",
+      "workflow": "solo",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-temp-dir": {
+      "project": "T3Peach",
+      "workflow": "solo",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-readonly-provider": {
+      "project": "T3Peach",
+      "workflow": "lead",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-lead-role": {
+      "project": "T3Peach",
+      "workflow": "lead",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-away": {
+      "project": "T3Peach",
+      "workflow": "lead",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-inspection": {
+      "project": "T3Peach",
+      "workflow": "lead",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-weave-signin": {
+      "project": "Weave",
+      "workflow": "solo",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-gates-worktree": {
+      "project": "SlipJay",
+      "workflow": "solo",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-export": {
+      "project": "T3Peach",
+      "workflow": "lead",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-usage-harness": {
+      "project": "T3Peach",
+      "workflow": "solo",
+      "mainModel": "routine",
+      "subagentTier": "routine"
+    },
+    "h-return-chip": {
+      "project": "T3Peach",
+      "workflow": "solo",
+      "mainModel": "routine",
+      "subagentTier": "routine"
+    },
+    "h-fork-docs": {
+      "project": "T3Peach",
+      "workflow": "solo",
+      "mainModel": "routine",
+      "subagentTier": "routine"
+    },
+    "h-sj-followup-fact": {
+      "project": "SlipJay",
+      "workflow": "solo",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-sj-promote-times": {
+      "project": "SlipJay",
+      "workflow": "lead",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-agents-advisor": {
+      "project": "Agents",
+      "workflow": "solo",
+      "mainModel": "routine",
+      "subagentTier": "routine"
+    },
+    "h-ys-smith-reconnect": {
+      "project": "YardSmith",
+      "workflow": "solo",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-lodestone-keep": {
+      "project": "OddsAndEnds",
+      "workflow": "lead",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-chat-concept": {
+      "project": "NoProject",
+      "workflow": "chat",
+      "mainModel": "routine",
+      "subagentTier": "unknown"
+    },
+    "h-chat-repo": {
+      "project": "SlipJay",
+      "workflow": "chat",
+      "mainModel": "routine",
+      "subagentTier": "unknown"
+    },
+    "h-chat-talk": {
+      "project": "unknown",
+      "workflow": "chat",
+      "mainModel": "demanding",
+      "subagentTier": "unknown"
+    },
+    "h-explicit-model": {
+      "project": "unknown",
+      "workflow": "solo",
+      "mainModel": "routine",
+      "subagentTier": "routine"
+    },
+    "h-explicit-project": {
+      "project": "SlipJay",
+      "workflow": "chat",
+      "mainModel": "routine",
+      "subagentTier": "unknown"
+    },
+    "h-explicit-lead": {
+      "project": "YardSmith",
+      "workflow": "lead",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-amb-faster": {
+      "project": "T3Peach",
+      "workflow": "shape",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-amb-flaky": {
+      "project": "unknown",
+      "workflow": "unknown",
+      "mainModel": "unknown",
+      "subagentTier": "unknown"
+    },
+    "h-amb-budget": {
+      "project": "SlipJay",
+      "workflow": "solo",
+      "mainModel": "routine",
+      "subagentTier": "routine"
+    },
+    "h-risk-timeout": {
+      "project": "unknown",
+      "workflow": "solo",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-risk-guard": {
+      "project": "unknown",
+      "workflow": "solo",
+      "mainModel": "demanding",
+      "subagentTier": "demanding"
+    },
+    "h-explicit-nospec": {
+      "project": "unknown",
+      "workflow": "solo",
+      "mainModel": "routine",
+      "subagentTier": "routine"
+    }
+  }
+}

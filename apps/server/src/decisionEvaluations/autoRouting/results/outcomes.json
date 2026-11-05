@@ -1,0 +1,252 @@
+{
+  "t-fork-foreground": {
+    "repo": "t3code",
+    "commit": "4f8b6eef5b7ee0d73f02c60539401ef2d82115ff",
+    "committedAt": "2026-11-01T21:00:32+00:00",
+    "files": 2,
+    "testFiles": 1,
+    "added": 63,
+    "deleted": 0,
+    "areas": 1
+  },
+  "t-runtime-mode": {
+    "repo": "t3code",
+    "commit": "65965f7ab8b104545b829d4883e66a67b919a014",
+    "committedAt": "2026-10-31T01:42:46+00:00",
+    "files": 5,
+    "testFiles": 3,
+    "added": 75,
+    "deleted": 4,
+    "areas": 2
+  },
+  "t-bounded-wait": {
+    "repo": "t3code",
+    "commit": "2dce1f25d231a061ff4bfda99e8b03a0eb19d3f7",
+    "committedAt": "2026-10-29T10:50:03+00:00",
+    "files": 11,
+    "testFiles": 3,
+    "added": 933,
+    "deleted": 82,
+    "areas": 4
+  },
+  "t-claude-safety": {
+    "repo": "t3code",
+    "commit": "9187f142f94f24bcc7eb7a109f224bb061a32146",
+    "committedAt": "2026-11-04T11:30:45+00:00",
+    "files": 3,
+    "testFiles": 1,
+    "added": 44,
+    "deleted": 1,
+    "areas": 2
+  },
+  "t-ys-scripts": {
+    "repo": "yardsmith",
+    "commit": "80f80db929410280eb4fafd6b02cbcb8edeb6b6e",
+    "committedAt": "2026-11-05T01:53:59+00:00",
+    "files": 2,
+    "testFiles": 1,
+    "added": 47,
+    "deleted": 4,
+    "areas": 2
+  },
+  "h-full-access-codex": {
+    "repo": "t3code",
+    "commit": "9ff328460d8fe44f6e9d84783f2b497ed776c8d5",
+    "committedAt": "2026-10-26T13:26:39+00:00",
+    "files": 1,
+    "testFiles": 0,
+    "added": 4,
+    "deleted": 0,
+    "areas": 1
+  },
+  "h-dpop-https": {
+    "repo": "t3code",
+    "commit": "cddac0ccdb06609e2cadc3bbe06459c40d6b81c5",
+    "committedAt": "2026-10-29T12:54:03+00:00",
+    "files": 4,
+    "testFiles": 1,
+    "added": 51,
+    "deleted": 14,
+    "areas": 1
+  },
+  "h-subdir-projects": {
+    "repo": "t3code",
+    "commit": "da94262632df18ee041a279fc0eb0858aa9c99c7",
+    "committedAt": "2026-11-05T00:43:19+00:00",
+    "files": 4,
+    "testFiles": 1,
+    "added": 110,
+    "deleted": 7,
+    "areas": 2
+  },
+  "h-followup-workspace": {
+    "repo": "t3code",
+    "commit": "11dc1214a7b507757ce254f805016f1cbcca076b",
+    "committedAt": "2026-10-30T01:16:40+00:00",
+    "files": 4,
+    "testFiles": 2,
+    "added": 90,
+    "deleted": 31,
+    "areas": 1
+  },
+  "h-temp-dir": {
+    "repo": "t3code",
+    "commit": "472982cae1a0f55e8ea24d8a236c98800c9e9a9d",
+    "committedAt": "2026-10-26T05:00:02+00:00",
+    "files": 4,
+    "testFiles": 1,
+    "added": 367,
+    "deleted": 86,
+    "areas": 3
+  },
+  "h-readonly-provider": {
+    "repo": "t3code",
+    "commit": "97541f9b80cf569c77cd52491f03c00403a9035a",
+    "committedAt": "2026-10-28T00:11:56+00:00",
+    "files": 30,
+    "testFiles": 16,
+    "added": 227,
+    "deleted": 25,
+    "areas": 13
+  },
+  "h-lead-role": {
+    "repo": "t3code",
+    "commit": "0e7d0ed3c42ab22446b8be125403b8a5034b6e52",
+    "committedAt": "2026-10-28T23:23:35+00:00",
+    "files": 29,
+    "testFiles": 7,
+    "added": 388,
+    "deleted": 53,
+    "areas": 6
+  },
+  "h-away": {
+    "repo": "t3code",
+    "commit": "44bf0d92f49b1582dc7910de687404470a21b189",
+    "committedAt": "2026-10-26T15:36:59+00:00",
+    "files": 61,
+    "testFiles": 15,
+    "added": 1149,
+    "deleted": 406,
+    "areas": 8
+  },
+  "h-inspection": {
+    "repo": "t3code",
+    "commit": "8d9b4103195d1d4dc03015189d8388a860102207",
+    "committedAt": "2026-10-25T05:38:22+00:00",
+    "files": 11,
+    "testFiles": 4,
+    "added": 2498,
+    "deleted": 3,
+    "areas": 4
+  },
+  "h-weave-signin": {
+    "repo": "t3code",
+    "commit": "a6373fefe5f24dd02494bb3d2732e1051d4e7c6b",
+    "committedAt": "2026-10-31T23:11:49+00:00",
+    "files": 2,
+    "testFiles": 1,
+    "added": 55,
+    "deleted": 19,
+    "areas": 1
+  },
+  "h-gates-worktree": {
+    "repo": "t3code",
+    "commit": "1ffb8727b35e105805e4dac022c0002efbbd70d0",
+    "committedAt": "2026-10-24T21:08:42+00:00",
+    "files": 3,
+    "testFiles": 1,
+    "added": 24,
+    "deleted": 7,
+    "areas": 1
+  },
+  "h-export": {
+    "repo": "t3code",
+    "commit": "23c2e5fab3f6e479f97864ea8dae92468f29ecc4",
+    "committedAt": "2026-10-25T01:28:47+00:00",
+    "files": 18,
+    "testFiles": 3,
+    "added": 1482,
+    "deleted": 57,
+    "areas": 3
+  },
+  "h-usage-harness": {
+    "repo": "t3code",
+    "commit": "596024c58e38a541dbebfd87df89749ff03e4880",
+    "committedAt": "2026-10-26T04:37:32+00:00",
+    "files": 3,
+    "testFiles": 2,
+    "added": 14,
+    "deleted": 6,
+    "areas": 1
+  },
+  "h-return-chip": {
+    "repo": "t3code",
+    "commit": "55349d676602673f1165a4cafe21993612fe97c5",
+    "committedAt": "2026-10-25T21:50:40+00:00",
+    "files": 2,
+    "testFiles": 0,
+    "added": 5,
+    "deleted": 2,
+    "areas": 2
+  },
+  "h-fork-docs": {
+    "repo": "t3code",
+    "commit": "b0d1b695027416a324ae803e1468db28ca2427cc",
+    "committedAt": "2026-11-05T01:48:27+00:00",
+    "files": 1,
+    "testFiles": 0,
+    "added": 1,
+    "deleted": 1,
+    "areas": 1
+  },
+  "h-sj-followup-fact": {
+    "repo": "slipjay",
+    "commit": "19d9ca9dfb5bc16032be9953fbb2964737751057",
+    "committedAt": "2026-11-05T02:56:02+00:00",
+    "files": 5,
+    "testFiles": 2,
+    "added": 34,
+    "deleted": 2,
+    "areas": 4
+  },
+  "h-sj-promote-times": {
+    "repo": "slipjay",
+    "commit": "e1d5c707ad47f6b87728624b2db1abbaba01f772",
+    "committedAt": "2026-11-05T00:08:28+00:00",
+    "files": 7,
+    "testFiles": 1,
+    "added": 129,
+    "deleted": 18,
+    "areas": 5
+  },
+  "h-agents-advisor": {
+    "repo": "agent-config",
+    "commit": "3194892739462a924c41435d71d08e8e9f1f7d8a",
+    "committedAt": "2026-11-05T01:28:31+00:00",
+    "files": 2,
+    "testFiles": 0,
+    "added": 6,
+    "deleted": 6,
+    "areas": 2
+  },
+  "h-ys-smith-reconnect": {
+    "repo": "yardsmith",
+    "commit": "bad6f09fa91943f6b79c93ca0a039569c8343a22",
+    "committedAt": "2026-11-05T07:14:05+00:00",
+    "files": 3,
+    "testFiles": 2,
+    "added": 71,
+    "deleted": 7,
+    "areas": 1
+  },
+  "h-lodestone-keep": {
+    "repo": "odds-and-ends",
+    "commit": "9735a993929105762c69845907ed7e19aed17a08",
+    "committedAt": "2026-11-03T11:40:46+00:00",
+    "files": 2,
+    "testFiles": 0,
+    "added": 35,
+    "deleted": 1,
+    "areas": 2
+  }
+}

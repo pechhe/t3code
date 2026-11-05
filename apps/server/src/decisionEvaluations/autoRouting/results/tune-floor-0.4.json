@@ -1,0 +1,6237 @@
+{
+  "schema": "auto-routing-pilot-results-v1",
+  "split": "tune",
+  "rule": {
+    "id": "auto-routing-pilot",
+    "version": "1"
+  },
+  "policy": {
+    "version": "auto-routing-policy-v1",
+    "choiceFloor": 0.4,
+    "routineFloor": 0.75
+  },
+  "baselineVersion": "auto-routing-baselines-v1",
+  "corpusDigest": "5538b219e68b2579f84d926f4bc2ce6940559ad23eebae1733daea4fb5760d6e",
+  "corpusDigestAll": "00fc5c4c9e0055e0836c203f8ad175fd664d585c0f8add5ab2643fb5ee503aed",
+  "labels": {
+    "A": {
+      "labeler": "A",
+      "role": "scout",
+      "requested": "opencode-go/deepseek-v4.1-flash thinking low",
+      "taskId": "t3-359-labeler-A",
+      "note": "reply transcribed into compact form by the lead, then expanded here; blind to startedIn, outcomes, baselines and engines"
+    },
+    "B": {
+      "labeler": "B",
+      "role": "implementation-worker (read-only)",
+      "requested": "gpt-6.1-sol reasoningEffort medium serviceTier default",
+      "taskId": "t3-359-labeler-B2",
+      "note": "first attempt B (scout with target gpt-6.1-sol) was refused by dispatch: not eligible for scout; no labels were produced by it"
+    }
+  },
+  "labelAudit": [
+    {
+      "caseId": "t-fork-foreground",
+      "split": "tune",
+      "project": {
+        "A": "T3Peach",
+        "B": "T3Peach",
+        "agreed": "T3Peach"
+      },
+      "workflow": {
+        "A": "solo",
+        "B": "solo",
+        "agreed": "solo"
+      },
+      "mainModel": {
+        "A": "demanding",
+        "B": "demanding",
+        "agreed": "demanding"
+      },
+      "subagentTier": {
+        "A": "demanding",
+        "B": "demanding",
+        "agreed": "demanding"
+      }
+    },
+    {
+      "caseId": "t-runtime-mode",
+      "split": "tune",
+      "project": {
+        "A": "T3Peach",
+        "B": "T3Peach",
+        "agreed": "T3Peach"
+      },
+      "workflow": {
+        "A": "solo",
+        "B": "solo",
+        "agreed": "solo"
+      },
+      "mainModel": {
+        "A": "routine",
+        "B": "routine",
+        "agreed": "routine"
+      },
+      "subagentTier": {
+        "A": "routine",
+        "B": "routine",
+        "agreed": "routine"
+      }
+    },
+    {
+      "caseId": "t-bounded-wait",
+      "split": "tune",
+      "project": {
+        "A": "T3Peach",
+        "B": "T3Peach",
+        "agreed": "T3Peach"
+      },
+      "workflow": {
+        "A": "solo",
+        "B": "solo",
+        "agreed": "solo"
+      },
+      "mainModel": {
+        "A": "demanding",
+        "B": "demanding",
+        "agreed": "demanding"
+      },
+      "subagentTier": {
+        "A": "demanding",
+        "B": "demanding",
+        "agreed": "demanding"
+      }
+    },
+    {
+      "caseId": "t-claude-safety",
+      "split": "tune",
+      "project": {
+        "A": "T3Peach",
+        "B": "T3Peach",
+        "agreed": "T3Peach"
+      },
+      "workflow": {
+        "A": "solo",
+        "B": "solo",
+        "agreed": "solo"
+      },
+      "mainModel": {
+        "A": "routine",
+        "B": "demanding",
+        "agreed": "uncertain"
+      },
+      "subagentTier": {
+        "A": "routine",
+        "B": "demanding",
+        "agreed": "uncertain"
+      }
+    },
+    {
+      "caseId": "t-ys-scripts",
+      "split": "tune",
+      "project": {
+        "A": "YardSmith",
+        "B": "YardSmith",
+        "agreed": "YardSmith"
+      },
+      "workflow": {
+        "A": "solo",
+        "B": "solo",
+        "agreed": "solo"
+      },
+      "mainModel": {
+        "A": "routine",
+        "B": "routine",
+        "agreed": "routine"
+      },
+      "subagentTier": {
+        "A": "routine",
+        "B": "routine",
+        "agreed": "routine"
+      }
+    },
+    {
+      "caseId": "t-chat-regex",
+      "split": "tune",
+      "project": {
+        "A": "NoProject",
+        "B": "NoProject",
+        "agreed": "NoProject"
+      },
+      "workflow": {
+        "A": "chat",
+        "B": "chat",
+        "agreed": "chat"
+      },
+      "mainModel": {
+        "A": "routine",
+        "B": "routine",
+        "agreed": "routine"
+      },
+      "subagentTier": {
+        "A": "unknown",
+        "B": "unknown",
+        "agreed": "uncertain"
+      }
+    },
+    {
+      "caseId": "t-explicit-sonnet",
+      "split": "tune",
+      "project": {
+        "A": "unknown",
+        "B": "unknown",
+        "agreed": "uncertain"
+      },
+      "workflow": {
+        "A": "solo",
+        "B": "solo",
+        "agreed": "solo"
+      },
+      "mainModel": {
+        "A": "routine",
+        "B": "routine",
+        "agreed": "routine"
+      },
+      "subagentTier": {
+        "A": "routine",
+        "B": "routine",
+        "agreed": "routine"
+      }
+    },
+    {
+      "caseId": "t-amb-cleanup",
+      "split": "tune",
+      "project": {
+        "A": "unknown",
+        "B": "unknown",
+        "agreed": "uncertain"
+      },
+      "workflow": {
+        "A": "unknown",
+        "B": "shape",
+        "agreed": "uncertain"
+      },
+      "mainModel": {
+        "A": "unknown",
+        "B": "demanding",
+        "agreed": "uncertain"
+      },
+      "subagentTier": {
+        "A": "unknown",
+        "B": "unknown",
+        "agreed": "uncertain"
+      }
+    }
+  ],
+  "runAt": "2026-11-05T11:34:19.946Z",
+  "engines": ["jev", "luna"],
+  "run": {
+    "checkout": {
+      "head": "bc6277dd256bdc1957b44fecaf933a978733a386",
+      "workingCopyDirty": true
+    },
+    "runtime": {
+      "node": "v24.21.0"
+    },
+    "files": {
+      "apps/server/src/decisionEvaluations/autoRouting/run.ts": "461619ecd375ed10d4ef17b45e9bb8ff9b442f60f887a8267f230cf30d14b3b8",
+      "apps/server/src/decisionEvaluations/autoRouting/provenance.ts": "44573c0248103edd05ae64417fcc4b34e5f5a8f9df95df1531daebf79f12f8aa",
+      "apps/server/src/decisionEvaluations/autoRouting/rule.ts": "bc614bc6814300d2ca3042f78a63a9ce5087de76aa468d11d079f1f167712f77",
+      "apps/server/src/decisionEvaluations/autoRouting/definitions.ts": "6391378d4b755c059929671b147978ae33769c3d0327d21d5d734e3c744a631d",
+      "apps/server/src/decisionEvaluations/autoRouting/harness.ts": "72b3b1194231a25ca1c3085a4bcfd00bbaab80ef64942d0c407e17934e534eb7",
+      "apps/server/src/decisionEvaluations/autoRouting/corpusTypes.ts": "aae0311445f2d91ff49eb96dc416bef91588d82ebe23d4af24849f11f813bb3e",
+      "apps/server/src/decisionEvaluations/autoRouting/corpusTune.ts": "3ec2eace435d6f3fa0030f924d5f60307ed13400b201d73ba8a72bb7ca963353",
+      "apps/server/src/decisionEvaluations/autoRouting/corpusHeldout.ts": "ec36607645811f26634f0bdb49cf859e9597d415a9b437e7a4c6d4e9dd480881",
+      "apps/server/src/decisions/DecisionService.ts": "60d2f7f879fe5f7c6ee11f7f771e776fc30ce3f16dfd20681eeedea805154a19",
+      "apps/server/src/decisions/adapters.ts": "ce64942a3311d10543b83fe3c9b3c47fcc72b9cec6c7b1efdf0067005913a492",
+      "apps/server/src/decisions/decisions.testkit.ts": "80cebd187858cfa6029c6356822962a363431afb30ff7b6fb08adbd2c15a2016",
+      "packages/contracts/src/decisions.ts": "4225d2f33a0754c8bbe47500e29a59f19d85c795ed17517db4b1f0f262e26f18",
+      "pnpm-lock.yaml": "9bb3c0493b82866a5d97b361b4c8d5c7f295446338fe4fd39b5e9e0e0714a4c2"
+    }
+  },
+  "scorer": {
+    "files": {
+      "apps/server/src/decisionEvaluations/autoRouting/scoring.ts": "35c78d0cd033c69a63daf5482773662b32904162bea5ca702bab0d0d60030827",
+      "apps/server/src/decisionEvaluations/autoRouting/labels.ts": "c8119dd27a0c30a6e2d233a1045d26ccb89da909922e77c8822481b296bdd2ac",
+      "apps/server/src/decisionEvaluations/autoRouting/policy.ts": "43c88d0d7614b982b5bc239afec11a312351a3f4b7e16ef1d0a5be320856e6d3",
+      "apps/server/src/decisionEvaluations/autoRouting/baseline.ts": "fcc722047a01a1af9b07887866ebec9a9c405f32c2e91b099161dd434cd0214d",
+      "apps/server/src/decisionEvaluations/autoRouting/constraints.ts": "dd3e65b7d2f07594cdc4872164684400455425a46a9db11729a1d0ed661a2131",
+      "apps/server/src/decisionEvaluations/autoRouting/results/labels-A.json": "f1b965341248f6891a372626d02f03313a24ba50e52b178f25545db48bde39cd",
+      "apps/server/src/decisionEvaluations/autoRouting/results/labels-B.json": "9ea87f00e0f2f7edd56b2355e422892a435dbfa1ef42528af575cabf1c2e99fa",
+      "apps/server/src/decisionEvaluations/autoRouting/results/outcomes.json": "c814774e115999c230ff2229b4a0c713367e208580bd90626d74dfe988160843",
+      "apps/server/src/decisionEvaluations/semanticLint/scoring.ts": "1fc9dd94096e4573aca56aa36236473c8d858445df5e419cc6eb00d01cde1790"
+    },
+    "build": {
+      "apps/server/src/decisionEvaluations/autoRouting/buildOutcomes.ts": "90ed0d7a8ba4ebef2c8a3fc0e1830a81437d77776a0ca18d72a50dfed2a03760",
+      "apps/server/src/decisionEvaluations/autoRouting/labelPacket.ts": "ceb984af44e5932fd9215835b22755f242bcc32aa11fdb711aaddf3706250421"
+    }
+  },
+  "records": [
+    {
+      "caseId": "t-fork-foreground",
+      "decision": "project",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "T3Peach": 0.4,
+          "YardSmith": 0.03,
+          "Weave": 0.03,
+          "PropSmith": 0,
+          "SlipJay": 0.07,
+          "Agents": 0.02,
+          "Homebase": 0.01,
+          "OddsAndEnds": 0,
+          "Splay": 0,
+          "NoProject": 0.03,
+          "unknown": 0.41
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "9d60a63940399aa93d7b9d8eb8c95936b9082c640291f6e66165310d8e86479a",
+      "latencyMs": 224,
+      "inputTokens": 744,
+      "outputTokens": 111,
+      "costUsd": 0.000031248,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:31:53.339Z"
+    },
+    {
+      "caseId": "t-fork-foreground",
+      "decision": "project",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "T3Peach",
+        "probabilities": {
+          "T3Peach": 0.83,
+          "YardSmith": 0.01,
+          "Weave": 0.01,
+          "PropSmith": 0.01,
+          "SlipJay": 0.05,
+          "Agents": 0.01,
+          "Homebase": 0.01,
+          "OddsAndEnds": 0,
+          "Splay": 0.01,
+          "NoProject": 0.01,
+          "unknown": 0.05
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "6c799c54f6cf784b1e2ed52ae3199624e4bd2261aab6b10bbd20a7dcc566ce55",
+      "latencyMs": 2054,
+      "inputTokens": 463,
+      "outputTokens": 0,
+      "costUsd": 0.00004630000000000001,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:31:55.565Z"
+    },
+    {
+      "caseId": "t-fork-foreground",
+      "decision": "workflow",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "solo",
+        "probabilities": {
+          "chat": 0.03,
+          "solo": 0.51,
+          "shape": 0.03,
+          "lead": 0.01,
+          "unknown": 0.42
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "3d568514845b25c9c6faf58e34fa19a65ffd838f198191c8b5a31212d3229a08",
+      "latencyMs": 148,
+      "inputTokens": 537,
+      "outputTokens": 52,
+      "costUsd": 0.000022554,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:31:59.621Z"
+    },
+    {
+      "caseId": "t-fork-foreground",
+      "decision": "workflow",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "solo",
+        "probabilities": {
+          "chat": 0.05,
+          "solo": 0.52,
+          "shape": 0.04,
+          "lead": 0.02,
+          "unknown": 0.37
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "60e496ff35825cf7e225d6c6952423f951df52f17a7a284106777c477c96e74c",
+      "latencyMs": 1825,
+      "inputTokens": 315,
+      "outputTokens": 0,
+      "costUsd": 0.0000315,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:01.771Z"
+    },
+    {
+      "caseId": "t-fork-foreground",
+      "decision": "mainModel",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "demanding",
+        "probabilities": {
+          "routine": 0.36,
+          "demanding": 0.42,
+          "unknown": 0.22
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "9c3111c8215280e3130fe8eb10e066d96b940fbcde6c94e1809ab43884f820ba",
+      "latencyMs": 179,
+      "inputTokens": 505,
+      "outputTokens": 43,
+      "costUsd": 0.000021210000000000002,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:05.598Z"
+    },
+    {
+      "caseId": "t-fork-foreground",
+      "decision": "mainModel",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "demanding",
+        "probabilities": {
+          "routine": 0.36,
+          "demanding": 0.44,
+          "unknown": 0.2
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "71eb0ee88b7943d54c435bea91cccebadc96f2c1ae0738a211aa97d2cefa38bc",
+      "latencyMs": 289,
+      "inputTokens": 296,
+      "outputTokens": 0,
+      "costUsd": 0.0000296,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:07.778Z"
+    },
+    {
+      "caseId": "t-fork-foreground",
+      "decision": "subagentTier",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "demanding",
+        "probabilities": {
+          "routine": 0.26,
+          "demanding": 0.55,
+          "unknown": 0.19
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "b238de59e660be86a102985baa90c15d9f543c23316bf315a07e4a4c29b61d3e",
+      "latencyMs": 150,
+      "inputTokens": 509,
+      "outputTokens": 45,
+      "costUsd": 0.000021378,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:10.069Z"
+    },
+    {
+      "caseId": "t-fork-foreground",
+      "decision": "subagentTier",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "demanding",
+        "probabilities": {
+          "routine": 0.39,
+          "demanding": 0.41,
+          "unknown": 0.2
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "95cc4a7e80d4d965302c335c06eb79d7bb39eaa2ab74790f8123798e4722cf7c",
+      "latencyMs": 523,
+      "inputTokens": 300,
+      "outputTokens": 0,
+      "costUsd": 0.00003,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:12.219Z"
+    },
+    {
+      "caseId": "t-runtime-mode",
+      "decision": "project",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "T3Peach",
+        "probabilities": {
+          "T3Peach": 0.45,
+          "YardSmith": 0.01,
+          "Weave": 0.01,
+          "PropSmith": 0,
+          "SlipJay": 0.09,
+          "Agents": 0.03,
+          "Homebase": 0.01,
+          "OddsAndEnds": 0,
+          "Splay": 0,
+          "NoProject": 0.04,
+          "unknown": 0.36
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "6fa1677b1a2353f3df61d0dfef349afd5e39e0fb8db797b7bdfae171a1aae0bf",
+      "latencyMs": 152,
+      "inputTokens": 754,
+      "outputTokens": 114,
+      "costUsd": 0.000031668,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:14.743Z"
+    },
+    {
+      "caseId": "t-runtime-mode",
+      "decision": "project",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "T3Peach",
+        "probabilities": {
+          "T3Peach": 0.51,
+          "YardSmith": 0.03,
+          "Weave": 0.02,
+          "PropSmith": 0.02,
+          "SlipJay": 0.07,
+          "Agents": 0.01,
+          "Homebase": 0.02,
+          "OddsAndEnds": 0.01,
+          "Splay": 0.04,
+          "NoProject": 0.02,
+          "unknown": 0.25
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "8cb79f3c39ec10a5f768484b719118127f3d64df2c240edaac02c054c3929d26",
+      "latencyMs": 280,
+      "inputTokens": 473,
+      "outputTokens": 0,
+      "costUsd": 0.000047300000000000005,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:16.895Z"
+    },
+    {
+      "caseId": "t-runtime-mode",
+      "decision": "workflow",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "solo",
+        "probabilities": {
+          "chat": 0.16,
+          "solo": 0.42,
+          "shape": 0.07,
+          "lead": 0,
+          "unknown": 0.35
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "08f944a13a7a5e2a8306159ee52d985f4235fdf99c95a7e71eaba0ebd8a6f169",
+      "latencyMs": 160,
+      "inputTokens": 547,
+      "outputTokens": 52,
+      "costUsd": 0.000022974,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:19.176Z"
+    },
+    {
+      "caseId": "t-runtime-mode",
+      "decision": "workflow",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "chat",
+        "probabilities": {
+          "chat": 0.4,
+          "solo": 0.36,
+          "shape": 0.03,
+          "lead": 0.01,
+          "unknown": 0.2
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "013219ea89a77659bfe5cff94ab6e941e0aa7a7a9f3b45a297a645649f46405c",
+      "latencyMs": 556,
+      "inputTokens": 325,
+      "outputTokens": 0,
+      "costUsd": 0.0000325,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:21.337Z"
+    },
+    {
+      "caseId": "t-runtime-mode",
+      "decision": "mainModel",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "routine": 0.27,
+          "demanding": 0.3,
+          "unknown": 0.43
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "0b489abd2b012939ccf2122d234251e4995a0813f2c8070909aec47e4e7e9efb",
+      "latencyMs": 153,
+      "inputTokens": 515,
+      "outputTokens": 41,
+      "costUsd": 0.00002163,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:23.894Z"
+    },
+    {
+      "caseId": "t-runtime-mode",
+      "decision": "mainModel",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 0.6,
+          "demanding": 0.11,
+          "unknown": 0.29
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "1017e5093f48636335f5486d04db395c86370a05142567effc3ed9d8136d0329",
+      "latencyMs": 294,
+      "inputTokens": 306,
+      "outputTokens": 0,
+      "costUsd": 0.0000306,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:26.049Z"
+    },
+    {
+      "caseId": "t-runtime-mode",
+      "decision": "subagentTier",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "demanding",
+        "probabilities": {
+          "routine": 0.19,
+          "demanding": 0.44,
+          "unknown": 0.37
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "38a068b914675efcb51fec7f624792a8c4c3ba59ebef2c30007e4b8a0ddb4756",
+      "latencyMs": 156,
+      "inputTokens": 519,
+      "outputTokens": 45,
+      "costUsd": 0.000021798,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:28.344Z"
+    },
+    {
+      "caseId": "t-runtime-mode",
+      "decision": "subagentTier",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 0.78,
+          "demanding": 0.16,
+          "unknown": 0.06
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "53350d6c619b45beb3694d2bf64afc5c60951a1dba307593c79db2c8d298f6a6",
+      "latencyMs": 265,
+      "inputTokens": 310,
+      "outputTokens": 0,
+      "costUsd": 0.000031,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:30.502Z"
+    },
+    {
+      "caseId": "t-bounded-wait",
+      "decision": "project",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "T3Peach": 0.02,
+          "YardSmith": 0.02,
+          "Weave": 0.06,
+          "PropSmith": 0,
+          "SlipJay": 0.13,
+          "Agents": 0.02,
+          "Homebase": 0.01,
+          "OddsAndEnds": 0.01,
+          "Splay": 0,
+          "NoProject": 0.06,
+          "unknown": 0.67
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "a7c7638095eb8b473695d4c6618bb2c19a57993419d109ce4d41ee88be621901",
+      "latencyMs": 155,
+      "inputTokens": 754,
+      "outputTokens": 111,
+      "costUsd": 0.000031668,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:32.769Z"
+    },
+    {
+      "caseId": "t-bounded-wait",
+      "decision": "project",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "T3Peach": 0.16,
+          "YardSmith": 0.08,
+          "Weave": 0.06,
+          "PropSmith": 0.04,
+          "SlipJay": 0.17,
+          "Agents": 0.02,
+          "Homebase": 0.02,
+          "OddsAndEnds": 0.01,
+          "Splay": 0.01,
+          "NoProject": 0.05,
+          "unknown": 0.38
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "e7b43fca7cac3e833cc1765cc45c3212dad092c02921d4349db41d2fb5e884f7",
+      "latencyMs": 280,
+      "inputTokens": 473,
+      "outputTokens": 0,
+      "costUsd": 0.000047300000000000005,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:34.924Z"
+    },
+    {
+      "caseId": "t-bounded-wait",
+      "decision": "workflow",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "solo",
+        "probabilities": {
+          "chat": 0.11,
+          "solo": 0.43,
+          "shape": 0.06,
+          "lead": 0.02,
+          "unknown": 0.38
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "5eb789e42be9789e63568135dd1a3206f624f52fb44ed03aefdf5877fa2542b6",
+      "latencyMs": 164,
+      "inputTokens": 547,
+      "outputTokens": 52,
+      "costUsd": 0.000022974,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:37.205Z"
+    },
+    {
+      "caseId": "t-bounded-wait",
+      "decision": "workflow",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "solo",
+        "probabilities": {
+          "chat": 0.15,
+          "solo": 0.7,
+          "shape": 0.03,
+          "lead": 0.01,
+          "unknown": 0.11
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "92717e6740add386d1aafd02fa1e4f6b5ba7fd925a22c06089e360beae12ddbd",
+      "latencyMs": 266,
+      "inputTokens": 325,
+      "outputTokens": 0,
+      "costUsd": 0.0000325,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:39.369Z"
+    },
+    {
+      "caseId": "t-bounded-wait",
+      "decision": "mainModel",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "demanding",
+        "probabilities": {
+          "routine": 0.11,
+          "demanding": 0.7,
+          "unknown": 0.19
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "2fef9a2b7c39f0a76f31f043f7f6790099c96c4121453d8c616e1f1a1bf38ce0",
+      "latencyMs": 157,
+      "inputTokens": 515,
+      "outputTokens": 43,
+      "costUsd": 0.00002163,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:41.636Z"
+    },
+    {
+      "caseId": "t-bounded-wait",
+      "decision": "mainModel",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 0.62,
+          "demanding": 0.36,
+          "unknown": 0.02
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "6da8b18868a60e5ff4217be7ed8b86425c8fb8bbf2633c6e9f8dd5530c341c5d",
+      "latencyMs": 526,
+      "inputTokens": 306,
+      "outputTokens": 0,
+      "costUsd": 0.0000306,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:43.793Z"
+    },
+    {
+      "caseId": "t-bounded-wait",
+      "decision": "subagentTier",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "demanding",
+        "probabilities": {
+          "routine": 0.12,
+          "demanding": 0.75,
+          "unknown": 0.13
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "563fa8305c32fc2ae259f1114964a1058bc2c3ba4e8ccffecb9fa368cc837d79",
+      "latencyMs": 157,
+      "inputTokens": 519,
+      "outputTokens": 45,
+      "costUsd": 0.000021798,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:46.320Z"
+    },
+    {
+      "caseId": "t-bounded-wait",
+      "decision": "subagentTier",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 0.85,
+          "demanding": 0.15,
+          "unknown": 0
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "dfe20ae901ba1b4112f9d8cf16e01ed11fde74bf96177afbe9f1c5fd055366fb",
+      "latencyMs": 319,
+      "inputTokens": 310,
+      "outputTokens": 0,
+      "costUsd": 0.000031,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:48.477Z"
+    },
+    {
+      "caseId": "t-claude-safety",
+      "decision": "project",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "Agents",
+        "probabilities": {
+          "T3Peach": 0.07,
+          "YardSmith": 0.01,
+          "Weave": 0,
+          "PropSmith": 0,
+          "SlipJay": 0.02,
+          "Agents": 0.5,
+          "Homebase": 0,
+          "OddsAndEnds": 0,
+          "Splay": 0,
+          "NoProject": 0.04,
+          "unknown": 0.36
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "9ada357b491976fa8e2206920b7dcb9aa669800407c1c0108e7eeebdf2bff7a6",
+      "latencyMs": 148,
+      "inputTokens": 747,
+      "outputTokens": 111,
+      "costUsd": 0.000031374,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:50.796Z"
+    },
+    {
+      "caseId": "t-claude-safety",
+      "decision": "project",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "T3Peach": 0.12,
+          "YardSmith": 0.07,
+          "Weave": 0.05,
+          "PropSmith": 0.04,
+          "SlipJay": 0.09,
+          "Agents": 0.18,
+          "Homebase": 0.03,
+          "OddsAndEnds": 0.03,
+          "Splay": 0.03,
+          "NoProject": 0.11,
+          "unknown": 0.25
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "98ede14313d1608b20d424f2d3fdc438498651c7a47bf05627b6a8e641e96fd1",
+      "latencyMs": 370,
+      "inputTokens": 466,
+      "outputTokens": 0,
+      "costUsd": 0.0000466,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:52.945Z"
+    },
+    {
+      "caseId": "t-claude-safety",
+      "decision": "workflow",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "shape",
+        "probabilities": {
+          "chat": 0.28,
+          "solo": 0.03,
+          "shape": 0.29,
+          "lead": 0.17,
+          "unknown": 0.23
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "b9cc3e6beec03ce582be5c23da7380071e7a450aa65e9b1cf8c00c5de49b6090",
+      "latencyMs": 160,
+      "inputTokens": 540,
+      "outputTokens": 52,
+      "costUsd": 0.00002268,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:55.316Z"
+    },
+    {
+      "caseId": "t-claude-safety",
+      "decision": "workflow",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "chat",
+        "probabilities": {
+          "chat": 0.56,
+          "solo": 0.12,
+          "shape": 0.15,
+          "lead": 0.03,
+          "unknown": 0.14
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "1dee861aee44c932bd28539a736cb6d50ada1666db11e097a13a99ffe4b3bee2",
+      "latencyMs": 357,
+      "inputTokens": 318,
+      "outputTokens": 0,
+      "costUsd": 0.0000318,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:57.477Z"
+    },
+    {
+      "caseId": "t-claude-safety",
+      "decision": "mainModel",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "demanding",
+        "probabilities": {
+          "routine": 0.01,
+          "demanding": 0.98,
+          "unknown": 0.01
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "84786665836d58105f5e9aebc890092bb68088e254cd307b363223134e8e734e",
+      "latencyMs": 150,
+      "inputTokens": 508,
+      "outputTokens": 43,
+      "costUsd": 0.000021336000000000004,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:32:59.835Z"
+    },
+    {
+      "caseId": "t-claude-safety",
+      "decision": "mainModel",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "demanding",
+        "probabilities": {
+          "routine": 0.14,
+          "demanding": 0.77,
+          "unknown": 0.09
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "786f93ffd00533c69a0a6876a490d947035a148730e92d930a90f1a4d4f268ac",
+      "latencyMs": 276,
+      "inputTokens": 299,
+      "outputTokens": 0,
+      "costUsd": 0.000029900000000000002,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:01.986Z"
+    },
+    {
+      "caseId": "t-claude-safety",
+      "decision": "subagentTier",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "demanding",
+        "probabilities": {
+          "routine": 0,
+          "demanding": 1,
+          "unknown": 0
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "ce3fc577f063d64eb91610d9d9e6fc2847c0bd732598f1411cecc752904767cf",
+      "latencyMs": 161,
+      "inputTokens": 512,
+      "outputTokens": 45,
+      "costUsd": 0.000021504000000000003,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:04.262Z"
+    },
+    {
+      "caseId": "t-claude-safety",
+      "decision": "subagentTier",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "demanding",
+        "probabilities": {
+          "routine": 0.03,
+          "demanding": 0.89,
+          "unknown": 0.08
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "08149332468dec6b431f0dbf719e9b88834cd62687a368834e37987ace039dd5",
+      "latencyMs": 288,
+      "inputTokens": 303,
+      "outputTokens": 0,
+      "costUsd": 0.0000303,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:06.424Z"
+    },
+    {
+      "caseId": "t-ys-scripts",
+      "decision": "project",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "T3Peach": 0.01,
+          "YardSmith": 0.12,
+          "Weave": 0.02,
+          "PropSmith": 0,
+          "SlipJay": 0.35,
+          "Agents": 0.01,
+          "Homebase": 0,
+          "OddsAndEnds": 0,
+          "Splay": 0,
+          "NoProject": 0.01,
+          "unknown": 0.48
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "3744edd917e4dab0fcd3e036484ce74e9cfbf117b3486681b89cc7142f0ca226",
+      "latencyMs": 138,
+      "inputTokens": 750,
+      "outputTokens": 111,
+      "costUsd": 0.00003150000000000001,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:08.714Z"
+    },
+    {
+      "caseId": "t-ys-scripts",
+      "decision": "project",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "SlipJay",
+        "probabilities": {
+          "T3Peach": 0.04,
+          "YardSmith": 0.04,
+          "Weave": 0.03,
+          "PropSmith": 0.02,
+          "SlipJay": 0.6,
+          "Agents": 0.02,
+          "Homebase": 0.01,
+          "OddsAndEnds": 0.01,
+          "Splay": 0.01,
+          "NoProject": 0.02,
+          "unknown": 0.2
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "b86304aa2d764452dd1c691bad55effe412166dd5b23db5c7f0914d31ed0bc15",
+      "latencyMs": 272,
+      "inputTokens": 469,
+      "outputTokens": 0,
+      "costUsd": 0.00004690000000000001,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:10.852Z"
+    },
+    {
+      "caseId": "t-ys-scripts",
+      "decision": "workflow",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "solo",
+        "probabilities": {
+          "chat": 0.09,
+          "solo": 0.53,
+          "shape": 0.09,
+          "lead": 0.01,
+          "unknown": 0.28
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "9b43f2c09aae98fd8b8289b989533f58d92c47644b6b6c5e6d99d383cb5bb9de",
+      "latencyMs": 152,
+      "inputTokens": 543,
+      "outputTokens": 52,
+      "costUsd": 0.000022806,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:13.123Z"
+    },
+    {
+      "caseId": "t-ys-scripts",
+      "decision": "workflow",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "solo",
+        "probabilities": {
+          "chat": 0.09,
+          "solo": 0.66,
+          "shape": 0.06,
+          "lead": 0.03,
+          "unknown": 0.16
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "5d85fe74c9b046c3577836038d0303a679be8823e7306d124aa0b0fadd54c27a",
+      "latencyMs": 611,
+      "inputTokens": 321,
+      "outputTokens": 0,
+      "costUsd": 0.0000321,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:15.276Z"
+    },
+    {
+      "caseId": "t-ys-scripts",
+      "decision": "mainModel",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 0.64,
+          "demanding": 0.22,
+          "unknown": 0.14
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "df3e7890b65cb3116b0ddb11abcfa78c6966aeba6971cdddf54b5f4b27139893",
+      "latencyMs": 141,
+      "inputTokens": 511,
+      "outputTokens": 41,
+      "costUsd": 0.000021462,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:17.887Z"
+    },
+    {
+      "caseId": "t-ys-scripts",
+      "decision": "mainModel",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 0.9,
+          "demanding": 0.08,
+          "unknown": 0.02
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "a0bec63f2e08cfddf45ac2c50f3dee7005898658ec694194914b1e8e7def784f",
+      "latencyMs": 282,
+      "inputTokens": 302,
+      "outputTokens": 0,
+      "costUsd": 0.000030200000000000002,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:20.030Z"
+    },
+    {
+      "caseId": "t-ys-scripts",
+      "decision": "subagentTier",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 0.62,
+          "demanding": 0.24,
+          "unknown": 0.14
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "a535ca0ae5ff25a29cdd37108ca81929e4c1335ad4f748ee2c0543c67daf5720",
+      "latencyMs": 147,
+      "inputTokens": 515,
+      "outputTokens": 43,
+      "costUsd": 0.00002163,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:22.312Z"
+    },
+    {
+      "caseId": "t-ys-scripts",
+      "decision": "subagentTier",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 0.92,
+          "demanding": 0.05,
+          "unknown": 0.03
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "370a91cbed3408d7f9054f6d2ed301739b7ed5aabb45c210d3960f8048b8a337",
+      "latencyMs": 145,
+      "inputTokens": 306,
+      "outputTokens": 0,
+      "costUsd": 0.0000306,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:24.459Z"
+    },
+    {
+      "caseId": "t-chat-regex",
+      "decision": "project",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "NoProject",
+        "probabilities": {
+          "T3Peach": 0,
+          "YardSmith": 0,
+          "Weave": 0,
+          "PropSmith": 0,
+          "SlipJay": 0,
+          "Agents": 0,
+          "Homebase": 0,
+          "OddsAndEnds": 0,
+          "Splay": 0,
+          "NoProject": 0.92,
+          "unknown": 0.08
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "fe6c5ed00adfa9380a4cf4cab95848c7ca63e24715bc100ad2ae330734efc741",
+      "latencyMs": 182,
+      "inputTokens": 742,
+      "outputTokens": 113,
+      "costUsd": 0.000031164,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:26.604Z"
+    },
+    {
+      "caseId": "t-chat-regex",
+      "decision": "project",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "NoProject",
+        "probabilities": {
+          "T3Peach": 0.01,
+          "YardSmith": 0,
+          "Weave": 0,
+          "PropSmith": 0,
+          "SlipJay": 0,
+          "Agents": 0,
+          "Homebase": 0,
+          "OddsAndEnds": 0,
+          "Splay": 0.01,
+          "NoProject": 0.95,
+          "unknown": 0.03
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "3ff7e967ffa9cc14c941abcc077e340eda59cbc6dc0fa0a63b37ac5b71a6369c",
+      "latencyMs": 228,
+      "inputTokens": 461,
+      "outputTokens": 0,
+      "costUsd": 0.0000461,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:28.787Z"
+    },
+    {
+      "caseId": "t-chat-regex",
+      "decision": "workflow",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "chat",
+        "probabilities": {
+          "chat": 1,
+          "solo": 0,
+          "shape": 0,
+          "lead": 0,
+          "unknown": 0
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "e62652b7e6c49e305c4088e0a736d07100ddc2fba1ae85ceb4a7c17d7d9a168c",
+      "latencyMs": 142,
+      "inputTokens": 535,
+      "outputTokens": 52,
+      "costUsd": 0.000022470000000000003,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:31.016Z"
+    },
+    {
+      "caseId": "t-chat-regex",
+      "decision": "workflow",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "chat",
+        "probabilities": {
+          "chat": 0.94,
+          "solo": 0.02,
+          "shape": 0.01,
+          "lead": 0.01,
+          "unknown": 0.02
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "7c965f5cbf51a364302dff3a69f6c2c3c5ab6476d1f038417ad84be399895d9e",
+      "latencyMs": 541,
+      "inputTokens": 313,
+      "outputTokens": 0,
+      "costUsd": 0.0000313,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:33.159Z"
+    },
+    {
+      "caseId": "t-chat-regex",
+      "decision": "mainModel",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 1,
+          "demanding": 0,
+          "unknown": 0
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "b41db1a0480382c8901962c2448b535330006d267d97930b0b56676091829007",
+      "latencyMs": 196,
+      "inputTokens": 503,
+      "outputTokens": 41,
+      "costUsd": 0.000021126,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:35.700Z"
+    },
+    {
+      "caseId": "t-chat-regex",
+      "decision": "mainModel",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 0.94,
+          "demanding": 0.02,
+          "unknown": 0.04
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "434efaf1cd259260fd461fc2e3bbaa56882c76a7af6990890770b78377237738",
+      "latencyMs": 278,
+      "inputTokens": 294,
+      "outputTokens": 0,
+      "costUsd": 0.000029400000000000003,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:37.898Z"
+    },
+    {
+      "caseId": "t-chat-regex",
+      "decision": "subagentTier",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 1,
+          "demanding": 0,
+          "unknown": 0
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "fb15d7f39af4498162490aa42af143b6d078f643751018fce108344c1b6f12c1",
+      "latencyMs": 134,
+      "inputTokens": 507,
+      "outputTokens": 43,
+      "costUsd": 0.000021294,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:40.176Z"
+    },
+    {
+      "caseId": "t-chat-regex",
+      "decision": "subagentTier",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 0.89,
+          "demanding": 0.07,
+          "unknown": 0.04
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "80f558df4e689ddce3348d0c131b9e6c4ef3a211adc6751c7e05d5e19efb7185",
+      "latencyMs": 239,
+      "inputTokens": 298,
+      "outputTokens": 0,
+      "costUsd": 0.0000298,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:42.310Z"
+    },
+    {
+      "caseId": "t-explicit-sonnet",
+      "decision": "project",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "T3Peach": 0,
+          "YardSmith": 0,
+          "Weave": 0,
+          "PropSmith": 0,
+          "SlipJay": 0,
+          "Agents": 0,
+          "Homebase": 0,
+          "OddsAndEnds": 0,
+          "Splay": 0,
+          "NoProject": 0.02,
+          "unknown": 0.98
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "74721910db13b816fd9667cde71a5ec8111f4c48d1c333e87aa67abbb776380d",
+      "latencyMs": 157,
+      "inputTokens": 748,
+      "outputTokens": 111,
+      "costUsd": 0.000031416,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:44.550Z"
+    },
+    {
+      "caseId": "t-explicit-sonnet",
+      "decision": "project",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "T3Peach": 0.18,
+          "YardSmith": 0.06,
+          "Weave": 0.04,
+          "PropSmith": 0.03,
+          "SlipJay": 0.03,
+          "Agents": 0.04,
+          "Homebase": 0.04,
+          "OddsAndEnds": 0.04,
+          "Splay": 0.02,
+          "NoProject": 0.18,
+          "unknown": 0.34
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "a5e8955922756f2dab5207684d0dc1728e624907675d56e5050efa4646435068",
+      "latencyMs": 213,
+      "inputTokens": 467,
+      "outputTokens": 0,
+      "costUsd": 0.000046700000000000003,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:46.708Z"
+    },
+    {
+      "caseId": "t-explicit-sonnet",
+      "decision": "workflow",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "solo",
+        "probabilities": {
+          "chat": 0.03,
+          "solo": 0.96,
+          "shape": 0,
+          "lead": 0,
+          "unknown": 0.01
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "15e268ecfe10ac784aae8b92f3356d35d2eefb2bb0756f1ceaaa74bb35abd22b",
+      "latencyMs": 141,
+      "inputTokens": 541,
+      "outputTokens": 52,
+      "costUsd": 0.000022722,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:48.921Z"
+    },
+    {
+      "caseId": "t-explicit-sonnet",
+      "decision": "workflow",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "solo",
+        "probabilities": {
+          "chat": 0.01,
+          "solo": 0.93,
+          "shape": 0.02,
+          "lead": 0.01,
+          "unknown": 0.03
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "0e13980dffd08597171fbf5bb497733fe5e1ab44a4eff3a07729915e9d458b0b",
+      "latencyMs": 342,
+      "inputTokens": 319,
+      "outputTokens": 0,
+      "costUsd": 0.0000319,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:51.062Z"
+    },
+    {
+      "caseId": "t-explicit-sonnet",
+      "decision": "mainModel",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 0.98,
+          "demanding": 0.01,
+          "unknown": 0.01
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "6fc3de56fae41f5ac4702f82048a96e077c20cb8d05fa2db607c495f17635054",
+      "latencyMs": 151,
+      "inputTokens": 509,
+      "outputTokens": 41,
+      "costUsd": 0.000021378,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:53.405Z"
+    },
+    {
+      "caseId": "t-explicit-sonnet",
+      "decision": "mainModel",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 0.95,
+          "demanding": 0.03,
+          "unknown": 0.02
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "3081f8f5bccfb4ca13b51b3ae10edea1816ed6adc9fb5379f5b75b1765815cd6",
+      "latencyMs": 290,
+      "inputTokens": 300,
+      "outputTokens": 0,
+      "costUsd": 0.00003,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:55.557Z"
+    },
+    {
+      "caseId": "t-explicit-sonnet",
+      "decision": "subagentTier",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 1,
+          "demanding": 0,
+          "unknown": 0
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "b3b5116d56deeacf30bfd1823fa054f3151635b7c951a0515770cfbb06782a59",
+      "latencyMs": 159,
+      "inputTokens": 513,
+      "outputTokens": 43,
+      "costUsd": 0.000021546000000000003,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:33:57.847Z"
+    },
+    {
+      "caseId": "t-explicit-sonnet",
+      "decision": "subagentTier",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "routine": 0.99,
+          "demanding": 0.01,
+          "unknown": 0
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "11ea8d0b8d83b13c9e169cdb543214f23ad70177ea0542b0de204dd897d47867",
+      "latencyMs": 255,
+      "inputTokens": 304,
+      "outputTokens": 0,
+      "costUsd": 0.000030400000000000004,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:34:00.006Z"
+    },
+    {
+      "caseId": "t-amb-cleanup",
+      "decision": "project",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "T3Peach": 0,
+          "YardSmith": 0,
+          "Weave": 0,
+          "PropSmith": 0,
+          "SlipJay": 0,
+          "Agents": 0,
+          "Homebase": 0,
+          "OddsAndEnds": 0,
+          "Splay": 0,
+          "NoProject": 0.01,
+          "unknown": 0.99
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "675e0b3a36d339e1faceee58512cde7ee537960c9b7958c39e2eeabdbc13b2c0",
+      "latencyMs": 155,
+      "inputTokens": 736,
+      "outputTokens": 111,
+      "costUsd": 0.000030912000000000005,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:34:02.261Z"
+    },
+    {
+      "caseId": "t-amb-cleanup",
+      "decision": "project",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "T3Peach": 0.01,
+          "YardSmith": 0.01,
+          "Weave": 0.01,
+          "PropSmith": 0.01,
+          "SlipJay": 0.01,
+          "Agents": 0,
+          "Homebase": 0.01,
+          "OddsAndEnds": 0,
+          "Splay": 0,
+          "NoProject": 0.04,
+          "unknown": 0.9
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "96513d0d0d3d6c510afb6bb4e1ce1591c2a2428126238626634168e08229828b",
+      "latencyMs": 275,
+      "inputTokens": 455,
+      "outputTokens": 0,
+      "costUsd": 0.0000455,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:34:04.416Z"
+    },
+    {
+      "caseId": "t-amb-cleanup",
+      "decision": "workflow",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "chat": 0.01,
+          "solo": 0.32,
+          "shape": 0.02,
+          "lead": 0,
+          "unknown": 0.65
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "ada3e244b079cce4a32b1f6a7066108e47039aaad37bf064bb3f6cde056b6eff",
+      "latencyMs": 157,
+      "inputTokens": 529,
+      "outputTokens": 52,
+      "costUsd": 0.000022218,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:34:06.691Z"
+    },
+    {
+      "caseId": "t-amb-cleanup",
+      "decision": "workflow",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "chat": 0.03,
+          "solo": 0.09,
+          "shape": 0.02,
+          "lead": 0.01,
+          "unknown": 0.85
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "13f5b716c8071104f17123d78a3f1665c1233c066c200ffd774ae48a247fd0aa",
+      "latencyMs": 318,
+      "inputTokens": 307,
+      "outputTokens": 0,
+      "costUsd": 0.0000307,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:34:08.849Z"
+    },
+    {
+      "caseId": "t-amb-cleanup",
+      "decision": "mainModel",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "routine": 0.05,
+          "demanding": 0.38,
+          "unknown": 0.57
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "2c76313b9da46d243126797d4890e88fbe0248c2933b78064d5cc3173b554761",
+      "latencyMs": 160,
+      "inputTokens": 497,
+      "outputTokens": 41,
+      "costUsd": 0.000020874000000000004,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:34:11.167Z"
+    },
+    {
+      "caseId": "t-amb-cleanup",
+      "decision": "mainModel",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "demanding",
+        "probabilities": {
+          "routine": 0.08,
+          "demanding": 0.56,
+          "unknown": 0.36
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "4c188f0d8c473de26a94548b34360b48a7f745ea730f34a4757fc17d7b87601e",
+      "latencyMs": 313,
+      "inputTokens": 288,
+      "outputTokens": 0,
+      "costUsd": 0.000028800000000000002,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:34:13.327Z"
+    },
+    {
+      "caseId": "t-amb-cleanup",
+      "decision": "subagentTier",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "demanding",
+        "probabilities": {
+          "routine": 0.03,
+          "demanding": 0.61,
+          "unknown": 0.36
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "21a758d071227b087d1d8c5c6d9d7ebcce44d8bbc8f6bce72ff6e619644185fc",
+      "latencyMs": 155,
+      "inputTokens": 501,
+      "outputTokens": 45,
+      "costUsd": 0.000021042000000000003,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:34:15.640Z"
+    },
+    {
+      "caseId": "t-amb-cleanup",
+      "decision": "subagentTier",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "unknown",
+        "probabilities": {
+          "routine": 0.05,
+          "demanding": 0.36,
+          "unknown": 0.59
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "d0a16e59e0c8967c49fd640d5d88a02d8f7b2e881fe9c404915b2456cf73b6c6",
+      "latencyMs": 136,
+      "inputTokens": 292,
+      "outputTokens": 0,
+      "costUsd": 0.0000292,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T11:34:17.795Z"
+    }
+  ],
+  "summary": {
+    "jev": {
+      "project": {
+        "scored": 6,
+        "uncertainReference": 2,
+        "correct": {
+          "numerator": 5,
+          "denominator": 6,
+          "interval": {
+            "value": 0.8333333333333334,
+            "low": 0.43649056343635395,
+            "high": 0.9699474141282697
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-ys-scripts",
+            "t-chat-regex"
+          ]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 3,
+        "fallback": 5,
+        "under": [],
+        "over": [],
+        "lateral": ["t-claude-safety"],
+        "correctWhenDecided": {
+          "numerator": 2,
+          "denominator": 3,
+          "interval": {
+            "value": 0.6666666666666666,
+            "low": 0.2076549551264879,
+            "high": 0.9385096847238394
+          },
+          "cases": ["t-runtime-mode", "t-chat-regex"]
+        },
+        "relativeCost": null
+      },
+      "workflow": {
+        "scored": 7,
+        "uncertainReference": 1,
+        "correct": {
+          "numerator": 7,
+          "denominator": 7,
+          "interval": {
+            "value": 1,
+            "low": 0.6456611570247934,
+            "high": 1
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-claude-safety",
+            "t-ys-scripts",
+            "t-chat-regex",
+            "t-explicit-sonnet"
+          ]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 6,
+        "fallback": 2,
+        "under": [],
+        "over": [],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-ys-scripts",
+            "t-chat-regex",
+            "t-explicit-sonnet"
+          ]
+        },
+        "relativeCost": null
+      },
+      "mainModel": {
+        "scored": 6,
+        "uncertainReference": 2,
+        "correct": {
+          "numerator": 4,
+          "denominator": 6,
+          "interval": {
+            "value": 0.6666666666666666,
+            "low": 0.29998832134152864,
+            "high": 0.9032306674407831
+          },
+          "cases": ["t-fork-foreground", "t-bounded-wait", "t-chat-regex", "t-explicit-sonnet"]
+        },
+        "fromConstraint": 1,
+        "fromEngine": 4,
+        "fallback": 3,
+        "under": [],
+        "over": ["t-runtime-mode", "t-ys-scripts"],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 3,
+          "denominator": 3,
+          "interval": {
+            "value": 1,
+            "low": 0.43849391955098227,
+            "high": 1
+          },
+          "cases": ["t-fork-foreground", "t-bounded-wait", "t-chat-regex"]
+        },
+        "relativeCost": {
+          "demanding=2x": 10,
+          "demanding=4x": 18,
+          "demanding=10x": 42
+        }
+      },
+      "subagentTier": {
+        "scored": 5,
+        "uncertainReference": 3,
+        "correct": {
+          "numerator": 3,
+          "denominator": 5,
+          "interval": {
+            "value": 0.6,
+            "low": 0.23071993220883708,
+            "high": 0.8823817688407467
+          },
+          "cases": ["t-fork-foreground", "t-bounded-wait", "t-explicit-sonnet"]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 7,
+        "fallback": 1,
+        "under": [],
+        "over": ["t-runtime-mode", "t-ys-scripts"],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 3,
+          "denominator": 4,
+          "interval": {
+            "value": 0.75,
+            "low": 0.3006360524426366,
+            "high": 0.9544139373553637
+          },
+          "cases": ["t-fork-foreground", "t-bounded-wait", "t-explicit-sonnet"]
+        },
+        "relativeCost": {
+          "demanding=2x": 9,
+          "demanding=4x": 17,
+          "demanding=10x": 41
+        }
+      }
+    },
+    "luna": {
+      "project": {
+        "scored": 6,
+        "uncertainReference": 2,
+        "correct": {
+          "numerator": 5,
+          "denominator": 6,
+          "interval": {
+            "value": 0.8333333333333334,
+            "low": 0.43649056343635395,
+            "high": 0.9699474141282697
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-claude-safety",
+            "t-chat-regex"
+          ]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 4,
+        "fallback": 4,
+        "under": [],
+        "over": [],
+        "lateral": ["t-ys-scripts"],
+        "correctWhenDecided": {
+          "numerator": 3,
+          "denominator": 4,
+          "interval": {
+            "value": 0.75,
+            "low": 0.3006360524426366,
+            "high": 0.9544139373553637
+          },
+          "cases": ["t-fork-foreground", "t-runtime-mode", "t-chat-regex"]
+        },
+        "relativeCost": null
+      },
+      "workflow": {
+        "scored": 7,
+        "uncertainReference": 1,
+        "correct": {
+          "numerator": 5,
+          "denominator": 7,
+          "interval": {
+            "value": 0.7142857142857143,
+            "low": 0.35892909014821267,
+            "high": 0.9177828342909844
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-bounded-wait",
+            "t-ys-scripts",
+            "t-chat-regex",
+            "t-explicit-sonnet"
+          ]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 7,
+        "fallback": 1,
+        "under": ["t-runtime-mode", "t-claude-safety"],
+        "over": [],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 5,
+          "denominator": 7,
+          "interval": {
+            "value": 0.7142857142857143,
+            "low": 0.35892909014821267,
+            "high": 0.9177828342909844
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-bounded-wait",
+            "t-ys-scripts",
+            "t-chat-regex",
+            "t-explicit-sonnet"
+          ]
+        },
+        "relativeCost": null
+      },
+      "mainModel": {
+        "scored": 6,
+        "uncertainReference": 2,
+        "correct": {
+          "numerator": 5,
+          "denominator": 6,
+          "interval": {
+            "value": 0.8333333333333334,
+            "low": 0.43649056343635395,
+            "high": 0.9699474141282697
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-bounded-wait",
+            "t-ys-scripts",
+            "t-chat-regex",
+            "t-explicit-sonnet"
+          ]
+        },
+        "fromConstraint": 1,
+        "fromEngine": 5,
+        "fallback": 2,
+        "under": [],
+        "over": ["t-runtime-mode"],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 3,
+          "denominator": 3,
+          "interval": {
+            "value": 1,
+            "low": 0.43849391955098227,
+            "high": 1
+          },
+          "cases": ["t-fork-foreground", "t-ys-scripts", "t-chat-regex"]
+        },
+        "relativeCost": {
+          "demanding=2x": 9,
+          "demanding=4x": 15,
+          "demanding=10x": 33
+        }
+      },
+      "subagentTier": {
+        "scored": 5,
+        "uncertainReference": 3,
+        "correct": {
+          "numerator": 4,
+          "denominator": 5,
+          "interval": {
+            "value": 0.8,
+            "low": 0.3755282641185388,
+            "high": 0.9637768390302125
+          },
+          "cases": ["t-fork-foreground", "t-runtime-mode", "t-ys-scripts", "t-explicit-sonnet"]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 7,
+        "fallback": 1,
+        "under": ["t-bounded-wait"],
+        "over": [],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 4,
+          "denominator": 5,
+          "interval": {
+            "value": 0.8,
+            "low": 0.3755282641185388,
+            "high": 0.9637768390302125
+          },
+          "cases": ["t-fork-foreground", "t-runtime-mode", "t-ys-scripts", "t-explicit-sonnet"]
+        },
+        "relativeCost": {
+          "demanding=2x": 8.5,
+          "demanding=4x": 12.5,
+          "demanding=10x": 24.5
+        }
+      }
+    },
+    "current": {
+      "project": {
+        "scored": 6,
+        "uncertainReference": 2,
+        "correct": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-claude-safety",
+            "t-ys-scripts",
+            "t-chat-regex"
+          ]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 8,
+        "fallback": 0,
+        "under": [],
+        "over": [],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-claude-safety",
+            "t-ys-scripts",
+            "t-chat-regex"
+          ]
+        },
+        "relativeCost": null
+      },
+      "workflow": {
+        "scored": 7,
+        "uncertainReference": 1,
+        "correct": {
+          "numerator": 6,
+          "denominator": 7,
+          "interval": {
+            "value": 0.8571428571428571,
+            "low": 0.48686549668097007,
+            "high": 0.9743210440510253
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-claude-safety",
+            "t-ys-scripts",
+            "t-explicit-sonnet"
+          ]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 8,
+        "fallback": 0,
+        "under": [],
+        "over": ["t-chat-regex"],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 6,
+          "denominator": 7,
+          "interval": {
+            "value": 0.8571428571428571,
+            "low": 0.48686549668097007,
+            "high": 0.9743210440510253
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-claude-safety",
+            "t-ys-scripts",
+            "t-explicit-sonnet"
+          ]
+        },
+        "relativeCost": null
+      },
+      "mainModel": {
+        "scored": 6,
+        "uncertainReference": 2,
+        "correct": {
+          "numerator": 3,
+          "denominator": 6,
+          "interval": {
+            "value": 0.5,
+            "low": 0.18761280689940868,
+            "high": 0.8123871931005913
+          },
+          "cases": ["t-fork-foreground", "t-bounded-wait", "t-explicit-sonnet"]
+        },
+        "fromConstraint": 1,
+        "fromEngine": 7,
+        "fallback": 0,
+        "under": [],
+        "over": ["t-runtime-mode", "t-ys-scripts", "t-chat-regex"],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 2,
+          "denominator": 5,
+          "interval": {
+            "value": 0.4,
+            "low": 0.1176182311592533,
+            "high": 0.769280067791163
+          },
+          "cases": ["t-fork-foreground", "t-bounded-wait"]
+        },
+        "relativeCost": {
+          "demanding=2x": 11,
+          "demanding=4x": 21,
+          "demanding=10x": 51
+        }
+      },
+      "subagentTier": {
+        "scored": 5,
+        "uncertainReference": 3,
+        "correct": {
+          "numerator": 2,
+          "denominator": 5,
+          "interval": {
+            "value": 0.4,
+            "low": 0.1176182311592533,
+            "high": 0.769280067791163
+          },
+          "cases": ["t-fork-foreground", "t-bounded-wait"]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 8,
+        "fallback": 0,
+        "under": [],
+        "over": ["t-runtime-mode", "t-ys-scripts", "t-explicit-sonnet"],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 2,
+          "denominator": 5,
+          "interval": {
+            "value": 0.4,
+            "low": 0.1176182311592533,
+            "high": 0.769280067791163
+          },
+          "cases": ["t-fork-foreground", "t-bounded-wait"]
+        },
+        "relativeCost": {
+          "demanding=2x": 10,
+          "demanding=4x": 20,
+          "demanding=10x": 50
+        }
+      }
+    },
+    "keyword": {
+      "project": {
+        "scored": 6,
+        "uncertainReference": 2,
+        "correct": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-claude-safety",
+            "t-ys-scripts",
+            "t-chat-regex"
+          ]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 8,
+        "fallback": 0,
+        "under": [],
+        "over": [],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-claude-safety",
+            "t-ys-scripts",
+            "t-chat-regex"
+          ]
+        },
+        "relativeCost": null
+      },
+      "workflow": {
+        "scored": 7,
+        "uncertainReference": 1,
+        "correct": {
+          "numerator": 7,
+          "denominator": 7,
+          "interval": {
+            "value": 1,
+            "low": 0.6456611570247934,
+            "high": 1
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-claude-safety",
+            "t-ys-scripts",
+            "t-chat-regex",
+            "t-explicit-sonnet"
+          ]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 8,
+        "fallback": 0,
+        "under": [],
+        "over": [],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 7,
+          "denominator": 7,
+          "interval": {
+            "value": 1,
+            "low": 0.6456611570247934,
+            "high": 1
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-claude-safety",
+            "t-ys-scripts",
+            "t-chat-regex",
+            "t-explicit-sonnet"
+          ]
+        },
+        "relativeCost": null
+      },
+      "mainModel": {
+        "scored": 6,
+        "uncertainReference": 2,
+        "correct": {
+          "numerator": 2,
+          "denominator": 6,
+          "interval": {
+            "value": 0.3333333333333333,
+            "low": 0.09676933255921683,
+            "high": 0.7000116786584712
+          },
+          "cases": ["t-runtime-mode", "t-explicit-sonnet"]
+        },
+        "fromConstraint": 1,
+        "fromEngine": 7,
+        "fallback": 0,
+        "under": ["t-fork-foreground", "t-bounded-wait"],
+        "over": ["t-ys-scripts", "t-chat-regex"],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 1,
+          "denominator": 5,
+          "interval": {
+            "value": 0.2,
+            "low": 0.03622316096978745,
+            "high": 0.6244717358814613
+          },
+          "cases": ["t-runtime-mode"]
+        },
+        "relativeCost": {
+          "demanding=2x": 13,
+          "demanding=4x": 21,
+          "demanding=10x": 45
+        }
+      },
+      "subagentTier": {
+        "scored": 5,
+        "uncertainReference": 3,
+        "correct": {
+          "numerator": 2,
+          "denominator": 5,
+          "interval": {
+            "value": 0.4,
+            "low": 0.1176182311592533,
+            "high": 0.769280067791163
+          },
+          "cases": ["t-runtime-mode", "t-explicit-sonnet"]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 8,
+        "fallback": 0,
+        "under": ["t-fork-foreground", "t-bounded-wait"],
+        "over": ["t-ys-scripts"],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 2,
+          "denominator": 5,
+          "interval": {
+            "value": 0.4,
+            "low": 0.1176182311592533,
+            "high": 0.769280067791163
+          },
+          "cases": ["t-runtime-mode", "t-explicit-sonnet"]
+        },
+        "relativeCost": {
+          "demanding=2x": 11,
+          "demanding=4x": 17,
+          "demanding=10x": 35
+        }
+      }
+    },
+    "routine": {
+      "project": {
+        "scored": 6,
+        "uncertainReference": 2,
+        "correct": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-claude-safety",
+            "t-ys-scripts",
+            "t-chat-regex"
+          ]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 8,
+        "fallback": 0,
+        "under": [],
+        "over": [],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-claude-safety",
+            "t-ys-scripts",
+            "t-chat-regex"
+          ]
+        },
+        "relativeCost": null
+      },
+      "workflow": {
+        "scored": 7,
+        "uncertainReference": 1,
+        "correct": {
+          "numerator": 6,
+          "denominator": 7,
+          "interval": {
+            "value": 0.8571428571428571,
+            "low": 0.48686549668097007,
+            "high": 0.9743210440510253
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-claude-safety",
+            "t-ys-scripts",
+            "t-explicit-sonnet"
+          ]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 8,
+        "fallback": 0,
+        "under": [],
+        "over": ["t-chat-regex"],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 6,
+          "denominator": 7,
+          "interval": {
+            "value": 0.8571428571428571,
+            "low": 0.48686549668097007,
+            "high": 0.9743210440510253
+          },
+          "cases": [
+            "t-fork-foreground",
+            "t-runtime-mode",
+            "t-bounded-wait",
+            "t-claude-safety",
+            "t-ys-scripts",
+            "t-explicit-sonnet"
+          ]
+        },
+        "relativeCost": null
+      },
+      "mainModel": {
+        "scored": 6,
+        "uncertainReference": 2,
+        "correct": {
+          "numerator": 4,
+          "denominator": 6,
+          "interval": {
+            "value": 0.6666666666666666,
+            "low": 0.29998832134152864,
+            "high": 0.9032306674407831
+          },
+          "cases": ["t-runtime-mode", "t-ys-scripts", "t-chat-regex", "t-explicit-sonnet"]
+        },
+        "fromConstraint": 1,
+        "fromEngine": 7,
+        "fallback": 0,
+        "under": ["t-fork-foreground", "t-bounded-wait"],
+        "over": [],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 3,
+          "denominator": 5,
+          "interval": {
+            "value": 0.6,
+            "low": 0.23071993220883708,
+            "high": 0.8823817688407467
+          },
+          "cases": ["t-runtime-mode", "t-ys-scripts", "t-chat-regex"]
+        },
+        "relativeCost": {
+          "demanding=2x": 11,
+          "demanding=4x": 15,
+          "demanding=10x": 27
+        }
+      },
+      "subagentTier": {
+        "scored": 5,
+        "uncertainReference": 3,
+        "correct": {
+          "numerator": 3,
+          "denominator": 5,
+          "interval": {
+            "value": 0.6,
+            "low": 0.23071993220883708,
+            "high": 0.8823817688407467
+          },
+          "cases": ["t-runtime-mode", "t-ys-scripts", "t-explicit-sonnet"]
+        },
+        "fromConstraint": 0,
+        "fromEngine": 8,
+        "fallback": 0,
+        "under": ["t-fork-foreground", "t-bounded-wait"],
+        "over": [],
+        "lateral": [],
+        "correctWhenDecided": {
+          "numerator": 3,
+          "denominator": 5,
+          "interval": {
+            "value": 0.6,
+            "low": 0.23071993220883708,
+            "high": 0.8823817688407467
+          },
+          "cases": ["t-runtime-mode", "t-ys-scripts", "t-explicit-sonnet"]
+        },
+        "relativeCost": {
+          "demanding=2x": 10,
+          "demanding=4x": 14,
+          "demanding=10x": 26
+        }
+      }
+    }
+  },
+  "routes": {
+    "jev": {
+      "t-fork-foreground": {
+        "project": {
+          "value": "T3Peach",
+          "source": "fallback",
+          "engineChoice": "unknown",
+          "reason": "unknown"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": "solo",
+          "reason": "above floor"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": "demanding",
+          "reason": "below routine floor"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": "demanding",
+          "reason": "below routine floor"
+        }
+      },
+      "t-runtime-mode": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": "T3Peach",
+          "reason": "above floor"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": "solo",
+          "reason": "above floor"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "fallback",
+          "engineChoice": "unknown",
+          "reason": "unknown"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": "demanding",
+          "reason": "below routine floor"
+        }
+      },
+      "t-bounded-wait": {
+        "project": {
+          "value": "T3Peach",
+          "source": "fallback",
+          "engineChoice": "unknown",
+          "reason": "unknown"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": "solo",
+          "reason": "above floor"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": "demanding",
+          "reason": "below routine floor"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": "demanding",
+          "reason": "below routine floor"
+        }
+      },
+      "t-claude-safety": {
+        "project": {
+          "value": "Agents",
+          "source": "engine",
+          "engineChoice": "Agents",
+          "reason": "above floor"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "fallback",
+          "engineChoice": "shape",
+          "reason": "below choice floor"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": "demanding",
+          "reason": "below routine floor"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": "demanding",
+          "reason": "below routine floor"
+        }
+      },
+      "t-ys-scripts": {
+        "project": {
+          "value": "YardSmith",
+          "source": "fallback",
+          "engineChoice": "unknown",
+          "reason": "unknown"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": "solo",
+          "reason": "above floor"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "fallback",
+          "engineChoice": "routine",
+          "reason": "below routine floor"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "fallback",
+          "engineChoice": "routine",
+          "reason": "below routine floor"
+        }
+      },
+      "t-chat-regex": {
+        "project": {
+          "value": "NoProject",
+          "source": "engine",
+          "engineChoice": "NoProject",
+          "reason": "above floor"
+        },
+        "workflow": {
+          "value": "chat",
+          "source": "engine",
+          "engineChoice": "chat",
+          "reason": "above floor"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": "routine",
+          "reason": "routine above floor"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": "routine",
+          "reason": "routine above floor"
+        }
+      },
+      "t-explicit-sonnet": {
+        "project": {
+          "value": "T3Peach",
+          "source": "fallback",
+          "engineChoice": "unknown",
+          "reason": "unknown"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": "solo",
+          "reason": "above floor"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "constraint",
+          "engineChoice": "routine",
+          "reason": "explicit user constraint"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": "routine",
+          "reason": "routine above floor"
+        }
+      },
+      "t-amb-cleanup": {
+        "project": {
+          "value": "T3Peach",
+          "source": "fallback",
+          "engineChoice": "unknown",
+          "reason": "unknown"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "fallback",
+          "engineChoice": "unknown",
+          "reason": "unknown"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "fallback",
+          "engineChoice": "unknown",
+          "reason": "unknown"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": "demanding",
+          "reason": "below routine floor"
+        }
+      }
+    },
+    "luna": {
+      "t-fork-foreground": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": "T3Peach",
+          "reason": "above floor"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": "solo",
+          "reason": "above floor"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": "demanding",
+          "reason": "below routine floor"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": "demanding",
+          "reason": "below routine floor"
+        }
+      },
+      "t-runtime-mode": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": "T3Peach",
+          "reason": "above floor"
+        },
+        "workflow": {
+          "value": "chat",
+          "source": "engine",
+          "engineChoice": "chat",
+          "reason": "above floor"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "fallback",
+          "engineChoice": "routine",
+          "reason": "below routine floor"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": "routine",
+          "reason": "routine above floor"
+        }
+      },
+      "t-bounded-wait": {
+        "project": {
+          "value": "T3Peach",
+          "source": "fallback",
+          "engineChoice": "unknown",
+          "reason": "unknown"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": "solo",
+          "reason": "above floor"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "fallback",
+          "engineChoice": "routine",
+          "reason": "below routine floor"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": "routine",
+          "reason": "routine above floor"
+        }
+      },
+      "t-claude-safety": {
+        "project": {
+          "value": "T3Peach",
+          "source": "fallback",
+          "engineChoice": "unknown",
+          "reason": "unknown"
+        },
+        "workflow": {
+          "value": "chat",
+          "source": "engine",
+          "engineChoice": "chat",
+          "reason": "above floor"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": "demanding",
+          "reason": "below routine floor"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": "demanding",
+          "reason": "below routine floor"
+        }
+      },
+      "t-ys-scripts": {
+        "project": {
+          "value": "SlipJay",
+          "source": "engine",
+          "engineChoice": "SlipJay",
+          "reason": "above floor"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": "solo",
+          "reason": "above floor"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": "routine",
+          "reason": "routine above floor"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": "routine",
+          "reason": "routine above floor"
+        }
+      },
+      "t-chat-regex": {
+        "project": {
+          "value": "NoProject",
+          "source": "engine",
+          "engineChoice": "NoProject",
+          "reason": "above floor"
+        },
+        "workflow": {
+          "value": "chat",
+          "source": "engine",
+          "engineChoice": "chat",
+          "reason": "above floor"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": "routine",
+          "reason": "routine above floor"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": "routine",
+          "reason": "routine above floor"
+        }
+      },
+      "t-explicit-sonnet": {
+        "project": {
+          "value": "T3Peach",
+          "source": "fallback",
+          "engineChoice": "unknown",
+          "reason": "unknown"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": "solo",
+          "reason": "above floor"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "constraint",
+          "engineChoice": "routine",
+          "reason": "explicit user constraint"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": "routine",
+          "reason": "routine above floor"
+        }
+      },
+      "t-amb-cleanup": {
+        "project": {
+          "value": "T3Peach",
+          "source": "fallback",
+          "engineChoice": "unknown",
+          "reason": "unknown"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "fallback",
+          "engineChoice": "unknown",
+          "reason": "unknown"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": "demanding",
+          "reason": "below routine floor"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "fallback",
+          "engineChoice": "unknown",
+          "reason": "unknown"
+        }
+      }
+    },
+    "current": {
+      "t-fork-foreground": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        }
+      },
+      "t-runtime-mode": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        }
+      },
+      "t-bounded-wait": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        }
+      },
+      "t-claude-safety": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        }
+      },
+      "t-ys-scripts": {
+        "project": {
+          "value": "YardSmith",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        }
+      },
+      "t-chat-regex": {
+        "project": {
+          "value": "NoProject",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        }
+      },
+      "t-explicit-sonnet": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "constraint",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        }
+      },
+      "t-amb-cleanup": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "current"
+        }
+      }
+    },
+    "keyword": {
+      "t-fork-foreground": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        }
+      },
+      "t-runtime-mode": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        }
+      },
+      "t-bounded-wait": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        }
+      },
+      "t-claude-safety": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        }
+      },
+      "t-ys-scripts": {
+        "project": {
+          "value": "YardSmith",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        }
+      },
+      "t-chat-regex": {
+        "project": {
+          "value": "NoProject",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "workflow": {
+          "value": "chat",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        }
+      },
+      "t-explicit-sonnet": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "constraint",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        }
+      },
+      "t-amb-cleanup": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "workflow": {
+          "value": "shape",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "mainModel": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        },
+        "subagentTier": {
+          "value": "demanding",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "keyword"
+        }
+      }
+    },
+    "routine": {
+      "t-fork-foreground": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        }
+      },
+      "t-runtime-mode": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        }
+      },
+      "t-bounded-wait": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        }
+      },
+      "t-claude-safety": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        }
+      },
+      "t-ys-scripts": {
+        "project": {
+          "value": "YardSmith",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        }
+      },
+      "t-chat-regex": {
+        "project": {
+          "value": "NoProject",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        }
+      },
+      "t-explicit-sonnet": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "constraint",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        }
+      },
+      "t-amb-cleanup": {
+        "project": {
+          "value": "T3Peach",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "workflow": {
+          "value": "solo",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "mainModel": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        },
+        "subagentTier": {
+          "value": "routine",
+          "source": "engine",
+          "engineChoice": null,
+          "reason": "routine"
+        }
+      }
+    }
+  },
+  "overrideAttempts": [
+    {
+      "engine": "jev",
+      "attempts": [],
+      "violations": []
+    },
+    {
+      "engine": "luna",
+      "attempts": [],
+      "violations": []
+    }
+  ],
+  "cost": {
+    "jev": {
+      "calls": 32,
+      "latencyMs": {
+        "mean": 157.53125,
+        "p50": 155,
+        "max": 224
+      },
+      "unobservedAttempts": 0,
+      "inputTokens": 18452,
+      "knownInputTokens": 18452,
+      "costUsd": 0.0007749840000000002,
+      "knownCostUsd": 0.0007749840000000002,
+      "costKnownCalls": 32,
+      "costStatuses": ["estimated"],
+      "attempts": 32,
+      "failedAttempts": 0,
+      "failureCodes": [],
+      "unanswered": [],
+      "outputTokensKnown": 1997,
+      "requestedModels": ["jev-1.14.0"],
+      "resolvedModels": ["jev-1.14.0"]
+    },
+    "luna": {
+      "calls": 32,
+      "latencyMs": {
+        "mean": 422.0625,
+        "p50": 288,
+        "max": 2054
+      },
+      "unobservedAttempts": 0,
+      "inputTokens": 11084,
+      "knownInputTokens": 11084,
+      "costUsd": 0.0011084,
+      "knownCostUsd": 0.0011084,
+      "costKnownCalls": 32,
+      "costStatuses": ["estimated"],
+      "attempts": 32,
+      "failedAttempts": 0,
+      "failureCodes": [],
+      "unanswered": [],
+      "outputTokensKnown": 0,
+      "requestedModels": ["gpt-6-luna"],
+      "resolvedModels": ["gpt-6-luna"]
+    }
+  },
+  "sensitivity": {
+    "labelerA": {
+      "jev": {
+        "project": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-ys-scripts",
+              "t-chat-regex"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 3,
+          "fallback": 5,
+          "under": [],
+          "over": [],
+          "lateral": ["t-claude-safety"],
+          "correctWhenDecided": {
+            "numerator": 2,
+            "denominator": 3,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.2076549551264879,
+              "high": 0.9385096847238394
+            },
+            "cases": ["t-runtime-mode", "t-chat-regex"]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 7,
+          "uncertainReference": 1,
+          "correct": {
+            "numerator": 7,
+            "denominator": 7,
+            "interval": {
+              "value": 1,
+              "low": 0.6456611570247934,
+              "high": 1
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 6,
+          "fallback": 2,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet"
+            ]
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 7,
+          "uncertainReference": 1,
+          "correct": {
+            "numerator": 4,
+            "denominator": 7,
+            "interval": {
+              "value": 0.5714285714285714,
+              "low": 0.2504542304090258,
+              "high": 0.8417830777373732
+            },
+            "cases": ["t-fork-foreground", "t-bounded-wait", "t-chat-regex", "t-explicit-sonnet"]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 4,
+          "fallback": 3,
+          "under": [],
+          "over": ["t-runtime-mode", "t-claude-safety", "t-ys-scripts"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 3,
+            "denominator": 4,
+            "interval": {
+              "value": 0.75,
+              "low": 0.3006360524426366,
+              "high": 0.9544139373553637
+            },
+            "cases": ["t-fork-foreground", "t-bounded-wait", "t-chat-regex"]
+          },
+          "relativeCost": {
+            "demanding=2x": 12,
+            "demanding=4x": 22,
+            "demanding=10x": 52
+          }
+        },
+        "subagentTier": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-fork-foreground", "t-bounded-wait", "t-explicit-sonnet"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 7,
+          "fallback": 1,
+          "under": [],
+          "over": ["t-runtime-mode", "t-claude-safety", "t-ys-scripts"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 3,
+            "denominator": 5,
+            "interval": {
+              "value": 0.6,
+              "low": 0.23071993220883708,
+              "high": 0.8823817688407467
+            },
+            "cases": ["t-fork-foreground", "t-bounded-wait", "t-explicit-sonnet"]
+          },
+          "relativeCost": {
+            "demanding=2x": 11,
+            "demanding=4x": 21,
+            "demanding=10x": 51
+          }
+        }
+      },
+      "luna": {
+        "project": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-chat-regex"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 4,
+          "fallback": 4,
+          "under": [],
+          "over": [],
+          "lateral": ["t-ys-scripts"],
+          "correctWhenDecided": {
+            "numerator": 3,
+            "denominator": 4,
+            "interval": {
+              "value": 0.75,
+              "low": 0.3006360524426366,
+              "high": 0.9544139373553637
+            },
+            "cases": ["t-fork-foreground", "t-runtime-mode", "t-chat-regex"]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 7,
+          "uncertainReference": 1,
+          "correct": {
+            "numerator": 5,
+            "denominator": 7,
+            "interval": {
+              "value": 0.7142857142857143,
+              "low": 0.35892909014821267,
+              "high": 0.9177828342909844
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-bounded-wait",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 7,
+          "fallback": 1,
+          "under": ["t-runtime-mode", "t-claude-safety"],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 5,
+            "denominator": 7,
+            "interval": {
+              "value": 0.7142857142857143,
+              "low": 0.35892909014821267,
+              "high": 0.9177828342909844
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-bounded-wait",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet"
+            ]
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 7,
+          "uncertainReference": 1,
+          "correct": {
+            "numerator": 5,
+            "denominator": 7,
+            "interval": {
+              "value": 0.7142857142857143,
+              "low": 0.35892909014821267,
+              "high": 0.9177828342909844
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-bounded-wait",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet"
+            ]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 5,
+          "fallback": 2,
+          "under": [],
+          "over": ["t-runtime-mode", "t-claude-safety"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 3,
+            "denominator": 4,
+            "interval": {
+              "value": 0.75,
+              "low": 0.3006360524426366,
+              "high": 0.9544139373553637
+            },
+            "cases": ["t-fork-foreground", "t-ys-scripts", "t-chat-regex"]
+          },
+          "relativeCost": {
+            "demanding=2x": 11,
+            "demanding=4x": 19,
+            "demanding=10x": 43
+          }
+        },
+        "subagentTier": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 4,
+            "denominator": 6,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.29998832134152864,
+              "high": 0.9032306674407831
+            },
+            "cases": ["t-fork-foreground", "t-runtime-mode", "t-ys-scripts", "t-explicit-sonnet"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 7,
+          "fallback": 1,
+          "under": ["t-bounded-wait"],
+          "over": ["t-claude-safety"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 4,
+            "denominator": 6,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.29998832134152864,
+              "high": 0.9032306674407831
+            },
+            "cases": ["t-fork-foreground", "t-runtime-mode", "t-ys-scripts", "t-explicit-sonnet"]
+          },
+          "relativeCost": {
+            "demanding=2x": 10.5,
+            "demanding=4x": 16.5,
+            "demanding=10x": 34.5
+          }
+        }
+      },
+      "current": {
+        "project": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex"
+            ]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 7,
+          "uncertainReference": 1,
+          "correct": {
+            "numerator": 6,
+            "denominator": 7,
+            "interval": {
+              "value": 0.8571428571428571,
+              "low": 0.48686549668097007,
+              "high": 0.9743210440510253
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-explicit-sonnet"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": ["t-chat-regex"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 6,
+            "denominator": 7,
+            "interval": {
+              "value": 0.8571428571428571,
+              "low": 0.48686549668097007,
+              "high": 0.9743210440510253
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-explicit-sonnet"
+            ]
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 7,
+          "uncertainReference": 1,
+          "correct": {
+            "numerator": 3,
+            "denominator": 7,
+            "interval": {
+              "value": 0.42857142857142855,
+              "low": 0.15821692226262685,
+              "high": 0.7495457695909742
+            },
+            "cases": ["t-fork-foreground", "t-bounded-wait", "t-explicit-sonnet"]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 7,
+          "fallback": 0,
+          "under": [],
+          "over": ["t-runtime-mode", "t-claude-safety", "t-ys-scripts", "t-chat-regex"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 2,
+            "denominator": 6,
+            "interval": {
+              "value": 0.3333333333333333,
+              "low": 0.09676933255921683,
+              "high": 0.7000116786584712
+            },
+            "cases": ["t-fork-foreground", "t-bounded-wait"]
+          },
+          "relativeCost": {
+            "demanding=2x": 13,
+            "demanding=4x": 25,
+            "demanding=10x": 61
+          }
+        },
+        "subagentTier": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 2,
+            "denominator": 6,
+            "interval": {
+              "value": 0.3333333333333333,
+              "low": 0.09676933255921683,
+              "high": 0.7000116786584712
+            },
+            "cases": ["t-fork-foreground", "t-bounded-wait"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": ["t-runtime-mode", "t-claude-safety", "t-ys-scripts", "t-explicit-sonnet"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 2,
+            "denominator": 6,
+            "interval": {
+              "value": 0.3333333333333333,
+              "low": 0.09676933255921683,
+              "high": 0.7000116786584712
+            },
+            "cases": ["t-fork-foreground", "t-bounded-wait"]
+          },
+          "relativeCost": {
+            "demanding=2x": 12,
+            "demanding=4x": 24,
+            "demanding=10x": 60
+          }
+        }
+      },
+      "keyword": {
+        "project": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex"
+            ]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 7,
+          "uncertainReference": 1,
+          "correct": {
+            "numerator": 7,
+            "denominator": 7,
+            "interval": {
+              "value": 1,
+              "low": 0.6456611570247934,
+              "high": 1
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 7,
+            "denominator": 7,
+            "interval": {
+              "value": 1,
+              "low": 0.6456611570247934,
+              "high": 1
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet"
+            ]
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 7,
+          "uncertainReference": 1,
+          "correct": {
+            "numerator": 2,
+            "denominator": 7,
+            "interval": {
+              "value": 0.2857142857142857,
+              "low": 0.0822171657090155,
+              "high": 0.6410709098517873
+            },
+            "cases": ["t-runtime-mode", "t-explicit-sonnet"]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 7,
+          "fallback": 0,
+          "under": ["t-fork-foreground", "t-bounded-wait"],
+          "over": ["t-claude-safety", "t-ys-scripts", "t-chat-regex"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 1,
+            "denominator": 6,
+            "interval": {
+              "value": 0.16666666666666666,
+              "low": 0.03005258587173032,
+              "high": 0.563509436563646
+            },
+            "cases": ["t-runtime-mode"]
+          },
+          "relativeCost": {
+            "demanding=2x": 15,
+            "demanding=4x": 25,
+            "demanding=10x": 55
+          }
+        },
+        "subagentTier": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 2,
+            "denominator": 6,
+            "interval": {
+              "value": 0.3333333333333333,
+              "low": 0.09676933255921683,
+              "high": 0.7000116786584712
+            },
+            "cases": ["t-runtime-mode", "t-explicit-sonnet"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": ["t-fork-foreground", "t-bounded-wait"],
+          "over": ["t-claude-safety", "t-ys-scripts"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 2,
+            "denominator": 6,
+            "interval": {
+              "value": 0.3333333333333333,
+              "low": 0.09676933255921683,
+              "high": 0.7000116786584712
+            },
+            "cases": ["t-runtime-mode", "t-explicit-sonnet"]
+          },
+          "relativeCost": {
+            "demanding=2x": 13,
+            "demanding=4x": 21,
+            "demanding=10x": 45
+          }
+        }
+      },
+      "routine": {
+        "project": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex"
+            ]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 7,
+          "uncertainReference": 1,
+          "correct": {
+            "numerator": 6,
+            "denominator": 7,
+            "interval": {
+              "value": 0.8571428571428571,
+              "low": 0.48686549668097007,
+              "high": 0.9743210440510253
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-explicit-sonnet"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": ["t-chat-regex"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 6,
+            "denominator": 7,
+            "interval": {
+              "value": 0.8571428571428571,
+              "low": 0.48686549668097007,
+              "high": 0.9743210440510253
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-explicit-sonnet"
+            ]
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 7,
+          "uncertainReference": 1,
+          "correct": {
+            "numerator": 5,
+            "denominator": 7,
+            "interval": {
+              "value": 0.7142857142857143,
+              "low": 0.35892909014821267,
+              "high": 0.9177828342909844
+            },
+            "cases": [
+              "t-runtime-mode",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet"
+            ]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 7,
+          "fallback": 0,
+          "under": ["t-fork-foreground", "t-bounded-wait"],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 4,
+            "denominator": 6,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.29998832134152864,
+              "high": 0.9032306674407831
+            },
+            "cases": ["t-runtime-mode", "t-claude-safety", "t-ys-scripts", "t-chat-regex"]
+          },
+          "relativeCost": {
+            "demanding=2x": 12,
+            "demanding=4x": 16,
+            "demanding=10x": 28
+          }
+        },
+        "subagentTier": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 4,
+            "denominator": 6,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.29998832134152864,
+              "high": 0.9032306674407831
+            },
+            "cases": ["t-runtime-mode", "t-claude-safety", "t-ys-scripts", "t-explicit-sonnet"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": ["t-fork-foreground", "t-bounded-wait"],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 4,
+            "denominator": 6,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.29998832134152864,
+              "high": 0.9032306674407831
+            },
+            "cases": ["t-runtime-mode", "t-claude-safety", "t-ys-scripts", "t-explicit-sonnet"]
+          },
+          "relativeCost": {
+            "demanding=2x": 11,
+            "demanding=4x": 15,
+            "demanding=10x": 27
+          }
+        }
+      }
+    },
+    "labelerB": {
+      "jev": {
+        "project": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-ys-scripts",
+              "t-chat-regex"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 3,
+          "fallback": 5,
+          "under": [],
+          "over": [],
+          "lateral": ["t-claude-safety"],
+          "correctWhenDecided": {
+            "numerator": 2,
+            "denominator": 3,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.2076549551264879,
+              "high": 0.9385096847238394
+            },
+            "cases": ["t-runtime-mode", "t-chat-regex"]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 8,
+          "uncertainReference": 0,
+          "correct": {
+            "numerator": 7,
+            "denominator": 8,
+            "interval": {
+              "value": 0.875,
+              "low": 0.5291051942301386,
+              "high": 0.9775830911367038
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 6,
+          "fallback": 2,
+          "under": [],
+          "over": [],
+          "lateral": ["t-amb-cleanup"],
+          "correctWhenDecided": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet"
+            ]
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 8,
+          "uncertainReference": 0,
+          "correct": {
+            "numerator": 6,
+            "denominator": 8,
+            "interval": {
+              "value": 0.75,
+              "low": 0.40926987910258916,
+              "high": 0.9285223111419724
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-chat-regex",
+              "t-explicit-sonnet",
+              "t-amb-cleanup"
+            ]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 4,
+          "fallback": 3,
+          "under": [],
+          "over": ["t-runtime-mode", "t-ys-scripts"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-fork-foreground", "t-bounded-wait", "t-claude-safety", "t-chat-regex"]
+          },
+          "relativeCost": {
+            "demanding=2x": 14,
+            "demanding=4x": 26,
+            "demanding=10x": 62
+          }
+        },
+        "subagentTier": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 4,
+            "denominator": 6,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.29998832134152864,
+              "high": 0.9032306674407831
+            },
+            "cases": ["t-fork-foreground", "t-bounded-wait", "t-claude-safety", "t-explicit-sonnet"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 7,
+          "fallback": 1,
+          "under": [],
+          "over": ["t-runtime-mode", "t-ys-scripts"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 4,
+            "denominator": 5,
+            "interval": {
+              "value": 0.8,
+              "low": 0.3755282641185388,
+              "high": 0.9637768390302125
+            },
+            "cases": ["t-fork-foreground", "t-bounded-wait", "t-claude-safety", "t-explicit-sonnet"]
+          },
+          "relativeCost": {
+            "demanding=2x": 11,
+            "demanding=4x": 21,
+            "demanding=10x": 51
+          }
+        }
+      },
+      "luna": {
+        "project": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-chat-regex"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 4,
+          "fallback": 4,
+          "under": [],
+          "over": [],
+          "lateral": ["t-ys-scripts"],
+          "correctWhenDecided": {
+            "numerator": 3,
+            "denominator": 4,
+            "interval": {
+              "value": 0.75,
+              "low": 0.3006360524426366,
+              "high": 0.9544139373553637
+            },
+            "cases": ["t-fork-foreground", "t-runtime-mode", "t-chat-regex"]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 8,
+          "uncertainReference": 0,
+          "correct": {
+            "numerator": 5,
+            "denominator": 8,
+            "interval": {
+              "value": 0.625,
+              "low": 0.30573785458380187,
+              "high": 0.863158240538479
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-bounded-wait",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 7,
+          "fallback": 1,
+          "under": ["t-runtime-mode", "t-claude-safety"],
+          "over": [],
+          "lateral": ["t-amb-cleanup"],
+          "correctWhenDecided": {
+            "numerator": 5,
+            "denominator": 7,
+            "interval": {
+              "value": 0.7142857142857143,
+              "low": 0.35892909014821267,
+              "high": 0.9177828342909844
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-bounded-wait",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet"
+            ]
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 8,
+          "uncertainReference": 0,
+          "correct": {
+            "numerator": 7,
+            "denominator": 8,
+            "interval": {
+              "value": 0.875,
+              "low": 0.5291051942301386,
+              "high": 0.9775830911367038
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet",
+              "t-amb-cleanup"
+            ]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 5,
+          "fallback": 2,
+          "under": [],
+          "over": ["t-runtime-mode"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 5,
+            "denominator": 5,
+            "interval": {
+              "value": 1,
+              "low": 0.5655085052479191,
+              "high": 1
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-amb-cleanup"
+            ]
+          },
+          "relativeCost": {
+            "demanding=2x": 13,
+            "demanding=4x": 23,
+            "demanding=10x": 53
+          }
+        },
+        "subagentTier": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-explicit-sonnet"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 7,
+          "fallback": 1,
+          "under": ["t-bounded-wait"],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-explicit-sonnet"
+            ]
+          },
+          "relativeCost": {
+            "demanding=2x": 10.5,
+            "demanding=4x": 16.5,
+            "demanding=10x": 34.5
+          }
+        }
+      },
+      "current": {
+        "project": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex"
+            ]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 8,
+          "uncertainReference": 0,
+          "correct": {
+            "numerator": 6,
+            "denominator": 8,
+            "interval": {
+              "value": 0.75,
+              "low": 0.40926987910258916,
+              "high": 0.9285223111419724
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-explicit-sonnet"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": ["t-chat-regex"],
+          "lateral": ["t-amb-cleanup"],
+          "correctWhenDecided": {
+            "numerator": 6,
+            "denominator": 8,
+            "interval": {
+              "value": 0.75,
+              "low": 0.40926987910258916,
+              "high": 0.9285223111419724
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-explicit-sonnet"
+            ]
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 8,
+          "uncertainReference": 0,
+          "correct": {
+            "numerator": 5,
+            "denominator": 8,
+            "interval": {
+              "value": 0.625,
+              "low": 0.30573785458380187,
+              "high": 0.863158240538479
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-explicit-sonnet",
+              "t-amb-cleanup"
+            ]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 7,
+          "fallback": 0,
+          "under": [],
+          "over": ["t-runtime-mode", "t-ys-scripts", "t-chat-regex"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 4,
+            "denominator": 7,
+            "interval": {
+              "value": 0.5714285714285714,
+              "low": 0.2504542304090258,
+              "high": 0.8417830777373732
+            },
+            "cases": ["t-fork-foreground", "t-bounded-wait", "t-claude-safety", "t-amb-cleanup"]
+          },
+          "relativeCost": {
+            "demanding=2x": 15,
+            "demanding=4x": 29,
+            "demanding=10x": 71
+          }
+        },
+        "subagentTier": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-fork-foreground", "t-bounded-wait", "t-claude-safety"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": ["t-runtime-mode", "t-ys-scripts", "t-explicit-sonnet"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-fork-foreground", "t-bounded-wait", "t-claude-safety"]
+          },
+          "relativeCost": {
+            "demanding=2x": 12,
+            "demanding=4x": 24,
+            "demanding=10x": 60
+          }
+        }
+      },
+      "keyword": {
+        "project": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex"
+            ]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 8,
+          "uncertainReference": 0,
+          "correct": {
+            "numerator": 8,
+            "denominator": 8,
+            "interval": {
+              "value": 1,
+              "low": 0.6755843804891231,
+              "high": 1
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet",
+              "t-amb-cleanup"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 8,
+            "denominator": 8,
+            "interval": {
+              "value": 1,
+              "low": 0.6755843804891231,
+              "high": 1
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex",
+              "t-explicit-sonnet",
+              "t-amb-cleanup"
+            ]
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 8,
+          "uncertainReference": 0,
+          "correct": {
+            "numerator": 4,
+            "denominator": 8,
+            "interval": {
+              "value": 0.5,
+              "low": 0.21521252682444186,
+              "high": 0.7847874731755582
+            },
+            "cases": ["t-runtime-mode", "t-claude-safety", "t-explicit-sonnet", "t-amb-cleanup"]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 7,
+          "fallback": 0,
+          "under": ["t-fork-foreground", "t-bounded-wait"],
+          "over": ["t-ys-scripts", "t-chat-regex"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 3,
+            "denominator": 7,
+            "interval": {
+              "value": 0.42857142857142855,
+              "low": 0.15821692226262685,
+              "high": 0.7495457695909742
+            },
+            "cases": ["t-runtime-mode", "t-claude-safety", "t-amb-cleanup"]
+          },
+          "relativeCost": {
+            "demanding=2x": 17,
+            "demanding=4x": 29,
+            "demanding=10x": 65
+          }
+        },
+        "subagentTier": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-runtime-mode", "t-claude-safety", "t-explicit-sonnet"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": ["t-fork-foreground", "t-bounded-wait"],
+          "over": ["t-ys-scripts"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-runtime-mode", "t-claude-safety", "t-explicit-sonnet"]
+          },
+          "relativeCost": {
+            "demanding=2x": 13,
+            "demanding=4x": 21,
+            "demanding=10x": 45
+          }
+        }
+      },
+      "routine": {
+        "project": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-chat-regex"
+            ]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 8,
+          "uncertainReference": 0,
+          "correct": {
+            "numerator": 6,
+            "denominator": 8,
+            "interval": {
+              "value": 0.75,
+              "low": 0.40926987910258916,
+              "high": 0.9285223111419724
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-explicit-sonnet"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": ["t-chat-regex"],
+          "lateral": ["t-amb-cleanup"],
+          "correctWhenDecided": {
+            "numerator": 6,
+            "denominator": 8,
+            "interval": {
+              "value": 0.75,
+              "low": 0.40926987910258916,
+              "high": 0.9285223111419724
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts",
+              "t-explicit-sonnet"
+            ]
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 8,
+          "uncertainReference": 0,
+          "correct": {
+            "numerator": 4,
+            "denominator": 8,
+            "interval": {
+              "value": 0.5,
+              "low": 0.21521252682444186,
+              "high": 0.7847874731755582
+            },
+            "cases": ["t-runtime-mode", "t-ys-scripts", "t-chat-regex", "t-explicit-sonnet"]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 7,
+          "fallback": 0,
+          "under": ["t-fork-foreground", "t-bounded-wait", "t-claude-safety", "t-amb-cleanup"],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 3,
+            "denominator": 7,
+            "interval": {
+              "value": 0.42857142857142855,
+              "low": 0.15821692226262685,
+              "high": 0.7495457695909742
+            },
+            "cases": ["t-runtime-mode", "t-ys-scripts", "t-chat-regex"]
+          },
+          "relativeCost": {
+            "demanding=2x": 18,
+            "demanding=4x": 26,
+            "demanding=10x": 50
+          }
+        },
+        "subagentTier": {
+          "scored": 6,
+          "uncertainReference": 2,
+          "correct": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-runtime-mode", "t-ys-scripts", "t-explicit-sonnet"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": ["t-fork-foreground", "t-bounded-wait", "t-claude-safety"],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-runtime-mode", "t-ys-scripts", "t-explicit-sonnet"]
+          },
+          "relativeCost": {
+            "demanding=2x": 13.5,
+            "demanding=4x": 19.5,
+            "demanding=10x": 37.5
+          }
+        }
+      }
+    },
+    "objective": {
+      "jev": {
+        "project": {
+          "scored": 5,
+          "uncertainReference": 3,
+          "correct": {
+            "numerator": 4,
+            "denominator": 5,
+            "interval": {
+              "value": 0.8,
+              "low": 0.3755282641185388,
+              "high": 0.9637768390302125
+            },
+            "cases": ["t-fork-foreground", "t-runtime-mode", "t-bounded-wait", "t-ys-scripts"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 3,
+          "fallback": 5,
+          "under": [],
+          "over": [],
+          "lateral": ["t-claude-safety"],
+          "correctWhenDecided": {
+            "numerator": 1,
+            "denominator": 2,
+            "interval": {
+              "value": 0.5,
+              "low": 0.09452865480086614,
+              "high": 0.9054713451991339
+            },
+            "cases": ["t-runtime-mode"]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 0,
+          "uncertainReference": 8,
+          "correct": {
+            "numerator": 0,
+            "denominator": 0,
+            "interval": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "cases": []
+          },
+          "fromConstraint": 0,
+          "fromEngine": 6,
+          "fallback": 2,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 0,
+            "denominator": 0,
+            "interval": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "cases": []
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 4,
+          "uncertainReference": 4,
+          "correct": {
+            "numerator": 1,
+            "denominator": 4,
+            "interval": {
+              "value": 0.25,
+              "low": 0.045586062644636216,
+              "high": 0.6993639475573634
+            },
+            "cases": ["t-bounded-wait"]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 4,
+          "fallback": 3,
+          "under": [],
+          "over": ["t-fork-foreground", "t-claude-safety", "t-ys-scripts"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 1,
+            "denominator": 3,
+            "interval": {
+              "value": 0.3333333333333333,
+              "low": 0.0614903152761605,
+              "high": 0.7923450448735121
+            },
+            "cases": ["t-bounded-wait"]
+          },
+          "relativeCost": {
+            "demanding=2x": 8,
+            "demanding=4x": 16,
+            "demanding=10x": 40
+          }
+        },
+        "subagentTier": {
+          "scored": 4,
+          "uncertainReference": 4,
+          "correct": {
+            "numerator": 1,
+            "denominator": 4,
+            "interval": {
+              "value": 0.25,
+              "low": 0.045586062644636216,
+              "high": 0.6993639475573634
+            },
+            "cases": ["t-bounded-wait"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 7,
+          "fallback": 1,
+          "under": [],
+          "over": ["t-fork-foreground", "t-claude-safety", "t-ys-scripts"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 1,
+            "denominator": 3,
+            "interval": {
+              "value": 0.3333333333333333,
+              "low": 0.0614903152761605,
+              "high": 0.7923450448735121
+            },
+            "cases": ["t-bounded-wait"]
+          },
+          "relativeCost": {
+            "demanding=2x": 8,
+            "demanding=4x": 16,
+            "demanding=10x": 40
+          }
+        }
+      },
+      "luna": {
+        "project": {
+          "scored": 5,
+          "uncertainReference": 3,
+          "correct": {
+            "numerator": 4,
+            "denominator": 5,
+            "interval": {
+              "value": 0.8,
+              "low": 0.3755282641185388,
+              "high": 0.9637768390302125
+            },
+            "cases": ["t-fork-foreground", "t-runtime-mode", "t-bounded-wait", "t-claude-safety"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 4,
+          "fallback": 4,
+          "under": [],
+          "over": [],
+          "lateral": ["t-ys-scripts"],
+          "correctWhenDecided": {
+            "numerator": 2,
+            "denominator": 3,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.2076549551264879,
+              "high": 0.9385096847238394
+            },
+            "cases": ["t-fork-foreground", "t-runtime-mode"]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 0,
+          "uncertainReference": 8,
+          "correct": {
+            "numerator": 0,
+            "denominator": 0,
+            "interval": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "cases": []
+          },
+          "fromConstraint": 0,
+          "fromEngine": 7,
+          "fallback": 1,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 0,
+            "denominator": 0,
+            "interval": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "cases": []
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 4,
+          "uncertainReference": 4,
+          "correct": {
+            "numerator": 2,
+            "denominator": 4,
+            "interval": {
+              "value": 0.5,
+              "low": 0.15003570882017148,
+              "high": 0.8499642911798285
+            },
+            "cases": ["t-bounded-wait", "t-ys-scripts"]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 5,
+          "fallback": 2,
+          "under": [],
+          "over": ["t-fork-foreground", "t-claude-safety"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 1,
+            "denominator": 3,
+            "interval": {
+              "value": 0.3333333333333333,
+              "low": 0.0614903152761605,
+              "high": 0.7923450448735121
+            },
+            "cases": ["t-ys-scripts"]
+          },
+          "relativeCost": {
+            "demanding=2x": 7,
+            "demanding=4x": 13,
+            "demanding=10x": 31
+          }
+        },
+        "subagentTier": {
+          "scored": 4,
+          "uncertainReference": 4,
+          "correct": {
+            "numerator": 1,
+            "denominator": 4,
+            "interval": {
+              "value": 0.25,
+              "low": 0.045586062644636216,
+              "high": 0.6993639475573634
+            },
+            "cases": ["t-ys-scripts"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 7,
+          "fallback": 1,
+          "under": ["t-bounded-wait"],
+          "over": ["t-fork-foreground", "t-claude-safety"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 1,
+            "denominator": 4,
+            "interval": {
+              "value": 0.25,
+              "low": 0.045586062644636216,
+              "high": 0.6993639475573634
+            },
+            "cases": ["t-ys-scripts"]
+          },
+          "relativeCost": {
+            "demanding=2x": 8.5,
+            "demanding=4x": 14.5,
+            "demanding=10x": 32.5
+          }
+        }
+      },
+      "current": {
+        "project": {
+          "scored": 5,
+          "uncertainReference": 3,
+          "correct": {
+            "numerator": 5,
+            "denominator": 5,
+            "interval": {
+              "value": 1,
+              "low": 0.5655085052479191,
+              "high": 1
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 5,
+            "denominator": 5,
+            "interval": {
+              "value": 1,
+              "low": 0.5655085052479191,
+              "high": 1
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts"
+            ]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 0,
+          "uncertainReference": 8,
+          "correct": {
+            "numerator": 0,
+            "denominator": 0,
+            "interval": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "cases": []
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 0,
+            "denominator": 0,
+            "interval": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "cases": []
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 4,
+          "uncertainReference": 4,
+          "correct": {
+            "numerator": 1,
+            "denominator": 4,
+            "interval": {
+              "value": 0.25,
+              "low": 0.045586062644636216,
+              "high": 0.6993639475573634
+            },
+            "cases": ["t-bounded-wait"]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 7,
+          "fallback": 0,
+          "under": [],
+          "over": ["t-fork-foreground", "t-claude-safety", "t-ys-scripts"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 1,
+            "denominator": 4,
+            "interval": {
+              "value": 0.25,
+              "low": 0.045586062644636216,
+              "high": 0.6993639475573634
+            },
+            "cases": ["t-bounded-wait"]
+          },
+          "relativeCost": {
+            "demanding=2x": 8,
+            "demanding=4x": 16,
+            "demanding=10x": 40
+          }
+        },
+        "subagentTier": {
+          "scored": 4,
+          "uncertainReference": 4,
+          "correct": {
+            "numerator": 1,
+            "denominator": 4,
+            "interval": {
+              "value": 0.25,
+              "low": 0.045586062644636216,
+              "high": 0.6993639475573634
+            },
+            "cases": ["t-bounded-wait"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": ["t-fork-foreground", "t-claude-safety", "t-ys-scripts"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 1,
+            "denominator": 4,
+            "interval": {
+              "value": 0.25,
+              "low": 0.045586062644636216,
+              "high": 0.6993639475573634
+            },
+            "cases": ["t-bounded-wait"]
+          },
+          "relativeCost": {
+            "demanding=2x": 8,
+            "demanding=4x": 16,
+            "demanding=10x": 40
+          }
+        }
+      },
+      "keyword": {
+        "project": {
+          "scored": 5,
+          "uncertainReference": 3,
+          "correct": {
+            "numerator": 5,
+            "denominator": 5,
+            "interval": {
+              "value": 1,
+              "low": 0.5655085052479191,
+              "high": 1
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 5,
+            "denominator": 5,
+            "interval": {
+              "value": 1,
+              "low": 0.5655085052479191,
+              "high": 1
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts"
+            ]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 0,
+          "uncertainReference": 8,
+          "correct": {
+            "numerator": 0,
+            "denominator": 0,
+            "interval": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "cases": []
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 0,
+            "denominator": 0,
+            "interval": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "cases": []
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 4,
+          "uncertainReference": 4,
+          "correct": {
+            "numerator": 1,
+            "denominator": 4,
+            "interval": {
+              "value": 0.25,
+              "low": 0.045586062644636216,
+              "high": 0.6993639475573634
+            },
+            "cases": ["t-fork-foreground"]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 7,
+          "fallback": 0,
+          "under": ["t-bounded-wait"],
+          "over": ["t-claude-safety", "t-ys-scripts"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 1,
+            "denominator": 4,
+            "interval": {
+              "value": 0.25,
+              "low": 0.045586062644636216,
+              "high": 0.6993639475573634
+            },
+            "cases": ["t-fork-foreground"]
+          },
+          "relativeCost": {
+            "demanding=2x": 8.5,
+            "demanding=4x": 14.5,
+            "demanding=10x": 32.5
+          }
+        },
+        "subagentTier": {
+          "scored": 4,
+          "uncertainReference": 4,
+          "correct": {
+            "numerator": 1,
+            "denominator": 4,
+            "interval": {
+              "value": 0.25,
+              "low": 0.045586062644636216,
+              "high": 0.6993639475573634
+            },
+            "cases": ["t-fork-foreground"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": ["t-bounded-wait"],
+          "over": ["t-claude-safety", "t-ys-scripts"],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 1,
+            "denominator": 4,
+            "interval": {
+              "value": 0.25,
+              "low": 0.045586062644636216,
+              "high": 0.6993639475573634
+            },
+            "cases": ["t-fork-foreground"]
+          },
+          "relativeCost": {
+            "demanding=2x": 8.5,
+            "demanding=4x": 14.5,
+            "demanding=10x": 32.5
+          }
+        }
+      },
+      "routine": {
+        "project": {
+          "scored": 5,
+          "uncertainReference": 3,
+          "correct": {
+            "numerator": 5,
+            "denominator": 5,
+            "interval": {
+              "value": 1,
+              "low": 0.5655085052479191,
+              "high": 1
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts"
+            ]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 5,
+            "denominator": 5,
+            "interval": {
+              "value": 1,
+              "low": 0.5655085052479191,
+              "high": 1
+            },
+            "cases": [
+              "t-fork-foreground",
+              "t-runtime-mode",
+              "t-bounded-wait",
+              "t-claude-safety",
+              "t-ys-scripts"
+            ]
+          },
+          "relativeCost": null
+        },
+        "workflow": {
+          "scored": 0,
+          "uncertainReference": 8,
+          "correct": {
+            "numerator": 0,
+            "denominator": 0,
+            "interval": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "cases": []
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": [],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 0,
+            "denominator": 0,
+            "interval": {
+              "value": null,
+              "low": null,
+              "high": null
+            },
+            "cases": []
+          },
+          "relativeCost": null
+        },
+        "mainModel": {
+          "scored": 4,
+          "uncertainReference": 4,
+          "correct": {
+            "numerator": 3,
+            "denominator": 4,
+            "interval": {
+              "value": 0.75,
+              "low": 0.3006360524426366,
+              "high": 0.9544139373553637
+            },
+            "cases": ["t-fork-foreground", "t-claude-safety", "t-ys-scripts"]
+          },
+          "fromConstraint": 1,
+          "fromEngine": 7,
+          "fallback": 0,
+          "under": ["t-bounded-wait"],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 3,
+            "denominator": 4,
+            "interval": {
+              "value": 0.75,
+              "low": 0.3006360524426366,
+              "high": 0.9544139373553637
+            },
+            "cases": ["t-fork-foreground", "t-claude-safety", "t-ys-scripts"]
+          },
+          "relativeCost": {
+            "demanding=2x": 6.5,
+            "demanding=4x": 8.5,
+            "demanding=10x": 14.5
+          }
+        },
+        "subagentTier": {
+          "scored": 4,
+          "uncertainReference": 4,
+          "correct": {
+            "numerator": 3,
+            "denominator": 4,
+            "interval": {
+              "value": 0.75,
+              "low": 0.3006360524426366,
+              "high": 0.9544139373553637
+            },
+            "cases": ["t-fork-foreground", "t-claude-safety", "t-ys-scripts"]
+          },
+          "fromConstraint": 0,
+          "fromEngine": 8,
+          "fallback": 0,
+          "under": ["t-bounded-wait"],
+          "over": [],
+          "lateral": [],
+          "correctWhenDecided": {
+            "numerator": 3,
+            "denominator": 4,
+            "interval": {
+              "value": 0.75,
+              "low": 0.3006360524426366,
+              "high": 0.9544139373553637
+            },
+            "cases": ["t-fork-foreground", "t-claude-safety", "t-ys-scripts"]
+          },
+          "relativeCost": {
+            "demanding=2x": 6.5,
+            "demanding=4x": 8.5,
+            "demanding=10x": 14.5
+          }
+        }
+      }
+    }
+  }
+}
