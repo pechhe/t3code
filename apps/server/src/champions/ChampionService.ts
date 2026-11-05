@@ -36,6 +36,8 @@ import {
   type ChampionCheckContext,
   type AgentTaskRequest,
   type ModelSelection,
+  type OrchestrationV2Run,
+  type RunId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -86,6 +88,28 @@ const Check = Schema.Struct({
   cancelled: Schema.optional(Schema.Boolean),
 });
 type Check = typeof Check.Type;
+// Only persisted server restart ancestry carries a claim across messages.
+function checkRunMessages(run: OrchestrationV2Run, runs: ReadonlyMap<RunId, OrchestrationV2Run>) {
+  const messages = [run.userMessageId];
+  let current = run;
+  const visited = new Set([run.id]);
+  while (current.restartContinuationOfRunId !== undefined) {
+    const source = runs.get(current.restartContinuationOfRunId);
+    if (
+      source === undefined ||
+      visited.has(source.id) ||
+      source.ordinal >= current.ordinal ||
+      source.providerInstanceId !== current.providerInstanceId ||
+      source.providerThreadId !== current.providerThreadId
+    )
+      break;
+    visited.add(source.id);
+    messages.push(source.userMessageId);
+    current = source;
+  }
+  return messages;
+}
+
 const isChampionError = Schema.is(ChampionError);
 const decodeDocument = Schema.decodeUnknownEffect(Schema.fromJsonString(Document));
 const decodeCheck = Schema.decodeUnknownEffect(Schema.fromJsonString(Check));
@@ -864,10 +888,11 @@ const make = Effect.gen(function* () {
                     : yield* threads
                         .getThreadRecords(outstanding.threadId, ["runs"])
                         .pipe(Effect.mapError(failure));
+                const runsById = new Map(records?.runs.map((run) => [run.id, run]));
                 const acceptedPending =
                   records?.runs.some(
                     (run) =>
-                      run.userMessageId === outstanding.messageId &&
+                      checkRunMessages(run, runsById).includes(outstanding.messageId) &&
                       !ThreadManagement.isTerminalRunStatus(run.status),
                   ) ?? false;
                 if (
@@ -1168,13 +1193,14 @@ const make = Effect.gen(function* () {
       run.providerThreadId !== providerThread.id
     )
       return yield* new ChampionError({ reason: "unauthorized" });
-    return { shell, run };
+    return { shell, run, runs: records.runs };
   });
   const authenticate = Effect.fn("ChampionService.authenticateCheck")(function* (caller: Caller) {
-    const { shell, run } = yield* authenticateLive(caller);
+    const { shell, run, runs } = yield* authenticateLive(caller);
+    const runsById = new Map(runs.map((candidate) => [candidate.id, candidate]));
     const rows = yield* sql<{
       document_json: string;
-    }>`SELECT document_json FROM champion_checks WHERE thread_id = ${shell.id} AND message_id = ${run.userMessageId}`.pipe(
+    }>`SELECT document_json FROM champion_checks WHERE thread_id = ${shell.id} AND message_id IN ${sql.in(checkRunMessages(run, runsById))}`.pipe(
       Effect.mapError(failure),
     );
     if (!rows[0]) return yield* new ChampionError({ reason: "unauthorized" });
@@ -1183,7 +1209,7 @@ const make = Effect.gen(function* () {
     const doc = yield* read(check.championId);
     if (doc.champion.projectId !== shell.projectId)
       return yield* new ChampionError({ reason: "unauthorized" });
-    if (check.executionAttempt !== undefined) {
+    if (check.executionAttempt !== undefined && !check.reported) {
       const attempt = { ...check.executionAttempt, actualSelection: run.modelSelection };
       yield* sql`UPDATE champion_execution_attempts SET document_json = ${json(attempt)} WHERE id = ${attempt.id}`.pipe(
         Effect.mapError(failure),
@@ -2560,11 +2586,37 @@ const make = Effect.gen(function* () {
                 .getThreadRecords(check.threadId, ["runs"])
                 .pipe(Effect.mapError(failure))
             : undefined;
+        const runsById = new Map(records?.runs.map((run) => [run.id, run]));
         const matchingRuns =
-          records?.runs.filter((run) => run.userMessageId === check.messageId) ?? [];
+          records?.runs.filter((run) =>
+            checkRunMessages(run, runsById).includes(check.messageId),
+          ) ?? [];
         const endedWithoutReport =
           matchingRuns.some((run) => ThreadManagement.isTerminalRunStatus(run.status)) &&
           !matchingRuns.some(ThreadManagement.isActiveRun);
+        const endedAttention = `${check.kind === "setup" ? "Setup" : "Check"} run ended without an authenticated report.`;
+        if (
+          matchingRuns.some(ThreadManagement.isActiveRun) &&
+          doc.champion.attention.some((item) => item.startsWith(endedAttention))
+        ) {
+          yield* mutate(
+            Effect.gen(function* () {
+              const current = yield* read(doc.champion.id);
+              const latest = yield* readCheck(check.id);
+              if (latest.reported || latest.cancelled || latest.messageId !== check.messageId)
+                return;
+              yield* write({
+                ...current,
+                champion: {
+                  ...current.champion,
+                  attention: current.champion.attention.filter(
+                    (item) => !item.startsWith(endedAttention),
+                  ),
+                },
+              });
+            }),
+          );
+        }
         const ownershipLost =
           check.dispatched &&
           (shell === null ||
@@ -2584,7 +2636,7 @@ const make = Effect.gen(function* () {
               if (latest.reported || latest.cancelled || latest.messageId !== check.messageId)
                 return;
               const attention = endedWithoutReport
-                ? `${check.kind === "setup" ? "Setup" : "Check"} run ended without an authenticated report. ${check.kind === "setup" ? "Run setup" : "Run check"} to retry.`
+                ? `${endedAttention} ${check.kind === "setup" ? "Run setup" : "Run check"} to retry.`
                 : `${check.kind === "setup" ? "Setup" : "Check"} report overdue or ownership lost. Inspect the ${check.kind === "setup" ? "setup" : "owner"} thread.`;
               if (!current.champion.attention.includes(attention))
                 yield* write({

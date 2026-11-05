@@ -160,7 +160,10 @@ const fixture = Effect.fn("test.championFixture")(() =>
     const sent: Array<{ commandId: string; messageId: string; text: string }> = [];
     let failSend = false;
     let landingLookup = Effect.void;
-    const runId = RunId.make("run:check");
+    let runId = RunId.make("run:check");
+    const runHistory: OrchestrationV2Run[] = [];
+    let restartSource: RunId | undefined;
+    let selection = config.routineModelSelection;
     const providerThreadId = ProviderThreadId.make("provider-thread:check");
     const caller = () => ({
       threadId: owner!,
@@ -186,6 +189,19 @@ const fixture = Effect.fn("test.championFixture")(() =>
         archivedAt: null,
         deletedAt: null,
       }) as OrchestrationV2ThreadShell;
+    const currentRun = () =>
+      ({
+        id: runId,
+        ordinal: runHistory.length + 1,
+        restartContinuationOfRunId: restartSource,
+        status: queuedRun ? "queued" : completedRun || !activeRun ? "completed" : "running",
+        providerThreadId: foreignProviderThread
+          ? ProviderThreadId.make("foreign-provider-thread")
+          : providerThreadId,
+        userMessageId: messageId,
+        providerInstanceId: instanceId,
+        modelSelection: selection,
+      }) as OrchestrationV2Run;
     const dependencies = Layer.mergeAll(
       Layer.mock(ThreadLaunch.ThreadLaunchService)({
         launch: (input) =>
@@ -235,20 +251,8 @@ const fixture = Effect.fn("test.championFixture")(() =>
                           } as OrchestrationV2Run,
                         ]
                       : []),
-                    {
-                      id: runId,
-                      status: queuedRun
-                        ? "queued"
-                        : completedRun || !activeRun
-                          ? "completed"
-                          : "running",
-                      providerThreadId: foreignProviderThread
-                        ? ProviderThreadId.make("foreign-provider-thread")
-                        : providerThreadId,
-                      userMessageId: messageId,
-                      providerInstanceId: instanceId,
-                      modelSelection: config.routineModelSelection,
-                    } as OrchestrationV2Run,
+                    ...runHistory,
+                    currentRun(),
                   ],
                   providerThreads: [
                     {
@@ -368,6 +372,39 @@ const fixture = Effect.fn("test.championFixture")(() =>
           },
         ] as OrchestrationV2Run[]);
       },
+      restartRun: (
+        options: {
+          selection?: ModelSelection;
+          trusted?: boolean;
+          source?: RunId;
+          providerThreadId?: ProviderThreadId;
+          providerInstanceId?: ProviderInstanceId;
+        } = {},
+      ) => {
+        const previous = currentRun();
+        runHistory.push({ ...previous, status: "cancelled" });
+        runId = RunId.make(`run:restart:${runHistory.length}`);
+        restartSource = options.trusted === false ? undefined : (options.source ?? previous.id);
+        messageId = `message:restart-continuation:${previous.id}`;
+        selection = options.selection ?? selection;
+        runHistory[runHistory.length - 1] = {
+          ...previous,
+          status: "cancelled",
+          providerThreadId: options.providerThreadId ?? previous.providerThreadId,
+          providerInstanceId: options.providerInstanceId ?? previous.providerInstanceId,
+        };
+        activeRun = true;
+        completedRun = false;
+        return runId;
+      },
+      restoreRun: (id: RunId) => {
+        const previous = runHistory.find((run) => run.id === id)!;
+        runId = previous.id;
+        messageId = previous.userMessageId;
+        restartSource = previous.restartContinuationOfRunId;
+        activeRun = true;
+        completedRun = false;
+      },
       caller,
       registry,
       sessions,
@@ -422,6 +459,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
       },
       wake: () => {
         messageId = "child-result-wakeup";
+        restartSource = undefined;
       },
       sent,
       failDecisionSend: (value: boolean) => {
@@ -782,6 +820,154 @@ it.effect(
         assert.notEqual(source.metrics[0]!.seriesId, first.metrics[0]!.seriesId);
       }),
     ),
+);
+
+it.effect("retains setup authentication through repeated verified server restarts", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* service.upsert(config);
+      const pending = yield* service.setup({ id: config.id });
+      const first = yield* service.checkContext(f.caller());
+      f.endRun();
+      yield* service.runDue;
+      assert.isTrue(
+        (yield* service.get({ id: config.id })).champion.attention.some((a) =>
+          a.includes("ended without"),
+        ),
+      );
+      f.restartRun();
+      f.restartRun();
+      yield* service.runDue;
+      const context = yield* service.checkContext(f.caller());
+      assert.equal(context.checkId, first.checkId);
+      assert.equal(context.messageId, first.messageId);
+      assert.isFalse(
+        (yield* service.get({ id: config.id })).champion.attention.some((a) =>
+          a.includes("ended without"),
+        ),
+      );
+      const result = yield* service.completeSetup(f.caller(), {
+        summary: "Resumed setup completed",
+      });
+      assert.isNull(result.champion.outstandingSetupId);
+      yield* service.completeSetup(f.caller(), { summary: "Replay" });
+      assert.isNotNull(pending.champion.outstandingSetupId);
+      assert.deepEqual(f.counts(), { launches: 1, sends: 0 });
+    }),
+  ),
+);
+
+it.effect("reports a restarted check once with the authenticated current run provenance", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* definitions(service);
+      yield* service.runCheck({ id: config.id });
+      const first = yield* service.checkContext(f.caller());
+      const originalAttempt = (yield* service.runtimeState({ id: config.id })).attempts[0]!;
+      f.restartRun();
+      const selection = { ...config.routineModelSelection, model: "strong" };
+      const runId = f.restartRun({ selection });
+      yield* service.runDue;
+      const input = { samples: [sample], findings: [], summary: "Resumed report" };
+      yield* service.report(f.caller(), input);
+      yield* service.report(f.caller(), input);
+      const history = yield* service.history({ id: config.id });
+      assert.equal(history.samples.length, 1);
+      assert.equal(history.samples[0]!.checkId, first.checkId);
+      assert.equal(history.samples[0]!.runId, runId);
+      assert.deepEqual(history.samples[0]!.modelSelection, selection);
+      const attempts = (yield* service.runtimeState({ id: config.id })).attempts;
+      assert.deepEqual(attempts, [{ ...originalAttempt, actualSelection: selection }]);
+      f.restartRun({ selection: config.routineModelSelection });
+      yield* service.report(f.caller(), input);
+      assert.deepEqual((yield* service.runtimeState({ id: config.id })).attempts, attempts);
+      assert.equal((yield* service.history({ id: config.id })).samples.length, 1);
+      assert.deepEqual(f.counts(), { launches: 1, sends: 0 });
+    }),
+  ),
+);
+
+it.effect.each([
+  "untrusted",
+  "missing-source",
+  "cycle",
+  "foreign-provider-thread",
+  "foreign-provider-instance",
+] as const)("rejects restarted Champion authentication with %s ancestry", (boundary) =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* definitions(service);
+      yield* service.runCheck({ id: config.id });
+      f.restartRun({
+        ...(boundary === "untrusted" ? { trusted: false } : {}),
+        ...(boundary === "missing-source" ? { source: RunId.make("missing") } : {}),
+        ...(boundary === "cycle" ? { source: RunId.make("run:restart:1") } : {}),
+        ...(boundary === "foreign-provider-thread"
+          ? { providerThreadId: ProviderThreadId.make("foreign") }
+          : {}),
+        ...(boundary === "foreign-provider-instance"
+          ? { providerInstanceId: ProviderInstanceId.make("foreign") }
+          : {}),
+      });
+      yield* refused(service.checkContext(f.caller()));
+      yield* service.runDue;
+      assert.isTrue(
+        (yield* service.get({ id: config.id })).champion.attention.some((a) =>
+          a.includes("ended without"),
+        ),
+      );
+    }),
+  ),
+);
+
+it.effect("preserves live caller guards on restart continuations and rejects unrelated wakes", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* definitions(service);
+      yield* service.runCheck({ id: config.id });
+      f.restartRun();
+      yield* refused(service.checkContext({ ...f.caller(), threadId: ThreadId.make("foreign") }));
+      yield* refused(service.checkContext({ ...f.caller(), providerSessionId: "foreign" }));
+      yield* refused(
+        service.checkContext({
+          ...f.caller(),
+          providerInstanceId: ProviderInstanceId.make("foreign"),
+        }),
+      );
+      f.foreignProject(true);
+      yield* refused(service.checkContext(f.caller()));
+      f.foreignProject(false);
+      f.foreignProviderThread(true);
+      yield* refused(service.checkContext(f.caller()));
+      f.foreignProviderThread(false);
+      const stale = f.caller();
+      yield* f.rotateCredential();
+      yield* refused(service.checkContext(stale));
+      yield* service.checkContext(f.caller());
+      f.wake();
+      yield* refused(service.checkContext(f.caller()));
+    }),
+  ),
+);
+
+it.effect("rejects restart ancestors superseded by manual retry and cancelled setup claims", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* definitions(service);
+      yield* service.runCheck({ id: config.id });
+      f.restartRun();
+      f.restartRun();
+      f.endRun();
+      yield* service.runCheck({ id: config.id });
+      yield* service.checkContext(f.caller());
+      f.restoreRun(RunId.make("run:restart:1"));
+      yield* refused(service.checkContext(f.caller()));
+      yield* service.setup({ id: config.id });
+      f.restartRun();
+      yield* service.cancelSetup({ id: config.id });
+      yield* refused(service.completeSetup(f.caller(), { summary: "Stale cancelled setup" }));
+    }),
+  ),
 );
 
 it.effect(
