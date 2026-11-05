@@ -17,6 +17,7 @@ function projectMonogram(projectName: string): string {
     projectName
       .normalize("NFKC")
       .trim()
+      .replace(/(\p{Ll})(\p{Lu})/gu, "$1 $2")
       .match(/[\p{L}\p{N}]+/gu) ?? [];
   const firstWord = words[0];
   if (!firstWord) return "PR";

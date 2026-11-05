@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { weaveRepositoryKeyOf } from "./projectIdentity.ts";
+import { deriveProjectIdentity, weaveRepositoryKeyOf } from "./projectIdentity.ts";
 
 describe("Weave repository keys", () => {
   const repositoryIdentity = {
@@ -22,5 +22,18 @@ describe("Weave repository keys", () => {
       "pechhe/app",
     );
     expect(weaveRepositoryKeyOf({})).toBeNull();
+  });
+});
+
+describe("deriveProjectIdentity monogram", () => {
+  it.each([
+    ["YardSmith", "YS"],
+    ["SlipJay", "SJ"],
+    ["GitHub Actions", "GA"],
+    ["Splay", "SY"],
+    ["T3Code", "T3"],
+    ["yardsmith", "YH"],
+  ])("%s becomes %s", (name, monogram) => {
+    expect(deriveProjectIdentity(name).monogram).toBe(monogram);
   });
 });

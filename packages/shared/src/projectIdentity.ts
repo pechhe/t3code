@@ -35,7 +35,10 @@ function normalizeProjectName(projectName: string): string {
 }
 
 function projectMonogram(projectName: string): string {
-  const words = normalizeProjectName(projectName).match(/[\p{L}\p{N}]+/gu) ?? [];
+  const words =
+    normalizeProjectName(projectName)
+      .replace(/(\p{Ll})(\p{Lu})/gu, "$1 $2")
+      .match(/[\p{L}\p{N}]+/gu) ?? [];
   const firstWord = words[0];
   if (!firstWord) return "PR";
 
