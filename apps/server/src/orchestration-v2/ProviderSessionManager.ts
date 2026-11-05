@@ -53,6 +53,10 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import * as WeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
+import {
+  boundedBrowserEligible,
+  projectAllowsBoundedBrowser,
+} from "../mcp/ManagedBrowserAccess.ts";
 import * as EventSink from "./EventSink.ts";
 import * as CommandOutputHub from "./CommandOutputHub.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -376,6 +380,7 @@ export const layerWithOptions = (
               browserBackends: DEFAULT_AGENT_BROWSER_BACKENDS,
               phiBrowserSkillDirectory: undefined,
               managedBrowser: false,
+              boundedBrowser: false,
               toolProfile: undefined,
               agentRole: undefined,
               delegated: false,
@@ -395,6 +400,7 @@ export const layerWithOptions = (
               enabled: [selectedBrowser.backend],
               default: selectedBrowser.backend,
             };
+            const boundedEligible = boundedBrowserEligible(thread);
             // A leaf task is delegated: it lists only what its own role can use, and is told
             // so (see sessionEndpointKey and the child instructions). A Spec lead lists what a
             // top-level thread does.
@@ -425,6 +431,8 @@ export const layerWithOptions = (
                   taskBrowser: selectedBrowser,
                   phiBrowserSkillDirectory: settings.phiBrowserSkillDirectory,
                   managedBrowser,
+                  boundedBrowser:
+                    boundedEligible && !browserOverridden && projectAllowsBoundedBrowser(settings),
                   toolProfile,
                   agentRole,
                   delegated,
@@ -441,6 +449,7 @@ export const layerWithOptions = (
               phiBrowserSkillDirectory: settings.phiBrowserSkillDirectory,
               device: effective.enableAgentDeviceAccess,
               managedBrowser,
+              boundedBrowser: boundedEligible && projectAllowsBoundedBrowser(effective),
               toolProfile,
               agentRole,
               delegated,
@@ -457,6 +466,7 @@ export const layerWithOptions = (
                   browserBackends: DEFAULT_AGENT_BROWSER_BACKENDS,
                   phiBrowserSkillDirectory: undefined,
                   managedBrowser: false,
+                  boundedBrowser: false,
                   toolProfile: undefined,
                   agentRole: undefined,
                   delegated: false,
@@ -568,13 +578,21 @@ export const layerWithOptions = (
                 const {
                   browserBackends,
                   phiBrowserSkillDirectory,
-                  managedBrowser,
+                  managedBrowser: managedBrowserTask,
+                  boundedBrowser,
                   toolProfile,
                   agentRole,
                   delegated,
                 } = accessSettings;
-                // A managed browser task whose project revoked its selected backend gets no credential.
-                if (managedBrowser && !browserToolsAvailable)
+                // A managed browser task whose project revoked its selected backend loses that
+                // endpoint; it keeps bounded tasks on the integrated browser when granted them.
+                const managedBrowser = managedBrowserTask && browserToolsAvailable;
+                const boundedOnly = McpSessionRegistry.boundedBrowserOnly({
+                  boundedBrowser,
+                  managedBrowser,
+                  delegated,
+                });
+                if (managedBrowserTask && !browserToolsAvailable && !boundedBrowser)
                   return yield* mcpSessions.clear(threadId).pipe(
                     Effect.andThen(mcpSessionRegistry.revokeThread(threadId)),
                     Effect.as<PreparedMcpCredential>({
@@ -620,10 +638,11 @@ export const layerWithOptions = (
                     // credential reuse: rotate so the new scope reflects it.
                     (resolved.managedBrowser === true) === managedBrowser &&
                     resolved.capabilities.has("preview") ===
-                      (managedBrowser || browserToolsAvailable) &&
+                      (managedBrowser || boundedOnly || browserToolsAvailable) &&
                     resolved.capabilities.has("device") ===
-                      (!managedBrowser && deviceToolsAvailable) &&
+                      (!managedBrowser && !boundedOnly && deviceToolsAvailable) &&
                     resolved.webResearchTools === webResearchTools &&
+                    (resolved.boundedBrowser === true) === boundedBrowser &&
                     resolved.toolProfile === toolProfile &&
                     resolved.agentRole === agentRole &&
                     // A credential issued while the lineage read failed is replaced once it works.
@@ -646,6 +665,7 @@ export const layerWithOptions = (
                   ...(toolProfile === undefined ? {} : { toolProfile }),
                   ...(agentRole === undefined ? {} : { agentRole }),
                   ...(delegated ? { delegated: true } : {}),
+                  ...(boundedBrowser ? { boundedBrowser: true } : {}),
                   ...(managedBrowser
                     ? {
                         managedBrowser: true,

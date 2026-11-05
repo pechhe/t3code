@@ -151,12 +151,25 @@ const toResult = (record: RunRecord, replayed: boolean): PreviewTaskResult => ({
   ...(replayed ? { replayed: true } : {}),
 });
 
+/** A bounded-only caller has no step-by-step preview tools, so its guidance names its own. */
 const CONTINUATION = {
-  ready: "Continue with normal preview tools in this tab.",
-  "inspect-first":
-    "An action may have taken effect. Take preview_snapshot first; only then change the page, and do not assume repeating the action is safe.",
-  unavailable: "The tab is gone. Inspect the site another way before repeating anything.",
+  preview: {
+    ready: "Continue with normal preview tools in this tab.",
+    "inspect-first":
+      "An action may have taken effect. Take preview_snapshot first; only then change the page, and do not assume repeating the action is safe.",
+    unavailable: "The tab is gone. Inspect the site another way before repeating anything.",
+  },
+  bounded: {
+    ready:
+      "The tab is yours: send another bounded t3_browser_task, take t3_browser_snapshot, or t3_browser_close it.",
+    "inspect-first":
+      "An action may have taken effect. Take t3_browser_snapshot first; send a new bounded request only after reading the page, and do not assume repeating the action is safe.",
+    unavailable:
+      "The tab is gone. Open a new tab with t3_browser_open and read the page before repeating anything.",
+  },
 } as const;
+const lane = (scope: McpThreadInvocationScope) =>
+  scope.browserLane === "bounded" ? ("bounded" as const) : ("preview" as const);
 
 /** Key order must not make an identical repeat look like a conflict. */
 const canonicalJson = (value: unknown): string => {
@@ -242,7 +255,7 @@ export const makeService = Effect.fn("BrowserTaskService.make")(function* (backe
         });
         if (admitted._tag === "full")
           return yield* invalid(
-            `This session has used its ${PREVIEW_TASK_LIMITS.sessionRequests} task requests; replay protection is never evicted. Use normal preview tools.`,
+            `This session has used its ${PREVIEW_TASK_LIMITS.sessionRequests} task requests; replay protection is never evicted. ${lane(scope) === "bounded" ? "No further bounded tasks run in this session." : "Use normal preview tools."}`,
           );
         if (admitted._tag === "raced") {
           if (admitted.entry.digest !== digest)
@@ -265,11 +278,11 @@ export const makeService = Effect.fn("BrowserTaskService.make")(function* (backe
           ),
         };
 
-        const setContinuation = (state: keyof typeof CONTINUATION) =>
+        const setContinuation = (state: keyof (typeof CONTINUATION)["preview"]) =>
           Effect.sync(() => {
             (entry.record as { continuation: RunRecord["continuation"] }).continuation = {
               state,
-              guidance: CONTINUATION[state],
+              guidance: CONTINUATION[lane(scope)][state],
             };
           });
 
@@ -385,7 +398,11 @@ export const layer = Layer.effect(
             Effect.flatMap((status) =>
               status.tabId === tabId && status.control?.ownedByCaller === true
                 ? Effect.void
-                : Effect.fail(denied("Run a task only on a tab you own, from preview_open.")),
+                : Effect.fail(
+                    denied(
+                      `Run a task only on a tab you own, from ${scope.browserLane === "bounded" ? "t3_browser_open" : "preview_open"}.`,
+                    ),
+                  ),
             ),
           ),
       port: (scope, tabId, lease) => {

@@ -26,6 +26,7 @@ import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import { assertNotLinked, assertSameLink, callerLinkOrigin } from "./linkOrigin.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import {
+  assertBoundedBrowserCaller,
   assertManagedBrowserCaller,
   assertProjectBrowserAccess,
   drivesOwnBrowser,
@@ -274,6 +275,32 @@ export const cleansUpAsManagedBrowser = <P, A, E, R>(
             ...caller.scope,
             managedProjectId: caller.caller!.projectId,
           }),
+        ),
+      ),
+    undefined,
+  );
+
+/** A bounded browser call acts with its derived scope: the thread's own bounded integrated lane. */
+export const asBoundedBrowser = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
+  declare(
+    (params: P) =>
+      assertBoundedBrowserCaller({ checkSettings: true }).pipe(
+        Effect.flatMap(({ scope }) =>
+          Effect.provideService(handle(params), McpInvocationContext.McpInvocationContext, scope),
+        ),
+      ),
+    undefined,
+  );
+
+/** Closing a bounded tab or cancelling its task stays possible after browser access is revoked. */
+export const cleansUpAsBoundedBrowser = <P, A, E, R>(
+  handle: (params: P) => Effect.Effect<A, E, R>,
+) =>
+  declare(
+    (params: P) =>
+      assertBoundedBrowserCaller({ checkSettings: false }).pipe(
+        Effect.flatMap(({ scope }) =>
+          Effect.provideService(handle(params), McpInvocationContext.McpInvocationContext, scope),
         ),
       ),
     undefined,

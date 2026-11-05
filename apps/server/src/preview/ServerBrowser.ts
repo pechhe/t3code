@@ -2118,7 +2118,7 @@ const make = Effect.gen(function* () {
       throw new ServerBrowserPage.ServerBrowserOperationError({
         tag: "PreviewAutomationExecutionError",
         message:
-          "A bounded browser task left an uncertain mutation on this tab. Take a preview_snapshot before changing the page.",
+          "A bounded browser task left an uncertain mutation on this tab. Take a snapshot (preview_snapshot or t3_browser_snapshot) before changing the page.",
       });
   };
 

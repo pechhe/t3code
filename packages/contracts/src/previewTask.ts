@@ -92,7 +92,9 @@ export const PreviewTaskRequest = Schema.Struct({
   requestId: Id.annotate({
     description: "Your unique ID in this session. Repeating it returns the run's state.",
   }),
-  tabId: PreviewTabId.annotate({ description: "A tab you own, from preview_open." }),
+  tabId: PreviewTabId.annotate({
+    description: "A tab you own, from preview_open or t3_browser_open.",
+  }),
   engine: Schema.Literal("jev"),
   goal: Text,
   bindings: Schema.optional(Schema.Array(PreviewTaskBinding)).annotate({

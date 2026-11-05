@@ -142,6 +142,13 @@ export interface McpInvocationScope {
   readonly managedBrowser?: true;
   readonly managedProjectId?: import("@t3tools/contracts").ProjectId;
   readonly taskBrowser?: import("@t3tools/contracts").AgentTaskBrowser;
+  /**
+   * Minted for a thread that may run bounded browser tasks (`ManagedBrowserAccess.ts`). It lists
+   * the `t3_browser_*` tools; each call still rechecks the live thread, task and project.
+   */
+  readonly boundedBrowser?: true;
+  /** Set only on the derived scope bounded tools act with, so their tabs have their own owner. */
+  readonly browserLane?: "bounded";
   /** The session tool endpoint this credential may use; absent on external client credentials. */
   readonly endpointKey?: string;
   /** The thread's listing profile; absent on external client credentials, which keep the full list. */
@@ -176,6 +183,25 @@ export class McpInvocationContext extends Context.Service<
   McpInvocationContext,
   McpInvocationScope
 >()("t3/mcp/McpInvocationContext") {}
+
+/** `McpSchema.EnabledWhen` for the bounded browser tools: listed only where they can be called. */
+export const listsBoundedBrowser = (): boolean => {
+  const fiber = Fiber.getCurrent();
+  const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
+  return scope?.boundedBrowser === true && scope.thread !== undefined && scope.client === undefined;
+};
+
+/**
+ * The owner of a session's integrated tabs. Codex/OpenCode share sessions across threads, so
+ * the thread id isolates them; the bounded lane keeps bounded tabs apart from the same
+ * session's own preview tools.
+ */
+export const browserOwnerKey = (
+  scope: Pick<McpThreadInvocationScope, "environmentId" | "thread" | "browserLane">,
+): string =>
+  `${scope.environmentId}\u0000${scope.thread.providerSessionId}\u0000${scope.thread.threadId}${
+    scope.browserLane === undefined ? "" : `\u0000${scope.browserLane}`
+  }`;
 
 /**
  * `McpSchema.EnabledWhen` for tools a delegated child must not see or call.

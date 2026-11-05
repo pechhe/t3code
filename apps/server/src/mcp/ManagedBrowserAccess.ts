@@ -2,7 +2,10 @@ import {
   type AgentBrowserBackends,
   type AgentRole,
   type AgentToolProfile,
+  BOUNDED_BROWSER_ROLES,
+  type OrchestrationV2ThreadShell,
   OrchestratorMcpFailure,
+  type ProjectId,
   sessionToolFamilies,
   usesPhi,
   isLeafAgentTask,
@@ -13,7 +16,7 @@ import * as Option from "effect/Option";
 
 import * as ServerSettings from "../serverSettings.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
-import { type Caller, loadCaller } from "./threadAccess.ts";
+import { assertLiveCaller, type Caller, loadCaller } from "./threadAccess.ts";
 
 const refuse = (message: string) =>
   new OrchestratorMcpFailure({ code: "capability_denied", message });
@@ -90,5 +93,91 @@ export const assertManagedBrowserCaller = Effect.fn("mcp.assertManagedBrowserCal
     if (!usesPhi(caller.caller?.agentTask?.toolProfile))
       return yield* refuse("The calling thread is not a managed browser task.");
     return options.checkSettings ? yield* assertProjectBrowserAccess(caller) : caller;
+  },
+);
+
+/**
+ * Whether a thread may run bounded browser tasks, from what the server recorded about it and
+ * never from what a caller says. An ordinary or scheduled thread and a Spec lead may; a managed
+ * leaf only when its role policy granted them at binding. A subagent with no task record, work
+ * owned by an outside client and work from a linked environment may not.
+ */
+export const boundedBrowserEligible = (
+  thread: Pick<
+    OrchestrationV2ThreadShell,
+    "agentTask" | "lineage" | "linkOrigin" | "delegatedFrom"
+  >,
+): boolean => {
+  if (thread.linkOrigin !== undefined || thread.delegatedFrom !== undefined) return false;
+  const task = thread.agentTask;
+  if (task === undefined) return thread.lineage.relationshipToParent !== "subagent";
+  if (task.externalOwner !== undefined) return false;
+  if (!isLeafAgentTask(task)) return true;
+  return task.browserTasks === true && BOUNDED_BROWSER_ROLES.has(task.role);
+};
+
+/** Bounded tasks always use the integrated browser, so its project setting is what decides. */
+export const projectAllowsBoundedBrowser = (settings: {
+  readonly enableAgentBrowserAccess: boolean;
+  readonly agentBrowserBackends: AgentBrowserBackends;
+}) =>
+  settings.enableAgentBrowserAccess && settings.agentBrowserBackends.enabled.includes("integrated");
+
+const BOUNDED_BACKENDS: AgentBrowserBackends = { enabled: ["integrated"], default: "integrated" };
+
+/**
+ * The scope bounded tools act with: a fresh integrated tab with no profile, owned by this
+ * provider session's bounded lane, whatever browser the session itself drives.
+ */
+export const boundedBrowserScope = (
+  scope: McpInvocationContext.McpThreadInvocationScope,
+  projectId: ProjectId,
+): McpInvocationContext.McpThreadInvocationScope => ({
+  ...scope,
+  capabilities: new Set(["preview"]),
+  managedBrowser: true,
+  managedProjectId: projectId,
+  taskBrowser: { backend: "integrated" },
+  browserBackends: BOUNDED_BACKENDS,
+  browserLane: "bounded",
+});
+
+/**
+ * A bounded browser call's authority, checked on every call: a T3 thread credential minted with
+ * the capability, still owned by a live run of that thread, whose recorded task still grants it.
+ * Effects also need the project to allow integrated agent browsing now; closing and cancelling
+ * skip that check so cleanup survives revoked access.
+ */
+export const assertBoundedBrowserCaller = Effect.fn("mcp.assertBoundedBrowserCaller")(
+  function* (options: { readonly checkSettings: boolean }) {
+    const scope = yield* McpInvocationContext.McpInvocationContext;
+    if (scope.boundedBrowser !== true || scope.thread === undefined || scope.client !== undefined)
+      return yield* refuse("Bounded browser tasks are not available to this session.");
+    const caller: Caller = yield* loadCaller();
+    yield* assertLiveCaller(caller);
+    const shell = caller.caller!;
+    const leafRole = isLeafAgentTask(shell.agentTask) ? shell.agentTask?.role : undefined;
+    if (!boundedBrowserEligible(shell) || scope.agentRole !== leafRole)
+      return yield* refuse("This thread may not run bounded browser tasks.");
+    if (options.checkSettings) {
+      const settings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+      const resolved = Option.isSome(settings)
+        ? yield* settings.value.getSettings.pipe(
+            Effect.map((value) => resolveProjectSettings(value, shell.projectId).settings),
+            Effect.orElseSucceed(() => undefined),
+          )
+        : undefined;
+      if (resolved === undefined)
+        return yield* refuse("Browser access could not be confirmed; bounded browsing is paused.");
+      if (!projectAllowsBoundedBrowser(resolved))
+        return yield* refuse("Integrated agent browsing is turned off for this project.");
+    }
+    return {
+      caller,
+      scope: boundedBrowserScope(
+        scope as McpInvocationContext.McpThreadInvocationScope,
+        shell.projectId,
+      ),
+    };
   },
 );

@@ -12,6 +12,7 @@ export type ToolFamily =
   | "workspace"
   | "scheduling"
   | "preview"
+  | "bounded-browser"
   | "device"
   | "queue"
   | "worktree"
@@ -122,6 +123,7 @@ export const toolFamily = (name: string): ToolFamily => {
   // Source inspection is for external OAuth clients; no session endpoint lists it.
   if (name.startsWith("workspace_")) return "inspection";
   if (name.startsWith("preview_") || name.startsWith("t3_preview_")) return "preview";
+  if (name.startsWith("t3_browser_")) return "bounded-browser";
   if (name.startsWith("device_")) return "device";
   if (name.startsWith("t3_queue_")) return "queue";
   if (CONTROL_EXTRA_TOOLS.has(name)) return "control";
@@ -139,7 +141,12 @@ export const toolFamily = (name: string): ToolFamily => {
   return "control";
 };
 
+/**
+ * Bounded browser tools are listed only to a credential minted with the capability
+ * (`McpInvocationScope.boundedBrowser`); the family only says which endpoints may serve them.
+ */
 const CONTROL: ReadonlySet<ToolFamily> = new Set([
+  "bounded-browser",
   "decision",
   "control",
   "scheduling",
@@ -148,6 +155,7 @@ const CONTROL: ReadonlySet<ToolFamily> = new Set([
   "leaf",
 ]);
 const WORKSPACE: ReadonlySet<ToolFamily> = new Set([
+  "bounded-browser",
   "decision",
   "control",
   "workspace",
@@ -226,6 +234,8 @@ const CHILD_IMPLEMENTATION: ReadonlySet<ToolFamily> = new Set([
   "project",
 ]);
 
+const BOUNDED_BROWSER: ReadonlySet<ToolFamily> = new Set(["bounded-browser"]);
+
 export type SessionEndpointKey =
   | "control"
   | "workspace"
@@ -237,7 +247,8 @@ export type SessionEndpointKey =
   | "child-research"
   | "child-preview"
   | "child-ui-verifier"
-  | "child-implementation";
+  | "child-implementation"
+  | "bounded-browser";
 
 /**
  * The one policy table: each endpoint's path and the families its `tools/list`
@@ -265,6 +276,11 @@ export const SESSION_TOOL_ENDPOINTS: Readonly<
     path: "/mcp/child-implementation",
     families: CHILD_IMPLEMENTATION,
   },
+  /**
+   * A managed leaf granted bounded browser tasks reaches only these tools, so a reviewer gains
+   * no leaf, report or thread tool by it. The registry assigns it; no profile maps here.
+   */
+  "bounded-browser": { path: "/mcp/bounded-browser", families: BOUNDED_BROWSER },
 };
 
 export const sessionEndpointKey = (session: SessionToolProfile | undefined): SessionEndpointKey => {

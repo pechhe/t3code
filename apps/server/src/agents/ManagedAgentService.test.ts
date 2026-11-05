@@ -538,6 +538,41 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
     }),
   );
 
+  it.effect("records bounded browser tasks on a binding only from the role's policy", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const reviewerRequest = request({
+        workspacePath: f.workspacePath,
+        role: "reviewer",
+        sourceRevision,
+        review: changeReview,
+      });
+      // A request that asks for the grant gets nothing from asking.
+      const ungranted = yield* f.prepare({
+        request: { ...reviewerRequest, browserTasks: true } as typeof reviewerRequest,
+      });
+      expect(ungranted.binding.browserTasks).toBeUndefined();
+
+      yield* f.writeManifest({
+        ...f.manifest,
+        roles: {
+          ...f.manifest.roles,
+          reviewer: { ...f.manifest.roles.reviewer, browserTasks: true },
+        },
+      });
+      const granted = yield* f.prepare({ request: reviewerRequest });
+      expect(granted.binding.browserTasks).toBe(true);
+      expect(granted.binding.sourceAccess).toBe("read-only");
+      expect(granted.binding.toolProfile).toBe("source-reader");
+      // A resumed task keeps what it was bound with, whatever the policy says now.
+      const resumed = yield* f.prepare({
+        request: reviewerRequest,
+        recordedBinding: ungranted.binding,
+      });
+      expect(resumed.binding.browserTasks).toBeUndefined();
+    }),
+  );
+
   it.effect("requires the pinned source revision at preparation and validation", () =>
     Effect.gen(function* () {
       const f = yield* fixture;

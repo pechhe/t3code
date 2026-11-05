@@ -20,6 +20,7 @@ import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as McpToolAccessTestkit from "./McpToolAccess.testkit.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import { MANAGED_BROWSER_TOOL_NAMES } from "./toolkits/managedBrowser/toolNames.ts";
+import { BOUNDED_BROWSER_TOOL_NAMES } from "./toolkits/boundedBrowser/toolNames.ts";
 import {
   ManagedBrowserSnapshotToolkit,
   ManagedBrowserTaskToolkit,
@@ -40,7 +41,11 @@ const scopeFor = (managedBrowser: boolean): McpInvocationContext.McpThreadInvoca
   issuedAt: 1,
   ...(managedBrowser ? { managedBrowser: true as const } : {}),
 });
-const tokens = { managed: "managedTokenWithoutDots", general: "generalTokenWithoutDots" };
+const tokens = {
+  managed: "managedTokenWithoutDots",
+  general: "generalTokenWithoutDots",
+  bounded: "boundedTokenWithoutDots",
+};
 const registry = Layer.mock(McpSessionRegistry.McpSessionRegistry)({
   resolve: (presented) =>
     Effect.succeed(
@@ -48,7 +53,9 @@ const registry = Layer.mock(McpSessionRegistry.McpSessionRegistry)({
         ? scopeFor(true)
         : presented === tokens.general
           ? scopeFor(false)
-          : undefined,
+          : presented === tokens.bounded
+            ? { ...scopeFor(true), boundedBrowser: true as const }
+            : undefined,
     ),
 });
 const services = Layer.mergeAll(
@@ -69,6 +76,32 @@ const message = (text: string) =>
       ? text
       : (text.split("\n").find((line) => line.startsWith("data:")) ?? "data:{}").slice(5),
   ) as { readonly result?: { readonly tools?: ReadonlyArray<{ readonly name: string }> } };
+
+const openSession = (path: string, token: string) =>
+  Effect.gen(function* () {
+    const http = (yield* HttpClient.HttpClient).pipe(
+      HttpClient.mapRequest(HttpClientRequest.bearerToken(token)),
+    );
+    const opened = yield* http.post(path, {
+      headers: { accept },
+      body: HttpBody.text(initialize, "application/json"),
+    });
+    const sessionId = opened.headers["mcp-session-id"]!;
+    yield* http.post(path, {
+      headers: { accept, "mcp-session-id": sessionId },
+      body: HttpBody.text(
+        `{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+        "application/json",
+      ),
+    });
+    return (body: string) =>
+      http
+        .post(path, {
+          headers: { accept, "mcp-session-id": sessionId },
+          body: HttpBody.text(body, "application/json"),
+        })
+        .pipe(Effect.flatMap((response) => response.text));
+  });
 
 const listTools = (path: string, token: string) =>
   Effect.gen(function* () {
@@ -145,6 +178,21 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
       expect((yield* listTools("/mcp/browser", tokens.general)).status).toBe(401);
       expect((yield* listTools("/mcp", tokens.managed)).status).toBe(401);
       expect((yield* listTools("/mcp/browser", "unknownTokenWithoutDots")).status).toBe(401);
+
+      // A UI worker granted bounded tasks lists them beside its own browser, and nothing else.
+      const bounded = yield* listTools("/mcp/browser", tokens.bounded);
+      expect([...bounded.names].sort()).toEqual(
+        [...MANAGED_BROWSER_TOOL_NAMES, ...BOUNDED_BROWSER_TOOL_NAMES].sort(),
+      );
+      expect(mine.names.some((name) => name.startsWith("t3_browser_"))).toBe(false);
+
+      // A tool listed earlier is refused when called without the grant: listing grants nothing.
+      const call = yield* openSession("/mcp/browser", tokens.managed);
+      const refused = yield* call(
+        `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"t3_browser_open","arguments":{}}}`,
+      );
+      expect(refused).not.toContain('"tabId"');
+      expect(refused).toMatch(/not available to this session|not found|Unknown tool/i);
     }),
   ).pipe(
     Effect.provide(

@@ -22,6 +22,7 @@ import {
   type RuntimeMode,
   type ServerProvider,
   type ThreadId,
+  grantsBrowserTasks,
   isLeafAgentTask,
   isReviewerRole,
   managedExecution,
@@ -691,6 +692,7 @@ const make = Effect.gen(function* () {
                   ? readOnlyToolProfile(policy.toolProfile)
                   : policy.toolProfile,
             executionRequirement: context.request.executionRequirement,
+            ...(grantsBrowserTasks(role, policy) ? { browserTasks: true } : {}),
             ...(result.executionBoundary === undefined
               ? {}
               : { executionBoundary: result.executionBoundary }),
@@ -760,9 +762,14 @@ const make = Effect.gen(function* () {
         readOnly: context.request.readOnly === true || role.sourceAccess === "read-only",
         requested: context.request.executionRequirement,
       });
+      // Only the role policy grants bounded browser tasks, whatever the request object carries.
+      const { browserTasks: _requested, ...requestFields } =
+        context.request as typeof context.request & {
+          readonly browserTasks?: unknown;
+        };
       return {
         binding: input.recordedBinding ?? {
-          ...context.request,
+          ...requestFields,
           ...(context.request.role === "browser" || context.request.role === "ui-verifier"
             ? { browser: context.request.browser ?? { backend: "integrated" as const } }
             : {}),
@@ -780,6 +787,9 @@ const make = Effect.gen(function* () {
           requested: selection,
           assigned: null,
           effective: selection,
+          ...(grantsBrowserTasks(context.request.role, role)
+            ? { browserTasks: true as const }
+            : {}),
         },
         brief: withoutPhi
           ? `${brief.text}\nPhi is unavailable for this task; you have plain implementation tools and no Phi tools. Check your work with headless Chromium on the VPS. The owner or an independent ui-verifier must check it in a real browser later. This overrides the brief's Phi preview requirement for this implementation task.\n`

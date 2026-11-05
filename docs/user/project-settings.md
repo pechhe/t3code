@@ -295,6 +295,13 @@ action may still have taken effect. A server restart ends the tab, so retrying t
 rather than run again; the agent reads the page in a new tab first. It never enters passwords or
 writes text of its own.
 
+Ordinary threads, scheduled runs and Spec leads can run the same bounded tasks themselves through
+the `t3_browser_*` tools, as can a delegated worker or reviewer whose role policy grants
+`browserTasks`. Each opens fresh tabs on the integrated browser with no saved logins, and only the
+session that opened a tab can use it. They follow **Agent browser access** with the integrated
+browser enabled, checked on every call: turning it off stops further work at once, while closing a
+tab or cancelling a task still works. A reviewer using them stays read-only.
+
 New worktrees initialize git submodules recursively. If that step is slow because the repository
 declares many nested submodules, set **Submodules** in **Settings → Worktrees** under Advanced (with the project
 selected to override it there) to **Top level only** to stop at the ones the repository declares

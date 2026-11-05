@@ -6,6 +6,7 @@ import {
   AgentTaskRequest,
   AgentTaskBinding,
   agentTaskTopic,
+  grantsBrowserTasks,
 } from "./agentPolicy.ts";
 
 const decodeManifest = Schema.decodeUnknownSync(AgentPolicyManifest);
@@ -303,6 +304,34 @@ describe("AgentPolicyManifest", () => {
       "Failure",
     );
     expect(withRole("advisor", { toolProfile: "implementation-phi" })).toBe("Failure");
+  });
+
+  it("grants bounded browser tasks only to writers and the reviewer, and never by request", () => {
+    const manifest = encodeManifest(decodeManifest(legacy));
+    const granting = (name: keyof typeof manifest.roles) =>
+      decodeManifestExit({
+        ...manifest,
+        roles: { ...manifest.roles, [name]: { ...manifest.roles[name], browserTasks: true } },
+      })._tag;
+    for (const name of ["chore-worker", "implementation-worker", "ui-worker", "reviewer"] as const)
+      expect(granting(name), name).toBe("Success");
+    for (const name of ["advisor", "browser", "ui-verifier"] as const)
+      expect(granting(name), name).toBe("Failure");
+    // A policy without the field keeps every role without the grant.
+    expect(decodeManifest(legacy).roles.reviewer.browserTasks).toBeUndefined();
+    expect(grantsBrowserTasks("reviewer", { browserTasks: true })).toBe(true);
+    expect(grantsBrowserTasks("scout", { browserTasks: true })).toBe(false);
+    expect(grantsBrowserTasks("reviewer", {})).toBe(false);
+    // A delegation request cannot carry the grant onto its task.
+    const request = decodeRequest({
+      role: "reviewer",
+      taskClass: "non-ui",
+      workId: "work",
+      attemptId: "attempt",
+      workspacePath: "/workspace",
+      browserTasks: true,
+    });
+    expect("browserTasks" in request).toBe(false);
   });
 
   it("accepts any provider's model and requires effort only where the model has one", () => {

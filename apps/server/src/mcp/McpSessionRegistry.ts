@@ -45,6 +45,11 @@ export interface McpCredentialRequest {
    */
   readonly managedBrowser?: boolean;
   readonly taskBrowser?: import("@t3tools/contracts").AgentTaskBrowser;
+  /**
+   * The thread may run bounded browser tasks. A delegated leaf without a browser endpoint of
+   * its own then reaches only `/mcp/bounded-browser`; other sessions list them beside their tools.
+   */
+  readonly boundedBrowser?: boolean;
   readonly capabilities?: ReadonlySet<McpInvocationContext.McpCapability>;
   readonly subagent?: boolean;
 }
@@ -102,6 +107,17 @@ export interface McpSessionRegistryOptions {
  */
 const DEFAULT_LIVENESS_WINDOW_MS = 24 * 60 * 60 * 1_000;
 
+/**
+ * A delegated leaf granted bounded tasks and no browser endpoint of its own: its credential
+ * reaches only `/mcp/bounded-browser` and carries only the preview capability.
+ */
+export const boundedBrowserOnly = (request: {
+  readonly boundedBrowser?: boolean | undefined;
+  readonly managedBrowser?: boolean | undefined;
+  readonly delegated?: boolean | undefined;
+}): boolean =>
+  request.boundedBrowser === true && request.managedBrowser !== true && request.delegated === true;
+
 /** The only endpoint a managed browser task's credential reaches. */
 export const MANAGED_BROWSER_MCP_PATH = "/mcp/browser";
 
@@ -153,13 +169,22 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
                   scope.managedBrowser === true && scope.browserBackends?.default === "integrated";
                 if (Option.isSome(phi) && !integrated)
                   yield* phi.value.releaseSession(session.providerSessionId);
-                if (Option.isSome(previews) && integrated) {
+                // Bounded tabs have their own owner, and close with the credential whatever its backend.
+                const owners = [
+                  ...(integrated ? [McpInvocationContext.browserOwnerKey(scope)] : []),
+                  ...(scope.boundedBrowser === true
+                    ? [McpInvocationContext.browserOwnerKey({ ...scope, browserLane: "bounded" })]
+                    : []),
+                ];
+                if (Option.isSome(previews) && owners.length > 0) {
                   const { sessions: tabs } = yield* previews.value.list({
                     threadId: session.threadId,
                   });
-                  const owner = `${environmentId}\u0000${session.providerSessionId}\u0000${session.threadId}`;
                   yield* Effect.forEach(
-                    tabs.filter((tab) => tab.automationOwner === owner),
+                    tabs.filter(
+                      (tab) =>
+                        tab.automationOwner !== undefined && owners.includes(tab.automationOwner),
+                    ),
                     (tab) =>
                       previews.value
                         .close({ threadId: ThreadId.make(tab.threadId), tabId: tab.tabId })
@@ -223,28 +248,34 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       const tokenHash = yield* hashToken(rawToken);
       const managedBrowser = request.managedBrowser === true;
       const browserToolsAvailable = managedBrowser || (request.browserToolsAvailable ?? true);
+      const boundedBrowser = request.boundedBrowser === true;
+      const boundedOnly = boundedBrowserOnly(request);
       const endpointKey = managedBrowser
         ? undefined
-        : request.delegated === true ||
-            request.toolProfile !== undefined ||
-            request.agentRole !== undefined
-          ? sessionEndpointKey({
-              toolProfile: request.toolProfile,
-              agentRole: request.agentRole,
-              delegated: request.delegated,
-            })
-          : "control";
+        : boundedOnly
+          ? ("bounded-browser" as const)
+          : request.delegated === true ||
+              request.toolProfile !== undefined ||
+              request.agentRole !== undefined
+            ? sessionEndpointKey({
+                toolProfile: request.toolProfile,
+                agentRole: request.agentRole,
+                delegated: request.delegated,
+              })
+            : "control";
       // A managed browser task lists the narrow browser operations; every other session
       // reads its families from the one policy table, so an adapter can tell a
       // child what its own listing carries.
       const families =
         endpointKey === undefined
           ? undefined
-          : sessionToolFamilies({
-              toolProfile: request.toolProfile,
-              agentRole: request.agentRole,
-              delegated: request.delegated,
-            });
+          : boundedOnly
+            ? SESSION_TOOL_ENDPOINTS["bounded-browser"].families
+            : sessionToolFamilies({
+                toolProfile: request.toolProfile,
+                agentRole: request.agentRole,
+                delegated: request.delegated,
+              });
       const listsPreview = managedBrowser || families?.has("preview") === true;
       const listsDevice = !managedBrowser && families?.has("device") === true;
       const listsHtml = !managedBrowser && families?.has("leaf") === true;
@@ -266,7 +297,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         },
         client: undefined,
         capabilities: new Set<McpInvocationContext.McpCapability>(
-          managedBrowser
+          managedBrowser || boundedOnly
             ? ["preview"]
             : [
                 "orchestration",
@@ -279,6 +310,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         ...(request.toolProfile === undefined ? {} : { toolProfile: request.toolProfile }),
         ...(request.agentRole === undefined ? {} : { agentRole: request.agentRole }),
         ...(endpointKey === undefined ? {} : { endpointKey }),
+        ...(boundedBrowser ? { boundedBrowser: true as const } : {}),
         ...(managedBrowser
           ? {
               managedBrowser: true as const,
@@ -314,6 +346,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           authorizationHeader: `Bearer ${rawToken}`,
           browserToolsAvailable: scope.capabilities.has("preview"),
           ...(managedBrowser ? { managedBrowser: true } : {}),
+          ...(boundedBrowser ? { boundedBrowser: true } : {}),
           ...(request.delegated === true ? { delegated: true } : {}),
           listsPreview,
           listsDevice,

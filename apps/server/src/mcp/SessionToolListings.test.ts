@@ -6,6 +6,8 @@ import * as ContextProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as ContextDocumentText from "../provider/DocumentText.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as DecisionService from "../decisions/DecisionService.ts";
+import * as BrowserTaskService from "../browserTasks/BrowserTaskService.ts";
+import { BOUNDED_BROWSER_TOOL_NAMES } from "./toolkits/boundedBrowser/toolNames.ts";
 import * as Champions from "../champions/ChampionService.ts";
 import * as WebResearch from "./WebResearch.ts";
 import { expect, it } from "@effect/vitest";
@@ -65,6 +67,7 @@ import * as McpToolAccessTestkit from "./McpToolAccess.testkit.ts";
 const serviceMocks = Layer.mergeAll(
   Layer.mock(AssetSigner.AssetSigner)({}),
   Layer.mock(DecisionService.DecisionService)({}),
+  Layer.mock(BrowserTaskService.BrowserTaskService)({}),
   Layer.mock(Champions.ChampionService)({}),
   Layer.mock(WebResearch.WebResearch)({}),
   Layer.mock(OrchestratorMcpService.OrchestratorMcpService)({}),
@@ -129,6 +132,19 @@ const listedToolNames = (key: SessionEndpointKey) =>
     Effect.scoped,
   );
 
+const contextServices = Layer.mergeAll(
+  ContextDocumentText.layer.pipe(Layer.provide(NodeServices.layer)),
+).pipe(
+  Layer.provideMerge(
+    Layer.mergeAll(
+      Layer.mock(ContextPeerForwarding.PeerForwarding)({}),
+      Layer.mock(ContextPeerLinkRequests.PeerLinkRequests)({}),
+      Layer.mock(ContextPeerLinks.PeerLinks)({}),
+      Layer.mock(ContextProjectCloneTracker.ProjectCloneTracker)({}),
+    ),
+  ),
+);
+
 it.effect("registers only the tool families each session endpoint declares", () =>
   Effect.gen(function* () {
     for (const key of Object.keys(SESSION_TOOL_ENDPOINTS) as Array<SessionEndpointKey>) {
@@ -147,21 +163,19 @@ it.effect("registers only the tool families each session endpoint declares", () 
       );
       expect(names.includes("t3_experiments_record_outcome"), key).toBe(key === "research");
       expect(names.includes("t3_work_enroll"), key).toBe(key === "research");
+      expect(names.includes("t3_browser_task"), key).toBe(
+        key === "control" || key === "workspace" || key === "bounded-browser",
+      );
     }
-  }).pipe(
-    Effect.provide(
-      Layer.mergeAll(ContextDocumentText.layer.pipe(Layer.provide(NodeServices.layer))).pipe(
-        Layer.provideMerge(
-          Layer.mergeAll(
-            Layer.mock(ContextPeerForwarding.PeerForwarding)({}),
-            Layer.mock(ContextPeerLinkRequests.PeerLinkRequests)({}),
-            Layer.mock(ContextPeerLinks.PeerLinks)({}),
-            Layer.mock(ContextProjectCloneTracker.ProjectCloneTracker)({}),
-          ),
-        ),
-      ),
-    ),
-  ),
+  }).pipe(Effect.provide(contextServices)),
+);
+
+it.effect("serves a bounded browser leaf exactly the bounded tools", () =>
+  Effect.gen(function* () {
+    expect(yield* listedToolNames("bounded-browser")).toEqual(
+      [...BOUNDED_BROWSER_TOOL_NAMES].toSorted(),
+    );
+  }).pipe(Effect.provide(contextServices)),
 );
 
 it.effect("gives an ordinary thread the handoff its instructions name", () =>
@@ -190,18 +204,5 @@ it.effect("gives an ordinary thread the handoff its instructions name", () =>
         "preview_open",
       ]),
     );
-  }).pipe(
-    Effect.provide(
-      Layer.mergeAll(ContextDocumentText.layer.pipe(Layer.provide(NodeServices.layer))).pipe(
-        Layer.provideMerge(
-          Layer.mergeAll(
-            Layer.mock(ContextPeerForwarding.PeerForwarding)({}),
-            Layer.mock(ContextPeerLinkRequests.PeerLinkRequests)({}),
-            Layer.mock(ContextPeerLinks.PeerLinks)({}),
-            Layer.mock(ContextProjectCloneTracker.ProjectCloneTracker)({}),
-          ),
-        ),
-      ),
-    ),
-  ),
+  }).pipe(Effect.provide(contextServices)),
 );

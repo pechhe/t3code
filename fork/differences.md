@@ -929,6 +929,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** Weave Forge T3-350 (#6365).
 
 - **Decision:** `adapt` (v0.1.8-nightly.20261105.4218, 2026-11-05): `EngineRefusal` is a `Schema.TaggedError` with an object payload, as upstream now requires of error classes; thrown from the same decision paths and still caught by `instanceof`. Source: browserDecisionEval/decisionEngine.ts and serviceEngine.ts; the decision-engine suites pass.
+
 ### browser-decision-evaluation
 
 - **Kind:** durable extension (maintainer tooling, not shipped runtime behaviour)
@@ -948,6 +949,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** none known; `git log upstream/main` shows no bounded task capability in the preview tools.
 - **Retire when:** upstream ships an equivalent bounded task capability, or managed agents stop using it.
 - **Owner:** Weave Forge T3-388 (#6479).
+- **Direct callers (T3-398):** ordinary and scheduled threads, Spec leads, and managed chore, implementation, UI and reviewer tasks whose role policy sets `browserTasks` (recorded on the task binding, never taken from a request) run bounded tasks themselves through the `t3_browser_*` family: open a fresh tab, tab status, explicitly requested snapshot, task run/replay, cancel and close. Listing follows a credential minted with the grant (`McpInvocationScope.boundedBrowser`); every call rechecks the live thread, its recorded task and the project's integrated agent browsing, with cancel and close exempt from the project check. A granted managed leaf reaches only `/mcp/bounded-browser`, so a reviewer gains no leaf, thread or decision tool and keeps its read-only sandbox; the grant covers this job's Jev calls through `DecisionService`, not `t3_decide`. Bounded tabs reuse the managed integrated path (no profile, project-scoped storage, no evaluate/upload/dialog/handoff) under their own owner lane (`browserOwnerKey`), apart from the session's own preview or Phi tabs and from every other provider session, and close when the credential is revoked or expires. Integration points add `ManagedBrowserAccess.ts` (`boundedBrowserEligible`, `assertBoundedBrowserCaller`, `boundedBrowserScope`), `toolkits/boundedBrowser/*`, the `bounded-browser` family and endpoint in `mcpToolPolicy.ts`, `browserTasks` in `agentPolicy.ts`, `ProviderSessionManager.agentAccessSettings`, and the Claude/Codex allowlists. Proof: `BoundedBrowserAccess.test.ts`, `toolkits/boundedBrowser/handlers.test.ts`, `McpSessionRegistry.test.ts`, `ProviderSessionManager.test.ts`, the bounded-lane case in `BrowserTaskBrowser.test.ts`, and adapter tests.
 
 ### ssh-launch-respects-boot-service
 

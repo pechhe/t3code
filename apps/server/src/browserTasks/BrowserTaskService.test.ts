@@ -790,6 +790,40 @@ describe("BrowserTaskService", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
   );
 
+  it.effect("keeps a bounded caller's runs apart and guides it with its own tools", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({ choices: ["save"] });
+      const bounded: McpThreadInvocationScope = { ...scope, browserLane: "bounded" };
+      const first = yield* report(
+        task.service.run({ scope: bounded, request: FORM_REQUEST, authorize: allow }),
+      );
+      assert.strictEqual(first.status, "passed");
+      yield* Deferred.succeed(task.quiesced, undefined);
+      yield* Effect.yieldNow;
+      const replay = yield* task.service.run({
+        scope: bounded,
+        request: FORM_REQUEST,
+        authorize: allow,
+      });
+      assert.strictEqual(replay.replayed, true);
+      assert.include(replay.continuation.guidance, "t3_browser_snapshot");
+      assert.notInclude(replay.continuation.guidance, "preview tools");
+      // The same session's own preview lane holds a separate journal, so it cannot replay this run.
+      const other = yield* task.service
+        .cancel({ scope, requestId: FORM_REQUEST.requestId })
+        .pipe(Effect.flip);
+      assert.include(other.message, "No task");
+      // Nor can another provider session of the same thread.
+      const sibling = yield* task.service
+        .cancel({
+          scope: { ...bounded, thread: { ...bounded.thread, providerSessionId: "session-2" } },
+          requestId: FORM_REQUEST.requestId,
+        })
+        .pipe(Effect.flip);
+      assert.include(sibling.message, "No task");
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
   it("names what is wrong with a malformed request before anything runs", () => {
     const base = FORM_REQUEST;
     const problem = (change: Partial<PreviewTaskRequest>) => requestProblem({ ...base, ...change });

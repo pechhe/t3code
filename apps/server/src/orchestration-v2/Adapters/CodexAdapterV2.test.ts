@@ -74,6 +74,7 @@ import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
+import { BOUNDED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/boundedBrowser/toolNames.ts";
 import * as WeaveTestkit from "../../weave/WeaveAgentConnections.testkit.ts";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
 import { withCodexReplayChildMetadata } from "./CodexAdapterV2.testkit.ts";
@@ -497,6 +498,40 @@ describe("CodexAdapterV2 process spawning", () => {
     assert.equal(servers["t3-code"]?.default_tools_approval_mode, "approve");
     assert.deepEqual(servers["t3-code"]?.enabled_tools, [...MANAGED_BROWSER_TOOL_NAMES]);
     assert.notProperty(servers["t3-code"] ?? {}, "enabled");
+  });
+
+  it("attaches only the bounded tools to a granted managed leaf, sandbox unchanged", () => {
+    const params = CodexAdapterV2.codexThreadRuntimeParams({
+      mcpSession: {
+        environmentId: EnvironmentId.make("bounded-reviewer-environment"),
+        threadId: ThreadId.make("bounded-reviewer-thread"),
+        providerSessionId: "bounded-reviewer-session",
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        endpoint: "http://127.0.0.1:43123/mcp/bounded-browser",
+        authorizationHeader: "Bearer bounded-reviewer-token",
+        browserToolsAvailable: true,
+        delegated: true,
+        listsPreview: false,
+        boundedBrowser: true,
+      },
+      modelSelection: { model: "gpt-5.4" },
+      runtimePolicy: {
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: "/managed-workspace",
+        managedAgent: true,
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+      },
+      disabledMcpServers: ["external-shell", "t3-code"],
+    });
+    const servers = params.config.mcp_servers as Record<string, Record<string, unknown>>;
+    assert.deepEqual(servers["external-shell"], { enabled: false });
+    assert.equal(servers["t3-code"]?.url, "http://127.0.0.1:43123/mcp/bounded-browser");
+    assert.deepEqual(servers["t3-code"]?.enabled_tools, [...BOUNDED_BROWSER_TOOL_NAMES]);
+    assert.notProperty(servers["t3-code"] ?? {}, "disabled_tools");
+    // The reviewer's shell stays read-only with no network; only T3 serves its browser.
+    assert.notInclude(JSON.stringify(params.config), '"networkAccess":true');
   });
 
   it("keeps a managed reader a leaf with no T3 endpoint", () => {

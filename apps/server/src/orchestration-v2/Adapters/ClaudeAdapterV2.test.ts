@@ -654,6 +654,48 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     assert.deepEqual(Object.keys(overrides.mcpServers ?? {}), ["t3-code"]);
   });
 
+  it("gives a granted managed leaf its bounded endpoint and only the bounded tools", () => {
+    const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
+      mcpSession: {
+        ...mcpSessionFor(ThreadId.make("thread-claude-mcp-bounded-reviewer")),
+        endpoint: "http://127.0.0.1:43123/mcp/bounded-browser",
+        delegated: true,
+        listsPreview: false,
+        boundedBrowser: true,
+      },
+      readOnlySandbox: true,
+      managedAgent: true,
+      allowedTools: ["Read"],
+    });
+    assert.deepEqual(overrides.allowedTools, [
+      "Read",
+      ...ClaudeAdapterV2.CLAUDE_BOUNDED_BROWSER_MCP_ALLOWED_TOOLS,
+    ]);
+    assert.notInclude(overrides.allowedTools ?? [], ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_WILDCARD);
+    assert.equal(
+      overrides.mcpServers?.["t3-code"]?.type === "http"
+        ? overrides.mcpServers["t3-code"].url
+        : undefined,
+      "http://127.0.0.1:43123/mcp/bounded-browser",
+    );
+
+    // A UI worker keeps its browser's tools and adds the bounded ones.
+    const uiWorker = ClaudeAdapterV2.claudeMcpQueryOverrides({
+      mcpSession: {
+        ...mcpSessionFor(ThreadId.make("thread-claude-mcp-bounded-ui")),
+        endpoint: "http://127.0.0.1:43123/mcp/browser",
+        managedBrowser: true,
+        boundedBrowser: true,
+      },
+      readOnlySandbox: false,
+      managedAgent: true,
+    });
+    assert.deepEqual(uiWorker.allowedTools, [
+      ...ClaudeAdapterV2.CLAUDE_MANAGED_BROWSER_MCP_ALLOWED_TOOLS,
+      ...ClaudeAdapterV2.CLAUDE_BOUNDED_BROWSER_MCP_ALLOWED_TOOLS,
+    ]);
+  });
+
   it("pre-approves only read-only t3-code tools in a read-only sandbox", () => {
     const threadId = ThreadId.make("thread-claude-mcp-read-only");
     const mcpSession = mcpSessionFor(threadId);

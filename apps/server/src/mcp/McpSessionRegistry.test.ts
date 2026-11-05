@@ -540,3 +540,95 @@ it.effect("releases an integrated task without depending on Phi cleanup", () =>
     ),
   ),
 );
+
+it.effect("gives a granted leaf only the bounded endpoint, and lists the grant beside others", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry(() => 1000);
+    const leaf = yield* registry.issue({
+      threadId: ThreadId.make("bounded-reviewer"),
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      toolProfile: "source-reader",
+      agentRole: "reviewer",
+      delegated: true,
+      boundedBrowser: true,
+    });
+    expect(leaf.config.endpoint).toBe("http://127.0.0.1:43123/mcp/bounded-browser");
+    expect(leaf.config.boundedBrowser).toBe(true);
+    expect([...(leaf.config.capabilities ?? [])]).toEqual(["preview"]);
+    expect(leaf.config.listsHtml).toBe(false);
+    expect(leaf.config.listsPreview).toBe(false);
+    expect(leaf.config.listsBackgroundWait).toBe(false);
+
+    // Without the grant the same leaf keeps its old endpoint, which adapters never attach.
+    const ungranted = yield* registry.issue({
+      threadId: ThreadId.make("plain-reviewer"),
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      toolProfile: "source-reader",
+      agentRole: "reviewer",
+      delegated: true,
+    });
+    expect(ungranted.config.endpoint).toBe("http://127.0.0.1:43123/mcp/child-reader");
+    expect(ungranted.config.boundedBrowser).toBeUndefined();
+
+    const lead = yield* registry.issue({
+      threadId: ThreadId.make("bounded-lead"),
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      boundedBrowser: true,
+    });
+    expect(lead.config.endpoint).toBe("http://127.0.0.1:43123/mcp/control");
+    expect(lead.config.boundedBrowser).toBe(true);
+    expect(lead.config.capabilities?.has("orchestration")).toBe(true);
+  }),
+);
+
+it.effect.each(["cancel", "expiry"] as const)(
+  "closes the session's bounded tabs on %s, leaving other sessions' tabs",
+  (reason) =>
+    Effect.gen(function* () {
+      const manager = yield* PreviewManager.PreviewManager;
+      const events = yield* manager.subscribeEvents;
+      let timestamp = 1000;
+      const registry = yield* makeRegistry(() => timestamp);
+      const threadId = ThreadId.make("bounded-cleanup");
+      const issued = yield* registry.issue({
+        threadId,
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        boundedBrowser: true,
+      });
+      const session = `${environmentId}\u0000${issued.config.providerSessionId}\u0000${threadId}`;
+      const bounded = yield* manager.open({
+        threadId,
+        automationOwner: `${session}\u0000bounded`,
+        runtime: "server",
+      });
+      const human = yield* manager.open({ threadId, runtime: "server" });
+      const other = yield* manager.open({
+        threadId,
+        automationOwner: `${environmentId}\u0000other-session\u0000${threadId}\u0000bounded`,
+        runtime: "server",
+      });
+      if (reason === "cancel") yield* registry.revokeThread(threadId);
+      else {
+        timestamp += 101;
+        expect(
+          yield* registry.resolve(issued.config.authorizationHeader.replace(/^Bearer\s+/, "")),
+        ).toBeUndefined();
+      }
+      const event = yield* Stream.fromSubscription(events).pipe(
+        Stream.filter((event) => event.type === "closed"),
+        Stream.take(1),
+        Stream.runCollect,
+      );
+      expect(event[0]?.tabId).toBe(bounded.tabId);
+      expect((yield* manager.list({ threadId })).sessions.map((tab) => tab.tabId)).toEqual([
+        human.tabId,
+        other.tabId,
+      ]);
+    }).pipe(
+      Effect.provide(
+        PreviewManager.layer.pipe(
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        ),
+      ),
+    ),
+);

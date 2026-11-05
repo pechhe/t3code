@@ -226,6 +226,7 @@ import {
 } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
+import { BOUNDED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/boundedBrowser/toolNames.ts";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -2107,6 +2108,10 @@ export const CLAUDE_T3_MCP_TOOL_WILDCARD = "mcp__t3-code__*";
 export const CLAUDE_MANAGED_BROWSER_MCP_ALLOWED_TOOLS: ReadonlyArray<string> =
   MANAGED_BROWSER_TOOL_NAMES.map((name) => `mcp__t3-code__${name}`);
 
+/** A managed leaf granted bounded browser tasks pre-approves only those tools. */
+export const CLAUDE_BOUNDED_BROWSER_MCP_ALLOWED_TOOLS: ReadonlyArray<string> =
+  BOUNDED_BROWSER_TOOL_NAMES.map((name) => `mcp__t3-code__${name}`);
+
 // Keep in sync with OrchestratorToolkit Tool.Readonly annotations; ClaudeAdapterV2.test.ts checks this.
 export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__agent_roles",
@@ -2145,8 +2150,9 @@ export function claudeMcpQueryOverrides(input: {
   readonly readOnlySandbox: boolean;
   /**
    * A managed task is a leaf with no T3 tools, so an independent reviewer cannot read the author's
-   * thread. The narrow exceptions are a managed browser task's own session and a browser or
-   * ui-verifier child's preview endpoint, so neither can reach the delegating thread.
+   * thread. The narrow exceptions are a managed browser task's own session, a browser or
+   * ui-verifier child's preview endpoint and a leaf's bounded browser endpoint, none of which
+   * can reach the delegating thread.
    */
   readonly managedAgent?: boolean;
   readonly allowedTools?: ReadonlyArray<string>;
@@ -2155,8 +2161,10 @@ export function claudeMcpQueryOverrides(input: {
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
 } {
   const managedBrowser = input.mcpSession?.managedBrowser === true;
+  const boundedBrowser = input.mcpSession?.boundedBrowser === true;
   const keepsNarrowEndpoint =
-    managedBrowser || (input.managedAgent === true && input.mcpSession?.listsPreview === true);
+    managedBrowser ||
+    (input.managedAgent === true && (input.mcpSession?.listsPreview === true || boundedBrowser));
   const session =
     input.managedAgent === true && !keepsNarrowEndpoint ? undefined : input.mcpSession;
   const agentServers = input.agentServers ?? [];
@@ -2167,14 +2175,19 @@ export function claudeMcpQueryOverrides(input: {
     session === undefined
       ? []
       : managedBrowser
-        ? CLAUDE_MANAGED_BROWSER_MCP_ALLOWED_TOOLS
-        : input.managedAgent === true
-          ? // A delegated child's credential reaches one narrow endpoint, whose registry decides what
-            // it serves, so the wildcard pre-approves that endpoint's own tools and nothing else.
-            [CLAUDE_T3_MCP_TOOL_WILDCARD]
-          : input.readOnlySandbox
-            ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
-            : [CLAUDE_T3_MCP_TOOL_WILDCARD];
+        ? [
+            ...CLAUDE_MANAGED_BROWSER_MCP_ALLOWED_TOOLS,
+            ...(boundedBrowser ? CLAUDE_BOUNDED_BROWSER_MCP_ALLOWED_TOOLS : []),
+          ]
+        : input.managedAgent === true && boundedBrowser && input.mcpSession?.listsPreview !== true
+          ? CLAUDE_BOUNDED_BROWSER_MCP_ALLOWED_TOOLS
+          : input.managedAgent === true
+            ? // A delegated child's credential reaches one narrow endpoint, whose registry decides what
+              // it serves, so the wildcard pre-approves that endpoint's own tools and nothing else.
+              [CLAUDE_T3_MCP_TOOL_WILDCARD]
+            : input.readOnlySandbox
+              ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
+              : [CLAUDE_T3_MCP_TOOL_WILDCARD];
   return {
     allowedTools: Array.from(
       new Set([

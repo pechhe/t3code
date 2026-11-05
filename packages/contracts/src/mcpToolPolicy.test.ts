@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { isToolListedForSession, toolFamily } from "./mcpToolPolicy.ts";
+import {
+  isToolListedForSession,
+  SESSION_TOOL_ENDPOINTS,
+  sessionEndpointKey,
+  toolFamily,
+} from "./mcpToolPolicy.ts";
 
 describe("Weave connection tool", () => {
   it.each(["t3_weave_connection"])(
@@ -31,5 +36,24 @@ describe("web research tools", () => {
       }
     }
     expect(isToolListedForSession(name, undefined)).toBe(false);
+  });
+});
+
+describe("bounded browser tools", () => {
+  it("keeps them apart from the preview family and off every child profile's listing", () => {
+    for (const name of ["t3_browser_open", "t3_browser_task", "t3_browser_snapshot"]) {
+      expect(toolFamily(name)).toBe("bounded-browser");
+      // An ordinary thread's endpoint may serve them; a child reaches them only on its own endpoint.
+      expect(isToolListedForSession(name, undefined)).toBe(true);
+      for (const toolProfile of ["source-reader", "implementation", "phi", "web-research"] as const)
+        expect(isToolListedForSession(name, { toolProfile, delegated: true })).toBe(false);
+    }
+    expect(SESSION_TOOL_ENDPOINTS["bounded-browser"].families).toEqual(
+      new Set(["bounded-browser"]),
+    );
+    // No profile maps onto the bounded endpoint: the registry assigns it from the task's grant.
+    expect(
+      sessionEndpointKey({ toolProfile: "source-reader", agentRole: "reviewer", delegated: true }),
+    ).toBe("child-reader");
   });
 });

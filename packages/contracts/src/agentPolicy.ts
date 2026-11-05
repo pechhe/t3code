@@ -60,6 +60,21 @@ export const isLeafSubagentThread = (thread: {
 }) => thread.lineage.relationshipToParent === "subagent" && thread.agentTask?.role !== "lead";
 /** The roles that judge pinned work: fresh-context, read-only and scoped by `review`. */
 export const isReviewerRole = (role: AgentRole) => role === "reviewer";
+/**
+ * The managed roles a policy may grant bounded browser tasks: the writers and the independent
+ * reviewer. Consulting roles never get them, and the browser roles keep their own endpoint.
+ */
+export const BOUNDED_BROWSER_ROLES: ReadonlySet<AgentRole> = new Set([
+  "chore-worker",
+  "implementation-worker",
+  "ui-worker",
+  "reviewer",
+]);
+/** Whether a role's policy grants its tasks bounded browser tasks; recorded on the binding. */
+export const grantsBrowserTasks = (
+  role: AgentRole,
+  policy: { readonly browserTasks?: boolean | undefined },
+): boolean => policy.browserTasks === true && BOUNDED_BROWSER_ROLES.has(role);
 /** The read-only roles that answer the lead's questions rather than produce work. */
 export const isConsultingRole = (role: AgentRole) =>
   role === "advisor" || role === "researcher" || role === "scout";
@@ -141,6 +156,11 @@ const RolePolicy = Schema.Struct({
   callers: Schema.optional(Schema.Record(Alias, Alias)),
   /** Reviewer roles: prefer a provider other than the author's. */
   preferOtherAuthorProvider: Schema.optional(Schema.Boolean),
+  /**
+   * The role's tasks may run bounded browser tasks when their project allows agent browsing.
+   * Orthogonal to source access and tool profile; absent keeps the role without them.
+   */
+  browserTasks: Schema.optional(Schema.Boolean),
 });
 
 /**
@@ -202,6 +222,7 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
       if (models[caller] === undefined || !list.includes(first)) return false;
     if (role.preferOtherAuthorProvider !== undefined && !isReviewerRole(name as AgentRole))
       return false;
+    if (role.browserTasks === true && !BOUNDED_BROWSER_ROLES.has(name as AgentRole)) return false;
   }
   const readOnly = (role: (typeof roles)[AgentRole], toolProfile: string) =>
     role?.sourceAccess === "read-only" && role.toolProfile === toolProfile;
@@ -557,6 +578,11 @@ const agentTaskBindingFields = {
   requested: ModelSelection,
   assigned: Schema.NullOr(ModelSelection),
   effective: ModelSelection,
+  /**
+   * Recorded from the role policy when the task was bound, never from the request, so a
+   * caller cannot grant it. Absent on tasks bound before the capability existed.
+   */
+  browserTasks: Schema.optional(Schema.Literal(true)),
   externalOwner: Schema.optional(
     Schema.Struct({
       environmentId: EnvironmentId,
@@ -633,6 +659,8 @@ export const AgentRolesResult = Schema.Struct({
       briefHash: Sha256,
       executionRequirement: Schema.optional(AgentExecutionRequirement),
       executionBoundary: Schema.optional(AgentExecutionBoundary),
+      /** The role's tasks get bounded browser tasks while their project allows agent browsing. */
+      browserTasks: Schema.optional(Schema.Boolean),
       selection: Schema.NullOr(ModelSelection),
       refusal: Schema.NullOr(TrimmedNonEmptyString),
       /** Accounts out of usage, passed over unless every candidate is; absent when none is. */

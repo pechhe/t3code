@@ -144,6 +144,7 @@ import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
 import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
+import { BOUNDED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/boundedBrowser/toolNames.ts";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import {
@@ -1497,11 +1498,19 @@ export function codexThreadRuntimeParams(input: {
   const { mcpSession } = input;
   const compactLimit = codexCompactLimit(input.runtimePolicy, input.autoCompactWindow);
   // One `mcp_servers` table: every server a managed leaf must not reach is disabled. The narrow
-  // exceptions are a managed browser task's own endpoint and a browser or ui-verifier child's
-  // preview endpoint, so an independent reviewer cannot read the thread that delegated it.
+  // exceptions are a managed browser task's own endpoint, a browser or ui-verifier child's
+  // preview endpoint and a leaf's bounded browser endpoint, so an independent reviewer cannot
+  // read the thread that delegated it.
   const managedLeaf =
     input.runtimePolicy?.managedAgent === true &&
     mcpSession !== undefined &&
+    mcpSession.managedBrowser !== true &&
+    mcpSession.listsPreview !== true &&
+    mcpSession.boundedBrowser !== true;
+  // A leaf kept only for bounded browser tasks enables exactly those tools.
+  const boundedLeaf =
+    input.runtimePolicy?.managedAgent === true &&
+    mcpSession?.boundedBrowser === true &&
     mcpSession.managedBrowser !== true &&
     mcpSession.listsPreview !== true;
   const t3Server =
@@ -1516,15 +1525,23 @@ export function codexThreadRuntimeParams(input: {
           // command guard makes it ask) and denies them outright under `never`.
           default_tools_approval_mode: "approve",
           ...(mcpSession.managedBrowser === true
-            ? { enabled_tools: [...MANAGED_BROWSER_TOOL_NAMES] }
-            : {}),
+            ? {
+                enabled_tools: [
+                  ...MANAGED_BROWSER_TOOL_NAMES,
+                  ...(mcpSession.boundedBrowser === true ? BOUNDED_BROWSER_TOOL_NAMES : []),
+                ],
+              }
+            : boundedLeaf
+              ? { enabled_tools: [...BOUNDED_BROWSER_TOOL_NAMES] }
+              : {}),
           http_headers: { Authorization: mcpSession.authorizationHeader },
         };
   const directWait =
     t3Server !== undefined &&
     mcpSession?.delegated !== true &&
     mcpSession?.managedBrowser !== true &&
-    mcpSession?.listsPreview !== true;
+    mcpSession?.listsPreview !== true &&
+    !boundedLeaf;
   const agentServers = input.agentServers ?? [];
   const mcpServers: Record<string, Schema.Json> | undefined =
     input.disabledMcpServers === undefined && t3Server === undefined && agentServers.length === 0

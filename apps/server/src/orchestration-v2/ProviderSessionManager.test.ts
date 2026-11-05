@@ -230,6 +230,7 @@ function makeThreadCreatedEvent(input: {
   readonly projectId?: ProjectId;
   readonly managedBrowser?: boolean;
   readonly delegatedBy?: ThreadId;
+  readonly agentTask?: Partial<NonNullable<OrchestrationV2AppThread["agentTask"]>>;
 }) {
   return Effect.gen(function* () {
     const projectId =
@@ -270,7 +271,7 @@ function makeThreadCreatedEvent(input: {
       settledAt: null,
       lastVisitedAt: null,
       deletedAt: null,
-      ...(input.managedBrowser
+      ...(input.managedBrowser || input.agentTask !== undefined
         ? {
             agentTask: {
               role: "ui-worker" as const,
@@ -288,6 +289,7 @@ function makeThreadCreatedEvent(input: {
               requested: modelSelection,
               assigned: null,
               effective: modelSelection,
+              ...input.agentTask,
             },
           }
         : {}),
@@ -767,6 +769,7 @@ function runBrowserAccessScenario(input: {
   readonly createThread?: boolean;
   readonly projectExists?: boolean;
   readonly delegatedBy?: ThreadId;
+  readonly agentTask?: Partial<NonNullable<OrchestrationV2AppThread["agentTask"]>>;
 }) {
   return Effect.gen(function* () {
     const state = yield* Ref.make(emptyState);
@@ -803,6 +806,7 @@ function runBrowserAccessScenario(input: {
               projectId,
               ...(input.managedBrowser ? { managedBrowser: true } : {}),
               ...(input.delegatedBy === undefined ? {} : { delegatedBy: input.delegatedBy }),
+              ...(input.agentTask === undefined ? {} : { agentTask: input.agentTask }),
             }),
           ],
         });
@@ -849,6 +853,7 @@ function runBrowserAccessScenario(input: {
           ...captured,
           browserBackends: resolved?.browserBackends,
           resolvedManagedBrowser: resolved?.managedBrowser,
+          resolvedBoundedBrowser: resolved?.boundedBrowser,
         };
   });
 }
@@ -2182,6 +2187,72 @@ it.effect("mints no credential for a managed browser task when access or Phi is 
   }),
 );
 
+it.effect("grants bounded browsing to ordinary threads and recorded leaves only", () =>
+  Effect.gen(function* () {
+    const integrated = { enabled: ["integrated"], default: "integrated" } as const;
+    const ordinary = yield* runBrowserAccessScenario({
+      enableAgentBrowserAccess: true,
+      agentBrowserBackends: integrated,
+    });
+    assert.isTrue(ordinary?.boundedBrowser);
+    assert.isTrue(ordinary?.resolvedBoundedBrowser);
+    assert.match(ordinary?.endpoint ?? "", /\/mcp\/control$/);
+
+    const parent = ThreadId.make("thread-bounded-parent");
+    const reviewer = {
+      role: "reviewer" as const,
+      taskClass: "non-ui" as const,
+      sourceAccess: "read-only" as const,
+      toolProfile: "source-reader" as const,
+    };
+    const granted = yield* runBrowserAccessScenario({
+      enableAgentBrowserAccess: true,
+      agentBrowserBackends: integrated,
+      delegatedBy: parent,
+      agentTask: { ...reviewer, browserTasks: true },
+    });
+    assert.isTrue(granted?.boundedBrowser);
+    assert.match(granted?.endpoint ?? "", /\/mcp\/bounded-browser$/);
+    assert.isFalse(granted?.capabilities?.has("orchestration"));
+
+    // Old behaviour without the recorded grant, with browsing off, or with integrated off.
+    const ungranted = yield* runBrowserAccessScenario({
+      enableAgentBrowserAccess: true,
+      agentBrowserBackends: integrated,
+      delegatedBy: parent,
+      agentTask: reviewer,
+    });
+    assert.isUndefined(ungranted?.boundedBrowser);
+    assert.match(ungranted?.endpoint ?? "", /\/mcp\/child-reader$/);
+    for (const settings of [
+      { enableAgentBrowserAccess: false, agentBrowserBackends: integrated },
+      {
+        enableAgentBrowserAccess: true,
+        agentBrowserBackends: { enabled: ["phi"], default: "phi" } as const,
+      },
+      { enableAgentBrowserAccess: true, agentBrowserBackends: integrated, projectOverride: false },
+    ]) {
+      const withheld = yield* runBrowserAccessScenario({
+        ...settings,
+        delegatedBy: parent,
+        agentTask: { ...reviewer, browserTasks: true },
+      });
+      // Source work keeps its credential; only the bounded endpoint is withheld.
+      assert.isDefined(withheld);
+      assert.isUndefined(withheld?.boundedBrowser);
+      assert.match(withheld?.endpoint ?? "", /\/mcp\/child-reader$/);
+    }
+
+    // A subagent without a task record is not an ordinary thread.
+    const unrecorded = yield* runBrowserAccessScenario({
+      enableAgentBrowserAccess: true,
+      agentBrowserBackends: integrated,
+      delegatedBy: parent,
+    });
+    assert.isUndefined(unrecorded?.boundedBrowser);
+  }),
+);
+
 it.effect("ProviderSessionManagerV2 revokes MCP credentials when release persistence fails", () =>
   Effect.gen(function* () {
     const state = yield* Ref.make(emptyState);
@@ -2520,6 +2591,102 @@ it.effect("ProviderSessionManagerV2 duplicate detach preserves replacement MCP c
         }),
       ),
     );
+  }),
+);
+
+it.effect("keeps a granted leaf's bounded credential across re-attach with device access on", () =>
+  Effect.gen(function* () {
+    const state = yield* Ref.make(emptyState);
+    const settingsLayer = ServerSettings.layerTest({
+      enableAgentDeviceAccess: true,
+      agentBrowserBackends: { enabled: ["integrated"], default: "integrated" },
+    });
+    const mcpConfigs = yield* Ref.make<
+      ReadonlyArray<McpProviderSession.McpProviderSessionConfig | undefined>
+    >([]);
+    const effect = Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const registry = yield* McpSessionRegistry.McpSessionRegistry;
+      const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+      const now = yield* DateTime.now;
+      const threadId = ThreadId.make("thread-provider-session-manager-bounded-reuse");
+      const providerSessionId = yield* idAllocator.allocate.providerSession({
+        providerInstanceId: modelSelection.instanceId,
+        threadId,
+      });
+      yield* eventSink.write({
+        events: [
+          yield* makeThreadCreatedEvent({
+            idAllocator,
+            threadId,
+            now,
+            delegatedBy: ThreadId.make("thread-bounded-reuse-parent"),
+            agentTask: {
+              role: "reviewer",
+              taskClass: "non-ui",
+              sourceAccess: "read-only",
+              toolProfile: "source-reader",
+              browserTasks: true,
+            },
+          }),
+        ],
+      });
+      yield* manager.open({ threadId, providerSessionId, modelSelection, runtimePolicy });
+      const original = (yield* Ref.get(mcpConfigs)).at(-1);
+      assert.isTrue(original?.boundedBrowser);
+      const token = original!.authorizationHeader.replace(/^Bearer\s+/, "");
+
+      yield* manager.detach({ providerSessionId, threadId, detail: "Workspace changed." });
+      yield* manager.open({ threadId, providerSessionId, modelSelection, runtimePolicy });
+      assert.equal(
+        (yield* mcpSessions.read(threadId))?.providerSessionId,
+        original?.providerSessionId,
+        "re-attach must reuse the bounded credential, not rotate it and close its tabs",
+      );
+      assert.isTrue((yield* registry.resolve(token))?.boundedBrowser);
+      yield* manager.close(providerSessionId);
+    });
+    yield* effect.pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          layerTest({
+            state,
+            idleTimeoutMs: 1_000,
+            mcpConfigs,
+            serverSettingsLayer: settingsLayer,
+          }),
+          settingsLayer,
+        ),
+      ),
+    );
+  }),
+);
+
+it.effect("keeps a granted UI worker's bounded tasks when its project turns Phi off", () =>
+  Effect.gen(function* () {
+    const parent = ThreadId.make("thread-bounded-ui-parent");
+    const phiOff = yield* runBrowserAccessScenario({
+      enableAgentBrowserAccess: true,
+      agentBrowserBackends: { enabled: ["integrated"], default: "integrated" },
+      managedBrowser: true,
+      delegatedBy: parent,
+      agentTask: { browserTasks: true },
+    });
+    assert.isTrue(phiOff?.boundedBrowser);
+    assert.isUndefined(phiOff?.resolvedManagedBrowser);
+    assert.match(phiOff?.endpoint ?? "", /\/mcp\/bounded-browser$/);
+    const phiOn = yield* runBrowserAccessScenario({
+      enableAgentBrowserAccess: true,
+      agentBrowserBackends: { enabled: ["phi", "integrated"], default: "phi" },
+      managedBrowser: true,
+      delegatedBy: parent,
+      agentTask: { browserTasks: true },
+    });
+    assert.isTrue(phiOn?.resolvedManagedBrowser);
+    assert.isTrue(phiOn?.boundedBrowser);
+    assert.match(phiOn?.endpoint ?? "", /\/mcp\/browser$/);
   }),
 );
 

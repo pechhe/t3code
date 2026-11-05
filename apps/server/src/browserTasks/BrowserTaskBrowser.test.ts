@@ -40,6 +40,7 @@ import * as PreviewBrowser from "../preview/PreviewBrowser.ts";
 import * as ServerBrowser from "../preview/ServerBrowser.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as BrowserTaskService from "./BrowserTaskService.ts";
+import { boundedBrowserScope } from "../mcp/ManagedBrowserAccess.ts";
 
 const scope: McpThreadInvocationScope = {
   environmentId: EnvironmentId.make("browser-task"),
@@ -373,7 +374,9 @@ it.live(
             updateCurrentTab: false,
           })
           .pipe(Effect.flip);
-        expect(inspectFirst.message).toContain("Take a preview_snapshot");
+        expect(inspectFirst.message).toContain(
+          "Take a snapshot (preview_snapshot or t3_browser_snapshot)",
+        );
         const status = yield* broker.invoke<PreviewAutomationStatus>({
           scope,
           tabId,
@@ -679,6 +682,87 @@ it.live(
         expect(covered).toMatchObject({ status: "failed", reason: "capture-failed" });
         expect(covered.detail).toContain("covers the capture target");
         expect(covered.artifact).toBeUndefined();
+      }),
+    ),
+);
+
+it.live(
+  "gives a bounded caller its own fresh tab that its session's other tools and sessions cannot use",
+  () =>
+    withFixture((fixture) =>
+      Effect.gen(function* () {
+        yield* ServerBrowser.ServerBrowser;
+        const broker = yield* Broker.PreviewAutomationBroker;
+        const tasks = yield* BrowserTaskService.BrowserTaskService;
+        yield* Effect.yieldNow;
+        // An ordinary thread whose own browser default is Phi still gets an integrated tab.
+        const { managedBrowser: _managed, taskBrowser: _task, ...unmanaged } = scope;
+        const ordinary: McpThreadInvocationScope = {
+          ...unmanaged,
+          browserBackends: { enabled: ["phi", "integrated"], default: "phi" },
+          boundedBrowser: true,
+        };
+        const bounded = boundedBrowserScope(ordinary, ProjectId.make("project-browser-task"));
+        const opened = yield* broker.invoke<PreviewAutomationStatus>({
+          scope: bounded,
+          operation: "open",
+          input: { url: `${fixture.origin}/doc`, reuseExistingTab: false, open: false },
+        });
+        const tabId = PreviewTabId.make(opened.tabId!);
+        expect(opened.profiles).toBeUndefined();
+
+        // The same session's preview lane, and a sibling provider session's bounded lane, cannot act.
+        const { browserLane: _lane, ...previewLane } = bounded;
+        const sibling: McpThreadInvocationScope = {
+          ...bounded,
+          thread: { ...bounded.thread, providerSessionId: "sibling-session" },
+        };
+        for (const other of [previewLane, sibling] as const) {
+          const refused = yield* broker
+            .invoke<object>({
+              scope: other,
+              tabId,
+              operation: "scroll",
+              input: { direction: "down" },
+            })
+            .pipe(Effect.flip);
+          expect(refused.message).toMatch(/another|belongs|conflict|keeps its/i);
+          const misuse = yield* tasks
+            .run({
+              scope: other,
+              authorize: Effect.void,
+              request: request({ requestId: "other", tabId }),
+            })
+            .pipe(Effect.flip);
+          expect(misuse.message).toMatch(/own|another|belongs|conflict|keeps its/i);
+        }
+        // Raw page execution stays refused on the bounded lane.
+        const evaluated = yield* broker
+          .invoke<object>({
+            scope: bounded,
+            tabId,
+            operation: "evaluate",
+            input: { expression: "1" },
+          })
+          .pipe(Effect.flip);
+        expect(evaluated.message).toMatch(/not available|unsupported|control changed/i);
+
+        // The seeded defect, a red heading, is captured as a readable crop on the bounded lane.
+        const captured = yield* tasks.run({
+          scope: bounded,
+          authorize: Effect.void,
+          request: request({
+            requestId: "seeded",
+            tabId,
+            capture: { target: { role: "heading", name: "Report" } },
+            checks: [{ id: "image", kind: "artifact" }],
+          }),
+        });
+        expect(captured.status).toBe("passed");
+        expect(captured.continuation.guidance).toContain("t3_browser_");
+        const bytes = NodeFS.readFileSync(captured.artifact!.path);
+        expect(bytes.subarray(1, 4).toString()).toBe("PNG");
+        expect(fixture.decisions).toHaveLength(0);
       }),
     ),
 );

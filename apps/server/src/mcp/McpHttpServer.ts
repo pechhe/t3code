@@ -85,6 +85,12 @@ import * as OrchestratorHandlers from "./toolkits/orchestrator/handlers.ts";
 import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
 import * as PreviewHandlers from "./toolkits/preview/handlers.ts";
 import * as ManagedBrowserHandlers from "./toolkits/managedBrowser/handlers.ts";
+import * as BoundedBrowserHandlers from "./toolkits/boundedBrowser/handlers.ts";
+import {
+  BoundedBrowserSnapshotTool,
+  BoundedBrowserSnapshotToolkit,
+  BoundedBrowserToolkit,
+} from "./toolkits/boundedBrowser/tools.ts";
 import {
   ManagedBrowserTaskToolkit,
   ManagedBrowserToolkit,
@@ -519,15 +525,28 @@ const previewSnapshotFailure = Effect.fn("previewSnapshotFailure")(function <E>(
   }).pipe(Effect.as(result));
 });
 
-const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot")(function* () {
+/** A snapshot tool returns an image, so it registers apart from its toolkit's other tools. */
+const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot")(function* <
+  Tools extends Record<string, Tool.Any>,
+>(toolkit: Toolkit.Toolkit<Tools>, tool: Tool.Any) {
   const server = yield* McpServer.McpServer;
   const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const saveServices = yield* Effect.context<
     ServerConfig.ServerConfig | FileSystem.FileSystem | Path.Path | SecureRandom.SecureRandom
   >();
-  const built = yield* decodeAsAdvertised(PreviewSnapshotToolkit);
-  const tool = PreviewSnapshotTool;
+  const built = yield* decodeAsAdvertised(toolkit);
+  // One handler shape serves both snapshot tools; registration already captured the handler.
+  const handle = built.handle as unknown as (
+    name: string,
+    payload: unknown,
+  ) => Effect.Effect<
+    Stream.Stream<{ readonly encodedResult: unknown }, { readonly _tag: string }>,
+    { readonly _tag: string },
+    | PreviewAutomationBroker.PreviewAutomationBroker
+    | ThreadManagementService.ThreadManagementService
+    | McpInvocationContext.McpInvocationContext
+  >;
   yield* server.addTool({
     tool: new McpSchema.Tool({
       name: tool.name,
@@ -551,7 +570,7 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
           fiber.context,
           McpInvocationContext.McpInvocationContext,
         );
-        return built.handle("preview_snapshot", payload).pipe(
+        return handle(tool.name, payload).pipe(
           Stream.unwrap,
           Stream.run(Sink.last()),
           Effect.flatMap(Effect.fromOption),
@@ -1147,7 +1166,7 @@ const layerPreviewStandardToolkitRegistration = toolkitRegistration(
 );
 
 const layerPreviewSnapshotRegistration = imageToolRegistration(
-  registerPreviewSnapshot(),
+  registerPreviewSnapshot(PreviewSnapshotToolkit, PreviewSnapshotTool),
   PreviewHandlers.layerSnapshot,
 );
 
@@ -1272,6 +1291,18 @@ const layerSessionPreview = (families: ReadonlySet<ToolFamily>) =>
       )
     : Layer.empty;
 
+/** Each tool is listed only to a credential minted with the capability (`listsBoundedBrowser`). */
+const layerBoundedBrowserRegistration = Layer.mergeAll(
+  toolkitRegistration(BoundedBrowserToolkit, BoundedBrowserHandlers.layer),
+  imageToolRegistration(
+    registerPreviewSnapshot(BoundedBrowserSnapshotToolkit, BoundedBrowserSnapshotTool),
+    BoundedBrowserHandlers.layerSnapshot,
+  ),
+);
+
+const layerSessionBoundedBrowser = (families: ReadonlySet<ToolFamily>) =>
+  families.has("bounded-browser") ? layerBoundedBrowserRegistration : Layer.empty;
+
 const layerSessionDevice = (families: ReadonlySet<ToolFamily>) =>
   families.has("device")
     ? Layer.mergeAll(layerDeviceStandardToolkitRegistration, layerDeviceScreenshotRegistration)
@@ -1287,8 +1318,9 @@ export const layerSessionToolkits = (families: ReadonlySet<ToolFamily>) =>
     layerSessionThread(families),
     layerSessionProject(families),
     layerSessionWorktree(families),
-    layerSessionHtml(),
+    families.has("leaf") ? layerSessionHtml() : Layer.empty,
     layerSessionPreview(families),
+    layerSessionBoundedBrowser(families),
     layerSessionDevice(families),
     families.has("web") ? toolkitRegistration(WebToolkit, WebHandlers.layer) : Layer.empty,
     families.has("workspace") ? layerAttachmentToolkit : Layer.empty,
@@ -1328,7 +1360,12 @@ export const layerManagedBrowserToolkit = Layer.fresh(
     toolkitRegistration(DecisionToolkit, DecisionHandlers.layer),
     toolkitRegistration(ManagedBrowserToolkit, ManagedBrowserHandlers.layer),
     toolkitRegistration(ManagedBrowserTaskToolkit, ManagedBrowserHandlers.layerTask),
-    imageToolRegistration(registerPreviewSnapshot(), ManagedBrowserHandlers.layerSnapshot),
+    imageToolRegistration(
+      registerPreviewSnapshot(PreviewSnapshotToolkit, PreviewSnapshotTool),
+      ManagedBrowserHandlers.layerSnapshot,
+    ),
+    // A UI worker granted bounded tasks lists them beside its own browser, on their own tabs.
+    layerBoundedBrowserRegistration,
   ).pipe((registrations) =>
     McpServer.layerHttp({
       name: "T3 Code browser",
