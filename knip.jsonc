@@ -48,15 +48,18 @@
       // Vite+ pack entries and the launcher used by installed background services.
       "entry": [
         "src/bin.ts!",
+        "src/decisionEvaluations/failureTriage/run.ts",
         "src/decisionEvaluations/semanticLint/run.ts",
         "src/claude-history-worker.ts!",
         "scripts/cli.ts",
         "scripts/evaluate-thread-titles.ts",
+        "scripts/evaluate-browser-decisions.ts",
         "scripts/event-compaction-equivalence.ts",
         "scripts/fetch-expo-schema.ts",
         "scripts/probe-claude-fork-local-rollback-replay.ts",
         // A manual probe that spends provider turns, run by path.
         "scripts/probe-provider-resume.ts",
+        "scripts/serve-browser-fixtures.ts",
         "scripts/update-test-shard-weights.ts",
         // A manual offline tool: docs/operations/agent-delegation.md runs it by path.
         "scripts/validate-agent-policy.ts",

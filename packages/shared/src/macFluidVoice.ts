@@ -13,22 +13,6 @@ else throw new Error('Cannot determine whether FluidVoice is recording.');
 }
 `;
 
-// FluidVoice's dictation hotkey is a bare Right Shift (key code 60, device bit 0x4), so a tap is a
-// flags-changed pair; the event type and key code are set by hand because a modifier key has no
-// key-down.
-const TAP_RIGHT_SHIFT_SCRIPT = `
-ObjC.import('CoreGraphics');
-function post(flags) {
-  const event = $.CGEventCreate(null);
-  $.CGEventSetType(event, 12);
-  $.CGEventSetIntegerValueField(event, 9, 60);
-  $.CGEventSetFlags(event, flags);
-  $.CGEventPost(0, event);
-}
-post(0x20004);
-post(0);
-`;
-
 export function runMacScript(script: string, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     NodeChildProcess.execFile(
@@ -51,15 +35,3 @@ export function parseFluidVoiceRecordingStatus(status: string): boolean {
 
 export const isFluidVoiceRecording = async (signal?: AbortSignal): Promise<boolean> =>
   parseFluidVoiceRecordingStatus(await runMacScript(STATUS_SCRIPT, signal));
-
-/**
- * Starts or stops FluidVoice's plain dictation by tapping its hotkey, only when it is not already
- * in the wanted state so a repeated call is harmless.
- */
-export const setFluidVoiceDictation = async (
-  active: boolean,
-  signal?: AbortSignal,
-): Promise<void> => {
-  if ((await isFluidVoiceRecording(signal)) === active) return;
-  await runMacScript(TAP_RIGHT_SHIFT_SCRIPT, signal);
-};

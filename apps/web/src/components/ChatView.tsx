@@ -3815,7 +3815,9 @@ export default function ChatView(props: ChatViewProps) {
                   : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2"
               }
             >
-              {overlayPresentation ? null : <UsageCorner overlay={composerOverlayElement} />}
+              {overlayPresentation || (threadPanelPresentation === "inline" && !threadPanelOpen) ? null : (
+                <UsageCorner overlay={composerOverlayElement} />
+              )}
               <div
                 ref={draftHeroTransitionGroupRef}
                 // The overlay window is the composer's width plus room for its shadow.

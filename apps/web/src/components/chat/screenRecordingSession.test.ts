@@ -87,28 +87,3 @@ it("opens the recording's thread when the user presses Stop", async () => {
 it("stays put when the time limit ends the recording", async () => {
   expect(await recordAndFinish(false)).not.toHaveBeenCalled();
 });
-
-it("dictates only while the recording is running", async () => {
-  const setDictation = vi.fn((_active: boolean) => Promise.resolve());
-  vi.stubGlobal("window", { desktopBridge: { setDictation } });
-  const recording = startScreenRecording(
-    { target: started, title: "Glitch", open: vi.fn() },
-    1_000_000,
-  );
-  const running = {
-    phase: "recording",
-    startedAt: 0,
-    elapsedMs: 0,
-    resumedAt: 0,
-    source: null,
-    canChangeSource: false,
-  } as const;
-  finish.report?.(running);
-  finish.report?.({ ...running, resumedAt: null });
-  finish.report?.(running);
-  finish.report?.({ phase: "finishing" });
-  finish.current?.({ type: "failed", error: new Error("stopped") });
-  await recording;
-  await vi.waitFor(() => expect(setDictation).toHaveBeenCalledTimes(4));
-  expect(setDictation.mock.calls.map(([active]) => active)).toEqual([true, false, true, false]);
-});

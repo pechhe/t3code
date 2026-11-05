@@ -38,12 +38,12 @@ function project(id: string): Project {
 
 describe("sidebar header new thread", () => {
   it.each([
-    { mode: "normal", count: 2, shift: false, picker: true },
-    { mode: "boring", count: 2, shift: false, picker: true },
-    { mode: "boring", count: 2, shift: true, picker: false },
-    { mode: "boring", count: 1, shift: false, picker: false },
-    { mode: "legacy", count: 2, shift: false, picker: false },
-  ] as const)("$mode sidebar, $count projects, shift=$shift: picker=$picker", async (scenario) => {
+    { mode: "normal", count: 2, shift: false, inProject: false },
+    { mode: "boring", count: 2, shift: false, inProject: false },
+    { mode: "boring", count: 2, shift: true, inProject: true },
+    { mode: "boring", count: 1, shift: false, inProject: true },
+    { mode: "legacy", count: 2, shift: false, inProject: true },
+  ] as const)("$mode sidebar, $count projects, shift=$shift: inProject=$inProject", async (scenario) => {
     using stack = new DisposableStack();
     const previousSettings = getClientSettings();
     stack.defer(() => __setClientSettingsForTests(previousSettings));
@@ -78,12 +78,7 @@ describe("sidebar header new thread", () => {
       modifiers: scenario.shift ? ["Shift"] : [],
     });
 
-    if (scenario.picker) {
-      expect(openCommandPalette).toHaveBeenCalledExactlyOnceWith({ open: "new-thread-in" });
-      expect(startThread).not.toHaveBeenCalled();
-    } else {
-      expect(openCommandPalette).not.toHaveBeenCalled();
-      expect(startThread).toHaveBeenCalledExactlyOnceWith(currentProjectRef);
-    }
+    expect(openCommandPalette).not.toHaveBeenCalled();
+    if (scenario.inProject) expect(startThread).toHaveBeenCalledExactlyOnceWith(currentProjectRef);
   });
 });

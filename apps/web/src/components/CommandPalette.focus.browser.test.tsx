@@ -2,7 +2,9 @@ import { useImperativeHandle, useRef, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { act, fakeTimers, render } from "../../test/render";
 import { DEFAULT_RESOLVED_KEYBINDINGS, isMacPlatform } from "@t3tools/shared/keybindings";
+import type { AnyRouter } from "@tanstack/react-router";
 import { CommandPalette } from "./CommandPalette";
+import { installCommandPaletteCommands } from "../shortcuts/commandPaletteCommands";
 import { useComposerHandleContext } from "../composerHandleContext";
 import { openCommandPalette } from "../commandPaletteBus";
 import { primaryServerKeybindingsAtom } from "../state/server";
@@ -39,7 +41,10 @@ vi.mock("../hooks/useScratchProject", () => ({
   }),
 }));
 vi.mock("../hooks/useNewProject", () => ({ useNewProject: () => vi.fn() }));
-vi.mock("../hooks/useHandleNewThread", () => ({ useHandleNewThread: () => ({}) }));
+vi.mock("../hooks/useHandleNewThread", () => ({
+  useHandleNewThread: () => ({}),
+  useNewThreadHandler: () => vi.fn(),
+}));
 vi.mock("../hooks/useOpenPanelPullRequestUrl", () => ({ useOpenPanelPullRequestUrl: () => null }));
 vi.mock("../connection/useDesktopLocalBootstraps", () => ({ useDesktopLocalBootstraps: () => [] }));
 vi.mock("../state/use-atom-command", () => ({ useAtomCommand: () => vi.fn() }));
@@ -81,6 +86,11 @@ async function renderPalette(children: ReactNode) {
   });
   const screen = stack.use(
     await render(<CommandPalette>{children}</CommandPalette>, { router: false }),
+  );
+  // The shortcuts are installed once at app start; no route is read by the keys under test.
+  const router = { state: { matches: [], location: { pathname: "/" } } } as unknown as AnyRouter;
+  stack.defer(
+    installCommandPaletteCommands(router, { keybindings: () => DEFAULT_RESOLVED_KEYBINDINGS }),
   );
   const environment = stack.move();
   return Object.assign(screen, { [Symbol.asyncDispose]: () => environment.disposeAsync() });
