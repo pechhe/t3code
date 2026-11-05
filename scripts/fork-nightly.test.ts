@@ -35,7 +35,8 @@ const STUBS: Record<string, string> = {
 [ ! -e "$last/Contents/INVALID" ]
 `,
   // A copy that can be told to die after creating only part of the destination.
-  ditto: `if [ "$T3_TEST_DITTO" = partial-fail ]; then
+  ditto: `case "$2" in *staged.new*) [ "$T3_TEST_KILL_AT" != staging ] || kill_owner ;; esac
+if [ "$T3_TEST_DITTO" = partial-fail ]; then
   mkdir -p "$2/Contents/MacOS"
   exit 1
 fi
@@ -47,7 +48,15 @@ cp -R "$1" "$2"
 read -r pid started < "$T3_TEST_ROOT/running"
 echo "\${pid:-101}"
 `,
-  ps: `echo "$*" >> "$T3_TEST_ROOT/ps.log"
+  // Pids 101 and 202 are the fixture's app; any other asks the real process table,
+  // unless a test makes it unreadable.
+  ps: `fixture_pid=
+[ "$1" = -p ] && case "$2" in 101 | 202) fixture_pid=1 ;; esac
+if [ -z "$fixture_pid" ]; then
+  [ "$T3_TEST_PS" != fail ] || exit 1
+  PATH="\${PATH#*:}" exec ps "$@"
+fi
+echo "$*" >> "$T3_TEST_ROOT/ps.log"
 [ -e "$T3_TEST_ROOT/running" ] || exit 1
 read -r pid started < "$T3_TEST_ROOT/running"
 [ "$2" = "\${pid:-101}" ] || exit 1
@@ -75,20 +84,48 @@ jq -cn --arg url "$url" --arg body "$body" '{url: $url, body: $body}' >> "$T3_TE
 [ "$T3_TEST_CURL" = fail ] && exit 7
 exit 0
 `,
-  // A build that gets past selection stops at the app build.
+  // A build that gets past selection stops at the app build, unless a test holds it
+  // there as a surviving child or lets it produce an app.
   vp: `printf '%s\\n' "vp $*" >> "$T3_TEST_ROOT/calls.log"
 cat .env > "$T3_TEST_ROOT/env-at-vp" 2>/dev/null
+case "$T3_TEST_VP" in
+  hold)
+    echo $$ > "$T3_TEST_ROOT/vp.pid"
+    await_release vp
+    exit 1
+    ;;
+  build)
+    [ "$1" = run ] || exit 0
+    app="$TMPDIR/t3code-desktop-mac-stage-fixture/app/dist/mac-arm64/T3 Peach.app"
+    mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+    printf built > "$app/Contents/BUILD"
+    echo built > "$app/Contents/MacOS/exe"
+    echo plist > "$app/Contents/Info.plist"
+    exit 0
+    ;;
+esac
 exit 1
 `,
   // The VPS build step: its exit status is whatever T3_TEST_VPS_STATUS says (3: a release asset is missing).
   ssh: `printf '%s\\n' "ssh $*" >> "$T3_TEST_ROOT/calls.log"
+case "$*" in
+  *" build "*)
+    [ "$T3_TEST_KILL_AT" != vps-build-entry ] || kill_group
+    [ "$T3_TEST_KILL_AT" != vps-build-done ] || { echo done > "$T3_TEST_ROOT/remote-built"; kill_group; }
+    ;;
+  *"fork-vps-runtime.sh install "*)
+    [ "$T3_TEST_KILL_AT" != vps-install-entry ] || kill_owner
+    [ "$T3_TEST_KILL_AT" != vps-install-done ] || { echo done > "$T3_TEST_ROOT/remote-installed"; kill_owner; }
+    ;;
+esac
 case "$*" in *" build "*)
   [ "$T3_TEST_VPS_STATUS" != 3 ] || { echo "the upstream release v1 has no downloadable SHA256SUMS (u)" >&2; exit 3; }
   exit "\${T3_TEST_VPS_STATUS:-0}" ;;
 esac
 `,
   // The script's waits shrink so polling loops finish quickly.
-  sleep: `if [ -n "$T3_TEST_REOPEN" ]; then
+  sleep: `echo poll >> "$T3_TEST_ROOT/sleep.log"
+if [ -n "$T3_TEST_REOPEN" ]; then
   read -r pid started < "$T3_TEST_ROOT/running"
   if [ "$started" = replacement ]; then
     # A reopened app that declines to quit is polled until the job gives up.
@@ -125,6 +162,22 @@ cat "$1/Contents/BUILD" > "$T3_TEST_ROOT/opened-build"
 `,
 };
 
+// kill_owner and kill_group kill only the fixture build's own recorded pid or group: the
+// group's loss takes the ssh client with it, as losing the machine would. await_release keeps
+// a surviving child alive until its test releases it, or the fixture is removed.
+const STUB_HELPERS = `kill_owner() {
+  kill -9 "$(jq -r .owner.pid "$T3FORK_STATE/build-invocation.json")"
+  exit 0
+}
+kill_group() {
+  kill -9 "-$(jq -r .owner.pgid "$T3FORK_STATE/build-invocation.json")"
+  exit 0
+}
+await_release() {
+  while [ -d "$T3_TEST_ROOT" ] && [ ! -e "$T3_TEST_ROOT/$1-release" ]; do /bin/sleep 0.05; done
+}
+`;
+
 interface Fixture {
   readonly root: string;
   readonly state: string;
@@ -146,7 +199,9 @@ async function withFixture(body: (f: Fixture) => Promise<void>) {
     const home = NodePath.join(root, "home");
     for (const dir of [bin, apps, state, home]) await NodeFSP.mkdir(dir, { recursive: true });
     for (const [name, source] of Object.entries(STUBS)) {
-      await NodeFSP.writeFile(NodePath.join(bin, name), `#!/bin/sh\n${source}`, { mode: 0o755 });
+      await NodeFSP.writeFile(NodePath.join(bin, name), `#!/bin/sh\n${STUB_HELPERS}${source}`, {
+        mode: 0o755,
+      });
     }
     const f: Fixture = {
       root,
@@ -2425,6 +2480,927 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
       },
       TIMEOUT,
     );
+  });
+
+  describe("an interrupted build", () => {
+    const THREAD = "thread-a";
+    // After any clock the fixtures run under, so the claim never reads as quiet.
+    const CLAIM_PROGRESS_EPOCH = 4_102_444_800;
+    const invocationFile = (f: Fixture) => stateFile(f, "build-invocation.json");
+    const invocation = (f: Fixture) => readJson(invocationFile(f));
+    const clone = (f: Fixture) => NodePath.join(f.root, "clone");
+
+    let landedRepos: Promise<{ dir: string; head: string; upstream: string }> | undefined;
+    afterAll(async () => {
+      if (landedRepos) await NodeFSP.rm((await landedRepos).dir, { recursive: true, force: true });
+    });
+
+    /** The repos with an integration landed whose receipt the build accepts, built once. */
+    async function buildLandedRepos() {
+      const seeded = await template!;
+      const dir = await NodeFSP.realpath(
+        await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-fork-nightly-landed-")),
+      );
+      await NodeFSP.cp(seeded.dir, dir, { recursive: true });
+      const origin = NodePath.join(dir, "origin.git");
+      const { upstream } = await landIntegration(
+        { root: dir, origin } as Fixture,
+        BUILD_TAG,
+        "2026-02-01T00:00:00Z",
+      );
+      const work = NodePath.join(dir, "work");
+      await git(work, ["checkout", "-q", "t3peach"]);
+      await NodeFSP.mkdir(NodePath.join(work, "scripts"), { recursive: true });
+      await NodeFSP.writeFile(NodePath.join(work, "scripts/fork-upstream-receipt.ts"), "");
+      await git(work, ["add", "."]);
+      await git(work, ["commit", "-q", "-m", "receipt checker"], "2026-02-02T00:00:00Z");
+      await git(work, ["push", "-q", origin, "t3peach"]);
+      const head = await git(work, ["rev-parse", "HEAD"]);
+      await git(work, ["checkout", "-q", "main"]);
+      return { dir, head, upstream };
+    }
+
+    /** Seeds those repos and claims the attempt. */
+    async function landAndClaim(f: Fixture, options: { phase?: string } = {}) {
+      await seedRepos(f);
+      landedRepos ??= buildLandedRepos();
+      const { dir, head, upstream } = await landedRepos;
+      await NodeFSP.cp(dir, f.root, { recursive: true, force: true });
+      await writeJson(stateFile(f, "attempts", `${BUILD_TAG}.json`), {
+        tag: BUILD_TAG,
+        sha: upstream,
+        attempt: `${BUILD_TAG}@1`,
+        phase: options.phase ?? "claimed",
+        claimedBy: THREAD,
+        dispatches: 1,
+        updatedEpoch: CLAIM_PROGRESS_EPOCH,
+      });
+      return { head, upstream };
+    }
+
+    /** Starts a build as a detached process, returning its launcher's own pid. */
+    function startBuild(f: Fixture, args: ReadonlyArray<string>, env: Record<string, string> = {}) {
+      const launcher = NodeChildProcess.spawn("bash", [SCRIPT, "build", ...args], {
+        env: { ...f.env, TMPDIR: f.root, ...env },
+        stdio: "ignore",
+      });
+      const exited = new Promise<number | null>((resolve) =>
+        launcher.once("exit", (code) => resolve(code)),
+      );
+      return { launcher, exited };
+    }
+
+    const processAlive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    /** An orphan's zombie answers kill -0, so only the process table says it has gone. */
+    async function processExited(pid: number) {
+      const { stdout } = await execFile("ps", ["-o", "stat=", "-p", String(pid)]).catch(() => ({
+        stdout: "",
+      }));
+      return stdout.trim() === "" || stdout.trim().startsWith("Z");
+    }
+
+    async function waitForFile(f: Fixture, name: string) {
+      const path = NodePath.join(f.root, name);
+      await waitForChange(f.root, () => exists(path));
+      return Number((await readText(path)).trim());
+    }
+
+    /** A build holding at its app step, with the child's pid. Its owner is the recorded leader. */
+    async function holdBuild(f: Fixture, args: ReadonlyArray<string>) {
+      const started = startBuild(f, args, { T3_TEST_VP: "hold" });
+      const child = await waitForFile(f, "vp.pid");
+      const record = await invocation(f);
+      const owner = (record.owner as { pid: number }).pid;
+      return { ...started, child, owner };
+    }
+
+    /** Lets the held child finish, and waits until the captured pid has gone. */
+    async function releaseChild(f: Fixture, child: number) {
+      await NodeFSP.writeFile(NodePath.join(f.root, "vp-release"), "");
+      await waitForChange(f.root, async () => {
+        if (await processExited(child)) return true;
+        await NodeFSP.writeFile(NodePath.join(f.root, "vp-poll"), "poll");
+        return false;
+      });
+    }
+
+    /** Runs a build that its own stub kills at `killAt`, and waits for its launcher. */
+    async function buildKilledAt(
+      f: Fixture,
+      killAt: string,
+      args: ReadonlyArray<string> = ["--attempt", BUILD_TAG],
+      env: Record<string, string> = {},
+    ) {
+      const { exited } = startBuild(f, args, {
+        T3_TEST_VP: "build",
+        T3_TEST_KILL_AT: killAt,
+        ...env,
+      });
+      expect(await exited).not.toBe(0);
+    }
+
+    /** A stopped build's record, as the build itself leaves one, from a pid that has exited. */
+    async function seedStopped(f: Fixture, fields: Record<string, unknown>) {
+      const child = NodeChildProcess.spawn("true");
+      await new Promise((resolve) => child.once("exit", resolve));
+      await writeJson(invocationFile(f), {
+        id: `${child.pid}@1`,
+        stage: "compiling",
+        stageAt: "2099-01-01T00:00:00Z",
+        stageEpoch: 1,
+        claim: { tag: BUILD_TAG, attempt: `${BUILD_TAG}@1`, claimedBy: THREAD },
+        tag: BUILD_TAG,
+        owner: { pid: child.pid, pgid: String(child.pid), started: "Thu Jan  1 00:00:00 2099" },
+        ...fields,
+      });
+    }
+
+    async function statusLine(f: Fixture, env: Record<string, string> = {}) {
+      const { stdout } = await run(f, ["status"], env);
+      const line = stdout.split("\n").find((l) => l.startsWith("build-invocation: "));
+      return line
+        ? (JSON.parse(line.slice("build-invocation: ".length)) as Record<string, string>)
+        : undefined;
+    }
+
+    async function treeOf(dir: string) {
+      const entries = await NodeFSP.readdir(dir, { recursive: true, withFileTypes: true });
+      const listed = await Promise.all(
+        entries
+          .filter((e) => e.isFile())
+          .map(async (e) => {
+            const path = NodePath.join(e.parentPath, e.name);
+            return `${path}:${(await readText(path)).length}:${(await NodeFSP.stat(path)).mtimeMs}`;
+          }),
+      );
+      return listed.toSorted();
+    }
+
+    async function expectCloneUntouched(f: Fixture, sentinel: string, head: string) {
+      expect(await readText(NodePath.join(clone(f), "in-flight"))).toBe(sentinel);
+      expect(await git(clone(f), ["rev-parse", "HEAD"])).toBe(head);
+    }
+
+    const buildRequests = async (f: Fixture) =>
+      (await curlCalls(f)).filter((c) => c.body.action === "build");
+
+    it(
+      "keeps working when only its launcher dies, so the hourly run leaves the clone and claim alone",
+      async () => {
+        await withFixture(async (f) => {
+          const { head } = await landAndClaim(f);
+          const { launcher, exited, child, owner } = await holdBuild(f, ["--attempt", BUILD_TAG]);
+          await NodeFSP.writeFile(NodePath.join(clone(f), "in-flight"), "work");
+          launcher.kill("SIGKILL");
+          await exited;
+          expect(processAlive(owner)).toBe(true);
+
+          expect(await statusLine(f)).toMatchObject({
+            state: "live",
+            stage: "compiling",
+            source: head,
+          });
+          expect((await run(f, [])).code).toBe(0);
+          expect(await nightlyLog(f)).toContain("another run holds");
+          await expectCloneUntouched(f, "work", head);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: "claimed",
+            claimedBy: THREAD,
+          });
+          expect(await buildRequests(f)).toEqual([]);
+
+          await releaseChild(f, child);
+          await waitForChange(f.state, async () => !(await exists(invocationFile(f))));
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "protects the clone and claim from an owner death with a surviving child, until that child has stopped",
+      async () => {
+        await withFixture(async (f) => {
+          const { head } = await landAndClaim(f);
+          const { exited, child, owner } = await holdBuild(f, ["--attempt", BUILD_TAG]);
+          await NodeFSP.writeFile(NodePath.join(clone(f), "in-flight"), "work");
+          process.kill(owner, "SIGKILL");
+          await exited;
+          expect(processAlive(child)).toBe(true);
+
+          const status = await statusLine(f);
+          expect(status).toMatchObject({
+            state: "unknown",
+            stage: "compiling",
+            source: head,
+            attempt: `${BUILD_TAG}@1`,
+            claimedBy: THREAD,
+          });
+          expect(status!.evidence).toContain(`survive in its group ${owner}`);
+          expect(status!.next).toContain(`attempt ${BUILD_TAG} retry --take-over`);
+
+          expect((await run(f, [])).code).toBe(0);
+          await expectCloneUntouched(f, "work", head);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: "claimed",
+            claimedBy: THREAD,
+          });
+          expect(await buildRequests(f)).toEqual([]);
+          expect(await nightlyLog(f)).toContain("the clone and hourly work wait");
+
+          // Neither an overlapping build nor a retry passes it.
+          const refused = await run(f, ["build"]);
+          expect(refused.code).toBe(3);
+          expect(refused.stderr).toContain("survive in its group");
+          await expectCloneUntouched(f, "work", head);
+          const retry = await run(f, ["attempt", BUILD_TAG, "retry"]);
+          expect(retry.code).toBe(3);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: "claimed",
+            claimedBy: THREAD,
+          });
+
+          await releaseChild(f, child);
+          expect(await statusLine(f)).toMatchObject({ state: "interrupted" });
+          expect((await run(f, [])).code).toBe(0);
+          expect(await readText(NodePath.join(clone(f), "in-flight"))).toBe("");
+          expect(await buildRequests(f)).toHaveLength(1);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "reports every state from status without changing anything",
+      async () => {
+        await withFixture(async (f) => {
+          const { head } = await landAndClaim(f);
+          const { exited, child, owner } = await holdBuild(f, ["--attempt", BUILD_TAG]);
+          const quiet = async () => {
+            const before = await treeOf(f.state);
+            const status = await statusLine(f);
+            expect(await treeOf(f.state)).toEqual(before);
+            return status;
+          };
+          const live = await quiet();
+          expect(live).toMatchObject({
+            state: "live",
+            stage: "compiling",
+            source: head,
+            tag: BUILD_TAG,
+          });
+          expect(live!.stageAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+          expect(live!.owner).toMatchObject({ pid: owner, pgid: String(owner) });
+          expect(live!.evidence).toContain("recorded start time");
+          expect(live!.next).toContain("wait for it");
+
+          process.kill(owner, "SIGKILL");
+          await exited;
+          expect(await quiet()).toMatchObject({ state: "unknown" });
+
+          await releaseChild(f, child);
+          const stopped = await quiet();
+          expect(stopped).toMatchObject({ state: "interrupted", stage: "compiling", source: head });
+          expect(stopped!.next).toContain("next hourly run releases the claim");
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: "claimed",
+            claimedBy: THREAD,
+          });
+          expect(await curlCalls(f)).toEqual([]);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it.each([
+      {
+        name: "an unreadable process table",
+        env: { T3_TEST_PS: "fail" },
+        fields: {},
+        evidence: "process table cannot be read",
+      },
+      {
+        name: "no recorded start time",
+        env: {},
+        fields: { owner: { pid: 999_999, pgid: "999999", started: "" } },
+        evidence: "no readable identity",
+      },
+      {
+        name: "a pid that now names another process",
+        env: {},
+        fields: { owner: { pid: process.pid, pgid: String(process.pid), started: "another time" } },
+        evidence: "the pid was reused",
+      },
+      {
+        name: "a build that led no process group",
+        env: {},
+        fields: { owner: { pid: 999_999, pgid: "1", started: "some time" } },
+        evidence: "led no process group",
+      },
+    ])(
+      "keeps $name unknown, with the clone and claim protected",
+      async ({ env, fields, evidence }) => {
+        await withFixture(async (f) => {
+          const { head } = await landAndClaim(f);
+          expect((await run(f, [])).code).toBe(0);
+          await git(clone(f), ["checkout", "-q", "--detach", head]);
+          await NodeFSP.writeFile(NodePath.join(clone(f), "in-flight"), "work");
+          await seedStopped(f, { source: head, ...fields });
+          const before = (await curlCalls(f)).length;
+
+          const status = await statusLine(f, env);
+          expect(status).toMatchObject({ state: "unknown", source: head });
+          expect(status!.evidence).toContain(evidence);
+          expect((await run(f, [], env)).code).toBe(0);
+          await expectCloneUntouched(f, "work", head);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: "claimed",
+            claimedBy: THREAD,
+          });
+          expect((await curlCalls(f)).length).toBe(before);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "keeps a PID-only lock from an older script unknown until a deliberate take-over",
+      async () => {
+        await withFixture(async (f) => {
+          const { head } = await landAndClaim(f);
+          expect((await run(f, [])).code).toBe(0);
+          await git(clone(f), ["checkout", "-q", "--detach", head]);
+          await NodeFSP.writeFile(NodePath.join(clone(f), "in-flight"), "work");
+          const child = NodeChildProcess.spawn("true");
+          await new Promise((resolve) => child.once("exit", resolve));
+          await NodeFSP.mkdir(stateFile(f, "lock"));
+          await NodeFSP.writeFile(stateFile(f, "lock/pid"), `${child.pid}\n`);
+
+          const before = await treeOf(f.state);
+          expect(await statusLine(f)).toMatchObject({ state: "unknown" });
+          expect(await treeOf(f.state)).toEqual(before);
+
+          expect((await run(f, [])).code).toBe(0);
+          await expectCloneUntouched(f, "work", head);
+          const status = await statusLine(f);
+          expect(status).toMatchObject({ state: "unknown", stage: "unknown" });
+          expect(status!.next).toContain("build --take-over");
+
+          expect((await run(f, ["build"])).code).toBe(3);
+          await expectCloneUntouched(f, "work", head);
+          // The fixture's app step fails, which is an ordinary finished build.
+          expect(await startBuild(f, ["--take-over"]).exited).toBe(1);
+          expect(await exists(invocationFile(f))).toBe(false);
+          expect(await readJson(stateFile(f, "build-failed.json"))).toMatchObject({ source: head });
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "recovers a stopped, associated build once per source and attempt, holding a repeat until retry",
+      async () => {
+        await withFixture(async (f) => {
+          const { head } = await landAndClaim(f);
+          const interrupt = async () => {
+            const { exited, child, owner } = await holdBuild(f, ["--attempt", BUILD_TAG]);
+            process.kill(owner, "SIGKILL");
+            await exited;
+            await releaseChild(f, child);
+            await NodeFSP.rm(NodePath.join(f.root, "vp-release"));
+            await NodeFSP.rm(NodePath.join(f.root, "vp.pid"));
+          };
+
+          await interrupt();
+          expect((await run(f, [])).code).toBe(0);
+          expect(await exists(invocationFile(f))).toBe(false);
+          expect(await buildRequests(f)).toHaveLength(1);
+          const recovered = await attemptOf(f, BUILD_TAG);
+          expect(recovered).toMatchObject({ phase: "build-requested", dispatches: 2 });
+          expect(recovered.claimedBy).toBeUndefined();
+          expect(recovered.interruptionRecoveries).toMatchObject({
+            [head]: { interruptedSource: head, stage: "compiling" },
+          });
+
+          // The dispatched agent claims and is interrupted the same way.
+          expect((await run(f, ["attempt", BUILD_TAG, "claim", "thread-b"])).code).toBe(0);
+          await interrupt();
+          expect((await run(f, [])).code).toBe(0);
+          expect((await run(f, [])).code).toBe(0);
+          expect(await buildRequests(f)).toHaveLength(1);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: "claimed",
+            claimedBy: "thread-b",
+          });
+          const held = await statusLine(f);
+          expect(held).toMatchObject({ state: "interrupted", source: head, claimedBy: "thread-b" });
+          expect(held!.next).toContain("already recovered once");
+          expect(held!.next).toContain(`attempt ${BUILD_TAG} retry`);
+
+          // Explicit retry starts a new budget and goes through the ordinary dispatch.
+          expect((await run(f, ["attempt", BUILD_TAG, "retry"])).code).toBe(0);
+          expect(await exists(invocationFile(f))).toBe(false);
+          expect((await attemptOf(f, BUILD_TAG)).interruptionRecoveries).toBeUndefined();
+          expect((await run(f, [])).code).toBe(0);
+          expect(await buildRequests(f)).toHaveLength(2);
+
+          expect((await run(f, ["attempt", BUILD_TAG, "claim", "thread-c"])).code).toBe(0);
+          await interrupt();
+          expect((await run(f, [])).code).toBe(0);
+          expect(await buildRequests(f)).toHaveLength(3);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "refuses a retry while another run holds the lock, leaving the record and claim as they are",
+      async () => {
+        await withFixture(async (f) => {
+          const { head } = await landAndClaim(f);
+          await seedStopped(f, { source: head });
+          const record = await readText(invocationFile(f));
+          await NodeFSP.mkdir(stateFile(f, "lock"));
+          await NodeFSP.writeFile(stateFile(f, "lock/pid"), `${process.pid}\n`);
+
+          const refused = await run(f, ["attempt", BUILD_TAG, "retry"]);
+          expect(refused.code).toBe(3);
+          expect(refused.stderr).toContain("holds the lock");
+          expect(await readText(invocationFile(f))).toBe(record);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: "claimed",
+            claimedBy: THREAD,
+          });
+          expect(await readText(stateFile(f, "lock/pid"))).toBe(`${process.pid}\n`);
+          expect(await exists(stateFile(f, "attempts.lock"))).toBe(false);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "does not associate a starting build with a claim that a retry released first",
+      async () => {
+        await withFixture(async (f) => {
+          await landAndClaim(f);
+          const lock = stateFile(f, "attempts.lock");
+          await NodeFSP.mkdir(lock);
+          await NodeFSP.writeFile(NodePath.join(lock, "pid"), `${process.pid}\n`);
+          const started = startBuild(f, ["--attempt", BUILD_TAG], { T3_TEST_VP: "hold" });
+          // Polling for the attempts lock is the first sleep a build reaches.
+          await waitForLines(f, "sleep", 1);
+          expect(await exists(invocationFile(f))).toBe(false);
+
+          // What a retry does while it holds the attempts lock.
+          const { claimedBy: _released, ...rest } = await attemptOf(f, BUILD_TAG);
+          await writeJson(stateFile(f, "attempts", `${BUILD_TAG}.json`), {
+            ...rest,
+            phase: "retry",
+          });
+          await NodeFSP.rm(lock, { recursive: true });
+
+          const child = await waitForFile(f, "vp.pid");
+          expect((await invocation(f)).claim).toBeNull();
+          await releaseChild(f, child);
+          await started.exited;
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "starts a new budget for a new landed source",
+      async () => {
+        await withFixture(async (f) => {
+          const { head } = await landAndClaim(f);
+          await writeJson(stateFile(f, "attempts", `${BUILD_TAG}.json`), {
+            ...(await attemptOf(f, BUILD_TAG)),
+            interruptionRecoveries: { [head]: { recoveredAt: "2099-01-01T00:00:00Z" } },
+          });
+          await seedStopped(f, { source: head });
+          expect((await run(f, [])).code).toBe(0);
+          expect(await buildRequests(f)).toEqual([]);
+          expect(await exists(invocationFile(f))).toBe(true);
+
+          const work = NodePath.join(f.root, "work");
+          await git(work, ["checkout", "-q", "t3peach"]);
+          await git(work, ["commit", "-q", "--allow-empty", "-m", "next"], "2026-02-03T00:00:00Z");
+          await git(work, ["push", "-q", f.origin, "t3peach"]);
+          const next = await git(work, ["rev-parse", "HEAD"]);
+          await git(work, ["checkout", "-q", "main"]);
+          expect((await run(f, [])).code).toBe(0);
+          expect(await buildRequests(f)).toHaveLength(1);
+          expect((await attemptOf(f, BUILD_TAG)).interruptionRecoveries).toHaveProperty(next);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "leaves a stopped manual build unassociated: visible, its claim untouched, and nothing sent",
+      async () => {
+        await withFixture(async (f) => {
+          const { head } = await landAndClaim(f, { phase: "landed" });
+          const { exited, child, owner } = await holdBuild(f, []);
+          process.kill(owner, "SIGKILL");
+          await exited;
+          await releaseChild(f, child);
+
+          expect((await run(f, [])).code).toBe(0);
+          expect(await buildRequests(f)).toEqual([]);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: "landed",
+            claimedBy: THREAD,
+          });
+          const status = await statusLine(f);
+          expect(status).toMatchObject({ state: "interrupted", source: head });
+          expect(status!.next).toContain("no claim is associated");
+
+          // A deliberate build replaces it, with no take-over needed once it has stopped.
+          expect(await startBuild(f, []).exited).toBe(1);
+          expect(await exists(invocationFile(f))).toBe(false);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "leaves a claim alone when no build started, however quiet it is",
+      async () => {
+        await withFixture(async (f) => {
+          await landAndClaim(f);
+          expect((await run(f, [], { T3FORK_REDISPATCH_SECONDS: "0" })).code).toBe(0);
+          expect(await buildRequests(f)).toEqual([]);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: "claimed",
+            claimedBy: THREAD,
+          });
+          expect(await statusLine(f)).toBeUndefined();
+        });
+      },
+      TIMEOUT,
+    );
+
+    it.each([
+      {
+        name: "an owner decision",
+        attempt: { phase: "blocked", blocked: { kind: "owner-decision", summary: "which?" } },
+        unlanded: true,
+        files: {},
+        fields: {},
+        reason: "owner-decision",
+      },
+      {
+        name: "a claim since taken by another thread",
+        attempt: { claimedBy: "thread-other" },
+        files: {},
+        fields: {},
+        reason: "no longer the claim",
+      },
+      {
+        name: "a build of an older recovery target",
+        attempt: {},
+        files: {},
+        fields: { recovery: "roll back" },
+        reason: "recovery target",
+      },
+      {
+        name: "a genuine failure of this source",
+        attempt: {},
+        files: { "build-failed.json": { reason: "the app build failed" } },
+        fields: {},
+        reason: "failed before",
+      },
+    ])(
+      "does not recover over $name",
+      async ({ attempt, unlanded, files, fields, reason }) => {
+        await withFixture(async (f) => {
+          const { head } = await landAndClaim(f);
+          const before = await attemptOf(f, BUILD_TAG);
+          // Only an unlanded attempt can wait on an owner decision.
+          const sha = unlanded
+            ? await publishUpstreamTag(f, NEW_TAG, "2026-03-01T00:00:00Z")
+            : before.sha;
+          const changed = { ...before, ...attempt, sha };
+          await writeJson(stateFile(f, "attempts", `${BUILD_TAG}.json`), changed);
+          for (const [name, value] of Object.entries(files)) {
+            await writeJson(stateFile(f, name), { source: head, ...value });
+          }
+          await git(f.root, ["clone", "-q", "-b", "t3peach", f.origin, clone(f)]);
+          await seedStopped(f, { source: head, ...fields });
+
+          expect((await statusLine(f))!.next).toContain(reason);
+          expect((await run(f, [])).code).toBe(0);
+          expect(await buildRequests(f)).toEqual([]);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: changed.phase,
+            claimedBy: changed.claimedBy,
+          });
+          expect(await exists(invocationFile(f))).toBe(true);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "keeps an explicit recovery target selected and does not build over it",
+      async () => {
+        await withFixture(async (f) => {
+          const { head } = await landAndClaim(f);
+          const target = { source: "older-src", recovery: "roll back" };
+          await writeJson(stateFile(f, "selected.json"), target);
+          await seedStopped(f, { source: head });
+          expect((await run(f, [])).code).toBe(0);
+          expect(await readJson(stateFile(f, "selected.json"))).toEqual(target);
+          expect(await buildRequests(f)).toEqual([]);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: "claimed",
+            claimedBy: THREAD,
+          });
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "shows a newer same-integration source but does not rebuild when the selected build satisfies the update",
+      async () => {
+        await withFixture(async (f) => {
+          const { head } = await landAndClaim(f);
+          const selected = await git(f.origin, ["rev-parse", `${head}~1`]);
+          await writeJson(stateFile(f, "selected.json"), { source: selected });
+          await writeJson(stateFile(f, "active-mac.json"), { source: selected });
+          await seedStopped(f, { source: head });
+
+          expect((await run(f, [])).code).toBe(0);
+          expect(await buildRequests(f)).toEqual([]);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: "claimed",
+            claimedBy: THREAD,
+          });
+          const status = await statusLine(f);
+          expect(status).toMatchObject({ state: "interrupted", source: head });
+          expect(status!.next).toContain("already satisfies");
+          expect(await readJson(stateFile(f, "selected.json"))).toEqual({ source: selected });
+        });
+      },
+      TIMEOUT,
+    );
+
+    describe("at a remote boundary", () => {
+      const vps = { T3FORK_VPS: "vps" };
+
+      it.each(["vps-build-entry", "vps-build-done"])(
+        "keeps remote work unknown when interrupted at %s, with no vps-unknown receipt",
+        async (killAt) => {
+          await withFixture(async (f) => {
+            const { head } = await landAndClaim(f);
+            await buildKilledAt(f, killAt, ["--attempt", BUILD_TAG], vps);
+            await waitForChange(f.state, async () => (await statusLine(f, vps))?.state !== "live");
+            const selected = await readJson(stateFile(f, "selected.json"));
+            const clean = await git(clone(f), ["rev-parse", "HEAD"]);
+
+            const status = await statusLine(f, vps);
+            expect(status).toMatchObject({ state: "unknown", remote: "build", source: head });
+            expect(status!.evidence).toContain("VPS build was started");
+            expect(await exists(stateFile(f, "vps-unknown.json"))).toBe(false);
+
+            expect((await run(f, [], vps)).code).toBe(0);
+            expect(await git(clone(f), ["rev-parse", "HEAD"])).toBe(clean);
+            expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+              phase: "claimed",
+              claimedBy: THREAD,
+            });
+            expect(await buildRequests(f)).toEqual([]);
+            expect(await readJson(stateFile(f, "selected.json"))).toEqual(selected);
+
+            const refused = await run(f, ["attempt", BUILD_TAG, "retry"], vps);
+            expect(refused.code).toBe(3);
+            expect((await run(f, ["attempt", BUILD_TAG, "retry", "--take-over"], vps)).code).toBe(
+              0,
+            );
+            expect(await exists(invocationFile(f))).toBe(false);
+          });
+        },
+        TIMEOUT,
+      );
+
+      it.each(["vps-install-entry", "vps-install-done"])(
+        "holds Mac installs and preserves receipts when interrupted at %s",
+        async (killAt) => {
+          await withFixture(async (f) => {
+            const { head } = await landAndClaim(f);
+            await stageBuild(f, { source: "older-src" });
+            await writeJson(stateFile(f, "active-vps.json"), { source: "older-src" });
+            const before = {
+              selected: await readJson(stateFile(f, "selected.json")),
+              vps: await readJson(stateFile(f, "active-vps.json")),
+              mac: await readJson(stateFile(f, "active-mac.json")),
+            };
+            await buildKilledAt(f, killAt, ["--attempt", BUILD_TAG], vps);
+
+            const status = await statusLine(f, vps);
+            expect(status).toMatchObject({ state: "unknown", stage: "vps-install", source: head });
+            expect(status!.evidence).toContain("VPS install was entered");
+
+            // Quit time: the older staged build must not go in beside an unknown runtime.
+            expect((await run(f, ["install"], vps)).code).toBe(0);
+            expect(await build(f.installed)).toBe("old");
+
+            expect((await run(f, [], vps)).code).toBe(0);
+            expect(await readJson(stateFile(f, "vps-unknown.json"))).toMatchObject({
+              source: head,
+            });
+            expect(await build(f.installed)).toBe("old");
+            expect(await readJson(stateFile(f, "selected.json"))).toEqual(before.selected);
+            expect(await readJson(stateFile(f, "active-vps.json"))).toEqual(before.vps);
+            expect(await readJson(stateFile(f, "active-mac.json"))).toEqual(before.mac);
+            expect(await readJson(stateFile(f, "staged/receipt.json"))).toMatchObject({
+              source: "older-src",
+            });
+            expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+              phase: "claimed",
+              claimedBy: THREAD,
+            });
+            expect(await buildRequests(f)).toEqual([]);
+
+            // A deliberate retry forgets the build, but the receipt still holds the Mac.
+            expect((await run(f, ["attempt", BUILD_TAG, "retry", "--take-over"], vps)).code).toBe(
+              0,
+            );
+            expect(await readJson(stateFile(f, "vps-unknown.json"))).toMatchObject({
+              source: head,
+            });
+            expect((await run(f, ["install"], vps)).code).toBe(0);
+            expect(await build(f.installed)).toBe("old");
+          });
+        },
+        TIMEOUT,
+      );
+
+      it(
+        "keeps the remote work unknown when ssh drops but the build itself survives to fail",
+        async () => {
+          await withFixture(async (f) => {
+            const { head } = await landAndClaim(f);
+            const { exited } = startBuild(f, ["--attempt", BUILD_TAG], {
+              ...vps,
+              T3_TEST_VPS_STATUS: "255",
+            });
+            expect(await exited).toBe(1);
+
+            const status = await statusLine(f, vps);
+            expect(status).toMatchObject({ state: "unknown", remote: "build", source: head });
+            expect(status!.evidence).toContain("ssh status 255");
+            await NodeFSP.writeFile(NodePath.join(clone(f), "in-flight"), "work");
+
+            expect((await run(f, [], vps)).code).toBe(0);
+            await expectCloneUntouched(f, "work", await git(clone(f), ["rev-parse", "HEAD"]));
+            expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+              phase: "claimed",
+              claimedBy: THREAD,
+            });
+            expect(await buildRequests(f)).toEqual([]);
+            expect((await run(f, ["build"], vps)).code).toBe(3);
+          });
+        },
+        TIMEOUT,
+      );
+
+      it(
+        "recovers once the remote build reported finishing and only the local step was lost",
+        async () => {
+          await withFixture(async (f) => {
+            const { head } = await landAndClaim(f);
+            await NodeFSP.writeFile(stateFile(f, "build-invocation.vps-build-rc"), "0\n");
+            await seedStopped(f, { source: head, remote: "build" });
+            expect(await statusLine(f, vps)).toMatchObject({ state: "interrupted" });
+            expect((await run(f, [], vps)).code).toBe(0);
+            expect(await buildRequests(f)).toHaveLength(1);
+          });
+        },
+        TIMEOUT,
+      );
+
+      it(
+        "treats a lost ssh connection as no proof that the remote build finished",
+        async () => {
+          await withFixture(async (f) => {
+            const { head } = await landAndClaim(f);
+            await NodeFSP.writeFile(stateFile(f, "build-invocation.vps-build-rc"), "255\n");
+            await seedStopped(f, { source: head, remote: "build" });
+            expect(await statusLine(f, vps)).toMatchObject({ state: "unknown" });
+            expect((await run(f, [], vps)).code).toBe(0);
+            expect(await buildRequests(f)).toEqual([]);
+          });
+        },
+        TIMEOUT,
+      );
+    });
+
+    describe("between activation and completion", () => {
+      const vps = { T3FORK_VPS: "vps" };
+
+      it(
+        "never selects a source the VPS activated, and reports the partial activation",
+        async () => {
+          await withFixture(async (f) => {
+            const { head } = await landAndClaim(f);
+            const selected = await readJson(stateFile(f, "selected.json"));
+            await writeJson(stateFile(f, "active-vps.json"), { source: head });
+            await NodeFSP.writeFile(stateFile(f, "build-invocation.vps-build-rc"), "0\n");
+            await seedStopped(f, { source: head, stage: "vps-activated", remote: "build" });
+
+            const status = await statusLine(f, vps);
+            expect(status).toMatchObject({ state: "interrupted", stage: "vps-activated" });
+            expect(status!.activation).toContain(`the VPS runs ${head}`);
+            expect((await run(f, [], vps)).code).toBe(0);
+            expect(await readJson(stateFile(f, "selected.json"))).toEqual(selected);
+            expect(await readJson(stateFile(f, "active-vps.json"))).toEqual({ source: head });
+            expect(await buildRequests(f)).toHaveLength(1);
+            const recovered = await attemptOf(f, BUILD_TAG);
+            expect(JSON.stringify(recovered.interruptionRecoveries)).toContain(
+              "partial activation",
+            );
+          });
+        },
+        TIMEOUT,
+      );
+
+      it(
+        "keeps a selected source through a stopped staging copy and asks for one build",
+        async () => {
+          await withFixture(async (f) => {
+            const { head } = await landAndClaim(f);
+            await buildKilledAt(f, "staging");
+            expect(await readJson(stateFile(f, "selected.json"))).toMatchObject({ source: head });
+            expect(await exists(stateFile(f, "staged"))).toBe(false);
+            const status = await statusLine(f);
+            expect(status).toMatchObject({ state: "interrupted", stage: "selected", source: head });
+            expect(status!.activation).toContain("neither staged nor on the Mac");
+
+            await NodeFSP.mkdir(stateFile(f, "staged.new", APP), { recursive: true });
+            expect((await run(f, [])).code).toBe(0);
+            expect(await exists(stateFile(f, "staged.new"))).toBe(false);
+            expect(await readJson(stateFile(f, "selected.json"))).toMatchObject({ source: head });
+            expect(await buildRequests(f)).toHaveLength(1);
+          });
+        },
+        TIMEOUT,
+      );
+
+      it(
+        "completes a build that stopped after staging, spending no recovery and sending nothing",
+        async () => {
+          await withFixture(async (f) => {
+            const { head } = await landAndClaim(f);
+            await stageBuild(f, { source: head });
+            await seedStopped(f, { source: head, stage: "staged" });
+
+            expect((await run(f, [])).code).toBe(0);
+            expect(await exists(invocationFile(f))).toBe(false);
+            expect(await build(f.installed)).toBe("new");
+            const attempt = await attemptOf(f, BUILD_TAG);
+            expect(attempt).toMatchObject({ phase: "active", selected: head });
+            expect(attempt.interruptionRecoveries).toBeUndefined();
+            expect(await buildRequests(f)).toEqual([]);
+          });
+        },
+        TIMEOUT,
+      );
+
+      it(
+        "finishes an uninterrupted build with its receipts and no record left",
+        async () => {
+          await withFixture(async (f) => {
+            const { head } = await landAndClaim(f, { phase: "landed" });
+            const { exited } = startBuild(f, ["--attempt", BUILD_TAG], {
+              ...vps,
+              T3_TEST_VP: "build",
+            });
+            expect(await exited).toBe(0);
+            expect(await exists(invocationFile(f))).toBe(false);
+            expect(await readJson(stateFile(f, "selected.json"))).toMatchObject({ source: head });
+            expect(await readJson(stateFile(f, "active-vps.json"))).toMatchObject({ source: head });
+            // Nothing runs in the fixture, so the staged build installs at once.
+            expect(await readJson(stateFile(f, "active-mac.json"))).toMatchObject({ source: head });
+            expect(await build(f.installed)).toBe("built");
+            expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+              phase: "active",
+              selected: head,
+            });
+          });
+        },
+        TIMEOUT,
+      );
+    });
   });
 
   describe("build selection", () => {

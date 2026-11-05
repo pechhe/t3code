@@ -19,22 +19,27 @@
 #   release back, and is sent once the release appears.
 #
 # Subcommands, for the agent and by hand:
-#   build [--rev <commit>] [--recovery <reason>]
+#   build [--rev <commit>] [--recovery <reason>] [--attempt <tag>] [--take-over]
 #       Build, select and activate a landed commit now (default: the landed head).
 #       An older commit than the selected one needs --recovery, and an explicit
-#       recovery target stays selected until the next `build`.
+#       recovery target stays selected until the next `build`. --attempt names the
+#       claimed attempt this build serves, which is what lets the hourly run recover
+#       it once if it is interrupted. --take-over passes an earlier build whose stop
+#       cannot be proved, once someone has confirmed nothing of it still runs.
 #   install [--on-quit | --wait-for-quit]
 #       Install the staged build. --on-quit starts the install-on-quit job, which
 #       runs --wait-for-quit: it watches the original pid and start time, so a
 #       quick reopen cannot hide the quit; it quits that new instance, installs
 #       the still-selected staged build and reopens it.
 #   attempt <tag> claim <thread> [--take-over] | landed <operation> <commit>
-#           | blocked <evidence|owner-decision|checks|publication> <summary> | retry
+#           | blocked <evidence|owner-decision|checks|publication> <summary>
+#           | retry [--take-over]
 #       Record an update attempt's progress. Only `retry` lets a blocked attempt
 #       be dispatched again; a new tag never answers an owner decision, and no
 #       other thread's claim, even with --take-over, resumes one. Only the attempt
 #       still holding its work takes a block: a superseded one is refused, and a
-#       landed one takes only its build's blocks.
+#       landed one takes only its build's blocks. Retry also starts a new recovery
+#       budget; --take-over passes this attempt's build whose stop cannot be proved.
 #   status
 #
 # The script works in its own git clone of the fork ($STATE/repo), never in the
@@ -126,6 +131,19 @@ case "$0" in
   *)
     copy="$(mktemp "$STATE/run.XXXXXX")"
     cp "$0" "$copy"
+    if [ "${1:-}" = build ]; then
+      # A build leads its own process group, so what survives it can be read after it
+      # dies, whichever shell started it. This launcher only waits, and passes on a
+      # deliberate stop; losing it leaves the build running.
+      set -m
+      /bin/bash "$copy" "$@" </dev/null &
+      worker=$!
+      set +m
+      trap 'kill -TERM "-$worker" 2>/dev/null || true' INT TERM
+      rc=0
+      wait "$worker" || rc=$?
+      exit "$rc"
+    fi
     exec /bin/bash "$copy" "$@"
     ;;
 esac
@@ -137,22 +155,37 @@ notify() {
 }
 now() { date +%s; }
 
-# mkdir is the lock. A holder that died is detected by its recorded pid, and a
-# lock left without one (killed between mkdir and the pid write) expires, so a
-# restart resumes instead of waiting forever.
+process_started() { LC_ALL=C ps -p "$1" -o lstart= 2>/dev/null || true; }
+
+# Gone when no such pid runs, or when it now names a process with another start time.
+holder_gone() {
+  kill -0 "$1" 2>/dev/null || return 0
+  local current
+  current="$(process_started "$1")"
+  [ -n "$2" ] && [ -n "$current" ] && [ "$current" != "$2" ]
+}
+
+# mkdir is the lock. A holder that died is detected by its recorded pid and start
+# time, and a lock left without a pid (killed between mkdir and the pid write)
+# expires, so a restart resumes instead of waiting forever. A dead holder of the main
+# lock that recorded no start time could have been a build of an older version of
+# this script, whose children cannot be found, so it leaves an invocation record.
 acquire() {
   local lock="$STATE/$1" wait="${2:-}"
   while ! mkdir "$lock" 2>/dev/null; do
-    local holder
+    local holder started
     holder="$(cat "$lock/pid" 2>/dev/null || true)"
-    if { [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; } ||
+    started="$(cat "$lock/started" 2>/dev/null || true)"
+    if { [ -n "$holder" ] && holder_gone "$holder" "$started"; } ||
       { [ -z "$holder" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]; }; then
+      if [ "$1" = lock ] && [ -n "$holder" ] && [ -z "$started" ]; then record_legacy_lock "$holder"; fi
       rm -rf "$lock"
       continue
     fi
     [ -n "$wait" ] || return 1
     sleep 2
   done
+  process_started $$ >"$lock/started"
   echo $$ >"$lock/pid"
 }
 release() { rm -rf "${STATE:?}/$1"; }
@@ -184,8 +217,6 @@ t3_pid() {
     if [ -n "$pid" ]; then printf '%s\n' "$pid"; return 0; fi
   done
 }
-
-process_started() { LC_ALL=C ps -p "$1" -o lstart= 2>/dev/null || true; }
 
 # Watch one process identity: another app instance between polls is still a quit.
 # With a poll limit, fails once the process outlives it.
@@ -442,7 +473,7 @@ install_staged() {
     rm -rf "$staged"
     return 0
   fi
-  if [ -f "$STATE/vps-unknown.json" ]; then
+  if [ -f "$STATE/vps-unknown.json" ] || [ "$(inv .stage)" = vps-install ]; then
     log "staged $version waits: the VPS runtime's source is unknown until the next build"
     return 0
   fi
@@ -720,6 +751,15 @@ update_attempts() {
 # The newest upstream integration on a commit's first-parent history.
 integration_of() { git rev-list --first-parent --merges -n1 "$1"; }
 
+# Whether the selected build holds this integration and has reached both machines.
+selected_satisfies() {
+  local selected
+  selected="$(json_get "$STATE/selected.json" .source)"
+  [ -n "$selected" ] && git -C "$REPO" merge-base --is-ancestor "$1" "$selected" 2>/dev/null &&
+    [ ! -f "$STATE/vps-unknown.json" ] &&
+    { [ -f "$STATE/staged/receipt.json" ] || [ "$(json_get "$STATE/active-mac.json" .source)" = "$selected" ]; }
+}
+
 # Asks the agent to build when the landed head holds an upstream integration the
 # selected build lacks, the selected build never reached the Mac (its staging
 # failed), or a VPS install's outcome is unknown. An explicit recovery target
@@ -733,9 +773,11 @@ request_build() {
     log "recovery target $selected stays selected until \`fork-nightly.sh build\` replaces it"
     return 0
   fi
-  if [ -n "$selected" ] && git merge-base --is-ancestor "$integration" "$selected" 2>/dev/null &&
-    [ ! -f "$STATE/vps-unknown.json" ] &&
-    { [ -f "$STATE/staged/receipt.json" ] || [ "$(json_get "$STATE/active-mac.json" .source)" = "$selected" ]; }; then
+  if selected_satisfies "$integration"; then
+    return 0
+  fi
+  if [ -n "$INVOCATION_HELD" ]; then
+    log "the interrupted build of $head stays held: $INVOCATION_HELD"
     return 0
   fi
   if [ "$(json_get "$STATE/build-failed.json" .source)" = "$head" ]; then
@@ -882,6 +924,26 @@ attempt_command() {
         '.phase = "blocked" | .blocked = {kind: $k, summary: $s, resumeBy: (if $k == "owner-decision" then "Henry answers in the claiming thread; the agent there resumes this attempt" else "the claiming agent fixes the cause, or fork-nightly.sh attempt <tag> retry" end)}'
       ;;
     retry)
+      # Retry may release this attempt's build only once that build has stopped. The
+      # main lock keeps the record from changing until the discard below. It is only
+      # tried, so this cannot deadlock with a holder waiting for attempts.lock.
+      if [ -f "$INVOCATION" ]; then
+        if ! acquire lock; then
+          invocation_assess
+          echo "not retrying: a build or hourly run holds the lock, and the build of $(inv .source) reads as $INV_STATE; try again once it ends" >&2
+          [ -z "$created" ] || rm -f "$file"
+          exit 3
+        fi
+        trap 'release attempts.lock; release lock' EXIT
+      fi
+      invocation_assess
+      if [ -n "$INV_STATE" ] && { [ "$(inv .claim.tag)" = "$tag" ] || [ "$(inv .tag)" = "$tag" ]; }; then
+        if [ "$INV_STATE" = live ] || { [ "$INV_STATE" = unknown ] && [ "${3:-}" != --take-over ]; }; then
+          echo "the build of $(inv .source) is $INV_STATE: $INV_EVIDENCE; $(invocation_next)" >&2
+          [ -z "$created" ] || rm -f "$file"
+          exit 3
+        fi
+      fi
       # Retry releases this attempt's own hold; it must not jump another tag's.
       ensure_clone
       git -C "$REPO" fetch --quiet origin || true
@@ -893,7 +955,10 @@ attempt_command() {
         [ -z "$created" ] || rm -f "$file"
         exit 3
       fi
-      attempt_set "$tag" '.phase = "retry" | .dispatches = 0 | del(.blocked) | del(.claimedBy) | del(.quietNotified)'
+      if [ -n "$INV_STATE" ] && { [ "$(inv .claim.tag)" = "$tag" ] || [ "$(inv .tag)" = "$tag" ]; }; then
+        invocation_discard
+      fi
+      attempt_set "$tag" '.phase = "retry" | .dispatches = 0 | del(.blocked) | del(.claimedBy) | del(.quietNotified) | del(.interruptionRecoveries)'
       ;;
     *)
       echo "unknown attempt action $action" >&2
@@ -901,6 +966,323 @@ attempt_command() {
       ;;
   esac
   cat "$file"
+}
+
+# --- Build invocations -----------------------------------------------------
+
+# Names the running build, or one that died, until its outcome is settled. Its stage
+# is written before each step that can outlive the build or change a receipt, so
+# what it reports is the furthest the build can have reached. Reading it never
+# changes anything: invocation_assess and everything status calls only look.
+INVOCATION="$STATE/build-invocation.json"
+VPS_BUILD_RC="$STATE/build-invocation.vps-build-rc"
+INVOCATION_HELD=""
+
+inv() { json_get "$INVOCATION" "$1"; }
+
+# invocation_update [jq options...] <filter>
+invocation_update() {
+  local filter="${!#}"
+  jq "${@:1:$#-1}" "$filter" "$INVOCATION" >"$INVOCATION.tmp"
+  mv "$INVOCATION.tmp" "$INVOCATION"
+}
+
+invocation_stage() {
+  invocation_update --arg stage "$1" --arg at "$(date -u +%FT%TZ)" --argjson e "$(now)" \
+    '.stage = $stage | .stageAt = $at | .stageEpoch = $e'
+}
+
+# Reads the claim and publishes the record under one attempts.lock, so a retry holding
+# it either sees this record or has cleared the claim before it is read.
+invocation_begin() {
+  local claim=null pgid file
+  if [ -n "$BUILD_ATTEMPT" ]; then
+    file="$(attempt_file "$BUILD_ATTEMPT")"
+    acquire attempts.lock wait
+    if [ -n "$(json_get "$file" .claimedBy)" ]; then
+      claim="$(jq -c '{tag, attempt, claimedBy}' "$file")"
+    else
+      log "attempt $BUILD_ATTEMPT has no claim; this build is not associated with one"
+    fi
+  fi
+  pgid="$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ' || true)"
+  rm -f "$VPS_BUILD_RC"
+  jq -n --arg id "$$@$(now)" --argjson pid "$$" --arg pgid "$pgid" --arg started "$(process_started $$)" \
+    --argjson claim "$claim" --arg at "$(date -u +%FT%TZ)" --argjson e "$(now)" \
+    '{id: $id, stage: "preparing", stageAt: $at, stageEpoch: $e, claim: $claim,
+      owner: {pid: $pid, pgid: $pgid, started: $started}}' >"$INVOCATION.tmp"
+  mv "$INVOCATION.tmp" "$INVOCATION"
+  [ -z "$BUILD_ATTEMPT" ] || release attempts.lock
+}
+
+invocation_finish() { rm -f "$INVOCATION" "$VPS_BUILD_RC"; }
+
+# Forgets a build deliberately. A VPS install it may have reached still holds Mac
+# installs, through the receipt that says so, until a build confirms the VPS.
+invocation_discard() {
+  hold_unknown_vps
+  invocation_finish
+}
+
+hold_unknown_vps() {
+  if [ "$(inv .stage)" = vps-install ] && [ ! -f "$STATE/vps-unknown.json" ] && [ -n "$(inv .receipt.source)" ]; then
+    jq '.receipt' "$INVOCATION" >"$STATE/vps-unknown.json"
+  fi
+}
+
+record_legacy_lock() {
+  [ ! -f "$INVOCATION" ] || return 0
+  jq -n --arg pid "$1" --arg at "$(date -u +%FT%TZ)" --argjson e "$(now)" \
+    '{legacy: true, stage: "unknown", stageAt: $at, stageEpoch: $e, owner: {pid: ($pid | tonumber)}}' \
+    >"$INVOCATION.tmp"
+  mv "$INVOCATION.tmp" "$INVOCATION"
+}
+
+# Counts live members of a process group; fails when the process table cannot be read.
+group_members() {
+  local table
+  table="$(ps -axo pgid=,stat=)" || return 1
+  printf '%s\n' "$table" | awk -v group="$1" '$1 == group && $2 !~ /^Z/ { n++ } END { print n + 0 }'
+}
+
+# ssh's own failures and signals are 128 and up, and say nothing about the remote side.
+vps_build_unproved() {
+  local remote_rc
+  remote_rc="$(cat "$VPS_BUILD_RC" 2>/dev/null || true)"
+  [ "$(inv .remote)" = build ] && { [ -z "$remote_rc" ] || [ "$remote_rc" -ge 128 ]; }
+}
+
+# Sets INV_STATE and INV_EVIDENCE: empty without a record, live while the owner runs,
+# interrupted only once the owner, its whole process group and any remote step are
+# positively over, and unknown otherwise. INV_STOPPED says the local part is over.
+invocation_assess() {
+  INV_STATE="" INV_EVIDENCE="" INV_STOPPED=""
+  [ -f "$INVOCATION" ] || return 0
+  local pid started pgid current members
+  pid="$(inv .owner.pid)" started="$(inv .owner.started)" pgid="$(inv .owner.pgid)"
+  if [ "$(inv .legacy)" = true ]; then
+    INV_STATE=unknown INV_EVIDENCE="a build lock held by pid $pid recorded no start time or process group, so anything it left running cannot be found"
+    return 0
+  fi
+  if [ -z "$pid" ] || [ -z "$started" ]; then
+    INV_STATE=unknown INV_EVIDENCE="the build's owner has no readable identity (pid ${pid:-none})"
+    return 0
+  fi
+  if kill -0 "$pid" 2>/dev/null; then
+    current="$(process_started "$pid")"
+    if [ "$current" = "$started" ]; then
+      INV_STATE=live INV_EVIDENCE="owner pid $pid is running with its recorded start time"
+    elif [ -z "$current" ]; then
+      INV_STATE=unknown INV_EVIDENCE="pid $pid is running but its start time cannot be read"
+    else
+      INV_STATE=unknown INV_EVIDENCE="pid $pid is running with another start time, so the pid was reused"
+    fi
+    return 0
+  fi
+  if [ "$pgid" != "$pid" ]; then
+    INV_STATE=unknown INV_EVIDENCE="owner pid $pid is gone and led no process group of its own (${pgid:-unread})"
+    return 0
+  fi
+  if ! members="$(group_members "$pgid")"; then
+    INV_STATE=unknown INV_EVIDENCE="owner pid $pid is gone but the process table cannot be read"
+    return 0
+  fi
+  if [ "$members" -ne 0 ]; then
+    INV_STATE=unknown INV_EVIDENCE="owner pid $pid is gone but $members process(es) survive in its group $pgid"
+    return 0
+  fi
+  INV_STOPPED=1
+  local remote_rc
+  remote_rc="$(cat "$VPS_BUILD_RC" 2>/dev/null || true)"
+  if [ "$(inv .stage)" = vps-install ]; then
+    INV_STATE=unknown INV_EVIDENCE="owner pid $pid and group $pgid have stopped, but the VPS install was entered and its outcome was never recorded"
+  elif vps_build_unproved; then
+    INV_STATE=unknown INV_EVIDENCE="owner pid $pid and group $pgid have stopped, but the VPS build was started and did not report finishing${remote_rc:+ (ssh status $remote_rc)}"
+  else
+    INV_STATE=interrupted INV_EVIDENCE="owner pid $pid and its whole group $pgid have stopped"
+  fi
+}
+
+# What the receipts say this build got as far as, for anyone reading its record.
+invocation_activation() {
+  local source selected
+  source="$(inv .source)"
+  [ -n "$source" ] || return 0
+  selected="$(json_get "$STATE/selected.json" .source)"
+  if [ "$(json_get "$STATE/active-vps.json" .source)" = "$source" ] && [ "$selected" != "$source" ]; then
+    echo "partial activation: the VPS runs $source, the selected build is ${selected:-none}"
+  elif [ "$selected" = "$source" ] && [ "$(json_get "$STATE/staged/receipt.json" .source)" != "$source" ] &&
+    [ "$(json_get "$STATE/active-mac.json" .source)" != "$source" ]; then
+    echo "partial activation: $source is selected but neither staged nor on the Mac"
+  fi
+}
+
+# Why a stopped build cannot be recovered automatically; empty when it can. Called
+# under attempts.lock to act on it, and without it by status to report it.
+recovery_hold() {
+  local tag file head integration phase receipt_tag
+  tag="$(inv .claim.tag)"
+  if [ -z "$tag" ]; then
+    echo "no claim is associated with this build"
+    return 0
+  fi
+  file="$(attempt_file "$tag")"
+  if [ "$(json_get "$file" .attempt)" != "$(inv .claim.attempt)" ] ||
+    [ "$(json_get "$file" .claimedBy)" != "$(inv .claim.claimedBy)" ]; then
+    echo "attempt $tag is no longer the claim this build served"
+    return 0
+  fi
+  phase="$(json_get "$file" .phase)"
+  case "$phase" in
+    claimed | landed) ;;
+    blocked)
+      echo "attempt $tag is blocked ($(json_get "$file" .blocked.kind)): $(json_get "$file" .blocked.summary)"
+      return 0
+      ;;
+    *)
+      echo "attempt $tag is $phase"
+      return 0
+      ;;
+  esac
+  if [ -n "$(inv .recovery)" ] || [ -n "$(json_get "$STATE/selected.json" .recovery)" ]; then
+    echo "a recovery target is involved, and recovery never builds or replaces one"
+    return 0
+  fi
+  head="$(git -C "$REPO" rev-parse "origin/$BRANCH" 2>/dev/null || true)"
+  if [ -z "$head" ]; then
+    echo "the landed head cannot be read"
+    return 0
+  fi
+  if ! git -C "$REPO" merge-base --is-ancestor "$(json_get "$file" .sha)" "$head" 2>/dev/null; then
+    echo "attempt $tag has not landed"
+    return 0
+  fi
+  receipt_tag="$(git -C "$REPO" show "$head:fork/upstream-receipt.json" 2>/dev/null | jq -r '.upstream.target.tag // empty' || true)"
+  if [ "$receipt_tag" != "$tag" ]; then
+    echo "the landed head belongs to ${receipt_tag:-no tag}, not $tag"
+    return 0
+  fi
+  if [ -n "$(jq -r --arg h "$head" '.interruptionRecoveries[$h].recoveredAt // empty' "$file" 2>/dev/null)" ]; then
+    echo "$head was already recovered once for attempt $(inv .claim.attempt) ($(jq -c --arg h "$head" '.interruptionRecoveries[$h]' "$file"))"
+    return 0
+  fi
+  integration="$(git -C "$REPO" rev-list --first-parent --merges -n1 "$head")"
+  if selected_satisfies "$integration"; then
+    echo "the selected build $(json_get "$STATE/selected.json" .source) already satisfies the landed integration, so it is not rebuilt"
+    return 0
+  fi
+  if [ "$(json_get "$STATE/build-failed.json" .source)" = "$head" ]; then
+    echo "the build of $head failed before: $(json_get "$STATE/build-failed.json" .reason)"
+    return 0
+  fi
+}
+
+# What to do about the record, for status and refusals.
+invocation_next() {
+  local tag hold
+  tag="$(inv .claim.tag)"
+  [ -n "$tag" ] || tag="$(inv .tag)"
+  case "$INV_STATE" in
+    live) echo "wait for it; it holds the build lock" ;;
+    unknown)
+      if [ -n "$tag" ]; then
+        echo "confirm nothing of it still runs on this Mac or the VPS (fork-vps-runtime.sh state reads the runtime), then run fork-nightly.sh attempt $tag retry --take-over, or build --take-over"
+      else
+        echo "confirm nothing of it still runs on this Mac or the VPS, then run fork-nightly.sh build --take-over"
+      fi
+      ;;
+    interrupted)
+      hold="$(recovery_hold)"
+      if [ -z "$hold" ]; then
+        echo "the next hourly run releases the claim and asks for one build through the usual dispatch"
+      elif [ -n "$tag" ]; then
+        echo "not recovered automatically: $hold; run fork-nightly.sh attempt $tag retry or build to go on"
+      else
+        echo "not recovered automatically: $hold; run fork-nightly.sh build to go on"
+      fi
+      ;;
+  esac
+}
+
+invocation_notify_once() {
+  [ -z "$(inv .notified)" ] || return 0
+  notify "$1"
+  invocation_update '.notified = true'
+}
+
+# Settles what a stopped build's receipts already decide, before anything installs:
+# an install it may have reached holds Mac installs, its half-copied staging is
+# dropped, and work that finished in all but the bookkeeping is completed.
+invocation_reconcile() {
+  invocation_assess
+  [ -n "$INV_STOPPED" ] || return 0
+  hold_unknown_vps
+  rm -rf "$STATE/staged.new"
+  [ "$INV_STATE" = interrupted ] || return 0
+  local source tag file
+  source="$(inv .source)"
+  [ -n "$source" ] && [ "$(json_get "$STATE/selected.json" .source)" = "$source" ] || return 0
+  [ ! -f "$STATE/vps-unknown.json" ] || return 0
+  [ -z "$VPS" ] || [ "$(json_get "$STATE/active-vps.json" .source)" = "$source" ] || return 0
+  [ "$(json_get "$STATE/staged/receipt.json" .source)" = "$source" ] ||
+    [ "$(json_get "$STATE/active-mac.json" .source)" = "$source" ] || return 0
+  tag="$(inv .claim.tag)"
+  if [ -n "$tag" ]; then
+    file="$(attempt_file "$tag")"
+    acquire attempts.lock wait
+    if [ "$(json_get "$file" .attempt)" = "$(inv .claim.attempt)" ] &&
+      [ "$(json_get "$file" .claimedBy)" = "$(inv .claim.claimedBy)" ]; then
+      case "$(json_get "$file" .phase)" in
+        claimed | landed) attempt_set "$tag" --arg s "$source" '.phase = "active" | .selected = $s' ;;
+      esac
+    fi
+    release attempts.lock
+  fi
+  log "the interrupted build of $source had finished; its receipts stand"
+  invocation_finish
+}
+
+# Spends the one automatic recovery a landed source gets within an attempt: the claim
+# is released and request_build, later in this run, sends the ordinary build request,
+# so the agent's VPS check and the dispatch limits apply. Called with attempts.lock held.
+recover_interrupted() {
+  invocation_assess
+  [ "$INV_STATE" = interrupted ] || return 0
+  local hold source head tag activation
+  hold="$(recovery_hold)"
+  source="$(inv .source)"
+  head="$(git -C "$REPO" rev-parse "origin/$BRANCH")"
+  activation="$(invocation_activation)"
+  if [ -n "$hold" ]; then
+    log "the interrupted build of ${source:-an unresolved source} stays visible: $hold${activation:+; $activation}"
+    if [ "$source" = "$head" ]; then INVOCATION_HELD="$hold"; fi
+    invocation_notify_once "The interrupted fork build of ${source:-an unresolved source} needs attention: $hold; see fork-nightly.sh status"
+    return 0
+  fi
+  tag="$(inv .claim.tag)"
+  attempt_set "$tag" --arg h "$head" --arg s "$source" --arg stage "$(inv .stage)" --arg id "$(inv .id)" \
+    --arg at "$(date -u +%FT%TZ)" --arg ev "$INV_EVIDENCE${activation:+; $activation}" \
+    '.phase = "landed" | del(.claimedBy) | del(.quietNotified)
+      | .interruptionRecoveries[$h] = {recoveredAt: $at, interruptedSource: $s, stage: $stage, invocation: $id, evidence: $ev}'
+  invocation_finish
+  log "recovering the interrupted build of ${source:-an unresolved source} once for attempt of $tag"
+}
+
+invocation_status() {
+  local holder
+  if [ ! -f "$INVOCATION" ]; then
+    holder="$(cat "$STATE/lock/pid" 2>/dev/null || true)"
+    if [ -n "$holder" ] && [ ! -s "$STATE/lock/started" ]; then
+      echo "build-invocation: $(jq -cn --arg pid "$holder" \
+        '{state: "unknown", owner: {pid: ($pid | tonumber)}, evidence: "a build lock held by this pid recorded no start time or process group", next: "confirm nothing of it still runs, then run fork-nightly.sh build --take-over"}')"
+    fi
+    return 0
+  fi
+  invocation_assess
+  echo "build-invocation: $(jq -c --arg state "$INV_STATE" --arg evidence "$INV_EVIDENCE" \
+    --arg activation "$(invocation_activation)" --arg next "$(invocation_next)" \
+    '{state: $state, stage, stageAt, source, tag, attempt: .claim.attempt, claimedBy: .claim.claimedBy, owner, remote, evidence: $evidence, next: $next}
+      + (if $activation == "" then {} else {activation: $activation} end)' "$INVOCATION")"
 }
 
 # --- Build and selection ---------------------------------------------------
@@ -922,15 +1304,25 @@ vps_install() {
   esac
 }
 
+# Refuses to start over a build that may still be working. Called with the lock held;
+# a stopped build's record gives way to this one.
+build_may_start() {
+  invocation_assess
+  case "$INV_STATE" in
+    live | unknown)
+      if [ "$INV_STATE" = live ] || [ "$BUILD_TAKE_OVER" != 1 ]; then
+        echo "not building: the earlier build of $(inv .source) is $INV_STATE: $INV_EVIDENCE; $(invocation_next)" >&3
+        log "refused a build: the earlier build of $(inv .source) is $INV_STATE: $INV_EVIDENCE"
+        return 1
+      fi
+      log "taking over from the earlier build of $(inv .source): $INV_EVIDENCE"
+      ;;
+  esac
+  [ -z "$INV_STATE" ] || invocation_discard
+}
+
 build() {
-  local rev="" recovery=""
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --rev) rev="$2"; shift 2 ;;
-      --recovery) recovery="$2"; shift 2 ;;
-      *) echo "unknown build option $1" >&2; return 2 ;;
-    esac
-  done
+  local rev="$BUILD_REV" recovery="$BUILD_RECOVERY"
   ensure_clone
   cd "$REPO"
   git fetch --quiet origin || return 1
@@ -947,6 +1339,7 @@ build() {
     notify "$source is older than the selected build $selected; pass --recovery <reason> to select it"
     return 1
   fi
+  invocation_update --arg s "$source" --arg r "$recovery" '.source = $s | .recovery = (if $r == "" then null else $r end)'
   git checkout --quiet --force --detach "$source" && git clean --quiet -fd || return 1
 
   # Activation requires a current reconciliation receipt for the newest upstream
@@ -979,6 +1372,7 @@ build() {
     return 1
   fi
   version="${tag#v}"
+  invocation_update --arg t "$tag" '.tag = $t'
   # The release can have gone since it was requested; the VPS build checks again as it downloads.
   local gap rc=0
   gap="$(release_gap "$tag")" || rc=$?
@@ -993,6 +1387,7 @@ build() {
     return 1
   fi
   log "building $version from $source ($check)"
+  invocation_stage compiling
 
   local marker="$STATE/build-started" fail=""
   touch "$marker"
@@ -1009,11 +1404,17 @@ build() {
   # there and downloads the official one.
   local vps_log="$STATE/vps.log" vps_pid=""
   if [ -n "$VPS" ]; then
-    ssh -n -o BatchMode=yes -o ConnectTimeout=30 "$VPS" "bash -lc '
-      git -C $VPS_CLONE fetch --quiet mac:${REPO#"$HOME"/} $source &&
-        git -C $VPS_CLONE checkout --quiet --detach $source &&
-        $VPS_CLONE/scripts/fork-vps-runtime.sh build $version'" \
-      >"$vps_log" 2>&1 &
+    invocation_update '.remote = "build"'
+    (
+      remote_rc=0
+      ssh -n -o BatchMode=yes -o ConnectTimeout=30 "$VPS" "bash -lc '
+        git -C $VPS_CLONE fetch --quiet mac:${REPO#"$HOME"/} $source &&
+          git -C $VPS_CLONE checkout --quiet --detach $source &&
+          $VPS_CLONE/scripts/fork-vps-runtime.sh build $version'" \
+        >"$vps_log" 2>&1 || remote_rc=$?
+      echo "$remote_rc" >"$VPS_BUILD_RC"
+      exit "$remote_rc"
+    ) &
     vps_pid=$!
   fi
   (
@@ -1064,8 +1465,10 @@ build() {
 
   # Selecting this build supersedes the previous target: the VPS runtime moves
   # first, then the app is staged for install-on-quit.
+  invocation_update --argjson r "$receipt" '.receipt = $r'
   if [ -n "$VPS" ]; then
     local vps_status=0
+    invocation_stage vps-install
     vps_install "$version" "$source" || vps_status=$?
     if [ "$vps_status" -eq 2 ]; then
       echo "$receipt" >"$STATE/vps-unknown.json"
@@ -1080,10 +1483,12 @@ build() {
     fi
     rm -f "$STATE/vps-unknown.json"
     echo "$receipt" | stamp /dev/stdin >"$STATE/active-vps.json"
+    invocation_stage vps-activated
   fi
   echo "$receipt" >"$STATE/selected.json.tmp"
   mv "$STATE/selected.json.tmp" "$STATE/selected.json"
   rm -f "$STATE/build-failed.json"
+  invocation_stage selected
 
   rm -rf "$STATE/staged.new"
   mkdir -p "$STATE/staged.new"
@@ -1095,6 +1500,7 @@ build() {
   echo "$receipt" >"$STATE/staged.new/receipt.json"
   rm -rf "$STATE/staged"
   mv "$STATE/staged.new" "$STATE/staged"
+  invocation_stage staged
   rm -rf "$stage"
   log "staged $version ($source)"
   if [ -f "$(attempt_file "$tag")" ]; then
@@ -1138,6 +1544,12 @@ newest_publishable_tag() {
 
 hourly() {
   ensure_clone
+  invocation_assess
+  if [ "$INV_STATE" = live ] || [ "$INV_STATE" = unknown ]; then
+    log "the clone and hourly work wait: the build of $(inv .source) is $INV_STATE: $INV_EVIDENCE"
+    invocation_notify_once "The fork build of $(inv .source) is $INV_STATE and holds hourly updates back: $INV_EVIDENCE; see fork-nightly.sh status"
+    return 0
+  fi
   cd "$REPO"
   if ! { git fetch --quiet origin && git fetch --quiet upstream --tags; }; then
     log "fetch failed; trying again next hour"
@@ -1146,6 +1558,7 @@ hourly() {
   reset_clone
   acquire attempts.lock wait
   settle_landed_attempts
+  recover_interrupted
   newest_publishable_tag
   if [ -n "$TARGET_TAG" ]; then update_attempts "$TARGET_TAG" "$TARGET_SHA"; fi
   request_build
@@ -1191,6 +1604,7 @@ EOF
 }
 
 status() {
+  invocation_status
   for name in selected active-mac active-vps vps-unknown build-failed; do
     if [ -f "$STATE/$name.json" ]; then
       echo "$name: $(jq -c '{source, version, upstream: .upstream.tag, at: (.installedAt // .builtAt), reason, recovery}' "$STATE/$name.json")"
@@ -1203,7 +1617,7 @@ status() {
     echo "replaced, not yet kept as previous: $(jq -c '{source, version}' "$REPLACED_RECEIPT" 2>/dev/null || echo unidentified)"
   fi
   for file in "$STATE"/attempts/*.json; do
-    [ -f "$file" ] && echo "attempt: $(jq -c '{attempt, phase, action, claimedBy, blocked, landing, unavailable}' "$file")"
+    [ -f "$file" ] && echo "attempt: $(jq -c '{attempt, phase, action, claimedBy, blocked, landing, unavailable, interruptionRecoveries}' "$file")"
   done
   return 0
 }
@@ -1246,22 +1660,44 @@ case "${1:-}" in
     rename_legacy_copies || true
     recover_app || true
     migrate_legacy_name || true
+    invocation_reconcile
     install_staged || true
     migrate_legacy_name || true
     hourly
     ;;
   build)
     shift
+    BUILD_REV="" BUILD_RECOVERY="" BUILD_ATTEMPT="" BUILD_TAKE_OVER=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --rev) BUILD_REV="$2"; shift 2 ;;
+        --recovery) BUILD_RECOVERY="$2"; shift 2 ;;
+        --attempt) BUILD_ATTEMPT="$2"; shift 2 ;;
+        --take-over) BUILD_TAKE_OVER=1; shift ;;
+        *) echo "unknown build option $1" >&2; exit 2 ;;
+      esac
+    done
     echo "building; progress is in $STATE/nightly.log"
-    exec >>"$STATE/nightly.log" 2>&1
+    # fd 3 keeps the caller's stderr for a refusal, and closes before any build step
+    # can inherit it and hold an ssh caller open.
+    exec 3>&2 >>"$STATE/nightly.log" 2>&1
     acquire lock wait
     trap 'release lock' EXIT
     rename_legacy_copies || true
     recover_app || true
     migrate_legacy_name || true
+    invocation_reconcile
+    build_may_start || exit 3
+    exec 3>&-
+    invocation_begin
     rc=0
-    build "$@" || rc=$?
+    build || rc=$?
     reset_clone
+    if vps_build_unproved; then
+      log "the VPS build of $(inv .source) may still be running; its record stays until someone confirms it stopped"
+    else
+      invocation_finish
+    fi
     install_staged || true
     migrate_legacy_name || true
     exit "$rc"
@@ -1294,7 +1730,7 @@ case "${1:-}" in
     ;;
   status) status ;;
   *)
-    echo "usage: $0 [--install-agent | build [--rev <commit>] [--recovery <reason>] | install [--on-quit | --wait-for-quit] | setup-signing | attempt <tag> <action> ... | status]" >&2
+    echo "usage: $0 [--install-agent | build [--rev <commit>] [--recovery <reason>] [--attempt <tag>] [--take-over] | install [--on-quit | --wait-for-quit] | setup-signing | attempt <tag> <action> ... | status]" >&2
     exit 2
     ;;
 esac

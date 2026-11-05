@@ -1013,7 +1013,7 @@ it.effect(
         yield* service.updateDelivery(f.caller(), {
           findingId: finding.id,
           action: "spec",
-          specUrl: "https://hq.example/forge/6366",
+          specUrl: "https://weave.example/forge/6366",
           evidence: "Advisor challenge shaped the Spec",
         });
         const leadRequest = {
@@ -1049,7 +1049,7 @@ it.effect(
         f.installChild(finding, "lead-result", "lead", "completed", {
           number: 6366,
           itemId: "spec-id",
-          origin: "https://hq.example",
+          origin: "https://weave.example",
         });
         yield* service.guardDelegation(continuation);
         yield* refused(
@@ -1061,7 +1061,7 @@ it.effect(
         f.installChild(finding, "lead-result", "lead", "completed", {
           number: 6367,
           itemId: "another-spec",
-          origin: "https://hq.example",
+          origin: "https://weave.example",
         });
         yield* refused(service.guardDelegation(continuation));
         assert.isNull((yield* service.get({ id: config.id })).findings[0]!.childThreadId);
