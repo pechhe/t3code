@@ -136,9 +136,16 @@
   content: "";
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 1;
   border-radius: inherit;
   pointer-events: none;
+}
+/* The texture lies behind the prompt, readout and attachments, never over their text. */
+:root[data-composer-finish="auto"][data-theme-texture]
+  .composer-device
+  [data-chat-composer-body]
+  > * {
+  z-index: 4;
 }
 
 /* ---- Context bar ---- */
@@ -456,7 +463,7 @@
 }
 :root[data-composer-finish="auto"][data-theme-texture="crt"] .composer-tiptap p,
 :root[data-composer-finish="auto"][data-theme-texture="scan"] .composer-tiptap p {
-  text-shadow: 0 0 3px color-mix(in oklch, var(--lamp) 55%, transparent);
+  text-shadow: 0 0 2px color-mix(in oklch, var(--lamp) 35%, transparent);
 }
 
 /* ---- Prompt cursor ---- */

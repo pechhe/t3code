@@ -394,6 +394,14 @@
   caret-color: var(--primary);
 }
 
+/* The prompt reads in the screen's own ink: a theme's screen can differ from the app's colours. */
+.composer-device [data-chat-composer-body] .composer-tiptap {
+  color: var(--cream-ink);
+}
+.composer-device [data-chat-composer-body] .text-placeholder {
+  color: var(--cream-ink-muted);
+}
+
 /* ---------------- Context readout ---------------- */
 .device-context {
   display: grid;
