@@ -224,6 +224,34 @@ function TerminalFontRow() {
   );
 }
 
+function ThemeTypefaceRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  return (
+    <SettingsRow
+      {...searchableSetting("theme-typeface")}
+      description="A theme that has its own typeface sets the interface and prompt font, over the ones chosen here. Replies keep their font."
+      resetAction={
+        settings.themeTypeface !== DEFAULT_UNIFIED_SETTINGS.themeTypeface ? (
+          <SettingResetButton
+            label="theme typeface"
+            onClick={() =>
+              updateSettings({ themeTypeface: DEFAULT_UNIFIED_SETTINGS.themeTypeface })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Switch
+          checked={settings.themeTypeface}
+          onCheckedChange={(checked) => updateSettings({ themeTypeface: Boolean(checked) })}
+          aria-label="Let themes set the typeface"
+        />
+      }
+    />
+  );
+}
+
 function FontSmoothingRow() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
@@ -638,6 +666,7 @@ export function TypographySection() {
   return (
     <SettingsSection id="typography" title="Typography">
       {showAdvanced ? <FontSettingsGroup /> : <SimpleFontRows />}
+      <ThemeTypefaceRow />
       <WordWrapRow />
       <AdvancedSettings
         targetIds={[searchableSetting("separate-fonts").id, searchableSetting("font-smoothing").id]}

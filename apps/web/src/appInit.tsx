@@ -78,6 +78,10 @@ function startClientAppearance(): void {
     if (previous?.chatWidth !== settings.chatWidth) {
       root.dataset.chatWidth = settings.chatWidth;
     }
+    if (previous?.themeTypeface !== settings.themeTypeface) {
+      if (settings.themeTypeface) root.dataset.themeTypeface = "";
+      else delete root.dataset.themeTypeface;
+    }
     if (previous?.appearanceContrast !== settings.appearanceContrast) {
       applyAppearanceContrast(root, settings.appearanceContrast);
     }

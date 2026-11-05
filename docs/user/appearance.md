@@ -45,7 +45,7 @@ Every built-in theme has a light and a dark side, and dresses the composer in it
 colours for the lamps, dial and readouts, a screen texture, a cursor, a knob, a send symbol and a
 motif for the context bar. Under **Composer finish** in the Typography settings, **Match theme** shows
 all of this; any other finish keeps its own look. A theme can also set the interface and prompt
-typeface. Replies stay in the sans typeface, and your choices under Typography always win.
+typeface. Replies keep their own typeface. Under **Typography**, **Let themes set the typeface** (on by default) lets a theme's face outrank the interface and prompt fonts you chose; turn it off to keep yours.
 
 ## Project themes
 

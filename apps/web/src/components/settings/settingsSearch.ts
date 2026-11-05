@@ -452,6 +452,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["typography advanced prompt code terminal font family size individually"],
   },
   {
+    id: "theme-typeface",
+    title: "Let themes set the typeface",
+    to: "/settings/appearance",
+    searchTerms: ["typography theme font family serif typewriter interface prompt override custom"],
+  },
+  {
     id: "font-smoothing",
     title: "Font smoothing",
     to: "/settings/appearance",

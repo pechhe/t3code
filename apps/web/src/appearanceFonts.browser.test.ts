@@ -54,3 +54,38 @@ describe("applyAppearanceFontVariables", () => {
     }
   });
 });
+
+describe("theme typeface", () => {
+  const root = document.documentElement;
+  const preferences = {
+    sans: "Papyrus",
+    code: "",
+    composer: "Papyrus",
+    response: "",
+    sizeInterface: 16,
+    sizePrompt: 14,
+    sizeCode: 13,
+    smoothing: true,
+    separate: true,
+  };
+  const face = (variable: string) => getComputedStyle(root).getPropertyValue(variable);
+
+  it("outranks the custom interface and prompt fonts only while the setting is on", () => {
+    const style = root.getAttribute("style");
+    try {
+      applyAppearanceFontVariables(root, preferences);
+      root.dataset.themeFont = "serif";
+      expect(face("--font-sans")).toContain("Papyrus");
+
+      root.dataset.themeTypeface = "";
+      expect(face("--font-sans")).toContain("Charter");
+      expect(face("--font-composer")).toContain("Charter");
+      expect(face("--font-response")).not.toContain("Charter");
+    } finally {
+      delete root.dataset.themeFont;
+      delete root.dataset.themeTypeface;
+      if (style === null) root.removeAttribute("style");
+      else root.setAttribute("style", style);
+    }
+  });
+});
