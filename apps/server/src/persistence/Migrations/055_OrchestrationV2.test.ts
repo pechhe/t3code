@@ -72,6 +72,7 @@ layer("055_OrchestrationV2", (it) => {
         [106, "DropOrchestrationEventCorrelationIndex"],
         [107, "DelegatedRecoveryIndexes"],
         [108, "WeaveStoredNames"],
+        [109, "ChampionInvestigations"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -146,6 +147,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 106, name: "DropOrchestrationEventCorrelationIndex" },
         { migration_id: 107, name: "DelegatedRecoveryIndexes" },
         { migration_id: 108, name: "WeaveStoredNames" },
+        { migration_id: 109, name: "ChampionInvestigations" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

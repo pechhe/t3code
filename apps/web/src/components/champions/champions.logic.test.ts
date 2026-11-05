@@ -6,8 +6,11 @@ import {
   RunId,
   ThreadId,
   type ChampionActivity,
+  type ChampionClassChoicesResult,
   type ChampionFinding,
   type ChampionMetric,
+  type ChampionRecommendation,
+  type ChampionRuntimeState,
   type ChampionSample,
   type ChampionSummary,
   type ServerProvider,
@@ -17,7 +20,10 @@ import { describe, expect, it } from "vite-plus/test";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import {
   championActivityView,
+  championClassOptions,
+  championDecisionBindingChanged,
   championMachineGap,
+  championRecentRuns,
   championsNeedingAttention,
   metricChange,
   metricIsOffTarget,
@@ -32,12 +38,12 @@ import {
   emptyMetricDraft,
   metricDraftOf,
   readingFreshness,
-  resolveChampionModel,
+  recommendationSupport,
+  resolveChampionClass,
   resolveChampionSelection,
   retiredMetrics,
   safeExternalUrl,
   sparklineGeometry,
-  suggestChampionModels,
   validateChampionsSearch,
 } from "./champions.logic";
 
@@ -545,75 +551,6 @@ describe("metricChange", () => {
   });
 });
 
-describe("suggestChampionModels", () => {
-  const NOW = 1_000;
-
-  it("prefers a stronger setup and a lighter routine model when the machine has them", () => {
-    const suggested = suggestChampionModels(
-      [entry("claude", ["claude-sonnet-x", "claude-opus-x"])],
-      NOW,
-    );
-    expect(suggested.setup?.model).toBe("claude-opus-x");
-    expect(suggested.routine?.model).toBe("claude-sonnet-x");
-  });
-
-  it("uses the machine's own default rather than inventing a model", () => {
-    const suggested = suggestChampionModels([entry("codex", ["gpt-a", "gpt-b"])], NOW);
-    expect(suggested.setup).toEqual({
-      instanceId: ProviderInstanceId.make("codex"),
-      model: "gpt-a",
-    });
-    expect(suggested.routine?.model).toBe("gpt-a");
-  });
-
-  it("offers nothing from a provider that can't run", () => {
-    expect(
-      suggestChampionModels([entry("claude", ["claude-opus-x"], { enabled: false })], NOW),
-    ).toEqual({ setup: null, routine: null });
-    expect(suggestChampionModels([], NOW)).toEqual({ setup: null, routine: null });
-  });
-
-  it("looks past an unavailable provider to one that works", () => {
-    const suggested = suggestChampionModels(
-      [entry("down", ["claude-opus-x"], { status: "error" }), entry("up", ["claude-opus-y"])],
-      NOW,
-    );
-    expect(suggested.setup?.instanceId).toBe(ProviderInstanceId.make("up"));
-  });
-});
-
-describe("resolveChampionModel", () => {
-  const selection = { instanceId: ProviderInstanceId.make("claude"), model: "picked" };
-  const suggested = { instanceId: ProviderInstanceId.make("claude"), model: "suggested" };
-
-  it("lets a suggestion follow the machine", () => {
-    expect(resolveChampionModel({ picked: null, suggested, environmentId: OTHER_ENV })).toEqual({
-      selection: suggested,
-      fromOtherMachine: false,
-    });
-  });
-
-  it("flags an explicit pick on another machine even when the instance id matches there", () => {
-    expect(
-      resolveChampionModel({
-        picked: { environmentId: ENV, selection },
-        suggested,
-        environmentId: OTHER_ENV,
-      }),
-    ).toEqual({ selection, fromOtherMachine: true });
-  });
-
-  it("restores a pick when its own machine is chosen again", () => {
-    expect(
-      resolveChampionModel({
-        picked: { environmentId: ENV, selection },
-        suggested,
-        environmentId: ENV,
-      }),
-    ).toEqual({ selection, fromOtherMachine: false });
-  });
-});
-
 describe("modelSelectionProblem", () => {
   const NOW = 1_000;
   const selection = { instanceId: ProviderInstanceId.make("claude"), model: "gone" };
@@ -658,5 +595,142 @@ describe("championMachineGap", () => {
       championMachineGap([machine("Studio", "connected"), machine("Spare", "available")]),
     ).toBeNull();
     expect(championMachineGap([])).toBeNull();
+  });
+});
+
+describe("champion class choices", () => {
+  const model = (name: string) => ({
+    instanceId: ProviderInstanceId.make("claude"),
+    model: name,
+  });
+  const result = (
+    roles: ChampionClassChoicesResult["roles"],
+    refusal: string | null = null,
+  ): ChampionClassChoicesResult => ({
+    policyHash: refusal === null ? "h" : null,
+    policyRevision: refusal === null ? "r" : null,
+    refusal,
+    roles,
+  });
+  const nonUi = result([
+    { role: "chore-worker", selection: model("light"), refusal: null },
+    { role: "advisor", selection: null, refusal: "No eligible model." },
+    { role: "reviewer", selection: model("review"), refusal: null },
+    { role: "ui-worker", selection: null, refusal: "Not a non-UI role." },
+  ]);
+  const ui = result([{ role: "ui-worker", selection: model("design"), refusal: null }]);
+
+  it("offers only roles the server can run, reading a UI role from its own classification", () => {
+    const options = championClassOptions(
+      { role: "chore-worker", taskClass: "non-ui" },
+      { "non-ui": nonUi, ui, mixed: null },
+    );
+    expect(options.map((option) => option.role)).toEqual(["chore-worker", "ui-worker"]);
+    expect(options[1]?.selection?.model).toBe("design");
+  });
+
+  it("keeps a saved refused role visible with its reason instead of swapping it", () => {
+    const saved = { role: "advisor", taskClass: "non-ui" } as const;
+    expect(resolveChampionClass(saved, nonUi)).toEqual({
+      role: "advisor",
+      selection: null,
+      refusal: "No eligible model.",
+    });
+    expect(
+      championClassOptions(saved, { "non-ui": nonUi, ui, mixed: null }).map(({ role }) => role),
+    ).toContain("advisor");
+  });
+
+  it("carries a policy-wide refusal without inventing a selection", () => {
+    expect(
+      resolveChampionClass(
+        { role: "chore-worker", taskClass: "non-ui" },
+        result([], "Agent class policy is unavailable on this machine."),
+      ),
+    ).toEqual({
+      role: "chore-worker",
+      selection: null,
+      refusal: "Agent class policy is unavailable on this machine.",
+    });
+  });
+
+  it("says nothing until the server has answered", () => {
+    expect(resolveChampionClass({ role: "advisor", taskClass: "non-ui" }, null)).toBeNull();
+  });
+});
+
+describe("recommendation binding", () => {
+  const binding = (decisionId: string, recommendationId?: string) => ({
+    decisionId,
+    recommendationId,
+  });
+
+  it("only counts as changed once a draft exists", () => {
+    expect(championDecisionBindingChanged(null, binding("d2", "r2"))).toBe(false);
+    expect(championDecisionBindingChanged(binding("d1", "r1"), binding("d1", "r1"))).toBe(false);
+  });
+
+  it("notices a new decision or a new recommendation", () => {
+    expect(championDecisionBindingChanged(binding("d1", "r1"), binding("d2", "r1"))).toBe(true);
+    expect(championDecisionBindingChanged(binding("d1", "r1"), binding("d1", "r2"))).toBe(true);
+  });
+
+  it("leaves supporting text out when it repeats the recommendation", () => {
+    expect(
+      recommendationSupport({
+        recommendation: "Do it.",
+        summary: "Do it.",
+        alternatives: "Other ways.",
+        benefits: "",
+        tradeoffs: "Other ways.",
+        uncertainty: "Unknown.",
+        proposedScope: "Only here.",
+      } as ChampionRecommendation),
+    ).toEqual(["Other ways.", "Unknown.", "Only here."]);
+  });
+});
+
+describe("championRecentRuns", () => {
+  const model = (name: string) => ({
+    instanceId: ProviderInstanceId.make("claude"),
+    model: name,
+  });
+
+  it("keeps what was resolved apart from what ran, and says when a run had no role", () => {
+    const runs = championRecentRuns({
+      attempts: [
+        {
+          id: "owner",
+          kind: "check",
+          acceptedAt: "2026-11-05T09:00:00.000Z",
+          selectionClass: null,
+          resolvedSelection: model("fixed"),
+          actualSelection: null,
+          threadId: THREAD,
+        },
+      ],
+      investigations: [
+        {
+          attempts: [
+            {
+              id: "branch",
+              role: "scout",
+              admittedAt: "2026-11-05T10:00:00.000Z",
+              resolvedSelection: model("resolved"),
+              actualSelection: model("actual"),
+              childThreadId: THREAD,
+            },
+          ],
+        },
+      ],
+      recommendations: [],
+    } as unknown as ChampionRuntimeState);
+    expect(runs.map((run) => [run.kind, run.role])).toEqual([
+      ["Research", "scout"],
+      ["Check", null],
+    ]);
+    expect(runs[0]?.resolved.model).toBe("resolved");
+    expect(runs[0]?.actual?.model).toBe("actual");
+    expect(runs[1]?.actual).toBeNull();
   });
 });

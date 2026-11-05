@@ -10,17 +10,23 @@ import {
 import type { EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
 import {
   EnvironmentId,
+  type AgentRole,
+  type AgentTaskClass,
   type ChampionActivity,
+  type ChampionClassChoicesResult,
   type ChampionFinding,
   type ChampionId,
   type ChampionMetric,
   type ChampionMetricInput,
   type ChampionProposal,
+  type ChampionRecommendation,
+  type ChampionRuntimeState,
   type ChampionSample,
+  type ChampionSelectionClass,
   type ChampionSummary,
   type ModelSelection,
+  type ThreadId,
 } from "@t3tools/contracts";
-import { createModelSelection } from "@t3tools/shared/model";
 import { isProviderUsageExhausted } from "@t3tools/shared/providerPools";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
@@ -393,6 +399,7 @@ const ACTIVITY_TITLES: Readonly<Record<string, string>> = {
   "finding-inconclusive": "Inconclusive",
   "finding-open": "Finding reopened",
   "finding-dismissed": "Finding dismissed",
+  "learning-recorded": "Learned",
 };
 
 export function activityTitle(kind: string): string {
@@ -603,39 +610,6 @@ function entryIsUsable(entry: ProviderInstanceEntry, nowMs: number): boolean {
   );
 }
 
-const defaultModelOf = (entry: ProviderInstanceEntry) =>
-  entry.models.find((model) => model.isDefault && !model.isLegacy) ??
-  entry.models.find((model) => !model.isLegacy) ??
-  entry.models[0];
-
-function suggestModel(
-  usable: ReadonlyArray<ProviderInstanceEntry>,
-  preferred: RegExp,
-): ModelSelection | null {
-  for (const entry of usable) {
-    const match = entry.models.find(
-      (model) => !model.isLegacy && (preferred.test(model.slug) || preferred.test(model.name)),
-    );
-    if (match) return createModelSelection(entry.instanceId, match.slug);
-  }
-  const first = usable[0];
-  const fallback = first && defaultModelOf(first);
-  return first && fallback ? createModelSelection(first.instanceId, fallback.slug) : null;
-}
-
-export interface SuggestedChampionModels {
-  readonly setup: ModelSelection | null;
-  readonly routine: ModelSelection | null;
-}
-
-export function suggestChampionModels(
-  entries: ReadonlyArray<ProviderInstanceEntry>,
-  nowMs: number,
-): SuggestedChampionModels {
-  const usable = entries.filter((entry) => entryIsUsable(entry, nowMs));
-  return { setup: suggestModel(usable, /opus/i), routine: suggestModel(usable, /sonnet/i) };
-}
-
 export function modelSelectionProblem(
   selection: ModelSelection | null,
   entries: ReadonlyArray<ProviderInstanceEntry>,
@@ -649,27 +623,6 @@ export function modelSelectionProblem(
   }
   if (isProviderUsageExhausted(entry.snapshot, nowMs)) return "This provider is out of usage.";
   return entryIsUsable(entry, nowMs) ? null : "This provider isn't available right now.";
-}
-
-export interface PickedChampionModel {
-  readonly environmentId: EnvironmentId;
-  readonly selection: ModelSelection;
-}
-
-/**
- * Instance ids repeat across machines, so a pick made for one must not pass as valid on another.
- * It stays visible and flagged until replaced; only a suggestion follows the machine.
- */
-export function resolveChampionModel(input: {
-  readonly picked: PickedChampionModel | null;
-  readonly suggested: ModelSelection | null;
-  readonly environmentId: EnvironmentId;
-}): { readonly selection: ModelSelection | null; readonly fromOtherMachine: boolean } {
-  if (input.picked === null) return { selection: input.suggested, fromOtherMachine: false };
-  return {
-    selection: input.picked.selection,
-    fromOtherMachine: input.picked.environmentId !== input.environmentId,
-  };
 }
 
 const WORDS_IN_DERIVED_NAME = 5;
@@ -729,3 +682,150 @@ export function championMachineGap(
     notice: `Can't reach ${named(unreachable)}, so champions there aren't shown.`,
   };
 }
+
+export const DEFAULT_CHAMPION_CLASSES = {
+  setup: { role: "advisor", taskClass: "non-ui" },
+  routine: { role: "chore-worker", taskClass: "non-ui" },
+} as const satisfies {
+  readonly setup: ChampionSelectionClass;
+  readonly routine: ChampionSelectionClass;
+};
+
+/** The roles worth offering a champion. The server still decides which of them can run. */
+const OFFERED_CHAMPION_ROLES: ReadonlyArray<AgentRole> = [
+  "chore-worker",
+  "implementation-worker",
+  "ui-worker",
+  "advisor",
+  "researcher",
+  "scout",
+];
+
+export const championRoleTaskClass = (role: AgentRole): AgentTaskClass =>
+  role === "ui-worker" ? "ui" : "non-ui";
+
+interface ChampionClassOption {
+  readonly role: AgentRole;
+  readonly selection: ModelSelection | null;
+  readonly refusal: string | null;
+}
+
+interface ChampionClassChoicesByTask {
+  readonly "non-ui": ChampionClassChoicesResult | null;
+  readonly ui: ChampionClassChoicesResult | null;
+  readonly mixed: ChampionClassChoicesResult | null;
+}
+
+const NOT_OFFERED = "Your role policy doesn't offer this role here.";
+
+/** What the server says about a class: a model it would use now, or why it would use none. */
+export function resolveChampionClass(
+  selected: ChampionSelectionClass,
+  choices: ChampionClassChoicesResult | null,
+): ChampionClassOption | null {
+  if (choices === null) return null;
+  const { role } = selected;
+  if (choices.refusal !== null) return { role, selection: null, refusal: choices.refusal };
+  const found = choices.roles.find((candidate) => candidate.role === role);
+  if (found === undefined) return { role, selection: null, refusal: NOT_OFFERED };
+  if (found.selection === null) {
+    return { role, selection: null, refusal: found.refusal ?? NOT_OFFERED };
+  }
+  return found.refusal === null
+    ? { role, selection: found.selection, refusal: null }
+    : { role, selection: null, refusal: found.refusal };
+}
+
+/** Eligible roles only, except that a saved choice stays listed instead of being swapped away. */
+export function championClassOptions(
+  selected: ChampionSelectionClass,
+  choices: ChampionClassChoicesByTask,
+): ReadonlyArray<ChampionClassOption> {
+  const eligible = OFFERED_CHAMPION_ROLES.flatMap((role) => {
+    const option = resolveChampionClass(
+      { role, taskClass: championRoleTaskClass(role) },
+      choices[championRoleTaskClass(role)],
+    );
+    return option?.selection ? [option] : [];
+  });
+  if (eligible.some((option) => option.role === selected.role)) return eligible;
+  const current = resolveChampionClass(selected, choices[selected.taskClass]);
+  return [...eligible, current ?? { role: selected.role, selection: null, refusal: null }];
+}
+
+/** Immutable supporting text, kept out of the recommendation. Owners may repeat themselves. */
+export function recommendationSupport(
+  recommendation: ChampionRecommendation,
+): ReadonlyArray<string> {
+  const seen = new Set([recommendation.recommendation.trim()]);
+  return [
+    recommendation.summary,
+    recommendation.alternatives,
+    recommendation.benefits,
+    recommendation.tradeoffs,
+    recommendation.uncertainty,
+    recommendation.proposedScope,
+  ].flatMap((text) => {
+    const trimmed = text.trim();
+    if (!trimmed || seen.has(trimmed)) return [];
+    seen.add(trimmed);
+    return [trimmed];
+  });
+}
+
+export interface ChampionDecisionBinding {
+  readonly decisionId: string;
+  readonly recommendationId: string | undefined;
+}
+
+export function championDecisionBinding(
+  decision: NonNullable<ChampionFinding["decision"]>,
+): ChampionDecisionBinding {
+  return { decisionId: decision.id, recommendationId: decision.recommendationId };
+}
+
+export const championDecisionBindingChanged = (
+  drafted: ChampionDecisionBinding | null,
+  current: ChampionDecisionBinding,
+) =>
+  drafted !== null &&
+  (drafted.decisionId !== current.decisionId ||
+    drafted.recommendationId !== current.recommendationId);
+
+interface ChampionRunView {
+  readonly key: string;
+  readonly at: string;
+  readonly kind: "Check" | "Metric setup" | "Research";
+  /** Null for a run made before this champion followed role policy. */
+  readonly role: AgentRole | null;
+  readonly resolved: ModelSelection;
+  readonly actual: ModelSelection | null;
+  readonly threadId: ThreadId;
+}
+
+export function championRecentRuns(state: ChampionRuntimeState): ReadonlyArray<ChampionRunView> {
+  const owner = state.attempts.map((attempt): ChampionRunView => ({
+    key: attempt.id,
+    at: attempt.acceptedAt,
+    kind: attempt.kind === "setup" ? "Metric setup" : "Check",
+    role: attempt.selectionClass?.role ?? null,
+    resolved: attempt.resolvedSelection,
+    actual: attempt.actualSelection,
+    threadId: attempt.threadId,
+  }));
+  const research = state.investigations.flatMap((investigation) =>
+    investigation.attempts.map((attempt): ChampionRunView => ({
+      key: attempt.id,
+      at: attempt.admittedAt,
+      kind: "Research",
+      role: attempt.role,
+      resolved: attempt.resolvedSelection,
+      actual: attempt.actualSelection,
+      threadId: attempt.childThreadId,
+    })),
+  );
+  return [...owner, ...research].toSorted((a, b) => b.at.localeCompare(a.at));
+}
+
+export const sameChampionModel = (a: ModelSelection, b: ModelSelection) =>
+  a.instanceId === b.instanceId && a.model === b.model;

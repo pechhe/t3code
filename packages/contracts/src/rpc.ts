@@ -1,5 +1,15 @@
 import { BackgroundPolicySnapshot, HostPowerSnapshot } from "./background.ts";
 import {
+  ChampionClassChoicesInput,
+  ChampionClassChoicesResult,
+  ChampionRuntimeState,
+  ChampionRecommendationInput,
+  ChampionRecommendation,
+  ChampionLearningQueryInput,
+  ChampionLearningQueryResult,
+  ChampionInvestigationStartInput,
+  ChampionInvestigation,
+  ChampionInvestigationCancelInput,
   ChampionListInput,
   ChampionListResult,
   ChampionGetInput,
@@ -666,6 +676,12 @@ export const WS_METHODS = {
   forgeHomeDecide: "build.home.decide",
   forgeHomeAnswer: "build.home.answer",
 
+  championsClassChoices: "champions.classChoices",
+  championsRuntimeState: "champions.runtimeState",
+  championsRecommendation: "champions.recommendation",
+  championsLearningQuery: "champions.learningQuery",
+  championsStartInvestigation: "champions.startInvestigation",
+  championsCancelInvestigation: "champions.cancelInvestigation",
   championsList: "champions.list",
   championsSubscribe: "champions.subscribe",
   championsGet: "champions.get",
@@ -2257,6 +2273,36 @@ const WsForgeHomeAnswerRpc = Rpc.make(WS_METHODS.forgeHomeAnswer, {
   error: Schema.Union([ForgeHomeError, EnvironmentAuthorizationError]),
 });
 
+const WsChampionsClassChoicesRpc = Rpc.make(WS_METHODS.championsClassChoices, {
+  payload: ChampionClassChoicesInput,
+  success: ChampionClassChoicesResult,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsRecommendationRpc = Rpc.make(WS_METHODS.championsRecommendation, {
+  payload: ChampionRecommendationInput,
+  success: ChampionRecommendation,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsRuntimeStateRpc = Rpc.make(WS_METHODS.championsRuntimeState, {
+  payload: ChampionGetInput,
+  success: ChampionRuntimeState,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsLearningQueryRpc = Rpc.make(WS_METHODS.championsLearningQuery, {
+  payload: ChampionLearningQueryInput,
+  success: ChampionLearningQueryResult,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsStartInvestigationRpc = Rpc.make(WS_METHODS.championsStartInvestigation, {
+  payload: ChampionInvestigationStartInput,
+  success: ChampionInvestigation,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsCancelInvestigationRpc = Rpc.make(WS_METHODS.championsCancelInvestigation, {
+  payload: ChampionInvestigationCancelInput,
+  success: ChampionInvestigation,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
 const WsChampionsListRpc = Rpc.make(WS_METHODS.championsList, {
   payload: ChampionListInput,
   success: ChampionListResult,
@@ -2735,6 +2781,13 @@ export const WsThreadControlRpcGroup = RpcGroup.make(
   WsOrchestrationV2ForceStopThreadRpc,
 ).middleware(RpcScopeAuthorization);
 export const WsChampionsRpcGroup = RpcGroup.make(
+  WsChampionsClassChoicesRpc,
+  WsChampionsRuntimeStateRpc,
+  WsChampionsRecommendationRpc,
+  WsChampionsLearningQueryRpc,
+  WsChampionsStartInvestigationRpc,
+  WsChampionsCancelInvestigationRpc,
+
   WsChampionsListRpc,
   WsChampionsSubscribeRpc,
   WsChampionsGetRpc,

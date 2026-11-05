@@ -1,9 +1,15 @@
+import * as ChampionEvidence from "./ChampionEvidence.ts";
+import * as ManagedTaskControl from "../agents/ManagedTaskControl.ts";
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { forgeItemNumberFromUrl } from "@t3tools/shared/forgeLinks";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
 import { isProviderUsageExhausted } from "@t3tools/shared/providerPools";
 import {
+  ChampionExecutionAttempt,
+  type ChampionClassChoicesInput,
+  type ChampionClassChoicesResult,
   ChampionSummary,
   type ChampionLatestSample,
   ChampionDetail,
@@ -50,6 +56,8 @@ import * as Scheduler from "../scheduling/Scheduler.ts";
 import { nextScheduledRunAt, isSameSchedule } from "../scheduledTasks/Schedule.ts";
 import type { McpThreadCaller } from "../mcp/McpInvocationContext.ts";
 
+const json = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+
 const sameFinding = Schema.toEquivalence(ChampionFinding);
 
 const Document = Schema.Struct({
@@ -65,6 +73,7 @@ const Check = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   commandId: CommandId,
+  executionAttempt: Schema.optional(ChampionExecutionAttempt),
   kind: Schema.Literals(["setup", "check"]),
   startedAt: Schema.String,
   measureOnly: Schema.Boolean,
@@ -93,11 +102,38 @@ const encodeCharter = Schema.encodeSync(Schema.fromJsonString(ChampionCharter));
 const encodeFindings = Schema.encodeSync(Schema.fromJsonString(Schema.Array(ChampionFinding)));
 
 type Caller = McpThreadCaller | undefined;
+type Evidence = Effect.Success<typeof ChampionEvidence.make>;
 type DetailOperation<I> = (input: I) => Effect.Effect<ChampionDetail, ChampionError>;
 
 export class ChampionService extends Context.Service<
   ChampionService,
   {
+    readonly classChoices: (
+      input: ChampionClassChoicesInput,
+    ) => Effect.Effect<ChampionClassChoicesResult, ChampionError>;
+    readonly startInvestigationFromOwner: (
+      caller: Caller,
+      input: Parameters<Evidence["startInvestigation"]>[0],
+    ) => ReturnType<Evidence["startInvestigation"]>;
+    readonly cancelInvestigationFromOwner: (
+      caller: Caller,
+      input: Parameters<Evidence["cancelInvestigation"]>[0],
+    ) => ReturnType<Evidence["cancelInvestigation"]>;
+    readonly runtimeState: Evidence["runtimeState"];
+    readonly recommendation: Evidence["recommendation"];
+    readonly learningQuery: Evidence["learningQuery"];
+    readonly startInvestigation: Evidence["startInvestigation"];
+    readonly cancelInvestigation: Evidence["cancelInvestigation"];
+    readonly recordedInvestigationBinding: Evidence["recordedBinding"];
+    readonly admitInvestigation: Evidence["admit"];
+    readonly recordLearning: (
+      caller: Caller,
+      input: Parameters<Evidence["recordLearning"]>[0],
+    ) => ReturnType<Evidence["recordLearning"]>;
+    readonly synthesize: (
+      caller: Caller,
+      input: Parameters<Evidence["synthesis"]>[0],
+    ) => ReturnType<Evidence["synthesis"]>;
     readonly list: (input: {
       readonly projectId?: ChampionConfig["projectId"] | undefined;
     }) => Effect.Effect<{ champions: ReadonlyArray<ChampionSummary> }, ChampionError>;
@@ -148,6 +184,7 @@ export class ChampionService extends Context.Service<
       request: AgentTaskRequest | undefined;
       clientRequestId: string | undefined;
       followup?: boolean | undefined;
+      remote?: boolean | undefined;
       childThreadId?: ThreadId | undefined;
       forgeItem?: number | string | undefined;
     }) => Effect.Effect<ModelSelection | undefined, ChampionError>;
@@ -245,10 +282,12 @@ const make = Effect.gen(function* () {
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const launch = yield* ThreadLaunch.ThreadLaunchService;
   const providers = yield* ProviderRegistry.ProviderRegistry;
+  const managedAgents = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
   const projects = yield* ProjectService.ProjectService;
   const scheduler = yield* Scheduler.Scheduler;
   const landings = yield* Effect.serviceOption(SlipJayLandings.SlipJayLandings);
   const random = yield* SecureRandom.SecureRandom;
+  const evidence = yield* ChampionEvidence.make;
   const lock = yield* Semaphore.make(1);
   const changes = yield* PubSub.sliding<void>(1);
   const shellChanges = yield* PubSub.unbounded<ThreadId>();
@@ -443,12 +482,111 @@ const make = Effect.gen(function* () {
     const latestSamples = presentLatest(doc, yield* now);
     return { ...doc, champion: { ...doc.champion, latestSamples }, latestSamples };
   });
+  const resolveClasses = Effect.fn("ChampionService.resolveClasses")(function* (
+    projectId: ChampionConfig["projectId"],
+    taskClass: NonNullable<ChampionClassChoicesInput["taskClass"]>,
+    threadId?: ThreadId | null,
+  ) {
+    if (Option.isNone(managedAgents)) return yield* new ChampionError({ reason: "unavailable" });
+    const enabled = yield* Effect.filter(yield* providers.getProviders, (provider) =>
+      threads.isProviderInstanceEnabledForProject({ projectId, instanceId: provider.instanceId }),
+    );
+    const owner =
+      threadId == null
+        ? null
+        : yield* threads.getThreadShell(threadId).pipe(Effect.mapError(failure));
+    const ceiling = owner?.runtimeMode ?? "full-access";
+    const result = yield* managedAgents.value
+      .roles({
+        projectId,
+        providers: enabled,
+        ceiling,
+        request: { taskClass, runtimeMode: ceiling },
+      })
+      .pipe(Effect.mapError(failure));
+    const roles = yield* Effect.forEach(result.roles, (role) =>
+      role.selection === null || role.refusal !== null
+        ? Effect.succeed(role)
+        : validateModel(role.selection).pipe(
+            Effect.as(role),
+            Effect.orElseSucceed(() => ({
+              ...role,
+              selection: null,
+              refusal: "The selected account or model is unavailable for execution.",
+            })),
+          ),
+    );
+    return { ...result, roles };
+  });
+  const classChoices: ChampionService["Service"]["classChoices"] = Effect.fn(
+    "ChampionService.classChoices",
+  )(function* (input) {
+    if (Option.isNone(yield* projects.getById(input.projectId).pipe(Effect.mapError(failure))))
+      return yield* new ChampionError({ reason: "not-found" });
+    const doc = input.championId === undefined ? undefined : yield* read(input.championId);
+    if (doc !== undefined && doc.champion.projectId !== input.projectId)
+      return yield* new ChampionError({ reason: "unauthorized" });
+    const threadId =
+      doc === undefined
+        ? undefined
+        : input.phase === "setup"
+          ? doc.champion.setupThreadId
+          : doc.champion.ownerThreadId;
+    return yield* resolveClasses(input.projectId, input.taskClass ?? "non-ui", threadId).pipe(
+      Effect.map((result) => ({
+        policyHash: result.policyHash,
+        policyRevision: result.policyRevision,
+        refusal: null,
+        roles: result.roles.slice(0, 12).map((role) => ({
+          role: role.role,
+          selection: role.selection,
+          refusal: role.refusal?.slice(0, 500) ?? null,
+        })),
+      })),
+      Effect.orElseSucceed(() => ({
+        policyHash: null,
+        policyRevision: null,
+        refusal: "Agent class policy is unavailable on this machine.",
+        roles: [],
+      })),
+    );
+  });
   const upsert: ChampionService["Service"]["upsert"] = Effect.fn("ChampionService.upsert")(
     function* (input) {
       if (Option.isNone(yield* projects.getById(input.projectId).pipe(Effect.mapError(failure))))
         return yield* new ChampionError({ reason: "not-found" });
-      yield* validateModel(input.setupModelSelection);
-      yield* validateModel(input.routineModelSelection);
+      // Migrated class configuration may retain historical selections that no longer exist.
+      const priorConfig = yield* read(input.id).pipe(Effect.option);
+      if (Option.isNone(priorConfig) && input.classes !== undefined) {
+        const setup = yield* resolveClasses(input.projectId, input.classes.setup.taskClass);
+        const routine =
+          input.classes.routine.taskClass === input.classes.setup.taskClass
+            ? setup
+            : yield* resolveClasses(input.projectId, input.classes.routine.taskClass);
+        const setupSelection = setup.roles.find((role) => role.role === input.classes!.setup.role);
+        const routineSelection = routine.roles.find(
+          (role) => role.role === input.classes!.routine.role,
+        );
+        if (
+          setupSelection?.selection == null ||
+          setupSelection.refusal !== null ||
+          routineSelection?.selection == null ||
+          routineSelection.refusal !== null
+        )
+          return yield* new ChampionError({ reason: "unavailable" });
+        input = {
+          ...input,
+          setupModelSelection: setupSelection.selection,
+          routineModelSelection: routineSelection.selection,
+        };
+      }
+      if (
+        input.classes === undefined &&
+        (Option.isNone(priorConfig) || priorConfig.value.champion.classes === undefined)
+      ) {
+        yield* validateModel(input.setupModelSelection);
+        yield* validateModel(input.routineModelSelection);
+      }
       return yield* mutate(
         Effect.gen(function* () {
           const existing = yield* sql<{
@@ -488,6 +626,7 @@ const make = Effect.gen(function* () {
                   champion: {
                     ...prior.champion,
                     ...input,
+                    classes: input.classes ?? prior.champion.classes,
                     nextCheckAt:
                       prior.champion.lifecycle === "active"
                         ? isSameSchedule(prior.champion.schedule, input.schedule)
@@ -555,16 +694,64 @@ const make = Effect.gen(function* () {
       "Read and measure at the project root; every writer must use an isolated workspace. Never edit the shared root. Keep this owner thread and its namespace across checks. Do not archive or replace it while children are live.",
       "For metric breaches the server creates deterministic findings. Reconcile qualitative observations with known open findings: supply existingFindingId instead of paraphrasing a duplicate. Read history on demand, never fabricate a measurement.",
       "After reporting, call t3_champions_check_context to read finding workId/attemptId. Use these exact identities in delegate_task. Bounded repair: implementation-worker or chore-worker. Large/open work: advisor on the stronger selection, shape in Forge, then lead the Spec. Use existing role policy and SlipJay. If Forge/SlipJay is unavailable, report it explicitly as attention; never claim a repair was delivered without a revision.",
+      "Before a bounded investigation, call t3_champions_learning_query for its exact topic and retain the current retrieval receipt, including a legitimate empty result. Call t3_champions_start_investigation with distinct read-only hypotheses, then delegate only its returned branch workId/attemptId through normal managed roles in this project. At most three alternatives, two active branches, six admitted attempts per investigation and six per champion per rolling 24 hours; follow-ups count. Unknown launches hold capacity; replay the same identity instead of duplicating work.",
+      "Call t3_champions_synthesize as the owner. Write recommendation as concise, coherent prose explaining the action, rationale, benefits, material trade-offs, uncertainty and proposed scope. Avoid labelled sections or a taxonomy; the user reads the finding issue, your recommendation and an answer field. Retain structured supporting fields for history and optional evidence expansion. Its immutable revision requests the user's decision; recheck the current revision and finding attempt before acting on an answer. Retain dated conditional learning with t3_champions_record_learning, including failed or inconclusive attempts and observed component versions. Due learning is uncertain and never authorizes an automatic paid rerun. Leaves return evidence; only you retain synthesis and learning.",
       "Use t3_champions_update_finding for handoff, confirmed SlipJay delivery and verification. Verification requires a comparable later measurement on the delivered/running revision. Missing evidence is inconclusive. Ordinary decisions go in the finding decision ledger and attention; keep measuring instead of blocking on questions.",
       `Delivery/review procedure: ${DEFAULT_CHAMPION_INSTRUCTIONS}. Charter: ${encodeCharter(doc.champion.charter)}. Known findings: ${encodeFindings(doc.findings.filter((f) => f.status !== "verified" && f.status !== "dismissed"))}`,
     ].join("\n\n");
+  const resolveAttempt = Effect.fn("ChampionService.resolveAttempt")(function* (
+    doc: Document,
+    check: Pick<Check, "id" | "kind" | "threadId" | "messageId" | "commandId">,
+  ) {
+    const selectionClass =
+      doc.champion.classes?.[check.kind === "setup" ? "setup" : "routine"] ?? null;
+    let resolvedSelection =
+      check.kind === "setup"
+        ? doc.champion.setupModelSelection
+        : doc.champion.routineModelSelection;
+    let policyHash: string | null = null;
+    let policyRevision: string | null = null;
+    if (selectionClass !== null) {
+      const result = yield* resolveClasses(
+        doc.champion.projectId,
+        selectionClass.taskClass,
+        check.threadId,
+      );
+      const selected = result.roles.find((role) => role.role === selectionClass.role);
+      if (selected?.selection == null || selected.refusal !== null)
+        return yield* new ChampionError({ reason: "unavailable" });
+      resolvedSelection = selected.selection;
+      policyHash = result.policyHash;
+      policyRevision = result.policyRevision;
+    }
+    if (selectionClass !== null) yield* validateModel(resolvedSelection);
+    const attempt: typeof ChampionExecutionAttempt.Type = {
+      id: yield* uuid,
+      checkId: check.id,
+      kind: check.kind,
+      selectionClass,
+      policyHash,
+      policyRevision,
+      resolvedSelection,
+      actualSelection: null,
+      commandId: check.commandId,
+      messageId: check.messageId,
+      threadId: check.threadId,
+      acceptedAt: yield* now,
+    };
+    yield* sql`INSERT INTO champion_execution_attempts (id,champion_id,check_id,at,document_json) VALUES (${attempt.id},${doc.champion.id},${check.id},${attempt.acceptedAt},${json(attempt)})`.pipe(
+      Effect.mapError(failure),
+    );
+    return attempt;
+  });
   const dispatchCheck = Effect.fn("ChampionService.dispatchCheck")(function* (check: Check) {
     const doc = yield* read(check.championId);
     if ((yield* readCheck(check.id)).cancelled) return;
     const modelSelection =
-      check.kind === "setup"
+      check.executionAttempt?.resolvedSelection ??
+      (check.kind === "setup"
         ? doc.champion.setupModelSelection
-        : doc.champion.routineModelSelection;
+        : doc.champion.routineModelSelection);
     yield* validateModel(modelSelection);
     const existing = yield* threads.getThreadShell(check.threadId).pipe(Effect.mapError(failure));
     const commandId = check.commandId;
@@ -671,14 +858,27 @@ const make = Effect.gen(function* () {
                 const shell = yield* threads
                   .getThreadShell(outstanding.threadId)
                   .pipe(Effect.mapError(failure));
+                const records =
+                  shell === null
+                    ? undefined
+                    : yield* threads
+                        .getThreadRecords(outstanding.threadId, ["runs"])
+                        .pipe(Effect.mapError(failure));
+                const acceptedPending =
+                  records?.runs.some(
+                    (run) =>
+                      run.userMessageId === outstanding.messageId &&
+                      !ThreadManagement.isTerminalRunStatus(run.status),
+                  ) ?? false;
                 if (
                   shell !== null &&
                   shell.activeRunId === null &&
+                  !acceptedPending &&
                   shell.deletedAt === null &&
                   shell.archivedAt === null
                 ) {
                   const retryId = yield* uuid;
-                  const retry: Check = {
+                  let retry: Check = {
                     ...outstanding,
                     dispatchKind: "send",
                     dispatched: false,
@@ -687,6 +887,7 @@ const make = Effect.gen(function* () {
                     messageId: MessageId.make(`champion:${outstanding.id}:retry:${retryId}`),
                     measureOnly: outstanding.measureOnly || doc.champion.lifecycle !== "active",
                   };
+                  retry = { ...retry, executionAttempt: yield* resolveAttempt(doc, retry) };
                   yield* saveCheck(retry);
                   yield* write({
                     ...doc,
@@ -716,7 +917,7 @@ const make = Effect.gen(function* () {
               return yield* new ChampionError({ reason: "invalid" });
             const checkId = yield* uuid;
             const setupThreadId = doc.champion.setupThreadId ?? ThreadId.make(yield* uuid);
-            const check: Check = {
+            let check: Check = {
               id: checkId,
               championId: id,
               threadId: kind === "setup" ? setupThreadId : doc.champion.ownerThreadId,
@@ -735,6 +936,7 @@ const make = Effect.gen(function* () {
               reported: false,
               dispatched: false,
             };
+            check = { ...check, executionAttempt: yield* resolveAttempt(doc, check) };
             yield* saveCheck(check);
             yield* write({
               ...doc,
@@ -763,6 +965,29 @@ const make = Effect.gen(function* () {
           }),
         )
         .pipe(Effect.mapError((cause) => (isChampionError(cause) ? cause : failure(cause)))),
+    ).pipe(
+      Effect.tapError((error) =>
+        error.reason !== "unavailable"
+          ? Effect.void
+          : mutate(
+              Effect.gen(function* () {
+                const current = yield* read(id);
+                if (current.champion.classes === undefined) return;
+                const note = `${kind === "setup" ? "Setup" : "Check"} class unavailable. Resolve its current policy or retry; no saved-model fallback was selected.`;
+                yield* write({
+                  ...current,
+                  champion: {
+                    ...current.champion,
+                    nextCheckAt:
+                      scheduled && current.champion.lifecycle === "active"
+                        ? yield* nextDue(current.champion)
+                        : current.champion.nextCheckAt,
+                    attention: [...new Set([...current.champion.attention, note])],
+                  },
+                });
+              }),
+            ),
+      ),
     );
     if (!claim.dispatched)
       yield* dispatchCheck(claim).pipe(
@@ -958,6 +1183,12 @@ const make = Effect.gen(function* () {
     const doc = yield* read(check.championId);
     if (doc.champion.projectId !== shell.projectId)
       return yield* new ChampionError({ reason: "unauthorized" });
+    if (check.executionAttempt !== undefined) {
+      const attempt = { ...check.executionAttempt, actualSelection: run.modelSelection };
+      yield* sql`UPDATE champion_execution_attempts SET document_json = ${json(attempt)} WHERE id = ${attempt.id}`.pipe(
+        Effect.mapError(failure),
+      );
+    }
     return { check, doc, run };
   });
   const checkContext: ChampionService["Service"]["checkContext"] = Effect.fn(
@@ -1342,13 +1573,27 @@ const make = Effect.gen(function* () {
     const row = rows[0];
     if (row === undefined) return;
     const doc = yield* read(row.champion_id);
+    const decision = doc.findings.find((finding) => finding.id === row.finding_id)?.decision;
+    if (
+      decision?.id !== row.id ||
+      (decision.findingAttemptId !== undefined &&
+        doc.findings.find((finding) => finding.id === row.finding_id)?.attemptId !==
+          decision.findingAttemptId)
+    ) {
+      yield* sql`UPDATE champion_decision_deliveries SET delivered = 1 WHERE id = ${id}`.pipe(
+        Effect.mapError(failure),
+      );
+      return;
+    }
+    if (decision.recommendationId !== undefined)
+      yield* evidence.getRecommendation(decision.recommendationId);
     yield* threads
       .sendToThread({
         projectId: doc.champion.projectId,
         threadId: doc.champion.ownerThreadId,
         commandId: CommandId.make(`champion-decision:${row.id}`),
         messageId: MessageId.make(`champion-decision:${row.id}`),
-        text: `The user resolved decision ${row.id} for finding ${row.finding_id}. Apply this answer through the normal owner workflow without stopping routine measurements:\n${row.answer}`,
+        text: `The user resolved decision ${row.id} for finding ${row.finding_id}. Recommendation ${decision.recommendationId ?? "legacy decision"}; finding attempt ${decision.findingAttemptId ?? "legacy attempt"}; authorized proposed scope: ${decision.proposedScope ?? "the recorded question"}. Recheck the current finding and recommendation before using this answer; supersession invalidates it. Preserve charter, design, review and release authority and continue unrelated measurements.\n${row.answer}`,
         attachments: [],
         mode: "queue",
         createdBy: "user",
@@ -1382,6 +1627,8 @@ const make = Effect.gen(function* () {
         const finding = doc.findings.find((f) => f.id === input.findingId);
         if (finding === undefined) return yield* new ChampionError({ reason: "not-found" });
         if (["dismiss", "reopen"].includes(input.action)) {
+          if (yield* evidence.hasLive(input.id, input.findingId))
+            return yield* new ChampionError({ reason: "conflict" });
           const claims = yield* sql<{
             phase: string;
             state: string;
@@ -1403,12 +1650,36 @@ const make = Effect.gen(function* () {
         const at = yield* now;
         let updated: ChampionFinding = { ...finding, updatedAt: at };
         if (input.action === "decision") {
-          if (finding.decision?.status === "requested") return doc;
+          const recommendation =
+            input.recommendationId === undefined
+              ? undefined
+              : yield* evidence.getRecommendation(input.recommendationId);
+          if (
+            recommendation !== undefined &&
+            (recommendation.id !== input.id ||
+              recommendation.findingId !== finding.id ||
+              recommendation.findingAttemptId !== finding.attemptId)
+          )
+            return yield* new ChampionError({ reason: "conflict" });
+          if (
+            finding.decision != null &&
+            (finding.decision.status === "requested" || recommendation !== undefined) &&
+            finding.decision.recommendationId === input.recommendationId &&
+            finding.decision.findingAttemptId === recommendation?.findingAttemptId
+          )
+            return doc;
           updated = {
             ...updated,
             decision: {
               id: yield* uuid,
               question: input.reason,
+              ...(recommendation === undefined
+                ? {}
+                : {
+                    recommendationId: recommendation.recommendationId,
+                    findingAttemptId: recommendation.findingAttemptId,
+                    proposedScope: recommendation.proposedScope,
+                  }),
               status: "requested",
               answer: null,
               requestedAt: at,
@@ -1419,6 +1690,17 @@ const make = Effect.gen(function* () {
           if (actor !== "user") return yield* new ChampionError({ reason: "unauthorized" });
           if (!input.decisionId || finding.decision?.id !== input.decisionId)
             return yield* new ChampionError({ reason: "conflict" });
+          if (finding.decision.recommendationId !== undefined) {
+            const recommendation = yield* evidence.getRecommendation(
+              finding.decision.recommendationId,
+            );
+            if (
+              recommendation.findingAttemptId !== finding.attemptId ||
+              finding.decision.findingAttemptId !== finding.attemptId ||
+              recommendation.proposedScope !== finding.decision.proposedScope
+            )
+              return yield* new ChampionError({ reason: "conflict" });
+          }
           if (finding.decision.status === "resolved") {
             if (finding.decision.answer !== input.reason)
               return yield* new ChampionError({ reason: "conflict" });
@@ -1441,6 +1723,7 @@ const make = Effect.gen(function* () {
             ...updated,
             status: input.action === "dismiss" ? "dismissed" : "open",
             repairAttention: null,
+            decision: null,
             ...(input.action === "reopen"
               ? {
                   attemptId: `${finding.id}:${yield* uuid}`,
@@ -1675,10 +1958,122 @@ const make = Effect.gen(function* () {
       }),
     );
   });
+  const observedPhaseModel = Effect.fn("ChampionService.observedPhaseModel")(function* (
+    doc: Document,
+    finding: ChampionFinding,
+    phase: string,
+  ) {
+    const proof = yield* acceptedChild(doc, finding, phase);
+    if (proof.task.status !== "completed")
+      return yield* new ChampionError({ reason: "unavailable" });
+    const child = yield* threads
+      .getThreadRecords(proof.shell.id, ["runs"])
+      .pipe(Effect.mapError(failure));
+    const completed = child.runs
+      .filter((run) => run.status === "completed")
+      .toSorted((a, b) => b.ordinal - a.ordinal);
+    const model = completed[0]?.modelSelection.model;
+    if (model === undefined) return yield* new ChampionError({ reason: "unavailable" });
+    return model;
+  });
+  const verificationSelection = Effect.fn("ChampionService.verificationSelection")(function* (
+    doc: Document,
+    finding: ChampionFinding,
+    request: AgentTaskRequest,
+  ) {
+    const reviewedModel = yield* observedPhaseModel(doc, finding, "review");
+    if (Option.isNone(managedAgents)) return yield* new ChampionError({ reason: "unavailable" });
+    const enabled = yield* Effect.filter(yield* providers.getProviders, (provider) =>
+      threads.isProviderInstanceEnabledForProject({
+        projectId: doc.champion.projectId,
+        instanceId: provider.instanceId,
+      }),
+    );
+    for (const provider of enabled)
+      for (const model of provider.models) {
+        if (model.slug === reviewedModel) continue;
+        const result = yield* managedAgents.value
+          .roles({
+            projectId: doc.champion.projectId,
+            providers: enabled,
+            ceiling: "full-access",
+            request,
+            selection: { instanceId: provider.instanceId, model: model.slug },
+          })
+          .pipe(Effect.mapError(failure));
+        const selected = result.roles.find((role) => role.role === "ui-verifier");
+        if (selected?.selection != null && selected.refusal === null) return selected.selection;
+      }
+    return yield* new ChampionError({ reason: "unavailable" });
+  });
+  const admitInvestigation: ChampionService["Service"]["admitInvestigation"] = Effect.fn(
+    "ChampionService.admitDelegation",
+  )(function* (proof) {
+    const doc = yield* byThread(proof.ownerThreadId);
+    if (
+      doc !== undefined &&
+      (proof.binding.role === "ui-verifier" || proof.binding.role === "reviewer")
+    ) {
+      const finding = doc.findings.find(
+        (f) => f.workId === proof.binding.workId && f.attemptId === proof.binding.attemptId,
+      );
+      if (!finding) return yield* new ChampionError({ reason: "unauthorized" });
+      if (proof.binding.role === "ui-verifier") {
+        if ((yield* observedPhaseModel(doc, finding, "review")) === proof.selection.model)
+          return yield* new ChampionError({ reason: "unavailable" });
+      } else {
+        const verification = yield* acceptedChild(doc, finding, "verification").pipe(Effect.option);
+        if (
+          Option.isSome(verification) &&
+          (yield* observedPhaseModel(doc, finding, "verification")) === proof.selection.model
+        )
+          return yield* new ChampionError({ reason: "unavailable" });
+      }
+    }
+    yield* evidence.admit(proof);
+    yield* PubSub.publish(changes, undefined);
+  });
   const guardDelegation: ChampionService["Service"]["guardDelegation"] = Effect.fn(
     "ChampionService.guardDelegation",
-  )(function* ({ ownerThreadId, request, clientRequestId, followup, childThreadId, forgeItem }) {
+  )(function* ({
+    ownerThreadId,
+    request,
+    clientRequestId,
+    followup,
+    childThreadId,
+    forgeItem,
+    remote,
+  }) {
     if ((yield* byThread(ownerThreadId)) === undefined) return;
+    if (yield* evidence.guard(ownerThreadId, request, clientRequestId, remote)) {
+      const prior = yield* evidence.recordedBinding(ownerThreadId, clientRequestId);
+      if (prior !== undefined) return prior.effective;
+      if (followup) {
+        if (!request || !childThreadId) return yield* new ChampionError({ reason: "unauthorized" });
+        return (yield* evidence.followupBinding(ownerThreadId, request, childThreadId)).effective;
+      }
+      const doc = yield* byThread(ownerThreadId);
+      if (!doc || !request || Option.isNone(managedAgents))
+        return yield* new ChampionError({ reason: "unavailable" });
+      const enabled = yield* Effect.filter(yield* providers.getProviders, (provider) =>
+        threads.isProviderInstanceEnabledForProject({
+          projectId: doc.champion.projectId,
+          instanceId: provider.instanceId,
+        }),
+      );
+      const result = yield* managedAgents.value
+        .roles({
+          projectId: doc.champion.projectId,
+          providers: enabled,
+          ceiling: "full-access",
+          request,
+        })
+        .pipe(Effect.mapError(failure));
+      const selected = result.roles.find((entry) => entry.role === request.role);
+      if (selected?.selection == null || selected.refusal !== null)
+        return yield* new ChampionError({ reason: "unavailable" });
+      return selected.selection;
+    }
     return yield* mutate(
       Effect.gen(function* () {
         const doc = yield* byThread(ownerThreadId);
@@ -1729,7 +2124,12 @@ const make = Effect.gen(function* () {
           if (Option.isNone(proof) || proof.value.task.status !== "completed")
             return yield* refuse();
         }
-        if (phase === "advice") yield* validateModel(doc.champion.setupModelSelection);
+        const distinctSelection =
+          phase === "verification" && !followup
+            ? yield* verificationSelection(doc, finding, request)
+            : undefined;
+        if (phase === "advice" && doc.champion.classes === undefined)
+          yield* validateModel(doc.champion.setupModelSelection);
         const prior = yield* sql<{
           client_request_id: string;
           role: string;
@@ -1756,7 +2156,12 @@ const make = Effect.gen(function* () {
             )
               return yield* refuse();
           }
-          return phase === "advice" ? doc.champion.setupModelSelection : undefined;
+          return (
+            distinctSelection ??
+            (phase === "advice" && doc.champion.classes === undefined
+              ? doc.champion.setupModelSelection
+              : undefined)
+          );
         }
         const workIds = doc.findings.map((f) => f.workId);
         const active = yield* sql<{
@@ -1817,7 +2222,12 @@ const make = Effect.gen(function* () {
           ...doc,
           findings: doc.findings.map((f) => (f.id === finding.id ? updated : f)),
         });
-        return phase === "advice" ? doc.champion.setupModelSelection : undefined;
+        return (
+          distinctSelection ??
+          (phase === "advice" && doc.champion.classes === undefined
+            ? doc.champion.setupModelSelection
+            : undefined)
+        );
       }),
     );
   });
@@ -1825,6 +2235,17 @@ const make = Effect.gen(function* () {
     "ChampionService.delegationOutcome",
   )(function* (input) {
     if (!input.request || !input.clientRequestId) return;
+    if (
+      yield* evidence.outcome(
+        input.ownerThreadId,
+        input.request,
+        input.clientRequestId,
+        input.state,
+      )
+    ) {
+      yield* PubSub.publish(changes, undefined);
+      return;
+    }
     const request = input.request;
     const phase = phaseForRole(request.role);
     if (!phase || (yield* byThread(input.ownerThreadId)) === undefined) return;
@@ -2099,6 +2520,29 @@ const make = Effect.gen(function* () {
           }),
         );
       if (champion.openFindingCount > 0) yield* reconcileRepairs(champion.id);
+      const reconciled = yield* evidence.reconcile(champion.id);
+      if (reconciled.changed) yield* PubSub.publish(changes, undefined);
+      const existingAttention = champion.attention.filter((item) =>
+        item.startsWith("Investigation:"),
+      );
+      if (existingAttention.join("\n") !== reconciled.attention.join("\n"))
+        yield* mutate(
+          Effect.gen(function* () {
+            const current = yield* read(champion.id);
+            yield* write({
+              ...current,
+              champion: {
+                ...current.champion,
+                attention: [
+                  ...current.champion.attention.filter(
+                    (item) => !item.startsWith("Investigation:"),
+                  ),
+                  ...reconciled.attention,
+                ],
+              },
+            });
+          }),
+        );
       for (const pendingId of [
         doc.champion.outstandingCheckId,
         doc.champion.outstandingSetupId ?? null,
@@ -2185,7 +2629,81 @@ const make = Effect.gen(function* () {
     Effect.forkScoped,
   );
   yield* scheduler.register("champions", runDue);
+  const authenticateOwner = Effect.fn("ChampionService.authenticateOwner")(function* (
+    caller: Caller,
+    id: string,
+  ) {
+    const { shell } = yield* authenticateLive(caller);
+    const doc = yield* read(id);
+    if (
+      doc.champion.ownerThreadId !== shell.id ||
+      doc.champion.projectId !== shell.projectId ||
+      shell.agentTask !== undefined
+    )
+      return yield* new ChampionError({ reason: "unauthorized" });
+  });
+  const recordLearning: ChampionService["Service"]["recordLearning"] = Effect.fn(
+    "ChampionService.recordLearning",
+  )(function* (caller, input) {
+    yield* authenticateOwner(caller, input.id);
+    const value = yield* evidence.recordLearning(input);
+    yield* PubSub.publish(changes, undefined);
+    return value;
+  });
+  const synthesize: ChampionService["Service"]["synthesize"] = Effect.fn(
+    "ChampionService.synthesize",
+  )(function* (caller, input) {
+    yield* authenticateOwner(caller, input.id);
+    const value = yield* evidence.synthesis(input);
+    yield* findingAction(
+      {
+        id: input.id,
+        findingId: value.findingId,
+        action: "decision",
+        recommendationId: value.recommendationId,
+        reason: value.summary.slice(0, 500),
+      },
+      "agent",
+    );
+    return value;
+  });
+  const startInvestigation: Evidence["startInvestigation"] = Effect.fn(
+    "ChampionService.startInvestigation",
+  )(function* (input) {
+    const result = yield* evidence.startInvestigation(input);
+    yield* PubSub.publish(changes, undefined);
+    return result;
+  });
+  const cancelInvestigation: Evidence["cancelInvestigation"] = Effect.fn(
+    "ChampionService.cancelInvestigation",
+  )(function* (input) {
+    const result = yield* evidence.cancelInvestigation(input);
+    yield* PubSub.publish(changes, undefined);
+    return result;
+  });
+  const startInvestigationFromOwner: ChampionService["Service"]["startInvestigationFromOwner"] =
+    Effect.fn("ChampionService.startInvestigationFromOwner")(function* (caller, input) {
+      yield* authenticateOwner(caller, input.id);
+      return yield* startInvestigation(input);
+    });
+  const cancelInvestigationFromOwner: ChampionService["Service"]["cancelInvestigationFromOwner"] =
+    Effect.fn("ChampionService.cancelInvestigationFromOwner")(function* (caller, input) {
+      yield* authenticateOwner(caller, input.id);
+      return yield* cancelInvestigation(input);
+    });
   return ChampionService.of({
+    classChoices,
+    startInvestigationFromOwner,
+    cancelInvestigationFromOwner,
+    runtimeState: evidence.runtimeState,
+    recommendation: evidence.recommendation,
+    learningQuery: evidence.learningQuery,
+    startInvestigation,
+    cancelInvestigation,
+    admitInvestigation,
+    recordedInvestigationBinding: evidence.recordedBinding,
+    recordLearning,
+    synthesize,
     list,
     get,
     upsert,
@@ -2219,4 +2737,6 @@ const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(ChampionService, make);
+export const layer = Layer.effect(ChampionService, make).pipe(
+  Layer.provide(ManagedTaskControl.layer),
+);

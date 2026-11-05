@@ -1,4 +1,17 @@
 import {
+  ChampionClassChoicesInput,
+  ChampionClassChoicesResult,
+  ChampionRuntimeState,
+  ChampionLearningQueryInput,
+  ChampionLearningQueryResult,
+  ChampionLearningRecordInput,
+  ChampionLearningRevision,
+  ChampionInvestigationStartInput,
+  ChampionInvestigationCancelInput,
+  ChampionInvestigation,
+  ChampionSynthesisInput,
+  ChampionRecommendation,
+  ChampionRecommendationInput,
   ChampionAcceptInput,
   ChampionCheckContext,
   ChampionDetail,
@@ -30,6 +43,77 @@ const shared = {
     McpInvocationContext.McpInvocationContext,
   ],
 };
+const class_choices = Tool.make("t3_champions_class_choices", {
+  ...shared,
+  description:
+    "Read server-resolved eligible agent classes for a destination project and classification, with policy provenance and honest refusals. New draft historical selection fields come from these choices; never guess a model.",
+  parameters: ChampionClassChoicesInput,
+  success: ChampionClassChoicesResult,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const recommendation = Tool.make("t3_champions_recommendation", {
+  ...shared,
+  description:
+    "Read one exact retained recommendation scoped to its Champion, finding and finding attempt.",
+  parameters: ChampionRecommendationInput,
+  success: ChampionRecommendation,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const runtime_state = Tool.make("t3_champions_runtime_state", {
+  ...shared,
+  description: "Read bounded Champion execution provenance, investigations and recommendations.",
+  parameters: ChampionGetInput,
+  success: ChampionRuntimeState,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const learning_query = Tool.make("t3_champions_learning_query", {
+  ...shared,
+  description:
+    "Retrieve scoped learning by exact topic before investigating; retain the retrieval receipt. Due filters mark uncertainty without launching work.",
+  parameters: ChampionLearningQueryInput,
+  success: ChampionLearningQueryResult,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const record_learning = Tool.make("t3_champions_record_learning", {
+  ...shared,
+  description:
+    "Retain an immutable learning revision as the authenticated Champion owner. Include failed attempts, dated evidence, applicability and review conditions. Leaves return evidence to their owner.",
+  parameters: ChampionLearningRecordInput,
+  success: ChampionLearningRevision,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const start_investigation = Tool.make("t3_champions_start_investigation", {
+  ...shared,
+  description:
+    "Record at most three distinct read-only hypotheses for a finding after current learning retrieval. Returned branches give exact managed workId and attemptId. Delegate through the normal managed task tool; admission enforces capacity and budget.",
+  parameters: ChampionInvestigationStartInput,
+  success: ChampionInvestigation,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const cancel_investigation = Tool.make("t3_champions_cancel_investigation", {
+  ...shared,
+  description:
+    "Persist cancellation intent for the exact investigation. Managed cancellation is reconciled durably; unknown children continue to hold capacity.",
+  parameters: ChampionInvestigationCancelInput,
+  success: ChampionInvestigation,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const synthesize = Tool.make("t3_champions_synthesize", {
+  ...shared,
+  description:
+    "Retain immutable synthesis as the authenticated owner and request a revision-bound decision. Write recommendation as concise, coherent prose covering the action, rationale, benefits, material trade-offs, uncertainty and proposed scope, without labelled sections or a taxonomy. Supporting structured fields remain in history. Approval preserves charter, design, review and release authority.",
+  parameters: ChampionSynthesisInput,
+  success: ChampionRecommendation,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
 const list = Tool.make("t3_champions_list", {
   ...shared,
   description: "Read compact champion summaries in this environment.",
@@ -176,6 +260,15 @@ const complete_setup = Tool.make("t3_champions_complete_setup", {
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false);
 export const ChampionsToolkit = Toolkit.make(
+  class_choices,
+  runtime_state,
+  recommendation,
+  learning_query,
+  record_learning,
+  start_investigation,
+  cancel_investigation,
+  synthesize,
+
   discard_proposal,
   cancel_setup,
   complete_setup,

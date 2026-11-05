@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_CHAMPION_INSTRUCTIONS,
   type ChampionConfig,
+  type ChampionSelectionClass,
   type ChampionSummary,
   type EnvironmentId,
   type ModelSelection,
@@ -38,12 +39,11 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Textarea } from "../ui/textarea";
 import { Toggle } from "../ui/toggle";
 import {
+  DEFAULT_CHAMPION_CLASSES,
   deriveChampionName,
   modelSelectionProblem,
-  type PickedChampionModel,
-  resolveChampionModel,
-  suggestChampionModels,
 } from "./champions.logic";
+import { ChampionClassField, useChampionClassChoices } from "./ChampionClassField";
 import { ChampionMachineNotice } from "./ChampionMachineNotice";
 import {
   useChampionAction,
@@ -318,12 +318,12 @@ function ChampionFormFields(props: {
   const [schedule, setSchedule] = useState<ScheduleDraft>(() =>
     scheduleDraftOf(champion?.schedule ?? DEFAULT_SCHEDULE),
   );
-  const [pickedSetup, setPickedSetup] = useState<PickedChampionModel | null>(() =>
-    champion ? { environmentId, selection: champion.setupModelSelection } : null,
-  );
-  const [pickedRoutine, setPickedRoutine] = useState<PickedChampionModel | null>(() =>
-    champion ? { environmentId, selection: champion.routineModelSelection } : null,
-  );
+  const [classes, setClasses] = useState<{
+    readonly setup: ChampionSelectionClass;
+    readonly routine: ChampionSelectionClass;
+  } | null>(() => (champion ? (champion.classes ?? null) : DEFAULT_CHAMPION_CLASSES));
+  const [legacySetup, setLegacySetup] = useState(champion?.setupModelSelection ?? null);
+  const [legacyRoutine, setLegacyRoutine] = useState(champion?.routineModelSelection ?? null);
   const charter = champion?.charter ?? DEFAULT_CHARTER;
   const [maxConcurrent, setMaxConcurrent] = useState(charter.maxConcurrentRepairs);
   const [maxPerDay, setMaxPerDay] = useState(String(charter.maxRepairsPerDay));
@@ -349,37 +349,35 @@ function ChampionFormFields(props: {
   const canSetup = useChampionCommandAllowed(serverEnvironment.setupChampion, environmentId);
   const machineConnected = useChampionMachineConnected(environmentId);
   const nowMs = Date.parse(`${useNowMinute()}:00.000Z`);
-  const suggested = suggestChampionModels(entries, nowMs);
-  const resolvedSetup = resolveChampionModel({
-    picked: pickedSetup,
-    suggested: suggested.setup,
-    environmentId,
-  });
-  const resolvedRoutine = resolveChampionModel({
-    picked: pickedRoutine,
-    suggested: suggested.routine,
-    environmentId,
-  });
-  const setupModel = resolvedSetup.selection;
-  const routineModel = resolvedRoutine.selection;
-  const modelProblem = (resolved: typeof resolvedSetup) =>
-    resolved.fromOtherMachine
-      ? "Chosen for another machine. Choose a model for this project's machine."
-      : providersLoaded
-        ? modelSelectionProblem(resolved.selection, entries, nowMs)
-        : null;
-  const setupProblem = modelProblem(resolvedSetup);
-  const routineProblem = modelProblem(resolvedRoutine);
-  const showAdvanced =
-    advancedOpen || resolvedSetup.fromOtherMachine || resolvedRoutine.fromOtherMachine;
-  const noProvider = providersLoaded && suggested.setup === null && champion === null;
+  const projectId = champion?.projectId ?? props.project?.projectId ?? null;
+  const classTarget = (phase: "setup" | "routine") =>
+    projectId === null ? null : { environmentId, projectId, championId: champion?.id, phase };
+  const setupChoices = useChampionClassChoices(classTarget("setup"), classes?.setup ?? null);
+  const routineChoices = useChampionClassChoices(classTarget("routine"), classes?.routine ?? null);
+  const modelProblem = (selection: ModelSelection | null) =>
+    providersLoaded ? modelSelectionProblem(selection, entries, nowMs) : null;
+  const setupProblem = classes === null ? modelProblem(legacySetup) : null;
+  const routineProblem = classes === null ? modelProblem(legacyRoutine) : null;
+  const converted = champion !== null && champion.classes === undefined && classes !== null;
+  const classesRefused =
+    (setupChoices.current !== null && setupChoices.current.selection === null) ||
+    (routineChoices.current !== null && routineChoices.current.selection === null);
+  const classesError = setupChoices.error ?? routineChoices.error;
+  // A new draft takes its required model fields from the server, so it can't save without them.
+  const newDraftBlocked = champion === null && (classesRefused || classesError !== null);
+  const newDraftPending =
+    champion === null &&
+    projectId !== null &&
+    !newDraftBlocked &&
+    (setupChoices.current === null || routineChoices.current === null);
+  const showAdvanced = advancedOpen || newDraftBlocked;
+  const newDraftRefusal = setupChoices.current?.refusal ?? routineChoices.current?.refusal ?? null;
   const machine = useEnvironments().environments.find(
     (environment) => environment.environmentId === environmentId,
   );
 
   const configOf = (): ChampionConfig | null => {
-    const projectId = champion?.projectId ?? props.project?.projectId;
-    if (!purpose.trim() || projectId === undefined) {
+    if (!purpose.trim() || projectId === null) {
       setProblem("Say what should stay true and choose a project.");
       return null;
     }
@@ -401,9 +399,16 @@ function ChampionFormFields(props: {
       setProblem(`Repairs per day must be a whole number from 0 to ${MAX_REPAIRS_PER_DAY}.`);
       return null;
     }
+    const setupModel = champion === null ? (setupChoices.current?.selection ?? null) : legacySetup;
+    const routineModel =
+      champion === null ? (routineChoices.current?.selection ?? null) : legacyRoutine;
     if (setupModel === null || routineModel === null || setupProblem || routineProblem) {
       setAdvancedOpen(true);
-      setProblem("Choose models this machine can run.");
+      setProblem(
+        classes === null
+          ? "Choose models this machine can run."
+          : "These roles can't run on this machine yet.",
+      );
       return null;
     }
     setProblem(null);
@@ -413,6 +418,7 @@ function ChampionFormFields(props: {
       name: finalName,
       purpose: purpose.trim(),
       schedule: timed,
+      ...(classes === null ? {} : { classes }),
       setupModelSelection: setupModel,
       routineModelSelection: routineModel,
       charter: {
@@ -518,18 +524,26 @@ function ChampionFormFields(props: {
         )}
       </div>
 
-      {noProvider ? (
+      {newDraftBlocked ? (
         <Alert variant="warning">
           <AlertTitle>No model is ready on {machine?.label ?? "this machine"}</AlertTitle>
           <AlertDescription>
-            A champion needs an enabled provider there to propose metrics and run checks.
+            {classesError
+              ? `Couldn't check your role policy there. ${classesError}`
+              : newDraftRefusal}{" "}
+            Nothing was switched to another model.
           </AlertDescription>
           <AlertAction>
             <Button
               size="xs"
               variant="outline"
               disabled={!machineConnected}
-              onClick={() => void refreshProviders({ environmentId, input: {} })}
+              onClick={() => {
+                void refreshProviders({ environmentId, input: {} }).then(() => {
+                  setupChoices.refresh();
+                  routineChoices.refresh();
+                });
+              }}
             >
               Check again
             </Button>
@@ -550,30 +564,30 @@ function ChampionFormFields(props: {
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap gap-2">
             <Button
-              disabled={disabled || !canSave || !canSetup || noProvider}
+              disabled={disabled || !canSave || !canSetup || newDraftBlocked || newDraftPending}
               onClick={() => void submitNew("propose")}
             >
               {busy === "propose" ? "Starting…" : "Propose metrics"}
             </Button>
             <Button
               variant="ghost"
-              disabled={disabled || !canSave || noProvider}
+              disabled={disabled || !canSave || newDraftBlocked || newDraftPending}
               onClick={() => void submitNew("manual")}
             >
               Add metrics myself
             </Button>
           </div>
           <p className="text-muted-foreground text-xs">
-            {setupModel ? (
-              <>
-                <ModelLabel
-                  environmentId={environmentId}
-                  instanceId={setupModel.instanceId}
-                  model={setupModel.model}
-                  className="inline-flex"
-                />{" "}
-              </>
-            ) : null}
+            {setupChoices.current?.selection ? (
+              <ModelLabel
+                environmentId={environmentId}
+                instanceId={setupChoices.current.selection.instanceId}
+                model={setupChoices.current.selection.model}
+                className="inline-flex"
+              />
+            ) : (
+              "The setup role"
+            )}{" "}
             reads your remit and the evidence available in this project, then proposes what to
             track. It runs at setup and for later reviews, not on routine checks. Nothing starts
             until you accept.
@@ -609,22 +623,77 @@ function ChampionFormFields(props: {
               draft={schedule}
               onChange={(patch) => setSchedule((current) => ({ ...current, ...patch }))}
             />
-            <ChampionModelField
-              label="Routine checks use"
-              environmentId={environmentId}
-              selection={routineModel}
-              problem={routineProblem}
-              disabled={disabled}
-              onChange={(selection) => setPickedRoutine({ environmentId, selection })}
-            />
-            <ChampionModelField
-              label="Metric setup and larger challenges use"
-              environmentId={environmentId}
-              selection={setupModel}
-              problem={setupProblem}
-              disabled={disabled}
-              onChange={(selection) => setPickedSetup({ environmentId, selection })}
-            />
+            {classes === null ? (
+              <>
+                <div className="flex flex-col items-start gap-1.5 rounded-lg border p-3 text-sm">
+                  <p className="font-medium">This champion uses fixed models</p>
+                  <p className="text-muted-foreground text-xs">
+                    It keeps using exactly these until you change it, and nothing switches for you.
+                    Following role policy changes both fields together, and a champion doesn't go
+                    back to fixed models afterwards. Past runs keep the model they used.
+                  </p>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={disabled}
+                    onClick={() => setClasses(DEFAULT_CHAMPION_CLASSES)}
+                  >
+                    Follow role policy instead
+                  </Button>
+                </div>
+                <ChampionModelField
+                  label="Routine checks use"
+                  environmentId={environmentId}
+                  selection={legacyRoutine}
+                  problem={routineProblem}
+                  disabled={disabled}
+                  onChange={setLegacyRoutine}
+                />
+                <ChampionModelField
+                  label="Metric setup and larger challenges use"
+                  environmentId={environmentId}
+                  selection={legacySetup}
+                  problem={setupProblem}
+                  disabled={disabled}
+                  onChange={setLegacySetup}
+                />
+              </>
+            ) : (
+              <>
+                {converted ? (
+                  <p className="text-muted-foreground text-xs">
+                    Both fields now follow role policy, from the suggested roles. This takes effect
+                    when you save.{" "}
+                    <Button
+                      size="xs"
+                      variant="ghost-muted"
+                      disabled={disabled}
+                      onClick={() => setClasses(null)}
+                    >
+                      Keep fixed models
+                    </Button>
+                  </p>
+                ) : null}
+                <ChampionClassField
+                  label="Routine checks use"
+                  environmentId={environmentId}
+                  selected={classes.routine}
+                  saved={champion?.classes?.routine ?? null}
+                  query={routineChoices}
+                  disabled={disabled}
+                  onChange={(routine) => setClasses({ ...classes, routine })}
+                />
+                <ChampionClassField
+                  label="Metric setup and larger challenges use"
+                  environmentId={environmentId}
+                  selected={classes.setup}
+                  saved={champion?.classes?.setup ?? null}
+                  query={setupChoices}
+                  disabled={disabled}
+                  onChange={(setup) => setClasses({ ...classes, setup })}
+                />
+              </>
+            )}
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="champion-charter">Repair charter</Label>
               <Textarea
@@ -681,7 +750,11 @@ function ChampionFormFields(props: {
           {problem ?? error}
         </p>
       ) : null}
-      {providers.length === 0 && !providersLoaded ? (
+      {newDraftPending ? (
+        <p role="status" className="text-muted-foreground text-xs">
+          Checking your role policy…
+        </p>
+      ) : classes === null && providers.length === 0 && !providersLoaded ? (
         <p role="status" className="text-muted-foreground text-xs">
           Loading models…
         </p>

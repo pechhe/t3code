@@ -111,6 +111,7 @@ import Migration0105 from "./Migrations/105_RepairBooleanSettledOverride.ts";
 import Migration0106 from "./Migrations/106_DropOrchestrationEventCorrelationIndex.ts";
 import Migration0107 from "./Migrations/107_DelegatedRecoveryIndexes.ts";
 import Migration0108 from "./Migrations/108_WeaveStoredNames.ts";
+import Migration0109 from "./Migrations/109_ChampionInvestigations.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -222,6 +223,7 @@ const migrationEntries = [
   [106, "DropOrchestrationEventCorrelationIndex", Migration0106],
   [107, "DelegatedRecoveryIndexes", Migration0107],
   [108, "WeaveStoredNames", Migration0108],
+  [109, "ChampionInvestigations", Migration0109],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

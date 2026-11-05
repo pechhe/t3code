@@ -5,6 +5,10 @@ import {
   type ChampionMetric,
   type ChampionMetricInput,
   type ChampionSummary,
+  type ChampionInvestigation,
+  type ChampionLearningRevision,
+  type ChampionRecommendation,
+  type ChampionRuntimeState,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { RpcClientError } from "effect/rpc";
@@ -217,6 +221,8 @@ export function championsUnsupportedByServer(cause: Cause.Cause<unknown>): boole
 }
 
 export type ChampionAction =
+  | "investigation"
+  | "learning"
   | "load"
   | "save"
   | "setup"
@@ -229,6 +235,9 @@ export type ChampionAction =
   | "decision";
 
 const CONFLICT_MESSAGES: Partial<Record<ChampionAction, string>> = {
+  investigation:
+    "The investigation or its available capacity changed. Refresh its evidence before trying again.",
+  learning: "This learning has a newer revision. Read the current revision before replacing it.",
   finding: "A repair is still running on this. Wait for it to finish, then try again.",
   decision: "This decision has changed. Check its current state.",
   metrics: "There is no proposal to accept any more.",
@@ -276,4 +285,183 @@ export function championLoadFailureMessage(cause: Cause.Cause<unknown>): string 
     return "This machine's server needs updating to use Champions.";
   }
   return championFailureMessage(Cause.squash(cause), "load");
+}
+
+export type ChampionResearchTone = "running" | "done" | "warning" | "failed" | "idle";
+
+interface ChampionResearchBranch {
+  readonly id: string;
+  readonly hypothesis: string;
+  readonly tone: ChampionResearchTone;
+  readonly status: string;
+  readonly result: string | null;
+}
+
+export interface ChampionResearchView {
+  readonly investigationId: string;
+  /** The server hasn't confirmed every task has stopped, so nothing may be dismissed under it. */
+  readonly live: boolean;
+  readonly cancellable: boolean;
+  readonly cancelRequested: boolean;
+  readonly cannotConfirm: boolean;
+  readonly summary: string | null;
+  readonly attention: string | null;
+  readonly branches: ReadonlyArray<ChampionResearchBranch>;
+}
+
+const counted = (count: number, one: string, many: string) =>
+  `${count} ${count === 1 ? one : many}`;
+
+export function championResearchView(investigation: ChampionInvestigation): ChampionResearchView {
+  const requested = investigation.status === "cancel_requested";
+  const branches = investigation.branches.map((branch): ChampionResearchBranch => {
+    const attempt = investigation.attempts
+      .filter((candidate) => candidate.branchId === branch.id)
+      .sort((a, b) => a.admittedAt.localeCompare(b.admittedAt))
+      .at(-1);
+    const view = (tone: ChampionResearchTone, status: string) => ({
+      id: branch.id,
+      hypothesis: branch.hypothesis,
+      tone,
+      status,
+      result: attempt?.result ?? null,
+    });
+    switch (attempt?.state) {
+      case undefined:
+        return view("idle", investigation.status === "open" ? "Not started" : "Never started");
+      case "admitted":
+        return view("running", requested ? "Stop requested" : "Starting");
+      case "accepted":
+        return view("running", requested ? "Stop requested" : "Running");
+      case "unknown":
+        return view("warning", "Can't confirm");
+      case "completed":
+        return view("done", "Finished");
+      case "failed":
+        return view("failed", "Failed");
+      case "cancelled":
+        return view("idle", "Cancelled");
+    }
+  });
+  const running = branches.filter((branch) => branch.tone === "running").length;
+  const unknown = branches.filter((branch) => branch.tone === "warning").length;
+  const unconfirmed =
+    unknown > 0 ? ` · ${counted(unknown, "task", "tasks")} can't be confirmed` : "";
+  const open = investigation.status === "open";
+  const tasks = branches.length;
+  const summary =
+    investigation.status === "synthesized"
+      ? null
+      : investigation.status === "cancelled"
+        ? `Research cancelled${unconfirmed}`
+        : requested
+          ? running + unknown > 0
+            ? `Cancel requested · ${counted(running + unknown, "task", "tasks")} not yet stopped`
+            : "Cancel requested"
+          : running > 0
+            ? `Researching ${counted(tasks, "option", "options")} · ${counted(running, "task", "tasks")} running${unconfirmed}`
+            : unknown > 0
+              ? `Researching ${counted(tasks, "option", "options")}${unconfirmed}`
+              : branches.every((branch) => branch.tone === "idle")
+                ? `Research planned · ${counted(tasks, "option", "options")}`
+                : `Researched ${counted(tasks, "option", "options")} · No recommendation yet`;
+  return {
+    investigationId: investigation.investigationId,
+    live: open || requested || running + unknown > 0,
+    cancellable: open,
+    cancelRequested: requested,
+    cannotConfirm: unknown > 0,
+    summary,
+    attention: investigation.attention,
+    branches,
+  };
+}
+
+export interface ChampionFindingRuntime {
+  readonly research: ChampionResearchView | null;
+  /** What the open or last decision was asked about. Null when it wasn't asked from one. */
+  readonly recommendation: ChampionRecommendation | null;
+  /** The decision names a recommendation this client doesn't have, so it can't be read yet. */
+  readonly recommendationMissing: boolean;
+  readonly earlier: ReadonlyArray<ChampionRecommendation>;
+}
+
+export function championFindingRuntime(
+  finding: ChampionFinding,
+  state: ChampionRuntimeState | null,
+  exact: ChampionRecommendation | null = null,
+): ChampionFindingRuntime {
+  const recommendationId = finding.decision?.recommendationId;
+  const recommendation =
+    recommendationId === undefined
+      ? null
+      : (state?.recommendations.find(
+          (candidate) =>
+            candidate.recommendationId === recommendationId &&
+            candidate.findingId === finding.id &&
+            candidate.findingAttemptId === finding.attemptId,
+        ) ??
+        (exact?.recommendationId === recommendationId &&
+        exact.findingId === finding.id &&
+        exact.findingAttemptId === finding.attemptId
+          ? exact
+          : null));
+  // The server lists pending investigations first, then the newest.
+  const investigation = state?.investigations.find(
+    (candidate) => candidate.findingId === finding.id,
+  );
+  return {
+    research: investigation ? championResearchView(investigation) : null,
+    recommendation,
+    recommendationMissing: recommendationId !== undefined && recommendation === null,
+    earlier: (state?.recommendations ?? [])
+      .filter(
+        (candidate) =>
+          candidate.findingId === finding.id &&
+          candidate.recommendationId !== recommendationId &&
+          (recommendation === null || candidate.recordedAt <= recommendation.recordedAt),
+      )
+      .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt)),
+  };
+}
+
+const NOTE_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+const dateOf = (value: string) => NOTE_DATE_FORMAT.format(Date.parse(value));
+
+const OUTCOME_WORDS = { improved: "It helped", failed: "It failed", inconclusive: "Inconclusive" };
+
+/** An exact historical revision as plain sentences. Its own text is never swapped for the head's. */
+export function learningNoteProse(revision: ChampionLearningRevision): ReadonlyArray<string> {
+  const standing = !revision.isCurrent
+    ? ["A newer note has replaced this one. It's kept as what was known at the time."]
+    : revision.applicabilityState === "uncertain"
+      ? [
+          "This is due another look, so it may no longer hold. That doesn't make it wrong, nothing was deleted, and nothing reruns by itself.",
+        ]
+      : [];
+  const reconsider = [
+    ...revision.reviewConditions.map((condition) => `We'll reconsider if ${condition}.`),
+    ...revision.versionConditions.map(
+      (condition) =>
+        `We'll reconsider if ${condition.component} moves on from ${condition.version}.`,
+    ),
+    ...(revision.reviewAt === null
+      ? []
+      : [`We planned to look again by ${dateOf(revision.reviewAt)}.`]),
+  ];
+  return [
+    ...standing,
+    ...revision.evidence.map(
+      (item) => `${item.evidence} (${item.source}, ${dateOf(item.observedAt)})`,
+    ),
+    ...revision.attempts.map((attempt) => `${OUTCOME_WORDS[attempt.outcome]}: ${attempt.evidence}`),
+    revision.applicability,
+    revision.tradeoffs,
+    ...reconsider,
+  ].flatMap((line) => (line.trim() ? [line.trim().replace(/\.\.$/, ".")] : []));
 }

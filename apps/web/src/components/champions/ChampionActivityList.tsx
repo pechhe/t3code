@@ -4,37 +4,62 @@ import {
   CHAMPION_FINDING_STATUS_LABELS,
   championFailureMessage,
   championFindingIsClosed,
+  type ChampionFindingRuntime,
+  championFindingRuntime,
+  type ChampionResearchTone,
+  type ChampionResearchView,
+  learningNoteProse,
   pendingChampionDecision,
 } from "@t3tools/client-runtime/champions";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type {
-  ChampionActivity,
-  ChampionFinding,
-  EnvironmentId,
-  ThreadId,
+import {
+  ChampionError,
+  type ChampionActivity,
+  type ChampionFinding,
+  type ChampionRuntimeState,
+  type EnvironmentId,
+  type ModelSelection,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
+import * as Schema from "effect/Schema";
 import { ChevronDownIcon, ChevronRightIcon, ExternalLinkIcon } from "lucide-react";
 import { useState } from "react";
 
 import { readLocalApi } from "../../localApi";
-import { cn } from "../../lib/utils";
+import { cn, randomUUID } from "../../lib/utils";
+import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { AgentRoleChip } from "../AgentRoleChip";
+import { ModelLabel } from "../ModelLabel";
 import { ScheduledRelativeLabel } from "../scheduled/scheduledTaskParts";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
-import { activityTitle, type ChampionActivityView, safeExternalUrl } from "./champions.logic";
+import {
+  activityTitle,
+  type ChampionActivityView,
+  championDecisionBinding,
+  type ChampionDecisionBinding,
+  championDecisionBindingChanged,
+  championRecentRuns,
+  recommendationSupport,
+  safeExternalUrl,
+  sameChampionModel,
+} from "./champions.logic";
 import { FINDING_VARIANTS } from "./championsPresentation";
 import { useChampionCommandAllowed } from "./useChampionAction";
 
 const QUIET_SHOWN = 5;
 const DECISION_ANSWER_MAX_LENGTH = 500;
+const CANCEL_REASON_MAX_LENGTH = 500;
+const RUNS_SHOWN = 10;
+const isChampionError = Schema.is(ChampionError);
 
 function ThreadLink(props: {
   readonly environmentId: EnvironmentId;
@@ -96,11 +121,38 @@ function WorkLinks(props: {
   );
 }
 
+function Disclosure(props: {
+  readonly label: string;
+  readonly openLabel?: string;
+  readonly children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const Chevron = open ? ChevronDownIcon : ChevronRightIcon;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Button
+        size="xs"
+        variant="ghost-muted"
+        className="self-start"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Chevron aria-hidden />
+        {open ? (props.openLabel ?? props.label) : props.label}
+      </Button>
+      {open ? props.children : null}
+    </div>
+  );
+}
+
 function DecisionAnswer(props: {
   readonly environmentId: EnvironmentId;
   readonly championId: string;
   readonly findingId: string;
   readonly decision: NonNullable<ChampionFinding["decision"]>;
+  /** Off while the recommendation this decision is about can't be read. */
+  readonly readable: boolean;
+  readonly onChanged: () => void;
 }) {
   const { decision } = props;
   const act = useAtomCommand(serverEnvironment.championFindingAction, {
@@ -112,6 +164,8 @@ function DecisionAnswer(props: {
     props.environmentId,
   );
   const [answer, setAnswer] = useState("");
+  // What the person was reading when they started writing. An answer is only ever about that.
+  const [drafted, setDrafted] = useState<ChampionDecisionBinding | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (decision.status === "resolved") {
@@ -122,8 +176,16 @@ function DecisionAnswer(props: {
       </div>
     );
   }
+  const current = championDecisionBinding(decision);
+  const changed = championDecisionBindingChanged(drafted, current);
+  const edit = (value: string) => {
+    setAnswer(value);
+    setError(null);
+    if (!value.trim()) setDrafted(null);
+    else if (drafted === null) setDrafted(current);
+  };
   const submit = async () => {
-    if (busy || !answer.trim()) return;
+    if (busy || !answer.trim() || changed || !props.readable) return;
     setBusy(true);
     setError(null);
     const result = await act({
@@ -132,13 +194,23 @@ function DecisionAnswer(props: {
         id: props.championId,
         findingId: props.findingId,
         action: "resolve_decision",
-        decisionId: decision.id,
+        decisionId: current.decisionId,
+        ...(current.recommendationId === undefined
+          ? {}
+          : { recommendationId: current.recommendationId }),
         reason: answer.trim(),
       },
     });
     setBusy(false);
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      setError(championFailureMessage(squashAtomCommandFailure(result), "decision"));
+      const failure = squashAtomCommandFailure(result);
+      const conflict = isChampionError(failure) && failure.reason === "conflict";
+      setError(
+        conflict
+          ? "This changed before your answer arrived, so it wasn't sent. It's still here."
+          : championFailureMessage(failure, "decision"),
+      );
+      if (conflict) props.onChanged();
     }
   };
   return (
@@ -150,18 +222,32 @@ function DecisionAnswer(props: {
       }}
     >
       <p className="font-medium">{decision.question}</p>
+      {changed ? (
+        <div
+          role="alert"
+          className="flex flex-col items-start gap-1.5 text-warning-foreground text-xs"
+        >
+          <p>
+            The recommendation changed while you were writing, so your answer wasn't sent. It's
+            still here. Check it still fits what's above.
+          </p>
+          <Button size="xs" variant="outline" onClick={() => setDrafted(current)}>
+            Keep my answer for this version
+          </Button>
+        </div>
+      ) : null}
       <Textarea
         aria-label="Your answer"
         placeholder="Your answer goes to the champion's owner."
         maxLength={DECISION_ANSWER_MAX_LENGTH}
         value={answer}
-        onChange={(event) => setAnswer(event.target.value)}
+        onChange={(event) => edit(event.target.value)}
       />
       <Button
         size="sm"
         type="submit"
         className="self-start"
-        disabled={!canAct || busy || !answer.trim()}
+        disabled={!canAct || busy || !answer.trim() || changed || !props.readable}
       >
         {busy ? "Sending…" : "Answer and continue"}
       </Button>
@@ -171,6 +257,204 @@ function DecisionAnswer(props: {
         </p>
       ) : null}
     </form>
+  );
+}
+
+const RESEARCH_DOTS: Record<ChampionResearchTone, string> = {
+  running: "bg-info",
+  done: "bg-success",
+  warning: "bg-warning",
+  failed: "bg-destructive",
+  idle: "bg-muted-foreground/50",
+};
+
+function ResearchList(props: { readonly research: ChampionResearchView }) {
+  return (
+    <ul className="flex flex-col gap-1 text-xs">
+      {props.research.branches.map((branch) => (
+        <li key={branch.id} className="flex flex-wrap items-baseline gap-x-2">
+          <span className="flex w-28 shrink-0 items-center gap-1.5">
+            <span aria-hidden className={cn("size-1.5 rounded-full", RESEARCH_DOTS[branch.tone])} />
+            {branch.status}
+          </span>
+          <span className="min-w-0 flex-1 basis-48">
+            {branch.hypothesis}
+            {branch.result ? (
+              <span className="text-muted-foreground"> · {branch.result}</span>
+            ) : null}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ResearchControls(props: {
+  readonly environmentId: EnvironmentId;
+  readonly championId: string;
+  readonly research: ChampionResearchView;
+  readonly paused: boolean;
+  readonly onChanged: () => void;
+}) {
+  const { research } = props;
+  const cancel = useAtomCommand(serverEnvironment.cancelChampionInvestigation, {
+    label: "champion cancel investigation",
+    reportFailure: false,
+  });
+  const canCancel = useChampionCommandAllowed(
+    serverEnvironment.cancelChampionInvestigation,
+    props.environmentId,
+  );
+  // Kept across a failed send, so retrying is the same request rather than a second one.
+  const [requestId, setRequestId] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async () => {
+    if (busy || requestId === null || !reason.trim()) return;
+    setBusy(true);
+    setError(null);
+    const result = await cancel({
+      environmentId: props.environmentId,
+      input: {
+        id: props.championId,
+        investigationId: research.investigationId,
+        requestId,
+        reason: reason.trim(),
+      },
+    });
+    setBusy(false);
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) {
+        setError(championFailureMessage(squashAtomCommandFailure(result), "investigation"));
+      }
+      return;
+    }
+    setSent(true);
+    setRequestId(null);
+    setReason("");
+    props.onChanged();
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      {research.attention ? <p className="text-warning-foreground">{research.attention}</p> : null}
+      {props.paused && research.live ? (
+        <p className="text-muted-foreground text-xs">
+          Paused, so no new research starts. Anything already running carries on.
+        </p>
+      ) : null}
+      {requestId !== null ? (
+        <form
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          <Input
+            className="min-w-48 flex-1"
+            nativeInput
+            size="sm"
+            autoFocus
+            maxLength={CANCEL_REASON_MAX_LENGTH}
+            aria-label="Why cancel this?"
+            placeholder="Why cancel this?"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+          />
+          <Button size="xs" type="submit" disabled={!canCancel || busy || !reason.trim()}>
+            {busy ? "Requesting…" : "Request cancel"}
+          </Button>
+          <Button
+            size="xs"
+            variant="ghost-muted"
+            disabled={busy}
+            onClick={() => {
+              setRequestId(null);
+              setError(null);
+            }}
+          >
+            Keep running
+          </Button>
+        </form>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <Disclosure label="See research" openLabel="Hide research">
+            <ResearchList research={research} />
+          </Disclosure>
+          {research.cancellable && !sent ? (
+            <Button
+              size="xs"
+              variant="ghost-muted"
+              className="self-start"
+              disabled={!canCancel}
+              onClick={() => setRequestId(randomUUID())}
+            >
+              Cancel research
+            </Button>
+          ) : null}
+        </div>
+      )}
+      {research.cancelRequested || (sent && research.cancellable) ? (
+        <p role="status" className="text-muted-foreground text-xs">
+          Cancel requested. It stays this way until every task is confirmed stopped.
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="text-destructive-foreground text-xs">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function HowItGotHere(props: {
+  readonly runtime: ChampionFindingRuntime;
+  readonly events: ReadonlyArray<ChampionActivity>;
+}) {
+  const { recommendation, earlier, research } = props.runtime;
+  const support = recommendation ? recommendationSupport(recommendation) : [];
+  // Live or cancelled research already has its own "See research" beside the finding.
+  const researchHere = research !== null && !research.live && research.summary === null;
+  if (support.length === 0 && earlier.length === 0 && !researchHere && props.events.length === 0) {
+    return null;
+  }
+  return (
+    <Disclosure label="How it got here">
+      <div className="flex flex-col gap-2 text-xs">
+        {support.map((text) => (
+          <p key={text} className="whitespace-pre-wrap">
+            {text}
+          </p>
+        ))}
+        {earlier.map((previous) => (
+          <p key={previous.recommendationId} className="text-muted-foreground">
+            Earlier, <ScheduledRelativeLabel value={previous.recordedAt} />:{" "}
+            {previous.recommendation}
+          </p>
+        ))}
+        {researchHere ? <ResearchList research={research} /> : null}
+        {props.events.length > 0 ? (
+          <ol className="flex flex-col gap-1">
+            {props.events.map((event) => (
+              <li key={event.id} className="flex flex-wrap gap-x-2">
+                <span className="w-24 shrink-0 text-muted-foreground">
+                  <ScheduledRelativeLabel value={event.at} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  {activityTitle(event.kind)}
+                  {event.text ? (
+                    <span className="text-muted-foreground"> · {event.text}</span>
+                  ) : null}
+                </span>
+              </li>
+            ))}
+          </ol>
+        ) : null}
+      </div>
+    </Disclosure>
   );
 }
 
@@ -333,38 +617,107 @@ function FindingEntry(props: {
   readonly finding: ChampionFinding;
   readonly events: ReadonlyArray<ChampionActivity>;
   readonly archived: boolean;
+  readonly runtimeState: ChampionRuntimeState | null;
+  readonly runtimeFailed: boolean;
+  readonly paused: boolean;
+  readonly onChanged: () => void;
 }) {
   const { finding } = props;
   const pending = pendingChampionDecision(finding);
   const closed = championFindingIsClosed(finding);
+  const recent = championFindingRuntime(finding, props.runtimeState);
+  const exact = useEnvironmentQuery(
+    recent.recommendationMissing && finding.decision?.recommendationId !== undefined
+      ? serverEnvironment.championRecommendation({
+          environmentId: props.environmentId,
+          input: {
+            id: props.championId,
+            findingId: finding.id,
+            findingAttemptId: finding.attemptId,
+            recommendationId: finding.decision.recommendationId,
+          },
+        })
+      : null,
+  );
+  const runtime = championFindingRuntime(finding, props.runtimeState, exact.data);
+  const { recommendation, research } = runtime;
+  const live = research?.live === true;
+  const changedRecommendation = recommendation !== null && runtime.earlier.length > 0;
   return (
     <EntryRow
       title={finding.title}
-      subtitle={finding.evidence}
+      subtitle={
+        pending && recommendation
+          ? changedRecommendation
+            ? "Recommendation changed"
+            : "Recommendation ready"
+          : (research?.summary ?? finding.evidence)
+      }
       badge={
         pending
           ? { label: "Needs you", variant: "warning" }
-          : {
-              label: CHAMPION_FINDING_STATUS_LABELS[finding.status],
-              variant: FINDING_VARIANTS[finding.status],
-            }
+          : research?.cancelRequested
+            ? { label: "Cancel requested", variant: "info" }
+            : research?.cannotConfirm
+              ? { label: "Can't confirm", variant: "warning" }
+              : live
+                ? { label: "Investigating", variant: "info" }
+                : {
+                    label: CHAMPION_FINDING_STATUS_LABELS[finding.status],
+                    variant: FINDING_VARIANTS[finding.status],
+                  }
       }
       at={finding.updatedAt}
       highlighted={pending !== null}
       defaultOpen={pending !== null}
     >
+      {finding.evidence ? <p className="whitespace-pre-wrap">{finding.evidence}</p> : null}
+      {pending && recommendation ? (
+        <div className="flex flex-col gap-1.5">
+          <p className="whitespace-pre-wrap">{recommendation.recommendation}</p>
+          <p className="text-muted-foreground text-xs">
+            {changedRecommendation ? "Changed" : "Recommended"}{" "}
+            <ScheduledRelativeLabel value={recommendation.recordedAt} />
+          </p>
+        </div>
+      ) : pending && runtime.recommendationMissing ? (
+        <p role="status" className="text-muted-foreground text-xs">
+          {props.runtimeFailed || exact.error !== null
+            ? "Its recommendation couldn't load, so answering is off until it does."
+            : "Loading its recommendation…"}
+        </p>
+      ) : null}
       {finding.decision ? (
         <DecisionAnswer
           environmentId={props.environmentId}
           championId={props.championId}
           findingId={finding.id}
           decision={finding.decision}
+          readable={!runtime.recommendationMissing}
+          onChanged={props.onChanged}
+        />
+      ) : null}
+      {finding.decision?.status === "resolved" && recommendation ? (
+        <Disclosure label="What it recommended">
+          <p className="whitespace-pre-wrap text-xs">{recommendation.recommendation}</p>
+          <p className="text-muted-foreground text-xs">
+            Your answer was about the version from{" "}
+            <ScheduledRelativeLabel value={recommendation.recordedAt} />
+          </p>
+        </Disclosure>
+      ) : null}
+      {research !== null && (live || research.summary !== null) ? (
+        <ResearchControls
+          environmentId={props.environmentId}
+          championId={props.championId}
+          research={research}
+          paused={props.paused}
+          onChanged={props.onChanged}
         />
       ) : null}
       {finding.repairAttention ? (
         <p className="text-warning-foreground">{finding.repairAttention}</p>
       ) : null}
-      {finding.evidence ? <p className="whitespace-pre-wrap">{finding.evidence}</p> : null}
       <WorkLinks
         environmentId={props.environmentId}
         threadId={finding.childThreadId}
@@ -386,40 +739,161 @@ function FindingEntry(props: {
         <p className="text-muted-foreground text-xs">
           Older settled finding, kept for reference. It can't be changed from here.
         </p>
-      ) : (
+      ) : live ? null : (
         <FindingControls
           environmentId={props.environmentId}
           championId={props.championId}
           finding={finding}
         />
       )}
-      {props.events.length > 0 ? (
-        <ol className="flex flex-col gap-1 text-xs">
-          {props.events.map((event) => (
-            <li key={event.id} className="flex flex-wrap gap-x-2">
-              <span className="w-24 shrink-0 text-muted-foreground">
-                <ScheduledRelativeLabel value={event.at} />
-              </span>
-              <span className="min-w-0 flex-1">
-                {activityTitle(event.kind)}
-                {event.text ? <span className="text-muted-foreground"> · {event.text}</span> : null}
-              </span>
-            </li>
-          ))}
-        </ol>
-      ) : null}
+      <HowItGotHere runtime={runtime} events={props.events} />
     </EntryRow>
+  );
+}
+
+function LearningDetail(props: {
+  readonly environmentId: EnvironmentId;
+  readonly championId: string;
+  readonly learningRef: NonNullable<ChampionActivity["learningRef"]>;
+}) {
+  const { learningRef } = props;
+  const query = useEnvironmentQuery(
+    serverEnvironment.championLearning({
+      environmentId: props.environmentId,
+      input: {
+        id: props.championId,
+        topic: learningRef.topic,
+        revisionId: learningRef.revisionId,
+        observations: [],
+      },
+    }),
+  );
+  // An older server ignores the revision filter and answers with other revisions of the topic.
+  const revision = query.data?.revisions.find(
+    (candidate) =>
+      candidate.id === learningRef.revisionId && candidate.learningId === learningRef.learningId,
+  );
+  if (revision) {
+    return (
+      <div className="flex flex-col gap-1 text-muted-foreground text-xs">
+        {learningNoteProse(revision).map((line) => (
+          <p key={line}>{line}</p>
+        ))}
+      </div>
+    );
+  }
+  if (query.error) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+        <p>Its source couldn't load.</p>
+        <Button size="xs" variant="ghost-muted" onClick={() => query.refresh()}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <p role="status" className="text-muted-foreground text-xs">
+      {query.data === null ? "Loading its source…" : "Its source isn't available on this machine."}
+    </p>
+  );
+}
+
+function RunModel(props: {
+  readonly environmentId: EnvironmentId;
+  readonly selection: ModelSelection;
+}) {
+  return (
+    <ModelLabel
+      environmentId={props.environmentId}
+      instanceId={props.selection.instanceId}
+      model={props.selection.model}
+      className="inline-flex"
+    />
+  );
+}
+
+function RecentRuns(props: {
+  readonly environmentId: EnvironmentId;
+  readonly state: ChampionRuntimeState | null;
+}) {
+  const [all, setAll] = useState(false);
+  if (props.state === null) return null;
+  const runs = championRecentRuns(props.state);
+  if (runs.length === 0) return null;
+  return (
+    <Disclosure label="Recent runs and models">
+      <p className="text-muted-foreground text-xs">
+        Each run keeps the role and model it started with. Changing a role or your role policy only
+        affects later runs.
+      </p>
+      <ul className="flex flex-col divide-y overflow-hidden rounded-lg border bg-card text-xs">
+        {(all ? runs : runs.slice(0, RUNS_SHOWN)).map((run) => (
+          <li key={run.key} className="flex flex-col gap-1 px-3 py-2">
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="text-muted-foreground">
+                <ScheduledRelativeLabel value={run.at} />
+              </span>
+              <span>{run.kind}</span>
+              {run.role ? (
+                <AgentRoleChip role={run.role} />
+              ) : (
+                <Badge variant="outline">Fixed model</Badge>
+              )}
+              <span className="flex-1" />
+              <ThreadLink
+                environmentId={props.environmentId}
+                threadId={run.threadId}
+                label="Open"
+              />
+            </span>
+            <span className="flex flex-wrap items-center gap-x-1 text-muted-foreground">
+              {run.actual !== null && sameChampionModel(run.resolved, run.actual) ? (
+                <>
+                  Started and ran on
+                  <RunModel environmentId={props.environmentId} selection={run.resolved} />
+                </>
+              ) : (
+                <>
+                  Started on
+                  <RunModel environmentId={props.environmentId} selection={run.resolved} />
+                  {" · Ran on "}
+                  {run.actual === null ? (
+                    "not confirmed"
+                  ) : (
+                    <RunModel environmentId={props.environmentId} selection={run.actual} />
+                  )}
+                </>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {!all && runs.length > RUNS_SHOWN ? (
+        <Button size="xs" variant="ghost-muted" className="self-start" onClick={() => setAll(true)}>
+          Show {runs.length - RUNS_SHOWN} more
+        </Button>
+      ) : null}
+    </Disclosure>
   );
 }
 
 function EventEntry(props: {
   readonly environmentId: EnvironmentId;
+  readonly championId: string;
   readonly event: ChampionActivity;
 }) {
   const { event } = props;
   return (
     <EntryRow title={activityTitle(event.kind)} subtitle={event.text} at={event.at}>
       {event.text ? <p className="whitespace-pre-wrap">{event.text}</p> : null}
+      {event.learningRef ? (
+        <LearningDetail
+          environmentId={props.environmentId}
+          championId={props.championId}
+          learningRef={event.learningRef}
+        />
+      ) : null}
       <WorkLinks
         environmentId={props.environmentId}
         threadId={event.threadId}
@@ -436,6 +910,10 @@ export function ChampionActivityList(props: {
   readonly championId: string;
   readonly view: ChampionActivityView;
   readonly loading: boolean;
+  readonly runtimeState: ChampionRuntimeState | null;
+  readonly runtimeFailed: boolean;
+  readonly paused: boolean;
+  readonly onChanged: () => void;
 }) {
   const { view } = props;
   const [quietOpen, setQuietOpen] = useState(false);
@@ -452,11 +930,16 @@ export function ChampionActivityList(props: {
               finding={entry.finding}
               events={entry.events}
               archived={entry.archived}
+              runtimeState={props.runtimeState}
+              runtimeFailed={props.runtimeFailed}
+              paused={props.paused}
+              onChanged={props.onChanged}
             />
           ) : (
             <EventEntry
               key={entry.event.id}
               environmentId={props.environmentId}
+              championId={props.championId}
               event={entry.event}
             />
           ),
@@ -500,6 +983,7 @@ export function ChampionActivityList(props: {
           ) : null}
         </div>
       ) : null}
+      <RecentRuns environmentId={props.environmentId} state={props.runtimeState} />
     </>
   );
 }

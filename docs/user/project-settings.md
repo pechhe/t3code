@@ -93,10 +93,11 @@ as keeping page loads fast or tests reliable. Each champion shows the measuremen
 it tracks and an activity feed of findings, work and results.
 
 Create a champion with a purpose and project, then ask it to propose metrics.
-Setup uses the stronger model you choose; recurring checks use a separate model
-so routine monitoring need not incur the same cost. Review the suggested metrics,
+Setup and recurring checks follow separate agent classes from your role policy.
+Changing that policy updates future attempts; work already accepted keeps its original selection. Review the suggested metrics,
 edit them if needed, and accept them before enabling checks. Advanced settings
-control the cadence, model selections and the limits on automatic repairs.
+control the cadence, agent classes and the limits on automatic repairs. Older
+fixed-model champions keep their choices until you select **Follow role policy instead**.
 
 Expand a metric to inspect its source and history. Missing measurements are
 unknown, not zero. Changing what a metric measures starts a separate series;
@@ -106,12 +107,20 @@ new proposal without silently changing the accepted definitions.
 A champion can delegate bounded repairs within its instructions and limits.
 Larger work goes through normal Spec shaping and delivery. Ordinary checks stay
 out of the chat list; decisions and interrupted work come to your inbox. The
-activity feed links to the underlying work. A returned change or a landing alone
+activity feed links to the underlying work. A champion can compare a small set of
+read-only research options and bring you a recommendation with its trade-offs.
+Answer on the finding to authorize the stated scope. If the recommendation changes
+while you type, your draft is kept for you to reconsider.
+
+Learning appears as dated activity notes. Expand one for its evidence and the
+conditions for looking again. Older conclusions stay available; a note due for
+review is uncertain, not deleted, and does not start another investigation by itself. A returned change or a landing alone
 does not prove improvement: the champion needs comparable measurements of the
 running version.
 
-Pausing stops new scheduled checks and repair dispatch, while existing work
-continues. A manual check while paused measures only. Resuming starts from the
+Pausing stops new scheduled checks, research and repair dispatch, while existing work
+continues. **Cancel research** requests a stop; the page waits for confirmation.
+A manual check while paused measures only. Resuming starts from the
 next due time rather than replaying every missed check. Retiring stops future
 checks and preserves the history and any unfinished work.
 

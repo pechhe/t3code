@@ -1334,6 +1334,23 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.scheduledTasksGetWebhookDelivery,
     }),
     championsLive,
+    championClassChoices: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:champions:class-choices",
+      tag: WS_METHODS.championsClassChoices,
+    }),
+    championRecommendation: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:champions:recommendation",
+      tag: WS_METHODS.championsRecommendation,
+    }),
+    championRuntimeState: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:champions:runtime-state",
+      tag: WS_METHODS.championsRuntimeState,
+      refreshTrigger: ({ environmentId }) => championsLive({ environmentId, input: {} }),
+    }),
+    championLearning: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:champions:learning",
+      tag: WS_METHODS.championsLearningQuery,
+    }),
     championDetail: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:champions:detail",
       tag: WS_METHODS.championsGet,
@@ -1601,6 +1618,14 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.experimentsTransition,
       scheduler: configScheduler,
       concurrency: configConcurrency,
+    }),
+    startChampionInvestigation: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:champions:start-investigation",
+      tag: WS_METHODS.championsStartInvestigation,
+    }),
+    cancelChampionInvestigation: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:champions:cancel-investigation",
+      tag: WS_METHODS.championsCancelInvestigation,
     }),
     upsertChampion: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:champions:Upsert",

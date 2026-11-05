@@ -8,6 +8,8 @@ import {
   MessageId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
+import { AgentRole, AgentTaskClass, AgentTaskBinding } from "./agentPolicy.ts";
+import { CommandId, NodeId } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ScheduledTaskUpsertSchedule } from "./scheduledTask.ts";
 
@@ -49,6 +51,40 @@ export const ChampionCharter = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHAMPION_INSTRUCTIONS)),
   ),
 });
+export const ChampionSelectionClass = Schema.Struct({ role: AgentRole, taskClass: AgentTaskClass });
+export type ChampionSelectionClass = typeof ChampionSelectionClass.Type;
+export const ChampionClasses = Schema.Struct({
+  setup: ChampionSelectionClass.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed({ role: "advisor" as const, taskClass: "non-ui" as const }),
+    ),
+  ),
+  routine: ChampionSelectionClass.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed({ role: "chore-worker" as const, taskClass: "non-ui" as const }),
+    ),
+  ),
+});
+export const ChampionClassChoicesInput = Schema.Struct({
+  projectId: ProjectId,
+  championId: Schema.optional(ChampionId),
+  taskClass: Schema.optional(AgentTaskClass),
+  phase: Schema.optional(Schema.Literals(["setup", "routine"])),
+});
+export type ChampionClassChoicesInput = typeof ChampionClassChoicesInput.Type;
+export const ChampionClassChoicesResult = Schema.Struct({
+  policyHash: Schema.NullOr(ChampionText),
+  policyRevision: Schema.NullOr(ChampionText),
+  refusal: Schema.NullOr(ChampionLabel),
+  roles: Schema.Array(
+    Schema.Struct({
+      role: AgentRole,
+      selection: Schema.NullOr(ModelSelection),
+      refusal: Schema.NullOr(ChampionLabel),
+    }),
+  ).check(Schema.isMaxLength(12)),
+});
+export type ChampionClassChoicesResult = typeof ChampionClassChoicesResult.Type;
 export const ChampionConfig = Schema.Struct({
   id: ChampionId,
   projectId: ProjectId,
@@ -58,6 +94,7 @@ export const ChampionConfig = Schema.Struct({
     ScheduledTaskUpsertSchedule.members[0],
     ScheduledTaskUpsertSchedule.members[1],
   ]),
+  classes: Schema.optional(ChampionClasses),
   setupModelSelection: ModelSelection,
   routineModelSelection: ModelSelection,
   charter: ChampionCharter,
@@ -115,6 +152,9 @@ export const ChampionFinding = Schema.Struct({
     Schema.NullOr(
       Schema.Struct({
         id: ChampionLabel,
+        recommendationId: Schema.optional(ChampionLabel),
+        findingAttemptId: Schema.optional(ChampionText),
+        proposedScope: Schema.optional(ChampionText),
         question: ChampionText,
         status: Schema.Literals(["requested", "resolved"]),
         answer: Schema.NullOr(ChampionText),
@@ -175,6 +215,9 @@ export const ChampionActivity = Schema.Struct({
   at: IsoDateTime,
   kind: ChampionText,
   text: ChampionText,
+  learningRef: Schema.optional(
+    Schema.Struct({ learningId: ChampionLabel, revisionId: ChampionLabel, topic: ChampionLabel }),
+  ),
   findingId: Schema.NullOr(Schema.String),
   threadId: Schema.NullOr(ThreadId),
   revision: Schema.NullOr(Schema.String),
@@ -222,6 +265,7 @@ export const ChampionFindingActionInput = Schema.Struct({
   findingId: ChampionText,
   action: Schema.Literals(["dismiss", "reopen", "decision", "resolve_decision"]),
   decisionId: Schema.optional(ChampionLabel),
+  recommendationId: Schema.optional(ChampionLabel),
   reason: ChampionLabel,
 });
 export const ChampionSetupCompleteInput = Schema.Struct({ summary: ChampionText });
@@ -289,3 +333,200 @@ export class ChampionError extends Schema.TaggedError<ChampionError>()("Champion
     return `Champion operation failed: ${this.reason}.`;
   }
 }
+
+export const ChampionExecutionAttempt = Schema.Struct({
+  id: ChampionLabel,
+  checkId: ChampionText,
+  kind: Schema.Literals(["setup", "check"]),
+  selectionClass: Schema.NullOr(ChampionSelectionClass),
+  policyHash: Schema.NullOr(ChampionText),
+  policyRevision: Schema.NullOr(ChampionText),
+  resolvedSelection: ModelSelection,
+  actualSelection: Schema.NullOr(ModelSelection),
+  commandId: CommandId,
+  messageId: MessageId,
+  threadId: ThreadId,
+  acceptedAt: IsoDateTime,
+});
+export type ChampionExecutionAttempt = typeof ChampionExecutionAttempt.Type;
+export const ChampionLearningEvidence = Schema.Struct({
+  source: ChampionLabel,
+  evidence: ChampionText,
+  observedAt: IsoDateTime,
+});
+export const ChampionComponentObservation = Schema.Struct({
+  component: ChampionLabel,
+  version: Schema.NullOr(ChampionLabel),
+  observedAt: IsoDateTime,
+});
+export const ChampionLearningContent = Schema.Struct({
+  topic: ChampionLabel,
+  question: ChampionText,
+  conclusion: ChampionText,
+  attempts: Schema.Array(
+    Schema.Struct({
+      attemptId: ChampionLabel,
+      outcome: Schema.Literals(["improved", "failed", "inconclusive"]),
+      evidence: ChampionText,
+    }),
+  ).check(Schema.isMaxLength(12)),
+  evidence: Schema.Array(ChampionLearningEvidence).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(12),
+  ),
+  components: Schema.Array(ChampionComponentObservation).check(Schema.isMaxLength(16)),
+  environment: ChampionText,
+  applicability: ChampionText,
+  tradeoffs: ChampionText,
+  reviewAt: Schema.NullOr(IsoDateTime),
+  reviewConditions: Schema.Array(ChampionLabel).check(Schema.isMaxLength(12)),
+  versionConditions: Schema.Array(
+    Schema.Struct({
+      component: ChampionLabel,
+      comparison: Schema.Literal("changed"),
+      version: ChampionLabel,
+    }),
+  ).check(Schema.isMaxLength(16)),
+});
+export const ChampionLearningRecordInput = Schema.Struct({
+  id: ChampionId,
+  learningId: ChampionLabel,
+  expectedCurrentId: Schema.NullOr(ChampionLabel),
+  reason: ChampionLabel,
+  ...ChampionLearningContent.fields,
+});
+export type ChampionLearningRecordInput = typeof ChampionLearningRecordInput.Type;
+export const ChampionLearningRevision = Schema.Struct({
+  ...ChampionLearningContent.fields,
+  id: ChampionLabel,
+  learningId: ChampionLabel,
+  championId: ChampionId,
+  projectId: ProjectId,
+  recordedAt: IsoDateTime,
+  supersedes: Schema.NullOr(ChampionLabel),
+  reason: ChampionLabel,
+  applicabilityState: Schema.Literals(["current", "uncertain"]),
+  isCurrent: Schema.Boolean,
+});
+export type ChampionLearningRevision = typeof ChampionLearningRevision.Type;
+export const ChampionLearningQueryInput = Schema.Struct({
+  id: ChampionId,
+  topic: ChampionLabel,
+  revisionId: Schema.optional(ChampionLabel),
+  due: Schema.optional(Schema.Boolean),
+  includeSuperseded: Schema.optional(Schema.Boolean),
+  cursor: Schema.optional(ChampionLabel),
+  limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 20 }))),
+  observations: Schema.Array(ChampionComponentObservation)
+    .check(Schema.isMaxLength(16))
+    .pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+export type ChampionLearningQueryInput = typeof ChampionLearningQueryInput.Type;
+export const ChampionLearningQueryResult = Schema.Struct({
+  revisions: Schema.Array(ChampionLearningRevision).check(Schema.isMaxLength(20)),
+  nextCursor: Schema.NullOr(ChampionLabel),
+  receiptId: ChampionLabel,
+  retrievedAt: IsoDateTime,
+  admissibleForInvestigation: Schema.optional(Schema.Boolean),
+});
+export type ChampionLearningQueryResult = typeof ChampionLearningQueryResult.Type;
+export const ChampionInvestigationAlternative = Schema.Struct({
+  id: ChampionLabel,
+  hypothesis: ChampionText,
+  evidenceNeeds: ChampionText,
+  role: Schema.Literals(["advisor", "researcher", "scout"]),
+});
+export const ChampionInvestigationStartInput = Schema.Struct({
+  id: ChampionId,
+  findingId: ChampionLabel,
+  investigationId: ChampionLabel,
+  question: ChampionText,
+  topic: ChampionLabel,
+  retrievalReceiptId: ChampionLabel,
+  alternatives: Schema.Array(ChampionInvestigationAlternative).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(3),
+  ),
+});
+export type ChampionInvestigationStartInput = typeof ChampionInvestigationStartInput.Type;
+export const ChampionInvestigationBranchAttempt = Schema.Struct({
+  id: ChampionLabel,
+  branchId: ChampionLabel,
+  clientRequestId: ChampionLabel,
+  commandId: CommandId,
+  taskId: NodeId,
+  childThreadId: ThreadId,
+  messageId: MessageId,
+  role: Schema.Literals(["advisor", "researcher", "scout"]),
+  workId: ChampionText,
+  attemptId: ChampionText,
+  workspacePath: ChampionText,
+  policyHash: ChampionText,
+  policyRevision: ChampionText,
+  binding: AgentTaskBinding,
+  resolvedSelection: ModelSelection,
+  actualSelection: Schema.NullOr(ModelSelection),
+  admittedAt: IsoDateTime,
+  state: Schema.Literals(["admitted", "unknown", "accepted", "completed", "failed", "cancelled"]),
+  followup: Schema.Boolean,
+  result: Schema.NullOr(ChampionText),
+});
+export type ChampionInvestigationBranchAttempt = typeof ChampionInvestigationBranchAttempt.Type;
+export const ChampionInvestigation = Schema.Struct({
+  ...ChampionInvestigationStartInput.fields,
+  findingAttemptId: ChampionText,
+  consideredLearningIds: Schema.Array(ChampionLabel).check(Schema.isMaxLength(20)),
+  createdAt: IsoDateTime,
+  status: Schema.Literals(["open", "cancel_requested", "cancelled", "synthesized"]),
+  branches: Schema.Array(
+    Schema.Struct({
+      ...ChampionInvestigationAlternative.fields,
+      workId: ChampionText,
+      attemptId: ChampionText,
+    }),
+  ).check(Schema.isMaxLength(3)),
+  attempts: Schema.Array(ChampionInvestigationBranchAttempt).check(Schema.isMaxLength(6)),
+  attention: Schema.NullOr(ChampionText),
+});
+export type ChampionInvestigation = typeof ChampionInvestigation.Type;
+export const ChampionInvestigationCancelInput = Schema.Struct({
+  id: ChampionId,
+  investigationId: ChampionLabel,
+  requestId: ChampionLabel,
+  reason: ChampionLabel,
+});
+export type ChampionInvestigationCancelInput = typeof ChampionInvestigationCancelInput.Type;
+export const ChampionSynthesisInput = Schema.Struct({
+  id: ChampionId,
+  investigationId: ChampionLabel,
+  recommendationId: ChampionLabel,
+  expectedCurrentId: Schema.NullOr(ChampionLabel),
+  proposedScope: ChampionText,
+  summary: ChampionText,
+  alternatives: ChampionText,
+  benefits: ChampionText,
+  tradeoffs: ChampionText,
+  uncertainty: ChampionText,
+  recommendation: ChampionText,
+});
+export type ChampionSynthesisInput = typeof ChampionSynthesisInput.Type;
+export const ChampionRecommendation = Schema.Struct({
+  ...ChampionSynthesisInput.fields,
+  findingId: ChampionLabel,
+  findingAttemptId: ChampionText,
+  recordedAt: IsoDateTime,
+});
+export type ChampionRecommendation = typeof ChampionRecommendation.Type;
+export const ChampionRecommendationInput = Schema.Struct({
+  id: ChampionId,
+  findingId: ChampionLabel,
+  findingAttemptId: ChampionText,
+  recommendationId: ChampionLabel,
+});
+export type ChampionRecommendationInput = typeof ChampionRecommendationInput.Type;
+export const ChampionRuntimeState = Schema.Struct({
+  attempts: Schema.Array(ChampionExecutionAttempt).check(Schema.isMaxLength(50)),
+  investigations: Schema.Array(ChampionInvestigation).check(Schema.isMaxLength(20)),
+  recommendations: Schema.Array(ChampionRecommendation).check(Schema.isMaxLength(20)),
+});
+export type ChampionRuntimeState = typeof ChampionRuntimeState.Type;

@@ -68,6 +68,8 @@ const setup = Effect.gen(function* () {
 
 describe("command permissions", () => {
   it.effect.each([
+    WS_METHODS.championsStartInvestigation,
+    WS_METHODS.championsCancelInvestigation,
     WS_METHODS.championsUpsert,
     WS_METHODS.championsSetLifecycle,
     WS_METHODS.championsSetup,

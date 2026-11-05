@@ -22,6 +22,7 @@ import { useEnvironments } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { AGENT_ROLE_PRESENTATION } from "../AgentRoleChip";
 import { ModelLabel } from "../ModelLabel";
 import { ScheduledRelativeLabel, scheduleLabel } from "../scheduled/scheduledTaskParts";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
@@ -212,7 +213,7 @@ function ProposalCard(props: {
           <TooltipPopup side="top">
             {props.setupRunning
               ? "A new proposal is already being prepared."
-              : "Runs the configured setup model again. Its proposal replaces this one, and nothing changes until you accept."}
+              : "Runs metric setup again. Its proposal replaces this one, and nothing changes until you accept."}
           </TooltipPopup>
         </Tooltip>
         <Button
@@ -258,11 +259,15 @@ function SetupStatus(props: {
     <div role="status" className="flex flex-col gap-2 rounded-lg border p-3 text-sm">
       <div className="flex flex-wrap items-center gap-1.5">
         {notStarted || stopped ? null : <Spinner aria-hidden className="size-3.5" />}
-        <ModelLabel
-          environmentId={props.environmentId}
-          instanceId={champion.setupModelSelection.instanceId}
-          model={champion.setupModelSelection.model}
-        />
+        {champion.classes ? (
+          <span>{AGENT_ROLE_PRESENTATION[champion.classes.setup.role].label}</span>
+        ) : (
+          <ModelLabel
+            environmentId={props.environmentId}
+            instanceId={champion.setupModelSelection.instanceId}
+            model={champion.setupModelSelection.model}
+          />
+        )}
         <span>
           {notStarted
             ? "couldn't start. Nothing was switched to another model."
@@ -294,7 +299,7 @@ function SetupStatus(props: {
             Open its thread
           </Button>
         ) : null}
-        <ReasonedTooltip reason="Runs the configured setup model again. Metric definitions stay as they are until you accept a change.">
+        <ReasonedTooltip reason="Runs metric setup again. Metric definitions stay as they are until you accept a change.">
           <Button
             size="xs"
             variant="ghost-muted"
@@ -372,6 +377,9 @@ export function ChampionDetailPage(props: {
   const navigate = useNavigate();
   const detailQuery = useEnvironmentQuery(
     serverEnvironment.championDetail({ environmentId, input: { id } }),
+  );
+  const runtimeQuery = useEnvironmentQuery(
+    serverEnvironment.championRuntimeState({ environmentId, input: { id } }),
   );
   const [pageCount, setPageCount] = useState(1);
   const history = useChampionHistory(environmentId, id, pageCount);
@@ -471,7 +479,7 @@ export function ChampionDetailPage(props: {
         ? "A metric review is already running."
         : proposal !== null
           ? "Accept or discard the current proposal first."
-          : "Runs the setup model configured for this champion to suggest changes. Your metric definitions stay as they are until you accept.";
+          : "Runs this champion's metric setup to suggest changes. Your metric definitions stay as they are until you accept.";
 
   return (
     <div className="mx-auto flex max-w-180 flex-col gap-5.5 p-4 sm:p-6">
@@ -584,6 +592,14 @@ export function ChampionDetailPage(props: {
             </>
           ) : champion.lifecycle === "paused" && champion.lastCheckAt !== null ? (
             " · Paused, so readings are getting old"
+          ) : null}
+          {champion.classes ? (
+            <>
+              {" · Checks run as "}
+              {AGENT_ROLE_PRESENTATION[champion.classes.routine.role].label}
+              {", setup and larger challenges as "}
+              {AGENT_ROLE_PRESENTATION[champion.classes.setup.role].label}
+            </>
           ) : null}
           {ownerThreadExists ? (
             <>
@@ -700,7 +716,7 @@ export function ChampionDetailPage(props: {
           <div className="flex flex-col gap-2 rounded-lg border p-3 text-sm">
             <p className="text-muted-foreground">No metrics yet.</p>
             <div className="flex flex-wrap gap-2">
-              <ReasonedTooltip reason="Runs the setup model configured for this champion. Nothing starts until you accept its proposal.">
+              <ReasonedTooltip reason="Runs this champion's metric setup. Nothing starts until you accept its proposal.">
                 <Button
                   size="sm"
                   disabled={!canSetup || busy !== null}
@@ -734,7 +750,27 @@ export function ChampionDetailPage(props: {
           championId={id}
           view={activity}
           loading={history.loading || detail === null}
+          runtimeState={runtimeQuery.data}
+          runtimeFailed={runtimeQuery.error !== null}
+          paused={paused}
+          onChanged={() => {
+            detailQuery.refresh();
+            runtimeQuery.refresh();
+          }}
         />
+        {runtimeQuery.error && runtimeQuery.data === null ? (
+          <Alert variant="error">
+            <AlertTitle>Research and recommendations couldn't load</AlertTitle>
+            <AlertDescription>
+              Findings above may be missing them. This doesn't mean there are none.
+            </AlertDescription>
+            <AlertAction>
+              <Button size="xs" variant="outline" onClick={() => runtimeQuery.refresh()}>
+                Try again
+              </Button>
+            </AlertAction>
+          </Alert>
+        ) : null}
         {history.error ? (
           <Alert variant="error">
             <AlertTitle>History couldn't load</AlertTitle>

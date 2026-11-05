@@ -4,7 +4,11 @@ import {
   ProviderInstanceId,
   ThreadId,
   type ChampionFinding,
+  type ChampionInvestigation,
   type ChampionLatestSample,
+  type ChampionLearningRevision,
+  type ChampionRecommendation,
+  type ChampionRuntimeState,
   type ChampionSummary,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -13,13 +17,16 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   championCadenceMs,
   championFailureMessage,
+  championFindingRuntime,
   championLoadFailureMessage,
   championNeedsAttention,
   championReading,
   championReadingLabel,
+  championResearchView,
   championStaleAfterMs,
   championStatus,
   CHAMPION_FINDING_STATUS_LABELS,
+  learningNoteProse,
   pendingChampionDecision,
 } from "./champions.ts";
 
@@ -233,5 +240,169 @@ describe("findings", () => {
       pendingChampionDecision(finding({ decision: { ...decision, status: "resolved" } })),
     ).toBeNull();
     expect(pendingChampionDecision(finding({}))).toBeNull();
+  });
+});
+
+describe("championResearchView", () => {
+  const attempt = (branchId: string, state: string, admittedAt = "2026-11-05T10:00:00.000Z") =>
+    ({ id: `${branchId}-${admittedAt}`, branchId, state, admittedAt, result: null }) as never;
+  const branch = (id: string) =>
+    ({ id, hypothesis: `Hypothesis ${id}`, role: "researcher" }) as never;
+  const investigation = (patch: Partial<ChampionInvestigation>): ChampionInvestigation =>
+    ({
+      investigationId: "inv",
+      status: "open",
+      attention: null,
+      branches: [branch("a"), branch("b"), branch("c")],
+      attempts: [],
+      ...patch,
+    }) as ChampionInvestigation;
+
+  it("summarises running research in one line", () => {
+    const view = championResearchView(
+      investigation({ attempts: [attempt("a", "accepted"), attempt("b", "accepted")] }),
+    );
+    expect(view.summary).toBe("Researching 3 options · 2 tasks running");
+    expect(view.live).toBe(true);
+    expect(view.branches.map((item) => item.status)).toEqual(["Running", "Running", "Not started"]);
+  });
+
+  it("stays requested until the server confirms, not cancelled", () => {
+    const view = championResearchView(
+      investigation({
+        status: "cancel_requested",
+        attempts: [attempt("a", "completed"), attempt("b", "accepted")],
+      }),
+    );
+    expect(view.summary).toBe("Cancel requested · 1 task not yet stopped");
+    expect(view.live).toBe(true);
+    expect(view.cancellable).toBe(false);
+    expect(view.branches[1]?.status).toBe("Stop requested");
+  });
+
+  it("keeps a cancelled investigation live while a task can't be confirmed", () => {
+    const view = championResearchView(
+      investigation({ status: "cancelled", attempts: [attempt("a", "unknown")] }),
+    );
+    expect(view.live).toBe(true);
+    expect(view.cannotConfirm).toBe(true);
+  });
+
+  it("reads each option from its latest attempt", () => {
+    const view = championResearchView(
+      investigation({
+        status: "synthesized",
+        attempts: [
+          attempt("a", "failed", "2026-11-05T10:00:00.000Z"),
+          attempt("a", "completed", "2026-11-05T11:00:00.000Z"),
+        ],
+      }),
+    );
+    expect(view.branches[0]?.status).toBe("Finished");
+    expect(view.live).toBe(false);
+    expect(view.summary).toBeNull();
+  });
+});
+
+describe("championFindingRuntime", () => {
+  const recommendation = (recommendationId: string, recordedAt: string) =>
+    ({
+      recommendationId,
+      findingId: "f1",
+      findingAttemptId: "attempt1",
+      recordedAt,
+    }) as ChampionRecommendation;
+  const finding = (recommendationId: string | undefined) =>
+    ({
+      id: "f1",
+      attemptId: "attempt1",
+      decision: recommendationId === undefined ? null : { recommendationId },
+    }) as ChampionFinding;
+  const state = (recommendations: ReadonlyArray<ChampionRecommendation>) =>
+    ({ attempts: [], investigations: [], recommendations }) as ChampionRuntimeState;
+
+  it("finds the recommendation the decision names, not simply the newest", () => {
+    const runtime = championFindingRuntime(
+      finding("r2"),
+      state([
+        recommendation("r1", "2026-11-05T09:00:00.000Z"),
+        recommendation("r2", "2026-11-05T10:00:00.000Z"),
+        recommendation("r3", "2026-11-05T11:00:00.000Z"),
+      ]),
+    );
+    expect(runtime.recommendation?.recommendationId).toBe("r2");
+    expect(runtime.earlier.map((item) => item.recommendationId)).toEqual(["r1"]);
+    expect(runtime.recommendationMissing).toBe(false);
+  });
+
+  it("recovers an evicted decision revision and ignores late or foreign exact responses on both clients", () => {
+    const retained = recommendation("old", "2026-11-01T09:00:00.000Z");
+    const recent = state(
+      Array.from({ length: 20 }, (_, i) => recommendation(`new${i}`, "2026-11-05T09:00:00.000Z")),
+    );
+    expect(championFindingRuntime(finding("old"), recent, retained).recommendationMissing).toBe(
+      false,
+    );
+    expect(championFindingRuntime(finding("old"), recent, retained).recommendation).toBe(retained);
+    expect(
+      championFindingRuntime(finding("new0"), recent, retained).recommendation?.recommendationId,
+    ).toBe("new0");
+    expect(championFindingRuntime(finding("another"), recent, retained).recommendationMissing).toBe(
+      true,
+    );
+    expect(
+      championFindingRuntime(finding("old"), recent, { ...retained, findingId: "foreign" })
+        .recommendationMissing,
+    ).toBe(true);
+    expect(
+      championFindingRuntime(finding("old"), recent, {
+        ...retained,
+        findingAttemptId: "prior-attempt",
+      }).recommendationMissing,
+    ).toBe(true);
+  });
+
+  it("reports a named recommendation it doesn't have, including before state loads", () => {
+    expect(championFindingRuntime(finding("gone"), state([])).recommendationMissing).toBe(true);
+    expect(championFindingRuntime(finding("gone"), null).recommendationMissing).toBe(true);
+    expect(championFindingRuntime(finding(undefined), null).recommendationMissing).toBe(false);
+  });
+});
+
+describe("learningNoteProse", () => {
+  const revision = (patch: Partial<ChampionLearningRevision>): ChampionLearningRevision =>
+    ({
+      evidence: [
+        { source: "Trial", evidence: "Refused at login.", observedAt: "2026-09-11T00:00:00.000Z" },
+      ],
+      attempts: [],
+      applicability: "Private packages only.",
+      tradeoffs: "",
+      reviewAt: null,
+      reviewConditions: ["Tool X adds scoped tokens"],
+      versionConditions: [{ component: "Tool X", comparison: "changed", version: "1.4" }],
+      isCurrent: true,
+      applicabilityState: "current",
+      ...patch,
+    }) as ChampionLearningRevision;
+
+  it("writes a revisit condition without promising anything watches for it", () => {
+    const lines = learningNoteProse(revision({}));
+    expect(lines).toContain("We'll reconsider if Tool X adds scoped tokens.");
+    expect(lines).toContain("We'll reconsider if Tool X moves on from 1.4.");
+    expect(lines.join(" ")).not.toMatch(/watch|monitor|automatic/i);
+  });
+
+  it("says a historical note was replaced rather than wrong", () => {
+    const [first] = learningNoteProse(
+      revision({ isCurrent: false, applicabilityState: "uncertain" }),
+    );
+    expect(first).toContain("newer note has replaced");
+  });
+
+  it("says a due note isn't false, deleted or rerun", () => {
+    const [first] = learningNoteProse(revision({ applicabilityState: "uncertain" }));
+    expect(first).toContain("doesn't make it wrong");
+    expect(first).toContain("nothing reruns");
   });
 });

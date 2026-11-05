@@ -1,3 +1,9 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as ConfigProvider from "effect/ConfigProvider";
+import * as FileSystem from "effect/FileSystem";
+import * as ProcessRunner from "../processRunner.ts";
+import * as Managed from "../agents/ManagedAgentService.ts";
+import { snapshot as policySnapshot, codex, codexModel } from "../agents/agentPolicy.testkit.ts";
 import * as ChampionHandlers from "../mcp/toolkits/champions/handlers.ts";
 import { ChampionsToolkit } from "../mcp/toolkits/champions/tools.ts";
 import * as McpToolAccess from "../mcp/McpToolAccess.ts";
@@ -17,6 +23,15 @@ import { type CommandReceiptV2 } from "../orchestration-v2/CommandReceiptStore.t
 import { assert, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
+  AgentTaskBinding,
+  ChampionClasses,
+  ChampionConfig as ChampionConfigSchema,
+  MessageId,
+  NodeId,
+  type RuntimeMode,
+  type ModelSelection,
+  type ChampionInvestigationBranchAttempt,
+  type ChampionLearningRecordInput,
   ChampionError,
   EnvironmentId,
   CommandId,
@@ -50,6 +65,10 @@ import * as Projects from "../project/ProjectService.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 
+const decodeBinding = Schema.decodeSync(AgentTaskBinding);
+const decodeClasses = Schema.decodeEffect(ChampionClasses);
+const decodeConfig = Schema.decodeEffect(ChampionConfigSchema);
+const json = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const instanceId = ProviderInstanceId.make("test-provider");
 const projectId = ProjectId.make("project:champions");
 const config: ChampionConfig = {
@@ -120,8 +139,14 @@ const fixture = Effect.fn("test.championFixture")(() =>
     let instanceAvailable = true;
     let failOnce = false;
     let activeRun = true;
+    let queuedRun = false;
     const launchRequests: Array<{ commandId: string; messageId: string; model: string }> = [];
     const children = new Map<ThreadId, OrchestrationV2ThreadShell>();
+    const childRuns = new Map<ThreadId, OrchestrationV2Run[]>();
+    const dispatches: string[] = [];
+    let ownerMode: RuntimeMode = "full-access";
+    let providerOverride: ReadonlyArray<ServerProvider> | undefined;
+    const disabledProviders = new Set<string>();
     const childTasks: OrchestrationV2Subagent[] = [];
     const receipts = new Map<string, CommandReceiptV2>();
     let landing: {
@@ -152,7 +177,8 @@ const fixture = Effect.fn("test.championFixture")(() =>
         id: owner,
         projectId: foreignProject ? ProjectId.make("foreign-project") : projectId,
         providerInstanceId: instanceId,
-        runtimeMode: "full-access",
+        runtimeMode: ownerMode,
+        modelSelection: config.routineModelSelection,
         interactionMode: "default",
         status: activeRun ? "running" : "idle",
         activeRunId: activeRun ? runId : null,
@@ -188,42 +214,62 @@ const fixture = Effect.fn("test.championFixture")(() =>
       }),
       Layer.mock(ThreadManagement.ThreadManagementService)({
         getThreadShell: (id) => Effect.succeed(owner === id ? shell() : (children.get(id) ?? null)),
-        getThreadRecords: () =>
-          Effect.succeed({
-            thread: shell(),
-            runs: [
-              ...(priorCompletedRun
-                ? [
+        getThreadRecords: (id) =>
+          Effect.succeed(
+            (children.has(id)
+              ? {
+                  thread: children.get(id),
+                  runs: childRuns.get(id) ?? [],
+                  subagents: [],
+                  providerSessions: [],
+                }
+              : {
+                  thread: shell(),
+                  runs: [
+                    ...(priorCompletedRun
+                      ? [
+                          {
+                            id: RunId.make("prior-completed-run"),
+                            status: "completed",
+                            userMessageId: messageId,
+                          } as OrchestrationV2Run,
+                        ]
+                      : []),
                     {
-                      id: RunId.make("prior-completed-run"),
-                      status: "completed",
+                      id: runId,
+                      status: queuedRun
+                        ? "queued"
+                        : completedRun || !activeRun
+                          ? "completed"
+                          : "running",
+                      providerThreadId: foreignProviderThread
+                        ? ProviderThreadId.make("foreign-provider-thread")
+                        : providerThreadId,
                       userMessageId: messageId,
+                      providerInstanceId: instanceId,
+                      modelSelection: config.routineModelSelection,
                     } as OrchestrationV2Run,
-                  ]
-                : []),
-              {
-                id: runId,
-                status: completedRun ? "completed" : "running",
-                providerThreadId: foreignProviderThread
-                  ? ProviderThreadId.make("foreign-provider-thread")
-                  : providerThreadId,
-                userMessageId: messageId,
-                providerInstanceId: instanceId,
-                modelSelection: config.routineModelSelection,
-              } as OrchestrationV2Run,
-            ],
-            providerThreads: [
-              {
-                id: providerThreadId,
-                providerSessionId: "provider-session:provider-instance:codex:shared",
-              } as OrchestrationV2ProviderThread,
-            ],
-            subagents: childTasks,
-          } as unknown as Effect.Success<
-            ReturnType<ThreadManagement.ThreadManagementService["Service"]["getThreadRecords"]>
-          >),
+                  ],
+                  providerThreads: [
+                    {
+                      id: providerThreadId,
+                      providerSessionId: "provider-session:provider-instance:codex:shared",
+                    } as OrchestrationV2ProviderThread,
+                  ],
+                  subagents: childTasks,
+                }) as unknown as Effect.Success<
+              ReturnType<ThreadManagement.ThreadManagementService["Service"]["getThreadRecords"]>
+            >,
+          ),
         getReceipt: (id) => Effect.succeed(Option.fromUndefinedOr(receipts.get(id))),
-        dispatch: () => Effect.succeed({ sequence: 1 } as never),
+        dispatch: (command) =>
+          Effect.sync(() => {
+            dispatches.push(command.type);
+            return { sequence: 1 } as never;
+          }),
+        stopDelegatedTasks: () => Effect.void,
+        isProviderInstanceEnabledForProject: ({ instanceId }) =>
+          Effect.succeed(!disabledProviders.has(instanceId)),
         sendToThread: (input) =>
           Effect.suspend(() =>
             failSend
@@ -249,12 +295,12 @@ const fixture = Effect.fn("test.championFixture")(() =>
         getProviders: Effect.suspend(() =>
           Effect.succeed(
             instanceAvailable
-              ? [
+              ? (providerOverride ?? [
                   {
                     instanceId,
                     models: [{ slug: "cheap" }, { slug: "strong" }],
                   } as unknown as ServerProvider,
-                ]
+                ])
               : [],
           ),
         ),
@@ -273,6 +319,55 @@ const fixture = Effect.fn("test.championFixture")(() =>
     );
     return {
       layer: Champions.layer.pipe(Layer.provide(dependencies)),
+      dependencies,
+      dispatches,
+      providerAllowed: (instanceId: string, allowed: boolean) => {
+        if (allowed) disabledProviders.delete(instanceId);
+        else disabledProviders.add(instanceId);
+      },
+      setProviders: (providers: ReadonlyArray<ServerProvider>) => {
+        providerOverride = providers;
+      },
+      ownerMode: (mode: RuntimeMode) => {
+        ownerMode = mode;
+      },
+      installBranch: (
+        attempt: ChampionInvestigationBranchAttempt,
+        status: "running" | "completed" | "failed" | "cancelled",
+        foreign = false,
+      ) => {
+        children.set(attempt.childThreadId, {
+          id: attempt.childThreadId,
+          projectId: foreign ? ProjectId.make("foreign") : projectId,
+          agentTask: attempt.binding,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          activeRunId: status === "running" ? RunId.make(attempt.id) : null,
+          deletedAt: null,
+        } as OrchestrationV2ThreadShell);
+        const task = {
+          id: attempt.taskId,
+          threadId: owner,
+          origin: "app_owned",
+          childThreadId: attempt.childThreadId,
+          status,
+          result: status === "running" ? null : "Observed alternative evidence",
+          runId: null,
+        } as OrchestrationV2Subagent;
+        const index = childTasks.findIndex((t) => t.id === task.id);
+        if (index < 0) childTasks.push(task);
+        else childTasks[index] = task;
+        childRuns.set(attempt.childThreadId, [
+          {
+            id: RunId.make(attempt.id),
+            status,
+            userMessageId: attempt.messageId,
+            modelSelection: attempt.resolvedSelection,
+            delegatedTaskId: attempt.taskId,
+            ordinal: 1,
+          },
+        ] as OrchestrationV2Run[]);
+      },
       caller,
       registry,
       sessions,
@@ -316,6 +411,11 @@ const fixture = Effect.fn("test.championFixture")(() =>
       launchRequests,
       endRun: () => {
         activeRun = false;
+        queuedRun = false;
+      },
+      queueRun: () => {
+        activeRun = false;
+        queuedRun = true;
       },
       failNextLaunch: () => {
         failOnce = true;
@@ -349,6 +449,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
         role = "implementation-worker",
         status = "completed",
         workItem?: OrchestrationV2ThreadShell["workItem"],
+        actualSelection?: ModelSelection,
       ) => {
         const childThreadId = ThreadId.make(`accepted:${role}`);
         children.set(childThreadId, {
@@ -357,6 +458,15 @@ const fixture = Effect.fn("test.championFixture")(() =>
           workItem,
           agentTask: { workId: finding.workId, attemptId: finding.attemptId, role },
         } as OrchestrationV2ThreadShell);
+        if (actualSelection !== undefined)
+          childRuns.set(childThreadId, [
+            {
+              id: RunId.make(`review-run:${role}`),
+              status: "completed",
+              ordinal: 1,
+              modelSelection: actualSelection,
+            },
+          ] as OrchestrationV2Run[]);
         const index = childTasks.findIndex((t) => t.childThreadId === childThreadId);
         const task = {
           childThreadId,
@@ -1837,4 +1947,916 @@ it.effect("charges uncertainty, releases genuine refusals and counts stable repl
       yield* service.guardDelegation(initial);
     }),
   ),
+);
+
+const learning = (id = "learning:errors"): ChampionLearningRecordInput => ({
+  id: config.id,
+  learningId: id,
+  expectedCurrentId: null,
+  reason: "Observed comparison",
+  topic: "errors",
+  question: "Which collector detects errors?",
+  conclusion: "Use the structured collector",
+  attempts: [
+    {
+      attemptId: "observed-attempt",
+      outcome: "inconclusive",
+      evidence: "No confident improvement",
+    },
+  ],
+  evidence: [
+    {
+      source: "fixture-observation",
+      evidence: "Recorded error counts",
+      observedAt: "1970-01-01T00:00:00.000Z",
+    },
+  ],
+  components: [{ component: "collector", version: "1", observedAt: "1970-01-01T00:00:00.000Z" }],
+  environment: "Isolated fixture",
+  applicability: "Small projects",
+  tradeoffs: "No browser coverage",
+  reviewAt: "1970-01-02T00:00:00.000Z",
+  reviewConditions: ["Requirements change"],
+  versionConditions: [{ component: "collector", comparison: "changed", version: "1" }],
+});
+const investigationFixture = Effect.fn("test.championInvestigation")(function* (
+  f: Effect.Success<ReturnType<typeof fixture>>,
+  service: Champions.ChampionService["Service"],
+  name = "investigation:errors",
+) {
+  yield* definitions(service);
+  yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+  yield* service.runCheck({ id: config.id });
+  const detail = yield* service.report(f.caller(), {
+    samples: [sample],
+    findings: [],
+    summary: "Metric breached",
+  });
+  const receipt = yield* service.learningQuery({
+    id: config.id,
+    topic: "errors",
+    observations: [],
+  });
+  const investigation = yield* service.startInvestigation({
+    id: config.id,
+    findingId: detail.findings[0]!.id,
+    investigationId: name,
+    question: "Compare error collectors",
+    topic: "errors",
+    retrievalReceiptId: receipt.receiptId,
+    alternatives: [
+      { id: "a", role: "advisor", hypothesis: "Structured logs", evidenceNeeds: "Error counts" },
+      {
+        id: "b",
+        role: "advisor",
+        hypothesis: "Runtime counters",
+        evidenceNeeds: "Counter quality",
+      },
+      { id: "c", role: "scout", hypothesis: "Existing collector", evidenceNeeds: "Coverage gaps" },
+    ],
+  });
+  const admission = (
+    branchIndex = 0,
+    requestId = `branch:${branchIndex}`,
+    followup = false,
+    childId?: ThreadId,
+  ) => {
+    const branch = investigation.branches[branchIndex]!;
+    const binding = decodeBinding({
+      ...branch,
+      role: branch.role,
+      taskClass: "non-ui",
+      readOnly: true,
+      workspacePath: "/project/root",
+      executionBoundary: "read-only",
+      executionRequirement: "sandbox-required",
+      sourceAccess: "read-only",
+      toolProfile: "source-reader",
+      requestFingerprint: "c".repeat(64),
+      policyHash: "a".repeat(64),
+      policyRevision: "policy-one",
+      briefHash: "b".repeat(64),
+      requested: config.setupModelSelection,
+      assigned: null,
+      effective: config.setupModelSelection,
+    });
+    return {
+      ownerThreadId: detail.champion.ownerThreadId,
+      parentRunId: RunId.make("run:check"),
+      binding,
+      projectId,
+      workspacePath: binding.workspacePath,
+      selection: binding.effective,
+      commandId: CommandId.make(`command:${requestId}`),
+      taskId: NodeId.make(`task:${requestId}`),
+      childThreadId: childId ?? ThreadId.make(`child:${requestId}`),
+      messageId: MessageId.make(`message:${requestId}`),
+      clientRequestId: requestId,
+      followup,
+    };
+  };
+  return { investigation, detail, admission };
+});
+
+it.effect("keeps class defaults additive and preserves migrated classes on old-client edits", () =>
+  withFixture((_f, service) =>
+    Effect.gen(function* () {
+      const classes = yield* decodeClasses({}).pipe(Effect.orDie);
+      assert.deepEqual(classes, {
+        setup: { role: "advisor", taskClass: "non-ui" },
+        routine: { role: "chore-worker", taskClass: "non-ui" },
+      });
+      assert.isUndefined((yield* decodeConfig(config).pipe(Effect.orDie)).classes);
+      const unavailable = yield* service.classChoices({ projectId });
+      assert.isNotNull(unavailable.refusal);
+      assert.deepEqual(unavailable.roles, []);
+      yield* refused(service.upsert({ ...config, classes }));
+      yield* service.upsert(config);
+      yield* service.upsert({ ...config, classes });
+      const updated = yield* service.upsert({ ...config, name: "Old-client edit" });
+      assert.deepEqual(updated.champion.classes, classes);
+      yield* refused(service.setup({ id: config.id }));
+      assert.deepEqual((yield* service.runtimeState({ id: config.id })).attempts, []);
+    }),
+  ),
+);
+
+it.effect(
+  "reserves exact independent advisor branches atomically, holds unknown capacity and charges admitted failures",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const { admission, investigation } = yield* investigationFixture(f, service);
+        const sql = yield* SqlClient.SqlClient;
+        const wrong = admission();
+        yield* refused(
+          service.admitInvestigation({ ...wrong, projectId: ProjectId.make("wrong-project") }),
+        );
+        assert.equal(
+          (yield* sql`SELECT id FROM champion_branch_attempts`.pipe(Effect.orDie)).length,
+          0,
+        );
+        yield* Effect.all(
+          [service.admitInvestigation(admission(0)), service.admitInvestigation(admission(1))],
+          { concurrency: "unbounded" },
+        );
+        yield* service.admitInvestigation(admission(0));
+        yield* refused(service.admitInvestigation(admission(2)));
+        yield* service.delegationOutcome({
+          ownerThreadId: wrong.ownerThreadId,
+          request: wrong.binding,
+          clientRequestId: wrong.clientRequestId,
+          state: "failed",
+          commandId: wrong.commandId,
+        });
+        yield* service.runDue;
+        let state = (yield* service.runtimeState({ id: config.id })).investigations[0]!;
+        assert.equal(state.attempts.length, 2);
+        assert.isTrue(state.attempts.every((a) => a.state === "unknown"));
+        yield* refused(
+          service.findingAction({
+            id: config.id,
+            findingId: investigation.findingId,
+            action: "dismiss",
+            reason: "Cannot detach",
+          }),
+        );
+        const first = state.attempts.find((a) => a.branchId === "a")!;
+        f.setReceipt(first.commandId, "rejected");
+        yield* service.runDue;
+        yield* service.admitInvestigation(admission(0, "retry-a"));
+        state = (yield* service.runtimeState({ id: config.id })).investigations[0]!;
+        assert.equal(state.attempts.length, 3);
+        assert.equal(state.attempts.find((a) => a.id === first.id)!.admittedAt, first.admittedAt);
+        assert.equal(state.attempts.find((a) => a.id === first.id)!.state, "failed");
+        yield* refused(service.admitInvestigation(admission(2)));
+        yield* service.setLifecycle({ id: config.id, lifecycle: "paused" });
+        yield* service.admitInvestigation(admission(0, "retry-a"));
+      }),
+    ),
+);
+
+it.effect(
+  "charges follow-ups once, preserves bindings and enforces six investigation and rolling daily attempts",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const { admission } = yield* investigationFixture(f, service);
+        yield* service.admitInvestigation(admission());
+        let attempt = (yield* service.runtimeState({ id: config.id })).investigations[0]!
+          .attempts[0]!;
+        const initialChild = attempt.childThreadId;
+        for (let index = 1; index < 6; index++) {
+          f.installBranch(attempt, "completed");
+          yield* service.runDue;
+          const next = admission(0, `followup:${index}`, true, initialChild);
+          yield* service.admitInvestigation(next);
+          yield* service.admitInvestigation(next);
+          attempt = (yield* service.runtimeState({
+            id: config.id,
+          })).investigations[0]!.attempts.find((a) => a.clientRequestId === next.clientRequestId)!;
+          assert.equal(attempt.binding.policyHash, "a".repeat(64));
+        }
+        f.installBranch(attempt, "completed");
+        yield* service.runDue;
+        yield* refused(service.admitInvestigation(admission(0, "seventh", true, initialChild)));
+        assert.equal(
+          (yield* service.runtimeState({ id: config.id })).investigations[0]!.attempts.length,
+          6,
+        );
+      }),
+    ),
+);
+
+it.effect(
+  "recovers persisted cancellation without an MCP caller, respects narrowed permissions and never releases unknown or foreign children",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const { admission, investigation } = yield* investigationFixture(f, service);
+        yield* service.admitInvestigation(admission());
+        const attempt = (yield* service.runtimeState({ id: config.id })).investigations[0]!
+          .attempts[0]!;
+        f.installBranch(attempt, "running");
+        yield* service.cancelInvestigation({
+          id: config.id,
+          investigationId: investigation.investigationId,
+          requestId: "cancel-once",
+          reason: "Stop comparison",
+        });
+        f.ownerMode("approval-required");
+        const restart = Effect.gen(function* () {
+          const recovered = yield* Champions.ChampionService;
+          yield* recovered.runDue;
+          return yield* recovered.runtimeState({ id: config.id });
+        });
+        let recovered = yield* restart.pipe(Effect.provide(f.layer));
+        assert.isFalse(f.dispatches.includes("thread.stop"));
+        assert.equal(recovered.investigations[0]!.status, "cancel_requested");
+        assert.include(recovered.investigations[0]!.attention!, "capacity remains held");
+        f.ownerMode("full-access");
+        f.installBranch(attempt, "running", true);
+        recovered = yield* restart.pipe(Effect.provide(f.layer));
+        assert.isFalse(f.dispatches.includes("thread.stop"));
+        assert.equal(recovered.investigations[0]!.attempts[0]!.state, "unknown");
+        f.installBranch(attempt, "running");
+        recovered = yield* restart.pipe(Effect.provide(f.layer));
+        assert.isTrue(f.dispatches.includes("thread.stop"));
+        assert.equal(recovered.investigations[0]!.status, "cancel_requested");
+        f.installBranch(attempt, "cancelled");
+        recovered = yield* restart.pipe(Effect.provide(f.layer));
+        assert.equal(recovered.investigations[0]!.status, "cancelled");
+        f.installBranch(attempt, "completed");
+        yield* service.runDue;
+        assert.equal(
+          (yield* service.runtimeState({ id: config.id })).investigations[0]!.status,
+          "cancelled",
+        );
+      }),
+    ),
+);
+
+it.effect(
+  "retains versioned learning across restart with bounded topic/due pages, observed-version invalidation and concurrent supersession",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.runCheck({ id: config.id });
+        const first = yield* service.recordLearning(f.caller(), learning());
+        const query = { id: config.id, topic: "errors", observations: [] };
+        assert.equal(
+          (yield* service.learningQuery(query)).revisions[0]!.applicabilityState,
+          "current",
+        );
+        yield* TestClock.adjust("1 second");
+        assert.equal(
+          (yield* service.learningQuery({
+            ...query,
+            observations: [
+              { component: "unrelated", version: "2", observedAt: "1970-01-01T00:00:01.000Z" },
+            ],
+          })).revisions[0]!.applicabilityState,
+          "current",
+        );
+        assert.equal(
+          (yield* service.learningQuery({
+            ...query,
+            observations: [
+              { component: "collector", version: null, observedAt: "1970-01-01T00:00:01.000Z" },
+            ],
+          })).revisions[0]!.applicabilityState,
+          "current",
+        );
+        assert.equal(
+          (yield* service.learningQuery({
+            ...query,
+            due: true,
+            observations: [
+              { component: "collector", version: "2", observedAt: "1970-01-01T00:00:01.000Z" },
+            ],
+          })).revisions[0]!.applicabilityState,
+          "uncertain",
+        );
+        const input = {
+          ...learning(),
+          expectedCurrentId: first.id,
+          conclusion: "Revised after evidence",
+        };
+        const outcomes = yield* Effect.all(
+          [
+            Effect.exit(service.recordLearning(f.caller(), input)),
+            Effect.exit(
+              service.recordLearning(f.caller(), {
+                ...input,
+                conclusion: "A different concurrent conclusion",
+              }),
+            ),
+          ],
+          { concurrency: "unbounded" },
+        );
+        assert.equal(outcomes.filter((e) => e._tag === "Success").length, 1);
+        yield* service.recordLearning(f.caller(), learning("learning:second"));
+        const history = yield* service.learningQuery({
+          ...query,
+          includeSuperseded: true,
+          limit: 1,
+        });
+        assert.equal(history.revisions.length, 1);
+        assert.isNotNull(history.nextCursor);
+        const restarted = yield* Effect.gen(function* () {
+          return yield* (yield* Champions.ChampionService).learningQuery(query);
+        }).pipe(Effect.provide(f.layer));
+        assert.equal(restarted.revisions.length, 2);
+        assert.deepEqual(
+          (yield* service.learningQuery({ ...query, topic: "unrelated" })).revisions,
+          [],
+        );
+        yield* TestClock.adjust("2 days");
+        assert.isTrue(
+          (yield* service.learningQuery({ ...query, due: true })).revisions.every(
+            (r) => r.applicabilityState === "uncertain",
+          ),
+        );
+        yield* refused(
+          service.recordLearning(f.caller(), {
+            ...learning("too-large"),
+            conclusion: "x".repeat(25_000),
+          }),
+        );
+      }),
+    ),
+);
+
+it.effect(
+  "binds immutable recommendations to scope and finding attempt, rejects stale decisions and delivers one replayable owner message",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const { investigation, admission } = yield* investigationFixture(f, service);
+        yield* service.admitInvestigation(admission());
+        f.installBranch(
+          (yield* service.runtimeState({ id: config.id })).investigations[0]!.attempts[0]!,
+          "completed",
+        );
+        yield* service.runDue;
+        const input = {
+          id: config.id,
+          investigationId: investigation.investigationId,
+          recommendationId: "recommendation:one",
+          expectedCurrentId: null,
+          proposedScope: "Change the error collector only",
+          summary: "Compare collector choices",
+          alternatives: "Logs versus counters",
+          benefits: "Better evidence",
+          tradeoffs: "Collector cost",
+          uncertainty: "Small sample",
+          recommendation: "Use structured logs",
+        };
+        yield* service.synthesize(f.caller(), input);
+        yield* service.synthesize(f.caller(), input);
+        const first = (yield* service.get({ id: config.id })).findings[0]!.decision!;
+        assert.equal(first.proposedScope, input.proposedScope);
+        yield* service.synthesize(f.caller(), {
+          ...input,
+          recommendationId: "recommendation:two",
+          expectedCurrentId: input.recommendationId,
+          proposedScope: "Measure counters first",
+        });
+        yield* refused(
+          service.findingAction({
+            id: config.id,
+            findingId: investigation.findingId,
+            action: "resolve_decision",
+            decisionId: first.id,
+            reason: "Approved",
+          }),
+        );
+        const decision = (yield* service.get({ id: config.id })).findings[0]!.decision!;
+        const answer = {
+          id: config.id,
+          findingId: investigation.findingId,
+          action: "resolve_decision" as const,
+          decisionId: decision.id,
+          reason: "Approved within stated scope",
+        };
+        f.failDecisionSend(true);
+        yield* service.findingAction(answer);
+        yield* service.synthesize(f.caller(), {
+          ...input,
+          recommendationId: "recommendation:two",
+          expectedCurrentId: input.recommendationId,
+          proposedScope: "Measure counters first",
+        });
+        const replayed = (yield* service.get({ id: config.id })).findings[0]!.decision!;
+        assert.equal(replayed.id, decision.id);
+        assert.equal(replayed.status, "resolved");
+        assert.equal(replayed.answer, answer.reason);
+        f.failDecisionSend(false);
+        yield* service.runDue;
+        yield* service.findingAction(answer);
+        assert.equal(
+          f.sent.filter((s) => s.commandId === `champion-decision:${decision.id}`).length,
+          1,
+        );
+        assert.include(f.sent.at(-1)!.text, "Measure counters first");
+        yield* service.synthesize(f.caller(), {
+          ...input,
+          recommendationId: "recommendation:three",
+          expectedCurrentId: "recommendation:two",
+          proposedScope: "Measure a second collector",
+        });
+        const replacement = (yield* service.get({ id: config.id })).findings[0]!.decision!;
+        assert.notEqual(replacement.id, decision.id);
+        assert.equal(replacement.status, "requested");
+        assert.isNull(replacement.answer);
+        yield* refused(service.findingAction(answer));
+        yield* service.findingAction({
+          id: config.id,
+          findingId: investigation.findingId,
+          action: "reopen",
+          reason: "New finding attempt",
+        });
+        assert.isNull((yield* service.get({ id: config.id })).findings[0]!.decision);
+        yield* refused(service.findingAction(answer));
+      }),
+    ),
+);
+
+it.effect("reads an evicted pending decision recommendation by exact bounded scope", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      const { investigation, admission } = yield* investigationFixture(f, service);
+      yield* service.admitInvestigation(admission());
+      f.installBranch(
+        (yield* service.runtimeState({ id: config.id })).investigations[0]!.attempts[0]!,
+        "completed",
+      );
+      yield* service.runDue;
+      const retained = yield* service.synthesize(f.caller(), {
+        id: config.id,
+        investigationId: investigation.investigationId,
+        recommendationId: "old-pending",
+        expectedCurrentId: null,
+        proposedScope: "Collector only",
+        summary: "Choose a collector",
+        alternatives: "Logs or counters",
+        benefits: "Evidence",
+        tradeoffs: "Cost",
+        uncertainty: "Small sample",
+        recommendation: "Use logs.",
+      });
+      const decision = (yield* service.get({ id: config.id })).findings[0]!.decision!;
+      const sql = yield* SqlClient.SqlClient;
+      for (let i = 0; i < 22; i++) {
+        const newer = {
+          ...retained,
+          recommendationId: `newer:${i}`,
+          findingId: "another-finding",
+          recordedAt: "2026-11-05T12:00:00.000Z",
+        };
+        yield* sql`INSERT INTO champion_recommendations (id,champion_id,investigation_id,at,document_json) VALUES (${newer.recommendationId},${config.id},${investigation.investigationId},${newer.recordedAt},${JSON.stringify(newer)})`.pipe(
+          Effect.orDie,
+        );
+      }
+      const recent = yield* service.runtimeState({ id: config.id });
+      assert.lengthOf(recent.recommendations, 20);
+      assert.isFalse(
+        recent.recommendations.some((r) => r.recommendationId === retained.recommendationId),
+      );
+      const query = {
+        id: config.id,
+        findingId: retained.findingId,
+        findingAttemptId: retained.findingAttemptId,
+        recommendationId: retained.recommendationId,
+      };
+      assert.deepEqual(yield* service.recommendation(query), retained);
+      assert.isBelow(
+        new TextEncoder().encode(JSON.stringify(yield* service.recommendation(query))).length,
+        24_001,
+      );
+      yield* refused(service.recommendation({ ...query, id: "foreign" }));
+      yield* refused(service.recommendation({ ...query, findingId: "another-finding" }));
+      yield* refused(service.recommendation({ ...query, findingAttemptId: "prior-attempt" }));
+      yield* refused(service.recommendation({ ...query, recommendationId: "unknown" }));
+      yield* sql`UPDATE champion_recommendations SET document_json = ${JSON.stringify({ ...retained, recommendation: "x".repeat(24_001) })} WHERE id = ${retained.recommendationId}`.pipe(
+        Effect.orDie,
+      );
+      yield* refused(service.recommendation(query));
+      yield* sql`UPDATE champion_recommendations SET document_json = ${JSON.stringify(retained)} WHERE id = ${retained.recommendationId}`.pipe(
+        Effect.orDie,
+      );
+      yield* service.findingAction({
+        id: config.id,
+        findingId: retained.findingId,
+        action: "resolve_decision",
+        decisionId: decision.id,
+        reason: "Approved",
+      });
+      assert.equal(
+        (yield* service.get({ id: config.id })).findings[0]!.decision!.answer,
+        "Approved",
+      );
+    }),
+  ),
+);
+
+it.effect(
+  "resolves real managed policy per new owner attempt while uncertain replay and queued acceptance retain frozen selections",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "champion-policy-" });
+      yield* fs.makeDirectory(`${root}/roles`);
+      const manifest = policySnapshot().manifest;
+      const write = (value: typeof manifest) =>
+        fs.writeFileString(`${root}/roles/policy.json`, json(value));
+      yield* write(manifest);
+      for (const role of Object.values(manifest.roles))
+        yield* fs.writeFileString(`${root}/${role.brief}`, "Fixture role brief");
+      const managed = yield* Managed.ManagedAgentService.pipe(Effect.provide(Managed.layer));
+      const f = yield* fixture();
+      f.setProviders([codex]);
+      yield* Effect.gen(function* () {
+        const service = yield* Champions.ChampionService;
+        const classes = yield* decodeClasses({}).pipe(Effect.orDie);
+        const preview = yield* service.classChoices({ projectId });
+        assert.isNull(preview.refusal);
+        assert.equal(
+          preview.roles.find((role) => role.role === "advisor")!.selection!.model,
+          "gpt-astra-test",
+        );
+        const draft = yield* service.upsert({
+          ...config,
+          classes,
+          setupModelSelection: { instanceId: codex.instanceId, model: "historical-model" },
+        });
+        assert.deepEqual(
+          draft.champion.setupModelSelection,
+          preview.roles.find((role) => role.role === "advisor")!.selection,
+        );
+        assert.deepEqual(
+          draft.champion.routineModelSelection,
+          preview.roles.find((role) => role.role === "chore-worker")!.selection,
+        );
+        f.failNextLaunch();
+        yield* service.setup({ id: config.id });
+        const first = (yield* service.runtimeState({ id: config.id })).attempts[0]!;
+        assert.equal(first.resolvedSelection.model, "gpt-astra-test");
+        assert.deepEqual(
+          first.resolvedSelection,
+          preview.roles.find((role) => role.role === "advisor")!.selection,
+        );
+        assert.equal(first.policyHash, preview.policyHash);
+        yield* refused(
+          service.classChoices({
+            projectId: ProjectId.make("wrong-project"),
+            championId: config.id,
+          }),
+        );
+        const incompatible = yield* service.classChoices({ projectId, taskClass: "ui" });
+        assert.isNotNull(incompatible.roles.find((role) => role.role === "chore-worker")!.refusal);
+        f.ownerMode("approval-required");
+        const narrowed = yield* service.classChoices({
+          projectId,
+          championId: config.id,
+          phase: "setup",
+        });
+        assert.isNull(narrowed.roles.find((role) => role.role === "chore-worker")!.selection);
+        f.ownerMode("full-access");
+        f.providerAllowed(codex.instanceId, false);
+        assert.isTrue(
+          (yield* service.classChoices({ projectId })).roles.every(
+            (role) => role.selection === null,
+          ),
+        );
+        f.providerAllowed(codex.instanceId, true);
+        assert.isNull(first.actualSelection);
+        assert.equal(first.selectionClass!.role, "advisor");
+        yield* write({
+          ...manifest,
+          lists: { ...manifest.lists, advisor: [{ model: "sol", effort: "medium" }] },
+          roles: { ...manifest.roles, advisor: { ...manifest.roles.advisor!, callers: {} } },
+        });
+        yield* service.runDue;
+        assert.equal(f.launchRequests[0]!.model, f.launchRequests[1]!.model);
+        assert.equal(f.launchRequests[0]!.commandId, f.launchRequests[1]!.commandId);
+        f.queueRun();
+        yield* service.setup({ id: config.id });
+        assert.equal((yield* service.runtimeState({ id: config.id })).attempts.length, 1);
+        f.endRun();
+        yield* service.setup({ id: config.id });
+        const attempts = (yield* service.runtimeState({ id: config.id })).attempts;
+        assert.equal(attempts.length, 2);
+        const second = attempts.find((a) => a.id !== first.id)!;
+        assert.equal(second.resolvedSelection.model, codexModel);
+        assert.notEqual(second.policyHash, first.policyHash);
+        assert.notEqual(second.commandId, first.commandId);
+        assert.equal(second.threadId, first.threadId);
+        assert.deepEqual(second.resolvedSelection.options, [{ id: "reasoning", value: "medium" }]);
+        yield* write({
+          ...manifest,
+          lists: { ...manifest.lists, advisor: [{ model: "sol", effort: "medium" }] },
+          roles: { ...manifest.roles, advisor: { ...manifest.roles.advisor!, callers: {} } },
+          models: {
+            ...manifest.models,
+            sol: { ...manifest.models.sol!, model: "unavailable-model" },
+          },
+        });
+        f.endRun();
+        const unavailable = yield* service.classChoices({ projectId });
+        assert.isNull(unavailable.roles.find((role) => role.role === "advisor")!.selection);
+        assert.isNotNull(unavailable.roles.find((role) => role.role === "advisor")!.refusal);
+        yield* refused(service.upsert({ ...config, id: "new-unavailable-draft", classes }));
+        yield* refused(service.setup({ id: config.id }));
+        assert.equal((yield* service.runtimeState({ id: config.id })).attempts.length, 2);
+        assert.equal(
+          (yield* service.get({ id: config.id })).champion.setupThreadId,
+          first.threadId,
+        );
+      }).pipe(
+        Effect.provide(f.layer),
+        Effect.provideService(Managed.ManagedAgentService, managed),
+        Effect.provideService(
+          ConfigProvider.ConfigProvider,
+          ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: root }),
+        ),
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Sqlite.layerMemory,
+          NodeServices.layer,
+          NodeCrypto.layer,
+          Layer.mock(ProcessRunner.ProcessRunner)({
+            run: () => Effect.die("Unexpected process launch"),
+          }),
+        ),
+      ),
+    ),
+);
+
+it.effect(
+  "requires current learning receipts and keeps paged multi-byte evidence responses within the byte ceiling",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        yield* service.runCheck({ id: config.id });
+        const detail = yield* service.report(f.caller(), {
+          samples: [sample],
+          findings: [],
+          summary: "Measured",
+        });
+        const empty = yield* service.learningQuery({
+          id: config.id,
+          topic: "errors",
+          observations: [],
+        });
+        const first = yield* service.recordLearning(f.caller(), {
+          ...learning(),
+          conclusion: "界".repeat(7000),
+        });
+        const input = {
+          id: config.id,
+          findingId: detail.findings[0]!.id,
+          investigationId: "receipt-investigation",
+          question: "Compare",
+          topic: "errors",
+          retrievalReceiptId: empty.receiptId,
+          alternatives: [
+            { id: "a", role: "advisor" as const, hypothesis: "Logs", evidenceNeeds: "Counters" },
+          ],
+        };
+        yield* refused(service.startInvestigation(input));
+        yield* refused(service.recordLearning(undefined, learning("unauthenticated")));
+        yield* service.recordLearning(f.caller(), {
+          ...learning("second-large"),
+          conclusion: "界".repeat(7000),
+        });
+        yield* service.recordLearning(f.caller(), {
+          ...learning("third-large"),
+          conclusion: "界".repeat(7000),
+        });
+        const query = { id: config.id, topic: "errors", observations: [] };
+        const page = yield* service.learningQuery(query);
+        assert.isAtMost(new TextEncoder().encode(json(page)).length, 64_000);
+        assert.equal(page.revisions.length, 2);
+        assert.isNotNull(page.nextCursor);
+        const next = yield* service.learningQuery({ ...query, cursor: page.nextCursor! });
+        assert.equal(next.revisions.length, 1);
+        assert.isNull(next.nextCursor);
+        assert.equal(new Set([...page.revisions, ...next.revisions].map((r) => r.id)).size, 3);
+        const considered = yield* service.startInvestigation({
+          ...input,
+          retrievalReceiptId: page.receiptId,
+        });
+        assert.deepEqual(
+          considered.consideredLearningIds,
+          page.revisions.map((r) => r.id),
+        );
+        assert.isTrue([...page.revisions, ...next.revisions].some((r) => r.id === first.id));
+      }),
+    ),
+);
+
+it.effect(
+  "requires observed review model evidence and rejects identical code-review and UI-verification models",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const { detail, admission } = yield* investigationFixture(f, service);
+        const finding = detail.findings[0]!;
+        const proof = admission();
+        const binding = {
+          ...proof.binding,
+          role: "ui-verifier" as const,
+          taskClass: "ui" as const,
+          workId: finding.workId,
+          attemptId: finding.attemptId,
+        };
+        f.installChild(finding, "Reviewed", "reviewer");
+        yield* refused(service.admitInvestigation({ ...proof, binding }));
+        f.installChild(
+          finding,
+          "Reviewed",
+          "reviewer",
+          "completed",
+          undefined,
+          config.setupModelSelection,
+        );
+        yield* refused(
+          service.admitInvestigation({ ...proof, binding, selection: config.setupModelSelection }),
+        );
+        yield* service.admitInvestigation({
+          ...proof,
+          binding,
+          selection: config.routineModelSelection,
+        });
+        f.installChild(
+          finding,
+          "Verified",
+          "ui-verifier",
+          "completed",
+          undefined,
+          config.routineModelSelection,
+        );
+        yield* refused(
+          service.admitInvestigation({
+            ...proof,
+            binding: { ...binding, role: "reviewer" },
+            selection: config.routineModelSelection,
+          }),
+        );
+      }),
+    ),
+);
+
+it.effect(
+  "records human learning activity atomically and once, expands its exact historical revision and refuses filtered admission receipts",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        yield* service.runCheck({ id: config.id });
+        const detail = yield* service.report(f.caller(), {
+          samples: [sample],
+          findings: [],
+          summary: "Measured",
+        });
+        const input = learning();
+        const first = yield* service.recordLearning(f.caller(), input);
+        const replay = yield* service.recordLearning(f.caller(), input);
+        assert.equal(replay.id, first.id);
+        let history = yield* service.history({ id: config.id });
+        let rows = history.activity.filter((event) => event.kind === "learning-recorded");
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0]!.text, input.conclusion);
+        assert.deepEqual(rows[0]!.learningRef, {
+          learningId: first.learningId,
+          revisionId: first.id,
+          topic: first.topic,
+        });
+        const second = yield* service.recordLearning(f.caller(), {
+          ...input,
+          expectedCurrentId: first.id,
+          conclusion: "Use counters after further evidence",
+        });
+        const lateReplay = yield* service.recordLearning(f.caller(), {
+          ...input,
+          evidence: input.evidence.map(({ source, evidence, observedAt }) => ({
+            observedAt,
+            evidence,
+            source,
+          })),
+        });
+        assert.equal(lateReplay.id, first.id);
+        assert.isFalse(lateReplay.isCurrent);
+        const exact = yield* service.learningQuery({
+          id: config.id,
+          topic: input.topic,
+          revisionId: first.id,
+          observations: [],
+        });
+        assert.equal(exact.revisions.length, 1);
+        assert.equal(exact.revisions[0]!.id, first.id);
+        assert.isFalse(exact.revisions[0]!.isCurrent);
+        assert.equal(exact.revisions[0]!.applicabilityState, "uncertain");
+        assert.isFalse(exact.admissibleForInvestigation);
+        assert.deepEqual(
+          (yield* service.learningQuery({
+            id: config.id,
+            topic: "another-topic",
+            revisionId: first.id,
+            observations: [],
+          })).revisions,
+          [],
+        );
+        yield* service.upsert({ ...config, id: "another-champion" });
+        assert.deepEqual(
+          (yield* service.learningQuery({
+            id: "another-champion",
+            topic: input.topic,
+            revisionId: first.id,
+            observations: [],
+          })).revisions,
+          [],
+        );
+        assert.isAtMost(new TextEncoder().encode(json(exact)).length, 64_000);
+        const investigation = {
+          id: config.id,
+          findingId: detail.findings[0]!.id,
+          investigationId: "filtered-receipt",
+          question: "Compare collectors",
+          topic: input.topic,
+          retrievalReceiptId: exact.receiptId,
+          alternatives: [
+            { id: "a", role: "advisor" as const, hypothesis: "Logs", evidenceNeeds: "Counters" },
+          ],
+        };
+        yield* refused(service.startInvestigation(investigation));
+        const dueOnly = yield* service.learningQuery({
+          id: config.id,
+          topic: input.topic,
+          due: true,
+          observations: [],
+        });
+        assert.deepEqual(dueOnly.revisions, []);
+        assert.isFalse(dueOnly.admissibleForInvestigation);
+        yield* refused(
+          service.startInvestigation({ ...investigation, retrievalReceiptId: dueOnly.receiptId }),
+        );
+        const current = yield* service.learningQuery({
+          id: config.id,
+          topic: input.topic,
+          observations: [],
+        });
+        assert.isTrue(current.admissibleForInvestigation);
+        assert.deepEqual(
+          (yield* service.startInvestigation({
+            ...investigation,
+            retrievalReceiptId: current.receiptId,
+          })).consideredLearningIds,
+          [second.id],
+        );
+        history = yield* service.history({ id: config.id });
+        rows = history.activity.filter((event) => event.kind === "learning-recorded");
+        assert.equal(rows.length, 2);
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql
+          .unsafe(
+            "CREATE TRIGGER reject_learning_activity BEFORE INSERT ON champion_activity WHEN json_extract(NEW.document_json, '$.kind') = 'learning-recorded' BEGIN SELECT RAISE(ABORT, 'fixture event failure'); END",
+          )
+          .pipe(Effect.orDie);
+        yield* refused(service.recordLearning(f.caller(), learning("atomic-failure")));
+        assert.equal(
+          (yield* sql`SELECT id FROM champion_learning_revisions WHERE learning_id = 'atomic-failure'`.pipe(
+            Effect.orDie,
+          )).length,
+          0,
+        );
+      }),
+    ),
 );

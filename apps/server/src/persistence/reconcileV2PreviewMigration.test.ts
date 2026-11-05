@@ -88,6 +88,7 @@ describe("V2 preview upgrade", () => {
         [106, "DropOrchestrationEventCorrelationIndex"],
         [107, "DelegatedRecoveryIndexes"],
         [108, "WeaveStoredNames"],
+        [109, "ChampionInvestigations"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -219,6 +220,7 @@ describe("V2 preview upgrade", () => {
         [106, "DropOrchestrationEventCorrelationIndex"],
         [107, "DelegatedRecoveryIndexes"],
         [108, "WeaveStoredNames"],
+        [109, "ChampionInvestigations"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

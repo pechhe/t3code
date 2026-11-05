@@ -12,6 +12,65 @@ const failure = (error: unknown) =>
     message: isChampionError(error) ? error.message : "Champion operation unavailable.",
   });
 export const handlers = {
+  t3_champions_class_choices: McpToolAccess.reads((input) =>
+    Effect.flatMap(Champions.ChampionService, (service) => service.classChoices(input)).pipe(
+      Effect.mapError(failure),
+    ),
+  ),
+  t3_champions_recommendation: McpToolAccess.reads((input) =>
+    Effect.flatMap(Champions.ChampionService, (service) => service.recommendation(input)).pipe(
+      Effect.mapError(failure),
+    ),
+  ),
+  t3_champions_runtime_state: McpToolAccess.reads((input) =>
+    Effect.gen(function* () {
+      const service = yield* Champions.ChampionService;
+      return yield* service.runtimeState(input);
+    }).pipe(Effect.mapError(failure)),
+  ),
+  t3_champions_learning_query: McpToolAccess.reads((input) =>
+    Effect.gen(function* () {
+      const service = yield* Champions.ChampionService;
+      return yield* service.learningQuery(input);
+    }).pipe(Effect.mapError(failure)),
+  ),
+  t3_champions_record_learning: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const service = yield* Champions.ChampionService;
+      return yield* service.recordLearning(
+        (yield* McpInvocationContext.McpInvocationContext).thread,
+        input,
+      );
+    }).pipe(Effect.mapError(failure)),
+  ),
+  t3_champions_start_investigation: McpToolAccess.writesEnvironment((input) =>
+    Effect.gen(function* () {
+      const service = yield* Champions.ChampionService;
+      return yield* service.startInvestigationFromOwner(
+        (yield* McpInvocationContext.McpInvocationContext).thread,
+        input,
+      );
+    }).pipe(Effect.mapError(failure)),
+  ),
+  t3_champions_cancel_investigation: McpToolAccess.writesEnvironment((input) =>
+    Effect.gen(function* () {
+      const service = yield* Champions.ChampionService;
+      return yield* service.cancelInvestigationFromOwner(
+        (yield* McpInvocationContext.McpInvocationContext).thread,
+        input,
+      );
+    }).pipe(Effect.mapError(failure)),
+  ),
+  t3_champions_synthesize: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const service = yield* Champions.ChampionService;
+      return yield* service.synthesize(
+        (yield* McpInvocationContext.McpInvocationContext).thread,
+        input,
+      );
+    }).pipe(Effect.mapError(failure)),
+  ),
+
   t3_champions_discard_proposal: McpToolAccess.writesEnvironment((input, check) =>
     check.pipe(
       Effect.andThen(Effect.flatMap(Champions.ChampionService, (s) => s.discardProposal(input))),
