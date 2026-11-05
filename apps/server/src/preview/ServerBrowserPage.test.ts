@@ -5,7 +5,16 @@ import {
   type CDPSession,
   type Page,
 } from "playwright-core";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { PHI_ANY_VISIBLE_MATCH } from "./PhiBrowserProtocol.ts";
 
@@ -175,7 +184,7 @@ describe("server browser element refs", () => {
     expect(result.visibleText).not.toContain("editable-pass");
     expect(result.visibleText).toContain("Order ••••••••-2");
     // Playwright 1.64 no longer names a row after its cells; where a snapshot does, the name is masked too.
-    const row = tree.split("\n").find((line) => /- row\b/.test(line));
+    const row = tree.split("\n").find((line) => /- '?row\b/.test(line));
     expect(row).toBeDefined();
     if (row!.includes('row "')) expect(row).toMatch(/row "password: •+"/);
     expect(tree).toMatch(/textbox "Username" [^\n]*: maria$/m);
@@ -493,6 +502,31 @@ describe("server browser drag", () => {
     } finally {
       process.off("unhandledRejection", onUnhandled);
     }
+  });
+});
+
+describe("server browser snapshot of a stale ref", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("rejects without leaving a timeout armed that would fire unhandled", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const page = {} as unknown as Page;
+
+    await expect(
+      ServerBrowserPage.snapshot({
+        locator: "aria-ref=e1",
+        page,
+        cdp: {} as unknown as CDPSession,
+        renderScale: 1,
+        consoleEntries: [],
+        networkEntries: [],
+        actionTimeline: [],
+      }),
+    ).rejects.toThrow(/stale/);
+
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 

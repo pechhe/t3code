@@ -634,14 +634,15 @@ const capture = async (
 const snapshotTurns = new WeakMap<Page, number>();
 
 export const snapshot = async (input: SnapshotInput): Promise<PreviewAutomationSnapshot> => {
+  // Resolved before the first capture revokes refs, so an aria-ref from the previous
+  // snapshot still works, and on the retry too. It throws on a stale ref, so it runs before
+  // the timer: an armed timer whose rejection nobody awaits would kill the server.
+  const scope = targetLocator(input.page, input);
   const deadline = Date.now() + SNAPSHOT_TIMEOUT_MS;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(tooBusy()), SNAPSHOT_TIMEOUT_MS);
   });
-  // Resolved before the first capture revokes refs, so an aria-ref from the previous
-  // snapshot still works, and on the retry too.
-  const scope = targetLocator(input.page, input);
   const turn = (snapshotTurns.get(input.page) ?? 0) + 1;
   snapshotTurns.set(input.page, turn);
   // Retry only before the deadline and the next snapshot, whose refs a later retry would revoke.

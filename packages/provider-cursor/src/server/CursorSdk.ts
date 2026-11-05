@@ -63,7 +63,7 @@ function onUnhandledRejection(reason: unknown): void {
   if (process.listenerCount("unhandledRejection") > 1) {
     return;
   }
-  console.error(reason);
+  console.error("Fatal: unhandled promise rejection; exiting the server.", reason);
   process.exit(1);
 }
 
