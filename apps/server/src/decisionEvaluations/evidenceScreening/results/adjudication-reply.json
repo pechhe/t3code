@@ -1,0 +1,66 @@
+{
+  "c20428f": {
+    "label": "do-not-record",
+    "reason": "The browser-origin and unset development URL policy is already fully covered by an existing decision."
+  },
+  "c21e997": {
+    "label": "record",
+    "reason": "It establishes a settled pruning compatibility choice and reassessment conditions that maintainers must preserve and that existing decisions do not cover."
+  },
+  "c2ca83a": {
+    "label": "record",
+    "reason": "It records adopted highlighting and rendering choices with durable compatibility constraints absent from the existing decisions."
+  },
+  "c2d8b8c": {
+    "label": "do-not-record",
+    "reason": "It reports completed routine visual adjustments and validation rather than a durable project choice."
+  },
+  "c4d92ba": {
+    "label": "record",
+    "reason": "It explicitly settles export authorization and agent restrictions that other implementations must respect and that are not already recorded."
+  },
+  "c5d1a5e": {
+    "label": "do-not-record",
+    "reason": "It explicitly leaves production routing undecided and presents only conditional recommendations."
+  },
+  "c829ebd": {
+    "label": "record",
+    "reason": "It establishes a durable process-safety policy for all workers that is not covered by the existing decisions."
+  },
+  "c96ba47": {
+    "label": "do-not-record",
+    "reason": "Deleting the table without backfill is presented as a suggestion rather than an agreed choice."
+  },
+  "cb25cb1": {
+    "label": "do-not-record",
+    "reason": "Moving the retry limit into settings is an exploratory proposal with an explicitly unresolved user need."
+  },
+  "cbe13ee": {
+    "label": "do-not-record",
+    "reason": "The port selection is explicitly limited to this task's preview server and is a local operational choice."
+  },
+  "cc70442": {
+    "label": "record",
+    "reason": "Henry explicitly approves the consequential release choice to delete the legacy table without backfill, which has no existing decision."
+  },
+  "ccade51": {
+    "label": "record",
+    "reason": "It establishes a durable development-origin policy required for remote clients and absent from the existing decisions."
+  },
+  "cdd2f50": {
+    "label": "record",
+    "reason": "It states adopted upstream integration choices and preserved fork behavior that future work must respect and that existing decisions do not cover."
+  },
+  "ced83c5": {
+    "label": "do-not-record",
+    "reason": "The run-specific process-handling commitment is already covered by the existing process-safety decision."
+  },
+  "cf74957": {
+    "label": "record",
+    "reason": "It asserts a settled classification and reporting invariant that downstream interpretation relies on and that is not already recorded."
+  },
+  "cf8d950": {
+    "label": "do-not-record",
+    "reason": "It proposes a possible future pilot and reports unchanged production behavior without settling a new project choice."
+  }
+}

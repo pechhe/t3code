@@ -1,0 +1,212 @@
+{
+  "schema": "evidence-screening-adjudication-v1",
+  "replySha256": "97fe5f88a50461fda4c09a3b6f9d4c00059084cfaa3821e32d4a70d46d5a5475",
+  "heldoutCorpusDigest": "d8c281b0b29d412792b287fc5d4752a5a9313ce46a067b9c09f872f373922209",
+  "adjudicatorWouldRecord": 8,
+  "systems": {
+    "jev": {
+      "escalated": 9,
+      "adjudicatorWouldRecord": 8,
+      "adjudicatorDeclined": 1,
+      "adjudicatorNeedsHuman": 0,
+      "recordedButNotEscalated": []
+    },
+    "luna": {
+      "escalated": 8,
+      "adjudicatorWouldRecord": 7,
+      "adjudicatorDeclined": 1,
+      "adjudicatorNeedsHuman": 0,
+      "recordedButNotEscalated": ["h-d-invariant"]
+    },
+    "baseline": {
+      "escalated": 5,
+      "adjudicatorWouldRecord": 4,
+      "adjudicatorDeclined": 1,
+      "adjudicatorNeedsHuman": 0,
+      "recordedButNotEscalated": [
+        "h-d-chat-tables",
+        "h-d-highlights",
+        "h-d-invariant",
+        "h-d-syn-agreed"
+      ]
+    }
+  },
+  "rows": [
+    {
+      "caseId": "h-d-compaction",
+      "adjudicator": "record",
+      "reason": "It establishes a settled pruning compatibility choice and reassessment conditions that maintainers must preserve and that existing decisions do not cover.",
+      "referenceLabel": "settled-consequential",
+      "escalated": {
+        "jev": true,
+        "luna": true,
+        "baseline": true
+      }
+    },
+    {
+      "caseId": "h-d-processes",
+      "adjudicator": "record",
+      "reason": "It establishes a durable process-safety policy for all workers that is not covered by the existing decisions.",
+      "referenceLabel": "settled-consequential",
+      "escalated": {
+        "jev": true,
+        "luna": true,
+        "baseline": true
+      }
+    },
+    {
+      "caseId": "h-d-origins",
+      "adjudicator": "record",
+      "reason": "It establishes a durable development-origin policy required for remote clients and absent from the existing decisions.",
+      "referenceLabel": "settled-consequential",
+      "escalated": {
+        "jev": true,
+        "luna": true,
+        "baseline": true
+      }
+    },
+    {
+      "caseId": "h-d-chat-tables",
+      "adjudicator": "record",
+      "reason": "It states adopted upstream integration choices and preserved fork behavior that future work must respect and that existing decisions do not cover.",
+      "referenceLabel": "settled-consequential",
+      "escalated": {
+        "jev": true,
+        "luna": true,
+        "baseline": false
+      }
+    },
+    {
+      "caseId": "h-d-highlights",
+      "adjudicator": "record",
+      "reason": "It records adopted highlighting and rendering choices with durable compatibility constraints absent from the existing decisions.",
+      "referenceLabel": "settled-consequential",
+      "escalated": {
+        "jev": true,
+        "luna": true,
+        "baseline": false
+      }
+    },
+    {
+      "caseId": "h-d-usage-padding",
+      "adjudicator": "do-not-record",
+      "reason": "It reports completed routine visual adjustments and validation rather than a durable project choice.",
+      "referenceLabel": "routine",
+      "escalated": {
+        "jev": false,
+        "luna": false,
+        "baseline": false
+      }
+    },
+    {
+      "caseId": "h-d-next-step",
+      "adjudicator": "do-not-record",
+      "reason": "It explicitly leaves production routing undecided and presents only conditional recommendations.",
+      "referenceLabel": "tentative",
+      "escalated": {
+        "jev": false,
+        "luna": false,
+        "baseline": false
+      }
+    },
+    {
+      "caseId": "h-d-follow-up",
+      "adjudicator": "do-not-record",
+      "reason": "It proposes a possible future pilot and reports unchanged production behavior without settling a new project choice.",
+      "referenceLabel": "tentative",
+      "escalated": {
+        "jev": false,
+        "luna": false,
+        "baseline": false
+      }
+    },
+    {
+      "caseId": "h-d-invariant",
+      "adjudicator": "record",
+      "reason": "It asserts a settled classification and reporting invariant that downstream interpretation relies on and that is not already recorded.",
+      "referenceLabel": "settled-consequential",
+      "escalated": {
+        "jev": true,
+        "luna": false,
+        "baseline": false
+      }
+    },
+    {
+      "caseId": "h-d-restated-processes",
+      "adjudicator": "do-not-record",
+      "reason": "The run-specific process-handling commitment is already covered by the existing process-safety decision.",
+      "referenceLabel": "duplicate",
+      "escalated": {
+        "jev": false,
+        "luna": false,
+        "baseline": false
+      }
+    },
+    {
+      "caseId": "h-d-restated-origins",
+      "adjudicator": "do-not-record",
+      "reason": "The browser-origin and unset development URL policy is already fully covered by an existing decision.",
+      "referenceLabel": "duplicate",
+      "escalated": {
+        "jev": false,
+        "luna": false,
+        "baseline": true
+      }
+    },
+    {
+      "caseId": "h-d-syn-near-existing",
+      "adjudicator": "do-not-record",
+      "reason": "The port selection is explicitly limited to this task's preview server and is a local operational choice.",
+      "referenceLabel": "uncertain",
+      "escalated": {
+        "jev": true,
+        "luna": true,
+        "baseline": false
+      }
+    },
+    {
+      "caseId": "h-d-syn-tentative",
+      "adjudicator": "do-not-record",
+      "reason": "Moving the retry limit into settings is an exploratory proposal with an explicitly unresolved user need.",
+      "referenceLabel": "tentative",
+      "escalated": {
+        "jev": false,
+        "luna": false,
+        "baseline": false
+      }
+    },
+    {
+      "caseId": "h-d-syn-exports",
+      "adjudicator": "record",
+      "reason": "It explicitly settles export authorization and agent restrictions that other implementations must respect and that are not already recorded.",
+      "referenceLabel": "settled-consequential",
+      "escalated": {
+        "jev": true,
+        "luna": true,
+        "baseline": true
+      }
+    },
+    {
+      "caseId": "h-d-syn-agreed",
+      "adjudicator": "record",
+      "reason": "Henry explicitly approves the consequential release choice to delete the legacy table without backfill, which has no existing decision.",
+      "referenceLabel": "settled-consequential",
+      "escalated": {
+        "jev": true,
+        "luna": true,
+        "baseline": false
+      }
+    },
+    {
+      "caseId": "h-d-syn-suggested",
+      "adjudicator": "do-not-record",
+      "reason": "Deleting the table without backfill is presented as a suggestion rather than an agreed choice.",
+      "referenceLabel": "tentative",
+      "escalated": {
+        "jev": false,
+        "luna": false,
+        "baseline": false
+      }
+    }
+  ]
+}

@@ -280,6 +280,11 @@
     "reason": "The test-selection corpus and retained results cite repository paths as they were at each recorded revision; they are recorded data, not product terminology."
   },
   {
+    "path": "apps/server/src/decisionEvaluations/evidenceScreening/**",
+    "category": "captured-fixtures",
+    "reason": "The evidence-screening corpus, generator and retained results quote real reports, commits and audit records as they were, including paths under the former apps/server/src/hq and the former allowlist file; they are recorded data, not product terminology."
+  },
+  {
     "path": "scripts/legacy-name-allowlist.test.ts",
     "category": "compatibility-aliases",
     "reason": "The guard has to spell the name it searches for."

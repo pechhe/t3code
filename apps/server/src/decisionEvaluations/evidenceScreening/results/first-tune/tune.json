@@ -1,0 +1,5223 @@
+{
+  "schema": "evidence-screening-pilot-results-v1",
+  "split": "tune",
+  "rule": {
+    "id": "evidence-screening-pilot",
+    "version": "1"
+  },
+  "policy": {
+    "version": "evidence-screening-policy-v1",
+    "supportedFloor": 0.75,
+    "escalateFloor": 0.35
+  },
+  "baselineVersion": "evidence-consistency-v1",
+  "corpusDigest": "612ad9c94c9b298e10fbdd96328a1ac41b13733fb86c204b5e59a2ac692c23e4",
+  "corpusDigestAll": "82ad55a3be1a2edad6d33a842074fc23886774ee0baaeae3edfee089e57ca44d",
+  "labels": {
+    "A": {
+      "labeler": "A",
+      "role": "chore-worker",
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "thinking": "low",
+      "taskId": "t3-358-labeler-A-1",
+      "note": "read the anonymised packet only, wrote its own reply file; not an evaluated engine",
+      "replySha256": "565784dd83b542ce88ffa6fe54068cb81abf0b89045fd8c0ad8d5e0378de9a6f"
+    },
+    "B": {
+      "labeler": "B",
+      "role": "implementation-worker",
+      "model": "gpt-6.1-sol",
+      "effort": "medium",
+      "taskId": "t3-358-labeler-B-1",
+      "note": "read the anonymised packet only, wrote its own reply file; not an evaluated engine",
+      "replySha256": "7d33395574b9d55901b9e325f4dad5c6fac85e0c59f9bbad9eda4a49c64bfc8b"
+    }
+  },
+  "labelAudit": [
+    {
+      "caseId": "t-t355-checks",
+      "split": "tune",
+      "kind": "claim",
+      "A": "insufficient",
+      "B": "insufficient",
+      "agreed": "insufficient"
+    },
+    {
+      "caseId": "t-t355-cost",
+      "split": "tune",
+      "kind": "claim",
+      "A": "supported",
+      "B": "supported",
+      "agreed": "supported"
+    },
+    {
+      "caseId": "t-audit-oct26",
+      "split": "tune",
+      "kind": "claim",
+      "A": "contradicted",
+      "B": "contradicted",
+      "agreed": "contradicted"
+    },
+    {
+      "caseId": "t-d-upstream-policy",
+      "split": "tune",
+      "kind": "decision",
+      "A": "settled-consequential",
+      "B": "settled-consequential",
+      "agreed": "settled-consequential"
+    },
+    {
+      "caseId": "t-d-adopt-force-kill",
+      "split": "tune",
+      "kind": "decision",
+      "A": "settled-consequential",
+      "B": "settled-consequential",
+      "agreed": "settled-consequential"
+    },
+    {
+      "caseId": "t-syn-tests-passed",
+      "split": "tune",
+      "kind": "claim",
+      "A": "supported",
+      "B": "supported",
+      "agreed": "supported"
+    },
+    {
+      "caseId": "t-syn-tests-not-run",
+      "split": "tune",
+      "kind": "claim",
+      "A": "contradicted",
+      "B": "contradicted",
+      "agreed": "contradicted"
+    },
+    {
+      "caseId": "t-syn-truncated",
+      "split": "tune",
+      "kind": "claim",
+      "A": "insufficient",
+      "B": "insufficient",
+      "agreed": "insufficient"
+    },
+    {
+      "caseId": "t-d-syn-tentative",
+      "split": "tune",
+      "kind": "decision",
+      "A": "tentative",
+      "B": "tentative",
+      "agreed": "tentative"
+    },
+    {
+      "caseId": "t-d-syn-settled",
+      "split": "tune",
+      "kind": "decision",
+      "A": "settled-consequential",
+      "B": "settled-consequential",
+      "agreed": "settled-consequential"
+    },
+    {
+      "caseId": "t-d-syn-routine",
+      "split": "tune",
+      "kind": "decision",
+      "A": "routine",
+      "B": "routine",
+      "agreed": "routine"
+    },
+    {
+      "caseId": "t-d-syn-duplicate",
+      "split": "tune",
+      "kind": "decision",
+      "A": "duplicate",
+      "B": "duplicate",
+      "agreed": "duplicate"
+    }
+  ],
+  "runAt": "2026-11-05T12:58:41.395Z",
+  "engines": ["jev", "luna"],
+  "run": {
+    "checkout": {
+      "head": "a09b228bdf279787363f047a0bb4cfca7778185e",
+      "workingCopyDirty": true
+    },
+    "runtime": {
+      "node": "v24.21.0"
+    },
+    "files": {
+      "apps/server/src/decisionEvaluations/evidenceScreening/run.ts": "657b511d7aa39a8607db04e75929dfa4ba7b4fe654cf3ff0bd36485bccfb9cc9",
+      "apps/server/src/decisionEvaluations/evidenceScreening/attemptLog.ts": "d5c15205b579e3b3aad94c63969d8f5e284e7cc9e2db03002a0712d6f88caedb",
+      "apps/server/src/decisionEvaluations/evidenceScreening/provenance.ts": "4075e0e4e03fcf1f9dffa7f7c6c0238c102244c79ca67f9cb91d830347c44894",
+      "apps/server/src/decisionEvaluations/evidenceScreening/rule.ts": "fb66fe5370471bf51056f779f61d27e1fb03503fe8b75d724cb5a581ba2c177d",
+      "apps/server/src/decisionEvaluations/evidenceScreening/definitions.ts": "c1c9bdd9d847043e28650ddcf5327362053db440b21c934bc962713682cee308",
+      "apps/server/src/decisionEvaluations/evidenceScreening/harness.ts": "9d28c343ed6d6a4d0602d765b8fb3147e17da81858211f54f894284d99bf6117",
+      "apps/server/src/decisionEvaluations/evidenceScreening/corpusTypes.ts": "3e684274271de81e210f99c91256463990bc5d0092b0b3e518199e717e00a682",
+      "apps/server/src/decisionEvaluations/evidenceScreening/corpusAuthentic.ts": "5f4adee5069af903583f3bd4dfb2c3f9b0b41319483430092f3efaf64d99aac7",
+      "apps/server/src/decisionEvaluations/evidenceScreening/corpusAuthentic.json": "d55670cb72c2a138007672f9a09b507e4a7cd5434bd9974fc73fbe7f09317ed6",
+      "apps/server/src/decisionEvaluations/evidenceScreening/corpusTune.ts": "746cc4eea1874af277c9b59af98a36fa9222daa596aea3e7638f8e34282cf169",
+      "apps/server/src/decisionEvaluations/evidenceScreening/corpusHeldout.ts": "519db0e3d60d58b72d5538af5c5d0f32b990672260643478b98c812ecc530a10",
+      "apps/server/src/decisions/DecisionService.ts": "60d2f7f879fe5f7c6ee11f7f771e776fc30ce3f16dfd20681eeedea805154a19",
+      "apps/server/src/decisions/adapters.ts": "ce64942a3311d10543b83fe3c9b3c47fcc72b9cec6c7b1efdf0067005913a492",
+      "apps/server/src/decisions/decisions.testkit.ts": "80cebd187858cfa6029c6356822962a363431afb30ff7b6fb08adbd2c15a2016",
+      "packages/contracts/src/decisions.ts": "4225d2f33a0754c8bbe47500e29a59f19d85c795ed17517db4b1f0f262e26f18",
+      "pnpm-lock.yaml": "9bb3c0493b82866a5d97b361b4c8d5c7f295446338fe4fd39b5e9e0e0714a4c2"
+    }
+  },
+  "scorer": {
+    "files": {
+      "apps/server/src/decisionEvaluations/evidenceScreening/scoring.ts": "56b338c0b1009fe1ce35169d1bea2feda8b37c647d16173de2fb1c12ddbf67b8",
+      "apps/server/src/decisionEvaluations/evidenceScreening/labels.ts": "86091663433a50a593f3968d0984a5b207dcaaf7d526abbe4c87f9f0651afb3c",
+      "apps/server/src/decisionEvaluations/evidenceScreening/policy.ts": "f4709e826ae2ce767389d371f23356a1cb9319092156fd11e4245df6977184e8",
+      "apps/server/src/decisionEvaluations/evidenceScreening/baseline.ts": "1b1633a12a0709139b8340d19a431767a922e1544300fb24d63c703048b0c4df",
+      "apps/server/src/decisionEvaluations/evidenceScreening/results/labels-A.json": "e572de5716f65df61eeac7120fc47e317280add950238d2396fc9ed0181fa161",
+      "apps/server/src/decisionEvaluations/evidenceScreening/results/labels-B.json": "13e0a2b00bdddad9e7e5e7fd8b625d1728c3e9f2b6cd92ac027dec956e226d63",
+      "apps/server/src/decisionEvaluations/evidenceScreening/results/freeze.json": "6ad0de5e0b85f0cd01847841bde5144a03611b2af83f664dcbb28069d083d368",
+      "apps/server/src/decisionEvaluations/semanticLint/scoring.ts": "1fc9dd94096e4573aca56aa36236473c8d858445df5e419cc6eb00d01cde1790"
+    },
+    "build": {
+      "apps/server/src/decisionEvaluations/evidenceScreening/buildAuthentic.ts": "fa0a073c68eb44dad078ece5652f97766dd97251536130ba5ed1df8fae3131f9",
+      "apps/server/src/decisionEvaluations/evidenceScreening/labelPacket.ts": "0b97be8dd80bb49b495f8cf388c80f874a6c0f4622977199a99e021af3654cc4"
+    }
+  },
+  "records": [
+    {
+      "caseId": "t-t355-checks",
+      "kind": "claim",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "insufficient",
+        "probabilities": {
+          "supported": 0,
+          "contradicted": 0.03,
+          "insufficient": 0.97
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "564dcc19fae6c3c74b1b69e052566840895a4b9162046bb01c7e62e6c5a1f15e",
+      "latencyMs": 320,
+      "inputTokens": 574,
+      "outputTokens": 47,
+      "costUsd": 0.000024108,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:57:44.446Z"
+    },
+    {
+      "caseId": "t-t355-checks",
+      "kind": "claim",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "insufficient",
+        "probabilities": {
+          "supported": 0.01,
+          "contradicted": 0.01,
+          "insufficient": 0.98
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "f1a514fa0e2d0645ad3407ebcc6460dc03ea265b4687fdeeb86e928e83d9767c",
+      "latencyMs": 1152,
+      "inputTokens": 346,
+      "outputTokens": 0,
+      "costUsd": 0.0000346,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:57:46.770Z"
+    },
+    {
+      "caseId": "t-t355-cost",
+      "kind": "claim",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "supported",
+        "probabilities": {
+          "supported": 0.93,
+          "contradicted": 0.03,
+          "insufficient": 0.04
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "cd6fe459ea73c89d46d9fc7566205e922e8f8cf95f011ec7523c98684dfbb29a",
+      "latencyMs": 177,
+      "inputTokens": 631,
+      "outputTokens": 44,
+      "costUsd": 0.000026502,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:57:49.924Z"
+    },
+    {
+      "caseId": "t-t355-cost",
+      "kind": "claim",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "supported",
+        "probabilities": {
+          "supported": 0.94,
+          "contradicted": 0.01,
+          "insufficient": 0.05
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "120d0ef518dfec7edebf42b71765c6864953e8c246948e91b6aa44c4ae88891b",
+      "latencyMs": 1170,
+      "inputTokens": 389,
+      "outputTokens": 0,
+      "costUsd": 0.000038900000000000004,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:57:52.103Z"
+    },
+    {
+      "caseId": "t-audit-oct26",
+      "kind": "claim",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "contradicted",
+        "probabilities": {
+          "supported": 0,
+          "contradicted": 1,
+          "insufficient": 0
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "0104fe2905509d12baf745f9f313ecbb2e7684fcaf8f837e859b3e553c5e40fc",
+      "latencyMs": 229,
+      "inputTokens": 1401,
+      "outputTokens": 47,
+      "costUsd": 0.000058842000000000003,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:57:55.276Z"
+    },
+    {
+      "caseId": "t-audit-oct26",
+      "kind": "claim",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "contradicted",
+        "probabilities": {
+          "supported": 0,
+          "contradicted": 0.99,
+          "insufficient": 0.01
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "bb750c82b063abd1cc1aa94d57098e78c6c1ec72333796c2ba569ef2267e361b",
+      "latencyMs": 579,
+      "inputTokens": 1125,
+      "outputTokens": 0,
+      "costUsd": 0.0001125,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:57:57.507Z"
+    },
+    {
+      "caseId": "t-d-upstream-policy",
+      "kind": "decision",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "settled-consequential",
+        "probabilities": {
+          "settled-consequential": 0.9,
+          "tentative": 0.08,
+          "routine": 0.01,
+          "duplicate": 0.01
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "f8ac2faa22d5e14cb30a9d4af1798d811b2a577050f1d7d6450e64f4298297a3",
+      "latencyMs": 311,
+      "inputTokens": 622,
+      "outputTokens": 56,
+      "costUsd": 0.000026124000000000003,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:00.087Z"
+    },
+    {
+      "caseId": "t-d-upstream-policy",
+      "kind": "decision",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "settled-consequential",
+        "probabilities": {
+          "settled-consequential": 0.47,
+          "tentative": 0.32,
+          "routine": 0.07,
+          "duplicate": 0.14
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "683e934a3ba67638526170c770138c3878fbd99eb39152d743e74ba4615fd73c",
+      "latencyMs": 345,
+      "inputTokens": 391,
+      "outputTokens": 0,
+      "costUsd": 0.0000391,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:02.400Z"
+    },
+    {
+      "caseId": "t-d-adopt-force-kill",
+      "kind": "decision",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "settled-consequential",
+        "probabilities": {
+          "settled-consequential": 0.76,
+          "tentative": 0,
+          "routine": 0.23,
+          "duplicate": 0.01
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "00ef0cb1f32999921181be2d48942e4f95fdc6f11c9bd336d482feb912608c71",
+      "latencyMs": 205,
+      "inputTokens": 892,
+      "outputTokens": 56,
+      "costUsd": 0.000037464000000000006,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:04.746Z"
+    },
+    {
+      "caseId": "t-d-adopt-force-kill",
+      "kind": "decision",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "settled-consequential",
+        "probabilities": {
+          "settled-consequential": 0.55,
+          "tentative": 0.05,
+          "routine": 0.33,
+          "duplicate": 0.07
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "658ddafe106a0eb0e9ba38ff270dea190314712f04f10cd99334cb2a04c68a34",
+      "latencyMs": 536,
+      "inputTokens": 604,
+      "outputTokens": 0,
+      "costUsd": 0.000060400000000000004,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:06.952Z"
+    },
+    {
+      "caseId": "t-syn-tests-passed",
+      "kind": "claim",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "insufficient",
+        "probabilities": {
+          "supported": 0.47,
+          "contradicted": 0.04,
+          "insufficient": 0.49
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "5fcd9cb2233cb4a81dfce857f5e6ce48fe07159ba528d48b4c59a659ad86d58c",
+      "latencyMs": 528,
+      "inputTokens": 583,
+      "outputTokens": 47,
+      "costUsd": 0.000024486,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:09.492Z"
+    },
+    {
+      "caseId": "t-syn-tests-passed",
+      "kind": "claim",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "supported",
+        "probabilities": {
+          "supported": 0.68,
+          "contradicted": 0.08,
+          "insufficient": 0.24
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "f1e229461d3485732c05d2ff3a9e9592a6b0452deb77f59635add37ec64d0532",
+      "latencyMs": 417,
+      "inputTokens": 366,
+      "outputTokens": 0,
+      "costUsd": 0.0000366,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:12.024Z"
+    },
+    {
+      "caseId": "t-syn-tests-not-run",
+      "kind": "claim",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "contradicted",
+        "probabilities": {
+          "supported": 0,
+          "contradicted": 0.93,
+          "insufficient": 0.07
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "3cfba4891305ed7db12f3f87096cfea115c16eb1c1c40f04581c1d126eddf7d5",
+      "latencyMs": 188,
+      "inputTokens": 568,
+      "outputTokens": 47,
+      "costUsd": 0.000023856000000000003,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:14.442Z"
+    },
+    {
+      "caseId": "t-syn-tests-not-run",
+      "kind": "claim",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "contradicted",
+        "probabilities": {
+          "supported": 0.01,
+          "contradicted": 0.96,
+          "insufficient": 0.03
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "edfe1fa44b0557131efd04600fa771dc34d8fece178bc01693839af33724496a",
+      "latencyMs": 207,
+      "inputTokens": 348,
+      "outputTokens": 0,
+      "costUsd": 0.000034800000000000006,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:16.632Z"
+    },
+    {
+      "caseId": "t-syn-truncated",
+      "kind": "claim",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "insufficient",
+        "probabilities": {
+          "supported": 0.06,
+          "contradicted": 0,
+          "insufficient": 0.94
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "8627c5d9057f28b22ecc28ca2d0a46c620cb1a102e146f8496cd9ec471034de5",
+      "latencyMs": 213,
+      "inputTokens": 566,
+      "outputTokens": 47,
+      "costUsd": 0.000023772000000000002,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:18.850Z"
+    },
+    {
+      "caseId": "t-syn-truncated",
+      "kind": "claim",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "insufficient",
+        "probabilities": {
+          "supported": 0.03,
+          "contradicted": 0.02,
+          "insufficient": 0.95
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "90ef29715c4c8bd3c488dc959a3e6e622e720ac31a028a8b30dc6518b0dbac99",
+      "latencyMs": 259,
+      "inputTokens": 346,
+      "outputTokens": 0,
+      "costUsd": 0.0000346,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:21.063Z"
+    },
+    {
+      "caseId": "t-d-syn-tentative",
+      "kind": "decision",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "tentative",
+        "probabilities": {
+          "settled-consequential": 0,
+          "tentative": 1,
+          "routine": 0,
+          "duplicate": 0
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "7cbb05662b22e5bb05792a9ec8fa3e1cfdb98d55cd6e579a0820e2d436032a5b",
+      "latencyMs": 173,
+      "inputTokens": 561,
+      "outputTokens": 52,
+      "costUsd": 0.000023562000000000002,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:23.323Z"
+    },
+    {
+      "caseId": "t-d-syn-tentative",
+      "kind": "decision",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "tentative",
+        "probabilities": {
+          "settled-consequential": 0,
+          "tentative": 1,
+          "routine": 0,
+          "duplicate": 0
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "f7c8d831ed1a2480ebb53f832162d21b526c591b81c1af23091eb599f5e6bd86",
+      "latencyMs": 619,
+      "inputTokens": 332,
+      "outputTokens": 0,
+      "costUsd": 0.0000332,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:25.497Z"
+    },
+    {
+      "caseId": "t-d-syn-settled",
+      "kind": "decision",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "settled-consequential",
+        "probabilities": {
+          "settled-consequential": 1,
+          "tentative": 0,
+          "routine": 0,
+          "duplicate": 0
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "ca224152ec643a0d660c11972cad1928830a63551bf262d0a4847ebe66f9c954",
+      "latencyMs": 173,
+      "inputTokens": 562,
+      "outputTokens": 56,
+      "costUsd": 0.000023604000000000003,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:28.118Z"
+    },
+    {
+      "caseId": "t-d-syn-settled",
+      "kind": "decision",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "settled-consequential",
+        "probabilities": {
+          "settled-consequential": 0.92,
+          "tentative": 0.04,
+          "routine": 0.02,
+          "duplicate": 0.02
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "f8523e4bf2bb7d9d0e1ac1e04a9a1881bc1ace711ad939b7b449bbc15faa8fa6",
+      "latencyMs": 310,
+      "inputTokens": 332,
+      "outputTokens": 0,
+      "costUsd": 0.0000332,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:30.292Z"
+    },
+    {
+      "caseId": "t-d-syn-routine",
+      "kind": "decision",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "settled-consequential": 0,
+          "tentative": 0,
+          "routine": 1,
+          "duplicate": 0
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "cbd86b5361106c3b0ff67b26550cfa448690a1f8745df32a9c08889737a60d7f",
+      "latencyMs": 145,
+      "inputTokens": 548,
+      "outputTokens": 51,
+      "costUsd": 0.000023016,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:32.603Z"
+    },
+    {
+      "caseId": "t-d-syn-routine",
+      "kind": "decision",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "routine",
+        "probabilities": {
+          "settled-consequential": 0.01,
+          "tentative": 0.03,
+          "routine": 0.96,
+          "duplicate": 0
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "a77fa3ebbc986851370cefd6340ae03f6391b7442f4fa9c7171faf05358b597f",
+      "latencyMs": 304,
+      "inputTokens": 319,
+      "outputTokens": 0,
+      "costUsd": 0.0000319,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:34.753Z"
+    },
+    {
+      "caseId": "t-d-syn-duplicate",
+      "kind": "decision",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "choice": "duplicate",
+        "probabilities": {
+          "settled-consequential": 0.01,
+          "tentative": 0.01,
+          "routine": 0,
+          "duplicate": 0.98
+        }
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "599b95f4de1b65f4ca3b23f4884b8b96e8cfc2218bc39123d9d7b39192e187fe",
+      "latencyMs": 158,
+      "inputTokens": 599,
+      "outputTokens": 51,
+      "costUsd": 0.000025158000000000002,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:37.059Z"
+    },
+    {
+      "caseId": "t-d-syn-duplicate",
+      "kind": "decision",
+      "engine": "luna",
+      "outcome": {
+        "kind": "answered",
+        "choice": "duplicate",
+        "probabilities": {
+          "settled-consequential": 0,
+          "tentative": 0,
+          "routine": 0,
+          "duplicate": 1
+        }
+      },
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "be6674b3897be6bc962e4a950025b7624bc450d1ed95340d6629fa84bbf08508",
+      "latencyMs": 156,
+      "inputTokens": 363,
+      "outputTokens": 0,
+      "costUsd": 0.0000363,
+      "costStatus": "estimated",
+      "startedAt": "2026-11-05T12:58:39.222Z"
+    }
+  ],
+  "summary": {
+    "baseline": {
+      "claim": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "needReview": 4,
+        "unsupportedMisses": {
+          "numerator": 0,
+          "denominator": 4,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.48990002040399916
+          },
+          "cases": []
+        },
+        "reviewRecall": {
+          "numerator": 4,
+          "denominator": 4,
+          "interval": {
+            "value": 1,
+            "low": 0.5100999795960008,
+            "high": 1
+          },
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+        },
+        "contradictedRecall": {
+          "numerator": 2,
+          "denominator": 2,
+          "interval": {
+            "value": 1,
+            "low": 0.34237195288961925,
+            "high": 1
+          },
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+        },
+        "falseAlarms": {
+          "numerator": 0,
+          "denominator": 2,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.6576280471103807
+          },
+          "cases": []
+        },
+        "flagged": 4,
+        "abstentions": 0,
+        "reviewLoad": {
+          "numerator": 4,
+          "denominator": 6,
+          "interval": {
+            "value": 0.6666666666666666,
+            "low": 0.29998832134152864,
+            "high": 0.9032306674407831
+          },
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+        },
+        "exact": {
+          "numerator": 4,
+          "denominator": 6,
+          "interval": {
+            "value": 0.6666666666666666,
+            "low": 0.29998832134152864,
+            "high": 0.9032306674407831
+          },
+          "cases": ["t-t355-checks", "t-t355-cost", "t-syn-tests-passed", "t-syn-truncated"]
+        }
+      },
+      "decision": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "candidates": 3,
+        "candidateRecall": {
+          "numerator": 2,
+          "denominator": 3,
+          "interval": {
+            "value": 0.6666666666666666,
+            "low": 0.2076549551264879,
+            "high": 0.9385096847238394
+          },
+          "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "missedCandidates": {
+          "numerator": 1,
+          "denominator": 3,
+          "interval": {
+            "value": 0.3333333333333333,
+            "low": 0.0614903152761605,
+            "high": 0.7923450448735121
+          },
+          "cases": ["t-d-upstream-policy"]
+        },
+        "falseEscalations": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalationsByReference": {},
+        "escalated": 2,
+        "abstentions": 0,
+        "adjudicationLoad": {
+          "numerator": 2,
+          "denominator": 6,
+          "interval": {
+            "value": 0.3333333333333333,
+            "low": 0.09676933255921683,
+            "high": 0.7000116786584712
+          },
+          "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "exact": {
+          "numerator": 5,
+          "denominator": 6,
+          "interval": {
+            "value": 0.8333333333333334,
+            "low": 0.43649056343635395,
+            "high": 0.9699474141282697
+          },
+          "cases": [
+            "t-d-adopt-force-kill",
+            "t-d-syn-tentative",
+            "t-d-syn-settled",
+            "t-d-syn-routine",
+            "t-d-syn-duplicate"
+          ]
+        }
+      }
+    },
+    "jev": {
+      "claim": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "needReview": 4,
+        "unsupportedMisses": {
+          "numerator": 0,
+          "denominator": 4,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.48990002040399916
+          },
+          "cases": []
+        },
+        "reviewRecall": {
+          "numerator": 4,
+          "denominator": 4,
+          "interval": {
+            "value": 1,
+            "low": 0.5100999795960008,
+            "high": 1
+          },
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+        },
+        "contradictedRecall": {
+          "numerator": 2,
+          "denominator": 2,
+          "interval": {
+            "value": 1,
+            "low": 0.34237195288961925,
+            "high": 1
+          },
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+        },
+        "falseAlarms": {
+          "numerator": 1,
+          "denominator": 2,
+          "interval": {
+            "value": 0.5,
+            "low": 0.09452865480086614,
+            "high": 0.9054713451991339
+          },
+          "cases": ["t-syn-tests-passed"]
+        },
+        "flagged": 5,
+        "abstentions": 0,
+        "reviewLoad": {
+          "numerator": 5,
+          "denominator": 6,
+          "interval": {
+            "value": 0.8333333333333334,
+            "low": 0.43649056343635395,
+            "high": 0.9699474141282697
+          },
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-passed",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
+        },
+        "exact": {
+          "numerator": 5,
+          "denominator": 6,
+          "interval": {
+            "value": 0.8333333333333334,
+            "low": 0.43649056343635395,
+            "high": 0.9699474141282697
+          },
+          "cases": [
+            "t-t355-checks",
+            "t-t355-cost",
+            "t-audit-oct26",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
+        }
+      },
+      "decision": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "candidates": 3,
+        "candidateRecall": {
+          "numerator": 3,
+          "denominator": 3,
+          "interval": {
+            "value": 1,
+            "low": 0.43849391955098227,
+            "high": 1
+          },
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "missedCandidates": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalations": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalationsByReference": {},
+        "escalated": 3,
+        "abstentions": 0,
+        "adjudicationLoad": {
+          "numerator": 3,
+          "denominator": 6,
+          "interval": {
+            "value": 0.5,
+            "low": 0.18761280689940868,
+            "high": 0.8123871931005913
+          },
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "exact": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-tentative",
+            "t-d-syn-settled",
+            "t-d-syn-routine",
+            "t-d-syn-duplicate"
+          ]
+        }
+      }
+    },
+    "jev+baseline": {
+      "claim": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "needReview": 4,
+        "unsupportedMisses": {
+          "numerator": 0,
+          "denominator": 4,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.48990002040399916
+          },
+          "cases": []
+        },
+        "reviewRecall": {
+          "numerator": 4,
+          "denominator": 4,
+          "interval": {
+            "value": 1,
+            "low": 0.5100999795960008,
+            "high": 1
+          },
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+        },
+        "contradictedRecall": {
+          "numerator": 2,
+          "denominator": 2,
+          "interval": {
+            "value": 1,
+            "low": 0.34237195288961925,
+            "high": 1
+          },
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+        },
+        "falseAlarms": {
+          "numerator": 1,
+          "denominator": 2,
+          "interval": {
+            "value": 0.5,
+            "low": 0.09452865480086614,
+            "high": 0.9054713451991339
+          },
+          "cases": ["t-syn-tests-passed"]
+        },
+        "flagged": 5,
+        "abstentions": 0,
+        "reviewLoad": {
+          "numerator": 5,
+          "denominator": 6,
+          "interval": {
+            "value": 0.8333333333333334,
+            "low": 0.43649056343635395,
+            "high": 0.9699474141282697
+          },
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-passed",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
+        },
+        "exact": {
+          "numerator": 5,
+          "denominator": 6,
+          "interval": {
+            "value": 0.8333333333333334,
+            "low": 0.43649056343635395,
+            "high": 0.9699474141282697
+          },
+          "cases": [
+            "t-t355-checks",
+            "t-t355-cost",
+            "t-audit-oct26",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
+        }
+      },
+      "decision": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "candidates": 3,
+        "candidateRecall": {
+          "numerator": 3,
+          "denominator": 3,
+          "interval": {
+            "value": 1,
+            "low": 0.43849391955098227,
+            "high": 1
+          },
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "missedCandidates": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalations": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalationsByReference": {},
+        "escalated": 3,
+        "abstentions": 0,
+        "adjudicationLoad": {
+          "numerator": 3,
+          "denominator": 6,
+          "interval": {
+            "value": 0.5,
+            "low": 0.18761280689940868,
+            "high": 0.8123871931005913
+          },
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "exact": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-tentative",
+            "t-d-syn-settled",
+            "t-d-syn-routine",
+            "t-d-syn-duplicate"
+          ]
+        }
+      }
+    },
+    "jev-argmax": {
+      "claim": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "needReview": 4,
+        "unsupportedMisses": {
+          "numerator": 0,
+          "denominator": 4,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.48990002040399916
+          },
+          "cases": []
+        },
+        "reviewRecall": {
+          "numerator": 4,
+          "denominator": 4,
+          "interval": {
+            "value": 1,
+            "low": 0.5100999795960008,
+            "high": 1
+          },
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+        },
+        "contradictedRecall": {
+          "numerator": 2,
+          "denominator": 2,
+          "interval": {
+            "value": 1,
+            "low": 0.34237195288961925,
+            "high": 1
+          },
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+        },
+        "falseAlarms": {
+          "numerator": 1,
+          "denominator": 2,
+          "interval": {
+            "value": 0.5,
+            "low": 0.09452865480086614,
+            "high": 0.9054713451991339
+          },
+          "cases": ["t-syn-tests-passed"]
+        },
+        "flagged": 5,
+        "abstentions": 0,
+        "reviewLoad": {
+          "numerator": 5,
+          "denominator": 6,
+          "interval": {
+            "value": 0.8333333333333334,
+            "low": 0.43649056343635395,
+            "high": 0.9699474141282697
+          },
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-passed",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
+        },
+        "exact": {
+          "numerator": 5,
+          "denominator": 6,
+          "interval": {
+            "value": 0.8333333333333334,
+            "low": 0.43649056343635395,
+            "high": 0.9699474141282697
+          },
+          "cases": [
+            "t-t355-checks",
+            "t-t355-cost",
+            "t-audit-oct26",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
+        }
+      },
+      "decision": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "candidates": 3,
+        "candidateRecall": {
+          "numerator": 3,
+          "denominator": 3,
+          "interval": {
+            "value": 1,
+            "low": 0.43849391955098227,
+            "high": 1
+          },
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "missedCandidates": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalations": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalationsByReference": {},
+        "escalated": 3,
+        "abstentions": 0,
+        "adjudicationLoad": {
+          "numerator": 3,
+          "denominator": 6,
+          "interval": {
+            "value": 0.5,
+            "low": 0.18761280689940868,
+            "high": 0.8123871931005913
+          },
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "exact": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-tentative",
+            "t-d-syn-settled",
+            "t-d-syn-routine",
+            "t-d-syn-duplicate"
+          ]
+        }
+      }
+    },
+    "luna": {
+      "claim": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "needReview": 4,
+        "unsupportedMisses": {
+          "numerator": 0,
+          "denominator": 4,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.48990002040399916
+          },
+          "cases": []
+        },
+        "reviewRecall": {
+          "numerator": 4,
+          "denominator": 4,
+          "interval": {
+            "value": 1,
+            "low": 0.5100999795960008,
+            "high": 1
+          },
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+        },
+        "contradictedRecall": {
+          "numerator": 2,
+          "denominator": 2,
+          "interval": {
+            "value": 1,
+            "low": 0.34237195288961925,
+            "high": 1
+          },
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+        },
+        "falseAlarms": {
+          "numerator": 1,
+          "denominator": 2,
+          "interval": {
+            "value": 0.5,
+            "low": 0.09452865480086614,
+            "high": 0.9054713451991339
+          },
+          "cases": ["t-syn-tests-passed"]
+        },
+        "flagged": 5,
+        "abstentions": 0,
+        "reviewLoad": {
+          "numerator": 5,
+          "denominator": 6,
+          "interval": {
+            "value": 0.8333333333333334,
+            "low": 0.43649056343635395,
+            "high": 0.9699474141282697
+          },
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-passed",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
+        },
+        "exact": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-t355-checks",
+            "t-t355-cost",
+            "t-audit-oct26",
+            "t-syn-tests-passed",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
+        }
+      },
+      "decision": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "candidates": 3,
+        "candidateRecall": {
+          "numerator": 3,
+          "denominator": 3,
+          "interval": {
+            "value": 1,
+            "low": 0.43849391955098227,
+            "high": 1
+          },
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "missedCandidates": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalations": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalationsByReference": {},
+        "escalated": 3,
+        "abstentions": 0,
+        "adjudicationLoad": {
+          "numerator": 3,
+          "denominator": 6,
+          "interval": {
+            "value": 0.5,
+            "low": 0.18761280689940868,
+            "high": 0.8123871931005913
+          },
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "exact": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-tentative",
+            "t-d-syn-settled",
+            "t-d-syn-routine",
+            "t-d-syn-duplicate"
+          ]
+        }
+      }
+    },
+    "luna+baseline": {
+      "claim": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "needReview": 4,
+        "unsupportedMisses": {
+          "numerator": 0,
+          "denominator": 4,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.48990002040399916
+          },
+          "cases": []
+        },
+        "reviewRecall": {
+          "numerator": 4,
+          "denominator": 4,
+          "interval": {
+            "value": 1,
+            "low": 0.5100999795960008,
+            "high": 1
+          },
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+        },
+        "contradictedRecall": {
+          "numerator": 2,
+          "denominator": 2,
+          "interval": {
+            "value": 1,
+            "low": 0.34237195288961925,
+            "high": 1
+          },
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+        },
+        "falseAlarms": {
+          "numerator": 1,
+          "denominator": 2,
+          "interval": {
+            "value": 0.5,
+            "low": 0.09452865480086614,
+            "high": 0.9054713451991339
+          },
+          "cases": ["t-syn-tests-passed"]
+        },
+        "flagged": 5,
+        "abstentions": 0,
+        "reviewLoad": {
+          "numerator": 5,
+          "denominator": 6,
+          "interval": {
+            "value": 0.8333333333333334,
+            "low": 0.43649056343635395,
+            "high": 0.9699474141282697
+          },
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-passed",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
+        },
+        "exact": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-t355-checks",
+            "t-t355-cost",
+            "t-audit-oct26",
+            "t-syn-tests-passed",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
+        }
+      },
+      "decision": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "candidates": 3,
+        "candidateRecall": {
+          "numerator": 3,
+          "denominator": 3,
+          "interval": {
+            "value": 1,
+            "low": 0.43849391955098227,
+            "high": 1
+          },
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "missedCandidates": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalations": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalationsByReference": {},
+        "escalated": 3,
+        "abstentions": 0,
+        "adjudicationLoad": {
+          "numerator": 3,
+          "denominator": 6,
+          "interval": {
+            "value": 0.5,
+            "low": 0.18761280689940868,
+            "high": 0.8123871931005913
+          },
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "exact": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-tentative",
+            "t-d-syn-settled",
+            "t-d-syn-routine",
+            "t-d-syn-duplicate"
+          ]
+        }
+      }
+    },
+    "luna-argmax": {
+      "claim": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "needReview": 4,
+        "unsupportedMisses": {
+          "numerator": 0,
+          "denominator": 4,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.48990002040399916
+          },
+          "cases": []
+        },
+        "reviewRecall": {
+          "numerator": 4,
+          "denominator": 4,
+          "interval": {
+            "value": 1,
+            "low": 0.5100999795960008,
+            "high": 1
+          },
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+        },
+        "contradictedRecall": {
+          "numerator": 2,
+          "denominator": 2,
+          "interval": {
+            "value": 1,
+            "low": 0.34237195288961925,
+            "high": 1
+          },
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+        },
+        "falseAlarms": {
+          "numerator": 0,
+          "denominator": 2,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.6576280471103807
+          },
+          "cases": []
+        },
+        "flagged": 4,
+        "abstentions": 0,
+        "reviewLoad": {
+          "numerator": 4,
+          "denominator": 6,
+          "interval": {
+            "value": 0.6666666666666666,
+            "low": 0.29998832134152864,
+            "high": 0.9032306674407831
+          },
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+        },
+        "exact": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-t355-checks",
+            "t-t355-cost",
+            "t-audit-oct26",
+            "t-syn-tests-passed",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
+        }
+      },
+      "decision": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "candidates": 3,
+        "candidateRecall": {
+          "numerator": 3,
+          "denominator": 3,
+          "interval": {
+            "value": 1,
+            "low": 0.43849391955098227,
+            "high": 1
+          },
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "missedCandidates": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalations": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalationsByReference": {},
+        "escalated": 3,
+        "abstentions": 0,
+        "adjudicationLoad": {
+          "numerator": 3,
+          "denominator": 6,
+          "interval": {
+            "value": 0.5,
+            "low": 0.18761280689940868,
+            "high": 0.8123871931005913
+          },
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "exact": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-tentative",
+            "t-d-syn-settled",
+            "t-d-syn-routine",
+            "t-d-syn-duplicate"
+          ]
+        }
+      }
+    },
+    "screenEverything": {
+      "claim": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "needReview": 4,
+        "unsupportedMisses": {
+          "numerator": 0,
+          "denominator": 4,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.48990002040399916
+          },
+          "cases": []
+        },
+        "reviewRecall": {
+          "numerator": 4,
+          "denominator": 4,
+          "interval": {
+            "value": 1,
+            "low": 0.5100999795960008,
+            "high": 1
+          },
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+        },
+        "contradictedRecall": {
+          "numerator": 2,
+          "denominator": 2,
+          "interval": {
+            "value": 1,
+            "low": 0.34237195288961925,
+            "high": 1
+          },
+          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+        },
+        "falseAlarms": {
+          "numerator": 2,
+          "denominator": 2,
+          "interval": {
+            "value": 1,
+            "low": 0.34237195288961925,
+            "high": 1
+          },
+          "cases": ["t-t355-cost", "t-syn-tests-passed"]
+        },
+        "flagged": 6,
+        "abstentions": 0,
+        "reviewLoad": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-t355-checks",
+            "t-t355-cost",
+            "t-audit-oct26",
+            "t-syn-tests-passed",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
+        },
+        "exact": {
+          "numerator": 0,
+          "denominator": 6,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.3903430336530645
+          },
+          "cases": []
+        }
+      },
+      "decision": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "candidates": 3,
+        "candidateRecall": {
+          "numerator": 3,
+          "denominator": 3,
+          "interval": {
+            "value": 1,
+            "low": 0.43849391955098227,
+            "high": 1
+          },
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "missedCandidates": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalations": {
+          "numerator": 3,
+          "denominator": 3,
+          "interval": {
+            "value": 1,
+            "low": 0.43849391955098227,
+            "high": 1
+          },
+          "cases": ["t-d-syn-tentative", "t-d-syn-routine", "t-d-syn-duplicate"]
+        },
+        "falseEscalationsByReference": {
+          "tentative": 1,
+          "routine": 1,
+          "duplicate": 1
+        },
+        "escalated": 6,
+        "abstentions": 0,
+        "adjudicationLoad": {
+          "numerator": 6,
+          "denominator": 6,
+          "interval": {
+            "value": 1,
+            "low": 0.6096569663469354,
+            "high": 0.9999999999999999
+          },
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-tentative",
+            "t-d-syn-settled",
+            "t-d-syn-routine",
+            "t-d-syn-duplicate"
+          ]
+        },
+        "exact": {
+          "numerator": 0,
+          "denominator": 6,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.3903430336530645
+          },
+          "cases": []
+        }
+      }
+    },
+    "screenNothing": {
+      "claim": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "needReview": 4,
+        "unsupportedMisses": {
+          "numerator": 4,
+          "denominator": 4,
+          "interval": {
+            "value": 1,
+            "low": 0.5100999795960008,
+            "high": 1
+          },
+          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+        },
+        "reviewRecall": {
+          "numerator": 0,
+          "denominator": 4,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.48990002040399916
+          },
+          "cases": []
+        },
+        "contradictedRecall": {
+          "numerator": 0,
+          "denominator": 2,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.6576280471103807
+          },
+          "cases": []
+        },
+        "falseAlarms": {
+          "numerator": 0,
+          "denominator": 2,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.6576280471103807
+          },
+          "cases": []
+        },
+        "flagged": 0,
+        "abstentions": 0,
+        "reviewLoad": {
+          "numerator": 0,
+          "denominator": 6,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.3903430336530645
+          },
+          "cases": []
+        },
+        "exact": {
+          "numerator": 0,
+          "denominator": 6,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.3903430336530645
+          },
+          "cases": []
+        }
+      },
+      "decision": {
+        "scored": 6,
+        "uncertainReference": 0,
+        "candidates": 3,
+        "candidateRecall": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "missedCandidates": {
+          "numerator": 3,
+          "denominator": 3,
+          "interval": {
+            "value": 1,
+            "low": 0.43849391955098227,
+            "high": 1
+          },
+          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+        },
+        "falseEscalations": {
+          "numerator": 0,
+          "denominator": 3,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          },
+          "cases": []
+        },
+        "falseEscalationsByReference": {},
+        "escalated": 0,
+        "abstentions": 0,
+        "adjudicationLoad": {
+          "numerator": 0,
+          "denominator": 6,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.3903430336530645
+          },
+          "cases": []
+        },
+        "exact": {
+          "numerator": 0,
+          "denominator": 6,
+          "interval": {
+            "value": 0,
+            "low": 0,
+            "high": 0.3903430336530645
+          },
+          "cases": []
+        }
+      }
+    }
+  },
+  "cost": {
+    "jev": {
+      "calls": 12,
+      "latencyMs": {
+        "mean": 235,
+        "p50": 188,
+        "max": 528
+      },
+      "unobservedAttempts": 0,
+      "inputTokens": 8107,
+      "knownInputTokens": 8107,
+      "costUsd": 0.000340494,
+      "knownCostUsd": 0.000340494,
+      "costKnownCalls": 12,
+      "costStatuses": ["estimated"],
+      "attempts": 12,
+      "failedAttempts": 0,
+      "failureCodes": [],
+      "unanswered": [],
+      "outputTokensKnown": 601,
+      "requestedModels": ["jev-1.14.0"],
+      "resolvedModels": ["jev-1.14.0"]
+    },
+    "luna": {
+      "calls": 12,
+      "latencyMs": {
+        "mean": 504.5,
+        "p50": 345,
+        "max": 1170
+      },
+      "unobservedAttempts": 0,
+      "inputTokens": 5261,
+      "knownInputTokens": 5261,
+      "costUsd": 0.0005260999999999999,
+      "knownCostUsd": 0.0005260999999999999,
+      "costKnownCalls": 12,
+      "costStatuses": ["estimated"],
+      "attempts": 12,
+      "failedAttempts": 0,
+      "failureCodes": [],
+      "unanswered": [],
+      "outputTokensKnown": 0,
+      "requestedModels": ["gpt-6-luna"],
+      "resolvedModels": ["gpt-6-luna"]
+    }
+  },
+  "verdicts": {
+    "t-t355-checks": {
+      "baseline": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "screenNothing": {
+        "label": null,
+        "flagged": false,
+        "abstained": false
+      },
+      "screenEverything": {
+        "label": null,
+        "flagged": true,
+        "abstained": false
+      },
+      "jev": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev-argmax": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev+baseline": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna-argmax": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna+baseline": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      }
+    },
+    "t-t355-cost": {
+      "baseline": {
+        "label": "supported",
+        "flagged": false,
+        "abstained": false
+      },
+      "screenNothing": {
+        "label": null,
+        "flagged": false,
+        "abstained": false
+      },
+      "screenEverything": {
+        "label": null,
+        "flagged": true,
+        "abstained": false
+      },
+      "jev": {
+        "label": "supported",
+        "flagged": false,
+        "abstained": false
+      },
+      "jev-argmax": {
+        "label": "supported",
+        "flagged": false,
+        "abstained": false
+      },
+      "jev+baseline": {
+        "label": "supported",
+        "flagged": false,
+        "abstained": false
+      },
+      "luna": {
+        "label": "supported",
+        "flagged": false,
+        "abstained": false
+      },
+      "luna-argmax": {
+        "label": "supported",
+        "flagged": false,
+        "abstained": false
+      },
+      "luna+baseline": {
+        "label": "supported",
+        "flagged": false,
+        "abstained": false
+      }
+    },
+    "t-audit-oct26": {
+      "baseline": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "screenNothing": {
+        "label": null,
+        "flagged": false,
+        "abstained": false
+      },
+      "screenEverything": {
+        "label": null,
+        "flagged": true,
+        "abstained": false
+      },
+      "jev": {
+        "label": "contradicted",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev-argmax": {
+        "label": "contradicted",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev+baseline": {
+        "label": "contradicted",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna": {
+        "label": "contradicted",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna-argmax": {
+        "label": "contradicted",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna+baseline": {
+        "label": "contradicted",
+        "flagged": true,
+        "abstained": false
+      }
+    },
+    "t-d-upstream-policy": {
+      "baseline": {
+        "label": "routine",
+        "flagged": false,
+        "abstained": false
+      },
+      "screenNothing": {
+        "label": null,
+        "flagged": false,
+        "abstained": false
+      },
+      "screenEverything": {
+        "label": null,
+        "flagged": true,
+        "abstained": false
+      },
+      "jev": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev-argmax": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev+baseline": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna-argmax": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna+baseline": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      }
+    },
+    "t-d-adopt-force-kill": {
+      "baseline": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "screenNothing": {
+        "label": null,
+        "flagged": false,
+        "abstained": false
+      },
+      "screenEverything": {
+        "label": null,
+        "flagged": true,
+        "abstained": false
+      },
+      "jev": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev-argmax": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev+baseline": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna-argmax": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna+baseline": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      }
+    },
+    "t-syn-tests-passed": {
+      "baseline": {
+        "label": "supported",
+        "flagged": false,
+        "abstained": false
+      },
+      "screenNothing": {
+        "label": null,
+        "flagged": false,
+        "abstained": false
+      },
+      "screenEverything": {
+        "label": null,
+        "flagged": true,
+        "abstained": false
+      },
+      "jev": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev-argmax": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev+baseline": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna": {
+        "label": "supported",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna-argmax": {
+        "label": "supported",
+        "flagged": false,
+        "abstained": false
+      },
+      "luna+baseline": {
+        "label": "supported",
+        "flagged": true,
+        "abstained": false
+      }
+    },
+    "t-syn-tests-not-run": {
+      "baseline": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "screenNothing": {
+        "label": null,
+        "flagged": false,
+        "abstained": false
+      },
+      "screenEverything": {
+        "label": null,
+        "flagged": true,
+        "abstained": false
+      },
+      "jev": {
+        "label": "contradicted",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev-argmax": {
+        "label": "contradicted",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev+baseline": {
+        "label": "contradicted",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna": {
+        "label": "contradicted",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna-argmax": {
+        "label": "contradicted",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna+baseline": {
+        "label": "contradicted",
+        "flagged": true,
+        "abstained": false
+      }
+    },
+    "t-syn-truncated": {
+      "baseline": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "screenNothing": {
+        "label": null,
+        "flagged": false,
+        "abstained": false
+      },
+      "screenEverything": {
+        "label": null,
+        "flagged": true,
+        "abstained": false
+      },
+      "jev": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev-argmax": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev+baseline": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna-argmax": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna+baseline": {
+        "label": "insufficient",
+        "flagged": true,
+        "abstained": false
+      }
+    },
+    "t-d-syn-tentative": {
+      "baseline": {
+        "label": "tentative",
+        "flagged": false,
+        "abstained": false
+      },
+      "screenNothing": {
+        "label": null,
+        "flagged": false,
+        "abstained": false
+      },
+      "screenEverything": {
+        "label": null,
+        "flagged": true,
+        "abstained": false
+      },
+      "jev": {
+        "label": "tentative",
+        "flagged": false,
+        "abstained": false
+      },
+      "jev-argmax": {
+        "label": "tentative",
+        "flagged": false,
+        "abstained": false
+      },
+      "jev+baseline": {
+        "label": "tentative",
+        "flagged": false,
+        "abstained": false
+      },
+      "luna": {
+        "label": "tentative",
+        "flagged": false,
+        "abstained": false
+      },
+      "luna-argmax": {
+        "label": "tentative",
+        "flagged": false,
+        "abstained": false
+      },
+      "luna+baseline": {
+        "label": "tentative",
+        "flagged": false,
+        "abstained": false
+      }
+    },
+    "t-d-syn-settled": {
+      "baseline": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "screenNothing": {
+        "label": null,
+        "flagged": false,
+        "abstained": false
+      },
+      "screenEverything": {
+        "label": null,
+        "flagged": true,
+        "abstained": false
+      },
+      "jev": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev-argmax": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "jev+baseline": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna-argmax": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      },
+      "luna+baseline": {
+        "label": "settled-consequential",
+        "flagged": true,
+        "abstained": false
+      }
+    },
+    "t-d-syn-routine": {
+      "baseline": {
+        "label": "routine",
+        "flagged": false,
+        "abstained": false
+      },
+      "screenNothing": {
+        "label": null,
+        "flagged": false,
+        "abstained": false
+      },
+      "screenEverything": {
+        "label": null,
+        "flagged": true,
+        "abstained": false
+      },
+      "jev": {
+        "label": "routine",
+        "flagged": false,
+        "abstained": false
+      },
+      "jev-argmax": {
+        "label": "routine",
+        "flagged": false,
+        "abstained": false
+      },
+      "jev+baseline": {
+        "label": "routine",
+        "flagged": false,
+        "abstained": false
+      },
+      "luna": {
+        "label": "routine",
+        "flagged": false,
+        "abstained": false
+      },
+      "luna-argmax": {
+        "label": "routine",
+        "flagged": false,
+        "abstained": false
+      },
+      "luna+baseline": {
+        "label": "routine",
+        "flagged": false,
+        "abstained": false
+      }
+    },
+    "t-d-syn-duplicate": {
+      "baseline": {
+        "label": "duplicate",
+        "flagged": false,
+        "abstained": false
+      },
+      "screenNothing": {
+        "label": null,
+        "flagged": false,
+        "abstained": false
+      },
+      "screenEverything": {
+        "label": null,
+        "flagged": true,
+        "abstained": false
+      },
+      "jev": {
+        "label": "duplicate",
+        "flagged": false,
+        "abstained": false
+      },
+      "jev-argmax": {
+        "label": "duplicate",
+        "flagged": false,
+        "abstained": false
+      },
+      "jev+baseline": {
+        "label": "duplicate",
+        "flagged": false,
+        "abstained": false
+      },
+      "luna": {
+        "label": "duplicate",
+        "flagged": false,
+        "abstained": false
+      },
+      "luna-argmax": {
+        "label": "duplicate",
+        "flagged": false,
+        "abstained": false
+      },
+      "luna+baseline": {
+        "label": "duplicate",
+        "flagged": false,
+        "abstained": false
+      }
+    }
+  },
+  "sensitivity": {
+    "labelerA": {
+      "baseline": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 0,
+            "denominator": 2,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.6576280471103807
+            },
+            "cases": []
+          },
+          "flagged": 4,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 4,
+            "denominator": 6,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.29998832134152864,
+              "high": 0.9032306674407831
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "exact": {
+            "numerator": 4,
+            "denominator": 6,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.29998832134152864,
+              "high": 0.9032306674407831
+            },
+            "cases": ["t-t355-checks", "t-t355-cost", "t-syn-tests-passed", "t-syn-truncated"]
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 2,
+            "denominator": 3,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.2076549551264879,
+              "high": 0.9385096847238394
+            },
+            "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 1,
+            "denominator": 3,
+            "interval": {
+              "value": 0.3333333333333333,
+              "low": 0.0614903152761605,
+              "high": 0.7923450448735121
+            },
+            "cases": ["t-d-upstream-policy"]
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 2,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 2,
+            "denominator": 6,
+            "interval": {
+              "value": 0.3333333333333333,
+              "low": 0.09676933255921683,
+              "high": 0.7000116786584712
+            },
+            "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "exact": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          }
+        }
+      },
+      "jev": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 1,
+            "denominator": 2,
+            "interval": {
+              "value": 0.5,
+              "low": 0.09452865480086614,
+              "high": 0.9054713451991339
+            },
+            "cases": ["t-syn-tests-passed"]
+          },
+          "flagged": 5,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          },
+          "exact": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 3,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          }
+        }
+      },
+      "jev+baseline": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 1,
+            "denominator": 2,
+            "interval": {
+              "value": 0.5,
+              "low": 0.09452865480086614,
+              "high": 0.9054713451991339
+            },
+            "cases": ["t-syn-tests-passed"]
+          },
+          "flagged": 5,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          },
+          "exact": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 3,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          }
+        }
+      },
+      "jev-argmax": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 1,
+            "denominator": 2,
+            "interval": {
+              "value": 0.5,
+              "low": 0.09452865480086614,
+              "high": 0.9054713451991339
+            },
+            "cases": ["t-syn-tests-passed"]
+          },
+          "flagged": 5,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          },
+          "exact": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 3,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          }
+        }
+      },
+      "luna": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 1,
+            "denominator": 2,
+            "interval": {
+              "value": 0.5,
+              "low": 0.09452865480086614,
+              "high": 0.9054713451991339
+            },
+            "cases": ["t-syn-tests-passed"]
+          },
+          "flagged": 5,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 3,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          }
+        }
+      },
+      "luna+baseline": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 1,
+            "denominator": 2,
+            "interval": {
+              "value": 0.5,
+              "low": 0.09452865480086614,
+              "high": 0.9054713451991339
+            },
+            "cases": ["t-syn-tests-passed"]
+          },
+          "flagged": 5,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 3,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          }
+        }
+      },
+      "luna-argmax": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 0,
+            "denominator": 2,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.6576280471103807
+            },
+            "cases": []
+          },
+          "flagged": 4,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 4,
+            "denominator": 6,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.29998832134152864,
+              "high": 0.9032306674407831
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 3,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          }
+        }
+      },
+      "screenEverything": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-t355-cost", "t-syn-tests-passed"]
+          },
+          "flagged": 6,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          },
+          "exact": {
+            "numerator": 0,
+            "denominator": 6,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.3903430336530645
+            },
+            "cases": []
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalations": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-syn-tentative", "t-d-syn-routine", "t-d-syn-duplicate"]
+          },
+          "falseEscalationsByReference": {
+            "tentative": 1,
+            "routine": 1,
+            "duplicate": 1
+          },
+          "escalated": 6,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          },
+          "exact": {
+            "numerator": 0,
+            "denominator": 6,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.3903430336530645
+            },
+            "cases": []
+          }
+        }
+      },
+      "screenNothing": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "reviewRecall": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "contradictedRecall": {
+            "numerator": 0,
+            "denominator": 2,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.6576280471103807
+            },
+            "cases": []
+          },
+          "falseAlarms": {
+            "numerator": 0,
+            "denominator": 2,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.6576280471103807
+            },
+            "cases": []
+          },
+          "flagged": 0,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 0,
+            "denominator": 6,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.3903430336530645
+            },
+            "cases": []
+          },
+          "exact": {
+            "numerator": 0,
+            "denominator": 6,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.3903430336530645
+            },
+            "cases": []
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "missedCandidates": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 0,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 0,
+            "denominator": 6,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.3903430336530645
+            },
+            "cases": []
+          },
+          "exact": {
+            "numerator": 0,
+            "denominator": 6,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.3903430336530645
+            },
+            "cases": []
+          }
+        }
+      }
+    },
+    "labelerB": {
+      "baseline": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 0,
+            "denominator": 2,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.6576280471103807
+            },
+            "cases": []
+          },
+          "flagged": 4,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 4,
+            "denominator": 6,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.29998832134152864,
+              "high": 0.9032306674407831
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "exact": {
+            "numerator": 4,
+            "denominator": 6,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.29998832134152864,
+              "high": 0.9032306674407831
+            },
+            "cases": ["t-t355-checks", "t-t355-cost", "t-syn-tests-passed", "t-syn-truncated"]
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 2,
+            "denominator": 3,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.2076549551264879,
+              "high": 0.9385096847238394
+            },
+            "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 1,
+            "denominator": 3,
+            "interval": {
+              "value": 0.3333333333333333,
+              "low": 0.0614903152761605,
+              "high": 0.7923450448735121
+            },
+            "cases": ["t-d-upstream-policy"]
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 2,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 2,
+            "denominator": 6,
+            "interval": {
+              "value": 0.3333333333333333,
+              "low": 0.09676933255921683,
+              "high": 0.7000116786584712
+            },
+            "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "exact": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          }
+        }
+      },
+      "jev": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 1,
+            "denominator": 2,
+            "interval": {
+              "value": 0.5,
+              "low": 0.09452865480086614,
+              "high": 0.9054713451991339
+            },
+            "cases": ["t-syn-tests-passed"]
+          },
+          "flagged": 5,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          },
+          "exact": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 3,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          }
+        }
+      },
+      "jev+baseline": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 1,
+            "denominator": 2,
+            "interval": {
+              "value": 0.5,
+              "low": 0.09452865480086614,
+              "high": 0.9054713451991339
+            },
+            "cases": ["t-syn-tests-passed"]
+          },
+          "flagged": 5,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          },
+          "exact": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 3,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          }
+        }
+      },
+      "jev-argmax": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 1,
+            "denominator": 2,
+            "interval": {
+              "value": 0.5,
+              "low": 0.09452865480086614,
+              "high": 0.9054713451991339
+            },
+            "cases": ["t-syn-tests-passed"]
+          },
+          "flagged": 5,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          },
+          "exact": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 3,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          }
+        }
+      },
+      "luna": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 1,
+            "denominator": 2,
+            "interval": {
+              "value": 0.5,
+              "low": 0.09452865480086614,
+              "high": 0.9054713451991339
+            },
+            "cases": ["t-syn-tests-passed"]
+          },
+          "flagged": 5,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 3,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          }
+        }
+      },
+      "luna+baseline": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 1,
+            "denominator": 2,
+            "interval": {
+              "value": 0.5,
+              "low": 0.09452865480086614,
+              "high": 0.9054713451991339
+            },
+            "cases": ["t-syn-tests-passed"]
+          },
+          "flagged": 5,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 5,
+            "denominator": 6,
+            "interval": {
+              "value": 0.8333333333333334,
+              "low": 0.43649056343635395,
+              "high": 0.9699474141282697
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 3,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          }
+        }
+      },
+      "luna-argmax": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 0,
+            "denominator": 2,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.6576280471103807
+            },
+            "cases": []
+          },
+          "flagged": 4,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 4,
+            "denominator": 6,
+            "interval": {
+              "value": 0.6666666666666666,
+              "low": 0.29998832134152864,
+              "high": 0.9032306674407831
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 3,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 3,
+            "denominator": 6,
+            "interval": {
+              "value": 0.5,
+              "low": 0.18761280689940868,
+              "high": 0.8123871931005913
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "exact": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          }
+        }
+      },
+      "screenEverything": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "reviewRecall": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "contradictedRecall": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          },
+          "falseAlarms": {
+            "numerator": 2,
+            "denominator": 2,
+            "interval": {
+              "value": 1,
+              "low": 0.34237195288961925,
+              "high": 1
+            },
+            "cases": ["t-t355-cost", "t-syn-tests-passed"]
+          },
+          "flagged": 6,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-audit-oct26",
+              "t-syn-tests-passed",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
+          },
+          "exact": {
+            "numerator": 0,
+            "denominator": 6,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.3903430336530645
+            },
+            "cases": []
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "missedCandidates": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalations": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-syn-tentative", "t-d-syn-routine", "t-d-syn-duplicate"]
+          },
+          "falseEscalationsByReference": {
+            "tentative": 1,
+            "routine": 1,
+            "duplicate": 1
+          },
+          "escalated": 6,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 6,
+            "denominator": 6,
+            "interval": {
+              "value": 1,
+              "low": 0.6096569663469354,
+              "high": 0.9999999999999999
+            },
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-tentative",
+              "t-d-syn-settled",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
+          },
+          "exact": {
+            "numerator": 0,
+            "denominator": 6,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.3903430336530645
+            },
+            "cases": []
+          }
+        }
+      },
+      "screenNothing": {
+        "claim": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "needReview": 4,
+          "unsupportedMisses": {
+            "numerator": 4,
+            "denominator": 4,
+            "interval": {
+              "value": 1,
+              "low": 0.5100999795960008,
+              "high": 1
+            },
+            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          },
+          "reviewRecall": {
+            "numerator": 0,
+            "denominator": 4,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.48990002040399916
+            },
+            "cases": []
+          },
+          "contradictedRecall": {
+            "numerator": 0,
+            "denominator": 2,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.6576280471103807
+            },
+            "cases": []
+          },
+          "falseAlarms": {
+            "numerator": 0,
+            "denominator": 2,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.6576280471103807
+            },
+            "cases": []
+          },
+          "flagged": 0,
+          "abstentions": 0,
+          "reviewLoad": {
+            "numerator": 0,
+            "denominator": 6,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.3903430336530645
+            },
+            "cases": []
+          },
+          "exact": {
+            "numerator": 0,
+            "denominator": 6,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.3903430336530645
+            },
+            "cases": []
+          }
+        },
+        "decision": {
+          "scored": 6,
+          "uncertainReference": 0,
+          "candidates": 3,
+          "candidateRecall": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "missedCandidates": {
+            "numerator": 3,
+            "denominator": 3,
+            "interval": {
+              "value": 1,
+              "low": 0.43849391955098227,
+              "high": 1
+            },
+            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          },
+          "falseEscalations": {
+            "numerator": 0,
+            "denominator": 3,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.5615060804490177
+            },
+            "cases": []
+          },
+          "falseEscalationsByReference": {},
+          "escalated": 0,
+          "abstentions": 0,
+          "adjudicationLoad": {
+            "numerator": 0,
+            "denominator": 6,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.3903430336530645
+            },
+            "cases": []
+          },
+          "exact": {
+            "numerator": 0,
+            "denominator": 6,
+            "interval": {
+              "value": 0,
+              "low": 0,
+              "high": 0.3903430336530645
+            },
+            "cases": []
+          }
+        }
+      }
+    }
+  }
+}

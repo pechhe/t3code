@@ -1,0 +1,11 @@
+{
+  "frozenAt": "2026-11-05T12:54:41.803Z",
+  "note": "Digests of the five frozen files, taken at 12:54:30 UTC after the tuning cases were written and checked, and before any held-out synthetic case, label or live call existed. The held-out authentic specs in buildAuthentic.ts existed but were never run through the baseline or an engine. Two later re-digests, both before any label or live call except where stated: (1) at the time recorded in frozenAt (12:54:41 UTC) after `vp fmt` reformatted the files (baseline.ts changed bytes); (2) after policy.ts's header comment was shortened to satisfy the no-low-value-comments lint rule, which happened after the first tune run (12:58 UTC, results/first-tune/) and before the final tune run (13:05 UTC, results/tune.json) and the held-out run (13:08 UTC). Between the first and final tune runs the formatter also reformatted harness.ts, run.ts, provenance.ts and labels.ts (their digests differ in the two tune runs' identities). The pre-format and pre-edit bytes were not retained, so that these were formatting and comment changes only is the author's account and cannot now be re-checked; what is proved is that the baseline, policy, definitions, rule and types match the digests below for the final tune and held-out runs. This note was rewritten after the held-out run to correct an earlier version that said the tune run differed only in policy.ts.",
+  "files": {
+    "baseline.ts": "1b1633a12a0709139b8340d19a431767a922e1544300fb24d63c703048b0c4df",
+    "policy.ts": "740d29dcea60efc5fe1042a4f8f2bab18f49a93b1486022728a22142a4c7e9fe",
+    "definitions.ts": "c1c9bdd9d847043e28650ddcf5327362053db440b21c934bc962713682cee308",
+    "rule.ts": "fb66fe5370471bf51056f779f61d27e1fb03503fe8b75d724cb5a581ba2c177d",
+    "corpusTypes.ts": "3e684274271de81e210f99c91256463990bc5d0092b0b3e518199e717e00a682"
+  }
+}
