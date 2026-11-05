@@ -63,7 +63,11 @@ export const layer = McpToolAccess.toLayer(BoundedBrowserToolkit, {
     Effect.gen(function* () {
       const caller = yield* scope;
       const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
-      yield* broker.close({ scope: caller, tabId }).pipe(Effect.mapError(unavailable));
+      // Revoking access or expiry may already have closed it; a tab that is gone is closed.
+      yield* broker.close({ scope: caller, tabId }).pipe(
+        Effect.catchTag("PreviewAutomationTabNotFoundError", () => Effect.void),
+        Effect.mapError(unavailable),
+      );
       return {};
     }),
   ),

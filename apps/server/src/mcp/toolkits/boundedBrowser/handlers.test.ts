@@ -109,9 +109,12 @@ const harness = Effect.gen(function* () {
             loading: false,
           } as never;
         }),
-      close: () =>
-        Effect.sync(() => {
+      close: ({ tabId }) =>
+        Effect.suspend(() => {
           seen.closes += 1;
+          return tabId === "gone"
+            ? Effect.fail({ _tag: "PreviewAutomationTabNotFoundError", tabId } as never)
+            : Effect.void;
         }),
     }),
     Layer.mock(ThreadManagement.ThreadManagementService)({
@@ -181,6 +184,8 @@ it.effect("refuses effects once browsing is off, but still cancels and closes", 
     expect(seen.cancels).toBe(1);
     expect(Exit.isSuccess(yield* handle("t3_browser_close", { tabId: "tab" }))).toBe(true);
     expect(seen.closes).toBe(1);
+    // Revocation closes bounded tabs itself, so closing one that is already gone succeeds.
+    expect(Exit.isSuccess(yield* handle("t3_browser_close", { tabId: "gone" }))).toBe(true);
   }),
 );
 
