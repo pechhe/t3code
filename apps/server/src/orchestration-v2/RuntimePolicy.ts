@@ -70,6 +70,7 @@ export type RuntimePolicyV2Error = typeof RuntimePolicyV2Error.Type;
 
 export const RuntimePolicyV2Override = Schema.Struct({
   cwd: Schema.optional(Schema.String),
+  runtimeMode: Schema.optional(RuntimeMode),
   approvalPolicy: Schema.optional(Schema.Unknown),
   sandboxPolicy: Schema.optional(Schema.Unknown),
   reasoningEffort: Schema.optional(Schema.String),
@@ -388,6 +389,9 @@ export function layerWithOverride(
               ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
                 ...policy,
                 ...(override.cwd === undefined ? {} : { cwd: override.cwd }),
+                ...(override.runtimeMode === undefined
+                  ? {}
+                  : { runtimeMode: override.runtimeMode }),
                 ...(override.approvalPolicy === undefined
                   ? {}
                   : { approvalPolicy: override.approvalPolicy }),
