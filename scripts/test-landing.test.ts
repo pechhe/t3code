@@ -1151,6 +1151,71 @@ describe("the Vitest runner", () => {
       NodeFS.rmSync(root, { recursive: true, force: true });
     }
   }, 60_000);
+
+  // oxlint-disable-next-line t3code/no-test-timeout-or-unreasoned-skip -- spawns a real vitest run in a temporary checkout.
+  it("reports a rejection outside any test with the run's files, and still fails", () => {
+    const root = NodeFS.realpathSync(
+      NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-landing-rejection-")),
+    );
+    try {
+      NodeFS.symlinkSync(
+        NodePath.join(REPOSITORY_ROOT, "node_modules"),
+        NodePath.join(root, "node_modules"),
+        "dir",
+      );
+      NodeFS.mkdirSync(NodePath.join(root, "pkg/src"), { recursive: true });
+      NodeFS.writeFileSync(
+        NodePath.join(root, "pkg/src/a.test.ts"),
+        'import { expect, it } from "vite-plus/test";\nit("runs", () => expect(1).toBe(1));\n',
+      );
+      // Global setup runs in Vitest's own process, where a dying browser page rejects its mock routes.
+      // A native rejection: Vitest cannot print a stack through a module its runner evaluated here.
+      NodeFS.writeFileSync(
+        NodePath.join(root, "pkg/rejects.ts"),
+        'import * as NodeFS from "node:fs/promises";\nexport default () => {\n  void NodeFS.readFile("the-browser-page-closed");\n};\n',
+      );
+      NodeFS.writeFileSync(
+        NodePath.join(root, "pkg/vitest.config.ts"),
+        'export default { test: { globalSetup: ["./rejects.ts"] } };\n',
+      );
+      const reportFile = NodePath.join(root, "report.json");
+      const [executable, ...args] = runCommand({
+        root,
+        directory: "pkg",
+        flags: ["--config", "vitest.config.ts"],
+        workers: 2,
+        reportFile,
+      });
+      const result = NodeChildProcess.spawnSync(executable!, args, {
+        cwd: NodePath.join(root, "pkg"),
+        encoding: "utf8",
+      });
+      assert.strictEqual(result.status, 1, result.stdout + result.stderr);
+      assert.match(result.stdout + result.stderr, /the-browser-page-closed/);
+      const report = JSON.parse(NodeFS.readFileSync(reportFile, "utf8")) as {
+        numPassedTests: number;
+        testResults: ReadonlyArray<{ name: string }>;
+      };
+      assert.strictEqual(report.numPassedTests, 1);
+      assert.deepStrictEqual(
+        report.testResults.map((file) => NodePath.relative(root, file.name)),
+        ["pkg/src/a.test.ts"],
+      );
+      // During teardown the run's result already exists, so the rejection must still fail it.
+      NodeFS.writeFileSync(
+        NodePath.join(root, "pkg/rejects.ts"),
+        'import * as NodeFS from "node:fs/promises";\nexport default () => async () => {\n  const error = await NodeFS.readFile("the-browser-page-closed-late").catch((cause) => cause);\n  void Promise.reject(error);\n  await new Promise((resolve) => setImmediate(resolve));\n};\n',
+      );
+      const late = NodeChildProcess.spawnSync(executable!, args, {
+        cwd: NodePath.join(root, "pkg"),
+        encoding: "utf8",
+      });
+      assert.strictEqual(late.status, 1, late.stdout + late.stderr);
+      assert.match(late.stdout + late.stderr, /the-browser-page-closed-late/);
+    } finally {
+      NodeFS.rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
 
 describe("quarantine", () => {

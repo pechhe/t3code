@@ -134,6 +134,22 @@ function withProjects(flags: ReadonlyArray<string>, projects: ReadonlyArray<stri
   return [...others, ...projects.flatMap((project) => ["--project", project])];
 }
 
+/**
+ * Vitest exits on a rejection outside any test, losing the failure behind it, the summary and the
+ * report: a browser page that dies rejects its pending mock routes, so the pool's own error never
+ * printed (T3-338). Keep the run going instead: print and fail here, since a rejection during
+ * teardown arrives after the run's result, and record it for a summary still to come.
+ */
+function recordRejectionsOnRun(context: Awaited<ReturnType<typeof vitest>>) {
+  process.removeAllListeners("unhandledRejection");
+  process.on("unhandledRejection", (reason) => {
+    process.exitCode = 1;
+    // Not Vitest's printer: formatting a stack during teardown can crash it.
+    console.error(`Unhandled Rejection: ${String(reason)}`);
+    context.state.catchError(reason, "Unhandled Rejection");
+  });
+}
+
 async function runProjects(request: RunRequest) {
   const { files, workers, reportFile } = request;
   const context = await vitest(request, {
@@ -143,6 +159,7 @@ async function runProjects(request: RunRequest) {
     reporters: reportFile ? ["default", "json"] : ["default"],
     ...(reportFile ? { outputFile: { json: reportFile } } : {}),
   });
+  recordRejectionsOnRun(context);
   try {
     // Starts the reporters and coverage, as `vitest run` does before its first run.
     await context.standalone();

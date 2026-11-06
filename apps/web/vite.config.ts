@@ -346,8 +346,10 @@ export default defineConfig(() => {
       allowedHosts,
       // Warm the module graph before first request to avoid serial import transforms over tailnet.
       // Bundled dev ignores this; warmBundledDevPlugin handles it there.
+      // Test projects inherit it: the browser server would compile the whole app on its one thread
+      // while testers wait against Vitest's fixed 60 s limits, which is T3-338's audit failure.
       warmup: {
-        clientFiles: ["./src/main.tsx"],
+        clientFiles: process.env.VITEST ? [] : ["./src/main.tsx"],
       },
       ...(devProxyTarget
         ? {

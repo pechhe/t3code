@@ -667,8 +667,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       assert.notProperty(mac, "asar");
       assert.notProperty(linux, "asar");
-      assert.notProperty(mac, "asarUnpack");
-      assert.notProperty(linux, "asarUnpack");
+      const transcribeNativeLibraries = ["**/node_modules/@transcribe-cpp/**/*.{dylib,so,so.*}"];
+      assert.deepStrictEqual(mac.asarUnpack, transcribeNativeLibraries);
+      assert.deepStrictEqual(linux.asarUnpack, transcribeNativeLibraries);
       assert.deepStrictEqual(win.asar, { smartUnpack: false });
       assert.deepStrictEqual(win.asarUnpack, [WINDOWS_NATIVE_ASAR_UNPACK_GLOB]);
       assert.deepStrictEqual(winWithoutWslRuntime.asar, win.asar);
