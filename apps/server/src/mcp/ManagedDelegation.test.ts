@@ -12,6 +12,7 @@ import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
+  type AgentPolicyManifest as AgentPolicyManifestType,
   AgentPolicyManifest,
   EnvironmentId,
   ProjectId,
@@ -293,6 +294,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       readonly providers?: ReadonlyArray<ServerProvider>;
       /** The lead is itself a delegated task with this binding, such as a Spec lead. */
       readonly parentTask?: Partial<AgentTaskBinding>;
+      /** Edits the saved policy, such as turning the review council on. */
+      readonly policy?: (manifest: AgentPolicyManifestType) => AgentPolicyManifestType;
     } = {},
   ) =>
     Effect.gen(function* () {
@@ -321,7 +324,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       const policy = snapshot();
       yield* fs.writeFileString(
         `${policyRoot}/roles/policy.json`,
-        yield* encodeManifest(policy.manifest),
+        yield* encodeManifest(options.policy?.(policy.manifest) ?? policy.manifest),
       );
       for (const role of Object.values(policy.manifest.roles))
         yield* fs.writeFileString(`${policyRoot}/${role.brief}`, "Role brief\n");
@@ -876,6 +879,112 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           agentTask: request({ workspacePath: h.lead }),
         })).code,
       ).toBe("invalid_request");
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
+  );
+
+  it.effect("sits a Spec review as a council of one reviewer per model maker", () =>
+    Effect.gen(function* () {
+      const gemini = provider("pi", "pi-test", ["opencode-go/gemini-test"]);
+      const withCouncil = (manifest: AgentPolicyManifestType): AgentPolicyManifestType => ({
+        ...manifest,
+        models: {
+          ...manifest.models,
+          gemini: {
+            driverKind: "pi" as never,
+            model: "opencode-go/gemini-test",
+            effortOption: "effort",
+          },
+        },
+        lists: {
+          ...manifest.lists,
+          council: [
+            { model: "sonnet", effort: "high" },
+            { model: "haiku", effort: "high" },
+            { model: "sol", effort: "high" },
+            { model: "astra", effort: "high" },
+            { model: "gemini", effort: "high" },
+          ],
+        },
+        roles: {
+          ...manifest.roles,
+          reviewer: { ...manifest.roles.reviewer, specList: "council", council: true },
+        },
+      });
+      const h = yield* harness(() => [], true, {
+        providers: [codex, claude, gemini],
+        policy: withCouncil,
+      });
+      const review = request({
+        role: "reviewer",
+        workspacePath: h.lead,
+        readOnly: true,
+        sourceRevision: "source-pin",
+        authorModel: codexModel,
+        review: {
+          scope: "spec",
+          baseRevision: "base-commit",
+          includedChanges: ["reviewed-commit"],
+          coverage: "complete",
+          specRef: "#1",
+          specRevision: "3",
+        },
+      });
+      // The harness stops each launch after capture, so the council reports that failure
+      // once every seat has been tried.
+      const sat = yield* h.delegate({
+        task: "Review the Spec",
+        clientRequestId: "council",
+        agentTask: review,
+      });
+      expect(sat.code).toBe("orchestration_error");
+      // Haiku shares Anthropic's seat with Sonnet; Sol is the author's own model, so Astra
+      // sits for OpenAI.
+      expect(
+        h.dispatched.map(
+          (command) => (command as { modelSelection: ModelSelection }).modelSelection,
+        ),
+      ).toEqual([
+        {
+          instanceId: claude.instanceId,
+          model: claudeModel,
+          options: [{ id: "effort", value: "high" }],
+        },
+        {
+          instanceId: codex.instanceId,
+          model: "gpt-astra-test",
+          options: [{ id: "reasoning", value: "high" }],
+        },
+        {
+          instanceId: gemini.instanceId,
+          model: "opencode-go/gemini-test",
+          options: [{ id: "effort", value: "high" }],
+        },
+      ]);
+      expect(
+        h.dispatched.map(
+          (command) =>
+            (command as { agentTask: { review: { councilSeat: string } } }).agentTask.review
+              .councilSeat,
+        ),
+      ).toEqual(["anthropic", "openai", "google"]);
+      // Only T3 seats a member: a caller naming a seat is refused before anything starts.
+      const named = yield* h.delegate({
+        task: "Review the Spec",
+        clientRequestId: "named-seat",
+        agentTask: { ...review, review: { ...review.review!, councilSeat: "openai" } },
+      });
+      expect(named.code).toBe("invalid_request");
+      expect(h.dispatched).toHaveLength(3);
+      // A change review keeps one reviewer whatever the council setting.
+      const change = yield* h.delegate({
+        task: "Review the change",
+        clientRequestId: "change",
+        agentTask: { ...review, review: changeReview },
+      });
+      expect(change.code).toBe("orchestration_error");
+      expect(h.dispatched).toHaveLength(4);
     }).pipe(
       Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
     ),

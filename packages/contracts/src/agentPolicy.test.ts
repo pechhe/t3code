@@ -7,6 +7,7 @@ import {
   AgentTaskBinding,
   agentTaskTopic,
   grantsBrowserTasks,
+  modelMaker,
 } from "./agentPolicy.ts";
 
 const decodeManifest = Schema.decodeUnknownSync(AgentPolicyManifest);
@@ -189,6 +190,17 @@ describe("AgentPolicyManifest", () => {
     expect(edit("reviewer", { specList: "Invalid Alias" })).toBe("Failure");
     expect(edit("advisor", { specList: "reviewer" })).toBe("Failure");
     expect(manifest.roles.reviewer.specList).toBe(manifest.roles.reviewer.list);
+  });
+
+  it("lets only the reviewer sit a council", () => {
+    const manifest = encodeManifest(decodeManifest(legacy));
+    const edit = (name: "reviewer" | "advisor") =>
+      decodeManifestExit({
+        ...manifest,
+        roles: { ...manifest.roles, [name]: { ...manifest.roles[name], council: true } },
+      })._tag;
+    expect(edit("reviewer")).toBe("Success");
+    expect(edit("advisor")).toBe("Failure");
   });
 
   it("keeps change-role exceptions when old reviewers disagree", () => {
@@ -475,5 +487,28 @@ it("retains typed browser selection through the task request wire round trip", (
   expect(decodeRequest(encodeRequest(decoded)).browser).toEqual(input.browser);
   expect(decodeRequest({ ...input, browser: { backend: "integrated" } }).browser).toEqual({
     backend: "integrated",
+  });
+});
+
+describe("modelMaker", () => {
+  it("names who made a model, whichever connection serves it", () => {
+    expect(modelMaker({ driverKind: "codex", model: "gpt-6-astra" })).toBe("openai");
+    expect(modelMaker({ driverKind: "claudeAgent", model: "claude-sonnet-5-5" })).toBe("anthropic");
+    expect(modelMaker({ driverKind: "pi", model: "opencode-go/gemini-4-argon" })).toBe("google");
+    expect(modelMaker({ driverKind: "pi", model: "openrouter/openai/gpt-6.1-terra" })).toBe(
+      "openai",
+    );
+    expect(modelMaker({ driverKind: "pi", model: "openrouter/moonshotai/kimi-k3.1-pro" })).toBe(
+      "moonshot",
+    );
+    expect(modelMaker({ driverKind: "opencode", model: "opencode-go/deepseek-v4.1-flash" })).toBe(
+      "deepseek",
+    );
+    expect(modelMaker({ driverKind: "pi", model: "openrouter/openai/o3" })).toBe("openai");
+    // An unknown family falls back to its gateway vendor or driver's maker, then to the slug's own family.
+    expect(modelMaker({ driverKind: "codex", model: "astra-preview" })).toBe("openai");
+    expect(modelMaker({ driverKind: "opencode", model: "opencode/crouton-alpha-free" })).toBe(
+      "crouton",
+    );
   });
 });

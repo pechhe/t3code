@@ -1,6 +1,7 @@
 import {
   AGENT_ROLE_TITLE_LABEL,
   AgentRole,
+  modelMaker,
   type AgentListEntry,
   type AgentPolicyManifest,
   type ProviderOptionSelection,
@@ -501,3 +502,69 @@ export const splitJob = (manifest: Manifest, job: Job) => {
   }
   return next;
 };
+
+const MAKER_NAMES: Readonly<Record<string, string>> = {
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  google: "Google",
+  deepseek: "DeepSeek",
+  moonshot: "Moonshot",
+  xai: "xAI",
+  alibaba: "Alibaba",
+  meta: "Meta",
+  mistral: "Mistral",
+  zhipu: "Zhipu",
+};
+
+export const makerName = (maker: string) =>
+  MAKER_NAMES[maker] ?? maker.charAt(0).toUpperCase() + maker.slice(1);
+
+/** An older policy without `council` reads as Off. */
+export const councilOn = (manifest: Manifest) => manifest.roles.reviewer.council === true;
+
+/** On stores `true`; Off removes the key, so an Off policy matches one that never had it. */
+export function setCouncil(manifest: Manifest, on: boolean): Manifest {
+  return withRole(manifest, "reviewer", ({ council: _previous, ...policy }) =>
+    on ? { ...policy, council: true } : policy,
+  );
+}
+
+/** The council's members: the reviewer's Spec-review list, each with its model's maker. */
+export function councilMembers(manifest: Manifest) {
+  const reviewer = rolePolicy(manifest, "reviewer");
+  return (manifest.lists[reviewer.specList ?? reviewer.list] ?? []).flatMap((entry) => {
+    const binding = manifest.models[entry.model];
+    return binding === undefined ? [] : [{ ...entry, maker: modelMaker(binding) }];
+  });
+}
+
+/** Why a council cannot be saved, or null: it needs at least two makers among its members. */
+export function councilIssue(manifest: Manifest): string | null {
+  if (!councilOn(manifest)) return null;
+  const makers = new Set(councilMembers(manifest).map((member) => member.maker));
+  return makers.size >= 2
+    ? null
+    : "A council needs Spec-review models from at least two makers. Add a model from another maker, or turn the council Off.";
+}
+
+/** What the council line says: how many of its makers have a member that can run now. */
+export function councilSeating(
+  manifest: Manifest,
+  providers: ReadonlyArray<ServerProvider>,
+  options: { now?: number } = {},
+): string {
+  const members = councilMembers(manifest);
+  const makers = new Set(members.map((member) => member.maker));
+  const ready = new Set(
+    members
+      .filter(
+        (member) => unavailableReason(manifest.models[member.model], providers, options) === null,
+      )
+      .map((member) => member.maker),
+  );
+  const noun = makers.size === 1 ? "maker" : "makers";
+  if (ready.size === makers.size) return `All ${makers.size} ${noun} can sit now.`;
+  return ready.size >= 2
+    ? `${ready.size} of ${makers.size} ${noun} can sit now.`
+    : `${ready.size} of ${makers.size} ${noun} can sit now: the council won't form until another maker is available, so one reviewer runs.`;
+}

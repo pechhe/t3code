@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import {
   AgentPolicyManifest,
   isReviewerRole,
+  modelMaker,
   type AgentPolicySettings,
   type AgentRole,
   type EnvironmentId,
@@ -24,9 +25,13 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   addEntry,
   catalogModels,
+  councilIssue,
+  councilOn,
+  councilSeating,
   effortForModel,
   ensureModel,
   listModel,
+  makerName,
   modelLabel,
   moveEntry,
   readOnlyUnenforcedProviders,
@@ -35,6 +40,7 @@ import {
   ROLE_DESCRIPTIONS,
   roleGroups,
   setCaller,
+  setCouncil,
   setEntryEffort,
   setLarge,
   setModelOptions,
@@ -224,6 +230,7 @@ function PolicyEditor({
   const catalog = catalogModels(data.providers);
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
   const jobs = jobsFor(draft, roleGroups(draft));
+  const issue = councilIssue(draft);
   const submit = async () => {
     setPending(true);
     const failures: string[] = [];
@@ -279,9 +286,11 @@ function PolicyEditor({
           <AlertDescription>
             {!isValid(draft)
               ? "Every list needs at least one model before saving."
-              : unsavedEnvironments > 0
-                ? "Every selected environment needs a readable policy before saving. Choose one environment to save to it alone."
-                : "Unsaved changes apply to new tasks once saved."}
+              : issue !== null
+                ? issue
+                : unsavedEnvironments > 0
+                  ? "Every selected environment needs a readable policy before saving. Choose one environment to save to it alone."
+                  : "Unsaved changes apply to new tasks once saved."}
           </AlertDescription>
           <AlertAction>
             <Button
@@ -294,7 +303,7 @@ function PolicyEditor({
             </Button>
             <Button
               size="xs"
-              disabled={pending || !isValid(draft) || unsavedEnvironments > 0}
+              disabled={pending || !isValid(draft) || issue !== null || unsavedEnvironments > 0}
               onClick={() => void submit()}
             >
               {pending ? "Saving…" : "Save"}
@@ -366,6 +375,7 @@ function ListEditor({
   catalog,
   disabled,
   onChange,
+  makers,
   children,
 }: {
   environmentId: EnvironmentId;
@@ -375,6 +385,8 @@ function ListEditor({
   catalog: ReadonlyArray<CatalogModel>;
   disabled: boolean;
   onChange: (manifest: Manifest) => void;
+  /** Council members are labelled with their model's maker. */
+  makers?: boolean;
   children?: ReactNode;
 }) {
   const entries = manifest.lists[list] ?? [];
@@ -457,6 +469,9 @@ function ListEditor({
                     Runs this model on the fast service tier in every job that lists it
                   </TooltipPopup>
                 </Tooltip>
+              ) : null}
+              {makers && binding !== undefined ? (
+                <Badge variant="outline">{makerName(modelMaker(binding))}</Badge>
               ) : null}
               <span className="min-w-0 flex-1 truncate text-xs text-warning">{reason}</span>
               <Button
@@ -565,6 +580,8 @@ function JobRow({
       <Badge variant="outline">{alias}</Badge>
     );
   };
+  const council = job.roles.includes("reviewer") && councilOn(manifest);
+  const councilSection = job.sections.at(-1)!;
   const chips = (section: JobSection, withLarge: boolean) => {
     const entries = manifest.lists[section.list] ?? [];
     const reasons = entries.map((entry) =>
@@ -597,6 +614,9 @@ function JobRow({
               </span>
             ))
           : null}
+        {council && section === councilSection ? (
+          <span className="ms-2 text-xs text-muted-foreground">council on</span>
+        ) : null}
       </>
     );
   };
@@ -710,6 +730,7 @@ function JobRow({
                   catalog={catalog}
                   disabled={disabled}
                   onChange={onChange}
+                  makers={council && section === councilSection}
                 >
                   {sectioned ? null : actions}
                 </ListEditor>
@@ -731,6 +752,14 @@ function JobRow({
             {sectioned ? (
               <div className="flex flex-wrap items-center gap-1.5">{actions}</div>
             ) : null}
+            {job.roles.includes("reviewer") ? (
+              <CouncilBlock
+                manifest={manifest}
+                providers={providers}
+                disabled={disabled}
+                onChange={onChange}
+              />
+            ) : null}
             {job.roles.filter(isReviewerRole).map((role) => (
               <label key={role} className="flex items-center gap-2 text-xs">
                 <Switch
@@ -747,6 +776,52 @@ function JobRow({
           </div>
         </CollapsiblePanel>
       </Collapsible>
+    </div>
+  );
+}
+
+/** Off or On for Spec reviews; the members are the Spec-review list edited above. */
+function CouncilBlock({
+  manifest,
+  providers,
+  disabled,
+  onChange,
+}: {
+  manifest: Manifest;
+  providers: ReadonlyArray<ServerProvider>;
+  disabled: boolean;
+  onChange: (manifest: Manifest) => void;
+}) {
+  const on = councilOn(manifest);
+  const issue = councilIssue(manifest);
+  return (
+    <div
+      data-council
+      className="flex flex-col gap-2 rounded-lg border border-border/60 bg-muted/40 p-2.5"
+    >
+      <label className="flex items-center gap-2 text-sm font-medium">
+        <Switch
+          checked={on}
+          disabled={disabled}
+          aria-label="Council for Spec reviews"
+          onCheckedChange={(value) => onChange(setCouncil(manifest, value))}
+        />
+        Council
+        <span className="text-xs font-normal text-muted-foreground">{on ? "On" : "Off"}</span>
+      </label>
+      <p className="text-xs text-muted-foreground">
+        {on
+          ? "A Spec review sits one member per maker from the Spec reviews list above, in list order, skipping the author's own model."
+          : "A Spec review has one reviewer. Turn it on to have models from different makers review each Spec."}
+      </p>
+      {on ? (
+        <p className="text-xs text-muted-foreground">{councilSeating(manifest, providers)}</p>
+      ) : null}
+      {issue !== null ? (
+        <Alert variant="warning">
+          <AlertDescription role="alert">{issue}</AlertDescription>
+        </Alert>
+      ) : null}
     </div>
   );
 }

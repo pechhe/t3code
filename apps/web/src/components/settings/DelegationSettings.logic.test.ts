@@ -3,6 +3,10 @@ import { describe, expect, it } from "vite-plus/test";
 import { AgentPolicyManifest, ServerProvider } from "@t3tools/contracts";
 import {
   catalogModels,
+  councilIssue,
+  councilSeating,
+  councilMembers,
+  councilOn,
   effortFor,
   effortForModel,
   ensureModel,
@@ -15,6 +19,7 @@ import {
   roleGroups,
   runsFast,
   setCaller,
+  setCouncil,
   setModelFast,
   setModelOptions,
   splitGroup,
@@ -408,5 +413,76 @@ describe("delegation settings", () => {
       efforts: ["low", "medium"],
     });
     expect(effortForModel(kimi!)).toBe("medium");
+  });
+
+  describe("council", () => {
+    const separate = () => {
+      const base = manifest();
+      return {
+        ...base,
+        lists: {
+          ...base.lists,
+          "reviewer-spec": [
+            { model: "sol", effort: "high" },
+            { model: "opus", effort: "high" },
+          ],
+        },
+        roles: {
+          ...base.roles,
+          reviewer: { ...base.roles.reviewer, specList: "reviewer-spec" },
+        },
+      };
+    };
+
+    it("reads an older policy without council as Off", () => {
+      expect(councilOn(manifest())).toBe(false);
+      expect(councilIssue(manifest())).toBeNull();
+    });
+
+    it("turning it On stores true, and Off removes the key", () => {
+      const on = setCouncil(manifest(), true);
+      expect(on.roles.reviewer.council).toBe(true);
+      expect(councilOn(on)).toBe(true);
+      expect(isValid(encodeManifest(on))).toBe(true);
+      const off = setCouncil(on, false);
+      expect("council" in off.roles.reviewer).toBe(false);
+      expect(encodeManifest(off)).toEqual(encodeManifest(manifest()));
+    });
+
+    it("names each Spec-review member's maker", () => {
+      expect(councilMembers(separate()).map(({ model, maker }) => [model, maker])).toEqual([
+        ["sol", "openai"],
+        ["opus", "anthropic"],
+      ]);
+    });
+
+    it("says how many makers can sit now, and when the council will not form", () => {
+      const on = setCouncil(separate(), true);
+      // Only the Claude account is installed, so OpenAI's member cannot sit.
+      expect(councilSeating(on, [provider()])).toBe(
+        "1 of 2 makers can sit now: the council won't form until another maker is available, so one reviewer runs.",
+      );
+      expect(councilSeating(on, [])).toMatch(/^0 of 2 makers can sit now/);
+    });
+
+    it("needs at least two distinct makers while On", () => {
+      const two = setCouncil(separate(), true);
+      expect(councilIssue(two)).toBeNull();
+      const one = removeEntry(two, "reviewer-spec", "opus");
+      expect(councilIssue(one)).toMatch(/at least two makers/);
+      expect(councilIssue(setCouncil(one, false))).toBeNull();
+      const sameMaker = replaceEntry(
+        two,
+        "reviewer-spec",
+        "sol",
+        catalogModels([
+          provider({
+            models: [{ slug: "claude-haiku", name: "Haiku", isCustom: false, capabilities: null }],
+          }),
+        ])[0]!,
+        undefined,
+      );
+      expect(councilIssue(sameMaker)).toMatch(/at least two makers/);
+    });
   });
 });

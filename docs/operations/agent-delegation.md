@@ -29,6 +29,13 @@ policy. Settings permission is required; agents have no MCP tool to edit it.
 Each role has an ordered model `list`, with effort for models that offer it.
 The Reviewer also requires `specList`, an alias into `lists` for Spec reviews;
 `review.scope` selects the list automatically. Other roles cannot set `specList`.
+With the Reviewer's `council` on, `delegate_task` sits a Spec review as a council:
+one read-only reviewer per model maker on `specList`, in list order, at most five,
+never the author's own model. A maker whose models cannot run is reported as
+missing, not replaced by a second model from a maker already sitting; with fewer
+than two makers one reviewer runs. The result's `council` names each member's task
+and the `taskRef` it records its review under; the lead records the round's roster
+in Forge, which then accepts the Spec only when every member's review is clean.
 Any installed provider's models can be listed, not only Codex and Claude. A role may also start large
 (`demanding`) tasks with a different model, and start with a different model
 when a named model asks. Reviewers can prefer a provider other than the author's.

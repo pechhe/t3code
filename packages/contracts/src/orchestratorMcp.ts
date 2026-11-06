@@ -254,6 +254,29 @@ export const ORCHESTRATOR_MCP_RUNNING_TASK_NEXT =
   "Completion wakes this thread, so end your turn. Do not wait on it or poll it.";
 const OrchestratorMcpRunningTaskNext = Schema.Literal(ORCHESTRATOR_MCP_RUNNING_TASK_NEXT);
 
+/** A Spec review sat as a council: every member's task, and the makers that could not sit. */
+export const OrchestratorMcpReviewCouncil = Schema.Struct({
+  /** False when fewer than two makers could sit, so one reviewer runs instead. */
+  formed: Schema.Boolean,
+  members: Schema.Array(
+    Schema.Struct({
+      maker: TrimmedNonEmptyString,
+      /** What the member records as `review.reviewer.taskRef`, and the roster names. */
+      taskRef: TrimmedNonEmptyString,
+      taskId: NodeId,
+      model: Schema.NullOr(Schema.String),
+    }),
+  ),
+  missing: Schema.Array(
+    Schema.Struct({
+      maker: TrimmedNonEmptyString,
+      model: TrimmedNonEmptyString,
+      reason: TrimmedNonEmptyString,
+    }),
+  ),
+});
+export type OrchestratorMcpReviewCouncil = typeof OrchestratorMcpReviewCouncil.Type;
+
 export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   launchState: Schema.optional(
     Schema.Literals(["prepared", "accepted", "cancelled", "launch-unknown", "refused"]),
@@ -298,6 +321,8 @@ export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
     description: "True only on the timed-out wait call. The child keeps running.",
   }),
   next: Schema.optional(OrchestratorMcpRunningTaskNext),
+  /** A Spec review the policy sits as a council; the fields above are its first member's. */
+  council: Schema.optional(OrchestratorMcpReviewCouncil),
 });
 export type OrchestratorMcpDelegateTaskResult = typeof OrchestratorMcpDelegateTaskResult.Type;
 

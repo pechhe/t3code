@@ -388,3 +388,65 @@ it("does not warn when a first choice is unavailable", async () => {
   expect(text()).not.toContain("will be refused");
   expect(text()).not.toContain("will use");
 });
+
+const councilSwitch = () =>
+  container.querySelector<HTMLElement>('[aria-label="Council for Spec reviews"]')!;
+
+it("shows the council Off for a policy without it, and turning it On saves council true", async () => {
+  separateReviewerLists();
+  await mount();
+  expect(councilSwitch().getAttribute("aria-checked")).toBe("false");
+  expect(text()).not.toContain("council on");
+  await act(async () => councilSwitch().click());
+  expect(councilSwitch().getAttribute("aria-checked")).toBe("true");
+  expect(text()).toContain("council on");
+  expect(text()).toMatch(/makers? can sit now/);
+  expect(text()).toContain("OpenAI");
+  expect(text()).toContain("Anthropic");
+  await click("Save");
+  expect(state.save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      input: expect.objectContaining({
+        manifest: expect.objectContaining({
+          roles: expect.objectContaining({
+            reviewer: expect.objectContaining({ council: true }),
+          }),
+        }),
+      }),
+    }),
+  );
+});
+
+it("cannot save a council whose Spec list has fewer than two makers", async () => {
+  separateReviewerLists();
+  await mount();
+  await act(async () => councilSwitch().click());
+  await act(async () => userEvent.click(buttons("Remove claude-test").at(-1)!));
+  expect(text()).toContain("at least two makers");
+  expect(button("Save").disabled).toBe(true);
+  await act(async () => councilSwitch().click());
+  expect(text()).not.toContain("at least two makers");
+  expect(button("Save").disabled).toBe(false);
+});
+
+it("turning the council Off removes the key from what is saved", async () => {
+  separateReviewerLists();
+  const policy = state.data!;
+  const manifest = policy.snapshot.manifest;
+  state.data = {
+    ...policy,
+    snapshot: {
+      ...policy.snapshot,
+      manifest: {
+        ...manifest,
+        roles: { ...manifest.roles, reviewer: { ...manifest.roles.reviewer, council: true } },
+      },
+    },
+  };
+  await mount();
+  expect(councilSwitch().getAttribute("aria-checked")).toBe("true");
+  await act(async () => councilSwitch().click());
+  await click("Save");
+  const saved = state.save.mock.calls[0]![0].input.manifest;
+  expect("council" in saved.roles.reviewer).toBe(false);
+});

@@ -44,6 +44,8 @@ export const EVENT_CODE_SHORTCUT_KEYS: Readonly<Record<string, string>> = {
   Quote: "'",
   Semicolon: ";",
   Slash: "/",
+  // Option+Space on macOS reports a no-break space as the key.
+  Space: " ",
 };
 
 export function isMacPlatform(platform: string): boolean {

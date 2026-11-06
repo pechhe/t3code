@@ -135,6 +135,55 @@ const ModelBinding = Schema.Struct({
   options: Schema.optional(Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString)),
 });
 
+const MAKER_FAMILIES: ReadonlyArray<readonly [string, string]> = [
+  ["claude", "anthropic"],
+  ["gpt", "openai"],
+  ["codex", "openai"],
+  ["gemini", "google"],
+  ["gemma", "google"],
+  ["deepseek", "deepseek"],
+  ["kimi", "moonshot"],
+  ["grok", "xai"],
+  ["qwen", "alibaba"],
+  ["llama", "meta"],
+  ["mistral", "mistral"],
+  ["glm", "zhipu"],
+];
+/** Gateway slugs such as `openrouter/openai/o3` name the vendor in the segment before the model. */
+const VENDOR_MAKERS: Readonly<Record<string, string>> = {
+  openai: "openai",
+  anthropic: "anthropic",
+  google: "google",
+  "x-ai": "xai",
+  xai: "xai",
+  moonshotai: "moonshot",
+  deepseek: "deepseek",
+  "meta-llama": "meta",
+  mistralai: "mistral",
+  qwen: "alibaba",
+  "z-ai": "zhipu",
+};
+const DRIVER_MAKERS: Readonly<Record<string, string>> = {
+  codex: "openai",
+  claudeAgent: "anthropic",
+  grok: "xai",
+};
+
+/**
+ * Who made a model, whichever connection serves it: gateways such as OpenCode, Pi or
+ * OpenRouter name it by slug, so the slug's family decides before the driver does.
+ */
+export function modelMaker(binding: { readonly driverKind: string; readonly model: string }) {
+  const segments = binding.model.toLowerCase().split("/");
+  const name = segments.at(-1)!;
+  return (
+    MAKER_FAMILIES.find(([family]) => name.startsWith(family))?.[1] ??
+    VENDOR_MAKERS[segments.at(-2) ?? ""] ??
+    DRIVER_MAKERS[binding.driverKind] ??
+    name.split(/[-.:]/)[0]!
+  );
+}
+
 /** A model a role may use and, when the model has one, the effort it runs at. */
 export const AgentListEntry = Schema.Struct({
   model: Alias,
@@ -156,6 +205,11 @@ const RolePolicy = Schema.Struct({
   callers: Schema.optional(Schema.Record(Alias, Alias)),
   /** Reviewer roles: prefer a provider other than the author's. */
   preferOtherAuthorProvider: Schema.optional(Schema.Boolean),
+  /**
+   * Reviewer only: a Spec review sits one member per model maker from `specList`, in list
+   * order, instead of one reviewer. Absent or false keeps one reviewer.
+   */
+  council: Schema.optional(Schema.Boolean),
   /**
    * The role's tasks may run bounded browser tasks when their project allows agent browsing.
    * Orthogonal to source access and tool profile; absent keeps the role without them.
@@ -223,6 +277,7 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
     if (role.preferOtherAuthorProvider !== undefined && !isReviewerRole(name as AgentRole))
       return false;
     if (role.browserTasks === true && !BOUNDED_BROWSER_ROLES.has(name as AgentRole)) return false;
+    if (role.council !== undefined && name !== "reviewer") return false;
   }
   const readOnly = (role: (typeof roles)[AgentRole], toolProfile: string) =>
     role?.sourceAccess === "read-only" && role.toolProfile === toolProfile;
@@ -476,6 +531,8 @@ export const AgentReviewRequest = Schema.Struct({
   priorReview: Schema.optional(
     Schema.Struct({ workId: TrimmedNonEmptyString, sourceRevision: TrimmedNonEmptyString }),
   ),
+  /** Set by T3 when it sits a council: the maker this reviewer sits for, or `solo`. */
+  councilSeat: Schema.optional(TrimmedNonEmptyString),
 });
 export type AgentReviewRequest = typeof AgentReviewRequest.Type;
 
