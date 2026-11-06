@@ -1422,6 +1422,47 @@ describe("BrowserTaskService ordered steps", () => {
         ["SCROLL_DOWN", "WAIT", "BLOCKED"],
       );
       assert.deepStrictEqual(task.acts, []);
+      assert.include(result.detail, 'dismiss: button "Dismiss" is covered by another element.');
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("names every offered recovery control it could not use, and why", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        choices: ["BLOCKED"],
+        page: {
+          tree: [
+            `- main [ref=m]:`,
+            `  - button "Save" [ref=save]`,
+            `  - paragraph "Close" [ref=close-1]`,
+            `  - paragraph "Close" [ref=close-2]`,
+          ].join("\n"),
+        },
+        covered: (locator) => locator === "aria-ref=save",
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            requestId: "unusable-recovery",
+            tabId,
+            engine: "jev",
+            goal: "Save",
+            actions: [
+              { id: "dismiss", target: { role: "button", name: "Dismiss" } },
+              { id: "close", target: { role: "paragraph", name: "Close" } },
+            ],
+            submit: { id: "save", target: { role: "button", name: "Save" } },
+            steps: [{ kind: "run", id: "save" }],
+            checks: [{ id: "saved", kind: "text", includes: "Saved", expect: "present" }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "blocked");
+      assert.strictEqual(result.reason, "model-blocked");
+      assert.include(result.detail, 'dismiss: 0 elements match button "Dismiss".');
+      assert.include(result.detail, 'close: 2 elements match paragraph "Close".');
     }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
   );
 

@@ -1015,14 +1015,25 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
   ) {
     const offers: Offer[] = [];
     const steps = new Map<string, Step>();
+    /** Offered controls recovery left out, with why, so a blocked result can say so. */
+    const unusable: string[] = [];
     for (const action of recoveryActions()) {
-      const resolved = resolveTarget(model, actionTarget(action)!);
-      if (resolved._tag !== "unique") continue;
+      const actionTargetValue = actionTarget(action)!;
+      const resolved = resolveTarget(model, actionTargetValue);
+      if (resolved._tag !== "unique") {
+        unusable.push(unresolvedDetail(action.id, actionTargetValue, resolved));
+        continue;
+      }
       // A covered control cannot be clicked either, so it is never offered; a key needs focus, not the pointer.
       if (!("press" in action)) {
         const covered = yield* coveredNow(resolved.node);
         if (covered === undefined) return false;
-        if (covered) continue;
+        if (covered) {
+          unusable.push(
+            `${action.id}: ${describeTarget(actionTargetValue)} is covered by another element.`,
+          );
+          continue;
+        }
       }
       offers.push({ label: action.id, description: describeAction(action) });
       steps.set(action.id, { _tag: "action", action });
@@ -1045,7 +1056,8 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     });
     if (choice === undefined) return false;
     if (choice === "BLOCKED") {
-      yield* stop("blocked", "model-blocked", `Jev found no way to uncover ${id}.`);
+      const why = unusable.length === 0 ? "" : ` Recovery could not use: ${unusable.join(" ")}`;
+      yield* stop("blocked", "model-blocked", `Jev found no way to uncover ${id}.${why}`);
       return false;
     }
     if (choice === "WAIT") {
