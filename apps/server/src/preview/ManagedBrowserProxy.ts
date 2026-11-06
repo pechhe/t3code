@@ -6,6 +6,8 @@ import * as NodeNet from "node:net";
 import type * as NodeStream from "node:stream";
 
 export const MANAGED_BROWSER_DENIAL_HEADER = "x-t3-browser-network-denied";
+// Covers a page waiting minutes on one answer (YardSmith's Generate plan allows 240 s) yet still ends a hung upstream.
+const UPSTREAM_IDLE_MS = 10 * 60_000;
 
 const privateAddresses = new NodeNet.BlockList();
 for (const [network, bits] of [
@@ -58,6 +60,7 @@ interface Options {
   /** null revokes the context, including already established tunnels. */
   readonly policy: () => Promise<ReadonlyArray<string> | null>;
   readonly resolve?: (host: string) => Promise<ReadonlyArray<{ address: string; family: number }>>;
+  readonly upstreamIdleMs?: number;
 }
 
 /** Each context owns its listener, credentials and sockets; validated IPs are used without a second DNS lookup. */
@@ -210,7 +213,7 @@ export class ManagedBrowserProxy {
       if (!response.headersSent) response.writeHead(502);
       response.end();
     });
-    upstream.setTimeout(15_000, () => upstream.destroy());
+    upstream.setTimeout(this.options.upstreamIdleMs ?? UPSTREAM_IDLE_MS, () => upstream.destroy());
     request.once("aborted", () => upstream.destroy());
     response.once("close", () => upstream.destroy());
     request.pipe(upstream);

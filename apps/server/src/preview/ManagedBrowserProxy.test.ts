@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off globalFetch:off - Real Chromium and local network fixtures exercise the proxy boundary.
+// @effect-diagnostics nodeBuiltinImport:off globalFetch:off globalTimers:off - Real Chromium and local network fixtures exercise the proxy boundary.
 import * as NodeHttp from "node:http";
 import * as NodeNet from "node:net";
 import { chromium } from "playwright-core";
@@ -282,6 +282,83 @@ it("tunnels authenticated CONNECT traffic to the validated allowed IP", async ()
     expect(proxy.refusals).toEqual([]);
   } finally {
     socket.destroy();
+    await proxy.close();
+    await close(destination);
+  }
+});
+
+it("waits on a quiet allowed upstream until its answer, and cuts one that stays silent past the idle bound", async () => {
+  const destination = NodeHttp.createServer((request, response) => {
+    if (request.url === "/slow") setTimeout(() => response.end("solved"), 600);
+  });
+  const port = await listen(destination);
+  const proxy = await ManagedBrowserProxy.start({
+    serverPort: 9999,
+    policy: async () => [`127.0.0.1:${port}`],
+    upstreamIdleMs: 300,
+  });
+  try {
+    expect((await proxyRequest(proxy, `http://127.0.0.1:${port}/hang`)).status).toBe(502);
+  } finally {
+    await proxy.close();
+  }
+  const patient = await ManagedBrowserProxy.start({
+    serverPort: 9999,
+    policy: async () => [`127.0.0.1:${port}`],
+    upstreamIdleMs: 1_200,
+  });
+  try {
+    expect(await proxyRequest(patient, `http://127.0.0.1:${port}/slow`)).toEqual({
+      status: 200,
+      body: "solved",
+    });
+  } finally {
+    await patient.close();
+    await close(destination);
+  }
+});
+
+it("ends a waiting request's upstream connection when the page abandons it or its context closes", async () => {
+  let received = Promise.withResolvers<void>();
+  let upstreamClosed = Promise.withResolvers<void>();
+  const destination = NodeHttp.createServer((request) => {
+    request.socket.once("close", () => upstreamClosed.resolve());
+    received.resolve();
+  });
+  const port = await listen(destination);
+  const proxy = await ManagedBrowserProxy.start({
+    serverPort: 9999,
+    policy: async () => [`127.0.0.1:${port}`],
+  });
+  const endpoint = new URL(proxy.configuration.server);
+  const { username, password } = proxy.configuration;
+  const waiting = () => {
+    const request = NodeHttp.request({
+      hostname: endpoint.hostname,
+      port: endpoint.port,
+      path: `http://127.0.0.1:${port}/solve`,
+      headers: {
+        "Proxy-Authorization": `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`,
+      },
+    });
+    request.on("error", () => undefined);
+    request.end();
+    return request;
+  };
+  try {
+    const abandoned = waiting();
+    await received.promise;
+    abandoned.destroy();
+    await upstreamClosed.promise;
+
+    received = Promise.withResolvers<void>();
+    upstreamClosed = Promise.withResolvers<void>();
+    waiting();
+    await received.promise;
+    // Closing a tab and revoking its access both close the context, which closes its proxy.
+    await proxy.close();
+    await upstreamClosed.promise;
+  } finally {
     await proxy.close();
     await close(destination);
   }
