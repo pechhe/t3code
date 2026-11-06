@@ -136,13 +136,20 @@ Your tasks are listed on the left; select one to edit it in place, or choose
 **New task**, which opens the same view empty.
 
 A task reads as a sentence: when it runs, which machines and projects it runs on,
-where each run works, and which subagent role runs it. Pick several machines or
-projects to run the same task in each: every machine runs its own copy, in each
-chosen project it has. A project a machine lacks is skipped, and the editor says so.
+where each run works, where its runs post, and which subagent role runs it. Pick
+several machines or projects to run the same task in each: every machine runs its
+own copy, in each chosen project it has. A project a machine lacks is skipped, and
+the editor says so.
 
 - **A fresh workspace** gives each run its own checkout: a SlipJay workspace in a
   project with `slipjay.json`, a Git worktree elsewhere. **The project checkout**
   runs in the project folder itself, in a SlipJay project too.
+- **Where its runs post**: **a new thread each run** keeps every run separate. The
+  two one-thread choices start a thread on the first run and post later runs there:
+  one continues the conversation, the other opens a fresh session each run so the
+  agent's context does not grow. A task that posts into a thread runs in that
+  thread's workspace and follows its model, and deleting the thread deletes the
+  task.
 - **The role** (such as implementation-worker) picks the model and effort from your
   delegation policy on each machine at every run, so a policy change reaches the
   task without editing it. The editor shows the model the role prefers.
@@ -163,6 +170,13 @@ using its project, model, and workspace settings. Fixed-time schedules use that
 environment's time zone, which may differ from your phone's. Choose **Once**
 to run a task a single time at a date and time in your own time zone. If the
 environment is offline then, the task runs when it is back.
+
+Under **Destination**, choose where runs go. **New thread each run** keeps every
+run separate. The two one-thread choices start a thread on the first run and post
+later runs there: one continues the same conversation, the other starts each run
+in a fresh session that doesn't see earlier runs, so the thread stays readable
+without the agent's context growing. Moving such a task to another project starts
+a new thread there on its next run.
 
 Deleting a thread also deletes tasks that post into that thread. Tasks that start
 a new thread on each run survive deletion of their previous threads.

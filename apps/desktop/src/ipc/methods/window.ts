@@ -504,6 +504,14 @@ export const getScreenRecordingSupport = DesktopIpc.makeIpcMethod({
   }),
 });
 
+class ScreenPickerError extends Schema.TaggedError<ScreenPickerError>()("ScreenPickerError", {
+  cause: Schema.Defect(),
+}) {
+  override get message(): string {
+    return "The macOS screen picker could not be reached.";
+  }
+}
+
 export const prepareScreenRecording = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREPARE_SCREEN_RECORDING_CHANNEL,
   payload: Schema.Undefined,
@@ -511,9 +519,10 @@ export const prepareScreenRecording = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.window.prepareScreenRecording")(function* () {
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     if (environment.platform !== "darwin") return;
-    yield* Effect.tryPromise(() =>
-      prepareMacScreenPicker(macScreenPickerLibraryPath(environment)),
-    ).pipe(
+    yield* Effect.tryPromise({
+      try: () => prepareMacScreenPicker(macScreenPickerLibraryPath(environment)),
+      catch: (cause) => new ScreenPickerError({ cause }),
+    }).pipe(
       Effect.catch((error) =>
         Effect.logWarning("Could not prepare the macOS screen picker", { error }),
       ),
@@ -528,9 +537,10 @@ export const getScreenRecordingSource = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.window.getScreenRecordingSource")(function* () {
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     if (environment.platform !== "darwin") return null;
-    return yield* Effect.tryPromise(() =>
-      macScreenPickerSelection(macScreenPickerLibraryPath(environment)),
-    ).pipe(
+    return yield* Effect.tryPromise({
+      try: () => macScreenPickerSelection(macScreenPickerLibraryPath(environment)),
+      catch: (cause) => new ScreenPickerError({ cause }),
+    }).pipe(
       Effect.catch((error) =>
         Effect.logWarning("Could not read the macOS screen picker", { error }).pipe(
           Effect.as(null),

@@ -248,7 +248,7 @@ const DeleteScheduledTaskTool = Tool.make("delete_scheduled_task", {
 
 const RequestSecretTool = Tool.make("request_secret", {
   description:
-    "Ask the user to enter a secret (a token, API key, password) in a private card in this thread, and wait for their answer. The app keeps it and NEVER returns it to you or the transcript: the result's `secretRef` works once, for a tool that accepts one (e.g. `schedule_task`'s `signature.secretRef`), or with `delivery: \"file\"` a private file path to read inside a shell command. Never ask for a secret in chat, and never invent one. Asked how to provide a secret: call this now, do not explain instead.",
+    'Ask for one secret per single-line card; never combine values. Open it, don\'t offer it. Returns one-use `secretRef`, or `delivery: "file"` a file read only in its command, e.g. `adb pair <ip:port> "$(cat <file>)"`. Asked how: call now. Pasted secret for child/script: `value`. Never from an old thread.',
   parameters: OrchestratorMcpRequestSecretInput,
   success: OrchestratorMcpRequestSecretResult,
   failure: OrchestratorMcpFailure,

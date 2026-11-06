@@ -16,6 +16,7 @@ import {
   type ProjectId,
   type ProviderDriverKind,
   type ScheduledTask,
+  type ScheduledTaskThreadMode,
   type ScheduledTaskUpsertInput,
   type ScheduledTaskUpsertSchedule,
 } from "@t3tools/contracts";
@@ -212,8 +213,8 @@ export interface GroupDraftFields {
   readonly projectKeys: ReadonlyArray<string>;
   readonly workspace: WorkspaceChoice;
   readonly agentRole: AgentRole;
-  /** Keeps posting into the thread a task was bound to; false starts a new thread each run. */
-  readonly keepThread: boolean;
+  /** One thread each run continues or opens a fresh session in; "new_thread" starts one per run. */
+  readonly threadMode: ScheduledTaskThreadMode;
 }
 
 /**
@@ -253,7 +254,8 @@ export function planGroupSave(input: {
           enabled: draft.enabled,
           schedule: draft.schedule,
           projectId,
-          threadId: draft.keepThread ? (previous?.threadId ?? null) : null,
+          threadId: draft.threadMode === "new_thread" ? null : (previous?.threadId ?? null),
+          threadMode: draft.threadMode,
           workspaceStrategy: workspaceStrategyFor(
             draft.workspace,
             previous?.workspaceStrategy ?? null,

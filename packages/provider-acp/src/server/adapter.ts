@@ -899,8 +899,12 @@ export function acpMcpContext(
     ...(session === undefined
       ? {}
       : {
-          // The terminal fallback (`acp-mcp-call`) reaches T3's own tools only.
+          // The terminal fallback (`acp-mcp-call`) reaches T3's own tools only. Every process the
+          // agent starts also inherits its thread id, so a tool run from its shell can find its T3
+          // thread; Claude and Codex set the same variable (PortScanner.AGENT_THREAD_ENV, a literal
+          // here because this package cannot reach apps/server).
           processEnvironment: {
+            T3CODE_THREAD_ID: session.threadId,
             T3_ACP_MCP_ENDPOINT: session.endpoint,
             T3_ACP_MCP_AUTHORIZATION: session.authorizationHeader,
             T3_ACP_MCP_NODE: self.command,

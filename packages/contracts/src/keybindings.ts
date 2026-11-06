@@ -90,6 +90,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "composer.sendAlternate",
   "composer.sendBackground",
   "composer.sendAndNewThread",
+  "composer.dictation",
+  "composer.host",
   "composer.cycleHost",
   "composer.effort",
   "composer.effortUp",

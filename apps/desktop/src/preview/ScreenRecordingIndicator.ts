@@ -338,6 +338,15 @@ export class ScreenRecordingIndicator extends Context.Service<
   }
 >()("@t3tools/desktop/preview/ScreenRecordingIndicator") {}
 
+class ScreenRecordingIndicatorError extends Schema.TaggedError<ScreenRecordingIndicatorError>()(
+  "ScreenRecordingIndicatorError",
+  { cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return "Could not show the recording indicator.";
+  }
+}
+
 export const layer = Layer.effect(
   ScreenRecordingIndicator,
   Effect.gen(function* () {
@@ -362,7 +371,10 @@ export const layer = Layer.effect(
       set: Effect.fn("ScreenRecordingIndicator.set")(function* (ownerWebContentsId, state) {
         const owner = Electron.webContents.fromId(ownerWebContentsId);
         if (!owner || owner.isDestroyed()) return false;
-        return yield* Effect.tryPromise(() => indicator.set(owner, state)).pipe(
+        return yield* Effect.tryPromise({
+          try: () => indicator.set(owner, state),
+          catch: (cause) => new ScreenRecordingIndicatorError({ cause }),
+        }).pipe(
           Effect.catch((cause) =>
             Effect.logWarning("Could not show the recording indicator", cause).pipe(
               Effect.as(false),

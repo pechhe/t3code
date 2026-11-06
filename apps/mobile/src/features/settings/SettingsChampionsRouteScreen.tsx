@@ -45,11 +45,8 @@ import { useEnvironmentPresentation } from "../../state/presentation";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { useSelectWorkspaceDetail } from "../workspace/useSelectWorkspaceDetail";
-import {
-  SettingsEnvironmentFilterHeader,
-  useSettingsEnvironmentMenu,
-} from "./components/SettingsEnvironmentFilterHeader";
+import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
+import { useSettingsEnvironmentMenu } from "./components/SettingsEnvironmentFilterHeader";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-environment-filter";
@@ -168,29 +165,27 @@ export function SettingsChampionsRouteScreen() {
     selectedProjectKey === null ? null : selectedGroup,
   );
   const insets = useSafeAreaInsets();
+  const environmentMenu = useSettingsEnvironmentMenu();
   return (
-    <>
-      <SettingsEnvironmentFilterHeader />
-      <SettingsScreen title="Champions" menus={[useSettingsEnvironmentMenu()]}>
-        <ScrollView
-          contentInsetAdjustmentBehavior="automatic"
-          showsVerticalScrollIndicator={false}
-          className="flex-1"
-          contentContainerClassName="gap-5 px-5 pt-4"
-          contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
-        >
-          {environments.length > 0 ? (
-            environments.map((environment) => (
-              <EnvironmentChampions key={environment.environmentId} environment={environment} />
-            ))
-          ) : (
-            <Text className="text-base text-foreground-muted">
-              Connect a machine to see its champions.
-            </Text>
-          )}
-        </ScrollView>
-      </SettingsScreen>
-    </>
+    <SettingsScreen title="Champions" menus={[environmentMenu]}>
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        showsVerticalScrollIndicator={false}
+        className="flex-1"
+        contentContainerClassName="gap-5 px-5 pt-4"
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
+      >
+        {environments.length > 0 ? (
+          environments.map((environment) => (
+            <EnvironmentChampions key={environment.environmentId} environment={environment} />
+          ))
+        ) : (
+          <Text className="text-base text-foreground-muted">
+            Connect a machine to see its champions.
+          </Text>
+        )}
+      </ScrollView>
+    </SettingsScreen>
   );
 }
 

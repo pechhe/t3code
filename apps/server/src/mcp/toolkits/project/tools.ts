@@ -148,7 +148,7 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
     workspaceStrategy: Schema.optional(
       OrchestrationV2ThreadLaunchWorkspaceStrategy.annotate({
         description:
-          "'worktree': new checkout from `baseRef`; in a SlipJay repository, a new workspace from the integration branch named after `branch`. 'existing_worktree': bind `worktreePath`, a project worktree. 'root': project checkout, the project's default, never your worktree. Stack: parent branch as `baseRef`, `startFromOrigin: false`. Uncommitted edits are not copied.",
+          "'worktree': new checkout from `baseRef`. Honor a requested base: otherwise independent work starts from the default branch as `remote/branch` (e.g. `origin/main`) with `startFromOrigin: true`, and with no remote from the local default branch. Unpublished or stacked work uses its local base with `startFromOrigin: false`, the parent branch as `baseRef` when stacking. In a SlipJay repository a new workspace comes from the integration branch, named after `branch`. 'existing_worktree': bind `worktreePath`, a project worktree. 'root': project checkout, the project's default, never your worktree. Uncommitted edits are not copied.",
       }),
     ),
     forgeItem: Schema.optional(

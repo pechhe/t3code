@@ -100,6 +100,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const activeThreadRef = { environmentId: props.environmentId, threadId: props.threadId };
   const branchToolbarProps = {
     slipJayStatus: props.slipJayStatus,
+    showGitControls: props.isGitRepo,
     environmentId: props.environmentId,
     threadId: props.threadId,
     projectId: props.projectId,

@@ -23,6 +23,8 @@ const makeContext = (closeGate?: Promise<void>) => {
     on: vi.fn((event: string, listener: () => void) => events.on(event, listener)),
     once: vi.fn((event: string, listener: () => void) => events.once(event, listener)),
     pages: vi.fn(() => []),
+    newPage: vi.fn(async () => ({ once: vi.fn() })),
+    isClosed: () => closed,
     close: vi.fn(async () => {
       await closeGate;
       if (!closed) {
@@ -37,7 +39,8 @@ const makeBrowser = () => {
   const events = new NodeEvents.EventEmitter();
   const contexts: ReturnType<typeof makeContext>[] = [];
   return {
-    contexts,
+    created: contexts,
+    contexts: () => contexts.filter((context) => !context.isClosed()),
     on: vi.fn((event: string, listener: () => void) => events.on(event, listener)),
     once: vi.fn((event: string, listener: () => void) => events.once(event, listener)),
     newContext: vi.fn(async () => {
@@ -77,6 +80,37 @@ beforeEach(() => {
 });
 
 describe("ServerBrowserContexts", () => {
+  it("closes the shared browser only after it holds no context for the idle period", async () => {
+    vi.useFakeTimers();
+    try {
+      const first = makeBrowser();
+      const second = makeBrowser();
+      launches.launch
+        .mockResolvedValueOnce(first as unknown as Browser)
+        .mockResolvedValueOnce(second as unknown as Browser);
+      const pool = new ServerBrowserContexts({ ...options(), idleBrowserMs: 10 });
+      const agent = await pool.contextFor("default", "agent");
+      await pool.scratchPage();
+      await agent.close();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(first.close).not.toHaveBeenCalled();
+      await first.created[1]!.close();
+      await vi.advanceTimersByTimeAsync(9);
+      const next = await pool.contextFor("default", "next");
+      await vi.advanceTimersByTimeAsync(10);
+      expect(first.close).not.toHaveBeenCalled();
+      await next.close();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(first.close).toHaveBeenCalledOnce();
+      await pool.contextFor("default", "later");
+      expect(launches.launch).toHaveBeenCalledTimes(2);
+      expect(second.newContext).toHaveBeenCalledOnce();
+      await pool.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("lazily shares one browser across concurrent isolated sessions and reuses each context", async () => {
     const browser = makeBrowser();
     const launch = Promise.withResolvers<Browser>();
@@ -110,20 +144,7 @@ describe("ServerBrowserContexts", () => {
     });
     await pool.close();
     expect(browser.close).toHaveBeenCalledTimes(1);
-    for (const context of browser.contexts) expect(context.close).toHaveBeenCalled();
-  });
-
-  it("closes the shared browser once its last isolated context closes", async () => {
-    const browser = makeBrowser();
-    launches.launch.mockResolvedValue(browser as unknown as Browser);
-    const pool = new ServerBrowserContexts(options());
-    const first = await pool.contextFor("default", "agent-a");
-    const second = await pool.contextFor("default", "agent-b");
-    await first.close();
-    expect(browser.close).not.toHaveBeenCalled();
-    await second.close();
-    expect(browser.close).toHaveBeenCalledTimes(1);
-    await pool.close();
+    for (const context of browser.created) expect(context.close).toHaveBeenCalled();
   });
 
   it("closes a profile context when its last holder releases it", async () => {
@@ -289,7 +310,7 @@ describe("ServerBrowserContexts", () => {
       force: true,
     });
     expect(await pool.contextFor("work/team", "agent")).toBe(agent);
-    expect(browser.contexts[0]?.close).not.toHaveBeenCalled();
+    expect(browser.created[0]?.close).not.toHaveBeenCalled();
     launches.persistent.mockResolvedValue(makeContext() as unknown as BrowserContext);
     expect(await pool.contextFor("work/team")).not.toBe(persistent);
     await pool.clearProfile("never-opened");
@@ -408,7 +429,7 @@ describe("ServerBrowserContexts", () => {
     await expect(pool.contextFor("default", "agent")).rejects.toThrow("closed");
     await pool.close();
     expect(browser.close).toHaveBeenCalledTimes(1);
-    expect(browser.contexts[0]?.close).toHaveBeenCalled();
+    expect(browser.created[0]?.close).toHaveBeenCalled();
   });
 });
 
@@ -511,7 +532,7 @@ it("closes a managed context whose access is revoked while Chromium starts", asy
     policy = null;
     launch.resolve(browser as unknown as Browser);
     await opening;
-    expect(browser.contexts[0]?.close).toHaveBeenCalled();
+    expect(browser.created[0]?.close).toHaveBeenCalled();
     expect(browser.close).toHaveBeenCalled();
   } finally {
     await pool.close();

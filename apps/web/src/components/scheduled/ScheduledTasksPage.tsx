@@ -18,8 +18,10 @@ import {
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
   MAX_WEBHOOK_FILTERS,
   type ModelSelection,
+  type ScheduledTaskThreadMode,
   type ScheduledTaskUpsertSchedule,
   resolveEnvironmentMachineKind,
+  scheduledTaskThreadMode,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -110,6 +112,11 @@ const WORKSPACE_LABELS: Record<WorkspaceChoice, string> = {
   fresh: "a fresh workspace",
   checkout: "the project checkout",
 };
+const THREAD_MODE_LABELS: Record<ScheduledTaskThreadMode, string> = {
+  new_thread: "a new thread each run",
+  continue: "one thread, carrying on",
+  fresh_session: "one thread, a fresh session each run",
+};
 const ROLE_OPTIONS = AgentRole.literals;
 const DEFAULT_ROLE: AgentRole = "implementation-worker";
 
@@ -142,7 +149,7 @@ interface EditorDraft extends ScheduleDraft, WebhookDraft {
   readonly projectKeys: ReadonlyArray<string> | null;
   readonly workspace: WorkspaceChoice;
   readonly agentRole: AgentRole;
-  readonly keepThread: boolean;
+  readonly threadMode: ScheduledTaskThreadMode;
 }
 
 const reportFailure = (title: string, error: unknown) =>
@@ -390,7 +397,7 @@ function draftOf(
     projectKeys: group ? null : [],
     workspace: lead ? workspaceChoiceOf(lead.workspaceStrategy) : "fresh",
     agentRole: lead?.agentRole ?? DEFAULT_ROLE,
-    keepThread: lead?.threadId != null,
+    threadMode: lead ? scheduledTaskThreadMode(lead) : "new_thread",
   };
 }
 
@@ -451,8 +458,19 @@ function TaskDetail(props: {
   const update = (patch: Partial<EditorDraft>) => setDraft((current) => ({ ...current, ...patch }));
   const leadEnvironmentId = group === null ? null : leadEnvironmentOf(group);
   const boundThreadId = group?.lead.threadId ?? null;
-  // A task bound to a thread posts there, so where it runs is that thread's.
-  const bound = boundThreadId !== null && draft.keepThread;
+  // A task that runs in a thread posts there, so where it runs is that thread's.
+  const bound = boundThreadId !== null && draft.threadMode !== "new_thread";
+  // One thread's runs follow it; without a thread yet, the first run starts one where it runs below.
+  const threadModeDetail =
+    draft.threadMode === "new_thread"
+      ? null
+      : bound
+        ? draft.threadMode === "continue"
+          ? "Each run continues this thread, in its workspace and with its current model. Deleting the thread also deletes this task."
+          : "Each run opens a fresh session in this thread, without earlier runs' context. Deleting the thread also deletes this task."
+        : draft.threadMode === "continue"
+          ? "The first run starts a thread with the machine, project and role below; later runs continue that conversation."
+          : "The first run starts a thread with the machine, project and role below; later runs post there, each in a fresh session without earlier runs' context.";
   const isWebhook = draft.kind === "webhook";
   const plan = planGroupSave({
     draft: {
@@ -464,7 +482,7 @@ function TaskDetail(props: {
       projectKeys,
       workspace: draft.workspace,
       agentRole: draft.agentRole,
-      keepThread: draft.keepThread,
+      threadMode: draft.threadMode,
     },
     groupId: "",
     existing: group?.members ?? [],
@@ -704,9 +722,9 @@ function TaskDetail(props: {
         <LinkedThreadPanel
           environmentId={leadEnvironmentId}
           threadId={boundThreadId}
-          keepThread={draft.keepThread}
+          threadMode={draft.threadMode}
           project={projectChoices.find((choice) => choice.key === projectKeys[0])?.project ?? null}
-          onToggle={() => update({ keepThread: !draft.keepThread })}
+          onThreadModeChange={(threadMode) => update({ threadMode })}
         />
       ) : null}
       <ChipRow label="On" locked={bound}>
@@ -784,6 +802,24 @@ function TaskDetail(props: {
         </p>
       ) : null}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+        <span className="inline-flex items-center gap-1 text-muted-foreground">Runs in</span>
+        <Select
+          value={draft.threadMode}
+          onValueChange={(threadMode) =>
+            threadMode && update({ threadMode: threadMode as ScheduledTaskThreadMode })
+          }
+        >
+          <SelectTrigger size="xs" variant="ghost" aria-label="Where each run posts">
+            <SelectValue>{THREAD_MODE_LABELS[draft.threadMode]}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup>
+            {(Object.keys(THREAD_MODE_LABELS) as ScheduledTaskThreadMode[]).map((threadMode) => (
+              <SelectItem key={threadMode} value={threadMode}>
+                {THREAD_MODE_LABELS[threadMode]}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
         <span className="inline-flex items-center gap-1 text-muted-foreground">
           {bound ? <LockedMark /> : null}
           Works in
@@ -847,6 +883,7 @@ function TaskDetail(props: {
         ) : null}
       </div>
       <p className="-mt-3 text-muted-foreground text-xs">
+        {threadModeDetail === null ? null : <>{threadModeDetail} </>}
         A fresh run starts where a new thread does: its own workspace in a SlipJay project. The
         project checkout runs in the project folder, which is the integration checkout in a SlipJay
         project.
@@ -1000,24 +1037,25 @@ function LockedMark() {
 function LinkedThreadPanel(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: NonNullable<ScheduledTaskGroup["lead"]["threadId"]>;
-  readonly keepThread: boolean;
+  readonly threadMode: ScheduledTaskThreadMode;
   readonly project: ReturnType<typeof useProjects>[number] | null;
-  readonly onToggle: () => void;
+  readonly onThreadModeChange: (threadMode: ScheduledTaskThreadMode) => void;
 }) {
   const navigate = useNavigate();
+  const runsInThread = props.threadMode !== "new_thread";
   const thread = useThreadShells().find(
     (candidate) =>
       candidate.environmentId === props.environmentId && candidate.id === props.threadId,
   );
   return (
     <div
-      data-unlinked={props.keepThread ? undefined : ""}
+      data-unlinked={runsInThread ? undefined : ""}
       className="flex flex-col gap-2 rounded-lg border border-info/30 bg-info/6 p-3 text-sm data-unlinked:border-border data-unlinked:bg-transparent"
     >
       <div className="flex flex-wrap items-center gap-2">
         <LinkIcon aria-hidden className="size-3.5 shrink-0 text-info" />
         <span className="text-muted-foreground">
-          {props.keepThread ? "Posts into" : "Was posting into"}
+          {runsInThread ? "Posts into" : "Was posting into"}
         </span>
         <Button
           size="xs"
@@ -1037,12 +1075,18 @@ function LinkedThreadPanel(props: {
       </div>
       <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
         <span>
-          {props.keepThread
-            ? "An agent linked this task to its thread. Each run posts there, so the machine, project and workspace are that thread's and stay locked."
-            : "After you save, each run starts a new thread and you choose where it runs."}
+          {!runsInThread
+            ? "After you save, each run starts a new thread and you choose where it runs."
+            : props.threadMode === "continue"
+              ? "An agent linked this task to its thread. Each run continues it, so the machine, project and workspace are that thread's and stay locked."
+              : "An agent linked this task to its thread. Each run opens a fresh session there, so the machine, project and workspace are that thread's and stay locked."}
         </span>
-        <Button size="xs" variant="ghost-muted" onClick={props.onToggle}>
-          {props.keepThread ? "Start a new thread each run" : "Keep posting into this thread"}
+        <Button
+          size="xs"
+          variant="ghost-muted"
+          onClick={() => props.onThreadModeChange(runsInThread ? "new_thread" : "continue")}
+        >
+          {runsInThread ? "Start a new thread each run" : "Keep posting into this thread"}
         </Button>
       </div>
     </div>

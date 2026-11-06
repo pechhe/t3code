@@ -1065,31 +1065,120 @@ it.effect.each(["live", "no-session", "unsupported-runtime"] as const)(
 );
 
 it.effect.each([
-  { status: "completed" as const, settles: true },
-  { status: "failed" as const, settles: false },
-  { status: "interrupted" as const, settles: false },
-])("settleAfterRun settles only when the run $status", ({ status, settles }) =>
+  { status: "completed" as const, followUp: "none", settles: true },
+  { status: "failed" as const, followUp: "none", settles: false },
+  { status: "interrupted" as const, followUp: "none", settles: false },
+  { status: "completed" as const, followUp: "notification", settles: true },
+  { status: "completed" as const, followUp: "replayed-notification", settles: true },
+  { status: "completed" as const, followUp: "delegated", settles: true },
+  { status: "completed" as const, followUp: "failed-notification", settles: false },
+  { status: "completed" as const, followUp: "held-notification", settles: true },
+  { status: "completed" as const, followUp: "user", settles: false },
+  { status: "completed" as const, followUp: "steered-notification", settles: false },
+])("settleAfterRun handles $status with $followUp follow-up", ({ status, followUp, settles }) =>
   Effect.gen(function* () {
     const projectId = ProjectId.make("project:thread-management:settle-after-run");
     const threadId = ThreadId.make("thread:thread-management:settle-after-run");
     const runId = RunId.make("run:thread-management:settle-after-run");
+    const followUpId = RunId.make(`${runId}:follow-up`);
+    const subscribed = yield* Deferred.make<void>();
+    const events = yield* Queue.unbounded<OrchestrationV2StoredEvent>();
+    const replayRejected = yield* Deferred.make<void>();
+    let sequence = 0;
+    let sequenceReads = 0;
+    let rejectedCommandId: CommandId | undefined;
+    const runs = [{ id: runId, ordinal: 1, status, userMessageId: MessageId.make("original") }];
+    const nextRun = {
+      id: followUpId,
+      ordinal: 2,
+      status: "running" as OrchestrationV2Run["status"],
+      userMessageId: MessageId.make("follow-up"),
+    };
     const dispatched: Array<string> = [];
+    // The notification starts after the completed run was observed, before settlement commits.
+    let raced = false;
     const layerTest = ThreadManagementService.layer.pipe(
       Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
       Layer.provide(
         Layer.mock(Orchestrator.OrchestratorV2)({
-          getThreadEventSequence: () => Effect.succeed(0),
+          getThreadEventSequence: () =>
+            Effect.sync(() => {
+              if (followUp === "replayed-notification" && sequenceReads++ === 2) sequence = 1;
+              return sequence;
+            }),
           restartContinuationPending: () => Effect.succeed(false),
-          getThreadRecords: () =>
-            Effect.succeed(
-              settleAfterRunState({
-                projectId,
-                threadId,
-                runs: [settleAfterRunRun(runId, 1, status)],
-              }),
+          streamStoredEventsFrom: () =>
+            Stream.fromEffect(Deferred.succeed(subscribed, undefined)).pipe(
+              Stream.drain,
+              Stream.concat(Stream.fromQueue(events)),
+            ),
+          getThreadRecords: (_threadId, _fields, filter) =>
+            Effect.sync(
+              () =>
+                ({
+                  thread: {
+                    id: threadId,
+                    projectId,
+                    deletedAt: null,
+                    archivedAt: null,
+                    activeProviderThreadId: null,
+                  },
+                  runs: raced ? [...runs, nextRun] : runs,
+                  subagents: [],
+                  turnItems: [],
+                  runtimeRequests: [],
+                  providerThreads: [
+                    { id: "provider-thread:settle-after-run", pendingBackgroundTasks: [] },
+                  ],
+                  messages: [
+                    { id: MessageId.make("original"), runId, role: "user" as const },
+                    {
+                      id: nextRun.userMessageId,
+                      runId: followUpId,
+                      role: "user" as const,
+                      ...(followUp.endsWith("notification") ? { notification: {} } : {}),
+                      ...(followUp === "delegated" ? { delegatedCompletion: {} } : {}),
+                    },
+                    { id: MessageId.make("reply"), runId: followUpId, role: "assistant" as const },
+                    ...(followUp === "steered-notification"
+                      ? [
+                          {
+                            id: MessageId.make("user-steer"),
+                            runId: followUpId,
+                            role: "user" as const,
+                          },
+                        ]
+                      : []),
+                  ].filter(
+                    (message) =>
+                      (filter?.messageIds === undefined ||
+                        filter.messageIds.includes(message.id)) &&
+                      (filter?.messageRunIds === undefined ||
+                        filter.messageRunIds.includes(message.runId)) &&
+                      (filter?.messageRoles === undefined ||
+                        filter.messageRoles.includes(message.role)),
+                  ),
+                }) as unknown as OrchestrationV2ThreadProjection,
             ),
           dispatch: (command) =>
-            Effect.sync(() => {
+            Effect.gen(function* () {
+              if (followUp !== "none" && !raced) {
+                raced = true;
+                rejectedCommandId = command.commandId;
+                return yield* new Orchestrator.OrchestratorDispatchError({
+                  commandId: command.commandId,
+                  commandType: command.type,
+                  cause: "Thread is still running",
+                });
+              }
+              if (followUp === "replayed-notification" && command.commandId === rejectedCommandId) {
+                yield* Deferred.succeed(replayRejected, undefined);
+                return yield* new Orchestrator.OrchestratorCommandPreviouslyRejectedError({
+                  commandId: command.commandId,
+                  commandType: command.type,
+                  detail: "Thread is still running",
+                });
+              }
               dispatched.push(command.type);
               return { sequence: 1, storedEvents: [] } as never;
             }),
@@ -1101,9 +1190,33 @@ it.effect.each([
     const service = yield* ThreadManagementService.ThreadManagementService.pipe(
       Effect.provide(layerTest),
     );
-
-    yield* service.settleAfterRun({ projectId, threadId, runId });
-
+    const fiber = yield* service
+      .settleAfterRun({ projectId, threadId, runId })
+      .pipe(Effect.forkChild);
+    if (followUp !== "none") {
+      yield* Deferred.await(subscribed);
+      expect(dispatched).toEqual([]);
+      nextRun.status =
+        followUp === "failed-notification"
+          ? "failed"
+          : followUp === "held-notification"
+            ? "queued"
+            : "completed";
+      yield* Queue.offer(events, {
+        sequence: 1,
+        event: { type: "run.updated", threadId, payload: nextRun },
+      } as unknown as OrchestrationV2StoredEvent);
+    }
+    if (followUp === "replayed-notification") {
+      yield* Deferred.await(replayRejected);
+      expect(dispatched).toEqual([]);
+      sequence = 2;
+      yield* Queue.offer(events, {
+        sequence,
+        event: { type: "run.updated", threadId, payload: nextRun },
+      } as unknown as OrchestrationV2StoredEvent);
+    }
+    yield* Fiber.join(fiber);
     expect(dispatched).toEqual(settles ? ["thread.settle"] : []);
   }),
 );
@@ -1335,37 +1448,36 @@ it.effect("settleAfterRun waits for the turn's background work and the turn it w
     expect(dispatched).toEqual([]);
 
     // The command finished and woke the agent: its new turn is still the thread's work.
-    yield* changed(
+    const wokenMessageId = MessageId.make("message:settle-after-work:woken");
+    const woken = (status: OrchestrationV2Run["status"]) =>
       settleAfterRunState({
         projectId,
         threadId,
         runs: [
           settleAfterRunRun(runId, 1, "completed"),
-          settleAfterRunRun(wokenRunId, 2, "running"),
+          settleAfterRunRun(wokenRunId, 2, status, wokenMessageId),
         ],
-      }),
-    );
-    yield* changed(
-      settleAfterRunState({
-        projectId,
-        threadId,
-        runs: [
-          settleAfterRunRun(runId, 1, "completed"),
-          settleAfterRunRun(wokenRunId, 2, "completed"),
-        ],
-      }),
-    );
+        messages: [{ id: wokenMessageId, runId: wokenRunId, role: "user", notification: {} }],
+      });
+    yield* changed(woken("running"));
+    yield* changed(woken("completed"));
     yield* Fiber.join(settling);
     expect(dispatched).toEqual(["thread.settle"]);
   }),
 );
 
-function settleAfterRunRun(id: RunId, ordinal: number, status: OrchestrationV2Run["status"]) {
+function settleAfterRunRun(
+  id: RunId,
+  ordinal: number,
+  status: OrchestrationV2Run["status"],
+  userMessageId?: MessageId,
+) {
   const at = DateTime.makeUnsafe(`2026-10-17T09:0${ordinal}:00.000Z`);
   return {
     id,
     ordinal,
     status,
+    ...(userMessageId === undefined ? {} : { userMessageId }),
     requestedAt: at,
     startedAt: at,
     completedAt: status === "running" ? null : at,
@@ -1377,6 +1489,12 @@ function settleAfterRunState(input: {
   readonly threadId: ThreadId;
   readonly runs: ReadonlyArray<ReturnType<typeof settleAfterRunRun>>;
   readonly pendingBackgroundTasks?: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
+  readonly messages?: ReadonlyArray<{
+    readonly id: MessageId;
+    readonly runId: RunId;
+    readonly role: "user";
+    readonly notification?: object;
+  }>;
 }) {
   return {
     thread: {
@@ -1387,7 +1505,7 @@ function settleAfterRunState(input: {
       activeProviderThreadId: null,
     },
     runs: input.runs,
-    messages: [],
+    messages: input.messages ?? [],
     subagents: [],
     turnItems: [],
     runtimeRequests: [],

@@ -46,6 +46,7 @@ function render(
       projectId={ProjectId.make("project")}
       worktreePath={state.worktreePath}
       isServerThread
+      showGitControls
       envMode="local"
       envLocked={false}
       startFromOrigin={false}

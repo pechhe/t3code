@@ -1,4 +1,5 @@
 import { mergeProps } from "@base-ui/react/merge-props";
+import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { useRender } from "@base-ui/react/use-render";
 import type { ComponentType, SVGProps } from "react";
 
@@ -60,5 +61,21 @@ export function ComposerControlIcon({
       )}
       data-composer-control-icon
     />
+  );
+}
+
+export function ComposerSelectControl({
+  className,
+  children,
+  size = "sm",
+  ...props
+}: Omit<SelectPrimitive.Trigger.Props, "className"> & {
+  className?: string | undefined;
+  size?: ComposerControlSize;
+}) {
+  return (
+    <SelectPrimitive.Trigger className={composerControlClassName(size, className)} {...props}>
+      {children}
+    </SelectPrimitive.Trigger>
   );
 }

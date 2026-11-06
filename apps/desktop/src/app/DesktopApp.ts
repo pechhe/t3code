@@ -1,7 +1,7 @@
 import * as Cause from "effect/Cause";
 import * as Config from "effect/Config";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Duration from "effect/Duration";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -19,6 +19,7 @@ import * as DesktopClerk from "./DesktopClerk.ts";
 import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as PreviewPasskeys from "../preview/Passkeys.ts";
+import * as DesktopBackendManager from "../backend/DesktopBackendManager.ts";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopLegacyLocalStorage from "./DesktopLegacyLocalStorage.ts";
@@ -167,7 +168,9 @@ const stopAllPoolInstances = Effect.fn("desktop.app.stopAllPoolInstances")(
       instances,
       (instance) =>
         instance.snapshot.pipe(
-          Effect.tap(() => instance.stop({ timeout: Duration.seconds(5) })),
+          Effect.tap(() =>
+            instance.stop({ timeout: DesktopBackendManager.BACKEND_QUIT_STOP_TIMEOUT }),
+          ),
           Effect.map((snapshot) => Option.toArray(snapshot.activePid)),
         ),
       { concurrency: "unbounded" },
@@ -385,6 +388,7 @@ const scopedProgram = Effect.scoped(
         ),
         Effect.ensuring(rendererHistory.shutdown),
         Effect.ensuring(shutdown.markComplete),
+        Effect.withSpan("desktop.app.shutdown"),
       ),
     );
 

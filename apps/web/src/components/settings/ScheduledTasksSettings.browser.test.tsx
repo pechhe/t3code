@@ -8,6 +8,7 @@ import {
   ScheduledTaskId,
   ThreadId,
   type ScheduledTask,
+  type ScheduledTaskUpsertInput,
 } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -49,11 +50,16 @@ const threadFamilyRead = {
 
 const state = vi.hoisted(() => ({ connected: true, tasksLoaded: true, taskDeleted: false }));
 const permissions = new Map<string, Atom.Writable<boolean>>();
+const commands: Array<Record<string, unknown>> = [];
+/** Inputs the editor asked to save; deletes and run-now calls carry no prompt. */
+const savedTaskInputs = () =>
+  commands.filter((input): input is ScheduledTaskUpsertInput => "prompt" in input);
 
 function setup() {
   state.connected = true;
   state.tasksLoaded = true;
   state.taskDeleted = false;
+  commands.length = 0;
   permissions.clear();
   permissions.set(environmentId, Atom.make(true));
   permissions.set("", Atom.make(false));
@@ -156,6 +162,19 @@ vi.mock(import("../../state/entities"), async (original) => ({
 vi.mock(import("../../hooks/useSettings"), async (original) => ({
   ...(await original()),
   useEnvironmentSettings: (() => DEFAULT_UNIFIED_SETTINGS) as never,
+}));
+
+vi.mock(import("../../state/session"), async (original) => ({
+  ...(await original()),
+  readEnvironmentScope: (() => true) as never,
+}));
+// Records what the editor asks the server to save, which the real command needs a connection for.
+vi.mock(import("../../state/use-atom-command"), async (original) => ({
+  ...(await original()),
+  useAtomCommand: ((_command: unknown) => async (args: { input: Record<string, unknown> }) => {
+    commands.push(args.input);
+    return { _tag: "Success", value: undefined };
+  }) as never,
 }));
 
 describe("ScheduledTasksSettings", () => {
@@ -269,5 +288,41 @@ describe("ScheduledTasksSettings", () => {
 
     await expect.element(name).toHaveValue("My draft");
     await expect.element(page.getByRole("button", { name: "Create task" })).toBeVisible();
+  });
+
+  it("saves the thread a bound task already runs in, carrying on", async () => {
+    setup();
+    await using _screen = await render(<ScheduledTasksSettings taskId={task.id} />);
+    await userEvent.click(page.getByRole("button", { name: "Save" }));
+    await vi.waitFor(() => expect(savedTaskInputs()).toHaveLength(1));
+    expect(savedTaskInputs()[0]).toMatchObject({
+      threadId: task.threadId,
+      threadMode: "continue",
+    });
+  });
+
+  it("saves a fresh session in the task's thread when the editor chooses it", async () => {
+    setup();
+    await using _screen = await render(<ScheduledTasksSettings taskId={task.id} />);
+    await userEvent.click(page.getByRole("combobox", { name: "Where each run posts" }));
+    await userEvent.click(
+      page.getByRole("option", { name: "one thread, a fresh session each run" }),
+    );
+    await userEvent.click(page.getByRole("button", { name: "Save" }));
+    await vi.waitFor(() => expect(savedTaskInputs()).toHaveLength(1));
+    expect(savedTaskInputs()[0]).toMatchObject({
+      threadId: task.threadId,
+      threadMode: "fresh_session",
+    });
+  });
+
+  it("starts a new thread each run when the editor chooses it", async () => {
+    setup();
+    await using _screen = await render(<ScheduledTasksSettings taskId={task.id} />);
+    await userEvent.click(page.getByRole("combobox", { name: "Where each run posts" }));
+    await userEvent.click(page.getByRole("option", { name: "a new thread each run" }));
+    await userEvent.click(page.getByRole("button", { name: "Save" }));
+    await vi.waitFor(() => expect(savedTaskInputs()).toHaveLength(1));
+    expect(savedTaskInputs()[0]).toMatchObject({ threadId: null, threadMode: "new_thread" });
   });
 });

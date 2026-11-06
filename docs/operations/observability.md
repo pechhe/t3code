@@ -76,6 +76,11 @@ Each stretch that held a write is recorded once as a `sqlite.checkpointGate` spa
 `reasons`, the WAL frames at start, end and peak, `durationMs`, `writersHeld`,
 `writesWhileReleased`, `regates` and, when the bound let writes through, `releasedAfterMs`. `reasons` names `checkpoint-pinned` when the checkpoint stood still for the whole bound (a reader pinning the WAL) and `checkpoint-lagging` when it was blocked but kept moving.
 
+An MCP request over HTTP has a `McpHttpServer.authenticateRequest` span that covers only admitting
+it: the credential check, the mode limit, and the Linked environments gate. The request runs after
+it, under the `McpServer.…/<method>` span, and each tool call has its own `mcp.tool.<name>` span
+that times it. That span's attributes name the tool, never its arguments.
+
 DPoP proof failures include the safe `environment.dpop.failure_code` span
 attribute. A `time_window` failure means that a signed proof was too old or too
 far in the future for the environment server's allowed window. It can point to

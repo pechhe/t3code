@@ -297,62 +297,31 @@ it.effect("rejects in-progress and rolled-back fork sources", () =>
   }),
 );
 
-it.effect("opens a side chat without the source's list placement or pull requests", () =>
-  Effect.gen(function* () {
-    const pinnedAt = DateTime.makeUnsafe("2026-07-24T09:01:00.000Z");
-    const pullRequest = {
-      projectId: ProjectId.make("project:fork-snooze"),
-      repository: "pechhe/t3code",
-      number: 12,
-      url: "https://github.com/pechhe/t3code/pull/12",
-    };
-    const sourceThread: OrchestrationV2AppThread = {
-      ...makeSourceThread(),
-      pinnedAt,
-      pinOrderKey: "a0",
-      activeOrderKey: "a1",
-      linkedPullRequest: pullRequest,
-      branchPullRequest: pullRequest,
-    };
-    const result = yield* planFork(
-      makeSourceRun("completed"),
-      makeSourceProjection(makeSourceRun("completed"), sourceThread),
-      { sideChat: true },
-    );
-
-    assert.isTrue(result.targetThread.sideChat);
-    assert.isNull(result.targetThread.pinnedAt);
-    assert.isNull(result.targetThread.pinOrderKey);
-    assert.isNull(result.targetThread.activeOrderKey);
-    assert.isNull(result.targetThread.linkedPullRequest);
-    assert.isNull(result.targetThread.branchPullRequest);
-    assert.deepEqual(result.targetThread.pullRequests, []);
-    // The side chat keeps the source's model, so it can reuse the native session.
-    assert.deepEqual(result.targetThread.modelSelection, sourceThread.modelSelection);
-    assert.equal(result.targetThread.lineage.relationshipToParent, "fork");
-  }),
-);
-
-it.effect("forks a side chat into an ordinary fork", () =>
-  Effect.gen(function* () {
-    const sourceThread: OrchestrationV2AppThread = { ...makeSourceThread(), sideChat: true };
-    const result = yield* planFork(
-      makeSourceRun("completed"),
-      makeSourceProjection(makeSourceRun("completed"), sourceThread),
-    );
-
-    assert.isUndefined(result.targetThread.sideChat);
-  }),
-);
-
-it.effect("marks only requested forks as supervised side chats", () =>
+it.effect("marks only requested forks as side chats and inherits parent permissions", () =>
   Effect.gen(function* () {
     const sourceRun = makeSourceRun("completed");
     const sideChat = yield* planFork(sourceRun, makeSourceProjection(sourceRun), {
       sideChat: true,
     });
     assert.isTrue(sideChat.targetThread.lineage.sideChat);
-    assert.equal(sideChat.targetThread.runtimeMode, "approval-required");
+    assert.equal(sideChat.targetThread.runtimeMode, "full-access");
+    for (const runtimeMode of [
+      "approval-required",
+      "auto-accept-edits",
+      "auto",
+      "full-access",
+    ] as const) {
+      const source = makeSourceProjection(sourceRun);
+      const inherited = yield* planFork(
+        sourceRun,
+        {
+          ...source,
+          thread: { ...source.thread, runtimeMode },
+        },
+        { sideChat: true },
+      );
+      assert.equal(inherited.targetThread.runtimeMode, runtimeMode);
+    }
 
     const sideChatSource = makeSourceProjection(sourceRun);
     const sideChatProjection = {

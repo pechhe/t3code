@@ -36,6 +36,9 @@ const SETTINGS_PAGE_PANELS: Readonly<Record<SettingsPath, ComponentType>> = {
       default: module.DiagnosticsSettingsPanel,
     })),
   ),
+  "/settings/voice": lazy(() =>
+    import("./VoiceSettingsPanel").then((module) => ({ default: module.VoiceSettingsPanel })),
+  ),
   "/settings/appearance": lazy(() =>
     import("./AppearanceSettingsPanel").then((module) => ({
       default: module.AppearanceSettingsPanel,

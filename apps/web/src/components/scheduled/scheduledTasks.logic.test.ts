@@ -5,6 +5,7 @@ import {
   ScheduledTaskId,
   ThreadId,
   type ScheduledTask,
+  type ScheduledTaskThreadMode,
 } from "@t3tools/contracts";
 import { assert, describe, expect, it } from "vite-plus/test";
 
@@ -75,7 +76,7 @@ const draft = (overrides: Partial<GroupDraftFields> = {}): GroupDraftFields => (
   projectKeys: [t3peach.key],
   workspace: "fresh",
   agentRole: "chore-worker",
-  keepThread: true,
+  threadMode: "continue",
   ...overrides,
 });
 
@@ -182,17 +183,37 @@ describe("planGroupSave", () => {
     expect(plan.upserts.every((entry) => entry.input.modelSelection === undefined)).toBe(true);
   });
 
-  it("keeps an agent's thread binding until the editor lets it go", () => {
+  it("carries the thread mode the editor chose and drops the binding for a new thread", () => {
     const bound = task({ id: "bound", threadId: ThreadId.make("thread-1") });
-    const plan = (keepThread: boolean) =>
+    const plan = (threadMode: ScheduledTaskThreadMode) =>
       planGroupSave({
-        draft: draft({ keepThread }),
+        draft: draft({ threadMode }),
         groupId: "g",
         existing: [{ environmentId: mac, task: bound }],
         projects: [t3peach],
       });
-    expect(plan(true).upserts[0]?.input.threadId).toBe("thread-1");
-    expect(plan(false).upserts[0]?.input.threadId).toBeNull();
+    expect(plan("continue").upserts[0]?.input).toMatchObject({
+      threadId: "thread-1",
+      threadMode: "continue",
+    });
+    expect(plan("fresh_session").upserts[0]?.input).toMatchObject({
+      threadId: "thread-1",
+      threadMode: "fresh_session",
+    });
+    expect(plan("new_thread").upserts[0]?.input).toMatchObject({
+      threadId: null,
+      threadMode: "new_thread",
+    });
+  });
+
+  it("leaves the thread to the first run when no run has bound one yet", () => {
+    const plan = planGroupSave({
+      draft: draft({ threadMode: "fresh_session" }),
+      groupId: "g",
+      existing: [],
+      projects: [t3peach],
+    });
+    expect(plan.upserts[0]?.input).toMatchObject({ threadId: null, threadMode: "fresh_session" });
   });
 });
 

@@ -639,6 +639,12 @@ export const OrchestratorMcpThreadSendInput = Schema.Struct({
   threadId: ThreadId,
   message: OrchestratorMcpPrompt,
   mode: Schema.optional(Schema.Literals(["auto", "queue", "steer", "restart"])),
+  freshContext: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "Start a new provider session without the thread's earlier context, like /clear. Never steers.",
+    }),
+  ),
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
 });
 export type OrchestratorMcpThreadSendInput = typeof OrchestratorMcpThreadSendInput.Type;
@@ -825,6 +831,12 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
     description:
       "Subagent role whose policy picks the model at each run. Defaults to 'implementation-worker'.",
   }),
+  freshSession: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "Runs share one thread but each starts a fresh session without earlier runs' context. Unbound: the first run makes the thread.",
+    }),
+  ),
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
 });
 export type OrchestratorMcpScheduleTaskInput = typeof OrchestratorMcpScheduleTaskInput.Type;
@@ -862,6 +874,7 @@ export const OrchestratorMcpScheduledTask = Schema.Struct({
     description:
       "Subagent role this task runs as; its policy picks the model. Null only for a legacy task saved before roles.",
   }),
+  freshSession: Schema.Boolean,
   schedule: ScheduledTaskSchedule,
   nextRunAt: Schema.NullOr(IsoDateTime),
   lastRunStatus: ScheduledTaskRunStatus,
@@ -907,6 +920,7 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
   agentRole: Schema.optional(AgentRole).annotate({
     description: "Move the task to another subagent role; a bound task follows its thread's model.",
   }),
+  freshSession: Schema.optional(Schema.Boolean),
 });
 export type OrchestratorMcpUpdateScheduledTaskInput =
   typeof OrchestratorMcpUpdateScheduledTaskInput.Type;

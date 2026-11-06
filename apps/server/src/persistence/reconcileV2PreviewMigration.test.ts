@@ -90,6 +90,7 @@ describe("V2 preview upgrade", () => {
         [108, "WeaveStoredNames"],
         [109, "ChampionInvestigations"],
         [110, "ExperimentAssignmentThreads"],
+        [111, "ScheduledTaskThreadMode"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -223,6 +224,7 @@ describe("V2 preview upgrade", () => {
         [108, "WeaveStoredNames"],
         [109, "ChampionInvestigations"],
         [110, "ExperimentAssignmentThreads"],
+        [111, "ScheduledTaskThreadMode"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

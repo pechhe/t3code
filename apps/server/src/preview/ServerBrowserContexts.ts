@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off globalTimers:off - Owns Playwright resources outside the Effect runtime.
+// @effect-diagnostics nodeBuiltinImport:off globalTimers:off -- Owns Playwright resources and their idle timer outside the Effect runtime.
 import { INCOGNITO_BROWSER_PROFILE_ID } from "@t3tools/contracts";
 import { constVoid } from "effect/Function";
 import * as NodeFSP from "node:fs/promises";
@@ -41,6 +41,8 @@ interface Options {
   ) => Promise<{ readonly path: string; readonly release: () => Promise<void> } | undefined>;
   readonly diagnose?: (executable: string, cause: unknown) => Promise<unknown>;
   readonly env?: NodeJS.ProcessEnv;
+  /** Closes the shared browser once it has held no context for this long. */
+  readonly idleBrowserMs?: number;
   readonly onContextClose?: (context: BrowserContext) => void;
 }
 
@@ -107,6 +109,7 @@ export class ServerBrowserContexts {
     }
   >();
   private sharedStarts = 0;
+  private idleTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly managedContexts = new Set<BrowserContext>();
   private readonly proxies = new Map<BrowserContext, ManagedBrowserProxy>();
   private readonly managedPolicies = new Map<
@@ -224,15 +227,34 @@ export class ServerBrowserContexts {
     options?: Parameters<Browser["newContext"]>[0],
     key: string | null = null,
   ) {
+    clearTimeout(this.idleTimer);
     this.sharedStarts += 1;
+    const launched = this.sharedBrowser();
     try {
-      const context = await (await this.sharedBrowser()).newContext(options);
+      const context = await (await launched).newContext(options);
       this.track(context, true, key);
       return context;
     } finally {
       this.sharedStarts -= 1;
-      this.closeSharedBrowserIfIdle();
+      this.retireWhenIdle(launched);
     }
+  }
+
+  /** Retires the shared browser once it has held no context for the configured idle period. */
+  private retireWhenIdle(launched: Promise<Browser>) {
+    const delay = this.options.idleBrowserMs;
+    if (delay === undefined || this.closing || this.sharedStarts > 0) return;
+    clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => void this.retire(launched), delay);
+    this.idleTimer.unref();
+  }
+
+  private async retire(launched: Promise<Browser>) {
+    const browser = await launched.catch(() => undefined);
+    if (!browser || this.browser !== launched || this.sharedStarts > 0) return;
+    if (browser.contexts().length > 0) return;
+    this.browser = undefined;
+    await browser.close().catch(constVoid);
   }
 
   private track(context: BrowserContext, shared: boolean, key: string | null) {
@@ -240,7 +262,8 @@ export class ServerBrowserContexts {
     this.held.set(context, { shared, key, holds: 0 });
     context.once("close", () => {
       this.held.delete(context);
-      if (shared) this.closeSharedBrowserIfIdle();
+      const launched = this.browser;
+      if (shared && launched !== undefined) this.retireWhenIdle(launched);
     });
   }
 
@@ -273,21 +296,6 @@ export class ServerBrowserContexts {
     void pending.promise.finally(() => {
       if (this.clearing.get(key) === pending) this.clearing.delete(key);
     });
-  }
-
-  private closeSharedBrowserIfIdle() {
-    if (this.closing || this.sharedStarts > 0) return;
-    for (const entry of this.held.values()) if (entry.shared) return;
-    const launched = this.browser;
-    if (!launched) return;
-    void launched
-      .then(async (browser) => {
-        if (this.closing || this.sharedStarts > 0) return;
-        for (const entry of this.held.values()) if (entry.shared) return;
-        if (this.browser === launched) this.browser = undefined;
-        await browser.close().catch(constVoid);
-      })
-      .catch(constVoid);
   }
 
   async managedContext(options: {
@@ -442,6 +450,7 @@ export class ServerBrowserContexts {
   }
 
   private async dispose() {
+    clearTimeout(this.idleTimer);
     await Promise.allSettled(
       [
         ...this.contexts.values(),
