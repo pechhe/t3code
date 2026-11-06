@@ -91,16 +91,18 @@ const session = (
 // child lists its own work family and the leaf tools only. A change that needs a higher
 // ceiling states the new number and what bought it.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
-  // Upstream 4192 schemas, bounded decisions, discovery's reviewScope and a lead's trial tools
-  // (list, results, create, transition) measure 48,157 characters.
-  ["ordinary", undefined, 48_200],
+  // Upstream 4192 schemas, bounded decisions, discovery's reviewScope, a lead's trial tools
+  // (list, results, create, transition) and upstream's fresh-session and worktree-base
+  // guidance measure 48,607 characters.
+  ["ordinary", undefined, 48_700],
   // The preview endpoint is a browser session's listing, so it carries no control plane.
   // Bounded decisions adds the same 2,061 characters to the browser catalogue.
   ["browser/preview", session("phi", "browser"), 34_900],
   ["ui-verifier", session("phi", "ui-verifier"), 120_000],
   ["ui-worker", session("implementation-phi", "ui-worker"), 115_000],
-  // Upstream schemas with the web family measure 86,159 characters on this endpoint.
-  ["researcher", session("web-research", "researcher"), 86_200],
+  // Upstream schemas with the web family, including upstream's fresh-session and
+  // worktree-base guidance, measure 86,558 characters on this endpoint.
+  ["researcher", session("web-research", "researcher"), 86_700],
   ["scout", session("source-reader", "scout"), 90_000],
   ["delegated browser", session("phi", "browser", true), 40_000],
   ["delegated ui-verifier", session("phi", "ui-verifier", true), 40_000],

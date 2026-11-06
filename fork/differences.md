@@ -694,7 +694,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `retain` (2026-10-19, Spec #142).
 - **Decision:** `adapt` (v0.1.8-nightly.20261104.4179, 2026-11-04): Retain the fork-specific authority, runtime safety, Effect service, documentation and SlipJay rules in AGENTS.md. Upstream remote, seeding, composer and sidebar documentation is combined with recorded fork behavior; client-facing documentation was compared against the assembled client tree in this update.
 
-- **Decision:** `adapt` (v0.1.8-nightly.20261106.4262, 2026-11-06): upstream rewrote its orchestration instructions again (environment linking, thread launching, visuals and preview, one-value secret requests). Its wording is the base, and the fork's rules that the agent policy, pinned reviewers, follow-up and `next` behaviour depend on are merged into the same bullets rather than kept as a parallel block. Source: packages/provider-core/src/server/orchestrationInstructions.ts.
+- **Decision:** `adapt` (v0.1.8-nightly.20261106.4262, 2026-11-06): upstream rewrote its orchestration instructions again (environment linking, thread launching, visuals and preview, one-value secret requests). Its wording is the base, and the fork's rules that the agent policy, pinned reviewers, follow-up and `next` behaviour depend on are merged into the same bullets rather than kept as a parallel block. Its two environment-linking bullets are left out: the fork lists `t3_environment_*` in the workspace family, not the ordinary control listing, and instructions name only listed tools. Source: packages/provider-core/src/server/orchestrationInstructions.ts.
 - **Owner:** pechhe/t3code#142.
 
 ### perf-persistence-reads

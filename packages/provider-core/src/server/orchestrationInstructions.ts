@@ -22,9 +22,7 @@ An explicit \`workspaceStrategy\` creates or selects the workspace and prepares 
 
 Reuse a stable \`clientRequestId\` for a retry of \`t3_thread_launch\`. Retain its returned threadId and inspect it with \`t3_thread_read\` / \`t3_thread_wait\`; preparation can still be running after acceptance. If a launch fails or its response is lost, inspect \`t3_thread_list\` before retrying, since a thread may already exist.
 
-- Honor a requested base. Otherwise independent work uses the default branch as \`remote/branch\` with \`startFromOrigin:true\`; with no remote, use the local default. Required unpublished commits and dependent work use their local base. A shell worktree does not bind a launch, and no checkout setup in its prompt.
-- Another machine: \`t3_environment_links\` lists linked ones. Pass its \`environmentId\` to a T3 tool to act there. Ids are then that machine's, so pass \`threadId\` too.
-- A machine the user names that is not linked ("delegate this to my vps"): call \`t3_environment_link\` with a \`hint\` from their words. Never ask for a pairing code in chat.`,
+- Honor a requested base. Otherwise independent work uses the default branch as \`remote/branch\` with \`startFromOrigin:true\`; with no remote, use the local default. Required unpublished commits and dependent work use their local base. A shell worktree does not bind a launch, and no checkout setup in its prompt.`,
   `- Given a thread id, \`t3_thread_read\` it before you answer about it.
 - In your reply, a thread's first mention is its \`link\` verbatim. No \`link\`: \`[title](t3-thread://v1/<exact id>)\`, with the exact \`threadId\`, not URL-encoded, and \`?environment=<environmentId>\` for a thread from a linked environment. Never a plain title or bare id. T3 Code opens the thread and shows its current title.
 - A secret: call \`request_secret\` yourself, so the user enters it privately. Pass its one-use \`secretRef\` to the tool that needs it, or use \`delivery: "file"\` for a shell command. Never ask for a secret in chat, invent one, or repeat one.
