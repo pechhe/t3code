@@ -193,6 +193,58 @@ const LATER = `<!doctype html><title>Later</title><main>
   }, 3000);</script>
 </main>`;
 
+/** Like the-internet's entry ad: a fixed modal whose Close is a pointer-cursor paragraph. */
+const REACH_AD = `<!doctype html><title>Entry Ad</title><main><h3>Entry Ad</h3><p>It displays an ad.</p></main>
+  <div id="modal" style="position:fixed;top:50px;left:50px;width:400px;height:240px;background:white;z-index:9">
+    <h3>This is a modal window</h3>
+    <div style="position:absolute;bottom:0"><p style="cursor:pointer" onclick="document.getElementById('modal').remove()">Close</p></div>
+  </div>`;
+
+const DELETES = `<!doctype html><title>Deletes</title><main>
+  <p>click Delete to continue</p>
+  <button onclick="document.title='Deleted'">Delete</button>
+  <ul><li><button onclick="document.title='Deleted'">Delete</button></li></ul>
+  <button onclick="document.title='Next'">Next</button>
+  <details><summary>More</summary><p>Details</p></details>
+</main>`;
+
+/** Every way off the tab's origin: a link to another origin, a redirect there, and a pop-up. */
+const FENCE = (port: number) => `<!doctype html><title>Fence</title><main>
+  <a href="http://localhost:${port}/form">Elsewhere</a>
+  <a href="/redirect">Bounce</a>
+  <button onclick="window.open('/popup-target')">Pop</button>
+  <a href="/tab-target" target="_blank">Tab</a>
+</main>`;
+
+const MANY = `<!doctype html><title>Many</title><main style="margin:0">
+  <button style="display:block;height:10px;font-size:8px;padding:0">Save</button>
+  ${Array.from(
+    { length: 100 },
+    (_, index) =>
+      `<button style="display:block;height:10px;font-size:8px;padding:0">B${index}</button>`,
+  ).join("")}
+</main>`;
+
+/** Answers with the page-reach label of the choice showing `text`. */
+const pick = (text: string) => (request: DecisionRequest) => {
+  const question = request.questions[0]!;
+  const choice =
+    question.type === "choice"
+      ? question.choices.find(
+          (entry) => /^P\d+$/.test(entry.label) && entry.description.includes(text),
+        )
+      : undefined;
+  if (choice === undefined) throw new Error(`No page choice shows ${text}.`);
+  return choice.label;
+};
+
+const pageChoices = (request: DecisionRequest) => {
+  const question = request.questions[0]!;
+  return question.type === "choice"
+    ? question.choices.filter((entry) => /^P\d+$/.test(entry.label))
+    : [];
+};
+
 const request = (
   change: Partial<PreviewTaskRequest> & Pick<PreviewTaskRequest, "requestId" | "tabId">,
 ): PreviewTaskRequest => ({
@@ -229,7 +281,10 @@ const withFixture = <A, E, R>(
     readonly holds: () => number;
     readonly holding: Deferred.Deferred<void>;
     readonly releaseHold: () => void;
-    readonly script: Array<string>;
+    /** Scripted answers; a function reads its answer from the question, such as a page-reach label. */
+    readonly script: Array<string | ((request: DecisionRequest) => string)>;
+    /** Every request the fixture server received, as `host path`. */
+    readonly hits: ReadonlyArray<string>;
     readonly decisions: Array<DecisionRequest>;
     /** The saved-login store the server reads, keyed by login key. */
     readonly logins: Map<string, BrowserLogins.Login>;
@@ -240,7 +295,15 @@ const withFixture = <A, E, R>(
     const holding = yield* Deferred.make<void>();
     const held: Array<NodeHttp.ServerResponse> = [];
     let holdNext = true;
+    const hits: string[] = [];
     const server = NodeHttp.createServer((incoming, response) => {
+      hits.push(`${incoming.headers.host ?? ""} ${incoming.url ?? ""}`);
+      if (incoming.url === "/redirect") {
+        const port = (server.address() as NodeNet.AddressInfo).port;
+        response.writeHead(302, { Location: `http://localhost:${port}/form` });
+        response.end();
+        return;
+      }
       if (incoming.url === "/hold") {
         holds += 1;
         Deferred.doneUnsafe(holding, Effect.void);
@@ -264,9 +327,17 @@ const withFixture = <A, E, R>(
               ? FRAME
               : path === "/unnamed"
                 ? UNNAMED
-                : path === "/later"
-                  ? LATER
-                  : undefined;
+                : path === "/reach-ad"
+                  ? REACH_AD
+                  : path === "/deletes"
+                    ? DELETES
+                    : path === "/fence"
+                      ? FENCE((server.address() as NodeNet.AddressInfo).port)
+                      : path === "/many"
+                        ? MANY
+                        : path === "/later"
+                          ? LATER
+                          : undefined;
       if (extra !== undefined) {
         response.end(extra);
         return;
@@ -305,7 +376,7 @@ const withFixture = <A, E, R>(
       ),
     );
     const port = (server.address() as NodeNet.AddressInfo).port;
-    const script: string[] = [];
+    const script: Array<string | ((request: DecisionRequest) => string)> = [];
     const decisions: DecisionRequest[] = [];
     const logins = new Map<string, BrowserLogins.Login>();
     const runtime = BrowserTaskService.layer.pipe(
@@ -337,7 +408,8 @@ const withFixture = <A, E, R>(
           decide: (input) =>
             Effect.sync(() => {
               decisions.push(input as DecisionRequest);
-              return answer(script.shift() ?? "BLOCKED");
+              const next = script.shift() ?? "BLOCKED";
+              return answer(typeof next === "function" ? next(input as DecisionRequest) : next);
             }),
         }),
       ),
@@ -356,6 +428,7 @@ const withFixture = <A, E, R>(
         for (const response of held.splice(0)) response.end("ok");
       },
       script,
+      hits,
       decisions,
       logins,
     }).pipe(Effect.provide(runtime));
@@ -1446,4 +1519,176 @@ it.live("waits for a named link that arrives after other links already show", ()
       expect(result.decisions).toBeGreaterThan(0);
     }),
   ),
+);
+
+it.live("closes an entry ad through its pointer-cursor Close, offering fixed-layer text too", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const { tabId } = yield* openTab(`${fixture.origin}/reach-ad`);
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      fixture.script.push(pick('"Close"'));
+      const result = yield* tasks.run({
+        scope,
+        request: request({
+          requestId: "reach-ad",
+          tabId,
+          goal: "close the ad",
+          pageReach: {},
+          checks: [
+            { id: "gone", kind: "text", includes: "This is a modal window", expect: "absent" },
+          ],
+        }),
+        authorize: Effect.void,
+      });
+      expect(result).toMatchObject({ status: "passed" });
+      expect(result.actions).toEqual([
+        expect.objectContaining({
+          id: expect.stringMatching(/^P\d+$/),
+          kind: "page",
+          state: "completed",
+          chosen: expect.stringContaining('"Close"'),
+        }),
+      ]);
+      const offered = pageChoices(fixture.decisions[0]!).map((entry) => entry.description);
+      expect(offered.some((entry) => entry.includes("This is a modal window"))).toBe(true);
+      // Text outside any dialog or fixed layer is not a control.
+      expect(offered.some((entry) => entry.includes("It displays an ad"))).toBe(false);
+    }),
+  ),
+);
+
+it.live("selects an unnamed dropdown's option by its label", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const { tabId } = yield* openTab(`${fixture.origin}/unnamed`);
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      fixture.script.push(pick("(dropdown)"), "O2");
+      const result = yield* tasks.run({
+        scope,
+        request: request({
+          requestId: "reach-dropdown",
+          tabId,
+          goal: "select Option 2",
+          pageReach: {},
+          checks: [
+            {
+              id: "picked",
+              kind: "target",
+              target: { role: "combobox" },
+              expect: "present",
+              value: "Option 2",
+            },
+          ],
+        }),
+        authorize: Effect.void,
+      });
+      expect(result).toMatchObject({ status: "passed" });
+      expect(result.actions).toEqual([
+        expect.objectContaining({ kind: "page", state: "completed", option: "Option 2" }),
+      ]);
+    }),
+  ),
+);
+
+it.live("never offers a Delete the agent avoids, though the page asks for it", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const { tabId } = yield* openTab(`${fixture.origin}/deletes`);
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      fixture.script.push("BLOCKED");
+      const result = yield* tasks.run({
+        scope,
+        request: request({
+          requestId: "reach-avoid",
+          tabId,
+          goal: "continue",
+          pageReach: { avoid: [{ role: "button", name: "Delete" }] },
+          checks: [{ id: "next", kind: "text", includes: "Next page", expect: "present" }],
+        }),
+        authorize: Effect.void,
+      });
+      expect(result).toMatchObject({ status: "blocked", reason: "model-blocked" });
+      const offered = pageChoices(fixture.decisions[0]!).map((entry) => entry.description);
+      expect(offered.some((entry) => entry.includes('button "Next"'))).toBe(true);
+      // A disclosure control is offered though it has no role of its own.
+      expect(offered.some((entry) => entry.includes('generic "More"'))).toBe(true);
+      expect(offered.some((entry) => entry.includes("Delete"))).toBe(false);
+      expect(result.actions).toEqual([]);
+    }),
+  ),
+);
+
+it.live("aborts a link, a redirect and a pop-up off the tab's origin before their requests", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const { tabId } = yield* openTab(`${fixture.origin}/fence`);
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      const run = (requestId: string, control: string) => {
+        fixture.script.push(pick(control));
+        return tasks.run({
+          scope,
+          request: request({
+            requestId,
+            tabId,
+            goal: "explore",
+            pageReach: {},
+            checks: [{ id: "never", kind: "text", includes: "Never shown", expect: "present" }],
+          }),
+          authorize: Effect.void,
+        });
+      };
+      const port = new URL(fixture.origin).port;
+      const elsewhere = yield* run("fence-link", '"Elsewhere"');
+      expect(elsewhere).toMatchObject({ status: "blocked", reason: "origin-fenced" });
+      // The refused navigation leaves the tab where it was.
+      expect(elsewhere.evidence.url).toBe(`${fixture.origin}/fence`);
+      expect(elsewhere.detail).toContain(`http://localhost:${port}`);
+      const bounce = yield* run("fence-redirect", '"Bounce"');
+      expect(bounce).toMatchObject({ status: "blocked", reason: "origin-fenced" });
+      expect(fixture.hits).toContain(`127.0.0.1:${port} /redirect`);
+      const pop = yield* run("fence-popup", '"Pop"');
+      expect(pop).toMatchObject({ status: "blocked", reason: "origin-fenced" });
+      expect(pop.detail).toContain("pop-up");
+      expect(fixture.hits).not.toContain(`localhost:${port} /form`);
+      expect(fixture.hits.some((hit) => hit.endsWith(" /popup-target"))).toBe(false);
+      const tab = yield* run("fence-tab", '"Tab"');
+      expect(tab).toMatchObject({ status: "blocked", reason: "origin-fenced" });
+      expect(fixture.hits.some((hit) => hit.endsWith(" /tab-target"))).toBe(false);
+    }),
+  ),
+);
+
+it.live(
+  "offers at most 40 choices with the caller's own, never the submit, and more on scrolling",
+  () =>
+    withFixture((fixture) =>
+      Effect.gen(function* () {
+        const { tabId } = yield* openTab(`${fixture.origin}/many`);
+        const tasks = yield* BrowserTaskService.BrowserTaskService;
+        fixture.script.push("SCROLL_DOWN", "BLOCKED");
+        const result = yield* tasks.run({
+          scope,
+          request: request({
+            requestId: "reach-many",
+            tabId,
+            goal: "find the last button",
+            pageReach: {},
+            actions: [{ id: "first", target: { role: "button", name: "B0" } }],
+            submit: { id: "save", target: { role: "button", name: "Save" } },
+            checks: [{ id: "never", kind: "text", includes: "Never shown", expect: "present" }],
+          }),
+          authorize: Effect.void,
+        });
+        expect(result).toMatchObject({ status: "blocked" });
+        const [before, after] = fixture.decisions.map((decision) =>
+          pageChoices(decision).map((entry) => entry.description),
+        );
+        // The caller's click and the submit count against the cap of 40.
+        expect(before).toHaveLength(38);
+        expect(before!.some((entry) => entry.includes('"Save"'))).toBe(false);
+        expect(before!.some((entry) => entry.includes('"B0"'))).toBe(false);
+        expect(after!.some((entry) => entry.includes('"B50"'))).toBe(true);
+        expect(before!.some((entry) => entry.includes('"B50"'))).toBe(false);
+      }),
+    ),
 );

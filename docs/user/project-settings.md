@@ -325,6 +325,15 @@ the header": Jev picks one, and the result names the one it chose. A name longer
 as browser artifacts, at most eight per task; Claude and Codex agents can ask to see the last three
 inline.
 
+For exploring, such as testing a page for paths no one scripted, the agent can turn on page reach
+for a goal: Jev may then click any control it can see, tick a box or pick a dropdown option, not only
+the ones the agent named, and the result lists each control it used as the page described it. Jev
+still never types text of its own, and the checks still decide success. Because it may press Save,
+Send or Delete, the agent sets two fences on real data: the sites the task must stay on (by default
+the tab's own), where any page change to another site, a redirect included, is stopped before it is
+sent and a pop-up is refused, and the controls to avoid, which are never offered or clicked. The
+avoid list goes by what the page calls a control, so one the page renames can slip through.
+
 Ordinary threads, scheduled runs and Spec leads can run the same bounded tasks themselves through
 the `t3_browser_*` tools, as can a delegated worker or reviewer whose role policy grants
 `browserTasks`. Each opens fresh tabs on the integrated browser with no cookies from elsewhere,

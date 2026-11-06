@@ -20,6 +20,9 @@ export interface PageNode {
   /** The node's text, inline or from its `- text:` children: a field's current value. */
   readonly value: string | undefined;
   readonly selected: boolean;
+  readonly disabled: boolean;
+  /** The page gives it a pointer cursor: clickable, whatever its role. */
+  readonly pointer: boolean;
   /** Its box in the viewport, in CSS pixels, when the snapshot measured one. */
   readonly box: Box | undefined;
 }
@@ -91,6 +94,8 @@ export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): Page
       parent,
       checked: /\[checked\]/.test(parsed[3] ?? ""),
       selected: /\[selected\]/.test(parsed[3] ?? ""),
+      disabled: /\[disabled\]/.test(parsed[3] ?? ""),
+      pointer: /\[cursor=pointer\]/.test(parsed[3] ?? ""),
       value,
       box: boxOf(parsed[3] ?? ""),
     });
@@ -149,9 +154,9 @@ const nameMatches = (actual: string, spec: NameSpec) =>
     : spec.name === undefined || actual === spec.name;
 
 /** What the element's own snapshot line shows: its inline text, or else its name. */
-const lineText = (node: PageNode) => normalized(node.value || node.name);
+export const lineText = (node: PageNode) => normalized(node.value || node.name);
 
-const inside = (model: PageModel, node: PageNode, ancestor: PageNode) => {
+export const inside = (model: PageModel, node: PageNode, ancestor: PageNode) => {
   for (let parent = node.parent; parent !== null; parent = model.nodes[parent]!.parent)
     if (model.nodes[parent] === ancestor) return true;
   return false;
@@ -166,6 +171,14 @@ const matchingTarget = (model: PageModel, target: PreviewTaskTarget) => {
   if (target.text === undefined) return matching(model, target.role ?? "", target);
   const wanted = normalized(target.text);
   return model.nodes.filter((node) => node.ref !== undefined && lineText(node) === wanted);
+};
+
+/** Every element the target describes, under any scope it names: no uniqueness rule. */
+export const matchingAll = (model: PageModel, target: PreviewTaskTarget): readonly PageNode[] => {
+  const found = matchingTarget(model, target);
+  if (target.scope === undefined) return found;
+  const scopes = matching(model, target.scope.role, target.scope);
+  return found.filter((node) => scopes.some((scope) => inside(model, node, scope)));
 };
 
 export const resolveTarget = (model: PageModel, target: PreviewTaskTarget): TargetResolution => {

@@ -123,8 +123,11 @@ const FORM_REQUEST: PreviewTaskRequest = {
   checks: [{ id: "saved", kind: "text", includes: "Saved", expect: "present" }],
 };
 
+/** A scripted answer, a refusal, or one read from the question, such as a page-reach label. */
+type Choice = string | DecisionError | ((request: DecisionRequest) => string);
+
 const harness = Effect.fn("harness")(function* (options: {
-  readonly choices?: ReadonlyArray<string | DecisionError>;
+  readonly choices?: ReadonlyArray<Choice>;
   readonly page?: Partial<FakePage>;
   /** Blocks the act matching this until `ack` is completed; never answered otherwise. */
   readonly withhold?: (operation: string, input: Record<string, unknown>) => boolean;
@@ -146,6 +149,12 @@ const harness = Effect.fn("harness")(function* (options: {
   readonly loginHolds?: boolean;
   /** Screenshots are refused because a saved login may show. */
   readonly secretVisible?: boolean;
+  /** What the page-reach fence refused by now, given the page. */
+  readonly breach?: (page: FakePage) => string | undefined;
+  /** Refs of text the page paints in a fixed layer. */
+  readonly fixed?: ReadonlyArray<string>;
+  /** Runs as each decision is asked, so the page can change under it. */
+  readonly onDecide?: (page: FakePage, request: DecisionRequest) => void;
 }) {
   const page: FakePage = { url: "http://site.test/form", email: "", submits: 0, ...options.page };
   const acts: Array<{ operation: string; input: Record<string, unknown> }> = [];
@@ -159,6 +168,7 @@ const harness = Effect.fn("harness")(function* (options: {
   const shots: Array<{ framing: string; locator?: string; maxBytes: number }> = [];
   const coverChecks: string[] = [];
   const held: string[] = [];
+  const fences: string[][] = [];
   let loginClears = 0;
   let settles = 0;
   let generation = 0;
@@ -222,6 +232,13 @@ const harness = Effect.fn("harness")(function* (options: {
           settles += 1;
           options.onSettle?.(page);
         }),
+      fence: (origins) => Effect.sync(() => void fences.push([...origins])),
+      fenceBreach: Effect.sync(() => options.breach?.(page)),
+      pageFacts: (probe) =>
+        Effect.succeed({
+          fixed: new Set(probe.fixed.filter((ref) => options.fixed?.includes(ref) === true)),
+          frames: new Map(),
+        }),
       covered: (locator) =>
         Effect.sync(() => {
           coverChecks.push(locator);
@@ -247,8 +264,10 @@ const harness = Effect.fn("harness")(function* (options: {
       decide: (request) =>
         Effect.suspend(() => {
           decisions.push(request);
+          options.onDecide?.(page, request);
           const next = queue.shift();
           if (next === undefined) return Effect.fail(new DecisionError({ code: "unavailable" }));
+          if (typeof next === "function") return Effect.succeed(answered(next(request)));
           return typeof next === "string" ? Effect.succeed(answered(next)) : Effect.fail(next);
         }),
     }),
@@ -274,6 +293,7 @@ const harness = Effect.fn("harness")(function* (options: {
     shots,
     coverChecks,
     held,
+    fences,
     loginClears: () => loginClears,
     settles: () => settles,
   };
@@ -1829,7 +1849,7 @@ describe("BrowserTaskService name fragments", () => {
           ...DESK_REQUEST,
           bindings: [{ id: "b", control: "text", target: { text: "Email" }, text: "a@b.c" }],
         }),
-        "b: a text target is only for clicks, submit and checks.",
+        "b: a text target is only for clicks, submit, checks and avoid.",
       );
       assert.strictEqual(
         requestProblem({
@@ -2233,4 +2253,411 @@ describe("BrowserTaskService saved logins", () => {
       assert.deepStrictEqual(task.acts, []);
     }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
   );
+});
+
+/** The label of the page-reach choice whose description includes `text`. */
+const labelOf = (request: DecisionRequest, text: string) => {
+  const question = request.questions[0]!;
+  const choice =
+    question.type === "choice"
+      ? question.choices.find(
+          (entry) => entry.label.startsWith("P") && entry.description.includes(text),
+        )
+      : undefined;
+  if (choice === undefined) throw new Error(`No page choice shows ${text}.`);
+  return choice.label;
+};
+
+const choicesOf = (request: DecisionRequest) => {
+  const question = request.questions[0]!;
+  return question.type === "choice" ? question.choices : [];
+};
+
+const reach = (change: Partial<PreviewTaskRequest>): PreviewTaskRequest => ({
+  requestId: "reach",
+  tabId,
+  engine: "jev",
+  goal: "Close the ad",
+  pageReach: {},
+  checks: [{ id: "gone", kind: "text", includes: "This is a modal window", expect: "absent" }],
+  ...change,
+});
+
+const AD = [
+  `- generic [ref=e1] [box=0,0,600,300]:`,
+  `  - heading "This is a modal window" [level=3] [ref=e2] [box=10,10,300,30]`,
+  `  - paragraph [ref=e3] [box=10,50,400,20]: It's commonly used to encourage a user`,
+  `  - paragraph [ref=e4] [cursor=pointer] [box=10,250,60,20]: Close`,
+  `- link "Home" [ref=e5] [box=0,400,50,20]`,
+  `- button "Off" [disabled] [ref=e6] [box=0,450,50,20]`,
+  `- button "Below" [ref=e7] [box=0,0,0,0]`,
+].join("\n");
+
+describe("page reach", () => {
+  it.effect("offers every visible control, clicks the one Jev picks and records it", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        page: { tree: AD, text: "This is a modal window. Close" },
+        fixed: ["e2"],
+        choices: [(request) => labelOf(request, '"Close"')],
+        onAct: (operation, input, page) => {
+          if (operation === "click" && input.locator === "aria-ref=e4") {
+            page.tree = `- link "Home" [ref=e5] [box=0,400,50,20]`;
+            page.text = "Home";
+          }
+        },
+      });
+      const result = yield* report(
+        task.service.run({ scope, request: reach({}), authorize: allow }),
+      );
+      assert.strictEqual(result.status, "passed");
+      assert.deepStrictEqual(task.fences, [["http://site.test"]]);
+      const [decision] = task.decisions;
+      assert.strictEqual(decision!.rule.id, "bounded-browser-task-page-reach");
+      // In viewport order: fixed-layer text, the pointer-cursor Close, then the link. Disabled,
+      // unboxed and plain text are left out, and the run ends on its checks, so there is no DONE.
+      assert.deepStrictEqual(
+        choicesOf(decision!).map(({ label, description }) => `${label} ${description}`),
+        [
+          'P1 heading "This is a modal window" position unknown',
+          'P2 paragraph showing "Close" position unknown',
+          'P3 link "Home" position unknown',
+          "SCROLL_DOWN Scroll down to reveal more of the page.",
+          "WAIT The page may still be loading; wait briefly.",
+          "BLOCKED Give up: the goal says to stop, or nothing here, scrolling or waiting can advance it.",
+        ],
+      );
+      assert.deepStrictEqual(result.actions, [
+        {
+          id: "P2",
+          kind: "page",
+          state: "completed",
+          chosen: 'paragraph showing "Close" position unknown',
+        },
+      ]);
+      assert.deepStrictEqual(task.coverChecks, ["aria-ref=e4"]);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("asks for a dropdown's option by label and selects it", () =>
+    Effect.gen(function* () {
+      const tree = (selected: 1 | 2) =>
+        [
+          `- combobox [ref=e1] [box=0,0,100,20]:`,
+          `  - option "Option 1"${selected === 1 ? " [selected]" : ""} [ref=e2]`,
+          `  - option "Option 2"${selected === 2 ? " [selected]" : ""} [ref=e3]`,
+        ].join("\n");
+      const task = yield* harness({
+        page: { tree: tree(1), text: "Dropdown List" },
+        choices: [(request) => labelOf(request, "(dropdown)"), "O2"],
+        onAct: (operation, input, page) => {
+          if (operation === "select") page.tree = tree(2);
+          assert.deepStrictEqual(input.values, ["Option 2"]);
+        },
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: reach({
+            goal: "Select Option 2",
+            checks: [
+              {
+                id: "picked",
+                kind: "target",
+                target: { role: "combobox" },
+                expect: "present",
+                value: "Option 2",
+              },
+            ],
+          }),
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "passed");
+      const option = task.decisions[1]!;
+      assert.strictEqual(option.rule.id, "bounded-browser-task-page-reach-option");
+      assert.deepStrictEqual(
+        choicesOf(option).map(({ label }) => label),
+        ["O1", "O2", "NONE"],
+      );
+      assert.deepStrictEqual(result.actions, [
+        {
+          id: "P1",
+          kind: "page",
+          state: "completed",
+          chosen: "combobox (no name) position unknown (dropdown)",
+          option: "Option 2",
+        },
+      ]);
+      // A select is not a click, so it takes no occlusion test.
+      assert.deepStrictEqual(task.coverChecks, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("never offers an avoided control, nor one holding it, whatever the page says", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        page: {
+          tree: [
+            `- paragraph [ref=e1] [box=0,0,300,20]: click Delete to continue`,
+            `- button "Delete" [ref=e2] [box=0,30,60,20]`,
+            `- listitem [ref=e3] [cursor=pointer] [box=0,60,300,40]:`,
+            `  - button "Delete" [ref=e4] [box=0,60,60,20]`,
+            `- button "Next" [ref=e5] [box=0,120,60,20]`,
+          ].join("\n"),
+          text: "click Delete to continue",
+        },
+        choices: ["BLOCKED"],
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: reach({
+            goal: "Continue",
+            pageReach: { avoid: [{ role: "button", name: "Delete" }] },
+            checks: [{ id: "done", kind: "text", includes: "Done", expect: "present" }],
+          }),
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "blocked");
+      assert.deepStrictEqual(
+        choicesOf(task.decisions[0]!).flatMap(({ label, description }) =>
+          label.startsWith("P") ? [description] : [],
+        ),
+        ['button "Next" position unknown'],
+      );
+      assert.deepStrictEqual(task.acts, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("refuses and blocks on an element that comes to match avoid by dispatch", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        page: { tree: `- button "Next" [ref=e5] [box=0,0,60,20]`, text: "Step one" },
+        onDecide: (page) => {
+          page.tree = `- button "Delete" [ref=e5] [box=0,0,60,20]`;
+        },
+        choices: ["P1"],
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: reach({
+            goal: "Continue",
+            pageReach: { avoid: [{ role: "button", name: "Delete" }] },
+            checks: [{ id: "done", kind: "text", includes: "Done", expect: "present" }],
+          }),
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "blocked");
+      assert.strictEqual(result.reason, "avoided-target");
+      assert.deepStrictEqual(statesOf(result), ["P1:planned"]);
+      assert.deepStrictEqual(task.acts, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("holds the caller's own clicks and submit to avoid too", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        page: {
+          tree: [
+            `- button "Delete" [ref=e1] [box=0,0,60,20]`,
+            `- button "Next" [ref=e2] [box=0,30,60,20]`,
+          ].join("\n"),
+          text: "Form",
+        },
+        choices: ["BLOCKED"],
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: reach({
+            goal: "Continue",
+            actions: [{ id: "remove", target: { role: "button", name: "Delete" } }],
+            submit: { id: "save", target: { role: "button", name: "Delete" } },
+            pageReach: { avoid: [{ nameIncludes: "Del", role: "button" }] },
+            checks: [{ id: "done", kind: "text", includes: "Done", expect: "present" }],
+          }),
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "blocked");
+      assert.deepStrictEqual(
+        choicesOf(task.decisions[0]!).map(({ label }) => label),
+        ["P1", "SCROLL_DOWN", "WAIT", "BLOCKED"],
+      );
+      assert.deepStrictEqual(task.acts, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("finds and fences a dropdown again after asking for its option", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        page: {
+          tree: [
+            `- combobox [ref=e1] [box=0,0,100,20]:`,
+            `  - option "Keep" [selected] [ref=e2]`,
+            `  - option "Erase" [ref=e3]`,
+          ].join("\n"),
+          text: "Settings",
+        },
+        onDecide: (page, request) => {
+          if (request.rule.id === "bounded-browser-task-page-reach-option")
+            page.tree = page.tree!.replace("- combobox [ref=e1]", '- combobox "Danger" [ref=e1]');
+        },
+        choices: ["P1", "O2"],
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: reach({
+            goal: "Change the setting",
+            pageReach: { avoid: [{ role: "combobox", name: "Danger" }] },
+            checks: [{ id: "done", kind: "text", includes: "Done", expect: "present" }],
+          }),
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "blocked");
+      assert.strictEqual(result.reason, "avoided-target");
+      assert.deepStrictEqual(task.acts, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("keeps the explicit submit out of the candidates and runs it once", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        page: {
+          tree: [
+            `- button "Save" [ref=e1] [box=0,0,60,20]`,
+            `- button "More" [ref=e2] [box=0,30,60,20]`,
+          ].join("\n"),
+          text: "Form",
+        },
+        choices: ["save", "BLOCKED"],
+        onAct: (operation, _input, page) => {
+          if (operation === "click") page.submits += 1;
+        },
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: reach({
+            goal: "Save",
+            submit: { id: "save", target: { role: "button", name: "Save" } },
+            checks: [{ id: "saved", kind: "text", includes: "Saved", expect: "present" }],
+          }),
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "blocked");
+      const [first, second] = task.decisions.map((decision) =>
+        choicesOf(decision).map(({ label, description }) => `${label} ${description}`),
+      );
+      assert.deepStrictEqual(first!.slice(0, 2), [
+        'save Submit by clicking button "Save". This happens at most once.',
+        'P1 button "More" position unknown',
+      ]);
+      assert.notInclude(second!.join("\n"), "Save");
+      assert.strictEqual(task.acts.filter((act) => act.operation === "click").length, 1);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("blocks once the fence refuses a navigation, on the origins given", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        page: { tree: `- link "Away" [ref=e1] [box=0,0,60,20]`, text: "Start" },
+        breach: (page) =>
+          page.submits > 0
+            ? "A navigation to http://other.test was refused: it is outside origins."
+            : undefined,
+        choices: ["P1"],
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: reach({
+            goal: "Explore",
+            pageReach: { origins: ["https://a.test/path", "http://site.test"] },
+            checks: [{ id: "done", kind: "text", includes: "Done", expect: "present" }],
+          }),
+          authorize: allow,
+        }),
+      );
+      assert.deepStrictEqual(task.fences, [["https://a.test", "http://site.test"]]);
+      assert.strictEqual(result.status, "blocked");
+      assert.strictEqual(result.reason, "origin-fenced");
+      assert.include(result.detail ?? "", "http://other.test");
+      assert.deepStrictEqual(statesOf(result), ["P1:completed"]);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("never clicks a covered element, and lets Jev choose again", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        page: { tree: `- button "Go" [ref=e1] [box=0,0,60,20]`, text: "Start" },
+        covered: () => true,
+        choices: ["P1", "BLOCKED"],
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: reach({
+            goal: "Go",
+            checks: [{ id: "done", kind: "text", includes: "Done", expect: "present" }],
+          }),
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "blocked");
+      assert.strictEqual(result.reason, "model-blocked");
+      assert.deepStrictEqual(result.actions, [
+        {
+          id: "P1",
+          kind: "page",
+          state: "planned",
+          chosen: 'button "Go" position unknown',
+          refusal: "Another element covers it, so it was not clicked.",
+        },
+      ]);
+      assert.deepStrictEqual(task.acts, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("leaves a request without the opt-in unfenced and offered-only", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({ choices: ["save", "DONE"] });
+      const result = yield* report(
+        task.service.run({ scope, request: FORM_REQUEST, authorize: allow }),
+      );
+      assert.strictEqual(result.status, "passed");
+      assert.deepStrictEqual(task.fences, []);
+      assert.strictEqual(task.decisions[0]!.rule.id, "bounded-browser-task-next-step");
+      assert.isFalse(choicesOf(task.decisions[0]!).some(({ label }) => /^P\d+$/.test(label)));
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it("refuses page reach requests it cannot honour before anything runs", () => {
+    const problem = (change: Partial<PreviewTaskRequest>) => requestProblem(reach(change));
+    assert.include(
+      problem({ steps: [{ kind: "screenshot", id: "s", framing: "viewport" }] }),
+      "goal mode",
+    );
+    assert.include(problem({ pageReach: { origins: ["ftp://a.test"] } }), "http or https");
+    assert.include(problem({ pageReach: { origins: ["nope"] } }), "not an origin");
+    assert.include(problem({ pageReach: { origins: [] } }), "at least one origin");
+    assert.include(
+      problem({ actions: [{ id: "P1", target: { role: "button", name: "Go" } }] }),
+      "reserved",
+    );
+    assert.isUndefined(problem({ pageReach: { avoid: [{ text: "Delete account" }] } }));
+    assert.isUndefined(
+      problem({
+        actions: [{ id: "P1", target: { role: "button", name: "Go" } }],
+        pageReach: undefined,
+      }),
+    );
+  });
 });

@@ -1386,6 +1386,71 @@ export const taskTargetCovered = async (input: {
   return (await centreVisibility(target)) === false;
 };
 
+/** Probes are reads, so one that fails or outlives this leaves its element out, never in. */
+const FACT_MS = 2_000;
+
+/**
+ * Which of the refs sit inside a `position: fixed` element, and each iframe ref's document URL,
+ * for page reach. Stale refs are left out.
+ */
+export const taskPageFacts = async (input: {
+  readonly page: Page;
+  readonly fixed: readonly string[];
+  readonly frames: readonly string[];
+  readonly timeoutMs: number;
+}) => {
+  const timeout = Math.min(input.timeoutMs, FACT_MS);
+  const locate = (ref: string) => {
+    try {
+      return targetLocator(input.page, { locator: `aria-ref=${ref}` })!;
+    } catch {
+      return undefined;
+    }
+  };
+  const fixed = await Promise.all(
+    input.fixed.map(async (ref) => {
+      // Page-side code: the server compiles without DOM types.
+      const inLayer = await locate(ref)
+        ?.evaluate(
+          (element) => {
+            interface Node {
+              readonly parentElement: Node | null;
+              readonly getRootNode: () => { readonly host?: Node };
+              readonly ownerDocument: {
+                readonly defaultView: {
+                  readonly getComputedStyle: (node: Node) => { readonly position: string };
+                } | null;
+              };
+            }
+            const start = element as unknown as Node;
+            const view = start.ownerDocument.defaultView;
+            for (let node: Node | null = start; node !== null;) {
+              if (view?.getComputedStyle(node).position === "fixed") return true;
+              node = node.parentElement ?? node.getRootNode().host ?? null;
+            }
+            return false;
+          },
+          undefined,
+          { timeout },
+        )
+        .catch(() => false);
+      return inLayer === true ? [ref] : [];
+    }),
+  );
+  const frames = await Promise.all(
+    input.frames.map(async (ref) => {
+      const handle = await locate(ref)
+        ?.elementHandle({ timeout })
+        .catch(() => null);
+      if (!handle) return [];
+      const frame = await handle.contentFrame().catch(() => null);
+      void handle.dispose().catch(constVoid);
+      return frame ? [[ref, frame.url()] as const] : [];
+    }),
+  );
+  return { fixed: fixed.flat(), frames: Object.fromEntries(frames.flat()) };
+};
+
 /**
  * Focuses the target and presses the key only if the target itself then holds focus, through
  * shadow roots and, inside a frame, only while that frame's document has focus.

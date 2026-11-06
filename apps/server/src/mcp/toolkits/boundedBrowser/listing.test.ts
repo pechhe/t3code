@@ -16,14 +16,14 @@ const listed = (tools: ReadonlyArray<Tool.Any>) =>
   );
 
 it("keeps the bounded browser task tools within their listing budget", () => {
-  // Measured at 11,072 and 11,324 after T3-426's role-alone, text and hinted targets and saved
-  // logins. A change that needs more states the new number here.
-  expect(listed([BoundedBrowserToolkit.tools.t3_browser_task])).toBeLessThan(11_150);
-  expect(listed([ManagedBrowserTaskToolkit.tools.preview_task])).toBeLessThan(11_400);
+  // Measured at 12,053, 12,305 and 14,275 after T3-427's page reach (its origins, avoid list and
+  // guidance). A change that needs more states the new number here.
+  expect(listed([BoundedBrowserToolkit.tools.t3_browser_task])).toBeLessThan(12_150);
+  expect(listed([ManagedBrowserTaskToolkit.tools.preview_task])).toBeLessThan(12_400);
   expect(
     listed([
       ...Object.values(BoundedBrowserToolkit.tools),
       ...Object.values(BoundedBrowserSnapshotToolkit.tools),
     ]),
-  ).toBeLessThan(13_400);
+  ).toBeLessThan(14_400);
 });

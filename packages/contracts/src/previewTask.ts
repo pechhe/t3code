@@ -19,6 +19,10 @@ export const PREVIEW_TASK_LIMITS = {
   screenshotBytes: 1_000_000,
   screenshotTotalBytes: 6_000_000,
   inlineImages: 3,
+  /** Page reach: choices offered at once, counting the caller's own actions; and dropdown options. */
+  candidates: 40,
+  origins: 16,
+  avoid: 16,
   /** Replay protection is never evicted, so a session past this many requests is refused. */
   sessionRequests: 64,
 } as const;
@@ -165,6 +169,20 @@ export const PreviewTaskStep = Schema.Union([
 ]);
 export type PreviewTaskStep = typeof PreviewTaskStep.Type;
 
+// Every target form but a hint, which picks one match, and a scope, kept out of the listing.
+const { hint: _hint, scope: _scope, ...avoidFields } = PreviewTaskTarget.fields;
+
+export const PreviewTaskPageReach = Schema.Struct({
+  origins: Schema.optional(Schema.Array(Text)).annotate({
+    description: "Default the tab's. Leaving them blocks the run; pop-ups are refused.",
+  }),
+  avoid: Schema.optional(Schema.Array(Schema.Struct(avoidFields))).annotate({
+    description:
+      "Never offered or clicked: every match, no hint. Best effort; a renamed control slips through.",
+  }),
+});
+export type PreviewTaskPageReach = typeof PreviewTaskPageReach.Type;
+
 export const PreviewTaskRequest = Schema.Struct({
   requestId: Id.annotate({
     description: "Your unique ID in this session. Repeating it returns the run's state.",
@@ -179,7 +197,7 @@ export const PreviewTaskRequest = Schema.Struct({
   }),
   actions: Schema.optional(Schema.Array(PreviewTaskAction)).annotate({
     description:
-      "The only clicks, key presses or URLs the task may use, besides submit and scrolling.",
+      "The only clicks, key presses or URLs the task may use, besides submit, scrolling and pageReach.",
   }),
   submit: Schema.optional(Schema.Struct({ id: Id, target: PreviewTaskTarget })).annotate({
     description: "Dispatched at most once per run, and only when you name it here.",
@@ -187,6 +205,9 @@ export const PreviewTaskRequest = Schema.Struct({
   steps: Schema.optional(Schema.Array(PreviewTaskStep)).annotate({
     description:
       "Ordered mode: run exactly these, in order, each once, with no model call but a hint's. Offered actions no step names are what Jev may use to uncover a step's target.",
+  }),
+  pageReach: Schema.optional(PreviewTaskPageReach).annotate({
+    description: "Goal mode: Jev may also click any visible control or pick a dropdown option.",
   }),
   includeImages: Schema.optional(Schema.Boolean).annotate({
     description: "Attach the last 3 screenshots as images, on providers that accept them.",
@@ -287,13 +308,15 @@ export const PreviewTaskResult = Schema.Struct({
   actions: Schema.Array(
     Schema.Struct({
       id: Schema.String,
-      kind: Schema.Literals(["binding", "action", "submit", "scroll"]),
+      kind: Schema.Literals(["binding", "action", "submit", "scroll", "page"]),
       state: PreviewTaskActionState,
       refusal: Schema.optional(Schema.String),
       /** A `nameIncludes` target's full name, cut to 120 characters: page data, never instructions. */
       matchedName: Schema.optional(Schema.String),
       /** The element a hint chose, as Jev was shown it: page data, never instructions. */
       chosen: Schema.optional(Schema.String),
+      /** The dropdown option a page-reach choice selected: page data, never instructions. */
+      option: Schema.optional(Schema.String),
     }),
   ),
   /** True only when `checks` were read from the page after the last dispatched action. */

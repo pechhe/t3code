@@ -70,12 +70,20 @@ const nameProblem = (spec: NameSpec) => {
 };
 
 /** Where a target sits decides which of its forms it may take. */
-type TargetUse = "click" | "press" | "submit" | "binding" | "check" | "capture" | "screenshot";
+type TargetUse =
+  | "click"
+  | "press"
+  | "submit"
+  | "binding"
+  | "check"
+  | "capture"
+  | "screenshot"
+  | "avoid";
 
 const targetProblem = (target: PreviewTaskTarget, use: TargetUse) => {
   if (target.text !== undefined) {
-    if (use !== "click" && use !== "submit" && use !== "check")
-      return "a text target is only for clicks, submit and checks.";
+    if (use !== "click" && use !== "submit" && use !== "check" && use !== "avoid")
+      return "a text target is only for clicks, submit, checks and avoid.";
     if (target.role !== undefined || target.name !== undefined || target.nameIncludes !== undefined)
       return "give text instead of role and name, not with them.";
     if (target.text.trim().length === 0) return "text needs words, not only spaces.";
@@ -90,6 +98,36 @@ const targetProblem = (target: PreviewTaskTarget, use: TargetUse) => {
   return (
     nameProblem(target) ?? (target.scope === undefined ? undefined : nameProblem(target.scope))
   );
+};
+
+/** Page-reach choices are labelled P1, P2…, so the caller's ids may not take that form. */
+const PAGE_LABEL = /^P\d+$/;
+
+const pageReachProblem = (request: PreviewTaskRequest, ids: readonly string[]) => {
+  const reach = request.pageReach;
+  if (reach === undefined) return undefined;
+  if (request.steps !== undefined) return "pageReach is for goal mode; leave steps out.";
+  const origins = reach.origins ?? [];
+  if (origins.length === 0 && reach.origins !== undefined)
+    return "Name at least one origin, or leave origins out for the tab's own.";
+  if (origins.length > PREVIEW_TASK_LIMITS.origins)
+    return `At most ${PREVIEW_TASK_LIMITS.origins} origins are allowed.`;
+  for (const origin of origins) {
+    let url: URL;
+    try {
+      url = new URL(origin);
+    } catch {
+      return `${origin} is not an origin such as https://example.com.`;
+    }
+    if (url.protocol !== "https:" && url.protocol !== "http:")
+      return `${origin} is not an http or https origin.`;
+  }
+  if ((reach.avoid ?? []).length > PREVIEW_TASK_LIMITS.avoid)
+    return `At most ${PREVIEW_TASK_LIMITS.avoid} avoid targets are allowed.`;
+  const label = ids.find((id) => PAGE_LABEL.test(id));
+  return label === undefined
+    ? undefined
+    : `Step id ${label} is reserved: with pageReach, page elements are labelled P1, P2 and on.`;
 };
 
 /** Rejects what can be known wrong before any provider call or browser effect. */
@@ -127,6 +165,8 @@ export const requestProblem = (request: PreviewTaskRequest): string | undefined 
     if (shot.target !== undefined) targets.push([shot.id, shot.target, "screenshot"]);
   for (const check of request.checks)
     if (check.kind === "target") targets.push([check.id, check.target, "check"]);
+  for (const [index, target] of (request.pageReach?.avoid ?? []).entries())
+    targets.push([`avoid[${index}]`, target, "avoid"]);
   for (const [id, target, use] of targets) {
     const problem = targetProblem(target, use);
     if (problem !== undefined) return `${id}: ${problem}`;
@@ -139,6 +179,8 @@ export const requestProblem = (request: PreviewTaskRequest): string | undefined 
       return `Screenshot ${shot.id} names a target only with target framing.`;
   if (plannedScreenshots(request) > PREVIEW_TASK_LIMITS.screenshots)
     return `A run may take at most ${PREVIEW_TASK_LIMITS.screenshots} screenshots, counting one where a failed run stops and any capture.`;
+  const reachProblem = pageReachProblem(request, steps);
+  if (reachProblem !== undefined) return reachProblem;
   if (request.steps !== undefined) {
     const ordered = request.steps;
     if (ordered.length === 0) return "Name at least one step, or leave steps out for goal mode.";
@@ -649,6 +691,19 @@ export const layer = Layer.effect(
                       ),
                     )
                 : invoke<unknown>(operation, input, timeoutMs),
+          fence: (origins, timeoutMs) =>
+            browser
+              .fenceTask({ ...lessee, origins, timeoutMs })
+              .pipe(Effect.mapError(failureMessage)),
+          fenceBreach: browser.taskFenceBreach(lessee),
+          pageFacts: (probe, timeoutMs) =>
+            browser.taskPageFacts({ ...lessee, ...probe, timeoutMs }).pipe(
+              Effect.map((facts) => ({
+                fixed: new Set(facts.fixed),
+                frames: new Map(Object.entries(facts.frames)),
+              })),
+              Effect.mapError(failureMessage),
+            ),
           settle: (timeoutMs) =>
             browser.settleTask({ ...lessee, timeoutMs }).pipe(Effect.mapError(failureMessage)),
           covered: (locator, timeoutMs) =>

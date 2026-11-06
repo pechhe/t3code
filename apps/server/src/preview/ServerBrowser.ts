@@ -95,6 +95,7 @@ import { presentAsChrome, ServerBrowserContexts } from "./ServerBrowserContexts.
 import { BrowserControlInterrupted, SessionControl } from "./SessionControl.ts";
 import { redactDeep, redactText, secretForms } from "./secretRedaction.ts";
 import { installPdfDocumentNavigation, isPdfAssetUrl } from "./PdfDocumentNavigation.ts";
+import { installTaskFence } from "./taskFence.ts";
 
 const SERVER_HOST_CLIENT_ID = SERVER_BROWSER_AUTOMATION_CLIENT_ID;
 const RENDER_SCALE = 2;
@@ -303,6 +304,22 @@ export class ServerBrowser extends Context.Service<
     readonly taskTargetCovered: (
       input: TaskLeaseInput & { readonly locator: string; readonly timeoutMs: number },
     ) => Effect.Effect<boolean, ServerBrowserTaskError>;
+    /** Page reach: holds the tab's navigations inside `origins` and refuses pop-ups until the lease ends. */
+    readonly fenceTask: (
+      input: TaskLeaseInput & { readonly origins: readonly string[]; readonly timeoutMs: number },
+    ) => Effect.Effect<void, ServerBrowserTaskError>;
+    /** What the lease's fence refused first, if anything. */
+    readonly taskFenceBreach: (input: TaskLeaseInput) => Effect.Effect<string | undefined>;
+    readonly taskPageFacts: (
+      input: TaskLeaseInput & {
+        readonly fixed: readonly string[];
+        readonly frames: readonly string[];
+        readonly timeoutMs: number;
+      },
+    ) => Effect.Effect<
+      { readonly fixed: readonly string[]; readonly frames: Readonly<Record<string, string>> },
+      ServerBrowserTaskError
+    >;
     readonly pressTaskTarget: (
       input: TaskLeaseInput & {
         readonly locator: string;
@@ -600,6 +617,11 @@ const make = Effect.gen(function* () {
       : null;
   };
   const tabs = new Map<string, ServerTab>();
+  /** Page-reach fences, by tab key; each lasts as long as its task's lease. */
+  const taskFences = new Map<
+    string,
+    { readonly lease: string; breach: string | undefined; readonly stop: () => Promise<void> }
+  >();
   const loginValues = (tab: ServerTab) => [...tab.logins.values()].map((login) => login.value);
   /** Every held login's forms: one tab's value is redacted wherever any tab's output shows it. */
   const heldLoginForms = () => secretForms([...tabs.values()].flatMap(loginValues));
@@ -1499,7 +1521,12 @@ const make = Effect.gen(function* () {
   };
 
   const adoptPopup = async (opener: ServerTab, popup: Page) => {
-    if (opener.closing || popup.isClosed()) {
+    // A page-reach fence has already failed its requests; it never becomes a tab.
+    if (
+      opener.closing ||
+      popup.isClosed() ||
+      taskFences.has(tabKey(opener.threadId, opener.tabId))
+    ) {
       await popup.close().catch(constVoid);
       return;
     }
@@ -3211,13 +3238,28 @@ const make = Effect.gen(function* () {
       },
       catch: taskError,
     });
+  const endTaskFence = async (input: TaskLeaseInput) => {
+    const key = tabKey(input.threadId, input.tabId);
+    const fence = taskFences.get(key);
+    if (fence?.lease !== input.lease) return;
+    taskFences.delete(key);
+    await fence.stop();
+  };
   const abandonTaskLease = (input: TaskLeaseInput) =>
-    Effect.sync(() => leasedTab(input)?.control.abandonTaskLease(input.lease));
+    Effect.promise(async () => {
+      leasedTab(input)?.control.abandonTaskLease(input.lease);
+      await endTaskFence(input);
+    });
   const releaseTaskLease = (input: TaskLeaseInput & { readonly inspectFirst: boolean }) =>
     Effect.promise(async () => {
       const tab = leasedTab(input);
-      if (!tab) return "tab-lost" as const;
+      if (!tab) {
+        await endTaskFence(input);
+        return "tab-lost" as const;
+      }
+      // The fence outlasts in-flight work, so a late navigation from it is still refused.
       await tab.control.releaseTaskLease(input.lease, { inspectFirst: input.inspectFirst });
+      await endTaskFence(input);
       return tabs.get(tabKey(input.threadId, input.tabId)) === tab
         ? ("released" as const)
         : ("tab-lost" as const);
@@ -3273,6 +3315,58 @@ const make = Effect.gen(function* () {
         ServerBrowserPage.taskTargetCovered({
           page,
           locator: input.locator,
+          timeoutMs: input.timeoutMs,
+        }),
+      false,
+    );
+  const fenceTask = (
+    input: TaskLeaseInput & { readonly origins: readonly string[]; readonly timeoutMs: number },
+  ) =>
+    onLeasedPage(
+      input,
+      async (tab) => {
+        const key = tabKey(input.threadId, input.tabId);
+        if (taskFences.has(key)) throw new Error("A page-reach fence already holds this tab.");
+        const fence = {
+          lease: input.lease,
+          breach: undefined as string | undefined,
+          stop: async () => {},
+        };
+        taskFences.set(key, fence);
+        try {
+          fence.stop = await installTaskFence({
+            page: tab.page,
+            origins: input.origins,
+            onBreach: (detail) => {
+              fence.breach ??= detail;
+            },
+          });
+        } catch (cause) {
+          taskFences.delete(key);
+          throw cause;
+        }
+      },
+      false,
+    );
+  const taskFenceBreach = (input: TaskLeaseInput) =>
+    Effect.sync(() => {
+      const fence = taskFences.get(tabKey(input.threadId, input.tabId));
+      return fence?.lease === input.lease ? fence.breach : undefined;
+    });
+  const taskPageFacts = (
+    input: TaskLeaseInput & {
+      readonly fixed: readonly string[];
+      readonly frames: readonly string[];
+      readonly timeoutMs: number;
+    },
+  ) =>
+    onLeasedPage(
+      input,
+      ({ page }) =>
+        ServerBrowserPage.taskPageFacts({
+          page,
+          fixed: input.fixed,
+          frames: input.frames,
           timeoutMs: input.timeoutMs,
         }),
       false,
@@ -3422,6 +3516,9 @@ const make = Effect.gen(function* () {
     captureTaskTarget,
     settleTask,
     taskTargetCovered,
+    fenceTask,
+    taskFenceBreach,
+    taskPageFacts,
     pressTaskTarget,
     captureTaskScreenshot,
     holdTaskLogin,
