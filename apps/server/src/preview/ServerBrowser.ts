@@ -246,6 +246,10 @@ export interface TaskLeaseInput {
   readonly lease: string;
 }
 
+/** Carries a refused key press through `recordAction`, so the timeline shows it failed. */
+const UNPRESSED_KEY = "TaskKeyNotPressed";
+const isOperationError = Schema.is(ServerBrowserPage.ServerBrowserOperationError);
+
 export class ServerBrowser extends Context.Service<
   ServerBrowser,
   {
@@ -3234,14 +3238,28 @@ const make = Effect.gen(function* () {
     onLeasedPage(
       input,
       (tab) =>
-        recordAction(tab, "press", () =>
-          ServerBrowserPage.pressTaskTarget({
+        recordAction(tab, "press", async () => {
+          const outcome = await ServerBrowserPage.pressTaskTarget({
             page: tab.page,
             locator: input.locator,
             key: input.key,
             timeoutMs: input.timeoutMs,
-          }),
-        ),
+          });
+          if (outcome !== "pressed")
+            throw new ServerBrowserPage.ServerBrowserOperationError({
+              tag: UNPRESSED_KEY,
+              message:
+                outcome === "stale"
+                  ? "The target is gone or ambiguous, so the key was not pressed."
+                  : "The target did not hold focus, so the key was not pressed.",
+              detail: outcome,
+            });
+          return outcome;
+        }).catch((cause: unknown) => {
+          if (isOperationError(cause) && cause.tag === UNPRESSED_KEY)
+            return cause.detail as "not-focusable" | "stale";
+          throw cause;
+        }),
       false,
     );
   const captureTaskScreenshot = (

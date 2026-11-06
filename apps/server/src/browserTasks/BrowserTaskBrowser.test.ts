@@ -1088,6 +1088,17 @@ it.live("never presses a key when its target cannot hold focus, is ambiguous or 
         );
         expect(result.actions.every((action) => action.state === "planned")).toBe(true);
         expect(yield* pageText(tabId)).toContain("Keys: none");
+        const broker = yield* Broker.PreviewAutomationBroker;
+        const timeline = (yield* broker.invoke<PreviewAutomationSnapshot>({
+          scope,
+          tabId,
+          operation: "snapshot",
+          input: {},
+          updateCurrentTab: false,
+        })).actionTimeline;
+        expect(
+          timeline.some((event) => event.action === "press" && event.status === "succeeded"),
+        ).toBe(false);
       }
     }),
   ),
