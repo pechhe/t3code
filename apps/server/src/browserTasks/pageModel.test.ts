@@ -238,6 +238,18 @@ describe("targets without a unique name", () => {
     );
   });
 
+  it("offers an exact name near a label an icon font prefixes", () => {
+    // The live login page's button name begins with a Font Awesome glyph and a space.
+    const iconPage = pageModelFromSnapshot(
+      snapshot('- main [ref=e1]:\n  - button "\uF090 Login" [ref=e2]'),
+    );
+    expect(resolveTarget(iconPage, { role: "button", name: "Login" })._tag).toBe("missing");
+    expect(evidentAbsence(iconPage, { role: "button", name: "Login" })).toEqual({
+      nearest: ['button "\uF090 Login"'],
+    });
+    expect(evidentAbsence(iconPage, { role: "button", name: "Logout" })).toBeUndefined();
+  });
+
   it("points an exact name at the page's only, unnamed element of its role", () => {
     expect(evidentAbsence(pages, { role: "combobox", name: "Country" })).toEqual({
       nearest: ["combobox (no name)"],

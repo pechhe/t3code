@@ -136,6 +136,12 @@ export interface NameSpec {
 
 const normalized = (text: string) => text.replace(/\s+/g, " ").trim();
 
+/** Private-use code points an icon font renders as a glyph, with the selectors and joiners shaping it. */
+const ICON = /[\uE000-\uF8FF\u200B-\u200D\uFE0E\uFE0F]/g;
+
+/** A name as a reader sees its label: icon glyphs go, and whitespace collapses. */
+const withoutIcons = (name: string) => normalized(name.replace(ICON, " "));
+
 /** With neither name nor fragment, any name matches: the role alone picks the element. */
 const nameMatches = (actual: string, spec: NameSpec) =>
   spec.nameIncludes !== undefined
@@ -389,11 +395,11 @@ const unnamedOnly = (model: PageModel, target: PreviewTaskTarget) => {
   return sameRole.length === 1 && sameRole[0]!.name === "" ? `${target.role} (no name)` : undefined;
 };
 
-/** Ranked near misses of an exact name: outside the scope, another role or case, or a near spelling. */
+/** Ranked near misses of an exact name: outside the scope, another role or case, an icon glyph, or a near spelling. */
 const nearExact = (node: PageNode, target: PreviewTaskTarget, name: string) => {
-  const wanted = name.toLowerCase();
+  const wanted = withoutIcons(name).toLowerCase();
   const allowed = Math.min(3, Math.max(1, Math.floor(wanted.length / 5)));
-  const actual = node.name.toLowerCase();
+  const actual = withoutIcons(node.name).toLowerCase();
   if (node.role === target.role && node.name === name) return 0;
   if (actual === wanted) return 1;
   if (node.role !== target.role || Math.abs(actual.length - wanted.length) > allowed)
