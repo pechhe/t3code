@@ -165,17 +165,139 @@ function collapseNullUnion(schema: unknown, required = false): unknown {
   );
 }
 
+const isSchemaObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const DEFINITION_REF_PREFIXES = ["#/$defs/", "#/definitions/"];
+
+function definitionRefName(ref: unknown): string | undefined {
+  if (typeof ref !== "string") return undefined;
+  for (const prefix of DEFINITION_REF_PREFIXES) {
+    if (!ref.startsWith(prefix)) continue;
+    const name = ref.slice(prefix.length);
+    if (name.length > 0 && !name.includes("/")) return name;
+  }
+  return undefined;
+}
+
+/**
+ * The definitions a schema forces a caller to pass: refs under required properties,
+ * never refs under array items, since an empty array ends a loop Gemini accepts.
+ */
+function requiredRefs(schema: unknown, into: Set<string>): void {
+  if (Array.isArray(schema)) {
+    for (const entry of schema) requiredRefs(entry, into);
+    return;
+  }
+  if (!isSchemaObject(schema)) return;
+  const ref = definitionRefName(schema.$ref);
+  if (ref !== undefined) into.add(ref);
+  for (const keyword of ["anyOf", "oneOf", "allOf"]) {
+    const branches = schema[keyword];
+    if (Array.isArray(branches)) requiredRefs(branches, into);
+  }
+  if (!isSchemaObject(schema.properties)) return;
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  for (const [name, property] of Object.entries(schema.properties)) {
+    if (required.includes(name)) requiredRefs(property, into);
+  }
+}
+
+/**
+ * Gemini refuses a $ref loop whose every step is a required field, such as a
+ * recursive filter whose "not" branch requires another filter. The loop is
+ * genuine (a condition ends it), so the bridge keeps the recursion and leaves
+ * the fields that close it optional, for the server's own validation to judge.
+ */
+function relaxRequiredLoops(
+  schema: unknown,
+  /** Whether a required ref to this definition leads back to the enclosing one. */
+  closesLoop: (target: string) => boolean,
+): unknown {
+  if (Array.isArray(schema)) {
+    return schema.map((entry) => relaxRequiredLoops(entry, closesLoop));
+  }
+  if (!isSchemaObject(schema)) return schema;
+  const properties = isSchemaObject(schema.properties) ? schema.properties : undefined;
+  const required = Array.isArray(schema.required) ? schema.required : undefined;
+  const keptRequired =
+    properties !== undefined && required !== undefined
+      ? required.filter((name) => {
+          const property = typeof name === "string" ? properties[name] : undefined;
+          if (property === undefined) return true;
+          const targets = new Set<string>();
+          requiredRefs(property, targets);
+          for (const target of targets) if (closesLoop(target)) return false;
+          return true;
+        })
+      : required;
+  const droppedRequired = keptRequired !== undefined && keptRequired.length !== required.length;
+  const entries: Array<[string, unknown]> = [];
+  for (const [key, value] of Object.entries(schema)) {
+    if (key === "required" && droppedRequired) {
+      if (keptRequired.length > 0) entries.push([key, keptRequired]);
+      continue;
+    }
+    entries.push([key, relaxRequiredLoops(value, closesLoop)]);
+  }
+  return Object.fromEntries(entries);
+}
+
+function relaxDefinitionLoops(schema: Record<string, unknown>): Record<string, unknown> {
+  for (const keyword of ["$defs", "definitions"]) {
+    const definitions = schema[keyword];
+    if (!isSchemaObject(definitions)) continue;
+    const requiredTargets = new Map<string, ReadonlySet<string>>();
+    for (const [name, definition] of Object.entries(definitions)) {
+      const targets = new Set<string>();
+      requiredRefs(definition, targets);
+      requiredTargets.set(name, targets);
+    }
+    const reaches = (from: string, to: string) => {
+      const seen = new Set<string>();
+      const pending = [from];
+      while (pending.length > 0) {
+        const next = pending.pop();
+        if (next === undefined || seen.has(next)) continue;
+        if (next === to) return true;
+        seen.add(next);
+        pending.push(...(requiredTargets.get(next) ?? []));
+      }
+      return false;
+    };
+    const looping = [...requiredTargets.keys()].filter((name) =>
+      [...(requiredTargets.get(name) ?? [])].some((target) => reaches(target, name)),
+    );
+    if (looping.length === 0) continue;
+    // Only an edge on a cycle is relaxed: its target leads back to the enclosing definition.
+    return {
+      ...schema,
+      [keyword]: Object.fromEntries(
+        Object.entries(definitions).map(([name, definition]) => [
+          name,
+          looping.includes(name)
+            ? relaxRequiredLoops(definition, (target) => reaches(target, name))
+            : definition,
+        ]),
+      ),
+    };
+  }
+  return schema;
+}
+
 function jsonSchemaToTypebox(schema: Record<string, unknown> | undefined) {
   const unsafe = (Type as { Unsafe?: (value: unknown) => unknown }).Unsafe;
   if (typeof unsafe === "function" && schema !== undefined) {
     // Zero-argument MCP tools may omit "properties", which some OpenAI-compatible
     // servers reject. Declare it, as Pi does for its own MCP tools.
     const collapsed = collapseNullUnion(schema) as Record<string, unknown>;
-    return unsafe({
-      ...collapsed,
-      type: collapsed.type ?? "object",
-      ...(collapsed.properties === undefined ? { properties: {} } : {}),
-    });
+    return unsafe(
+      relaxDefinitionLoops({
+        ...collapsed,
+        type: collapsed.type ?? "object",
+        ...(collapsed.properties === undefined ? { properties: {} } : {}),
+      }),
+    );
   }
   return Type.Object({}, { additionalProperties: true });
 }
