@@ -11,7 +11,8 @@ export const AGENT_BROWSER_BACKEND_CHOICES = [
   {
     id: "phi",
     label: "Phi",
-    description: "Agents use Phi on the Mac. Nothing falls back to the T3 browser.",
+    description:
+      "Agents use Phi on the Mac. Nothing falls back to the T3 browser, and fast bounded browser tasks are off.",
     value: { enabled: ["phi"], default: "phi" },
   },
   {

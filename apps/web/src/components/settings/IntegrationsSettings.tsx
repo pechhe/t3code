@@ -1098,7 +1098,7 @@ function AgentBrowserBackendsSetting() {
       {...searchableSetting("agent-browser-backends")}
       description={
         settings.enableAgentBrowserAccess
-          ? "Which browsers agents can open. Phi needs the phi-browser skill on the Mac. Applies when the agent session next starts; open tabs keep their browser."
+          ? "Which browsers agents can open. Fast bounded browser tasks always use the T3 browser. Phi needs the phi-browser skill on the Mac. Applies when the agent session next starts; open tabs keep their browser."
           : "Agent browser access is off, so agents cannot use either browser."
       }
       control={
