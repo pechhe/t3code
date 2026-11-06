@@ -40,6 +40,7 @@ import { useSelectedWorkspace } from "../hooks/useSelectedWorkspace";
 import { SlipJayRunnerControl } from "./SlipJayRunnerControl";
 import { ForgeHomeButton } from "./forgeItem/ForgeHomeButton";
 import { DeviceEnvironmentSwitch } from "./chat/device/DeviceEnvironmentSwitch";
+import { leverEnvironments } from "./chat/device/leverEnvironments.logic";
 import {
   SNAP_SHOT_DOCK_CLASS_NAME,
   SnapShotOverlayAbove,
@@ -3147,16 +3148,16 @@ export default function ChatView(props: ChatViewProps) {
   const switchEnvironments = (() => {
     if (isMobileViewport) return null;
     const candidates =
-      logicalProjectEnvironments.length === 2 || !switchLocked
+      logicalProjectEnvironments.length >= 2 || !switchLocked
         ? logicalProjectEnvironments
         : environments.map((environment) =>
             environmentOption(environment, environment.environmentId, null, primaryEnvironmentId),
           );
-    if (candidates.length !== 2) return null;
-    const [first, second] = candidates.toSorted(
-      (left, right) => Number(right.isPrimary) - Number(left.isPrimary),
+    return leverEnvironments(
+      candidates,
+      draftThread?.environmentId ?? activeThread?.environmentId,
+      loadBalancingSettings.loadBalancingWeights,
     );
-    return first && second ? ([first, second] as const) : null;
   })();
   const activeEnvironmentId = activeThread?.environmentId;
   const autoBalanceOnSwitch =

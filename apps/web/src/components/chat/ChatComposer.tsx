@@ -3489,6 +3489,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         focusComposer={focusComposer}
       />
     ) : null;
+  const screenRecordControl =
+    props.screenRecordingEnabled && showComposerAttachAction && screenRecordingAvailable ? (
+      <ComposerScreenRecordControl
+        busy={screenRecording.state.phase !== "idle"}
+        device={deviceComposer}
+        onStart={startScreenRecordingStable}
+      />
+    ) : null;
   return (
     <form
       ref={composerFormRef}
@@ -3886,15 +3894,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   className="flex min-w-0 flex-1 flex-nowrap items-center justify-end gap-2"
                 >
                   {composerAttachButton}
-                  {props.screenRecordingEnabled &&
-                  showComposerAttachAction &&
-                  screenRecordingAvailable ? (
-                    <ComposerScreenRecordControl
-                      busy={screenRecording.state.phase !== "idle"}
-                      device={deviceComposer}
-                      onStart={startScreenRecordingStable}
-                    />
-                  ) : null}
+                  {deviceComposer ? null : screenRecordControl}
                   <div
                     ref={attachExpandedComposerControls}
                     data-chat-composer-controls="footer"
@@ -3903,6 +3903,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   >
                     {composerControls}
                   </div>
+                  {/* On the device composer the machine lever leads the row, so Rec sits between Fast and Send. */}
+                  {deviceComposer ? screenRecordControl : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}
