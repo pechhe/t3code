@@ -193,10 +193,10 @@ const LATER = `<!doctype html><title>Later</title><main>
   }, 3000);</script>
 </main>`;
 
-/** Like the-internet's entry ad: a fixed modal whose Close is a pointer-cursor paragraph. */
+/** Like the-internet's entry ad: a fixed modal, its heading uppercased by CSS, closed by a pointer-cursor paragraph. */
 const REACH_AD = `<!doctype html><title>Entry Ad</title><main><h3>Entry Ad</h3><p>It displays an ad.</p></main>
   <div id="modal" style="position:fixed;top:50px;left:50px;width:400px;height:240px;background:white;z-index:9">
-    <h3>This is a modal window</h3>
+    <h3 style="text-transform:uppercase">This is a modal window</h3>
     <div style="position:absolute;bottom:0"><p style="cursor:pointer" onclick="document.getElementById('modal').remove()">Close</p></div>
   </div>`;
 

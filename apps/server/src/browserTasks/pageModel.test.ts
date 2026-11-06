@@ -259,3 +259,18 @@ describe("targets without a unique name", () => {
     expect(evidentAbsence(pages, { role: "link", name: "Target" })).toBeUndefined();
   });
 });
+
+describe("text checks", () => {
+  it("match the page's text whatever case CSS renders it in", () => {
+    const shown = pageModelFromSnapshot({
+      ...snapshot('- heading "This is a modal window" [level=3] [ref=e1]'),
+      visibleText: "THIS IS A MODAL WINDOW\nClose",
+    });
+    expect(
+      evaluateChecks(shown, [
+        { id: "gone", kind: "text", includes: "This is a modal window", expect: "absent" },
+        { id: "shown", kind: "text", includes: "this is a modal window", expect: "present" },
+      ]).map(({ status }) => status),
+    ).toEqual(["failed", "passed"]);
+  });
+});

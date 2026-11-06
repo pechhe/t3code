@@ -5,9 +5,9 @@ import type { CDPSession, Page, Route } from "playwright-core";
  * Chromium reports a pop-up's target before the pop-up sends anything, so a new page's first
  * request waits this long for its opener to be known; another tab's then goes on.
  */
-const POPUP_ATTRIBUTION_MS = 250;
+const POPUP_ATTRIBUTION_MS = 1_000;
 /** A refused pop-up may fail one first request this soon after it opened, never later. */
-const POPUP_CREDIT_MS = 1_000;
+const POPUP_CREDIT_MS = 5_000;
 
 export const originOf = (url: string) => {
   try {
@@ -33,12 +33,13 @@ export async function installTaskFence(input: {
   if (browser === null)
     throw new Error("This tab's browser cannot report pop-ups, so page reach cannot fence it.");
   const sessions: CDPSession[] = [];
-  /** When each pop-up this page opened was refused; spent by the first request it sends. */
-  const credits: number[] = [];
+  /** Each refused pop-up's target and when it opened; spent by its first request, dropped with it. */
+  const credits = new Map<string, number>();
   const waiting = new Set<() => void>();
   const fresh = () => {
-    while (credits.length > 0 && performance.now() - credits[0]! > POPUP_CREDIT_MS) credits.shift();
-    return credits.length > 0;
+    for (const [targetId, at] of credits)
+      if (performance.now() - at > POPUP_CREDIT_MS) credits.delete(targetId);
+    return credits.size > 0;
   };
   const popups = async (route: Route) => {
     const request = route.request();
@@ -61,7 +62,7 @@ export async function installTaskFence(input: {
         waiting.add(wake);
       });
     if (!fresh()) return route.fallback().catch(constVoid);
-    credits.shift();
+    credits.delete(credits.keys().next().value!);
     return route.abort("aborted").catch(constVoid);
   };
   let routed = false;
@@ -96,10 +97,11 @@ export async function installTaskFence(input: {
     watcher.on("Target.targetCreated", ({ targetInfo: created }) => {
       if (created.type !== "page" || created.openerId !== targetInfo.targetId) return;
       input.onBreach("A pop-up was refused: page reach keeps to its own tab.");
-      credits.push(performance.now());
+      credits.set(created.targetId, performance.now());
       for (const wake of waiting) wake();
-      void watcher.send("Target.closeTarget", { targetId: created.targetId }).catch(constVoid);
     });
+    // A pop-up that never sent a request leaves no claim on another tab's load.
+    watcher.on("Target.targetDestroyed", ({ targetId }) => void credits.delete(targetId));
     await watcher.send("Target.setDiscoverTargets", { discover: true });
     await context.route("**/*", popups);
     routed = true;

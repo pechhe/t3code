@@ -354,7 +354,8 @@ const evaluateCheck = (
       return holds ? { status: "passed" } : { status: "failed", detail: "The URL differs." };
     }
     case "text": {
-      const found = model.text.includes(check.includes);
+      // Visible text carries CSS text-transform, so a case-sensitive "absent" passes while it shows.
+      const found = model.text.toLowerCase().includes(check.includes.toLowerCase());
       if (check.expect === "present")
         return found
           ? { status: "passed" }

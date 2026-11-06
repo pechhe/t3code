@@ -3326,7 +3326,12 @@ const make = Effect.gen(function* () {
       input,
       async (tab) => {
         const key = tabKey(input.threadId, input.tabId);
-        if (taskFences.has(key)) throw new Error("A page-reach fence already holds this tab.");
+        // Leases are exclusive, so a fence still here belongs to a run whose lease is ending.
+        const earlier = taskFences.get(key);
+        if (earlier !== undefined) {
+          taskFences.delete(key);
+          await earlier.stop();
+        }
         const fence = {
           lease: input.lease,
           breach: undefined as string | undefined,
