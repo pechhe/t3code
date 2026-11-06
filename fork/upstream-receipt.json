@@ -3,311 +3,192 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.8-nightly.20261106.4262",
-      "sha": "c55db3e9c72fdf584f4b54192fb39beb88667b59"
-    },
-    "target": {
       "tag": "v0.1.8-nightly.20261106.4275",
       "sha": "6577c6b6185167c0e502fa01f9e8e8f2dee6ff25"
+    },
+    "target": {
+      "tag": "v0.1.8-nightly.20261106.4288",
+      "sha": "32a0531748c44b25072d7495ce0b9bd7e9450a87"
     }
   },
   "fork": {
-    "base": "eb430c1e2ca550546f08906f2cf84deafa5d98e4"
+    "base": "2522013b2514141b7006b4110982778a97183557"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "8207656b163ed624d8e6f4dd839c771d426bf5d3"
+    "blob": "c1bf0e9136081d7f84aa3e85cd9f1cc3699195f5"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.8-nightly.20261106.4275@1793975879",
-  "reviewedAt": "2026-11-06T15:10:00Z",
+  "attempt": "v0.1.8-nightly.20261106.4288@1794000979",
+  "reviewedAt": "2026-11-06T21:52:00Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:e5221f8e-5a76-4357-85da-5f9e2167cf90",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:071b8835-46db-4eae-83fe-a337b8a1e1dc",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
     "upstreamCommits": 12,
     "entriesConsidered": [
+      "account-pools",
+      "agent-policy-roles",
+      "agent-process-ledger",
+      "bounded-browser-tasks",
+      "bounded-decisions",
+      "browser-decision-evaluation",
+      "build-items-hq",
+      "champions",
+      "claude-full-access-no-prompts",
+      "claude-missing-transcript-resume",
       "compact-line",
       "compact-model",
-      "experiments",
-      "agent-policy-roles",
-      "provider-overload-failover",
-      "managed-delegation",
-      "t3-agent-cli",
-      "run-setup-records",
+      "delegated-work-visibility",
       "delegation-settings",
-      "slipjay-workspaces",
-      "slipjay-workspace-archive",
+      "desktop-fork-build",
+      "dev-state-tooling",
+      "device-composer",
+      "dpop-forwarded-proto",
+      "experiments",
+      "fleet-summary",
+      "fork-guidance",
+      "fork-name",
+      "fork-updater",
+      "image-annotation",
+      "landing-test-parallelism",
+      "linked-environments",
+      "live-response-streaming",
+      "managed-browser-roles",
+      "managed-delegation",
+      "mcp-orchestration-annotations",
+      "mobile-fork-screens",
+      "nightly-app-icon",
+      "no-project-chats",
+      "perf-landing-refresh",
+      "perf-markdown-blocks",
+      "perf-persistence-reads",
+      "perf-persistence-writes",
+      "perf-secret-reads",
+      "phi-browser-backend",
+      "preview-browser-lifetime",
+      "project-themes",
+      "provider-overload-failover",
+      "quiet-run-read-state",
+      "repository-chips-hq",
+      "run-interrupt-cause",
+      "run-setup-records",
+      "saved-icon-compatibility",
+      "scheduled-tasks-extensions",
+      "screen-recording-video",
+      "session-tool-listings",
+      "side-chat",
+      "slipjay-command-guard",
+      "slipjay-delivery-config",
       "slipjay-landing",
       "slipjay-release-approvals",
       "slipjay-settings",
-      "slipjay-delivery-config",
-      "validation-tooling",
-      "slipjay-command-guard",
-      "landing-test-parallelism",
-      "timeline-layout-test-fixture",
-      "build-items-hq",
-      "repository-chips-hq",
-      "thread-workflow-chip",
-      "unattended-threads",
-      "thread-watches",
-      "scheduled-tasks-extensions",
-      "champions",
-      "linked-environments",
-      "account-pools",
-      "phi-browser-backend",
-      "managed-browser-roles",
-      "preview-browser-lifetime",
-      "screen-recording-video",
+      "slipjay-workspace-archive",
+      "slipjay-workspaces",
       "snapshot-overlay",
-      "device-composer",
-      "image-annotation",
-      "side-chat",
-      "no-project-chats",
-      "project-themes",
-      "saved-icon-compatibility",
-      "fleet-summary",
-      "live-response-streaming",
-      "web-client-customisation",
-      "mobile-fork-screens",
-      "desktop-fork-build",
-      "fork-name",
-      "nightly-app-icon",
-      "fork-updater",
-      "fork-guidance",
-      "perf-persistence-reads",
-      "perf-secret-reads",
-      "perf-landing-refresh",
-      "perf-persistence-writes",
-      "perf-markdown-blocks",
-      "agent-process-ledger",
-      "dev-state-tooling",
-      "quiet-run-read-state",
-      "delegated-work-visibility",
-      "subagent-return-chip",
-      "session-tool-listings",
-      "run-interrupt-cause",
-      "ws-rpc-group-split",
-      "voice-bridge",
-      "thread-transcript-export",
-      "mcp-orchestration-annotations",
-      "dpop-forwarded-proto",
-      "claude-missing-transcript-resume",
-      "claude-full-access-no-prompts",
-      "bounded-decisions",
-      "browser-decision-evaluation",
-      "bounded-browser-tasks",
       "ssh-launch-respects-boot-service",
-      "unhandled-rejection-keeps-server"
+      "subagent-return-chip",
+      "t3-agent-cli",
+      "thread-transcript-export",
+      "thread-watches",
+      "thread-workflow-chip",
+      "timeline-layout-test-fixture",
+      "unattended-threads",
+      "unhandled-rejection-keeps-server",
+      "validation-tooling",
+      "voice-bridge",
+      "web-client-customisation",
+      "ws-rpc-group-split"
     ],
     "areas": [
-      "apps/server CLI and service launcher (#29284): bin.ts, binMain.ts, scripts/cli.ts, cli/serviceLauncher.ts, apps/server/vite.config.ts \u2014 upstream's own; fork CLI commands (voice-bridge, agent) still registered; covered by voice-bridge, dev-state-tooling and ssh-launch-respects-boot-service",
-      "lineage control (#29285): apps/web/src/components/chat/ThreadRelationshipsControl.tsx \u2014 overlapping conflict, reconciled by adapt for delegated-work-visibility, thread-watches and account-pools",
-      "timeline (#31888): MessagesTimeline.logic.ts keeps todo_list updates static \u2014 adopted under subagent-return-chip",
-      "sidebar (#31924, #27691): Sidebar.tsx drag scroll fixes \u2014 adopted under web-client-customisation",
-      "desktop build and release (#31285, #31941, #31942): apps/desktop/vite.config.ts, scripts/build-desktop-artifact.ts, package.json, release workflows \u2014 adopted under desktop-fork-build",
-      "antigravity client identity (#31158): AntigravityAcpSupport.ts, AntigravityInstallation.ts, AcpSessionRuntime.ts \u2014 adopted under agent-policy-roles",
-      "devices (#25971): DeviceService/DeviceHubOperations/DevicePanel/DeviceSetup, contracts device.ts additive optional incompletePlatforms \u2014 upstream's own, no fork entry",
-      "marketing (#31142): apps/marketing SEO pages \u2014 aside, no fork code",
-      "CI caching (#31937): setup-ci-deps action \u2014 aside"
+      "provider-thread reads start from owned rows (#31012): orchestration-v2/ProjectionStore.ts and its test — the one merge conflict; resolved by adopting upstream's `nodesOwningProviderThreads` helper at all four ownership reads and dropping the fork's inline copy of the same query, under perf-persistence-reads",
+      "background PR discovery gets its own git lane (#32162): ThreadPullRequestService.ts, ThreadSettlementService.ts, vcs/GitVcsDriver.ts (`BackgroundGitWork`), GitVcsDriverCore.ts and its test — the fork's branch-pull-request sweep, settlement timer prefilter and git semaphore call sites carry it unchanged, under perf-persistence-reads",
+      "per-event span reductions (#31584 background-work probe in ClaudeAdapterV2/CodexAdapterV2, #31586 transcript-file usage scans in UsageService, #31017 Cursor's account-usage hash) — adopted; the fork's observability spans and pool usage reads are unchanged, #31017 recorded under account-pools",
+      "provider-muse session views (#32154): adapter.ts, protocol.ts and adapter.test.ts — adopted; the fork's `AgentMcpServers` list and its per-adapter translation are untouched, under build-items-hq",
+      "pull-request descriptions (#25988): packages/client-runtime/src/pullRequestMarkdown.ts, web and mobile PullRequestMarkdown.tsx, pullRequestDescriptionContent.ts, MediaVideoPlayer.tsx — aside; no fork entry meets pull-request markdown",
+      "citation comments (#32142, #32141): AssistantCitationCommentEditor.tsx, VoiceInputPill.tsx, ui/popover.tsx, desktop preview PickPreload.ts and AnnotationStyles.generated.ts — aside; the fork's image-annotation entry covers composer image marks, not citation comments",
+      "azure-devops pull requests (#31928 branches containing #, #29817 a fork's same-named branch) — aside; no fork entry",
+      "voice settings transcription models (#32045): VoiceSettingsPanel.tsx and speechModelBrowser — aside; the fork's voice-bridge entry is the Mac CLI bridge, not the transcription settings"
     ],
     "exclusions": [
       {
         "what": "pnpm-lock.yaml",
-        "why": "mechanical; upstream did not change dependencies in this batch beyond the new build:bundle script"
-      },
-      {
-        "what": "apps/marketing/**",
-        "why": "no fork difference meets it; upstream's own site code"
+        "why": "upstream changed no dependency in this batch; the lockfile is unchanged"
       },
       {
         "what": ".github/workflows/**",
-        "why": "CI only; the fork builds locally through fork-nightly.sh, whose inputs these do not change"
+        "why": "CI only; the fork builds through fork-nightly.sh, whose inputs these do not change"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "delegated-work-visibility",
-      "decision": "adapt",
-      "upstream": "#29285 moves a linked environment's delegated task into the lineage's running/finished groups with collapsible groups",
+      "entry": "perf-persistence-reads",
+      "decision": "adopt",
+      "upstream": "#31012 starts the provider-thread ownership reads from the owned rows (`nodesOwningProviderThreads`: owner index, then one node lookup each) in all four reads, including the single-row contexts that used a correlated node lookup; #32162 gives background PR discovery and the settlement sweep their own two-permit git lane (`BackgroundGitWork`)",
       "requirements": [
-        "a subagent still shows once, in the fork's panel and rows rather than a second list",
-        "the advisor group, subagent-panel exclusion, role chip, row time and Closed marker survive"
+        "the reads still return the same provider threads a thread's nodes own, and reads stay on the reader pool",
+        "the branch pull-request sweep still reads only unarchived thread records and the settlement sweep still skips threads whose inactivity timer is not due",
+        "the fork's inline duplicate at the full read is gone; upstream's own inline copy of the same indexed form in the runtime-recovery projection's `providerThreads` read stays as upstream wrote it"
       ],
       "evidence": [
-        "apps/web/src/components/chat/ThreadRelationshipsControl.tsx: remote rows are LineageRow kinds inside active/Earlier",
-        "ThreadRelationshipsControl.browser.test.tsx and .agents.browser.test.tsx pass (12 tests)"
-      ]
-    },
-    {
-      "entry": "thread-watches",
-      "decision": "adapt",
-      "upstream": "#29285 gives the lineage groups a collapse control",
-      "requirements": [
-        "Watching and Watched by rows still sit beside the graph, not as edges",
-        "a finished watch still rides in the collapsed Earlier list with a Watched badge"
-      ],
-      "evidence": [
-        "ThreadWatchRow renders as a LineageRow kind; Earlier starts collapsed",
-        "the watch test expands Earlier before asserting the badge"
+        "apps/server/src/orchestration-v2/ProjectionStore.ts: four `nodesOwningProviderThreads(threadId)` sites for `getThreadRecords`' provider threads, `getProviderControlContext` and the run and checkpoint rollback contexts; the recovery projection's `providerThreads` read (around line 4848) keeps upstream's pre-existing inline form, and `ProjectionRecovery.test.ts` asserts its plan uses the owner index",
+        "ThreadPullRequestService.ts and ThreadSettlementService.ts provide `GitVcsDriver.BackgroundGitWork` where they did before; GitVcsDriverCore.ts keeps `gitProcesses` for foreground work",
+        "ProjectionStore.test.ts (the fork's owned-provider-thread case plus upstream's added owned-thread assertion), ThreadPullRequestService.test.ts and ProjectionSettlement.test.ts pass"
       ]
     },
     {
       "entry": "account-pools",
       "decision": "adopt",
-      "upstream": "#29285 reads provider instance settings through deriveProviderInstanceEntries/applyProviderInstanceSettings",
+      "upstream": "#31017 stops tracing the per-event Cursor account-usage hash",
       "requirements": [
-        "pool settings still resolve per instance and project",
-        "the panel works before settings load"
+        "the chosen member's usage is still refreshed before routing, delegated tasks included"
       ],
       "evidence": [
-        "ThreadRelationshipsControl.tsx uses serverEnvironment.settingsValueAtom with derived entries as the fallback",
-        "web typecheck clean"
+        "packages/provider-cursor/src/server/accountUsage.ts loses only the span wrap; usage reads are unchanged"
       ]
     },
     {
-      "entry": "desktop-fork-build",
-      "decision": "adapt",
-      "upstream": "#31285 arm64 macOS prebuild exclusion for every native package, #31941 build:bundle CI task, #31942 release uploads",
-      "requirements": [
-        "screen-picker staging, the no-update-feed build and T3 Peach survive",
-        "local signing and the fork bundle entry stay"
-      ],
-      "evidence": [
-        "scripts/build-desktop-artifact.ts and apps/desktop/vite.config.ts keep the screen-picker entry, the electron test alias and resolveDesktopProductName",
-        "build-desktop-artifact.test.ts: 50 pass; the pre-existing asarUnpack mac case and the Windows probe case still fail on the fork base"
-      ]
-    },
-    {
-      "entry": "voice-bridge",
+      "entry": "build-items-hq",
       "decision": "adopt",
-      "upstream": "#29284 rewrites the CLI entry and background service launcher",
+      "upstream": "#32154 lets Muse recover from an unavailable session view (one optional protocol field and a retry path)",
       "requirements": [
-        "t3 voice-bridge is still a registered CLI command",
-        "the bridge runtime is unchanged"
+        "the one `AgentMcpServers` list and its per-adapter translation, with the Forge record queue, are unchanged"
       ],
       "evidence": [
-        "apps/server/src/binCli.ts still lists voiceBridgeCommand; server typecheck clean"
-      ]
-    },
-    {
-      "entry": "ssh-launch-respects-boot-service",
-      "decision": "retain",
-      "upstream": "#29284 touches cli/serviceLauncher.ts, bin.ts and binMain.ts but not the unit format or serverOwnership",
-      "requirements": [
-        "the SSH launcher still defers to a service-owned home"
-      ],
-      "evidence": [
-        "no change in this batch to packages/ssh/src/tunnel.ts, serverOwnership.ts or bootService.ts"
-      ]
-    },
-    {
-      "entry": "subagent-return-chip",
-      "decision": "adopt",
-      "upstream": "#31888 keeps todo_list task updates static in the timeline",
-      "requirements": [
-        "return chips, folds and round anchors read unchanged rows"
-      ],
-      "evidence": [
-        "MessagesTimeline.logic.ts gains three todo_list guards; the fork's fold test failure ('hides tool calls...') also fails on the fork base"
-      ]
-    },
-    {
-      "entry": "web-client-customisation",
-      "decision": "adopt",
-      "upstream": "#31924 and #27691 stop drag and drag-tagging scrolling the sidebar",
-      "requirements": [
-        "the raised-card row, its machine icon and its hover controls are unchanged"
-      ],
-      "evidence": [
-        "apps/web/src/components/Sidebar.tsx merged with both fixes"
-      ]
-    },
-    {
-      "entry": "agent-policy-roles",
-      "decision": "adopt",
-      "upstream": "#31158 identifies T3 Code to agy acp 1.5.1+ and adds an optional clientInfo.title",
-      "requirements": [
-        "Antigravity's managed read-only mode, ask mode and fs/write_text_file denial are unchanged"
-      ],
-      "evidence": [
-        "AntigravityAcpSupport.ts keeps the fork's ProviderAdapter import beside upstream's packageJson import",
-        "AntigravityAcpSupport.test.ts: 55 pass"
-      ]
-    },
-    {
-      "entry": "dev-state-tooling",
-      "decision": "adopt",
-      "upstream": "#29284's fast CLI entry and vite configs",
-      "requirements": [
-        "jj-workspace home resolution, dev watch paths and migrate-dev-db are unchanged"
-      ],
-      "evidence": [
-        "apps/server/src/bin.ts, binMain.ts and apps/server/vite.config.ts merged; server typecheck clean"
-      ]
-    },
-    {
-      "entry": null,
-      "decision": "adopt",
-      "upstream": "#25971 keeps devices listed when simulator discovery fails and adds an optional incompletePlatforms to DeviceHostStatuses",
-      "requirements": [
-        "the added contract field is optional, so shipped clients decode the same payload"
-      ],
-      "evidence": [
-        "packages/contracts/src/device.ts adds one optional field; contracts suites are selected by the gate"
+        "packages/provider-muse/src/server/adapter.test.ts: 39 tests pass"
       ]
     }
   ],
   "unresolved": [],
   "checks": [
     {
-      "command": "node scripts/fork-upstream-receipt.ts skeleton/verify",
+      "command": "vp i",
       "result": "passed",
-      "note": "receipt written against the merge and verified at the candidate"
+      "note": "no dependency change; lockfile untouched"
     },
     {
-      "command": "vp run --filter @t3tools/web typecheck",
+      "command": "vp test run ProjectionStore.test.ts ThreadPullRequestService.test.ts GitVcsDriverCore.test.ts provider-muse adapter.test.ts",
+      "result": "failed",
+      "note": "355 passed, 1 failed: GitVcsDriverCore.test.ts 'keeps generated worktree folders short without changing long branch names' expects `git worktree list` to print the TMPDIR path, but macOS reports `/private/var/...` for `/var/...`. Reproduced at the fork base 27c3cd9d with the three git files restored from it, so it fails on the bare tag and is left."
+    },
+    {
+      "command": "vp test run speechModelBrowser.test.ts client-runtime pullRequestMarkdown.test.ts AssistantCitationChip.browser.test.tsx AzureDevOpsSourceControlProvider.test.ts UsageService.test.ts",
       "result": "passed",
-      "note": "clean after the reconciliation; the lineage panel's side-chat narrowing was fixed once"
+      "note": "99 tests, covering the aside areas"
     },
     {
       "command": "vp run --filter t3 typecheck",
       "result": "passed",
-      "note": "server clean with upstream's new binMain.ts and the fork's CLI commands"
+      "note": "exit 0; only pre-existing effect(schemaClassMissingBrand) suggestions"
     },
     {
-      "command": "vp run --filter @t3tools/desktop typecheck",
+      "command": "vp run --filter @t3tools/web typecheck",
       "result": "passed",
-      "note": "desktop clean with upstream's build:bundle task and the fork's preload entry"
-    },
-    {
-      "command": "vp lint on ThreadRelationshipsControl.tsx, its browser tests and AntigravityAcpSupport.ts",
-      "result": "passed",
-      "note": "no findings"
-    },
-    {
-      "command": "vp test run (apps/web, whole suite)",
-      "result": "failed",
-      "note": "6205 passed, 6 failed after the reconciliation: runtime.test.ts (3), MessagesTimeline.logic.test.ts, BranchToolbar.panel.browser.test.tsx and GuestPage.browser.test.tsx. All six also fail at fork base dd8bdca in an isolated jj workspace (13 failures there, including AttachmentFilePreview's 6 and ChatView's 1, which passed here). Upstream's commits in this batch do not touch those code paths."
-    },
-    {
-      "command": "vp test run ThreadRelationshipsControl.browser.test.tsx, ThreadRelationshipsControl.agents.browser.test.tsx",
-      "result": "passed",
-      "note": "14 tests. Two new cases cover what the reconciliation kept: the Watching/Watched by groups with their rows, and a subagent the composer panel already shows staying out of Lineage (it fails if the panel filter is removed). The two failures the collapse introduced were fixed by opening Earlier in the tests."
-    },
-    {
-      "command": "vp test run apps/server/src/provider/acp/AntigravityAcpSupport.test.ts",
-      "result": "passed",
-      "note": "55 tests"
-    },
-    {
-      "command": "vp test run scripts/build-desktop-artifact.test.ts",
-      "result": "failed",
-      "note": "50 passed, 1 failed: 'applies platform-specific packaging to the build config' asserts mac has no asarUnpack, but the fork's own mac asarUnpack glob is present at the fork base too; the Windows probe case named in earlier receipts still fails as well"
+      "note": "clean"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
@@ -315,9 +196,14 @@
       "note": "the gate lists and selects suites against the merged tree"
     },
     {
-      "command": "code-review (scope change, ticket-reviewer) of the conflict resolutions and reconciliation",
+      "command": "code-review (scope change, reviewer role) of the conflict resolutions and the reconciliation commit",
       "result": "passed",
-      "note": "1 blocking, 2 should-fix. The blocking finding (stale record.blob) was the receipt written before the record's last edit; the blob is regenerated and verify run as the last step. Both should-fix findings answered: two tests added for the behaviours the decision lines claim (watch groups, the subagent-panel exclusion), and the collapse's user-visible change - Earlier was an always-open header and now starts closed, as thread-watches already required - stated in the record's decision lines."
+      "note": "0 blocking, 1 should-fix. The should-fix was an overbroad claim: the record and receipt said no inline owned-rows copy was left, while the runtime-recovery projection's `providerThreads` read still carries upstream's own copy of the same form. Both now name the four helper sites and that upstream-owned copy separately."
+    },
+    {
+      "command": "slipjay land (first attempt)",
+      "result": "failed",
+      "note": "the receipt check refused the candidate as stale: t3peach had moved from 27c3cd9d to 2522013b (one fork commit, a scheduled-task thread panel) while the gate ran. The merge was rebased onto the new tip with both parents (`jj rebase -s <merge> -d t3peach@origin -d <tag>`), which applied cleanly with no conflict in logic, the in-between commit touching only ScheduledTasksPage.tsx and its browser test; the receipt's fork.base and the record's Fork baseline now name 2522013b."
     }
   ],
   "result": "reconciled"
