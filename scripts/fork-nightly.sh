@@ -71,7 +71,7 @@ SIGNING_PASS="$STATE/signing.pass"
 # The SSH host whose remote runtime is the fork too; empty skips it. The host
 # reaches this Mac as `mac` and keeps a clone of the fork at VPS_CLONE, a path
 # on that host (a leading ~ is its home).
-VPS="${T3FORK_VPS-slipjay-test}"
+VPS="${T3FORK_VPS-peach-live}"
 VPS_CLONE="${T3FORK_VPS_CLONE:-~/projects/t3code-fork}"
 # Hosts that run the same fork runtime as VPS without building it: the second VPS.
 # Each keeps a clone at VPS_MIRROR_CLONE, which differs from VPS_CLONE, for the
