@@ -737,7 +737,7 @@ it.effect(
         const ended = yield* service.get({ id: config.id });
         assert.isTrue(
           ended.champion.attention.some(
-            (a) => a.includes("ended without") && a.includes("Run check"),
+            (a) => a.includes("ended without") && a.includes("Check now"),
           ),
         );
         assert.equal(ended.champion.outstandingCheckId, initial.champion.outstandingCheckId);
@@ -1050,8 +1050,8 @@ it.effect(
           summary: "Paused measurement",
         });
         const finding = reported.findings[0]!;
-        yield* refused(
-          service.guardDelegation({
+        const pausedRefusal = yield* service
+          .guardDelegation({
             ownerThreadId: f.caller().threadId,
             clientRequestId: "repair:test",
             request: {
@@ -1062,8 +1062,15 @@ it.effect(
               workspacePath: "/isolated",
               workspaceAssignment: "isolated",
             },
-          }),
-        );
+          })
+          .pipe(
+            Effect.match({
+              onFailure: (error) => error.message,
+              onSuccess: () => assert.fail("Expected a paused champion to refuse delegation."),
+            }),
+          );
+        // The agent reads this message; a bare "unauthorized" sent Bug Hunter chasing the wrong cause.
+        assert.include(pausedRefusal, "paused");
         yield* TestClock.adjust("1 day");
         yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
         yield* service.runDue;
@@ -1144,8 +1151,21 @@ it.effect(
             request: { ...request, ...overrides },
           });
         yield* refused(guard({ workId: "invented" }));
-        yield* refused(guard({ projectId: ProjectId.make("another-project") }));
-        yield* refused(guard({ workspaceAssignment: "lead" }));
+        const refusal = (effect: ReturnType<typeof guard>) =>
+          effect.pipe(
+            Effect.match({
+              onFailure: (error) => error.message,
+              onSuccess: () => assert.fail("Expected the delegation to be refused."),
+            }),
+          );
+        assert.include(
+          yield* refusal(guard({ projectId: ProjectId.make("another-project") })),
+          "own project",
+        );
+        assert.include(
+          yield* refusal(guard({ workspaceAssignment: "lead" })),
+          "isolated workspace",
+        );
         yield* guard();
         yield* guard();
         yield* refused(
@@ -1384,7 +1404,7 @@ it.effect(
         const exhausted = yield* service.get({ id: config.id });
         assert.isTrue(
           exhausted.champion.attention.some(
-            (a) => a.includes("automatic retries exhausted") && a.includes("Run check"),
+            (a) => a.includes("automatic retries exhausted") && a.includes("Check now"),
           ),
         );
         // A person can still retry by hand once the automatic retries are spent.
@@ -1465,11 +1485,17 @@ it.effect(
             findingId: finding.id,
             action: "decision",
             reason: "Should this target include weekends?",
+            proposal: {
+              action: "Include weekends.",
+              why: "Weekend traffic is a third of reads.",
+              otherOptions: "Weekdays only (misses weekend regressions)",
+            },
           },
           "agent",
         );
         const decision = requested.findings.find((x) => x.id === finding.id)!.decision!;
         assert.equal(decision.status, "requested");
+        assert.equal(decision.proposal?.action, "Include weekends.");
         assert.isTrue(requested.champion.attention.some((a) => a.startsWith("Decision:")));
         yield* service.runCheck({ id: config.id });
         yield* service.report(f.caller(), {
@@ -2868,6 +2894,66 @@ it.effect(
         ),
       ),
     ),
+);
+
+it.effect("starts a metrics lead thread on the lead role's current model and records it", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "champion-lead-" });
+    yield* fs.makeDirectory(`${root}/roles`);
+    const manifest = policySnapshot().manifest;
+    const write = (value: typeof manifest) =>
+      fs.writeFileString(`${root}/roles/policy.json`, json(value));
+    yield* write(manifest);
+    for (const role of Object.values(manifest.roles))
+      yield* fs.writeFileString(`${root}/${role.brief}`, "Fixture role brief");
+    const managed = yield* Managed.ManagedAgentService.pipe(Effect.provide(Managed.layer));
+    const f = yield* fixture();
+    f.setProviders([codex]);
+    yield* Effect.gen(function* () {
+      const service = yield* Champions.ChampionService;
+      yield* service.upsert({ ...config, classes: yield* decodeClasses({}).pipe(Effect.orDie) });
+      const lead = (yield* service.classChoices({ projectId })).roles.find(
+        (role) => role.role === "lead",
+      )!.selection!;
+      const { threadId } = yield* service.startMetricsLead({ id: config.id });
+      assert.equal(f.counts().launches, 1);
+      assert.equal(f.launchRequests[0]!.model, lead.model);
+      const history = yield* service.history({ id: config.id });
+      const started = history.activity.find((entry) => entry.kind === "metrics-lead");
+      assert.equal(started?.threadId, threadId);
+
+      yield* write({
+        ...manifest,
+        models: Object.fromEntries(
+          Object.entries(manifest.models).map(([alias, model]) => [
+            alias,
+            { ...model, model: "unavailable-model" },
+          ]),
+        ),
+      });
+      yield* refused(service.startMetricsLead({ id: config.id }));
+      assert.equal(f.counts().launches, 1);
+    }).pipe(
+      Effect.provide(f.layer),
+      Effect.provideService(Managed.ManagedAgentService, managed),
+      Effect.provideService(
+        ConfigProvider.ConfigProvider,
+        ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: root }),
+      ),
+    );
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        Sqlite.layerMemory,
+        NodeServices.layer,
+        NodeCrypto.layer,
+        Layer.mock(ProcessRunner.ProcessRunner)({
+          run: () => Effect.die("Unexpected process launch"),
+        }),
+      ),
+    ),
+  ),
 );
 
 it.effect(

@@ -3652,6 +3652,7 @@ const layerWsChampionsRpc = ServerWsChampionsRpcGroup.toLayer(
       [WS_METHODS.championsPropose]: (input) => champions.propose(input),
       [WS_METHODS.championsDiscardProposal]: (input) => champions.discardProposal(input),
       [WS_METHODS.championsCancelSetup]: (input) => champions.cancelSetup(input),
+      [WS_METHODS.championsStartMetricsLead]: (input) => champions.startMetricsLead(input),
       [WS_METHODS.championsAccept]: (input) => champions.accept(input),
       [WS_METHODS.championsFindingAction]: (input) => champions.findingAction(input),
     });

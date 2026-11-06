@@ -257,12 +257,12 @@ export function ChampionMetricRow(props: {
   const current = metricSeries(metric, [], samples).find((view) => view.current)?.samples ?? [];
   const Chevron = open ? ChevronDownIcon : ChevronRightIcon;
   return (
-    <div>
+    <div className="@container/metric">
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="grid w-full grid-cols-[minmax(0,1fr)_auto_14px] items-center gap-3 px-3 py-2.5 text-start hover:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:grid-cols-[minmax(0,1fr)_120px_128px_14px]"
+        className="grid w-full grid-cols-[minmax(0,1fr)_auto_14px] items-center gap-3 px-3 py-2.5 text-start hover:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring @lg/metric:grid-cols-[minmax(0,1fr)_120px_128px_14px]"
       >
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="flex flex-wrap items-baseline gap-x-2">
@@ -271,11 +271,8 @@ export function ChampionMetricRow(props: {
             {(metric.required ?? true) ? null : <Badge variant="outline">Optional</Badge>}
             {stale ? <Badge variant="warning">Out of date</Badge> : null}
           </span>
-          {metric.description ? (
-            <span className="line-clamp-2 text-muted-foreground text-xs">{metric.description}</span>
-          ) : null}
         </span>
-        <span className="col-span-full row-start-2 max-w-45 sm:col-span-1 sm:row-start-auto">
+        <span className="hidden max-w-45 @lg/metric:block">
           <ChampionSparkline samples={current} label={metric.name} />
         </span>
         <span className="flex flex-col items-end gap-0.5 text-end">

@@ -387,6 +387,7 @@ const ACTIVITY_TITLES: Readonly<Record<string, string>> = {
   reopen: "Finding reopened",
   decision: "Decision requested",
   resolve_decision: "Decision answered",
+  "metrics-lead": "Lead started on metrics",
   "proposal-discarded": "Proposal discarded",
   "setup-cancelled": "Setup cancelled",
   "setup-completed": "Metrics reviewed, no change",
@@ -829,3 +830,14 @@ export function championRecentRuns(state: ChampionRuntimeState): ReadonlyArray<C
 
 export const sameChampionModel = (a: ModelSelection, b: ModelSelection) =>
   a.instanceId === b.instanceId && a.model === b.model;
+
+/** The newest check report, which opens with the champion's progress towards its goal. */
+export function latestGoalProgress(
+  activity: ReadonlyArray<ChampionActivity>,
+): ChampionActivity | null {
+  let latest: ChampionActivity | null = null;
+  for (const event of activity)
+    if (event.kind === "check-reported" && (latest === null || event.at > latest.at))
+      latest = event;
+  return latest;
+}

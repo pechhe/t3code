@@ -134,6 +134,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.championsPropose]: "champions",
   [WS_METHODS.championsDiscardProposal]: "champions",
   [WS_METHODS.championsCancelSetup]: "champions",
+  [WS_METHODS.championsStartMetricsLead]: "champions",
   [WS_METHODS.championsAccept]: "champions",
   [WS_METHODS.championsFindingAction]: "champions",
   [WS_METHODS.scheduledTasksList]: "scheduledTasks",

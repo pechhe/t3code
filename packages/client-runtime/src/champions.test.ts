@@ -16,6 +16,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   championCadenceMs,
+  championApprovalAnswer,
   championFailureMessage,
   championFindingRuntime,
   championLoadFailureMessage,
@@ -214,6 +215,17 @@ describe("failure messages", () => {
     const conflict = new ChampionError({ reason: "conflict" });
     expect(championFailureMessage(conflict, "cancel-setup")).toContain("still starting");
     expect(championFailureMessage(conflict, "decision")).toContain("decision");
+    expect(
+      championFailureMessage(
+        new ChampionError({
+          reason: "unavailable",
+          detail: "No model is available for the lead role.",
+        }),
+        "setup",
+      ),
+    ).toBe("No model is available for the lead role.");
+    expect(championApprovalAnswer("Measure over 7 days.")).toBe("Approved: Measure over 7 days.");
+    expect(championApprovalAnswer("x".repeat(500))).toHaveLength(500);
   });
 });
 

@@ -19,6 +19,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import {
+  latestGoalProgress,
   championActivityView,
   championClassOptions,
   championDecisionBindingChanged,
@@ -733,4 +734,16 @@ describe("championRecentRuns", () => {
     expect(runs[0]?.actual?.model).toBe("actual");
     expect(runs[1]?.actual).toBeNull();
   });
+});
+
+it("shows the newest check report as the goal's latest progress", () => {
+  expect(latestGoalProgress([event({ kind: "configuration" })])).toBeNull();
+  const newest = event({ id: "new", kind: "check-reported", at: "2026-10-06T00:00:00.000Z" });
+  expect(
+    latestGoalProgress([
+      event({ id: "old", kind: "check-reported" }),
+      newest,
+      event({ id: "later", kind: "finding-opened", at: "2026-10-07T00:00:00.000Z" }),
+    ]),
+  ).toBe(newest);
 });

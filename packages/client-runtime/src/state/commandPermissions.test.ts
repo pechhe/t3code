@@ -77,6 +77,7 @@ describe("command permissions", () => {
     WS_METHODS.championsPropose,
     WS_METHODS.championsDiscardProposal,
     WS_METHODS.championsCancelSetup,
+    WS_METHODS.championsStartMetricsLead,
     WS_METHODS.championsAccept,
     WS_METHODS.championsFindingAction,
   ])("authorizes champion mutations against the destination environment: %s", (method) =>

@@ -908,7 +908,7 @@ describe("subagent live state", () => {
   });
 });
 
-it("hides quiet champion owners from shared lists while retaining direct links and actionable attention", () => {
+it("hides champion owners from shared lists until the thread itself waits on someone", () => {
   const harness = makeHarness();
   const champion = { ...v2ThreadShell, champion: { id: "quality", attention: false } };
   const list = harness.threads.quietThreadShellsAtom;
@@ -930,6 +930,21 @@ it("hides quiet champion owners from shared lists while retaining direct links a
     harness.registry.set(harness.snapshotAtom(environmentId), {
       ...v2ShellSnapshot,
       threads: [{ ...champion, champion: { id: "quality", attention: true } }],
+    });
+    // Champion attention shows on the Champion page, not as a listed thread.
+    expect(harness.registry.get(list)).toEqual([]);
+    harness.registry.set(harness.snapshotAtom(environmentId), {
+      ...v2ShellSnapshot,
+      threads: [
+        {
+          ...champion,
+          pendingRuntimeRequest: {
+            id: RuntimeRequestId.make("question"),
+            kind: "user_input" as const,
+            createdAt: v2Now,
+          },
+        },
+      ],
     });
     expect(harness.registry.get(list).map((t) => t.id)).toEqual([champion.id]);
     expect(harness.registry.get(projectList).map((t) => t.id)).toEqual([champion.id]);

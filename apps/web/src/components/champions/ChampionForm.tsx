@@ -487,10 +487,10 @@ function ChampionFormFields(props: {
         </div>
       ) : null}
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="champion-purpose">What should stay true?</Label>
+        <Label htmlFor="champion-purpose">Goal</Label>
         <Textarea
           id="champion-purpose"
-          placeholder="For example: keyboard users can reach every action in the app."
+          placeholder="What good looks like, in a sentence or two. For example: YardSmith feels instant, with every common screen usable in under 300 ms on Production."
           value={purpose}
           onChange={(event) => setPurpose(event.target.value)}
         />

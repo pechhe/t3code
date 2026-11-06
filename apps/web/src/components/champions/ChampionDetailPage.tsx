@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { championStatus } from "@t3tools/client-runtime/champions";
+import { championStatus, pendingChampionDecision } from "@t3tools/client-runtime/champions";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import type { ChampionDetail, ChampionSummary, EnvironmentId } from "@t3tools/contracts";
@@ -24,7 +24,7 @@ import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { AGENT_ROLE_PRESENTATION } from "../AgentRoleChip";
 import { ModelLabel } from "../ModelLabel";
-import { ScheduledRelativeLabel, scheduleLabel } from "../scheduled/scheduledTaskParts";
+import { ScheduledRelativeLabel } from "../scheduled/scheduledTaskParts";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -32,10 +32,13 @@ import { Skeleton } from "../ui/skeleton";
 import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { ChampionActivityList } from "./ChampionActivityList";
+import { ChampionActivityList, ChampionDecisionList } from "./ChampionActivityList";
+import { ChampionRunStrip } from "./ChampionHowItWorks";
+import { ClampedText } from "./ClampedText";
 import { ChampionMetricRow } from "./ChampionMetrics";
 import {
   championActivityView,
+  latestGoalProgress,
   metricChange,
   metricTargetLabel,
   retiredMetrics,
@@ -411,6 +414,14 @@ export function ChampionDetailPage(props: {
     environmentId,
   );
   const canRunCheck = useChampionCommandAllowed(serverEnvironment.runChampionCheck, environmentId);
+  const startLead = useAtomCommand(serverEnvironment.startChampionMetricsLead, {
+    label: "champion metrics lead",
+    reportFailure: false,
+  });
+  const canStartLead = useChampionCommandAllowed(
+    serverEnvironment.startChampionMetricsLead,
+    environmentId,
+  );
   const canSetup = useChampionCommandAllowed(serverEnvironment.setupChampion, environmentId);
   const machineConnected = useChampionMachineConnected(environmentId);
   // Editing only opens a draft, which is kept until the machine can take it.
@@ -430,10 +441,19 @@ export function ChampionDetailPage(props: {
   );
   const machines = new Set(projects.map((candidate) => candidate.environmentId));
   const machine = environments.find((candidate) => candidate.environmentId === environmentId);
-  const attention = retired ? [] : champion.attention.filter((line) => !STAGE_ATTENTION.has(line));
+  // Decisions show as their own cards, so their attention lines would only repeat them.
+  const attention = retired
+    ? []
+    : champion.attention.filter(
+        (line) => !STAGE_ATTENTION.has(line) && !line.startsWith("Decision: "),
+      );
   const activity = championActivityView(detail?.findings ?? [], history.activity, history.findings);
+  const pendingDecisions = (detail?.findings ?? []).filter(
+    (finding) => pendingChampionDecision(finding) !== null,
+  ).length;
   const noLongerTracked = retiredMetrics(metrics, history.definitions);
   const ownerThreadExists = champion.lastCheckAt !== null || checkRunning;
+  const goalProgress = latestGoalProgress(history.activity);
   const badge = statusBadge(championStatus(champion, nowMs));
   const paused = champion.lifecycle === "paused";
 
@@ -442,6 +462,18 @@ export function ChampionDetailPage(props: {
       () => setLifecycle({ environmentId, input: { id, lifecycle } }),
     ]);
   const startSetup = () => run("setup", "setup", [() => setup({ environmentId, input: { id } })]);
+  const startLeadFix = () =>
+    run("lead", "setup", [
+      async () => {
+        const result = await startLead({ environmentId, input: { id } });
+        if (result._tag === "Success")
+          void navigate({
+            to: "/$environmentId/$threadId",
+            params: { environmentId, threadId: result.value.threadId },
+          });
+        return result;
+      },
+    ]);
   const startCheck = () =>
     run("check", "check", [() => runCheck({ environmentId, input: { id } })]);
   const openMetricsEditor = () =>
@@ -481,8 +513,216 @@ export function ChampionDetailPage(props: {
           ? "Accept or discard the current proposal first."
           : "Runs this champion's metric setup to suggest changes. Your metric definitions stay as they are until you accept.";
 
+  const decisionsSection = (
+    <section className="flex flex-col gap-2" aria-label="Your decisions">
+      <SectionHeading
+        title={
+          pendingDecisions === 1 ? "1 decision for you" : `${pendingDecisions} decisions for you`
+        }
+      />
+      <ChampionDecisionList
+        environmentId={environmentId}
+        championId={id}
+        view={activity}
+        loading={history.loading || detail === null}
+        runtimeState={runtimeQuery.data}
+        runtimeFailed={runtimeQuery.error !== null}
+        paused={paused}
+        onChanged={() => {
+          detailQuery.refresh();
+          runtimeQuery.refresh();
+        }}
+      />
+    </section>
+  );
+  const metricsSection = (
+    <section className="flex flex-col gap-2" aria-label="Metrics">
+      <SectionHeading title="Metrics">
+        {hasMetrics && !retired ? (
+          <div className="flex flex-wrap items-center justify-end gap-1">
+            <Button size="xs" variant="ghost-muted" onClick={openMetricsEditor}>
+              Edit metrics
+            </Button>
+            <ReasonedTooltip reason={askReviewReason}>
+              <Button
+                size="xs"
+                variant="ghost-muted"
+                disabled={!canSetup || setupRunning || proposal !== null || busy !== null}
+                onClick={() => void startSetup()}
+              >
+                {busy === "setup" ? "Starting…" : "Ask AI to review metrics"}
+              </Button>
+            </ReasonedTooltip>
+            <ReasonedTooltip
+              reason={
+                !machineConnected
+                  ? MACHINE_NOT_CONNECTED
+                  : !canStartLead
+                    ? "This device can't start threads on this machine"
+                    : "Starts a Spec lead thread that works out what's wrong with these metrics, plans a fix and builds it. You accept any new metrics here."
+              }
+            >
+              <Button
+                size="xs"
+                variant="ghost-muted"
+                disabled={!machineConnected || !canStartLead || busy !== null}
+                onClick={() => void startLeadFix()}
+              >
+                {busy === "lead" ? "Starting…" : "Fix with a lead"}
+              </Button>
+            </ReasonedTooltip>
+          </div>
+        ) : null}
+      </SectionHeading>
+      {attention.length > 0 ? (
+        <ul className="flex flex-col gap-0.5 text-warning-foreground text-xs">
+          {attention.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      {setupRunning && !retired ? (
+        <SetupStatus
+          environmentId={environmentId}
+          champion={champion}
+          hasMetrics={hasMetrics}
+          retryDisabled={!canSetup || busy !== null}
+          onRetry={() => void startSetup()}
+          cancelDisabled={!canCancelSetup || busy !== null}
+          onCancel={() =>
+            void run("cancel-setup", "cancel-setup", [
+              () => cancelSetup({ environmentId, input: { id } }),
+            ])
+          }
+        />
+      ) : null}
+      {detail && !retired ? (
+        <ProposalCard
+          environmentId={environmentId}
+          detail={detail}
+          setupRunning={setupRunning}
+          onEdit={openMetricsEditor}
+        />
+      ) : null}
+      {detailQuery.error && detail === null ? (
+        <Alert variant="error">
+          <AlertTitle>Metrics couldn't load</AlertTitle>
+          <AlertDescription>{detailQuery.error}</AlertDescription>
+          <AlertAction>
+            <Button size="xs" variant="outline" onClick={() => detailQuery.refresh()}>
+              Try again
+            </Button>
+          </AlertAction>
+        </Alert>
+      ) : detail === null ? (
+        <div className="flex flex-col gap-2 rounded-lg border p-3" aria-busy="true">
+          <Skeleton className="h-4 w-3/5" />
+          <Skeleton className="h-4 w-4/5" />
+        </div>
+      ) : hasMetrics ? (
+        <div className="flex flex-col divide-y overflow-hidden rounded-lg border bg-card">
+          {metrics.map((metric) => (
+            <ChampionMetricRow
+              key={metric.id}
+              environmentId={environmentId}
+              metric={metric}
+              lifecycle={champion.lifecycle}
+              schedule={champion.schedule}
+              latestSamples={detail.latestSamples ?? champion.latestSamples}
+              definitions={history.definitions}
+              samples={history.samples}
+              hasOlder={history.hasOlder}
+            />
+          ))}
+        </div>
+      ) : proposal === null && !setupRunning && !retired ? (
+        <div className="flex flex-col gap-2 rounded-lg border p-3 text-sm">
+          <p className="text-muted-foreground">No metrics yet.</p>
+          <div className="flex flex-wrap gap-2">
+            <ReasonedTooltip reason="Runs this champion's metric setup. Nothing starts until you accept its proposal.">
+              <Button
+                size="sm"
+                disabled={!canSetup || busy !== null}
+                onClick={() => void startSetup()}
+              >
+                {busy === "setup" ? "Starting…" : "Ask AI to propose metrics"}
+              </Button>
+            </ReasonedTooltip>
+            <Button size="sm" variant="ghost" onClick={openMetricsEditor}>
+              Add metrics myself
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {detail !== null ? (
+        <RetiredMetrics
+          environmentId={environmentId}
+          metrics={noLongerTracked}
+          definitions={history.definitions}
+          samples={history.samples}
+          hasOlder={history.hasOlder}
+          schedule={champion.schedule}
+        />
+      ) : null}
+    </section>
+  );
+  const activitySection = (
+    <section className="flex flex-col gap-2" aria-label="Activity">
+      <SectionHeading title="Activity" />
+      <ChampionActivityList
+        environmentId={environmentId}
+        championId={id}
+        view={activity}
+        loading={history.loading || detail === null}
+        runtimeState={runtimeQuery.data}
+        runtimeFailed={runtimeQuery.error !== null}
+        paused={paused}
+        onChanged={() => {
+          detailQuery.refresh();
+          runtimeQuery.refresh();
+        }}
+      />
+      {runtimeQuery.error && runtimeQuery.data === null ? (
+        <Alert variant="error">
+          <AlertTitle>Research and recommendations couldn't load</AlertTitle>
+          <AlertDescription>
+            Findings above may be missing them. This doesn't mean there are none.
+          </AlertDescription>
+          <AlertAction>
+            <Button size="xs" variant="outline" onClick={() => runtimeQuery.refresh()}>
+              Try again
+            </Button>
+          </AlertAction>
+        </Alert>
+      ) : null}
+      {history.error ? (
+        <Alert variant="error">
+          <AlertTitle>History couldn't load</AlertTitle>
+          <AlertDescription>
+            Readings and activity below this point are unavailable, not empty.
+          </AlertDescription>
+          <AlertAction>
+            <Button size="xs" variant="outline" onClick={() => history.refresh()}>
+              Try again
+            </Button>
+          </AlertAction>
+        </Alert>
+      ) : null}
+      {history.hasOlder ? (
+        <Button
+          size="xs"
+          variant="ghost-muted"
+          className="self-start"
+          onClick={() => setPageCount((count) => count + 1)}
+        >
+          Load older readings and activity
+        </Button>
+      ) : null}
+    </section>
+  );
+
   return (
-    <div className="mx-auto flex max-w-180 flex-col gap-5.5 p-4 sm:p-6">
+    <div className="@container/champion mx-auto flex w-full max-w-300 flex-col gap-4 p-4 sm:p-6">
       <div className="flex flex-col gap-2">
         {/* Wraps on available width, not the viewport: the list pane and Browser panel narrow it. */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -525,8 +765,8 @@ export function ChampionDetailPage(props: {
                     (checkRunning
                       ? "A check is running. Running again retries it if it stopped without reporting."
                       : paused
-                        ? "Paused, so this only measures and reports. It starts no repairs."
-                        : null)
+                        ? "Runs a check now. Paused, so it only measures and reports, and starts no fixes."
+                        : "Runs a check now instead of waiting for the next scheduled one.")
                   }
                 >
                   <Button
@@ -536,7 +776,7 @@ export function ChampionDetailPage(props: {
                     onClick={() => void startCheck()}
                   >
                     {checkRunning ? <Spinner aria-hidden className="size-3.5" /> : <PlayIcon />}
-                    {checkRunning ? "Checking…" : paused ? "Measure only" : "Run check"}
+                    {checkRunning ? "Checking…" : "Check now"}
                   </Button>
                 </ReasonedTooltip>
                 <Button
@@ -571,65 +811,36 @@ export function ChampionDetailPage(props: {
           </div>
         </div>
         <ChampionMachineNotice environmentId={environmentId} />
-        <p className="text-sm">{champion.purpose}</p>
-        <p className="text-muted-foreground text-xs">
-          {project?.title ?? "Project not loaded"}
-          {machines.size > 1 && machine ? ` · ${machine.label}` : ""}
-          {" · "}
-          {scheduleLabel(champion.schedule)}
-          {" · "}
-          {champion.lastCheckAt !== null ? (
-            <>
-              Checked <ScheduledRelativeLabel value={champion.lastCheckAt} />
-            </>
-          ) : (
-            "Not checked yet"
-          )}
-          {champion.lifecycle === "active" && champion.nextCheckAt !== null ? (
-            <>
-              {" · Next "}
-              <ScheduledRelativeLabel value={champion.nextCheckAt} />
-            </>
-          ) : champion.lifecycle === "paused" && champion.lastCheckAt !== null ? (
-            " · Paused, so readings are getting old"
+        <div className="flex flex-col gap-1">
+          <p className="text-sm">
+            <span className="text-muted-foreground">Goal: </span>
+            {champion.purpose}
+          </p>
+          {goalProgress ? (
+            <ClampedText
+              className="line-clamp-1 text-muted-foreground text-sm"
+              text={goalProgress.text}
+            >
+              <span className="text-foreground">Latest: </span>
+              {goalProgress.text}{" "}
+              <span className="text-xs">
+                (<ScheduledRelativeLabel value={goalProgress.at} />)
+              </span>
+            </ClampedText>
           ) : null}
-          {champion.classes ? (
-            <>
-              {" · Checks run as "}
-              {AGENT_ROLE_PRESENTATION[champion.classes.routine.role].label}
-              {", setup and larger challenges as "}
-              {AGENT_ROLE_PRESENTATION[champion.classes.setup.role].label}
-            </>
-          ) : null}
-          {ownerThreadExists ? (
-            <>
-              {" · "}
-              <Link
-                to="/$environmentId/$threadId"
-                params={{ environmentId, threadId: champion.ownerThreadId }}
-                className="underline-offset-2 hover:underline"
-              >
-                Open owner thread
-              </Link>
-            </>
-          ) : null}
-        </p>
+        </div>
+        <ChampionRunStrip
+          environmentId={environmentId}
+          champion={champion}
+          runtimeState={runtimeQuery.data}
+          projectTitle={project?.title ?? null}
+          machineLabel={machines.size > 1 && machine ? machine.label : null}
+          ownerThreadExists={ownerThreadExists}
+        />
         {retired ? (
           <p className="text-muted-foreground text-xs">
             Retired. Checks and repairs don't run; history stays here. Restoring leaves it paused.
           </p>
-        ) : null}
-        {attention.length > 0 ? (
-          <Alert variant="warning">
-            <AlertTitle>Needs attention</AlertTitle>
-            <AlertDescription>
-              <ul className="flex flex-col gap-0.5">
-                {attention.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-            </AlertDescription>
-          </Alert>
         ) : null}
         {error ? (
           <p role="alert" className="text-destructive-foreground text-sm">
@@ -638,163 +849,15 @@ export function ChampionDetailPage(props: {
         ) : null}
       </div>
 
-      <section className="flex flex-col gap-2" aria-label="Metrics">
-        <SectionHeading title="Metrics">
-          {hasMetrics && !retired ? (
-            <div className="flex flex-wrap items-center justify-end gap-1">
-              <Button size="xs" variant="ghost-muted" onClick={openMetricsEditor}>
-                Edit metrics
-              </Button>
-              <ReasonedTooltip reason={askReviewReason}>
-                <Button
-                  size="xs"
-                  variant="ghost-muted"
-                  disabled={!canSetup || setupRunning || proposal !== null || busy !== null}
-                  onClick={() => void startSetup()}
-                >
-                  {busy === "setup" ? "Starting…" : "Ask AI to review metrics"}
-                </Button>
-              </ReasonedTooltip>
-            </div>
-          ) : null}
-        </SectionHeading>
-        {setupRunning && !retired ? (
-          <SetupStatus
-            environmentId={environmentId}
-            champion={champion}
-            hasMetrics={hasMetrics}
-            retryDisabled={!canSetup || busy !== null}
-            onRetry={() => void startSetup()}
-            cancelDisabled={!canCancelSetup || busy !== null}
-            onCancel={() =>
-              void run("cancel-setup", "cancel-setup", [
-                () => cancelSetup({ environmentId, input: { id } }),
-              ])
-            }
-          />
-        ) : null}
-        {detail && !retired ? (
-          <ProposalCard
-            environmentId={environmentId}
-            detail={detail}
-            setupRunning={setupRunning}
-            onEdit={openMetricsEditor}
-          />
-        ) : null}
-        {detailQuery.error && detail === null ? (
-          <Alert variant="error">
-            <AlertTitle>Metrics couldn't load</AlertTitle>
-            <AlertDescription>{detailQuery.error}</AlertDescription>
-            <AlertAction>
-              <Button size="xs" variant="outline" onClick={() => detailQuery.refresh()}>
-                Try again
-              </Button>
-            </AlertAction>
-          </Alert>
-        ) : detail === null ? (
-          <div className="flex flex-col gap-2 rounded-lg border p-3" aria-busy="true">
-            <Skeleton className="h-4 w-3/5" />
-            <Skeleton className="h-4 w-4/5" />
-          </div>
-        ) : hasMetrics ? (
-          <div className="flex flex-col divide-y overflow-hidden rounded-lg border bg-card">
-            {metrics.map((metric) => (
-              <ChampionMetricRow
-                key={metric.id}
-                environmentId={environmentId}
-                metric={metric}
-                lifecycle={champion.lifecycle}
-                schedule={champion.schedule}
-                latestSamples={detail.latestSamples ?? champion.latestSamples}
-                definitions={history.definitions}
-                samples={history.samples}
-                hasOlder={history.hasOlder}
-              />
-            ))}
-          </div>
-        ) : proposal === null && !setupRunning && !retired ? (
-          <div className="flex flex-col gap-2 rounded-lg border p-3 text-sm">
-            <p className="text-muted-foreground">No metrics yet.</p>
-            <div className="flex flex-wrap gap-2">
-              <ReasonedTooltip reason="Runs this champion's metric setup. Nothing starts until you accept its proposal.">
-                <Button
-                  size="sm"
-                  disabled={!canSetup || busy !== null}
-                  onClick={() => void startSetup()}
-                >
-                  {busy === "setup" ? "Starting…" : "Ask AI to propose metrics"}
-                </Button>
-              </ReasonedTooltip>
-              <Button size="sm" variant="ghost" onClick={openMetricsEditor}>
-                Add metrics myself
-              </Button>
-            </div>
-          </div>
-        ) : null}
-        {detail !== null ? (
-          <RetiredMetrics
-            environmentId={environmentId}
-            metrics={noLongerTracked}
-            definitions={history.definitions}
-            samples={history.samples}
-            hasOlder={history.hasOlder}
-            schedule={champion.schedule}
-          />
-        ) : null}
-      </section>
-
-      <section className="flex flex-col gap-2" aria-label="Activity">
-        <SectionHeading title="Activity" />
-        <ChampionActivityList
-          environmentId={environmentId}
-          championId={id}
-          view={activity}
-          loading={history.loading || detail === null}
-          runtimeState={runtimeQuery.data}
-          runtimeFailed={runtimeQuery.error !== null}
-          paused={paused}
-          onChanged={() => {
-            detailQuery.refresh();
-            runtimeQuery.refresh();
-          }}
-        />
-        {runtimeQuery.error && runtimeQuery.data === null ? (
-          <Alert variant="error">
-            <AlertTitle>Research and recommendations couldn't load</AlertTitle>
-            <AlertDescription>
-              Findings above may be missing them. This doesn't mean there are none.
-            </AlertDescription>
-            <AlertAction>
-              <Button size="xs" variant="outline" onClick={() => runtimeQuery.refresh()}>
-                Try again
-              </Button>
-            </AlertAction>
-          </Alert>
-        ) : null}
-        {history.error ? (
-          <Alert variant="error">
-            <AlertTitle>History couldn't load</AlertTitle>
-            <AlertDescription>
-              Readings and activity below this point are unavailable, not empty.
-            </AlertDescription>
-            <AlertAction>
-              <Button size="xs" variant="outline" onClick={() => history.refresh()}>
-                Try again
-              </Button>
-            </AlertAction>
-          </Alert>
-        ) : null}
-        {history.hasOlder ? (
-          <Button
-            size="xs"
-            variant="ghost-muted"
-            className="self-start"
-            onClick={() => setPageCount((count) => count + 1)}
-          >
-            Load older readings and activity
-          </Button>
-        ) : null}
-      </section>
+      <div className="grid gap-5 @2xl/champion:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] @2xl/champion:items-start">
+        <div className="flex flex-col gap-5">
+          {pendingDecisions > 0 ? decisionsSection : metricsSection}
+        </div>
+        <div className="flex flex-col gap-5">
+          {pendingDecisions > 0 ? metricsSection : null}
+          {activitySection}
+        </div>
+      </div>
     </div>
   );
 }

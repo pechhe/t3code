@@ -177,6 +177,10 @@ export class ChampionService extends Context.Service<
     readonly setLifecycle: DetailOperation<{ id: string; lifecycle: ChampionLifecycle }>;
     readonly setup: DetailOperation<{ id: string }>;
     readonly runCheck: DetailOperation<{ id: string }>;
+    /** Starts a thread on the lead role to shape and lead a fix for this champion's metrics. */
+    readonly startMetricsLead: (input: {
+      readonly id: string;
+    }) => Effect.Effect<{ readonly threadId: ThreadId }, ChampionError>;
     readonly propose: DetailOperation<{
       id: string;
       metrics: ReadonlyArray<ChampionMetricInput>;
@@ -717,10 +721,11 @@ const make = Effect.gen(function* () {
   });
   const prompt = (doc: Document, check: Check) =>
     [
-      `You own champion ${doc.champion.name} in this project. Purpose: ${doc.champion.purpose}`,
+      `You own champion ${doc.champion.name} in this project. Your goal: ${doc.champion.purpose}`,
+      "Work towards the goal, not the metrics. Metrics are your instruments for seeing progress; when they cannot show it (blank, insufficient, or measuring the wrong thing), say so and propose a better metric with t3_champions_propose_metrics for the user to accept.",
       check.kind === "setup"
-        ? "SETUP: inspect the actual product and propose useful measurable metrics with t3_champions_propose_metrics, or call t3_champions_complete_setup with a no-change summary. Proposals require user acceptance. Do not edit the shared root or delegate repairs during setup."
-        : "CHECK: call t3_champions_check_context, collect honest observations, and call t3_champions_report before finishing. Dispatch alone is not completion.",
+        ? 'SETUP: inspect the actual product and propose measurable metrics that show progress towards the goal with t3_champions_propose_metrics, or call t3_champions_complete_setup with a no-change summary. Name each metric in plain words someone outside engineering understands ("How long common screens take to become usable", not "Sentinel usable readiness"), and start its description with one plain sentence on what it tells the user about the goal; method detail follows. Renaming or rewording a metric keeps its series, so fix unclear names on any setup. Proposals require user acceptance. Do not edit the shared root or delegate repairs during setup.'
+        : "CHECK: call t3_champions_check_context, then ask what most stands in the way of the goal right now. Collect honest observations and call t3_champions_report before finishing; its summary opens with one or two plain sentences on progress towards the goal, then the readings. Dispatch alone is not completion.",
       `Check claim: ${check.id}. Definitions were frozen when this check started. ${check.measureOnly ? "MEASURE ONLY: do not dispatch repairs." : "Own bounded improvements through normal delegate_task managed roles."}`,
       "Follow each frozen metric method. Copy metricId, version, unit and source verbatim from t3_champions_check_context; never paraphrase source. Put actual execution commands, paths and collection details in evidence. If collection fails, report value null with status error and explain why; never invent a numeric value.",
       "Read and measure at the project root; every writer must use an isolated workspace. Never edit the shared root. Keep this owner thread and its namespace across checks. Do not archive or replace it while children are live.",
@@ -729,6 +734,7 @@ const make = Effect.gen(function* () {
       "Before a bounded investigation, call t3_champions_learning_query for its exact topic and retain the current retrieval receipt, including a legitimate empty result. Call t3_champions_start_investigation with distinct read-only hypotheses, then delegate only its returned branch workId/attemptId through normal managed roles in this project. At most three alternatives, two active branches, six admitted attempts per investigation and six per champion per rolling 24 hours; follow-ups count. Unknown launches hold capacity; replay the same identity instead of duplicating work.",
       "Call t3_champions_synthesize as the owner. Write recommendation as concise, coherent prose explaining the action, rationale, benefits, material trade-offs, uncertainty and proposed scope. Avoid labelled sections or a taxonomy; the user reads the finding issue, your recommendation and an answer field. Retain structured supporting fields for history and optional evidence expansion. Its immutable revision requests the user's decision; recheck the current revision and finding attempt before acting on an answer. Retain dated conditional learning with t3_champions_record_learning, including failed or inconclusive attempts and observed component versions. Due learning is uncertain and never authorizes an automatic paid rerun. Leaves return evidence; only you retain synthesis and learning.",
       "Use t3_champions_update_finding for handoff, confirmed SlipJay delivery and verification. Verification requires a comparable later measurement on the delivered/running revision. Missing evidence is inconclusive. Ordinary decisions go in the finding decision ledger and attention; keep measuring instead of blocking on questions.",
+      "Write for a busy reader. Start each finding's evidence with one plain sentence naming the problem and its effect; raw numbers and commands follow. Request a decision with t3_champions_finding_action action decision: reason is the question in one line, and proposal gives action (the path you recommend, one sentence), why (one sentence) and otherOptions (each alternative in a few words with its main cost). The user can approve the proposal in one click.",
       `Delivery/review procedure: ${DEFAULT_CHAMPION_INSTRUCTIONS}. Charter: ${encodeCharter(doc.champion.charter)}. Known findings: ${encodeFindings(doc.findings.filter((f) => f.status !== "verified" && f.status !== "dismissed"))}`,
     ].join("\n\n");
   const resolveAttempt = Effect.fn("ChampionService.resolveAttempt")(function* (
@@ -1661,6 +1667,74 @@ const make = Effect.gen(function* () {
       }),
     );
   });
+  const startMetricsLead: ChampionService["Service"]["startMetricsLead"] = Effect.fn(
+    "ChampionService.startMetricsLead",
+  )(function* (input) {
+    const doc = yield* read(input.id);
+    if (doc.champion.lifecycle === "retired")
+      return yield* new ChampionError({
+        reason: "conflict",
+        detail: "This champion is retired. Restore it before starting a lead on its metrics.",
+      });
+    const result = yield* resolveClasses(doc.champion.projectId, "non-ui");
+    const lead = result.roles.find((role) => role.role === "lead");
+    if (lead?.selection == null || lead.refusal !== null)
+      return yield* new ChampionError({
+        reason: "unavailable",
+        detail: "No model is available for the lead role, so nothing was started.",
+      });
+    const key = yield* uuid;
+    const threadId = ThreadId.make(key);
+    const latest = presentLatest(doc, yield* now);
+    const metricLines = doc.metrics.map((metric) => {
+      const sample = latest.find((entry) => entry.metricId === metric.id);
+      const reading =
+        sample === undefined
+          ? "never measured"
+          : `${sample.status}, value ${sample.value ?? "none"}`;
+      return `- ${metric.name} (${metric.id}): ${metric.description || "no description"} Latest: ${reading}.`;
+    });
+    const problems = [
+      ...doc.champion.attention.filter((line) => !line.startsWith("Decision: ")),
+      ...doc.findings
+        .filter((finding) => !["verified", "dismissed"].includes(finding.status))
+        .map((finding) => `Open finding: ${finding.title}`),
+    ];
+    yield* launch
+      .launch({
+        commandId: CommandId.make(`champion-metrics-lead:${key}`),
+        threadId,
+        projectId: doc.champion.projectId,
+        title: `Fix metrics: ${doc.champion.name}`,
+        modelSelection: lead.selection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        workspaceStrategy: { type: "root" },
+        initialMessage: {
+          messageId: MessageId.make(`champion-metrics-lead:${key}`),
+          text: [
+            `The user asked you to fix the metrics of the ${doc.champion.name} champion (id ${doc.champion.id}). Its goal: ${doc.champion.purpose}`,
+            `Its metrics now:\n${metricLines.join("\n") || "- none"}`,
+            `What looks wrong:\n${problems.map((line) => `- ${line}`).join("\n") || "- nothing recorded; judge from the metrics above"}`,
+            "Work out which metrics fail to show honest progress towards the goal: ones that cannot be collected here, that measure the wrong thing, or whose names a non-engineer would not understand. Shape the fix as a Spec with the shape skill and lead it with the lead skill. Read current state with t3_champions_get. Give new or changed definitions to the champion with t3_champions_propose; the user accepts them on its page, and renaming keeps a metric's history. Do not change the champion's checks or findings directly.",
+          ].join("\n\n"),
+          attachments: [],
+        },
+        createdBy: "user",
+        creationSource: "web",
+      })
+      .pipe(Effect.mapError(failure));
+    yield* mutate(
+      activity(
+        doc.champion.id,
+        "metrics-lead",
+        "Started a lead to fix these metrics.",
+        undefined,
+        threadId,
+      ),
+    );
+    return { threadId };
+  });
   const findingAction: ChampionService["Service"]["findingAction"] = Effect.fn(
     "ChampionService.findingAction",
   )(function* (input, actor = "user") {
@@ -1716,6 +1790,7 @@ const make = Effect.gen(function* () {
             decision: {
               id: yield* uuid,
               question: input.reason,
+              ...(input.proposal === undefined ? {} : { proposal: input.proposal }),
               ...(recommendation === undefined
                 ? {}
                 : {
@@ -2121,37 +2196,55 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const doc = yield* byThread(ownerThreadId);
         if (doc === undefined) return;
-        const refuse = () => new ChampionError({ reason: "unauthorized" });
-        if (
-          doc.champion.ownerThreadId !== ownerThreadId ||
-          doc.champion.lifecycle !== "active" ||
-          !request ||
-          !clientRequestId
-        )
+        const refuse = (detail?: string) =>
+          new ChampionError({
+            reason: "unauthorized",
+            ...(detail === undefined ? {} : { detail }),
+          });
+        if (doc.champion.ownerThreadId !== ownerThreadId || !request || !clientRequestId)
           return yield* refuse();
+        if (doc.champion.lifecycle !== "active")
+          return yield* refuse(
+            "This champion is paused, so it cannot delegate. Report what you measured inline and raise the delegation you needed as attention.",
+          );
         const finding = doc.findings.find(
           (f) => f.workId === request.workId && f.attemptId === request.attemptId,
         );
+        if (!finding)
+          return yield* refuse(
+            "A champion delegates only for a finding or an investigation branch. For a repair, pass the finding's workId and attemptId from t3_champions_check_context. For read-only exploration, call t3_champions_start_investigation and delegate its returned branch.",
+          );
         const phase = phaseForRole(request.role);
-        if (
-          !finding ||
-          !phase ||
-          ["verified", "dismissed"].includes(finding.status) ||
-          (request.projectId !== undefined && request.projectId !== doc.champion.projectId) ||
-          (phase === "implementation" && request.workspaceAssignment !== "isolated") ||
-          (["advice", "review", "verification"].includes(phase) && request.readOnly !== true)
-        )
-          return yield* refuse();
+        if (!phase) return yield* refuse(`A champion cannot delegate to the ${request.role} role.`);
+        if (["verified", "dismissed"].includes(finding.status))
+          return yield* refuse(
+            `This finding is ${finding.status}, so it takes no more work. Reopen it, or report a new finding.`,
+          );
+        if (request.projectId !== undefined && request.projectId !== doc.champion.projectId)
+          return yield* refuse("A champion delegates only within its own project.");
+        if (phase === "implementation" && request.workspaceAssignment !== "isolated")
+          return yield* refuse(
+            "Repairs must run in an isolated workspace. Delegate again with workspaceAssignment isolated.",
+          );
+        if (["advice", "review", "verification"].includes(phase) && request.readOnly !== true)
+          return yield* refuse(
+            `${request.role} work for a champion must be read-only. Delegate again with readOnly true.`,
+          );
         const checks = yield* sql<{
           document_json: string;
         }>`SELECT document_json FROM champion_checks WHERE champion_id = ${doc.champion.id} AND thread_id = ${ownerThreadId} ORDER BY started_at DESC, rowid DESC LIMIT 1`.pipe(
           Effect.mapError(failure),
         );
+        if (!checks[0])
+          return yield* refuse(
+            "This thread has no check in progress, so it cannot delegate. Start from a check.",
+          );
         if (
-          !checks[0] ||
           (yield* decodeCheck(checks[0].document_json).pipe(Effect.mapError(failure))).measureOnly
         )
-          return yield* refuse();
+          return yield* refuse(
+            "This check is measure-only, so it cannot dispatch repairs. Report the finding; a later full check can act on it.",
+          );
         if (phase === "lead") {
           if (
             (!followup && !forgeItem) ||
@@ -2651,7 +2744,7 @@ const make = Effect.gen(function* () {
                   mutate(
                     Effect.gen(function* () {
                       const current = yield* read(doc.champion.id);
-                      const note = `${check.kind === "setup" ? "Setup" : "Check"} automatic retry after a provider overload could not start. ${check.kind === "setup" ? "Run setup" : "Run check"} to retry.`;
+                      const note = `${check.kind === "setup" ? "Setup" : "Check"} automatic retry after a provider overload could not start. ${check.kind === "setup" ? "Ask AI to try again" : "Check now"} to retry.`;
                       if (current.champion.attention.includes(note)) return;
                       yield* write({
                         ...current,
@@ -2687,9 +2780,9 @@ const make = Effect.gen(function* () {
               if (latest.reported || latest.cancelled || latest.messageId !== check.messageId)
                 return;
               const attention = endedOnOverload
-                ? `${check.kind === "setup" ? "Setup" : "Check"} automatic retries exhausted after ${MAX_AUTOMATIC_CHECK_RETRIES} provider overloads. ${check.kind === "setup" ? "Run setup" : "Run check"} to retry.`
+                ? `${check.kind === "setup" ? "Setup" : "Check"} automatic retries exhausted after ${MAX_AUTOMATIC_CHECK_RETRIES} provider overloads. ${check.kind === "setup" ? "Ask AI to try again" : "Check now"} to retry.`
                 : endedWithoutReport
-                  ? `${endedAttention} ${check.kind === "setup" ? "Run setup" : "Run check"} to retry.`
+                  ? `${endedAttention} ${check.kind === "setup" ? "Ask AI to try again" : "Check now"} to retry.`
                   : `${check.kind === "setup" ? "Setup" : "Check"} report overdue or ownership lost. Inspect the ${check.kind === "setup" ? "setup" : "owner"} thread.`;
               if (!current.champion.attention.includes(attention))
                 yield* write({
@@ -2821,6 +2914,7 @@ const make = Effect.gen(function* () {
     findingAction,
     setup: Effect.fn("ChampionService.setup")((input) => start(input.id, "setup")),
     runCheck: Effect.fn("ChampionService.runCheck")((input) => start(input.id, "check")),
+    startMetricsLead,
     checkContext,
     proposeFromSetup,
     report,

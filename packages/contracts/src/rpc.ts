@@ -13,6 +13,7 @@ import {
   ChampionListInput,
   ChampionListResult,
   ChampionGetInput,
+  ChampionMetricsLeadResult,
   ChampionDetail,
   ChampionHistoryInput,
   ChampionHistoryResult,
@@ -700,6 +701,7 @@ export const WS_METHODS = {
   championsPropose: "champions.propose",
   championsDiscardProposal: "champions.discardProposal",
   championsCancelSetup: "champions.cancelSetup",
+  championsStartMetricsLead: "champions.startMetricsLead",
   championsAccept: "champions.accept",
   championsFindingAction: "champions.findingAction",
   scheduledTasksList: "scheduledTasks.list",
@@ -2387,6 +2389,11 @@ const WsChampionsCancelSetupRpc = Rpc.make(WS_METHODS.championsCancelSetup, {
   success: ChampionDetail,
   error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
 });
+const WsChampionsStartMetricsLeadRpc = Rpc.make(WS_METHODS.championsStartMetricsLead, {
+  payload: ChampionGetInput,
+  success: ChampionMetricsLeadResult,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
 const WsChampionsAcceptRpc = Rpc.make(WS_METHODS.championsAccept, {
   payload: ChampionAcceptInput,
   success: ChampionDetail,
@@ -2831,6 +2838,7 @@ export const WsChampionsRpcGroup = RpcGroup.make(
   WsChampionsAcceptRpc,
   WsChampionsDiscardProposalRpc,
   WsChampionsCancelSetupRpc,
+  WsChampionsStartMetricsLeadRpc,
   WsChampionsFindingActionRpc,
 ).middleware(RpcScopeAuthorization);
 /** Every RPC the WebSocket serves. */

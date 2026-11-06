@@ -2,6 +2,7 @@ import {
   canDismissChampionFinding,
   canReopenChampionFinding,
   CHAMPION_FINDING_STATUS_LABELS,
+  championApprovalAnswer,
   championFailureMessage,
   championFindingIsClosed,
   type ChampionFindingRuntime,
@@ -53,9 +54,11 @@ import {
   sameChampionModel,
 } from "./champions.logic";
 import { FINDING_VARIANTS } from "./championsPresentation";
+import { ClampedText } from "./ClampedText";
 import { useChampionCommandAllowed } from "./useChampionAction";
 
 const QUIET_SHOWN = 5;
+const ENTRIES_SHOWN = 3;
 const DECISION_ANSWER_MAX_LENGTH = 500;
 const CANCEL_REASON_MAX_LENGTH = 500;
 const RUNS_SHOWN = 10;
@@ -164,6 +167,7 @@ function DecisionAnswer(props: {
     props.environmentId,
   );
   const [answer, setAnswer] = useState("");
+  const [writing, setWriting] = useState(false);
   // What the person was reading when they started writing. An answer is only ever about that.
   const [drafted, setDrafted] = useState<ChampionDecisionBinding | null>(null);
   const [busy, setBusy] = useState(false);
@@ -176,6 +180,7 @@ function DecisionAnswer(props: {
       </div>
     );
   }
+  const proposal = decision.proposal;
   const current = championDecisionBinding(decision);
   const changed = championDecisionBindingChanged(drafted, current);
   const edit = (value: string) => {
@@ -184,8 +189,8 @@ function DecisionAnswer(props: {
     if (!value.trim()) setDrafted(null);
     else if (drafted === null) setDrafted(current);
   };
-  const submit = async () => {
-    if (busy || !answer.trim() || changed || !props.readable) return;
+  const submit = async (text: string) => {
+    if (busy || !text.trim() || changed || !props.readable) return;
     setBusy(true);
     setError(null);
     const result = await act({
@@ -198,7 +203,7 @@ function DecisionAnswer(props: {
         ...(current.recommendationId === undefined
           ? {}
           : { recommendationId: current.recommendationId }),
-        reason: answer.trim(),
+        reason: text.trim(),
       },
     });
     setBusy(false);
@@ -218,10 +223,17 @@ function DecisionAnswer(props: {
       className="flex flex-col gap-2"
       onSubmit={(event) => {
         event.preventDefault();
-        void submit();
+        void submit(answer);
       }}
     >
-      <p className="font-medium">{decision.question}</p>
+      {proposal ? (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+          <dt className="text-muted-foreground">Proposed</dt>
+          <dd className="font-medium">{proposal.action}</dd>
+          <dt className="text-muted-foreground">Why</dt>
+          <dd className="text-muted-foreground">{proposal.why}</dd>
+        </dl>
+      ) : null}
       {changed ? (
         <div
           role="alert"
@@ -236,21 +248,52 @@ function DecisionAnswer(props: {
           </Button>
         </div>
       ) : null}
-      <Textarea
-        aria-label="Your answer"
-        placeholder="Your answer goes to the champion's owner."
-        maxLength={DECISION_ANSWER_MAX_LENGTH}
-        value={answer}
-        onChange={(event) => edit(event.target.value)}
-      />
-      <Button
-        size="sm"
-        type="submit"
-        className="self-start"
-        disabled={!canAct || busy || !answer.trim() || changed || !props.readable}
-      >
-        {busy ? "Sending…" : "Answer and continue"}
-      </Button>
+      {writing ? (
+        <Textarea
+          aria-label="Your answer"
+          placeholder="Your answer goes to the champion's owner."
+          maxLength={DECISION_ANSWER_MAX_LENGTH}
+          value={answer}
+          autoFocus
+          onChange={(event) => edit(event.target.value)}
+        />
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        {writing ? (
+          <>
+            <Button
+              size="sm"
+              type="submit"
+              disabled={!canAct || busy || !answer.trim() || changed || !props.readable}
+            >
+              {busy ? "Sending…" : "Send my answer"}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setWriting(false)}>
+              Cancel
+            </Button>
+          </>
+        ) : (
+          <>
+            {proposal ? (
+              <Button
+                size="sm"
+                disabled={!canAct || busy || changed || !props.readable}
+                onClick={() => void submit(championApprovalAnswer(proposal.action))}
+              >
+                {busy ? "Sending…" : "Approve proposed"}
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              variant={proposal ? "outline" : "default"}
+              disabled={!canAct || busy || changed || !props.readable}
+              onClick={() => setWriting(true)}
+            >
+              {proposal ? "Answer differently" : "Answer"}
+            </Button>
+          </>
+        )}
+      </div>
       {error ? (
         <p role="alert" className="text-destructive-foreground text-xs">
           {error}
@@ -576,14 +619,12 @@ function EntryRow(props: {
     | { readonly label: string; readonly variant: "warning" | "info" | "success" | "outline" }
     | undefined;
   readonly at: string;
-  readonly highlighted?: boolean;
-  readonly defaultOpen?: boolean;
   readonly children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(props.defaultOpen ?? false);
+  const [open, setOpen] = useState(false);
   const Chevron = open ? ChevronDownIcon : ChevronRightIcon;
   return (
-    <div className={cn(props.highlighted && "bg-warning/6")}>
+    <div>
       <button
         type="button"
         aria-expanded={open}
@@ -643,69 +684,8 @@ function FindingEntry(props: {
   const { recommendation, research } = runtime;
   const live = research?.live === true;
   const changedRecommendation = recommendation !== null && runtime.earlier.length > 0;
-  return (
-    <EntryRow
-      title={finding.title}
-      subtitle={
-        pending && recommendation
-          ? changedRecommendation
-            ? "Recommendation changed"
-            : "Recommendation ready"
-          : (research?.summary ?? finding.evidence)
-      }
-      badge={
-        pending
-          ? { label: "Needs you", variant: "warning" }
-          : research?.cancelRequested
-            ? { label: "Cancel requested", variant: "info" }
-            : research?.cannotConfirm
-              ? { label: "Can't confirm", variant: "warning" }
-              : live
-                ? { label: "Investigating", variant: "info" }
-                : {
-                    label: CHAMPION_FINDING_STATUS_LABELS[finding.status],
-                    variant: FINDING_VARIANTS[finding.status],
-                  }
-      }
-      at={finding.updatedAt}
-      highlighted={pending !== null}
-      defaultOpen={pending !== null}
-    >
-      {finding.evidence ? <p className="whitespace-pre-wrap">{finding.evidence}</p> : null}
-      {pending && recommendation ? (
-        <div className="flex flex-col gap-1.5">
-          <p className="whitespace-pre-wrap">{recommendation.recommendation}</p>
-          <p className="text-muted-foreground text-xs">
-            {changedRecommendation ? "Changed" : "Recommended"}{" "}
-            <ScheduledRelativeLabel value={recommendation.recordedAt} />
-          </p>
-        </div>
-      ) : pending && runtime.recommendationMissing ? (
-        <p role="status" className="text-muted-foreground text-xs">
-          {props.runtimeFailed || exact.error !== null
-            ? "Its recommendation couldn't load, so answering is off until it does."
-            : "Loading its recommendation…"}
-        </p>
-      ) : null}
-      {finding.decision ? (
-        <DecisionAnswer
-          environmentId={props.environmentId}
-          championId={props.championId}
-          findingId={finding.id}
-          decision={finding.decision}
-          readable={!runtime.recommendationMissing}
-          onChanged={props.onChanged}
-        />
-      ) : null}
-      {finding.decision?.status === "resolved" && recommendation ? (
-        <Disclosure label="What it recommended">
-          <p className="whitespace-pre-wrap text-xs">{recommendation.recommendation}</p>
-          <p className="text-muted-foreground text-xs">
-            Your answer was about the version from{" "}
-            <ScheduledRelativeLabel value={recommendation.recordedAt} />
-          </p>
-        </Disclosure>
-      ) : null}
+  const follow = (
+    <>
       {research !== null && (live || research.summary !== null) ? (
         <ResearchControls
           environmentId={props.environmentId}
@@ -747,6 +727,95 @@ function FindingEntry(props: {
         />
       )}
       <HowItGotHere runtime={runtime} events={props.events} />
+    </>
+  );
+  const decisionAnswer = finding.decision ? (
+    <DecisionAnswer
+      environmentId={props.environmentId}
+      championId={props.championId}
+      findingId={finding.id}
+      decision={finding.decision}
+      readable={!runtime.recommendationMissing}
+      onChanged={props.onChanged}
+    />
+  ) : null;
+  if (pending) {
+    return (
+      <div className="flex flex-col gap-2.5 p-3 text-sm">
+        <div className="flex items-start justify-between gap-3">
+          <ClampedText className="line-clamp-3 font-medium" text={pending.question} />
+          <span className="shrink-0 text-muted-foreground text-xs">
+            <ScheduledRelativeLabel value={pending.requestedAt} />
+          </span>
+        </div>
+        {recommendation ? (
+          <div className="flex flex-col gap-0.5">
+            <ClampedText
+              className="line-clamp-4 whitespace-pre-wrap"
+              text={recommendation.recommendation}
+            />
+            <p className="text-muted-foreground text-xs">
+              {changedRecommendation ? "Changed" : "Recommended"}{" "}
+              <ScheduledRelativeLabel value={recommendation.recordedAt} />
+            </p>
+          </div>
+        ) : runtime.recommendationMissing ? (
+          <p role="status" className="text-muted-foreground text-xs">
+            {props.runtimeFailed || exact.error !== null
+              ? "Its recommendation couldn't load, so answering is off until it does."
+              : "Loading its recommendation…"}
+          </p>
+        ) : null}
+        {decisionAnswer}
+        <Disclosure label="Details">
+          <div className="flex flex-col gap-3 text-xs">
+            <p>
+              <span className="text-muted-foreground">Found: </span>
+              {finding.title}
+            </p>
+            {pending.proposal?.otherOptions ? (
+              <p>
+                <span className="text-muted-foreground">Other options: </span>
+                {pending.proposal.otherOptions}
+              </p>
+            ) : null}
+            {finding.evidence ? <p className="whitespace-pre-wrap">{finding.evidence}</p> : null}
+            {follow}
+          </div>
+        </Disclosure>
+      </div>
+    );
+  }
+  return (
+    <EntryRow
+      title={finding.title}
+      subtitle={research?.summary ?? finding.evidence}
+      badge={
+        research?.cancelRequested
+          ? { label: "Cancel requested", variant: "info" }
+          : research?.cannotConfirm
+            ? { label: "Can't confirm", variant: "warning" }
+            : live
+              ? { label: "Investigating", variant: "info" }
+              : {
+                  label: CHAMPION_FINDING_STATUS_LABELS[finding.status],
+                  variant: FINDING_VARIANTS[finding.status],
+                }
+      }
+      at={finding.updatedAt}
+    >
+      {finding.evidence ? <p className="whitespace-pre-wrap">{finding.evidence}</p> : null}
+      {decisionAnswer}
+      {finding.decision?.status === "resolved" && recommendation ? (
+        <Disclosure label="What it recommended">
+          <p className="whitespace-pre-wrap text-xs">{recommendation.recommendation}</p>
+          <p className="text-muted-foreground text-xs">
+            Your answer was about the version from{" "}
+            <ScheduledRelativeLabel value={recommendation.recordedAt} />
+          </p>
+        </Disclosure>
+      ) : null}
+      {follow}
     </EntryRow>
   );
 }
@@ -905,7 +974,7 @@ function EventEntry(props: {
   );
 }
 
-export function ChampionActivityList(props: {
+type ActivityListProps = {
   readonly environmentId: EnvironmentId;
   readonly championId: string;
   readonly view: ChampionActivityView;
@@ -914,42 +983,87 @@ export function ChampionActivityList(props: {
   readonly runtimeFailed: boolean;
   readonly paused: boolean;
   readonly onChanged: () => void;
-}) {
+};
+
+const needsAnswer = (entry: ChampionActivityView["entries"][number]) =>
+  entry.kind === "finding" && pendingChampionDecision(entry.finding) !== null;
+
+function Entry(
+  props: ActivityListProps & { readonly entry: ChampionActivityView["entries"][number] },
+) {
+  const { entry } = props;
+  return entry.kind === "finding" ? (
+    <FindingEntry
+      environmentId={props.environmentId}
+      championId={props.championId}
+      finding={entry.finding}
+      events={entry.events}
+      archived={entry.archived}
+      runtimeState={props.runtimeState}
+      runtimeFailed={props.runtimeFailed}
+      paused={props.paused}
+      onChanged={props.onChanged}
+    />
+  ) : (
+    <EventEntry
+      environmentId={props.environmentId}
+      championId={props.championId}
+      event={entry.event}
+    />
+  );
+}
+
+/** The decisions waiting on the person, as cards they can answer in place. */
+export function ChampionDecisionList(props: ActivityListProps) {
+  const pending = props.view.entries.filter(needsAnswer);
+  if (pending.length === 0) return null;
+  return (
+    <div className="flex flex-col divide-y overflow-hidden rounded-lg border border-warning/40 bg-warning/6">
+      {pending.map((entry) => (
+        <Entry
+          key={entry.kind === "finding" ? entry.finding.id : entry.event.id}
+          {...props}
+          entry={entry}
+        />
+      ))}
+    </div>
+  );
+}
+
+export function ChampionActivityList(props: ActivityListProps) {
   const { view } = props;
+  const entries = view.entries.filter((entry) => !needsAnswer(entry));
+  const [allShown, setAllShown] = useState(false);
+  const shown = allShown ? entries : entries.slice(0, ENTRIES_SHOWN);
   const [quietOpen, setQuietOpen] = useState(false);
   const QuietChevron = quietOpen ? ChevronDownIcon : ChevronRightIcon;
   return (
     <>
       <div className="flex flex-col divide-y overflow-hidden rounded-lg border bg-card">
-        {view.entries.map((entry) =>
-          entry.kind === "finding" ? (
-            <FindingEntry
-              key={entry.finding.id}
-              environmentId={props.environmentId}
-              championId={props.championId}
-              finding={entry.finding}
-              events={entry.events}
-              archived={entry.archived}
-              runtimeState={props.runtimeState}
-              runtimeFailed={props.runtimeFailed}
-              paused={props.paused}
-              onChanged={props.onChanged}
-            />
-          ) : (
-            <EventEntry
-              key={entry.event.id}
-              environmentId={props.environmentId}
-              championId={props.championId}
-              event={entry.event}
-            />
-          ),
-        )}
-        {view.entries.length === 0 ? (
+        {shown.map((entry) => (
+          <Entry
+            key={entry.kind === "finding" ? entry.finding.id : entry.event.id}
+            {...props}
+            entry={entry}
+          />
+        ))}
+        {entries.length === 0 ? (
           <p className="px-3 py-2.5 text-muted-foreground text-sm">
-            {props.loading ? "Loading activity…" : "Nothing has happened yet."}
+            {props.loading ? "Loading activity…" : "Nothing else has happened yet."}
           </p>
         ) : null}
       </div>
+      {entries.length > shown.length ? (
+        <Button
+          size="xs"
+          variant="ghost-muted"
+          className="self-start"
+          onClick={() => setAllShown(true)}
+        >
+          <ChevronRightIcon aria-hidden />
+          {`${entries.length - shown.length} older`}
+        </Button>
+      ) : null}
       {view.quiet.length > 0 ? (
         <div className="flex flex-col gap-1.5">
           <Button

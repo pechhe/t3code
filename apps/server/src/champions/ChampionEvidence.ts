@@ -428,8 +428,12 @@ export const make = Effect.gen(function* () {
       }
     }
     const doc = yield* read(match.investigation.id);
+    if (doc.champion.lifecycle !== "active")
+      return yield* new ChampionError({
+        reason: "unauthorized",
+        detail: "This champion is paused, so its investigation cannot start branches.",
+      });
     if (
-      doc.champion.lifecycle !== "active" ||
       match.investigation.status !== "open" ||
       request.role !== match.branch.role ||
       request.attemptId !== match.branch.attemptId ||

@@ -5,6 +5,7 @@ import {
   CHAMPION_FINDING_STATUS_LABELS,
   CHAMPION_STATUS_LABELS,
   type ChampionAction,
+  championApprovalAnswer,
   championFailureMessage,
   championFindingRuntime,
   championLoadFailureMessage,
@@ -414,9 +415,28 @@ function FindingActions(props: {
   ) => Dialog.prompt({ title, message, initialValue, confirmText, onConfirm });
   return (
     <View className="flex-row flex-wrap gap-2">
+      {pending?.proposal ? (
+        <Button
+          label="Approve proposed"
+          disabled={!canAct || busy || !props.answerable}
+          onPress={() =>
+            send(
+              "decision",
+              {
+                action: "resolve_decision",
+                decisionId: pending.id,
+                ...(pending.recommendationId === undefined
+                  ? {}
+                  : { recommendationId: pending.recommendationId }),
+              },
+              championApprovalAnswer(pending.proposal!.action),
+            )
+          }
+        />
+      ) : null}
       {pending ? (
         <Button
-          label="Answer"
+          label={pending.proposal ? "Answer differently" : "Answer"}
           disabled={!canAct || busy || !props.answerable}
           onPress={() =>
             // Bound to what's on screen now: if the owner revises it first, the server refuses this.
@@ -502,6 +522,12 @@ function ChampionControls(props: {
     label: "champion cancel setup",
     reportFailure: false,
   });
+  const startLead = useAtomCommand(serverEnvironment.startChampionMetricsLead, {
+    label: "champion metrics lead",
+    reportFailure: false,
+  });
+  const selectDetail = useSelectWorkspaceDetail();
+  const canStartLead = useCommandAllowed(serverEnvironment.startChampionMetricsLead, environmentId);
   const canDiscard = useCommandAllowed(serverEnvironment.discardChampionProposal, environmentId);
   const canSetup = useCommandAllowed(serverEnvironment.setupChampion, environmentId);
   const canCancelSetup = useCommandAllowed(serverEnvironment.cancelChampionSetup, environmentId);
@@ -583,6 +609,30 @@ function ChampionControls(props: {
       )}
       {props.hasMetrics ? (
         <Button
+          label="Fix with a lead"
+          accessibilityHint="Starts a Spec lead thread that plans and builds a fix for these metrics. You accept any new metrics here."
+          tone="secondary"
+          disabled={!canStartLead || busy}
+          onPress={() =>
+            void act("setup", [
+              async () => {
+                const result = await startLead({ environmentId, input: { id } });
+                if (result._tag === "Success")
+                  selectDetail({
+                    name: "Thread",
+                    params: {
+                      environmentId: String(environmentId),
+                      threadId: String(result.value.threadId),
+                    },
+                  });
+                return result;
+              },
+            ])
+          }
+        />
+      ) : null}
+      {props.hasMetrics ? (
+        <Button
           label={champion.lifecycle === "active" ? "Pause" : "Resume"}
           tone="secondary"
           disabled={!canSetLifecycle || busy}
@@ -595,13 +645,7 @@ function ChampionControls(props: {
       ) : null}
       {props.hasMetrics ? (
         <Button
-          label={
-            champion.outstandingCheckId !== null
-              ? "Checking…"
-              : champion.lifecycle === "paused"
-                ? "Measure only"
-                : "Run check"
-          }
+          label={champion.outstandingCheckId !== null ? "Checking…" : "Check now"}
           {...(champion.lifecycle === "paused"
             ? {
                 accessibilityHint:
@@ -640,6 +684,7 @@ function FindingRow(props: {
   readonly bordered: boolean;
 }) {
   const { finding } = props;
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const recent = championFindingRuntime(finding, props.runtime);
   const exact = useEnvironmentQuery(
     recent.recommendationMissing && finding.decision?.recommendationId !== undefined
@@ -670,7 +715,9 @@ function FindingRow(props: {
         {pendingChampionDecision(finding)
           ? "Needs you"
           : CHAMPION_FINDING_STATUS_LABELS[finding.status]}
-        {finding.evidence ? ` · ${finding.evidence}` : ""}
+        {finding.evidence && !pendingChampionDecision(finding)?.proposal
+          ? ` · ${finding.evidence}`
+          : ""}
       </Text>
       {recommendation ? (
         <Text className="text-sm text-foreground">{recommendation.recommendation}</Text>
@@ -687,6 +734,27 @@ function FindingRow(props: {
             ? `${finding.decision.question} Answered: ${finding.decision.answer}`
             : finding.decision.question}
         </Text>
+      ) : null}
+      {finding.decision?.status === "requested" && finding.decision.proposal ? (
+        <View className="gap-0.5">
+          <Text className="text-sm font-t3-medium text-foreground">
+            Proposed: {finding.decision.proposal.action}
+          </Text>
+          <Text className="text-sm text-foreground">Why: {finding.decision.proposal.why}</Text>
+          <Button
+            label={detailsOpen ? "Hide details" : "Details"}
+            tone="text"
+            onPress={() => setDetailsOpen((open) => !open)}
+          />
+          {detailsOpen && finding.decision.proposal.otherOptions ? (
+            <Text className="text-sm text-foreground-muted">
+              Other options: {finding.decision.proposal.otherOptions}
+            </Text>
+          ) : null}
+          {detailsOpen && finding.evidence ? (
+            <Text className="text-sm text-foreground-muted">{finding.evidence}</Text>
+          ) : null}
+        </View>
       ) : null}
       {research ? (
         <FindingResearch
@@ -753,12 +821,11 @@ function ChampionDetailContent(props: {
               <Text className="text-sm font-t3-medium text-foreground-muted">
                 {CHAMPION_STATUS_LABELS[championStatus(data.champion, nowMs)]}
               </Text>
-              <Text className="text-base text-foreground">{data.champion.purpose}</Text>
+              <Text className="text-base text-foreground">Goal: {data.champion.purpose}</Text>
               {data.champion.classes ? (
                 <Text className="text-sm text-foreground-muted">
-                  Checks run as {AGENT_ROLE_TITLE_LABEL[data.champion.classes.routine.role]}, setup
-                  and larger challenges as{" "}
-                  {AGENT_ROLE_TITLE_LABEL[data.champion.classes.setup.role]}
+                  Checks: {AGENT_ROLE_TITLE_LABEL[data.champion.classes.routine.role]} · Harder
+                  work: {AGENT_ROLE_TITLE_LABEL[data.champion.classes.setup.role]}
                 </Text>
               ) : null}
               {data.champion.attention.map((line) => (

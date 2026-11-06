@@ -140,6 +140,13 @@ export const ChampionSummary = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type ChampionSummary = typeof ChampionSummary.Type;
+/** The path a champion asks the user to approve, kept short enough to decide from at a glance. */
+export const ChampionDecisionProposal = Schema.Struct({
+  action: ChampionLabel,
+  why: ChampionLabel,
+  otherOptions: Schema.optional(ChampionLabel),
+});
+export type ChampionDecisionProposal = typeof ChampionDecisionProposal.Type;
 export const ChampionFinding = Schema.Struct({
   id: ChampionLabel,
   metricId: Schema.NullOr(Schema.String),
@@ -163,6 +170,7 @@ export const ChampionFinding = Schema.Struct({
         findingAttemptId: Schema.optional(ChampionText),
         proposedScope: Schema.optional(ChampionText),
         question: ChampionText,
+        proposal: Schema.optional(ChampionDecisionProposal),
         status: Schema.Literals(["requested", "resolved"]),
         answer: Schema.NullOr(ChampionText),
         requestedAt: IsoDateTime,
@@ -273,6 +281,7 @@ export const ChampionFindingActionInput = Schema.Struct({
   action: Schema.Literals(["dismiss", "reopen", "decision", "resolve_decision"]),
   decisionId: Schema.optional(ChampionLabel),
   recommendationId: Schema.optional(ChampionLabel),
+  proposal: Schema.optional(ChampionDecisionProposal),
   reason: ChampionLabel,
 });
 export const ChampionSetupCompleteInput = Schema.Struct({ summary: ChampionText });
@@ -306,6 +315,8 @@ export const ChampionFindingDeliveryInput = Schema.Struct({
 export class ChampionError extends Schema.TaggedError<ChampionError>()("ChampionError", {
   reason: Schema.Literals(["not-found", "invalid", "conflict", "unauthorized", "unavailable"]),
   cause: Schema.optional(Schema.Defect()),
+  /** What the caller can do about a refusal; agents read it in place of the bare reason. */
+  detail: Schema.optional(Schema.String),
   validation: Schema.optional(
     Schema.Struct({
       sampleIndex: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 31 }))),
@@ -337,7 +348,7 @@ export class ChampionError extends Schema.TaggedError<ChampionError>()("Champion
       }[this.validation.field];
       return `Champion report invalid: ${this.validation.sampleIndex === undefined ? "" : `sample ${this.validation.sampleIndex} `}${this.validation.field}. ${instruction}`;
     }
-    return `Champion operation failed: ${this.reason}.`;
+    return `Champion operation failed: ${this.reason}.${this.detail === undefined ? "" : ` ${this.detail}`}`;
   }
 }
 
@@ -537,3 +548,5 @@ export const ChampionRuntimeState = Schema.Struct({
   recommendations: Schema.Array(ChampionRecommendation).check(Schema.isMaxLength(20)),
 });
 export type ChampionRuntimeState = typeof ChampionRuntimeState.Type;
+export const ChampionMetricsLeadResult = Schema.Struct({ threadId: ThreadId });
+export type ChampionMetricsLeadResult = typeof ChampionMetricsLeadResult.Type;

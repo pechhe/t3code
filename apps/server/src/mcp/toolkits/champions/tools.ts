@@ -191,7 +191,7 @@ const accept = Tool.make("t3_champions_accept", {
   .annotate(Tool.Destructive, false);
 const finding_action = Tool.make("t3_champions_finding_action", {
   ...shared,
-  description: "Dismiss or reopen a finding, or record a product decision and rationale.",
+  description: "Dismiss or reopen a finding, or request the user's decision on it. For a decision, reason is a one-line question and proposal holds the recommended action, one sentence of why and the other options in a few words each; the user can approve the proposal in one click.",
   parameters: ChampionFindingActionInput,
   success: ChampionDetail,
 })
@@ -218,7 +218,7 @@ const propose_metrics = Tool.make("t3_champions_propose_metrics", {
 const report = Tool.make("t3_champions_report", {
   ...shared,
   description:
-    "Complete this check using the frozen metric methods from t3_champions_check_context. Copy metricId, version, unit and source verbatim; never paraphrase source. Put execution commands, paths and collection details in evidence. Failed collection uses value null and status error, never a fabricated numeric value. Include each required metric exactly once and reconcile findings. Server derives identity and provenance.",
+    "Complete this check using the frozen metric methods from t3_champions_check_context. Copy metricId, version, unit and source verbatim; never paraphrase source. Put execution commands, paths and collection details in evidence. Failed collection uses value null and status error, never a fabricated numeric value. Include each required metric exactly once and reconcile findings. Open summary with one or two plain sentences on progress towards the champion's goal; the Champion page shows it under the goal. Server derives identity and provenance.",
   parameters: ChampionReportInput,
   success: ChampionDetail,
 })

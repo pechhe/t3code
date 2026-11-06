@@ -243,12 +243,24 @@ describe("sortWorkingThreadsBySend", () => {
   });
 });
 
-it("keeps ordinary champion runs quiet and retains actionable champion attention", () => {
+it("lists a champion's thread only when the thread itself waits on someone", () => {
   const ordinary = thread("champion", true);
   const quiet = { ...ordinary, champion: { id: "quality", attention: false } };
   expect(championNeedsInbox(quiet)).toBe(false);
-  expect(championNeedsInbox({ ...quiet, runtime: null })).toBe(false);
-  expect(championNeedsInbox({ ...quiet, champion: { id: "quality", attention: true } })).toBe(true);
+  // Champion attention and failed checks belong on the Champion page, not the thread list.
+  expect(championNeedsInbox({ ...quiet, champion: { id: "quality", attention: true } })).toBe(
+    false,
+  );
+  const failedRun = {
+    runId: RunId.make("failed"),
+    status: "failed" as const,
+    requestedAt: null,
+    startedAt: null,
+    completedAt: null,
+    assistantMessageId: null,
+  };
+  const failed = { ...quiet, latestRun: failedRun };
+  expect(championNeedsInbox(failed)).toBe(false);
   expect(championNeedsInbox({ ...quiet, hasPendingApprovals: true })).toBe(true);
   expect(championNeedsInbox({ ...quiet, pendingSubagentRequest: "user_input" })).toBe(true);
   expect(championNeedsInbox(ordinary)).toBe(true);

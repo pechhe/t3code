@@ -202,6 +202,16 @@ export const canDismissChampionFinding = (finding: ChampionFinding) =>
 export const canReopenChampionFinding = (finding: ChampionFinding) =>
   championFindingIsClosed(finding) || finding.status === "inconclusive";
 
+const DECISION_ANSWER_LIMIT = 500;
+
+/** The answer sent when the user approves a decision's proposal, kept within the answer limit. */
+export function championApprovalAnswer(action: string): string {
+  const answer = `Approved: ${action}`;
+  return answer.length <= DECISION_ANSWER_LIMIT
+    ? answer
+    : `${answer.slice(0, DECISION_ANSWER_LIMIT - 1)}…`;
+}
+
 export function pendingChampionDecision(finding: ChampionFinding) {
   return finding.decision?.status === "requested" ? finding.decision : null;
 }
@@ -252,9 +262,10 @@ const INVALID_MESSAGES: Partial<Record<ChampionAction, string>> = {
   decision: "That answer can't be used. Keep it to 500 characters.",
 };
 
-/** The server's reason is a code rather than a sentence, and its meaning depends on the action. */
+/** The server's reason is a code rather than a sentence, and its meaning depends on the action; a detail the server wrote for this refusal wins. */
 export function championFailureMessage(failure: unknown, action: ChampionAction): string {
   if (isChampionError(failure)) {
+    if (failure.detail !== undefined && failure.detail.trim()) return failure.detail;
     switch (failure.reason) {
       case "unauthorized":
         return action === "load"

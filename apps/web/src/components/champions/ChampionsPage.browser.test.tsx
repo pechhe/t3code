@@ -139,7 +139,7 @@ vi.mock(import("@tanstack/react-router"), async (original) => ({
   useNavigate: () => vi.fn(),
 }));
 
-import { ChampionActivityList } from "./ChampionActivityList";
+import { ChampionActivityList, ChampionDecisionList } from "./ChampionActivityList";
 import { ChampionForm } from "./ChampionForm";
 import { ChampionsPage } from "./ChampionsPage";
 
@@ -211,7 +211,7 @@ describe("ChampionsPage across a machine reconnect", () => {
     const { screen, registry, listA, setPhaseOfA } = await setup();
     await using _screen = screen;
 
-    const purpose = page.getByLabelText("What should stay true?");
+    const purpose = page.getByLabelText("Goal");
     await userEvent.fill(purpose, "Draft typed before the drop");
     const field = purpose.element();
     const save = page.getByRole("button", { name: "Save", exact: true });
@@ -259,11 +259,11 @@ describe("ChampionsPage across a machine reconnect", () => {
   it("doesn't keep the form as if accessible once machine A is unregistered", async () => {
     const { screen, setPhaseOfA } = await setup();
     await using _screen = screen;
-    await expect.element(page.getByLabelText("What should stay true?")).toBeVisible();
+    await expect.element(page.getByLabelText("Goal")).toBeVisible();
 
     await setPhaseOfA(null);
 
-    await expect.element(page.getByLabelText("What should stay true?")).not.toBeInTheDocument();
+    await expect.element(page.getByLabelText("Goal")).not.toBeInTheDocument();
     await expect.element(page.getByText("Its machine isn't connected")).toBeVisible();
     await expect.element(page.getByRole("button", { name: /Bravo/ })).toBeVisible();
   });
@@ -344,25 +344,29 @@ function List(props: {
   readonly events?: ReadonlyArray<ChampionActivity>;
   readonly state: ChampionRuntimeState;
 }) {
+  const listProps = {
+    environmentId: ENV,
+    championId: "c1",
+    view: {
+      entries: [
+        ...(props.finding
+          ? [{ kind: "finding" as const, finding: props.finding, events: [], archived: false }]
+          : []),
+        ...(props.events ?? []).map((event) => ({ kind: "event" as const, event })),
+      ],
+      quiet: [],
+    },
+    loading: false,
+    runtimeState: props.state,
+    runtimeFailed: false,
+    paused: false,
+    onChanged: () => {},
+  };
   return (
-    <ChampionActivityList
-      environmentId={ENV}
-      championId="c1"
-      view={{
-        entries: [
-          ...(props.finding
-            ? [{ kind: "finding" as const, finding: props.finding, events: [], archived: false }]
-            : []),
-          ...(props.events ?? []).map((event) => ({ kind: "event" as const, event })),
-        ],
-        quiet: [],
-      }}
-      loading={false}
-      runtimeState={props.state}
-      runtimeFailed={false}
-      paused={false}
-      onChanged={() => {}}
-    />
+    <>
+      <ChampionDecisionList {...listProps} />
+      <ChampionActivityList {...listProps} />
+    </>
   );
 }
 
@@ -377,6 +381,7 @@ describe("answering a recommendation", () => {
     );
     await expect.element(page.getByText("Extend the script.")).toBeVisible();
     await expect.element(page.getByText("Why", { exact: true })).not.toBeInTheDocument();
+    await userEvent.click(page.getByRole("button", { name: "Answer", exact: true }));
     const box = page.getByLabelText("Your answer");
     await userEvent.fill(box, "Yes, go ahead");
 
@@ -395,7 +400,7 @@ describe("answering a recommendation", () => {
     await expect.element(page.getByText("Rotate the token first.")).toBeVisible();
     await expect.element(box).toHaveValue("Yes, go ahead");
     await expect.element(page.getByText(/so your answer wasn't sent/)).toBeVisible();
-    const send = page.getByRole("button", { name: "Answer and continue" });
+    const send = page.getByRole("button", { name: "Send my answer" });
     await expect.element(send).toBeDisabled();
     expect(fixtures.commands.get("champion decision answer")).not.toHaveBeenCalled();
 
@@ -415,6 +420,43 @@ describe("answering a recommendation", () => {
     });
   });
 
+  it("approves a proposal in one click and opens a box only to answer differently", async () => {
+    reset();
+    const proposed = {
+      ...decision("d1", "r1"),
+      proposal: {
+        action: "Measure over 7 days.",
+        why: "A day has too few reads.",
+        otherOptions: "Lower the bar (noisy)",
+      },
+    };
+    await using _screen = await render(
+      <List
+        finding={finding(proposed)}
+        state={runtime({
+          recommendations: [recommendation("r1", "Extend the script.", "2026-11-05T09:00:00.000Z")],
+        })}
+      />,
+    );
+    await expect.element(page.getByText("Measure over 7 days.")).toBeVisible();
+    await expect.element(page.getByText(/Lower the bar/)).not.toBeInTheDocument();
+    await expect.element(page.getByLabelText("Your answer")).not.toBeInTheDocument();
+    await userEvent.click(page.getByRole("button", { name: "Answer differently" }));
+    await expect.element(page.getByLabelText("Your answer")).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(page.getByRole("button", { name: "Approve proposed" }));
+    await vi.waitFor(() =>
+      expect(fixtures.commands.get("champion decision answer")).toHaveBeenCalledTimes(1),
+    );
+    expect(fixtures.commands.get("champion decision answer")?.mock.calls[0]?.[0]).toMatchObject({
+      input: {
+        action: "resolve_decision",
+        decisionId: "d1",
+        reason: "Approved: Measure over 7 days.",
+      },
+    });
+  });
+
   it("keeps the draft when the server says it arrived too late", async () => {
     reset();
     const onChanged = vi.fn();
@@ -424,7 +466,7 @@ describe("answering a recommendation", () => {
     });
     fixtures.commands.set("champion decision answer", answer);
     await using _screen = await render(
-      <ChampionActivityList
+      <ChampionDecisionList
         environmentId={ENV}
         championId="c1"
         view={{
@@ -447,8 +489,9 @@ describe("answering a recommendation", () => {
         onChanged={onChanged}
       />,
     );
+    await userEvent.click(page.getByRole("button", { name: "Answer", exact: true }));
     await userEvent.fill(page.getByLabelText("Your answer"), "Go");
-    await userEvent.click(page.getByRole("button", { name: "Answer and continue" }));
+    await userEvent.click(page.getByRole("button", { name: "Send my answer" }));
     await expect.element(page.getByText(/before your answer arrived/)).toBeVisible();
     await expect.element(page.getByLabelText("Your answer")).toHaveValue("Go");
     expect(onChanged).toHaveBeenCalled();
@@ -466,8 +509,9 @@ describe("answering a recommendation", () => {
       <List finding={finding(decision("d1", "r1"))} state={runtime()} />,
     );
     await expect.element(page.getByText("Extend the script.")).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Answer", exact: true }));
     await userEvent.fill(page.getByLabelText("Your answer"), "Go");
-    await expect.element(page.getByRole("button", { name: "Answer and continue" })).toBeEnabled();
+    await expect.element(page.getByRole("button", { name: "Send my answer" })).toBeEnabled();
     expect(fixtures.recommendation).toHaveBeenCalledWith({
       environmentId: ENV,
       input: { id: "c1", findingId: "f1", findingAttemptId: "attempt", recommendationId: "r1" },
@@ -479,8 +523,7 @@ describe("answering a recommendation", () => {
     await using _screen = await render(
       <List finding={finding(decision("d1", "gone"))} state={runtime()} />,
     );
-    await userEvent.fill(page.getByLabelText("Your answer"), "Go");
-    await expect.element(page.getByRole("button", { name: "Answer and continue" })).toBeDisabled();
+    await expect.element(page.getByRole("button", { name: "Answer", exact: true })).toBeDisabled();
   });
 
   it("turns answering off while the device lacks permission or the machine is away", async () => {
@@ -494,8 +537,9 @@ describe("answering a recommendation", () => {
         <List finding={finding(decision("d1", "r1"))} state={state} />
       </RegistryContext.Provider>,
     );
+    await userEvent.click(page.getByRole("button", { name: "Answer", exact: true }));
     await userEvent.fill(page.getByLabelText("Your answer"), "Go");
-    const send = page.getByRole("button", { name: "Answer and continue" });
+    const send = page.getByRole("button", { name: "Send my answer" });
     await expect.element(send).toBeEnabled();
     await act(() => registry.set(fixtures.machines, machines("reconnecting")));
     await expect.element(send).toBeDisabled();
@@ -691,7 +735,7 @@ describe("the champion form's roles", () => {
     reset();
     answering(eligible);
     await using _screen = await render(<ChampionForm existing={null} onDone={() => {}} />);
-    await userEvent.fill(page.getByLabelText("What should stay true?"), "Stay safe");
+    await userEvent.fill(page.getByLabelText("Goal"), "Stay safe");
     await userEvent.click(page.getByRole("button", { name: "Add metrics myself" }));
     await vi.waitFor(() => expect(fixtures.commands.get("champion save")).toHaveBeenCalledTimes(1));
     expect(fixtures.commands.get("champion save")?.mock.calls[0]?.[0]).toMatchObject({
@@ -799,7 +843,7 @@ describe("the champion form's roles", () => {
         <ChampionForm existing={null} onDone={() => {}} />
       </RegistryContext.Provider>,
     );
-    await userEvent.fill(page.getByLabelText("What should stay true?"), "Stay safe");
+    await userEvent.fill(page.getByLabelText("Goal"), "Stay safe");
     const pickProject = async (name: string) => {
       await userEvent.click(page.getByRole("combobox", { name: "Project" }));
       await userEvent.click(page.getByRole("option", { name: new RegExp(name) }));

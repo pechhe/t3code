@@ -34,6 +34,7 @@ import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadc
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { ChampionDetailPage } from "./ChampionDetailPage";
 import { ChampionForm } from "./ChampionForm";
+import { HowChampionsWorkDialog } from "./ChampionHowItWorks";
 import { ChampionMetricsEditor } from "./ChampionMetricsEditor";
 import {
   type ChampionEntry,
@@ -506,14 +507,17 @@ export function ChampionsPage(props: {
                   ? "1 champion"
                   : `${entries.length} champions`}
             </span>
-            <Button
-              size="xs"
-              variant="ghost-muted"
-              onClick={() => void navigate({ to: "/champions", search: { view: "new" } })}
-            >
-              <PlusIcon className="size-3" />
-              New
-            </Button>
+            <span className="flex items-center gap-1">
+              <HowChampionsWorkDialog />
+              <Button
+                size="xs"
+                variant="ghost-muted"
+                onClick={() => void navigate({ to: "/champions", search: { view: "new" } })}
+              >
+                <PlusIcon className="size-3" />
+                New
+              </Button>
+            </span>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
             <MachineNotices

@@ -92,7 +92,13 @@ Use **Champions** to give an agent an ongoing responsibility for a project, such
 as keeping page loads fast or tests reliable. Each champion shows the measurements
 it tracks and an activity feed of findings, work and results.
 
-Create a champion with a purpose and project, then ask it to propose metrics.
+Create a champion with a goal and project, then ask it to propose metrics. The goal
+says what good looks like; each check starts from it, treats the metrics as evidence
+of progress and proposes better metrics when they can't show it. The champion page
+is a one-screen dashboard: the goal, the latest check's progress, when it runs and
+which roles do its checks and harder work, then decisions for you beside its metrics
+and recent activity. **How it works** in the Champions list explains what every
+champion does.
 Setup and recurring checks follow separate agent classes from your role policy.
 Changing that policy updates future attempts; work already accepted keeps its original selection. Review the suggested metrics,
 edit them if needed, and accept them before enabling checks. Advanced settings
@@ -102,12 +108,18 @@ fixed-model champions keep their choices until you select **Follow role policy i
 Expand a metric to inspect its source and history. Missing measurements are
 unknown, not zero. Changing what a metric measures starts a separate series;
 earlier readings remain available. **Ask AI to review metrics** asks the setup model for a
-new proposal without silently changing the accepted definitions.
+new proposal without silently changing the accepted definitions. **Fix with a lead**
+starts a Spec lead thread that works out what is wrong with the metrics and plans and
+builds a fix; any new definitions still come to you to accept.
 
 A champion can delegate bounded repairs within its instructions and limits.
-Larger work goes through normal Spec shaping and delivery. Ordinary checks stay
-out of the chat list; decisions and interrupted work come to your inbox. The
-activity feed links to the underlying work. A champion can compare a small set of
+Larger work goes through normal Spec shaping and delivery. A champion's own threads
+stay out of the chat list unless the thread itself waits on you; open one from the
+champion page. Findings that need you are marked on **Champions** in the sidebar. A
+decision shows the proposed path and why: **Approve proposed** answers in one click,
+and **Answer differently** opens a box for your own answer. Other options and the
+evidence are under **Details**. The activity feed links to the
+underlying work. A champion can compare a small set of
 read-only research options and bring you a recommendation with its trade-offs.
 Answer on the finding to authorize the stated scope. If the recommendation changes
 while you type, your draft is kept for you to reconsider.
@@ -120,7 +132,7 @@ running version.
 
 Pausing stops new scheduled checks, research and repair dispatch, while existing work
 continues. **Cancel research** requests a stop; the page waits for confirmation.
-A manual check while paused measures only. Resuming starts from the
+**Check now** while paused measures and reports only. Resuming starts from the
 next due time rather than replaying every missed check. Retiring stops future
 checks and preserves the history and any unfinished work.
 

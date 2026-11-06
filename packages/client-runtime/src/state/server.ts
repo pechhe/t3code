@@ -1672,6 +1672,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:champions:cancel-setup",
       tag: WS_METHODS.championsCancelSetup,
     }),
+    startChampionMetricsLead: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:champions:start-metrics-lead",
+      tag: WS_METHODS.championsStartMetricsLead,
+    }),
     acceptChampionMetrics: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:champions:Accept",
       tag: WS_METHODS.championsAccept,
