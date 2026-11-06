@@ -156,6 +156,23 @@ describe("server browser element refs", () => {
     expect(await page.getByRole("textbox", { name: "parent" }).inputValue()).toBe("");
   });
 
+  it("marks a password field refusal as a secret field without typing", async () => {
+    await page.setContent('<input type="password" aria-label="Password">');
+    const failure = await ServerBrowserPage.refuseSecretField(page, {
+      locator: "input",
+      text: "hunter2",
+    }).then(
+      () => expect.unreachable(),
+      (error: unknown) => error,
+    );
+    expect(failure).toMatchObject({
+      tag: "PreviewAutomationTargetNotEditableError",
+      message: "The target is a password or secret field, and agents never type into one.",
+      detail: { secretField: true },
+    });
+    expect(await page.locator("input").inputValue()).toBe("");
+  });
+
   it("shows dotted fields as dots wherever their value appears, keeping text values and refs", async () => {
     await page.setContent(`
       <table><tr><td>password:</td><td><input id="pw" type="password" aria-label="Password"></td></tr></table>

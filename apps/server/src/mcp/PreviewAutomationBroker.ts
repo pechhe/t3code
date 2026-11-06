@@ -335,9 +335,12 @@ const classifyResponseError = (
         detail.selectorLength >= 0
           ? detail.selectorLength
           : undefined;
+      const secretField =
+        detail && "secretField" in detail && detail.secretField === true ? true : undefined;
       return new PreviewAutomationTargetNotEditableError({
         ...context,
         ...remoteDiagnostics,
+        ...(secretField === undefined ? {} : { secretField }),
         ...(remoteSelectorKind === undefined && context.selectorKind === undefined
           ? {}
           : { selectorKind: remoteSelectorKind ?? context.selectorKind }),

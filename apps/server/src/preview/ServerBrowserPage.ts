@@ -850,8 +850,8 @@ export const refuseSecretField = async (page: Page, input: PreviewAutomationType
   if (secret)
     throw new ServerBrowserOperationError({
       tag: "PreviewAutomationTargetNotEditableError",
-      message:
-        "A bounded browser task does not enter authentication secrets, so no text was typed.",
+      message: "The target is a password or secret field, and agents never type into one.",
+      detail: { secretField: true },
     });
 };
 

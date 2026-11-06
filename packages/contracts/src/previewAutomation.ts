@@ -914,9 +914,13 @@ export class PreviewAutomationTargetNotEditableError extends Schema.TaggedError<
     ...PreviewAutomationRemoteDiagnosticFields,
     selectorKind: Schema.optional(Schema.Literals(["focused-element", "locator", "selector"])),
     selectorLength: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+    secretField: Schema.optional(Schema.Boolean),
   },
 ) {
   override get message(): string {
+    if (this.secretField) {
+      return `Preview automation ${this.operation} refused: the target is a password or secret field, and agents never type into one.`;
+    }
     if (this.selectorKind === "focused-element") {
       return `Preview automation ${this.operation} requires an editable focused element.`;
     }

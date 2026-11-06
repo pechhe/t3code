@@ -6,6 +6,7 @@ import {
   PreviewAutomationHost,
   PreviewAutomationInvalidSelectorError,
   PreviewAutomationStatus,
+  PreviewAutomationTargetNotEditableError,
 } from "./previewAutomation.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
@@ -46,6 +47,40 @@ describe("PreviewAutomationStatus", () => {
         viewport: { width: 412, height: 915 },
       }).viewport,
     ).toEqual({ width: 412, height: 915 });
+  });
+});
+
+describe("PreviewAutomationTargetNotEditableError", () => {
+  const notEditable = (fields: { secretField?: boolean }) =>
+    new PreviewAutomationTargetNotEditableError({
+      operation: "type",
+      environmentId: EnvironmentId.make("environment-1"),
+      threadId: ThreadId.make("thread-1"),
+      providerSessionId: "session-1",
+      providerInstanceId: ProviderInstanceId.make("claude"),
+      clientId: "server",
+      connectionId: "connection-1",
+      requestId: "request-1",
+      timeoutMs: 15_000,
+      remoteTag: "PreviewAutomationTargetNotEditableError",
+      remoteMessageLength: 0,
+      cause: null,
+      selectorKind: "locator",
+      selectorLength: 26,
+      ...fields,
+    });
+
+  it("names a password or secret field as the deliberate reason for refusing text", () => {
+    const { message } = notEditable({ secretField: true });
+    expect(message).toContain("password or secret field");
+    expect(message).toContain("never type into one");
+    expect(message).not.toContain("editable locator");
+  });
+
+  it("keeps the editable-locator wording for an ordinary field", () => {
+    expect(notEditable({}).message).toBe(
+      "Preview automation type requires an editable locator (26 characters).",
+    );
   });
 });
 

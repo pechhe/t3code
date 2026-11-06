@@ -375,6 +375,43 @@ it.effect("names the click target that matched nothing when the server browser t
   ),
 );
 
+it.effect("tells an agent that a password field is a deliberate secret-field refusal", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker;
+      const clientId = SERVER_BROWSER_AUTOMATION_CLIENT_ID;
+      const requests = requestsFrom(yield* broker.connect(makeHost({ clientId })));
+      yield* Stream.runForEach(requests, (request) =>
+        broker.respond({
+          clientId,
+          connectionId: request.connectionId,
+          requestId: request.requestId,
+          ok: false,
+          error: {
+            _tag: "PreviewAutomationTargetNotEditableError",
+            message: "The target is a password or secret field, and agents never type into one.",
+            detail: { secretField: true },
+          },
+        }),
+      ).pipe(Effect.forkScoped);
+      yield* Effect.yieldNow;
+
+      const error = yield* broker
+        .invoke<void>({
+          scope,
+          operation: "type",
+          input: { locator: 'input[type="password"]', text: "hunter2" },
+        })
+        .pipe(Effect.flip);
+
+      expect(error._tag).toBe("PreviewAutomationTargetNotEditableError");
+      expect(error.message).toContain("password or secret field");
+      expect(error.message).toContain("never type into one");
+      expect(error.message).not.toContain("editable locator");
+    }),
+  ),
+);
+
 it.effect("distinguishes malformed remote failures", () =>
   Effect.scoped(
     Effect.gen(function* () {
