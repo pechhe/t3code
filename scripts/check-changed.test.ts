@@ -292,6 +292,25 @@ it.each(["upstream", "team/upstream"])(
   },
 );
 
+it.each(["origin", "fork"])(
+  "compares against the integration branch slipjay.json names on %s",
+  async (remote) => {
+    using project = fixture({ origin: "B", upstream: "B" });
+    NodeFS.writeFileSync(
+      NodePath.join(project.root, "slipjay.json"),
+      JSON.stringify({ integrationBranch: "t3peach", remote }),
+    );
+    NodeChildProcess.execFileSync(
+      "git",
+      ["update-ref", `refs/remotes/${remote}/t3peach`, project.commits.A!],
+      { cwd: project.root, encoding: "utf8", env },
+    );
+    const result = await compare(project.root, Option.none());
+    assert.strictEqual(result.base, project.commits.A);
+    assert.strictEqual(result.ref, `${remote}/t3peach`);
+  },
+);
+
 it("compares against an explicit ref instead of the closest remote main", async () => {
   using project = fixture({ origin: "A", upstream: "B" });
   const result = await compare(project.root, Option.some("origin/main"));

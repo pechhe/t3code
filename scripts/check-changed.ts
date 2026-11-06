@@ -7,7 +7,7 @@
 // A dependency change also gets the unused-patch install check below. CI still
 // runs the full test suites and the jobs listed in the summary.
 //
-//   vp run check:changed                  compare against the closest merge base with any remote main
+//   vp run check:changed                  compare against slipjay.json's integration branch, or else the closest remote main
 //   vp run check:changed <ref>            compare against the merge base with <ref>
 //   vp run check:changed --concurrency 1  run the steps one at a time
 //
@@ -107,6 +107,14 @@ const CacheEntry = Schema.fromJsonString(
 );
 const decodeCacheEntry = Schema.decodeEffect(CacheEntry);
 const encodeCacheEntry = Schema.encodeEffect(CacheEntry);
+const decodeSlipJayConfig = Schema.decodeEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      integrationBranch: Schema.optional(Schema.String),
+      remote: Schema.optional(Schema.String),
+    }),
+  ),
+);
 const decodeRootPackageJson = Schema.decodeEffect(
   Schema.fromJsonString(
     Schema.Struct({
@@ -150,16 +158,31 @@ export const git = Effect.fn("checkChanged.git")(function* (
 export const gitLines = (cwd: string, args: ReadonlyArray<string>) =>
   git(cwd, args).pipe(Effect.map((stdout) => stdout.toString().split("\n").filter(Boolean)));
 
+// The fork's main is a stale upstream mirror, so a SlipJay repository compares
+// against the integration branch slipjay.json names instead.
+const slipJayRef = Effect.fnUntraced(function* (root: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const config = yield* fs
+    .readFileString(path.join(root, "slipjay.json"))
+    .pipe(Effect.flatMap(decodeSlipJayConfig), Effect.option);
+  if (Option.isNone(config) || config.value.integrationBranch === undefined) return Option.none();
+  return Option.some(`${config.value.remote ?? "origin"}/${config.value.integrationBranch}`);
+});
+
 export const comparisonBase = Effect.fn("checkChanged.comparisonBase")(function* (
   root: string,
   explicitRef: Option.Option<string>,
 ) {
+  const configured = Option.isSome(explicitRef) ? Option.none() : yield* slipJayRef(root);
   const candidates = Option.isSome(explicitRef)
     ? [{ ref: explicitRef.value, rev: explicitRef.value }]
-    : (yield* gitLines(root, ["remote"])).map((name) => ({
-        ref: name + "/main",
-        rev: "refs/remotes/" + name + "/main",
-      }));
+    : Option.isSome(configured)
+      ? [{ ref: configured.value, rev: "refs/remotes/" + configured.value }]
+      : (yield* gitLines(root, ["remote"])).map((name) => ({
+          ref: name + "/main",
+          rev: "refs/remotes/" + name + "/main",
+        }));
   let closest: { ref: string; base: string; ahead: number } | undefined;
   for (const { ref, rev } of candidates) {
     const base = yield* git(root, ["merge-base", "HEAD", rev]).pipe(
