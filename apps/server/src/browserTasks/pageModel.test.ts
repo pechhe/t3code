@@ -107,3 +107,61 @@ describe("pageModelFromSnapshot", () => {
     expect(cut.nodes.some((node) => node.name === "Note: today")).toBe(false);
   });
 });
+
+describe("name fragments", () => {
+  const rows = pageModelFromSnapshot(
+    snapshot(String.raw`- list "Open cases" [ref=l]:
+  - button "HPHenry  Petch  nowYardSmith" [ref=r1]
+  - button "ABAnn Bell3dAcme" [ref=r2]`),
+  );
+
+  it.each([
+    ["Henry Petch", "unique"],
+    [" Henry   Petch ", "unique"],
+    ["nowYardSmith", "unique"],
+    ["henry petch", "missing"],
+    ["d", "ambiguous"],
+  ])("matches %j as %s: whitespace collapses, case matters, no word rule", (fragment, tag) => {
+    expect(resolveTarget(rows, { role: "button", nameIncludes: fragment })._tag).toBe(tag);
+  });
+
+  it("reports what it matched only for a fragment, and lets absent pass only on no match", () => {
+    const checks = evaluateChecks(rows, [
+      {
+        id: "frag",
+        kind: "target",
+        target: { role: "button", nameIncludes: "Ann" },
+        expect: "present",
+      },
+      {
+        id: "exact",
+        kind: "target",
+        target: { role: "list", name: "Open cases" },
+        expect: "present",
+      },
+      {
+        id: "gone",
+        kind: "target",
+        target: { role: "button", nameIncludes: "Zoe" },
+        expect: "absent",
+      },
+      {
+        id: "there",
+        kind: "target",
+        target: { role: "button", nameIncludes: "Acme" },
+        expect: "absent",
+      },
+    ]);
+    expect(checks).toEqual([
+      { id: "frag", status: "passed", matchedName: "ABAnn Bell3dAcme" },
+      { id: "exact", status: "passed" },
+      { id: "gone", status: "passed" },
+      {
+        id: "there",
+        status: "failed",
+        detail: "The target is rendered.",
+        matchedName: "ABAnn Bell3dAcme",
+      },
+    ]);
+  });
+});

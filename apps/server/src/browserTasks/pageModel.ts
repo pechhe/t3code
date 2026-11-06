@@ -98,9 +98,23 @@ export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): Page
 export type TargetResolution =
   | { readonly _tag: "unique"; readonly node: PageNode }
   | { readonly _tag: "missing" }
-  | { readonly _tag: "ambiguous"; readonly count: number }
+  /** With `scope`, it is the ancestor that matched more than once. */
+  | { readonly _tag: "ambiguous"; readonly count: number; readonly scope?: true }
   /** The snapshot was cut, so neither absence nor uniqueness holds. `count` is what it did show. */
   | { readonly _tag: "unknown"; readonly count: number };
+
+/** A target's name or its scope's: exactly one of the two is given, which the request check enforces. */
+export interface NameSpec {
+  readonly name?: string | undefined;
+  readonly nameIncludes?: string | undefined;
+}
+
+const normalized = (text: string) => text.replace(/\s+/g, " ").trim();
+
+const nameMatches = (actual: string, spec: NameSpec) =>
+  spec.nameIncludes === undefined
+    ? actual === spec.name
+    : normalized(actual).includes(normalized(spec.nameIncludes));
 
 const inside = (model: PageModel, node: PageNode, ancestor: PageNode) => {
   for (let parent = node.parent; parent !== null; parent = model.nodes[parent]!.parent)
@@ -108,14 +122,16 @@ const inside = (model: PageModel, node: PageNode, ancestor: PageNode) => {
   return false;
 };
 
-const matching = (model: PageModel, role: string, name: string) =>
-  model.nodes.filter((node) => node.ref !== undefined && node.role === role && node.name === name);
+const matching = (model: PageModel, role: string, spec: NameSpec) =>
+  model.nodes.filter(
+    (node) => node.ref !== undefined && node.role === role && nameMatches(node.name, spec),
+  );
 
 export const resolveTarget = (model: PageModel, target: PreviewTaskTarget): TargetResolution => {
-  let found = matching(model, target.role, target.name);
+  let found = matching(model, target.role, target);
   if (target.scope !== undefined) {
-    const scopes = matching(model, target.scope.role, target.scope.name);
-    if (scopes.length > 1) return { _tag: "ambiguous", count: scopes.length };
+    const scopes = matching(model, target.scope.role, target.scope);
+    if (scopes.length > 1) return { _tag: "ambiguous", count: scopes.length, scope: true };
     const scope = scopes[0];
     found = scope === undefined ? [] : found.filter((node) => inside(model, node, scope));
   }
@@ -126,13 +142,20 @@ export const resolveTarget = (model: PageModel, target: PreviewTaskTarget): Targ
     : { _tag: "ambiguous", count: found.length };
 };
 
+const MAX_PAGE_NAME_CHARS = 120;
+
+const pageName = (name: string) =>
+  name.length > MAX_PAGE_NAME_CHARS ? `${name.slice(0, MAX_PAGE_NAME_CHARS)}…` : name;
+
+/** What a `nameIncludes` target actually matched, so the caller can see which element was used. */
+export const matchedName = (target: PreviewTaskTarget, node: PageNode) =>
+  target.nameIncludes === undefined ? undefined : pageName(node.name);
+
 export const CONTROL_ROLES: Readonly<Record<PreviewTaskBinding["control"], readonly string[]>> = {
   text: ["textbox", "searchbox", "spinbutton"],
   select: ["combobox", "listbox"],
   checkbox: ["checkbox", "radio", "switch"],
 };
-
-const normalized = (text: string) => text.replace(/\s+/g, " ").trim();
 
 const optionsOf = (model: PageModel, node: PageNode) => {
   const index = model.nodes.indexOf(node);
@@ -169,12 +192,20 @@ const evaluateTarget = (
     if (resolved._tag === "missing") return { status: "passed" };
     if (resolved._tag === "unknown" && resolved.count === 0)
       return { status: "not-evaluated", detail: "A cut snapshot cannot establish absence." };
-    return { status: "failed", detail: "The target is rendered." };
+    const shown = resolved._tag === "unique" ? matchedName(check.target, resolved.node) : undefined;
+    return {
+      status: "failed",
+      detail: "The target is rendered.",
+      ...(shown === undefined ? {} : { matchedName: shown }),
+    };
   }
   if (resolved._tag === "missing")
     return { status: "failed", detail: "The target is not rendered." };
   if (resolved._tag === "ambiguous")
-    return { status: "failed", detail: `${resolved.count} elements match the target.` };
+    return {
+      status: "failed",
+      detail: `${resolved.count} ${resolved.scope ? "scopes" : "elements"} match the target.`,
+    };
   if (resolved._tag === "unknown") {
     if (resolved.count === 0)
       return { status: "not-evaluated", detail: "The target is not in the cut snapshot." };
@@ -183,6 +214,16 @@ const evaluateTarget = (
       : { status: "not-evaluated", detail: "A cut snapshot cannot single out the target." };
   }
   const { node } = resolved;
+  const matched = matchedName(check.target, node);
+  const result = evaluateUnique(model, check, node);
+  return matched === undefined ? result : { ...result, matchedName: matched };
+};
+
+const evaluateUnique = (
+  model: PageModel,
+  check: Extract<PreviewTaskCheck, { kind: "target" }>,
+  node: PageNode,
+): Omit<PreviewTaskCheckResult, "id"> => {
   if (check.checked !== undefined) {
     if (!CONTROL_ROLES.checkbox.includes(node.role))
       return { status: "unsupported", detail: `A ${node.role} has no checked state.` };
@@ -236,7 +277,6 @@ export const evaluateChecks = (
   checks.map((check) => ({ id: check.id, ...evaluateCheck(model, check) }));
 
 const MAX_NEAR_MATCHES = 3;
-const MAX_NEAR_NAME_CHARS = 120;
 
 const editDistance = (a: string, b: string) => {
   let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
@@ -253,12 +293,51 @@ const editDistance = (a: string, b: string) => {
   return previous[b.length]!;
 };
 
-const describeNode = (node: PageNode) =>
-  `${node.role} "${node.name.length > MAX_NEAR_NAME_CHARS ? `${node.name.slice(0, MAX_NEAR_NAME_CHARS)}…` : node.name}"`;
+const describeNode = (node: PageNode) => `${node.role} "${pageName(node.name)}"`;
+
+/** Ranked near misses of an exact name: outside the scope, another role or case, or a near spelling. */
+const nearExact = (node: PageNode, target: PreviewTaskTarget, name: string) => {
+  const wanted = name.toLowerCase();
+  const allowed = Math.min(3, Math.max(1, Math.floor(wanted.length / 5)));
+  const actual = node.name.toLowerCase();
+  if (node.role === target.role && node.name === name) return 0;
+  if (actual === wanted) return 1;
+  if (node.role !== target.role || Math.abs(actual.length - wanted.length) > allowed)
+    return undefined;
+  const distance = editDistance(actual, wanted);
+  return distance <= allowed ? 1 + distance : undefined;
+};
+
+/** Near misses of a fragment: outside the scope, under another role, or in another case. */
+const nearFragment = (node: PageNode, target: PreviewTaskTarget, fragment: string) => {
+  const actual = normalized(node.name);
+  const wanted = normalized(fragment);
+  if (actual.includes(wanted)) return node.role === target.role ? 0 : 1;
+  return node.role === target.role && actual.toLowerCase().includes(wanted.toLowerCase())
+    ? 1
+    : undefined;
+};
+
+/** Hints for a missing target, labelled by the caller as page data. They never resolve it. */
+export const nearMatches = (model: PageModel, target: PreviewTaskTarget): readonly string[] => {
+  const near = model.nodes
+    .filter((node) => node.ref !== undefined && node.name.length > 0)
+    .flatMap((node) => {
+      const rank =
+        target.nameIncludes === undefined
+          ? nearExact(node, target, target.name ?? "")
+          : nearFragment(node, target, target.nameIncludes);
+      return rank === undefined ? [] : [{ node, rank }];
+    })
+    .toSorted((a, b) => a.rank - b.rank);
+  return [...new Set(near.map(({ node }) => describeNode(node)))].slice(0, MAX_NEAR_MATCHES);
+};
 
 /**
  * A missing target the page plainly lacks, rather than one still to come: its named scope is
- * absent, or something near it is rendered instead. Near matches are hints, never a resolution.
+ * absent, or, for an exact name, something near it is rendered instead. A fragment's near
+ * matches never stop a run early: a short fragment often shows in a heading or toast while the
+ * list it names is still loading.
  */
 export const evidentAbsence = (
   model: PageModel,
@@ -267,23 +346,8 @@ export const evidentAbsence = (
   if (model.truncated || model.loading || resolveTarget(model, target)._tag !== "missing")
     return undefined;
   const scopeMissing =
-    target.scope !== undefined &&
-    matching(model, target.scope.role, target.scope.name).length === 0;
-  const wanted = target.name.toLowerCase();
-  const allowed = Math.min(3, Math.max(1, Math.floor(wanted.length / 5)));
-  const near = model.nodes
-    .filter((node) => node.ref !== undefined && node.name.length > 0)
-    .flatMap((node) => {
-      const name = node.name.toLowerCase();
-      if (node.role === target.role && node.name === target.name) return [{ node, rank: 0 }];
-      if (name === wanted) return [{ node, rank: 1 }];
-      if (node.role !== target.role || Math.abs(name.length - wanted.length) > allowed) return [];
-      const distance = editDistance(name, wanted);
-      return distance <= allowed ? [{ node, rank: 1 + distance }] : [];
-    })
-    .toSorted((a, b) => a.rank - b.rank);
-  if (!scopeMissing && near.length === 0) return undefined;
-  return {
-    nearest: [...new Set(near.map(({ node }) => describeNode(node)))].slice(0, MAX_NEAR_MATCHES),
-  };
+    target.scope !== undefined && matching(model, target.scope.role, target.scope).length === 0;
+  const nearest = nearMatches(model, target);
+  if (scopeMissing || (target.nameIncludes === undefined && nearest.length > 0)) return { nearest };
+  return undefined;
 };

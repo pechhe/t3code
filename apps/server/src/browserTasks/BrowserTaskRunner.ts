@@ -32,11 +32,15 @@ import {
   CONTROL_ROLES,
   evaluateChecks,
   evidentAbsence,
+  matchedName,
+  type NameSpec,
+  nearMatches,
   pageModelFromSnapshot,
   resolveTarget,
   selectableOptions,
   type PageModel,
   type PageNode,
+  type TargetResolution,
 } from "./pageModel.ts";
 
 /** What a run needs from the world. Everything mutating goes through `act`, once. */
@@ -112,6 +116,9 @@ export const screenshotByteBudget = (request: PreviewTaskRequest) =>
   );
 
 /** Stops that leave nothing to show, or no right to look. */
+/** Reasons a run gives up on a fragment target that never appeared, rather than one it refused. */
+const GAVE_UP = new Set(["decision-limit", "deadline", "model-blocked"]);
+
 const NO_STOP_SCREENSHOT = new Set([
   "cancelled",
   "deadline",
@@ -191,6 +198,7 @@ export interface RunRecord extends Omit<PreviewTaskResult, "actions" | "checks" 
     readonly kind: PreviewTaskResult["actions"][number]["kind"];
     state: PreviewTaskActionState;
     refusal?: string;
+    matchedName?: string;
   }>;
   checks: readonly PreviewTaskCheckResult[];
 }
@@ -209,11 +217,37 @@ type Step =
   | { readonly _tag: "action"; readonly action: Action }
   | { readonly _tag: "submit" };
 
+const describeName = (role: string, spec: NameSpec) =>
+  spec.nameIncludes === undefined
+    ? `${role} "${spec.name}"`
+    : `${role} containing "${spec.nameIncludes}"`;
+
 const describeTarget = (target: PreviewTaskTarget) =>
-  `${target.role} "${target.name}"${target.scope ? ` in ${target.scope.role} "${target.scope.name}"` : ""}`;
+  `${describeName(target.role, target)}${target.scope ? ` in ${describeName(target.scope.role, target.scope)}` : ""}`;
+
+const nearestNote = (nearest: readonly string[]) =>
+  nearest.length > 0 ? ` Nearest on the page (page data): ${nearest.join(", ")}.` : "";
+
+/** Why a target did not resolve to one element, always with how many matched. */
+const unresolvedDetail = (
+  id: string,
+  target: PreviewTaskTarget,
+  resolved: Exclude<TargetResolution, { readonly _tag: "unique" }>,
+) => {
+  switch (resolved._tag) {
+    case "ambiguous":
+      return resolved.scope
+        ? `${id}: ${resolved.count} elements match the scope ${describeName(target.scope!.role, target.scope!)}.`
+        : `${id}: ${resolved.count} elements match ${describeTarget(target)}.`;
+    case "unknown":
+      return `${id}: the snapshot was cut; it shows ${resolved.count} matching ${describeTarget(target)}.`;
+    case "missing":
+      return `${id}: 0 elements match ${describeTarget(target)}.`;
+  }
+};
 
 /** A click's or key press's target; a URL action has none. */
-const actionTarget = (action: Action): PreviewTaskTarget | undefined =>
+export const actionTarget = (action: Action): PreviewTaskTarget | undefined =>
   "target" in action ? action.target : "press" in action ? action.press.target : undefined;
 
 const describeAction = (action: Action) =>
@@ -413,11 +447,20 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
 
   /** One dispatch, never retried; anything but a clear result leaves it uncertain. */
   const dispatch = Effect.fn("BrowserTaskRunner.dispatch")(function* (
-    entry: { readonly id: string; readonly kind: RunRecord["actions"][number]["kind"] },
+    entry: {
+      readonly id: string;
+      readonly kind: RunRecord["actions"][number]["kind"];
+      readonly matchedName?: string | undefined;
+    },
     operation: "click" | "type" | "select" | "scroll" | "navigate" | "press",
     payload: Record<string, unknown>,
   ) {
-    const action = { id: entry.id, kind: entry.kind, state: "planned" as PreviewTaskActionState };
+    const action: RunRecord["actions"][number] = {
+      id: entry.id,
+      kind: entry.kind,
+      state: "planned",
+      ...(entry.matchedName === undefined ? {} : { matchedName: entry.matchedName }),
+    };
     record.actions.push(action);
     if (actionsUsed >= limits.maxActions) {
       yield* stop("blocked", "action-limit", `The ${limits.maxActions} action limit was reached.`);
@@ -437,7 +480,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     }
     if (outcome._tag === "failed" && refusedBeforeEffect(outcome.cause)) {
       action.state = "planned";
-      (action as RunRecord["actions"][number]).refusal = safeDetail(outcome.cause);
+      action.refusal = safeDetail(outcome.cause);
       yield* stop("blocked", refusalReason(outcome.cause), safeDetail(outcome.cause));
       return false;
     }
@@ -468,7 +511,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         : resolved._tag === "unknown"
           ? "snapshot-truncated"
           : "stale-target";
-    yield* stop("blocked", reason, `${label}: ${describeTarget(target)} is ${resolved._tag}.`);
+    yield* stop("blocked", reason, unresolvedDetail(label, target, resolved));
     return undefined;
   });
 
@@ -484,12 +527,27 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         stop(
           "blocked",
           "target-not-found",
-          `${id}: ${describeTarget(target)} is not on the page.${
-            nearest.length > 0 ? ` Nearest on the page (page data): ${nearest.join(", ")}.` : ""
-          }`,
+          `${unresolvedDetail(id, target, { _tag: "missing" })}${nearestNote(nearest)}`,
         ),
       ),
     );
+
+  /**
+   * A run that gave up while a fragment target was missing says so, with its count and hints,
+   * whatever stopped it. Exact names keep their earlier reports.
+   */
+  const explainMissing = (model: PageModel, id: string, target: PreviewTaskTarget) =>
+    Effect.sync(() => {
+      if (target.nameIncludes === undefined) return;
+      if (record.status !== "blocked" || !GAVE_UP.has(record.reason ?? "")) return;
+      const mutable = record as Mutable<RunRecord>;
+      const nearest = nearMatches(model, target);
+      mutable.missingTarget = { id, target: describeTarget(target), nearest: [...nearest] };
+      mutable.detail =
+        `${record.detail ?? ""} ${unresolvedDetail(id, target, { _tag: "missing" })}${nearestNote(nearest)}`
+          .trim()
+          .slice(0, MAX_DETAIL_CHARS);
+    });
 
   /** No model call: a page still busy at the bound is the next observation's problem. */
   const settle = Effect.gen(function* () {
@@ -634,6 +692,15 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         !record.actions.some((action) => action.id === id && action.state === "completed"),
     );
 
+  /** Goal mode: required targets (bindings, submit, capture) before optional offered clicks. */
+  const explainStillMissing = (model: PageModel) => {
+    const offered = new Set(actions.map((action) => action.id));
+    const missing = stillNeeded()
+      .filter(({ target }) => resolveTarget(model, target)._tag === "missing")
+      .toSorted((a, b) => Number(offered.has(a.id)) - Number(offered.has(b.id)))[0];
+    return missing === undefined ? Effect.void : explainMissing(model, missing.id, missing.target);
+  };
+
   const bindingApplied = (model: PageModel, binding: PreviewTaskBinding) => {
     if (applied.has(binding.id)) return true;
     const resolved = resolveTarget(model, binding.target);
@@ -652,16 +719,12 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     let fill: PreviewTaskBinding | undefined;
     for (const binding of bindings) {
       const resolved = resolveTarget(model, binding.target);
-      if (resolved._tag === "ambiguous") {
+      if (resolved._tag === "ambiguous" || resolved._tag === "unknown") {
         yield* stop(
           "blocked",
-          "ambiguous-target",
-          `${binding.id}: ${resolved.count} elements match ${describeTarget(binding.target)}.`,
+          resolved._tag === "ambiguous" ? "ambiguous-target" : "snapshot-truncated",
+          unresolvedDetail(binding.id, binding.target, resolved),
         );
-        return undefined;
-      }
-      if (resolved._tag === "unknown") {
-        yield* stop("blocked", "snapshot-truncated", `${binding.id}: the snapshot was cut.`);
         return undefined;
       }
       if (resolved._tag === "missing") continue;
@@ -695,7 +758,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
           yield* stop(
             "blocked",
             resolved._tag === "ambiguous" ? "ambiguous-target" : "snapshot-truncated",
-            `${action.id}: ${describeTarget(target)} is ${resolved._tag}.`,
+            unresolvedDetail(action.id, target, resolved),
           );
           return undefined;
         }
@@ -710,7 +773,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         yield* stop(
           "blocked",
           resolved._tag === "ambiguous" ? "ambiguous-target" : "snapshot-truncated",
-          `${request.submit.id}: ${describeTarget(request.submit.target)} is ${resolved._tag}.`,
+          unresolvedDetail(request.submit.id, request.submit.target, resolved),
         );
         return undefined;
       }
@@ -728,7 +791,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         yield* stop(
           "blocked",
           "ambiguous-target",
-          `capture: ${describeTarget(request.capture.target)} is ambiguous.`,
+          unresolvedDetail("capture", request.capture.target, resolved),
         );
         return undefined;
       }
@@ -866,33 +929,37 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     const node: PageNode | undefined = yield* resolveNode(fresh, target, id);
     if (node === undefined) return false;
     const locator = `aria-ref=${node.ref}`;
+    const matched = matchedName(target, node);
     if (step._tag === "submit") {
       submitDispatched = true;
-      return yield* dispatch({ id, kind: "submit" }, "click", { locator });
+      return yield* dispatch({ id, kind: "submit", matchedName: matched }, "click", { locator });
     }
     if (step._tag === "action") {
       return "press" in step.action
-        ? yield* dispatch({ id, kind: "action" }, "press", { locator, key: step.action.press.key })
-        : yield* dispatch({ id, kind: "action" }, "click", { locator });
+        ? yield* dispatch({ id, kind: "action", matchedName: matched }, "press", {
+            locator,
+            key: step.action.press.key,
+          })
+        : yield* dispatch({ id, kind: "action", matchedName: matched }, "click", { locator });
     }
     attempted.add(id);
     const { binding } = step;
     switch (binding.control) {
       case "text":
-        return yield* dispatch({ id, kind: "binding" }, "type", {
+        return yield* dispatch({ id, kind: "binding", matchedName: matched }, "type", {
           locator,
           text: binding.text,
           clear: true,
         });
       case "select":
-        return yield* dispatch({ id, kind: "binding" }, "select", {
+        return yield* dispatch({ id, kind: "binding", matchedName: matched }, "select", {
           locator,
           values: [binding.option],
         });
       case "checkbox":
         return bindingSatisfied(fresh, binding, node)
           ? true
-          : yield* dispatch({ id, kind: "binding" }, "click", { locator });
+          : yield* dispatch({ id, kind: "binding", matchedName: matched }, "click", { locator });
     }
   });
 
@@ -1041,7 +1108,10 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         if (!(yield* settle)) return undefined;
         continue;
       }
-      if (!(yield* recover(model, id, target, problem))) return undefined;
+      if (!(yield* recover(model, id, target, problem))) {
+        if (problem === "missing") yield* explainMissing(model, id, target);
+        return undefined;
+      }
     }
   });
 
@@ -1166,9 +1236,10 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         continue;
       }
       const next = yield* decideNext(model, plan.offers);
-      if (next === undefined) return;
+      if (next === undefined) return yield* explainStillMissing(model);
       if (next === "BLOCKED") {
-        return yield* stop("blocked", "model-blocked", "Jev found no step that makes progress.");
+        yield* stop("blocked", "model-blocked", "Jev found no step that makes progress.");
+        return yield* explainStillMissing(model);
       }
       if (next === "DONE") {
         const fresh = yield* observe;

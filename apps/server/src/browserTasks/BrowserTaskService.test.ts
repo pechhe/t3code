@@ -10,6 +10,7 @@ import {
   PreviewTabId,
   type PreviewTaskRequest,
   type PreviewTaskResult,
+  type PreviewTaskTarget,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -1485,6 +1486,294 @@ describe("BrowserTaskService ordered steps", () => {
       );
       assert.strictEqual(result.status, "passed");
       assert.strictEqual(result.screenshots?.[0]?.afterStep, "terms");
+      assert.deepStrictEqual(task.acts, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+});
+
+/** A support desk: each case row is a button named by its whole card, age included. */
+const deskTree = (age: string, extra = "") =>
+  [
+    `- main [ref=m]:`,
+    `  - button "All cases" [ref=all]`,
+    `  - list "Open cases" [ref=open]:`,
+    `    - button "HPHenry Petch${age}YardSmithReply needed" [ref=henry]`,
+    `    - button "ABAnn Bell3dAcmeWaiting on customer" [ref=ann]`,
+    ...(extra === "" ? [] : [extra]),
+  ].join("\n");
+
+const REPLY_BOX = `  - textbox "Reply to Henry Petch" [ref=reply]`;
+
+const DESK_REQUEST: PreviewTaskRequest = {
+  requestId: "desk",
+  tabId,
+  engine: "jev",
+  goal: "Open Henry Petch's case",
+  actions: [
+    { id: "all", target: { role: "button", name: "All cases" } },
+    { id: "open", target: { role: "button", nameIncludes: "Henry Petch" } },
+  ],
+  checks: [
+    {
+      id: "reply",
+      kind: "target",
+      target: { role: "textbox", nameIncludes: "Reply to Henry" },
+      expect: "present",
+    },
+  ],
+};
+
+const openOnClick =
+  (ages: { age: string }) =>
+  (operation: string, input: Record<string, unknown>, page: FakePage) => {
+    if (operation !== "click") return;
+    if (input.locator === "aria-ref=all") ages.age = "1m";
+    page.tree = deskTree(ages.age, input.locator === "aria-ref=henry" ? REPLY_BOX : "");
+  };
+
+/** Runs to the report while Jev's waits elapse on the test clock. */
+const waitedOut = (effect: Effect.Effect<PreviewTaskResult, OrchestratorMcpFailure>) =>
+  Effect.gen(function* () {
+    const fiber = yield* effect.pipe(Effect.forkChild);
+    for (let tick = 0; tick < 10; tick += 1) {
+      yield* Effect.yieldNow;
+      yield* passGrace;
+    }
+    return yield* Fiber.join(fiber);
+  });
+
+describe("BrowserTaskService name fragments", () => {
+  it.effect("opens the one row containing the fragment as its age changes, in both modes", () =>
+    Effect.gen(function* () {
+      for (const ordered of [true, false]) {
+        const ages = { age: "now" };
+        const task = yield* harness({
+          choices: ordered ? [] : ["all", "open", "DONE"],
+          page: { tree: deskTree(ages.age) },
+          onAct: openOnClick(ages),
+        });
+        const result = yield* report(
+          task.service.run({
+            scope,
+            request: {
+              ...DESK_REQUEST,
+              requestId: ordered ? "desk-ordered" : "desk-goal",
+              ...(ordered
+                ? {
+                    steps: [
+                      { kind: "run", id: "all" },
+                      { kind: "run", id: "open" },
+                    ],
+                  }
+                : {}),
+            },
+            authorize: allow,
+          }),
+        );
+        assert.strictEqual(result.status, "passed", result.detail);
+        assert.deepStrictEqual(
+          result.actions.map(({ id, matchedName }) => [id, matchedName]),
+          [
+            ["all", undefined],
+            ["open", "HPHenry Petch1mYardSmithReply needed"],
+          ],
+        );
+        assert.strictEqual(task.acts[1]!.input.locator, "aria-ref=henry");
+        assert.deepStrictEqual(result.checks, [
+          { id: "reply", status: "passed", matchedName: "Reply to Henry Petch" },
+        ]);
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("blocks a fragment matching two rows or two scopes, with the count and no effect", () =>
+    Effect.gen(function* () {
+      const cases = [
+        {
+          target: { role: "button", nameIncludes: "Reply needed" },
+          tree: deskTree("now", `    - button "JPJo Petch2dWeaveReply needed" [ref=jo]`),
+          detail: 'open: 2 elements match button containing "Reply needed".',
+        },
+        {
+          target: {
+            role: "button",
+            nameIncludes: "Henry",
+            scope: { role: "list", nameIncludes: "cases" },
+          },
+          tree: `${deskTree("now")}\n  - list "Closed cases" [ref=closed]`,
+          detail: 'open: 2 elements match the scope list containing "cases".',
+        },
+      ];
+      for (const [index, { target, tree, detail }] of cases.entries())
+        for (const ordered of [true, false]) {
+          const task = yield* harness({ choices: ["open"], page: { tree } });
+          const result = yield* report(
+            task.service.run({
+              scope,
+              request: {
+                ...DESK_REQUEST,
+                requestId: `ambiguous-${index}-${ordered}`,
+                actions: [{ id: "open", target }],
+                ...(ordered ? { steps: [{ kind: "run", id: "open" }] } : {}),
+              },
+              authorize: allow,
+            }),
+          );
+          assert.strictEqual(result.reason, "ambiguous-target");
+          assert.strictEqual(result.detail, detail);
+          assert.strictEqual(result.decisions, 0);
+          assert.deepStrictEqual(task.acts, []);
+        }
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("waits out a fragment shown only in a heading, then says 0 matched and names it", () =>
+    Effect.gen(function* () {
+      const tree = `- main [ref=m]:\n  - heading "Henry Petch" [ref=h]\n  - list "Open cases" [ref=open]`;
+      for (const ordered of [true, false]) {
+        const task = yield* harness({ choices: ["WAIT", "WAIT"], page: { tree } });
+        const result = yield* waitedOut(
+          task.service.run({
+            scope,
+            request: {
+              ...DESK_REQUEST,
+              requestId: `late-${ordered}`,
+              actions: [{ id: "open", target: { role: "button", nameIncludes: "Henry Petch" } }],
+              limits: { maxDecisions: 2 },
+              ...(ordered ? { steps: [{ kind: "run", id: "open" }] } : {}),
+            },
+            authorize: allow,
+          }),
+        );
+        assert.strictEqual(result.reason, "decision-limit");
+        assert.strictEqual(result.decisions, 2);
+        assert.include(result.detail, 'open: 0 elements match button containing "Henry Petch".');
+        assert.deepStrictEqual(result.missingTarget, {
+          id: "open",
+          target: 'button containing "Henry Petch"',
+          nearest: ['heading "Henry Petch"'],
+        });
+        assert.deepStrictEqual(task.acts, []);
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("keeps an exact name's limit report, and names a required fragment first", () =>
+    Effect.gen(function* () {
+      const tree = `- main [ref=m]:\n  - heading "Desk" [ref=h]`;
+      const cookies = { id: "cookies", target: { role: "button", nameIncludes: "Accept cookies" } };
+      for (const submit of [
+        { id: "open", target: { role: "button", name: "Henry Petch" } },
+        { id: "open", target: { role: "button", nameIncludes: "Henry Petch" } },
+      ]) {
+        const exact = submit.target.name !== undefined;
+        const task = yield* harness({ choices: ["WAIT", "WAIT"], page: { tree } });
+        const result = yield* waitedOut(
+          task.service.run({
+            scope,
+            request: {
+              ...DESK_REQUEST,
+              requestId: exact ? "exact-late" : "fragment-late",
+              actions: [cookies],
+              submit,
+              limits: { maxDecisions: 2 },
+            },
+            authorize: allow,
+          }),
+        );
+        assert.strictEqual(result.reason, "decision-limit");
+        if (exact) {
+          assert.strictEqual(result.detail, "The 2 decision limit was reached.");
+          assert.isUndefined(result.missingTarget);
+        } else assert.strictEqual(result.missingTarget?.id, "open");
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("stops at once on a fragment whose named scope is absent", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({ page: { tree: deskTree("now") } });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            ...DESK_REQUEST,
+            requestId: "no-scope",
+            actions: [
+              {
+                id: "open",
+                target: {
+                  role: "button",
+                  nameIncludes: "Henry Petch",
+                  scope: { role: "list", nameIncludes: "Closed" },
+                },
+              },
+            ],
+            steps: [{ kind: "run", id: "open" }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.reason, "target-not-found");
+      assert.strictEqual(result.decisions, 0);
+      assert.strictEqual(
+        result.missingTarget?.target,
+        'button containing "Henry Petch" in list containing "Closed"',
+      );
+      assert.deepStrictEqual(task.acts, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("refuses a target without exactly one name before any effect", () =>
+    Effect.gen(function* () {
+      const withOpen = (target: Record<string, unknown>) =>
+        requestProblem({
+          ...DESK_REQUEST,
+          actions: [{ id: "open", target: target as PreviewTaskTarget }],
+        });
+      assert.strictEqual(
+        withOpen({ role: "button", name: "A", nameIncludes: "A" }),
+        "open: give exactly one of name or nameIncludes.",
+      );
+      assert.strictEqual(
+        withOpen({ role: "button" }),
+        "open: give exactly one of name or nameIncludes.",
+      );
+      assert.strictEqual(
+        withOpen({ role: "button", nameIncludes: "  " }),
+        "open: nameIncludes needs text, not only spaces.",
+      );
+      assert.strictEqual(
+        withOpen({ role: "button", nameIncludes: "A", scope: { role: "list" } }),
+        "open: give exactly one of name or nameIncludes.",
+      );
+      assert.strictEqual(
+        requestProblem({
+          ...DESK_REQUEST,
+          checks: [{ id: "c", kind: "target", target: { role: "textbox" }, expect: "absent" }],
+        }),
+        "c: give exactly one of name or nameIncludes.",
+      );
+      assert.strictEqual(
+        requestProblem({
+          ...DESK_REQUEST,
+          actions: [
+            { id: "tab", press: { key: "Tab", target: { role: "textbox" } as PreviewTaskTarget } },
+          ],
+        }),
+        "tab: give exactly one of name or nameIncludes.",
+      );
+      assert.isUndefined(requestProblem(DESK_REQUEST));
+      const task = yield* harness({ choices: ["open"], page: { tree: deskTree("now") } });
+      const refused = yield* task.service
+        .run({
+          scope,
+          request: { ...DESK_REQUEST, actions: [{ id: "open", target: { role: "button" } }] },
+          authorize: allow,
+        })
+        .pipe(Effect.flip);
+      assert.strictEqual(refused.code, "invalid_request");
+      assert.strictEqual(task.decisions.length, 0);
       assert.deepStrictEqual(task.acts, []);
     }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
   );

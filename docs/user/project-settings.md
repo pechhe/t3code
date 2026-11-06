@@ -313,7 +313,10 @@ When the agent already knows the path, it can give the task an ordered list of s
 runs once, in order, with no model call, and screenshots taken between steps come back as evidence
 tied to the step and page that produced them. Jev steps in only when a step's target is covered,
 for example by a cookie banner, or has not appeared yet. A target the page plainly lacks, such as a
-stale link name, stops the task straight away and names the nearest matches. Screenshots are saved
+stale link name, stops the task straight away and names the nearest matches. When a control's
+name carries text that changes, such as a support case row that includes the case's age, the agent
+can name it by a part of its name that appears once on the page instead; the task still acts only when exactly one control
+matches, and reports the full name it used. A name longer than 900 characters cannot be matched. Screenshots are saved
 as browser artifacts, at most eight per task; Claude and Codex agents can ask to see the last three
 inline.
 

@@ -145,6 +145,16 @@ const KEYS = `<!doctype html><title>Keys</title><main>
   </script>
 </main>`;
 
+/** Support-desk rows: each a button named by its whole card, its age included. */
+const DESK = `<!doctype html><title>Desk</title><main>
+  <button onclick="document.querySelectorAll('time').forEach((t) => { t.textContent = '1m'; })">All cases</button>
+  <ul aria-label="Open cases">
+    <li><button onclick="document.getElementById('reply').hidden = false"><span>HP</span><span>Henry Petch</span><time>now</time><span>YardSmith</span><span>Reply needed</span></button></li>
+    <li><button><span>JP</span><span>Jo Petch</span><time>2d</time><span>Weave</span><span>Reply needed</span></button></li>
+  </ul>
+  <textarea id="reply" aria-label="Reply to Henry Petch" hidden></textarea>
+</main>`;
+
 const request = (
   change: Partial<PreviewTaskRequest> & Pick<PreviewTaskRequest, "requestId" | "tabId">,
 ): PreviewTaskRequest => ({
@@ -213,14 +223,16 @@ const withFixture = <A, E, R>(
               ? LATE
               : incoming.url === "/doc"
                 ? DOC
-                : incoming.url === "/long"
-                  ? `<!doctype html><title>Long</title><main>${Array.from(
-                      { length: 900 },
-                      (_, index) => `<p><a href="#row-${index}">Row number ${index}</a></p>`,
-                    ).join(
-                      "",
-                    )}<button onclick="document.title='Reached'">Last control</button></main>`
-                  : FORM,
+                : incoming.url === "/desk"
+                  ? DESK
+                  : incoming.url === "/long"
+                    ? `<!doctype html><title>Long</title><main>${Array.from(
+                        { length: 900 },
+                        (_, index) => `<p><a href="#row-${index}">Row number ${index}</a></p>`,
+                      ).join(
+                        "",
+                      )}<button onclick="document.title='Reached'">Last control</button></main>`
+                    : FORM,
       );
     });
     yield* Effect.promise(
@@ -1077,6 +1089,64 @@ it.live("never presses a key when its target cannot hold focus, is ambiguous or 
         expect(result.actions.every((action) => action.state === "planned")).toBe(true);
         expect(yield* pageText(tabId)).toContain("Keys: none");
       }
+    }),
+  ),
+);
+
+it.live("opens a desk row by part of its name after its age changed, and blocks on two", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const { tabId } = yield* openTab(`${fixture.origin}/desk`);
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      const actions = [
+        { id: "all", target: { role: "button", name: "All cases" } },
+        { id: "open", target: { role: "button", nameIncludes: "Henry Petch" } },
+      ];
+      const opened = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "desk-open",
+          tabId,
+          actions,
+          steps: [
+            { kind: "run", id: "all" },
+            { kind: "run", id: "open" },
+          ],
+          checks: [
+            {
+              id: "reply",
+              kind: "target",
+              target: { role: "textbox", nameIncludes: "Reply to Henry" },
+              expect: "present",
+            },
+          ],
+        }),
+      });
+      expect(opened).toMatchObject({ status: "passed", decisions: 0 });
+      const matched = opened.actions.find((action) => action.id === "open")?.matchedName;
+      expect(matched).toContain("Henry Petch");
+      expect(matched).toContain("1m");
+      expect(opened.checks).toEqual([
+        { id: "reply", status: "passed", matchedName: "Reply to Henry Petch" },
+      ]);
+
+      const ambiguous = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "desk-two",
+          tabId,
+          actions: [{ id: "open", target: { role: "button", nameIncludes: "Reply needed" } }],
+          steps: [{ kind: "run", id: "open" }],
+        }),
+      });
+      expect(ambiguous).toMatchObject({
+        status: "blocked",
+        reason: "ambiguous-target",
+        detail: 'open: 2 elements match button containing "Reply needed".',
+      });
+      expect(fixture.decisions).toEqual([]);
     }),
   ),
 );

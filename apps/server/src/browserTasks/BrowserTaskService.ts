@@ -7,6 +7,7 @@ import {
   type PreviewTabId,
   type PreviewTaskRequest,
   type PreviewTaskResult,
+  type PreviewTaskTarget,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -27,6 +28,7 @@ import * as Broker from "../mcp/PreviewAutomationBroker.ts";
 import { saveBrowserScreenshot } from "../preview/browserArtifacts.ts";
 import * as ServerBrowser from "../preview/ServerBrowser.ts";
 import {
+  actionTarget,
   type BrowserTaskPort,
   emptyRecord,
   plannedScreenshots,
@@ -37,6 +39,7 @@ import {
   TARGET_NOT_FOCUSABLE,
   type RunRecord,
 } from "./BrowserTaskRunner.ts";
+import type { NameSpec } from "./pageModel.ts";
 
 const invalid = (message: string) =>
   new OrchestratorMcpFailure({ code: "invalid_request", message });
@@ -56,6 +59,14 @@ const RELEASE_GRACE_MS = 500;
 const COVER_CHECK_MS = 2_000;
 
 const duplicate = (ids: readonly string[]) => ids.find((id, index) => ids.indexOf(id) !== index);
+
+const nameProblem = (spec: NameSpec) => {
+  if ((spec.name === undefined) === (spec.nameIncludes === undefined))
+    return "give exactly one of name or nameIncludes.";
+  if (spec.nameIncludes !== undefined && spec.nameIncludes.trim().length === 0)
+    return "nameIncludes needs text, not only spaces.";
+  return undefined;
+};
 
 /** Rejects what can be known wrong before any provider call or browser effect. */
 export const requestProblem = (request: PreviewTaskRequest): string | undefined => {
@@ -79,6 +90,26 @@ export const requestProblem = (request: PreviewTaskRequest): string | undefined 
     ...actions.flatMap((action) => (action.screenshot === undefined ? [] : [action.id])),
   ].find((id) => CONTROL_LABELS.has(id) || RESERVED_SCREENSHOT_IDS.has(id));
   if (reservedShot !== undefined) return `Screenshot id ${reservedShot} is reserved.`;
+  const targets: ReadonlyArray<readonly [string, PreviewTaskTarget]> = [
+    ...bindings.map((binding) => [binding.id, binding.target] as const),
+    ...actions.flatMap((action) => {
+      const target = actionTarget(action);
+      return target === undefined ? [] : [[action.id, target] as const];
+    }),
+    ...(request.submit === undefined ? [] : [[request.submit.id, request.submit.target] as const]),
+    ...(request.capture === undefined ? [] : [["capture", request.capture.target] as const]),
+    ...shots.flatMap((shot) =>
+      shot.target === undefined ? [] : [[shot.id, shot.target] as const],
+    ),
+    ...request.checks.flatMap((check) =>
+      check.kind === "target" ? [[check.id, check.target] as const] : [],
+    ),
+  ];
+  for (const [id, target] of targets) {
+    const problem =
+      nameProblem(target) ?? (target.scope === undefined ? undefined : nameProblem(target.scope));
+    if (problem !== undefined) return `${id}: ${problem}`;
+  }
   for (const shot of shots)
     if ((shot.framing === "target") !== (shot.target !== undefined))
       return `Screenshot ${shot.id} names a target only with target framing.`;
