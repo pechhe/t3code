@@ -123,6 +123,28 @@ const LATE = `<!doctype html><title>Late</title><main><img src="/slow.png" alt="
   });</script>
 </main>`;
 
+/** Like Weave Chat: only Tab in the message box accepts the routing offer. The log shows every key the page saw. */
+const KEYS = `<!doctype html><title>Keys</title><main>
+  <label>Message <input id="message"></label>
+  <h2>Heading</h2>
+  <button>Twin</button><button>Twin</button>
+  <output id="routed"></output>
+  <p id="log">Keys: none</p>
+  <script>
+    const log = document.getElementById("log");
+    addEventListener("keydown", (event) => {
+      if (event.key === "Shift") return;
+      if (log.textContent === "Keys: none") log.textContent = "Keys:";
+      log.textContent += " " + (event.shiftKey ? "Shift+" : "") + event.key;
+    }, true);
+    document.getElementById("message").addEventListener("keydown", (event) => {
+      if (event.key !== "Tab" || event.shiftKey) return;
+      event.preventDefault();
+      document.getElementById("routed").textContent = "Routed to Sales";
+    });
+  </script>
+</main>`;
+
 const request = (
   change: Partial<PreviewTaskRequest> & Pick<PreviewTaskRequest, "requestId" | "tabId">,
 ): PreviewTaskRequest => ({
@@ -183,20 +205,22 @@ const withFixture = <A, E, R>(
       }
       response.setHeader("Content-Type", "text/html");
       response.end(
-        incoming.url === "/overlay"
-          ? OVERLAY
-          : incoming.url === "/late"
-            ? LATE
-            : incoming.url === "/doc"
-              ? DOC
-              : incoming.url === "/long"
-                ? `<!doctype html><title>Long</title><main>${Array.from(
-                    { length: 900 },
-                    (_, index) => `<p><a href="#row-${index}">Row number ${index}</a></p>`,
-                  ).join(
-                    "",
-                  )}<button onclick="document.title='Reached'">Last control</button></main>`
-                : FORM,
+        incoming.url === "/keys"
+          ? KEYS
+          : incoming.url === "/overlay"
+            ? OVERLAY
+            : incoming.url === "/late"
+              ? LATE
+              : incoming.url === "/doc"
+                ? DOC
+                : incoming.url === "/long"
+                  ? `<!doctype html><title>Long</title><main>${Array.from(
+                      { length: 900 },
+                      (_, index) => `<p><a href="#row-${index}">Row number ${index}</a></p>`,
+                    ).join(
+                      "",
+                    )}<button onclick="document.title='Reached'">Last control</button></main>`
+                  : FORM,
       );
     });
     yield* Effect.promise(
@@ -937,6 +961,122 @@ it.live("stops at once on a landmark the page lacks", () =>
       expect(result.timings.waitMs).toBe(0);
       // A run that blocks after screenshots were asked for shows where it stopped.
       expect(result.screenshots?.map((shot) => shot.id)).toEqual(["stopped"]);
+    }),
+  ),
+);
+
+const pageText = (tabId: PreviewTabId) =>
+  Effect.gen(function* () {
+    const broker = yield* Broker.PreviewAutomationBroker;
+    const page = yield* broker.invoke<PreviewAutomationSnapshot>({
+      scope,
+      tabId,
+      operation: "snapshot",
+      input: {},
+      updateCurrentTab: false,
+    });
+    return page.visibleText;
+  });
+
+const MESSAGE = { role: "textbox", name: "Message" } as const;
+
+it.live("presses Tab in a named textbox, in goal mode and in ordered mode", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      const routed = [
+        { id: "routed", kind: "text", includes: "Routed to Sales", expect: "present" },
+      ] as const;
+      const goal = yield* openTab(`${fixture.origin}/keys`);
+      fixture.script.push("accept");
+      const byGoal = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "keys-goal",
+          tabId: goal.tabId,
+          goal: "Accept the routing offer",
+          actions: [{ id: "accept", press: { key: "Tab", target: MESSAGE } }],
+          checks: routed,
+        }),
+      });
+      expect(byGoal).toMatchObject({ status: "passed", decisions: 1 });
+      expect(byGoal.actions).toEqual([{ id: "accept", kind: "action", state: "completed" }]);
+      const offered = fixture.decisions[0]!.questions[0]!;
+      expect(offered.type === "choice" ? offered.choices[0] : undefined).toMatchObject({
+        label: "accept",
+        description: 'Press Tab in textbox "Message".',
+      });
+
+      const ordered = yield* openTab(`${fixture.origin}/keys`);
+      const byStep = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "keys-ordered",
+          tabId: ordered.tabId,
+          actions: [{ id: "accept", press: { key: "Tab", target: MESSAGE } }],
+          steps: [{ kind: "run", id: "accept" }],
+          checks: routed,
+        }),
+      });
+      expect(byStep).toMatchObject({ status: "passed", decisions: 0 });
+      expect(byStep.actions).toEqual([{ id: "accept", kind: "action", state: "completed" }]);
+      expect(yield* pageText(ordered.tabId)).toContain("Keys: Tab");
+    }),
+  ),
+);
+
+it.live("presses Shift+Tab as one listed key", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const { tabId } = yield* openTab(`${fixture.origin}/keys`);
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      const result = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "shift-tab",
+          tabId,
+          actions: [{ id: "back", press: { key: "Shift+Tab", target: MESSAGE } }],
+          steps: [{ kind: "run", id: "back" }],
+          checks: [{ id: "logged", kind: "text", includes: "Keys: Shift+Tab", expect: "present" }],
+        }),
+      });
+      expect(result).toMatchObject({ status: "passed", decisions: 0 });
+      expect(yield* pageText(tabId)).not.toContain("Routed to Sales");
+    }),
+  ),
+);
+
+it.live("never presses a key when its target cannot hold focus, is ambiguous or is absent", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      const cases = [
+        { target: { role: "heading", name: "Heading" }, reason: "target-not-focusable" },
+        { target: { role: "button", name: "Twin" }, reason: "ambiguous-target" },
+        { target: { role: "textbox", name: "Mesage" }, reason: "target-not-found" },
+      ] as const;
+      for (const [index, { target, reason }] of cases.entries()) {
+        const { tabId } = yield* openTab(`${fixture.origin}/keys`);
+        const result = yield* tasks.run({
+          scope,
+          authorize: Effect.void,
+          request: request({
+            requestId: `unpressed-${index}`,
+            tabId,
+            actions: [{ id: "accept", press: { key: "Enter", target } }],
+            steps: [{ kind: "run", id: "accept" }],
+          }),
+        });
+        expect(result).toMatchObject({ status: "blocked", reason, decisions: 0 });
+        expect(result.detail ?? "").toMatch(
+          reason === "target-not-focusable" ? /focus/ : target.name,
+        );
+        expect(result.actions.every((action) => action.state === "planned")).toBe(true);
+        expect(yield* pageText(tabId)).toContain("Keys: none");
+      }
     }),
   ),
 );

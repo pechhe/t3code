@@ -33,6 +33,7 @@ const unusedTaskLease = {
   captureTaskTarget: () => Effect.die("unused"),
   settleTask: () => Effect.die("unused"),
   taskTargetCovered: () => Effect.die("unused"),
+  pressTaskTarget: () => Effect.die("unused"),
   captureTaskScreenshot: () => Effect.die("unused"),
 };
 

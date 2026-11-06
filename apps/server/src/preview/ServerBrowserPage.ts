@@ -1313,6 +1313,43 @@ export const taskTargetCovered = async (input: {
   return (await centreVisibility(target)) === false;
 };
 
+/**
+ * Focuses the target and presses the key only if the target itself then holds focus, through
+ * shadow roots and, inside a frame, only while that frame's document has focus.
+ */
+export const pressTaskTarget = async (input: {
+  readonly page: Page;
+  readonly locator: string;
+  readonly key: string;
+  readonly timeoutMs: number;
+}): Promise<"pressed" | "not-focusable" | "stale"> => {
+  const target = targetLocator(input.page, { locator: input.locator })!;
+  if ((await target.count()) !== 1) return "stale";
+  // Page-side code: the server compiles without DOM types.
+  const focused = await target.evaluate(
+    (element) => {
+      (element as unknown as { readonly focus?: () => void }).focus?.();
+      const doc = element.ownerDocument as unknown as {
+        readonly activeElement: unknown;
+        readonly hasFocus: () => boolean;
+        readonly defaultView: { readonly top: unknown } | null;
+      };
+      if (doc.defaultView !== null && doc.defaultView.top !== doc.defaultView && !doc.hasFocus())
+        return false;
+      let active = doc.activeElement as {
+        readonly shadowRoot?: { readonly activeElement: unknown } | null;
+      } | null;
+      while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement as never;
+      return active === (element as unknown);
+    },
+    undefined,
+    { timeout: input.timeoutMs },
+  );
+  if (!focused) return "not-focusable";
+  await input.page.keyboard.press(input.key);
+  return "pressed";
+};
+
 /** A full page is cut at this many viewport heights. */
 const FULL_PAGE_VIEWPORTS = 4;
 const JPEG_QUALITIES = [70, 40] as const;

@@ -7,6 +7,7 @@ import type {
   PreviewTaskArtifact,
   PreviewTaskBinding,
   PreviewTaskCheckResult,
+  PreviewTaskKey,
   PreviewTaskRequest,
   PreviewTaskResult,
   PreviewTaskScreenshot,
@@ -50,7 +51,7 @@ export interface BrowserTaskPort {
   readonly acquire: (timeoutMs: number) => Effect.Effect<void, PortFailure>;
   readonly snapshot: (timeoutMs: number) => Effect.Effect<PreviewAutomationSnapshot, PortFailure>;
   readonly act: (
-    operation: "click" | "type" | "select" | "scroll" | "navigate",
+    operation: "click" | "type" | "select" | "scroll" | "navigate" | "press",
     input: Record<string, unknown>,
     timeoutMs: number,
   ) => Effect.Effect<unknown, PortFailure>;
@@ -164,10 +165,25 @@ const safeDetail = (cause: unknown) => {
 const tagOf = (cause: unknown) =>
   typeof cause === "object" && cause !== null && "_tag" in cause ? String(cause._tag) : undefined;
 
+/** A key press's target did not hold focus, so the key was never pressed. */
+export const TARGET_NOT_FOCUSABLE = "TaskTargetNotFocusable";
+
 /** These are refused before the page is touched, so the action did not happen. */
 const refusedBeforeEffect = (cause: unknown) =>
   tagOf(cause) === "PreviewAutomationInvalidSelectorError" ||
-  tagOf(cause) === "PreviewAutomationTargetNotEditableError";
+  tagOf(cause) === "PreviewAutomationTargetNotEditableError" ||
+  tagOf(cause) === TARGET_NOT_FOCUSABLE;
+
+const refusalReason = (cause: unknown) => {
+  switch (tagOf(cause)) {
+    case "PreviewAutomationInvalidSelectorError":
+      return "stale-target";
+    case TARGET_NOT_FOCUSABLE:
+      return "target-not-focusable";
+    default:
+      return "target-refused";
+  }
+};
 
 export interface RunRecord extends Omit<PreviewTaskResult, "actions" | "checks" | "replayed"> {
   actions: Array<{
@@ -186,13 +202,37 @@ interface Offer {
   readonly description: string;
 }
 
+type Action = NonNullable<PreviewTaskRequest["actions"]>[number];
+
 type Step =
   | { readonly _tag: "binding"; readonly binding: PreviewTaskBinding }
-  | { readonly _tag: "action"; readonly action: NonNullable<PreviewTaskRequest["actions"]>[number] }
+  | { readonly _tag: "action"; readonly action: Action }
   | { readonly _tag: "submit" };
 
 const describeTarget = (target: PreviewTaskTarget) =>
   `${target.role} "${target.name}"${target.scope ? ` in ${target.scope.role} "${target.scope.name}"` : ""}`;
+
+/** A click's or key press's target; a URL action has none. */
+const actionTarget = (action: Action): PreviewTaskTarget | undefined =>
+  "target" in action ? action.target : "press" in action ? action.press.target : undefined;
+
+const describeAction = (action: Action) =>
+  "press" in action
+    ? `Press ${action.press.key} in ${describeTarget(action.press.target)}.`
+    : "target" in action
+      ? `Click ${describeTarget(action.target)}.`
+      : `Go to ${action.url}.`;
+
+/** Recovery may move focus or dismiss, never activate or submit with Enter or Space. */
+export const RECOVERY_KEYS: ReadonlySet<PreviewTaskKey> = new Set<PreviewTaskKey>([
+  "Escape",
+  "Tab",
+  "Shift+Tab",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+]);
 
 export const emptyRecord = (request: PreviewTaskRequest): RunRecord => ({
   requestId: request.requestId,
@@ -374,7 +414,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
   /** One dispatch, never retried; anything but a clear result leaves it uncertain. */
   const dispatch = Effect.fn("BrowserTaskRunner.dispatch")(function* (
     entry: { readonly id: string; readonly kind: RunRecord["actions"][number]["kind"] },
-    operation: "click" | "type" | "select" | "scroll" | "navigate",
+    operation: "click" | "type" | "select" | "scroll" | "navigate" | "press",
     payload: Record<string, unknown>,
   ) {
     const action = { id: entry.id, kind: entry.kind, state: "planned" as PreviewTaskActionState };
@@ -398,13 +438,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     if (outcome._tag === "failed" && refusedBeforeEffect(outcome.cause)) {
       action.state = "planned";
       (action as RunRecord["actions"][number]).refusal = safeDetail(outcome.cause);
-      yield* stop(
-        "blocked",
-        tagOf(outcome.cause) === "PreviewAutomationInvalidSelectorError"
-          ? "stale-target"
-          : "target-refused",
-        safeDetail(outcome.cause),
-      );
+      yield* stop("blocked", refusalReason(outcome.cause), safeDetail(outcome.cause));
       return false;
     }
     action.state = "uncertain";
@@ -584,7 +618,10 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     readonly target: PreviewTaskTarget;
   }> => [
     ...bindings.filter((binding) => !applied.has(binding.id)),
-    ...actions.flatMap((action) => ("target" in action ? [action] : [])),
+    ...actions.flatMap((action) => {
+      const target = actionTarget(action);
+      return target === undefined ? [] : [{ id: action.id, target }];
+    }),
     ...(request.submit === undefined || submitDispatched ? [] : [request.submit]),
     ...(request.capture === undefined ? [] : [{ id: "capture", target: request.capture.target }]),
   ];
@@ -651,21 +688,20 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
       fill ??= binding;
     }
     for (const action of actions) {
-      if ("target" in action) {
-        const resolved = resolveTarget(model, action.target);
+      const target = actionTarget(action);
+      if (target !== undefined) {
+        const resolved = resolveTarget(model, target);
         if (resolved._tag === "ambiguous" || resolved._tag === "unknown") {
           yield* stop(
             "blocked",
             resolved._tag === "ambiguous" ? "ambiguous-target" : "snapshot-truncated",
-            `${action.id}: ${describeTarget(action.target)} is ${resolved._tag}.`,
+            `${action.id}: ${describeTarget(target)} is ${resolved._tag}.`,
           );
           return undefined;
         }
         if (resolved._tag === "missing") continue;
-        offers.push({ label: action.id, description: `Click ${describeTarget(action.target)}.` });
-      } else {
-        offers.push({ label: action.id, description: `Go to ${action.url}.` });
       }
+      offers.push({ label: action.id, description: describeAction(action) });
       steps.set(action.id, { _tag: "action", action });
     }
     if (request.submit !== undefined && !submitDispatched) {
@@ -820,7 +856,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         ? step.binding.target
         : step._tag === "submit"
           ? request.submit!.target
-          : (step.action as { readonly target: PreviewTaskTarget }).target;
+          : actionTarget(step.action)!;
     const id =
       step._tag === "binding"
         ? step.binding.id
@@ -835,7 +871,9 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
       return yield* dispatch({ id, kind: "submit" }, "click", { locator });
     }
     if (step._tag === "action") {
-      return yield* dispatch({ id, kind: "action" }, "click", { locator });
+      return "press" in step.action
+        ? yield* dispatch({ id, kind: "action" }, "press", { locator, key: step.action.press.key })
+        : yield* dispatch({ id, kind: "action" }, "click", { locator });
     }
     attempted.add(id);
     const { binding } = step;
@@ -870,16 +908,19 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
       ? step.binding.target
       : step._tag === "submit"
         ? request.submit!.target
-        : "target" in step.action
-          ? step.action.target
-          : undefined;
+        : actionTarget(step.action);
 
   /** Offered actions no step names: all recovery may use, and only to uncover a step's target. */
   const recoveryActions = () => {
     const named = new Set(
       (request.steps ?? []).flatMap((step) => (step.kind === "run" ? [step.id] : [])),
     );
-    return actions.filter((action) => !named.has(action.id) && "target" in action);
+    return actions.filter(
+      (action) =>
+        !named.has(action.id) &&
+        actionTarget(action) !== undefined &&
+        (!("press" in action) || RECOVERY_KEYS.has(action.press.key)),
+    );
   };
 
   /** The occlusion test target screenshots use; undefined once the run has stopped. */
@@ -908,14 +949,15 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     const offers: Offer[] = [];
     const steps = new Map<string, Step>();
     for (const action of recoveryActions()) {
-      if (!("target" in action)) continue;
-      const resolved = resolveTarget(model, action.target);
+      const resolved = resolveTarget(model, actionTarget(action)!);
       if (resolved._tag !== "unique") continue;
-      // A covered control cannot be clicked either, so it is never offered.
-      const covered = yield* coveredNow(resolved.node);
-      if (covered === undefined) return false;
-      if (covered) continue;
-      offers.push({ label: action.id, description: `Click ${describeTarget(action.target)}.` });
+      // A covered control cannot be clicked either, so it is never offered; a key needs focus, not the pointer.
+      if (!("press" in action)) {
+        const covered = yield* coveredNow(resolved.node);
+        if (covered === undefined) return false;
+        if (covered) continue;
+      }
+      offers.push({ label: action.id, description: describeAction(action) });
       steps.set(action.id, { _tag: "action", action });
     }
     const choices = [
@@ -1021,8 +1063,11 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
       id,
       targetOf(step)!,
       (model, node) =>
-        step._tag !== "binding" ||
-        (step.binding.control === "checkbox" && !bindingSatisfied(model, step.binding, node)),
+        step._tag === "submit" ||
+        (step._tag === "action" && !("press" in step.action)) ||
+        (step._tag === "binding" &&
+          step.binding.control === "checkbox" &&
+          !bindingSatisfied(model, step.binding, node)),
     );
     if (ready === undefined) return false;
     if (!(yield* applyStep(step, ready.model, false))) return false;

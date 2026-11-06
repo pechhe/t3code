@@ -923,6 +923,145 @@ const ORDERED_REQUEST: PreviewTaskRequest = {
 };
 
 describe("BrowserTaskService ordered steps", () => {
+  const KEY_TARGET = { role: "textbox", name: "Email" } as const;
+  const choicesOf = (decision: DecisionRequest) =>
+    decision.questions[0]!.type === "choice"
+      ? decision.questions[0]!.choices.map((choice) => choice.label)
+      : [];
+
+  it.effect("presses a key on its target without the click occlusion test", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({ covered: () => true, onAct: () => {} });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            requestId: "key",
+            tabId,
+            engine: "jev",
+            goal: "Accept the suggestion",
+            actions: [{ id: "accept", press: { key: "Tab", target: KEY_TARGET } }],
+            steps: [{ kind: "run", id: "accept" }],
+            checks: [{ id: "here", kind: "url", includes: "/form" }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "passed");
+      assert.strictEqual(result.decisions, 0);
+      assert.deepStrictEqual(statesOf(result), ["accept:completed"]);
+      assert.deepStrictEqual(task.coverChecks, []);
+      assert.deepStrictEqual(
+        task.acts.map(({ operation, input }) => [operation, input.locator, input.key]),
+        [["press", "aria-ref=t3-1-email", "Tab"]],
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("stops unpressed when the key's target does not hold focus", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        refuse: { operation: "press", tag: "TaskTargetNotFocusable" },
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            requestId: "unfocusable",
+            tabId,
+            engine: "jev",
+            goal: "Accept the suggestion",
+            actions: [{ id: "accept", press: { key: "Enter", target: KEY_TARGET } }],
+            steps: [{ kind: "run", id: "accept" }],
+            checks: [{ id: "here", kind: "url", includes: "/form" }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "blocked");
+      assert.strictEqual(result.reason, "target-not-focusable");
+      assert.strictEqual(result.actions[0]?.state, "planned");
+      assert.isDefined(result.actions[0]?.refusal);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it("refuses an unstepped key recovery could never use, and keeps an unstepped Escape", () => {
+    const dismiss = { role: "button", name: "Dismiss" } as const;
+    const withKey = (key: "Enter" | "Space" | "Escape") =>
+      requestProblem({
+        ...ORDERED_REQUEST,
+        actions: [{ id: "key", press: { key, target: dismiss } }],
+      });
+    assert.include(withKey("Enter"), "key needs a step");
+    assert.include(withKey("Space"), "key needs a step");
+    assert.isUndefined(withKey("Escape"));
+  });
+
+  it.effect("a key whose target went stale is refused unpressed, not left uncertain", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        refuse: { operation: "press", tag: "PreviewAutomationInvalidSelectorError" },
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            requestId: "stale-key",
+            tabId,
+            engine: "jev",
+            goal: "Accept the suggestion",
+            actions: [{ id: "accept", press: { key: "Tab", target: KEY_TARGET } }],
+            steps: [{ kind: "run", id: "accept" }],
+            checks: [{ id: "here", kind: "url", includes: "/form" }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.reason, "stale-target");
+      assert.strictEqual(result.actions[0]?.state, "planned");
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("recovery offers an unstepped Escape key", () =>
+    Effect.gen(function* () {
+      let overlay = true;
+      const task = yield* harness({
+        choices: ["escape"],
+        page: { tree: OVERLAY_TREE },
+        covered: (locator) => overlay && locator === "aria-ref=save",
+        onAct: (operation, input, page) => {
+          if (operation === "press" && input.key === "Escape") overlay = false;
+          if (operation === "click" && input.locator === "aria-ref=save") page.submits += 1;
+        },
+      });
+      const dismiss = { role: "button", name: "Dismiss" } as const;
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            requestId: "recover-key",
+            tabId,
+            engine: "jev",
+            goal: "Save",
+            actions: [{ id: "escape", press: { key: "Escape", target: dismiss } }],
+            submit: { id: "save", target: { role: "button", name: "Save" } },
+            steps: [{ kind: "run", id: "save" }],
+            checks: [{ id: "here", kind: "url", includes: "/form" }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "passed");
+      assert.deepStrictEqual(statesOf(result), ["escape:completed", "save:completed"]);
+      assert.deepStrictEqual(choicesOf(task.decisions[0]!), [
+        "escape",
+        "SCROLL_DOWN",
+        "WAIT",
+        "BLOCKED",
+      ]);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
   it.effect("never clicks a covered target; Jev uncovers it with an unstepped control", () =>
     Effect.gen(function* () {
       let overlay = true;

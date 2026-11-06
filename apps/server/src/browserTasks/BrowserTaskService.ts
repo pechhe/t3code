@@ -31,8 +31,10 @@ import {
   emptyRecord,
   plannedScreenshots,
   type PortFailure,
+  RECOVERY_KEYS,
   resolveLimits,
   runBrowserTask,
+  TARGET_NOT_FOCUSABLE,
   type RunRecord,
 } from "./BrowserTaskRunner.ts";
 
@@ -95,10 +97,14 @@ export const requestProblem = (request: PreviewTaskRequest): string | undefined 
     const unrun = [
       ...bindings.map((binding) => binding.id),
       ...(request.submit === undefined ? [] : [request.submit.id]),
-      ...actions.flatMap((action) => ("url" in action ? [action.id] : [])),
+      ...actions.flatMap((action) =>
+        "url" in action || ("press" in action && !RECOVERY_KEYS.has(action.press.key))
+          ? [action.id]
+          : [],
+      ),
     ].find((id) => !runs.includes(id));
     if (unrun !== undefined)
-      return `${unrun} needs a step: only offered clicks may be left for recovery.`;
+      return `${unrun} needs a step: only offered clicks and Escape, Tab or arrow keys may be left for recovery.`;
     if (actions.some((action) => action.screenshot !== undefined))
       return "In ordered mode, take screenshots with screenshot steps.";
     const maxActions = resolveLimits(request.limits).maxActions;
@@ -472,7 +478,36 @@ export const layer = Layer.effect(
         return {
           acquire: () => browser.acquireTaskLease(lessee),
           snapshot: (timeoutMs) => invoke<PreviewAutomationSnapshot>("snapshot", {}, timeoutMs),
-          act: (operation, input, timeoutMs) => invoke<unknown>(operation, input, timeoutMs),
+          act: (operation, input, timeoutMs) =>
+            operation === "press"
+              ? browser
+                  .pressTaskTarget({
+                    ...lessee,
+                    locator: String(input.locator),
+                    key: String(input.key),
+                    timeoutMs,
+                  })
+                  .pipe(
+                    Effect.mapError(failureMessage),
+                    Effect.flatMap((outcome) =>
+                      outcome === "pressed"
+                        ? Effect.void
+                        : Effect.fail(
+                            outcome === "stale"
+                              ? {
+                                  _tag: "PreviewAutomationInvalidSelectorError",
+                                  message:
+                                    "The target is gone or ambiguous, so the key was not pressed.",
+                                }
+                              : {
+                                  _tag: TARGET_NOT_FOCUSABLE,
+                                  message:
+                                    "The target did not hold focus, so the key was not pressed.",
+                                },
+                          ),
+                    ),
+                  )
+              : invoke<unknown>(operation, input, timeoutMs),
           settle: (timeoutMs) =>
             browser.settleTask({ ...lessee, timeoutMs }).pipe(Effect.mapError(failureMessage)),
           covered: (locator, timeoutMs) =>

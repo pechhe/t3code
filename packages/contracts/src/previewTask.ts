@@ -76,7 +76,30 @@ const ScreenshotAfter = Schema.optional(Schema.Literals(["viewport", "full-page"
   description: "Goal mode: screenshot, under this action's id, after it first runs.",
 });
 
+/** A fixed list: a bounded task must never reload, close tabs or reach browser shortcuts. */
+export const PREVIEW_TASK_KEYS = [
+  "Tab",
+  "Shift+Tab",
+  "Enter",
+  "Escape",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Home",
+  "End",
+  "Space",
+] as const;
+export type PreviewTaskKey = (typeof PREVIEW_TASK_KEYS)[number];
+
+// The key press comes first and nests its target, so neither this server (which tries it first)
+// nor one without key presses (which has no variant to match) reads a key action as a click.
 export const PreviewTaskAction = Schema.Union([
+  Schema.Struct({
+    id: Id,
+    press: Schema.Struct({ key: Schema.Literals(PREVIEW_TASK_KEYS), target: PreviewTaskTarget }),
+    screenshot: ScreenshotAfter,
+  }).annotate({ description: "Pressed only while the target itself holds focus." }),
   Schema.Struct({ id: Id, target: PreviewTaskTarget, screenshot: ScreenshotAfter }),
   Schema.Struct({ id: Id, url: Text, screenshot: ScreenshotAfter }),
 ]);
@@ -129,7 +152,8 @@ export const PreviewTaskRequest = Schema.Struct({
     description: "Form fields with the exact values to enter.",
   }),
   actions: Schema.optional(Schema.Array(PreviewTaskAction)).annotate({
-    description: "The only clicks or URLs the task may use, besides submit and scrolling.",
+    description:
+      "The only clicks, key presses or URLs the task may use, besides submit and scrolling.",
   }),
   submit: Schema.optional(Schema.Struct({ id: Id, target: PreviewTaskTarget })).annotate({
     description: "Dispatched at most once per run, and only when you name it here.",

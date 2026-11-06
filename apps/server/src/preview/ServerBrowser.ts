@@ -298,6 +298,13 @@ export class ServerBrowser extends Context.Service<
     readonly taskTargetCovered: (
       input: TaskLeaseInput & { readonly locator: string; readonly timeoutMs: number },
     ) => Effect.Effect<boolean, ServerBrowserTaskError>;
+    readonly pressTaskTarget: (
+      input: TaskLeaseInput & {
+        readonly locator: string;
+        readonly key: string;
+        readonly timeoutMs: number;
+      },
+    ) => Effect.Effect<"pressed" | "not-focusable" | "stale", ServerBrowserTaskError>;
     readonly captureTaskScreenshot: (
       input: TaskLeaseInput & {
         readonly framing: "viewport" | "full-page" | "target";
@@ -3169,7 +3176,7 @@ const make = Effect.gen(function* () {
   /** Runs on the leased tab as the task's agent, bounded by its timeout. */
   const onLeasedPage = <A>(
     input: TaskLeaseInput & { readonly timeoutMs: number },
-    work: (tab: { readonly page: Page }) => Promise<A>,
+    work: (tab: ServerTab) => Promise<A>,
     paused: boolean,
   ) =>
     Effect.tryPromise({
@@ -3217,6 +3224,26 @@ const make = Effect.gen(function* () {
         }),
       false,
     );
+  const pressTaskTarget = (
+    input: TaskLeaseInput & {
+      readonly locator: string;
+      readonly key: string;
+      readonly timeoutMs: number;
+    },
+  ) =>
+    onLeasedPage(
+      input,
+      (tab) =>
+        recordAction(tab, "press", () =>
+          ServerBrowserPage.pressTaskTarget({
+            page: tab.page,
+            locator: input.locator,
+            key: input.key,
+            timeoutMs: input.timeoutMs,
+          }),
+        ),
+      false,
+    );
   const captureTaskScreenshot = (
     input: TaskLeaseInput & {
       readonly framing: "viewport" | "full-page" | "target";
@@ -3253,6 +3280,7 @@ const make = Effect.gen(function* () {
     captureTaskTarget,
     settleTask,
     taskTargetCovered,
+    pressTaskTarget,
     captureTaskScreenshot,
     profileReporter,
     openDownload,
