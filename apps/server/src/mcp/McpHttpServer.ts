@@ -1,6 +1,7 @@
 import { DecisionToolkit } from "./toolkits/decisions/tools.ts";
 import * as DecisionHandlers from "./toolkits/decisions/handlers.ts";
 import * as DecisionService from "../decisions/DecisionService.ts";
+import * as DecisionKeys from "../secrets/decisionKeys.ts";
 import { ChampionsToolkit } from "./toolkits/champions/tools.ts";
 import * as ChampionsHandlers from "./toolkits/champions/handlers.ts";
 import { WebToolkit } from "./toolkits/web/tools.ts";
@@ -69,6 +70,7 @@ import { WorkspaceToolkit } from "./toolkits/workspace/tools.ts";
 import * as WorkspaceHandlers from "./toolkits/workspace/handlers.ts";
 import * as WorkspaceInspection from "../workspace/WorkspaceInspection.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import * as BitwardenSecrets from "../secrets/BitwardenSecrets.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import * as ProjectHandlers from "./toolkits/project/handlers.ts";
 import { AttachmentToolkit } from "./toolkits/attachment/tools.ts";
@@ -1255,11 +1257,7 @@ const layerSessionToolkitServices = Layer.mergeAll(
   WorktreeMcpService.layer.pipe(Layer.provide(WorkspaceProvider.layer)),
   HtmlRender.layer,
   WebResearch.layer.pipe(
-    Layer.provide(
-      WebResearch.layerExecutor.pipe(
-        Layer.provide(WebResearch.layerCredentials.pipe(Layer.provide(ProcessRunner.layer))),
-      ),
-    ),
+    Layer.provide(WebResearch.layerExecutor.pipe(Layer.provide(WebResearch.layerCredentials))),
   ),
 );
 
@@ -1438,4 +1436,8 @@ export const layer = Layer.mergeAll(
   layerMcpTransport(layerTools),
   layerManagedBrowserToolkit,
   ...sessionEndpointLayers,
-).pipe(Layer.provide(BrowserTaskService.layer), Layer.provide(DecisionService.layer));
+).pipe(
+  Layer.provide(BrowserTaskService.layer),
+  Layer.provide(DecisionService.layer.pipe(Layer.provide(DecisionKeys.layerSecretStore))),
+  Layer.provide(BitwardenSecrets.layer.pipe(Layer.provide(ProcessRunner.layer))),
+);

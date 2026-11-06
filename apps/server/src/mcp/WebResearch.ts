@@ -1,10 +1,10 @@
-import * as ProcessRunner from "../processRunner.ts";
-import * as NodeOS from "node:os";
+import * as BitwardenSecrets from "../secrets/BitwardenSecrets.ts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import type * as Scope from "effect/Scope";
@@ -25,45 +25,24 @@ export class ExecutorCredentialSource extends Context.Service<
   }
 >()("t3/mcp/WebResearch/ExecutorCredentialSource") {}
 
-const decodeSecrets = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(Schema.Array(Schema.Struct({ key: Schema.String, value: Schema.String }))),
-);
 export const layerCredentials = Layer.effect(
   ExecutorCredentialSource,
   Effect.gen(function* () {
-    const processes = yield* ProcessRunner.ProcessRunner;
+    const secrets = yield* BitwardenSecrets.BitwardenSecrets;
     return ExecutorCredentialSource.of({
-      read: Effect.gen(function* () {
-        const home = NodeOS.homedir();
-        const environment = yield* HostProcess.Environment;
-        const result = yield* processes
-          .run({
-            command: "bws",
-            args: ["secret", "list"],
-            timeout: "30 seconds",
-            env: {
-              ...environment,
-              PATH: `${home}/.local/bin:${home}/.bun/bin:${home}/.local/share/bws/bin:/opt/homebrew/bin:/usr/local/bin:${environment.PATH ?? ""}`,
-            },
-            maxOutputBytes: 4 * 1024 * 1024,
-          })
-          .pipe(Effect.mapError((cause) => new WebResearchError({ stage: "credentials", cause })));
-        if (result.code !== 0)
-          return yield* new WebResearchError({
-            stage: "credentials",
-            cause: new Error("bws failed"),
-          });
-        const secrets = yield* decodeSecrets(result.stdout).pipe(
-          Effect.mapError((cause) => new WebResearchError({ stage: "credentials", cause })),
-        );
-        const pat = secrets.find((secret) => secret.key === "EXECUTOR_PAT")?.value;
-        if (!pat)
-          return yield* new WebResearchError({
-            stage: "credentials",
-            cause: new Error("Missing EXECUTOR_PAT"),
-          });
-        return pat;
-      }),
+      read: secrets.read("EXECUTOR_PAT").pipe(
+        Effect.mapError((cause) => new WebResearchError({ stage: "credentials", cause })),
+        Effect.flatMap(
+          Option.match({
+            onNone: () =>
+              new WebResearchError({
+                stage: "credentials",
+                cause: new Error("Missing EXECUTOR_PAT"),
+              }),
+            onSome: Effect.succeed,
+          }),
+        ),
+      ),
     });
   }),
 );
