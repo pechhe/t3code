@@ -6,6 +6,9 @@ import type {
   PreviewTaskTarget,
 } from "@t3tools/contracts";
 
+import type { Mutable } from "effect/Types";
+import { parse as parseYaml } from "yaml";
+
 import { TASK_SNAPSHOT_TEXT_LENGTH } from "../preview/ServerBrowserPage.ts";
 
 export interface PageNode {
@@ -14,7 +17,7 @@ export interface PageNode {
   readonly ref: string | undefined;
   readonly parent: number | null;
   readonly checked: boolean;
-  /** The text after a line's attributes: a field's current value. */
+  /** The node's text, inline or from its `- text:` children: a field's current value. */
   readonly value: string | undefined;
   readonly selected: boolean;
 }
@@ -30,37 +33,54 @@ export interface PageModel {
   readonly loading: boolean;
 }
 
-const LINE = /^([a-z]+)(?: ("(?:[^"\\]|\\.)*"))?((?: \[[^\]]*\])*)(?:: ?(.*))?$/;
+const KEY = /^([a-z]+)(?: ("(?:[^"\\]|\\.)*"))?((?: \[[^\]]*\])*)$/;
 const REF = /\[ref=([^\]]+)\]/;
 
-/** Playwright single-quotes a YAML key containing `: `, doubling any quote inside it. */
-const unquote = (content: string) => {
-  if (!content.startsWith("'")) return content;
-  const closed = /'(:.*)?$/.exec(content);
-  const end = closed?.index ?? content.length;
-  return `${content.slice(1, end).replaceAll("''", "'")}${closed?.[1] ?? ""}`;
+/** One snapshot list item as Playwright wrote it: a YAML key, with its value when inline. */
+const itemOf = (content: string) => {
+  let item: unknown;
+  try {
+    item = parseYaml(content, { schema: "failsafe" });
+  } catch {
+    // A line cut by the snapshot's size limit.
+    return undefined;
+  }
+  if (typeof item === "string") return { key: item, value: undefined };
+  if (typeof item !== "object" || item === null) return undefined;
+  const [entry] = Object.entries(item);
+  if (entry === undefined) return undefined;
+  return { key: entry[0], value: typeof entry[1] === "string" ? entry[1] : undefined };
 };
 
 export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): PageModel => {
   const tree = typeof snapshot.accessibilityTree === "string" ? snapshot.accessibilityTree : "";
-  const nodes: PageNode[] = [];
+  const nodes: Array<Mutable<PageNode>> = [];
   const open: Array<{ readonly indent: number; readonly index: number }> = [];
   for (const line of tree.split("\n")) {
     const dash = /^(\s*)- (.*)$/.exec(line);
     if (dash === null) continue;
     const indent = dash[1]!.length;
-    const parsed = LINE.exec(unquote(dash[2]!));
+    const item = itemOf(dash[2]!);
+    const parsed = item === undefined ? null : KEY.exec(item.key);
     if (parsed === null) continue;
     while (open.length > 0 && open.at(-1)!.indent >= indent) open.pop();
+    const parent = open.at(-1)?.index ?? null;
+    const value = item!.value || undefined;
     nodes.push({
       role: parsed[1]!,
       name: parsed[2] === undefined ? "" : (JSON.parse(parsed[2]) as string),
       ref: REF.exec(parsed[3] ?? "")?.[1],
-      parent: open.at(-1)?.index ?? null,
+      parent,
       checked: /\[checked\]/.test(parsed[3] ?? ""),
       selected: /\[selected\]/.test(parsed[3] ?? ""),
-      value: parsed[4] || undefined,
+      value,
     });
+    // Playwright moves a node's text to `- text:` children once the node has properties, such
+    // as a textbox's differing `/placeholder`.
+    if (parsed[1] === "text" && value !== undefined && parent !== null) {
+      const owner = nodes[parent]!;
+      owner.value = (owner.value ?? "") + value;
+    }
     open.push({ indent, index: nodes.length - 1 });
   }
   return {
