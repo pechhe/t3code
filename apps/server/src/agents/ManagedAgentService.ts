@@ -803,7 +803,7 @@ const make = Effect.gen(function* () {
             : {}),
         },
         brief: withoutPhi
-          ? `${brief.text}\nPhi is unavailable for this task; you have plain implementation tools and no Phi tools. Check your work with headless Chromium on the VPS. The owner or an independent ui-verifier must check it in a real browser later. This overrides the brief's Phi preview requirement for this implementation task.\n`
+          ? `${brief.text}\nPhi is unavailable for this task; you have plain implementation tools and no Phi tools. Check your work with the t3_browser_* tools (the repo's headless Playwright without them). The owner or an independent ui-verifier must check it in a real browser later. This overrides the brief's Phi preview requirement for this implementation task.\n`
           : brief.text,
       };
     }),

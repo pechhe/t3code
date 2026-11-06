@@ -1487,7 +1487,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         toolProfile: "implementation",
       });
       expect(degraded.brief).toContain("Phi is unavailable");
-      expect(degraded.brief).toContain("headless Chromium on the VPS");
+      expect(degraded.brief).toContain("Check your work with the t3_browser_* tools");
       expect(degraded.brief).toContain("ui-verifier");
       const discovered = yield* f.service
         .roles({
