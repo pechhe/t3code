@@ -328,7 +328,7 @@ const sendBackMessageText = (input: { readonly specLabel: string; readonly note:
 const notConnected = new ForgeHomeError({
   reason: "not_connected",
   message:
-    "T3 is not connected to Weave. Connect it in Settings → Integrations → Weave → Connect to Weave.",
+    "T3 is not connected to Weave. Connect it in Settings → Browser → Weave → Connect to Weave.",
 });
 
 const make = Effect.gen(function* () {
@@ -993,7 +993,7 @@ const make = Effect.gen(function* () {
       return {
         outcome: "refused" as const,
         message:
-          "Weave refused T3's delegation: it expired or was revoked. Reconnect it in Settings → Integrations → Weave → Connect to Weave.",
+          "Weave refused T3's delegation: it expired or was revoked. Reconnect it in Settings → Browser → Weave → Connect to Weave.",
         state: stateOf(origin, "invalid_token", null, null),
       };
     }

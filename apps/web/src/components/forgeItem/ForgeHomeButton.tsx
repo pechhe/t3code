@@ -788,9 +788,9 @@ export function ForgeHomeButton(props: {
                 ? "Reading Forge from Weave…"
                 : "Couldn't read Forge from T3."
               : state.status === "not_connected"
-                ? "T3 is not connected to Weave. Connect it in Settings → Integrations → Weave → Connect to Weave."
+                ? "T3 is not connected to Weave. Connect it in Settings → Browser → Weave → Connect to Weave."
                 : state.status === "invalid_token"
-                  ? "Weave refused T3's delegation: it expired or was revoked. Reconnect it in Settings → Integrations → Weave → Connect to Weave."
+                  ? "Weave refused T3's delegation: it expired or was revoked. Reconnect it in Settings → Browser → Weave → Connect to Weave."
                   : "Weave could not be reached, and Forge has not been read yet."}
           </p>
         )}

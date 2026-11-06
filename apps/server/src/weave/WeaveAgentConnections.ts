@@ -154,7 +154,7 @@ export class WeaveConnectionError extends Schema.TaggedError<WeaveConnectionErro
       case "invalid_origin":
         return "The Weave origin must be an https URL (http only for localhost).";
       case "invalid_delegation":
-        return "That is not a Weave delegation. Use Connect to Weave in T3's Settings → Integrations instead.";
+        return "That is not a Weave delegation. Use Connect to Weave in T3's Settings → Browser instead.";
       case "store_failed":
         return "T3 could not read or save its Weave connection.";
     }
@@ -174,7 +174,7 @@ type WeaveRefusal =
 const refusalMessages: Record<WeaveRefusal, string> = {
   not_connected: "T3 is no longer connected to Weave.",
   invalid_delegation:
-    "Weave refused T3's delegation: it was revoked or has expired. Choose Connect to Weave in T3's Settings → Integrations to sign in again.",
+    "Weave refused T3's delegation: it was revoked or has expired. Choose Connect to Weave in T3's Settings → Browser to sign in again.",
   agent_revoked:
     "Weave refused this agent (agent_revoked): the person revoked it in Weave Settings → Connections. This thread can no longer act in Weave.",
   agent_role_conflict:

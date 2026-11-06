@@ -11,7 +11,7 @@ Without a Weave connection, threads show no Forge items and Forge links stay ord
 
 ## Connect to Weave
 
-Open **Settings → Integrations → Weave** and choose **Connect to Weave**. T3 opens Weave in your
+Open **Settings → Browser → Weave** and choose **Connect to Weave**. T3 opens Weave in your
 browser; sign in and approve the consent page, and Weave returns you to T3, which is then connected.
 Each environment connects separately: the one whose Settings you used receives the connection.
 Cancelling leaves any existing connection as it was. **Disconnect** stops new Weave calls from this
