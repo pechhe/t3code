@@ -15,10 +15,12 @@ import {
   PreviewTabId,
   type PreviewTaskRequest,
   type PreviewTaskResult,
+  type PreviewTaskTarget,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -40,6 +42,7 @@ import * as PreviewBrowser from "../preview/PreviewBrowser.ts";
 import * as ServerBrowser from "../preview/ServerBrowser.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as BrowserTaskService from "./BrowserTaskService.ts";
+import * as BrowserLogins from "../secrets/BrowserLogins.ts";
 import { boundedBrowserScope } from "../mcp/ManagedBrowserAccess.ts";
 
 const scope: McpThreadInvocationScope = {
@@ -155,6 +158,41 @@ const DESK = `<!doctype html><title>Desk</title><main>
   <textarea id="reply" aria-label="Reply to Henry Petch" hidden></textarea>
 </main>`;
 
+/** A GET form, so a submitted password would also reach the URL, the network log and history. */
+const LOGIN = (framePort: number) => `<!doctype html><title>Login</title><main>
+  <form action="/secure" method="get"
+    onsubmit="console.log('submitting ' + document.getElementById('password').value)">
+    <label>Username <input name="username" id="username"></label>
+    <label>Password <input type="password" name="password" id="password"></label>
+    <button type="button" onclick="document.getElementById('password').type = 'text'">Show password</button>
+    <button type="submit">Login</button>
+  </form>
+  <label>Nickname <input name="nickname"></label>
+  <iframe title="Partner" src="http://localhost:${framePort}/frame"></iframe>
+</main>`;
+
+const SECURE = `<!doctype html><title>Secure</title><main>
+  <h1>You logged into a secure area!</h1>
+</main>`;
+
+const FRAME = `<!doctype html><title>Partner</title><label>Partner password <input type="password"></label>`;
+
+const UNNAMED = `<!doctype html><title>Dropdown</title><main>
+  <select><option>Option 1</option><option>Option 2</option></select>
+</main>`;
+
+/** Other links show at once; the one the task needs arrives after three seconds. */
+const LATER = `<!doctype html><title>Later</title><main>
+  <a href="#home">Home</a> <a href="#about">About</a>
+  <script>setTimeout(() => {
+    const link = document.createElement("a");
+    link.href = "#target";
+    link.textContent = "Target";
+    link.onclick = () => { document.title = "Reached"; };
+    document.querySelector("main").append(link);
+  }, 3000);</script>
+</main>`;
+
 const request = (
   change: Partial<PreviewTaskRequest> & Pick<PreviewTaskRequest, "requestId" | "tabId">,
 ): PreviewTaskRequest => ({
@@ -193,6 +231,8 @@ const withFixture = <A, E, R>(
     readonly releaseHold: () => void;
     readonly script: Array<string>;
     readonly decisions: Array<DecisionRequest>;
+    /** The saved-login store the server reads, keyed by login key. */
+    readonly logins: Map<string, BrowserLogins.Login>;
   }) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
@@ -214,6 +254,23 @@ const withFixture = <A, E, R>(
         return;
       }
       response.setHeader("Content-Type", "text/html");
+      const path = (incoming.url ?? "").split("?")[0];
+      const extra =
+        path === "/login"
+          ? LOGIN((server.address() as NodeNet.AddressInfo).port)
+          : path === "/secure"
+            ? SECURE
+            : path === "/frame"
+              ? FRAME
+              : path === "/unnamed"
+                ? UNNAMED
+                : path === "/later"
+                  ? LATER
+                  : undefined;
+      if (extra !== undefined) {
+        response.end(extra);
+        return;
+      }
       response.end(
         incoming.url === "/keys"
           ? KEYS
@@ -250,11 +307,30 @@ const withFixture = <A, E, R>(
     const port = (server.address() as NodeNet.AddressInfo).port;
     const script: string[] = [];
     const decisions: DecisionRequest[] = [];
+    const logins = new Map<string, BrowserLogins.Login>();
     const runtime = BrowserTaskService.layer.pipe(
+      Layer.provideMerge(
+        Layer.succeed(BrowserLogins.BrowserLogins, {
+          read: (key) => {
+            const login = logins.get(key);
+            return login === undefined
+              ? Effect.fail(new BrowserLogins.BrowserLoginRefused({ key, reason: "missing" }))
+              : Effect.succeed(login);
+          },
+          keysFor: (url) =>
+            Effect.sync(() =>
+              [...logins.values()]
+                .filter((login) => login.origins.includes(BrowserLogins.originOf(url) ?? ""))
+                .map((login) => login.key),
+            ),
+        }),
+      ),
       Layer.provideMerge(ServerBrowser.layer),
       Layer.provideMerge(dependencies),
       Layer.provideMerge(
-        ServerSettings.layerTest({ agentBrowserLoopbackAllow: [`127.0.0.1:${port}`] }),
+        ServerSettings.layerTest({
+          agentBrowserLoopbackAllow: [`127.0.0.1:${port}`, `localhost:${port}`],
+        }),
       ),
       Layer.provideMerge(
         Layer.mock(DecisionService.DecisionService)({
@@ -281,6 +357,7 @@ const withFixture = <A, E, R>(
       },
       script,
       decisions,
+      logins,
     }).pipe(Effect.provide(runtime));
   }).pipe(
     Effect.scoped,
@@ -1155,9 +1232,218 @@ it.live("opens a desk row by part of its name after its age changed, and blocks 
       expect(ambiguous).toMatchObject({
         status: "blocked",
         reason: "ambiguous-target",
-        detail: 'open: 2 elements match button containing "Reply needed".',
+        detail:
+          'open: 2 elements match button containing "Reply needed". A `hint` such as "in the header" lets Jev choose one.',
       });
       expect(fixture.decisions).toEqual([]);
+    }),
+  ),
+);
+
+const PASSWORD = "Synthetic pass&word 7";
+const leaks = (value: unknown) =>
+  [
+    PASSWORD,
+    encodeURIComponent(PASSWORD),
+    encodeURIComponent(PASSWORD).replaceAll("%20", "+"),
+  ].some((form) => JSON.stringify(value).includes(form));
+const loginBinding = (target: PreviewTaskTarget) =>
+  ({ id: "pw", control: "login", target, login: "BROWSER_LOGIN_FIXTURE" }) as const;
+
+it.live("logs in with a saved login the agent never sees, anywhere it could look", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      fixture.logins.set("BROWSER_LOGIN_FIXTURE", {
+        key: "BROWSER_LOGIN_FIXTURE",
+        value: PASSWORD,
+        origins: [fixture.origin],
+      });
+      const { broker, tabId } = yield* openTab(`${fixture.origin}/login`);
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      fixture.script.push("go");
+      const result = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "login",
+          tabId,
+          goal: "Log in",
+          bindings: [
+            {
+              id: "user",
+              control: "text",
+              target: { role: "textbox", name: "Username" },
+              text: "tomsmith",
+            },
+            loginBinding({ role: "textbox", name: "Password" }),
+          ],
+          submit: { id: "go", target: { role: "button", name: "Login" } },
+          checks: [
+            {
+              id: "in",
+              kind: "text",
+              includes: "You logged into a secure area!",
+              expect: "present",
+            },
+          ],
+        }),
+      });
+      expect(result).toMatchObject({ status: "passed" });
+      expect(leaks(result)).toBe(false);
+      expect(leaks(fixture.decisions)).toBe(false);
+      // The continued tab: its URL, console and network entries all carried the value.
+      const after = yield* broker.invoke<PreviewAutomationSnapshot>({
+        scope,
+        tabId,
+        operation: "snapshot",
+        input: {},
+      });
+      expect(after.url).toContain("/secure?username=tomsmith&password=");
+      expect(after.consoleEntries.some((entry) => entry.text.startsWith("submitting "))).toBe(true);
+      expect(after.screenshot).toBeDefined();
+      expect(leaks(after)).toBe(false);
+    }),
+  ),
+);
+
+it.live("refuses a screenshot while a shown password is on the page, then clears it", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      fixture.logins.set("BROWSER_LOGIN_FIXTURE", {
+        key: "BROWSER_LOGIN_FIXTURE",
+        value: PASSWORD,
+        origins: [fixture.origin],
+      });
+      const { broker, tabId } = yield* openTab(`${fixture.origin}/login`);
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      const result = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "shown",
+          tabId,
+          bindings: [loginBinding({ role: "textbox", name: "Password" })],
+          actions: [{ id: "show", target: { role: "button", name: "Show password" } }],
+          steps: [
+            { kind: "run", id: "pw" },
+            { kind: "run", id: "show" },
+            { kind: "screenshot", id: "page", framing: "viewport" },
+          ],
+        }),
+      });
+      expect(result).toMatchObject({ status: "blocked", reason: "secret-visible" });
+      expect(result.screenshots ?? []).toEqual([]);
+      expect(leaks(result)).toBe(false);
+      // The run emptied the field, so the page shows nothing to refuse any more.
+      const after = yield* broker.invoke<PreviewAutomationSnapshot>({
+        scope,
+        tabId,
+        operation: "snapshot",
+        input: {},
+      });
+      expect(after.screenshot).toBeDefined();
+      expect(leaks(after)).toBe(false);
+    }),
+  ),
+);
+
+it.live(
+  "refuses a login before typing on another origin, in a foreign frame or a plain field",
+  () =>
+    withFixture((fixture) =>
+      Effect.gen(function* () {
+        const { broker, tabId } = yield* openTab(`${fixture.origin}/login`);
+        const tasks = yield* BrowserTaskService.BrowserTaskService;
+        const cases = [
+          { origins: ["https://elsewhere.test"], target: { role: "textbox", name: "Password" } },
+          { origins: [fixture.origin], target: { role: "textbox", name: "Partner password" } },
+          { origins: [fixture.origin], target: { role: "textbox", name: "Nickname" } },
+        ] as const;
+        for (const [index, { origins, target }] of cases.entries()) {
+          fixture.logins.set("BROWSER_LOGIN_FIXTURE", {
+            key: "BROWSER_LOGIN_FIXTURE",
+            value: PASSWORD,
+            origins,
+          });
+          const result = yield* tasks.run({
+            scope,
+            authorize: Effect.void,
+            request: request({
+              requestId: `refused-${index}`,
+              tabId,
+              bindings: [loginBinding(target)],
+              steps: [{ kind: "run", id: "pw" }],
+            }),
+          });
+          expect(result, target.name).toMatchObject({ status: "blocked", reason: "login-refused" });
+          expect(result.detail).toContain("BROWSER_LOGIN_FIXTURE");
+          expect(result.actions).toMatchObject([{ id: "pw", state: "planned" }]);
+          const page = yield* broker.invoke<PreviewAutomationSnapshot>({
+            scope,
+            tabId,
+            operation: "snapshot",
+            input: {},
+          });
+          expect(leaks(page)).toBe(false);
+          expect(page.screenshot).toBeDefined();
+        }
+      }),
+    ),
+);
+
+it.live("stops within two seconds on a name the only, unnamed dropdown lacks", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const { tabId } = yield* openTab(`${fixture.origin}/unnamed`);
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      const started = yield* Clock.currentTimeMillis;
+      const result = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "country",
+          tabId,
+          bindings: [
+            {
+              id: "country",
+              control: "select",
+              target: { role: "combobox", name: "Country" },
+              option: "Option 2",
+            },
+          ],
+          steps: [{ kind: "run", id: "country" }],
+        }),
+      });
+      expect((yield* Clock.currentTimeMillis) - started).toBeLessThan(2_000);
+      expect(result).toMatchObject({
+        status: "blocked",
+        reason: "target-not-found",
+        decisions: 0,
+        missingTarget: { nearest: ["combobox (no name)"] },
+      });
+    }),
+  ),
+);
+
+it.live("waits for a named link that arrives after other links already show", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const { tabId } = yield* openTab(`${fixture.origin}/later`);
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      fixture.script.push(...Array.from({ length: 8 }, () => "WAIT"));
+      const result = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "later",
+          tabId,
+          actions: [{ id: "target", target: { role: "link", name: "Target" } }],
+          steps: [{ kind: "run", id: "target" }],
+          checks: [{ id: "reached", kind: "url", includes: "#target" }],
+        }),
+      });
+      expect(result).toMatchObject({ status: "passed" });
+      expect(result.decisions).toBeGreaterThan(0);
     }),
   ),
 );

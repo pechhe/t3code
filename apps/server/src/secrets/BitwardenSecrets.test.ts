@@ -67,3 +67,30 @@ it.effect("fails without quoting the listing when bws fails or prints something 
     expect(String(garbled.cause)).not.toContain("synthetic-jev");
   }),
 );
+
+it.effect("names a host without bws apart from a failing store", () =>
+  Effect.gen(function* () {
+    const missing = Layer.succeed(ProcessRunner.ProcessRunner, {
+      run: (input) =>
+        Effect.fail(
+          new ProcessRunner.ProcessSpawnError({
+            command: input.command,
+            argumentCount: input.args.length,
+            cause: new Error("PlatformError: NotFound: ChildProcess.spawn (bws)"),
+          }),
+        ),
+    });
+    const error = yield* BitwardenSecrets.BitwardenSecrets.pipe(
+      Effect.flatMap((secrets) => secrets.read("TYPESAFE_API_KEY")),
+      Effect.flip,
+      Effect.provide(
+        BitwardenSecrets.layer.pipe(
+          Layer.provide(missing),
+          Layer.provide(Layer.succeed(HostProcess.Environment, { PATH: "/usr/bin" })),
+        ),
+      ),
+    );
+    expect(error.reason).toBe("not-installed");
+    expect((yield* Effect.flip(read(listing, 1))).reason).toBe("failed");
+  }),
+);

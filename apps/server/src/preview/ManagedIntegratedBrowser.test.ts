@@ -213,12 +213,12 @@ it.live.each(["access", "backend", "allow-list"] as const)(
           expect(snapshot.consoleEntries).toContainEqual(
             expect.objectContaining({ level: "error", text: "fixture console error" }),
           );
-          expect(snapshot.screenshot.data.length).toBeGreaterThan(0);
+          expect(snapshot.screenshot!.data.length).toBeGreaterThan(0);
           yield* invoke("click", { selector: "button" });
           yield* invoke("waitFor", { text: "saved" });
           yield* invoke("resize", { mode: "freeform", width: 375, height: 667 });
           const phone = yield* invoke<PreviewAutomationSnapshot>("snapshot");
-          expect(phone.screenshot.width).toBe(750);
+          expect(phone.screenshot!.width).toBe(750);
           yield* invoke("setColorScheme", { colorScheme: "dark" });
           yield* invoke("waitFor", { text: "dark mode" });
           yield* invoke("recordingStart");

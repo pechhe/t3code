@@ -306,26 +306,51 @@ on the final page. A run defaults to 12 actions, 16 decisions and 60 seconds, up
 seconds. It holds the tab exclusively while it runs. Afterwards the agent keeps working in the same
 tab, reading the page first if an action's outcome is `uncertain`, since a cancelled or unanswered
 action may still have taken effect. A server restart ends the tab, so retrying the task is refused
-rather than run again; the agent reads the page in a new tab first. It never enters passwords or
-writes text of its own.
+rather than run again; the agent reads the page in a new tab first. It never types a password
+itself or writes text of its own; see **Saved logins** below.
 
 When the agent already knows the path, it can give the task an ordered list of steps instead: each
 runs once, in order, with no model call, and screenshots taken between steps come back as evidence
 tied to the step and page that produced them. Jev steps in only when a step's target is covered,
-for example by a cookie banner, or has not appeared yet. A target the page plainly lacks, such as a
+for example by a cookie banner, or has not appeared yet, or when the step names a repeated control
+with a hint, as below. A target the page plainly lacks, such as a
 stale link name, stops the task straight away and names the nearest matches. When a control's
 name carries text that changes, such as a support case row that includes the case's age, the agent
 can name it by a part of its name that appears once on the page instead; the task still acts only when exactly one control
-matches, and reports the full name it used. A name longer than 900 characters cannot be matched. Screenshots are saved
+matches, and reports the full name it used. A control the page leaves unnamed can be named by its
+role alone when it is the only one of its kind, such as a page's single dropdown, and a clickable
+element with no role by its visible text, such as a pop-up's "Close". When several controls share a
+name, such as a "past" link in both a page's header and its list, the agent adds a hint like "in
+the header": Jev picks one, and the result names the one it chose. A name longer than 900 characters cannot be matched. Screenshots are saved
 as browser artifacts, at most eight per task; Claude and Codex agents can ask to see the last three
 inline.
 
 Ordinary threads, scheduled runs and Spec leads can run the same bounded tasks themselves through
 the `t3_browser_*` tools, as can a delegated worker or reviewer whose role policy grants
-`browserTasks`. Each opens fresh tabs on the integrated browser with no saved logins, and only the
-session that opened a tab can use it. They follow **Agent browser access** with the integrated
+`browserTasks`. Each opens fresh tabs on the integrated browser with no cookies from elsewhere,
+and only the session that opened a tab can use it. They follow **Agent browser access** with the integrated
 browser enabled, checked on every call: turning it off stops further work at once, while closing a
 tab or cancelling a task still works. A reviewer using them stays read-only.
+
+#### Saved logins
+
+A bounded task can log in to a site without the agent ever seeing the password. The server reads
+the password from Bitwarden Secrets Manager, through the `bws` command on the machine running T3
+Code, and types it into the page's password field itself. The password never appears in the
+agent's results, Jev's input, screenshots or logs, and a screenshot that might show it, such as one
+taken after **Show password**, is refused.
+
+To add a login, save it in Bitwarden Secrets Manager with a key starting `BROWSER_LOGIN_`, for
+example `BROWSER_LOGIN_EXAMPLE`, and list the sites it may be used on in the secret's note, one
+origin per line, such as `https://example.com`. The login works only on those exact origins, never
+on a subdomain or another port, and only in a password field. Only keys with that prefix can be
+used, so no other secret ever reaches a page. When an agent opens a tab, it is told which logins
+are saved for that site; it then names the key in its task.
+
+Anything a bounded task can be given, including reviewers and scheduled runs, can use every saved
+login, so save only logins you are happy for agents to use. A server without `bws` set up refuses
+saved logins with a message and works as before otherwise. If a login task is blocked, the field is
+emptied and the agent runs the login again as a new task.
 
 New worktrees initialize git submodules recursively. If that step is slow because the repository
 declares many nested submodules, set **Submodules** in **Settings → Worktrees** under Advanced (with the project

@@ -7,6 +7,7 @@ const decodes = (schema: Schema.Top, input: unknown) =>
   Schema.decodeUnknownExit(schema as Schema.Codec<unknown, unknown>)(input)._tag === "Success";
 
 const target = { role: "textbox", name: "Message" };
+const decodeAction = Schema.decodeSync(PreviewTaskAction);
 
 describe("PreviewTaskAction key press", () => {
   it("accepts a listed key, Shift+Tab included, and refuses any other", () => {
@@ -17,7 +18,7 @@ describe("PreviewTaskAction key press", () => {
   });
 
   it("reads an action that carries a press as a key press, never as a click", () => {
-    const decoded = Schema.decodeUnknownSync(PreviewTaskAction)({
+    const decoded = decodeAction({
       id: "k",
       target,
       press: { key: "Tab", target },

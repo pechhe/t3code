@@ -20,7 +20,14 @@ import {
 } from "@t3tools/contracts";
 import { constVoid } from "effect/Function";
 import * as Schema from "effect/Schema";
-import type { CDPSession, ConsoleMessage, Frame, Locator, Page } from "playwright-core";
+import type {
+  CDPSession,
+  ConsoleMessage,
+  ElementHandle,
+  Frame,
+  Locator,
+  Page,
+} from "playwright-core";
 import * as NodeCrypto from "node:crypto";
 import { BrowserControlInterrupted, BrowserTaskLeaseHeld } from "./SessionControl.ts";
 
@@ -278,7 +285,7 @@ const answered = <A>(promise: Promise<A>) => {
 };
 
 /** Isolated worlds prevent spoofing; desktop out-of-process frames use page worlds. Missing own-frame reads or changed frames fail; other missing reads return undefined. */
-const openReaders = async (page: Page, cdp: CDPSession) => {
+const openReaders = async (page: Page, cdp: CDPSession, expression: string = DOTTED_SCRIPT) => {
   const frames = page.frames();
   const owners = new Map<Frame, CDPSession | null | undefined>(
     await Promise.all(
@@ -330,7 +337,7 @@ const openReaders = async (page: Page, cdp: CDPSession) => {
           ids.map(async (contextId) => {
             const { result, exceptionDetails } = await session.send("Runtime.evaluate", {
               contextId,
-              expression: DOTTED_SCRIPT,
+              expression,
               returnByValue: true,
             });
             if (exceptionDetails) throw pageChanged();
@@ -356,7 +363,11 @@ const openReaders = async (page: Page, cdp: CDPSession) => {
     ...frames.flatMap((frame) => {
       const owner = owners.get(frame);
       if (owner) return owner === cdp ? [] : [sessionReader(frame, owner)];
-      const own = () => frame.evaluate(DOTTED_SCRIPT) as Promise<Array<string>>;
+      // A page-world read would hand the expression's data to the frame's own script.
+      const own = () =>
+        expression === DOTTED_SCRIPT
+          ? (frame.evaluate(DOTTED_SCRIPT) as Promise<Array<string>>)
+          : Promise.reject(new Error("This frame has no isolated reader."));
       return ownerOf(frame) === null ? [{ frames: [frame], read: own }] : [];
     }),
   ];
@@ -376,6 +387,57 @@ const openReaders = async (page: Page, cdp: CDPSession) => {
     },
   };
 };
+
+/** Every frame's answer, true or false: does a value show in its text, attributes or a non-password field? */
+const secretShownScript = (values: ReadonlyArray<string>) => `((values) => {
+  const seen = (text) => typeof text === "string" && values.some((value) => text.includes(value));
+  const visit = (root) => {
+    // A document's own textContent is null; its root element's holds the page's text.
+    if (seen((root.documentElement ?? root).textContent)) return true;
+    for (const element of root.querySelectorAll("*")) {
+      if (element.shadowRoot && visit(element.shadowRoot)) return true;
+      const password = element.localName === "input" && element.type === "password";
+      for (const attribute of element.attributes)
+        if (!(password && attribute.name === "value") && seen(attribute.value)) return true;
+      const field = ["input", "textarea", "select"].includes(element.localName);
+      if (field && !password && seen(element.value)) return true;
+    }
+    return false;
+  };
+  return [visit(document)];
+})(${JSON.stringify([...new Set(values.flatMap((value) => [value, value.replace(/\s+/g, " ").trim()]))].filter((value) => value.length > 0))})`;
+
+/**
+ * Asked of every frame in an isolated world, so page script never sees the values. A frame that
+ * cannot answer counts as showing them.
+ */
+const secretShown = async (
+  page: Page,
+  cdp: CDPSession,
+  values: ReadonlyArray<string>,
+): Promise<boolean> => {
+  if (values.length === 0) return false;
+  try {
+    const { read } = await openReaders(page, cdp, secretShownScript(values));
+    const answers = (await read()) as ReadonlyArray<ReadonlyArray<unknown> | undefined>;
+    return answers.some(
+      (answer) =>
+        answer === undefined || answer.length === 0 || answer.some((shown) => shown !== false),
+    );
+  } catch {
+    return true;
+  }
+};
+
+/** A screenshot refused because a saved login's value may show on the page. */
+export const SECRET_VISIBLE_TAG = "TaskSecretVisible";
+
+const secretVisible = () =>
+  new ServerBrowserOperationError({
+    tag: SECRET_VISIBLE_TAG,
+    message:
+      "A saved login's value may show on the page, so the screenshot was refused (secret-visible).",
+  });
 
 /** Short values need word boundaries to avoid masking unrelated text. */
 const dottedPattern = (values: ReadonlyArray<string>) => {
@@ -532,6 +594,8 @@ type SnapshotInput = {
   readonly consoleEntries: ReadonlyArray<PreviewAutomationConsoleEntry>;
   readonly networkEntries: ReadonlyArray<PreviewAutomationNetworkEntry>;
   readonly actionTimeline: PreviewAutomationSnapshot["actionTimeline"];
+  /** Saved login values held for this tab: the screenshot is refused while any may show. */
+  readonly secrets?: ReadonlyArray<string> | undefined;
 };
 
 /** The scale a page renders at and its viewport in device-independent pixels. */
@@ -565,6 +629,9 @@ const capture = async (
   const generation = state.generation;
   const { readers, read } = await openReaders(input.page, input.cdp);
   const before = await read();
+  const secrets = input.secrets ?? [];
+  // Checked on both sides of the image, so a value revealed meanwhile is caught too.
+  const shownBefore = await secretShown(input.page, input.cdp, secrets);
   // Bracket the tree with value reads to detect changes; await tree completion before retrying failed captures.
   const pageAndScreenshot = Promise.all([
     input.page.evaluate(SNAPSHOT_SCRIPT) as Promise<
@@ -573,9 +640,11 @@ const capture = async (
         "url" | "title" | "loading" | "visibleText" | "interactiveElements"
       >
     >,
-    captureViewport(input.cdp, { format: "png" }).then((png) =>
-      scale < 1 ? shrinkPng(input.cdp, png, scale) : png,
-    ),
+    shownBefore
+      ? Promise.resolve(undefined)
+      : captureViewport(input.cdp, { format: "png" }).then((png) =>
+          scale < 1 ? shrinkPng(input.cdp, png, scale) : png,
+        ),
   ]);
   void pageAndScreenshot.catch(constVoid);
   // Leaves time for the second read; a frame that never loads holds the tree until then.
@@ -600,6 +669,7 @@ const capture = async (
     if (frame && unread.includes(frame)) throw tooBusy();
   }
   const [page, data] = await pageAndScreenshot;
+  const shown = shownBefore || (await secretShown(input.page, input.cdp, secrets));
   const visibleText =
     scope === null
       ? page.visibleText
@@ -650,11 +720,10 @@ const capture = async (
     consoleEntries: [...input.consoleEntries],
     networkEntries: [...input.networkEntries],
     actionTimeline: [...input.actionTimeline],
-    screenshot: {
-      mimeType: "image/png",
-      data,
-      ...pngSize(data),
-    },
+    viewport,
+    ...(shown || data === undefined
+      ? { screenshotRefused: "secret-visible" as const }
+      : { screenshot: { mimeType: "image/png" as const, data, ...pngSize(data) } }),
   };
 };
 
@@ -1254,10 +1323,13 @@ const taskCaptureError = (message: string) =>
 /** A real crop of one uniquely resolved element, refused rather than framed by luck. */
 export const captureTaskTarget = async (input: {
   readonly page: Page;
+  readonly cdp: CDPSession;
   readonly locator: string;
   readonly timeoutMs: number;
+  readonly secrets: ReadonlyArray<string>;
 }): Promise<TaskTargetCapture> => {
   const timeout = input.timeoutMs;
+  if (await secretShown(input.page, input.cdp, input.secrets)) throw secretVisible();
   const target = targetLocator(input.page, { locator: input.locator })!;
   const count = await target.count();
   if (count !== 1)
@@ -1272,6 +1344,7 @@ export const captureTaskTarget = async (input: {
   const centreVisible = await centreVisibility(target);
   if (centreVisible === false) throw taskCaptureError("Another element covers the capture target.");
   const png = await target.screenshot({ type: "png", timeout });
+  if (await secretShown(input.page, input.cdp, input.secrets)) throw secretVisible();
   const data = png.toString("base64");
   const { width, height } = pngSize(data);
   const scale = width / box.width;
@@ -1367,16 +1440,25 @@ export interface TaskScreenshot {
 /** A PNG, or a JPEG when the PNG is over budget; refused when neither fits. */
 export const captureTaskScreenshot = async (input: {
   readonly page: Page;
+  readonly cdp: CDPSession;
   readonly framing: "viewport" | "full-page" | "target";
   readonly locator?: string | undefined;
   readonly maxBytes: number;
   readonly timeoutMs: number;
+  readonly secrets: ReadonlyArray<string>;
 }): Promise<TaskScreenshot> => {
   const { page, timeoutMs: timeout } = input;
+  if (await secretShown(page, input.cdp, input.secrets)) throw secretVisible();
   let shoot: (options: { type: "png" } | { type: "jpeg"; quality: number }) => Promise<Buffer>;
   let cut = false;
   if (input.framing === "target") {
-    const crop = await captureTaskTarget({ page, locator: input.locator!, timeoutMs: timeout });
+    const crop = await captureTaskTarget({
+      page,
+      cdp: input.cdp,
+      locator: input.locator!,
+      timeoutMs: timeout,
+      secrets: input.secrets,
+    });
     const target = targetLocator(page, { locator: input.locator! })!;
     const png = Buffer.from(crop.data, "base64");
     shoot = (options) =>
@@ -1407,6 +1489,7 @@ export const captureTaskScreenshot = async (input: {
   }
   if (data.length > input.maxBytes)
     throw taskCaptureError(`The screenshot is larger than its ${input.maxBytes}-byte budget.`);
+  if (await secretShown(page, input.cdp, input.secrets)) throw secretVisible();
   return {
     data,
     mimeType,
@@ -1416,4 +1499,186 @@ export const captureTaskScreenshot = async (input: {
     url: withoutDataPayload(page.url()),
     title: (await page.title()).slice(0, 512),
   };
+};
+
+export type LoginFill = "filled" | "stale" | "origin" | "not-password" | "not-focused";
+
+const originOfUrl = (url: string) => {
+  try {
+    const { origin } = new URL(url);
+    return origin === "null" ? undefined : origin;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Types a saved login into one password field. The server first checks the field's frame and the
+ * top page against the bound origins; the page then rechecks both, the field's type and focus,
+ * and sets the value, all in one synchronous step, so a navigation cannot slip in between.
+ */
+export const fillLogin = async (input: {
+  readonly page: Page;
+  readonly locator: string;
+  readonly value: string;
+  readonly origins: ReadonlyArray<string>;
+  readonly timeoutMs: number;
+}): Promise<LoginFill> => {
+  const target = targetLocator(input.page, { locator: input.locator })!;
+  if ((await target.count()) !== 1) return "stale";
+  const handle = await target.elementHandle({ timeout: input.timeoutMs });
+  if (handle === null) return "stale";
+  try {
+    const frame = await handle.ownerFrame();
+    const bound = (url: string | undefined) => {
+      const origin = url === undefined ? undefined : originOfUrl(url);
+      return origin !== undefined && input.origins.includes(origin);
+    };
+    if (!bound(frame?.url()) || !bound(input.page.url())) return "origin";
+    return await typeLogin(handle, input.value, input.origins);
+  } finally {
+    void handle.dispose().catch(constVoid);
+  }
+};
+
+/**
+ * The page-side half of a login fill, in one synchronous step. A handle whose document has gone,
+ * as after a navigation since the server's checks, cannot run it, so nothing is typed.
+ */
+export const typeLogin = async (
+  handle: ElementHandle,
+  value: string,
+  origins: ReadonlyArray<string>,
+): Promise<LoginFill> => {
+  try {
+    // Page-side code: the server compiles without DOM types.
+    return (await handle.evaluate(
+      (element, { value, origins }) => {
+        type Field = {
+          readonly localName: string;
+          readonly type?: string;
+          readonly focus?: () => void;
+          readonly dispatchEvent: (event: unknown) => boolean;
+          readonly ownerDocument: {
+            readonly activeElement: unknown;
+            readonly hasFocus: () => boolean;
+            readonly defaultView: {
+              readonly top: { readonly location: { readonly origin: string } };
+              readonly location: { readonly origin: string };
+              readonly HTMLInputElement: { readonly prototype: object };
+              readonly Event: new (type: string, init: { bubbles: boolean }) => unknown;
+            } | null;
+          };
+        };
+        const field = element as unknown as Field;
+        const view = field.ownerDocument.defaultView;
+        if (view === null) return "origin";
+        let top: string;
+        try {
+          top = view.top.location.origin;
+        } catch {
+          return "origin";
+        }
+        if (!origins.includes(view.location.origin) || !origins.includes(top)) return "origin";
+        if (field.localName !== "input" || field.type !== "password") return "not-password";
+        field.focus?.();
+        const doc = field.ownerDocument;
+        if ((view.top as unknown) !== view && !doc.hasFocus()) return "not-focused";
+        let active = doc.activeElement as {
+          readonly shadowRoot?: { readonly activeElement: unknown } | null;
+        } | null;
+        while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement as never;
+        if (active !== (element as unknown)) return "not-focused";
+        const setter = Object.getOwnPropertyDescriptor(
+          view.HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        if (setter === undefined) return "not-password";
+        setter.call(element, value);
+        field.dispatchEvent(new view.Event("input", { bubbles: true }));
+        field.dispatchEvent(new view.Event("change", { bubbles: true }));
+        return "filled";
+      },
+      { value, origins: [...origins] },
+    )) as LoginFill;
+  } catch {
+    return "stale";
+  }
+};
+
+/** Only true or false leaves the page: whether the bound field holds the value. */
+export const loginApplied = async (input: {
+  readonly page: Page;
+  readonly locator: string;
+  readonly value: string;
+  readonly origins: ReadonlyArray<string>;
+  readonly timeoutMs: number;
+}): Promise<boolean> => {
+  const target = targetLocator(input.page, { locator: input.locator })!;
+  if ((await target.count()) !== 1) return false;
+  const handle = await target.elementHandle({ timeout: input.timeoutMs });
+  if (handle === null) return false;
+  try {
+    const frame = await handle.ownerFrame();
+    const origin = frame === null ? undefined : originOfUrl(frame.url());
+    if (origin === undefined || !input.origins.includes(origin)) return false;
+    return await handle.evaluate(
+      (element, value) => (element as unknown as { readonly value?: unknown }).value === value,
+      input.value,
+    );
+  } finally {
+    void handle.dispose().catch(constVoid);
+  }
+};
+
+/** Empties every field still holding a value, in frames bound to that value only. */
+export const clearLogins = async (input: {
+  readonly page: Page;
+  readonly logins: ReadonlyArray<{
+    readonly value: string;
+    readonly origins: ReadonlyArray<string>;
+  }>;
+}) => {
+  await Promise.all(
+    input.page.frames().map(async (frame) => {
+      const origin = originOfUrl(frame.url());
+      const values = input.logins
+        .filter((login) => origin !== undefined && login.origins.includes(origin))
+        .map((login) => login.value);
+      if (values.length === 0) return;
+      await frame
+        .evaluate((held) => {
+          type Root = { querySelectorAll: (selector: string) => Iterable<unknown> };
+          type Field = {
+            readonly localName: string;
+            readonly value?: string;
+            readonly shadowRoot?: Root | null;
+            readonly dispatchEvent: (event: unknown) => boolean;
+          };
+          const view = globalThis as unknown as {
+            readonly document: Root;
+            readonly HTMLInputElement: { readonly prototype: object };
+            readonly Event: new (type: string, init: { bubbles: boolean }) => unknown;
+          };
+          const setter = Object.getOwnPropertyDescriptor(
+            view.HTMLInputElement.prototype,
+            "value",
+          )?.set;
+          const visit = (root: Root) => {
+            for (const node of root.querySelectorAll("*")) {
+              const field = node as Field;
+              if (field.shadowRoot) visit(field.shadowRoot);
+              // A shown password is a text field, so any input holding the value is emptied.
+              if (field.localName !== "input") continue;
+              if (!held.includes(field.value ?? "") || setter === undefined) continue;
+              setter.call(field, "");
+              field.dispatchEvent(new view.Event("input", { bubbles: true }));
+              field.dispatchEvent(new view.Event("change", { bubbles: true }));
+            }
+          };
+          visit(view.document);
+        }, values)
+        .catch(constVoid);
+    }),
+  );
 };

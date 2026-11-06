@@ -24,6 +24,7 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import * as Handlers from "./handlers.ts";
 import { BoundedBrowserToolkit } from "./tools.ts";
+import * as BrowserLogins from "../../../secrets/BrowserLogins.ts";
 
 const threadId = ThreadId.make("reviewer-thread");
 const projectId = ProjectId.make("project");
@@ -74,6 +75,12 @@ const harness = Effect.gen(function* () {
   });
   const deps = Layer.mergeAll(
     Layer.succeed(Context.McpInvocationContext, reviewerScope),
+    Layer.mock(BrowserLogins.BrowserLogins)({
+      keysFor: (url) =>
+        Effect.succeed(
+          BrowserLogins.originOf(url) === "https://site.test" ? ["BROWSER_LOGIN_SITE"] : [],
+        ),
+    }),
     Layer.mock(BrowserTaskService.BrowserTaskService)({
       run: ({ scope, authorize }) =>
         Effect.gen(function* () {
@@ -104,7 +111,7 @@ const harness = Effect.gen(function* () {
             available: true,
             visible: false,
             tabId: "tab",
-            url: null,
+            url: (input.input as { readonly url?: string } | undefined)?.url ?? null,
             title: null,
             loading: false,
           } as never;
@@ -197,5 +204,17 @@ it.effect("refuses everything once the thread's run has ended", () =>
     expect(Exit.isFailure(yield* handle("t3_browser_close", { tabId: "tab" }))).toBe(true);
     expect(seen.invokes).toHaveLength(0);
     expect(seen.closes).toBe(0);
+  }),
+);
+
+it.effect("lists the saved login keys bound to the opened page's origin, and none elsewhere", () =>
+  Effect.gen(function* () {
+    const { handle } = yield* harness;
+    const listed = (exit: Exit.Exit<ReadonlyArray<unknown>, unknown>) =>
+      Exit.isSuccess(exit) ? JSON.stringify(exit.value) : String(exit.cause);
+    const bound = yield* handle("t3_browser_open", { url: "https://site.test/login" });
+    expect(listed(bound)).toContain('"logins":["BROWSER_LOGIN_SITE"]');
+    const elsewhere = yield* handle("t3_browser_open", { url: "https://other.test/login" });
+    expect(listed(elsewhere)).not.toContain("logins");
   }),
 );

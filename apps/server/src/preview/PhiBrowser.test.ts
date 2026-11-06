@@ -593,7 +593,7 @@ it.effect("serves a Phi tab through the production broker boundary", () =>
         network: false,
         actionTimeline: false,
       });
-      expect(snapshot.screenshot.mimeType).toBe("image/png");
+      expect(snapshot.screenshot!.mimeType).toBe("image/png");
       // The state leads the text, so a bound that cuts a long page's end cannot take it. It is
       // keyed to the ref the agent can use, and a ref the scan did not list is dropped.
       const save = /aria-ref=(\S+) Save/.exec(snapshot.visibleText)?.[1];

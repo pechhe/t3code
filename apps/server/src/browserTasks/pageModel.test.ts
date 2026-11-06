@@ -3,7 +3,9 @@ import { describe, expect, it } from "@effect/vitest";
 
 import {
   bindingSatisfied,
+  describeElement,
   evaluateChecks,
+  evidentAbsence,
   pageModelFromSnapshot,
   resolveTarget,
 } from "./pageModel.ts";
@@ -163,5 +165,85 @@ describe("name fragments", () => {
         matchedName: "ABAnn Bell3dAcme",
       },
     ]);
+  });
+});
+
+// Shapes the live pages showed on 6 Nov 2026: an unnamed select, a clickable paragraph and
+// a link name repeated across the header and the list.
+const PAGES = String.raw`- banner [ref=e1] [box=0,0,1280,40]:
+  - link "past" [ref=e2] [box=300,10,30,14]:
+    - /url: front
+- main [ref=e3] [box=0,40,1280,700]:
+  - combobox [ref=e4] [box=8,60,200,20]:
+    - option "Please select an option" [selected]
+    - option "Option 1"
+    - option "Option 2"
+  - paragraph [ref=e5] [cursor=pointer] [box=600,500,40,16]: Close
+  - paragraph [ref=e6] [box=8,700,400,16]: Closed for the day
+  - link "past" [ref=e7] [box=8,720,30,14]:
+    - /url: item?id=2`;
+
+const pages = pageModelFromSnapshot({
+  ...snapshot(PAGES),
+  viewport: { width: 1280, height: 800 },
+});
+
+describe("targets without a unique name", () => {
+  it("resolves a role alone only when the page has one element of it", () => {
+    const combobox = resolveTarget(pages, { role: "combobox" });
+    expect(combobox._tag === "unique" && combobox.node.ref).toBe("e4");
+    expect(resolveTarget(pages, { role: "paragraph" })._tag).toBe("ambiguous");
+    expect(
+      evaluateChecks(pages, [
+        {
+          id: "picked",
+          kind: "target",
+          target: { role: "combobox" },
+          expect: "present",
+          value: "Please select an option",
+        },
+      ])[0]?.status,
+    ).toBe("passed");
+  });
+
+  it("resolves visible text against an element's whole line, whitespace-normalised", () => {
+    const close = resolveTarget(pages, { text: "  Close " });
+    expect(close._tag === "unique" && close.node.ref).toBe("e5");
+    expect(resolveTarget(pages, { text: "Clos" })._tag).toBe("missing");
+    expect(resolveTarget(pages, { text: "past" })._tag).toBe("ambiguous");
+  });
+
+  it("describes each match by role, name or text and region, cut to 120 characters", () => {
+    const matches = resolveTarget(pages, { role: "link", name: "past" });
+    if (matches._tag !== "ambiguous") throw new Error(matches._tag);
+    expect(matches.nodes.map((node) => describeElement(pages, node))).toEqual([
+      'link "past" in banner',
+      'link "past" in main',
+    ]);
+    const close = resolveTarget(pages, { text: "Close" });
+    if (close._tag !== "unique") throw new Error(close._tag);
+    const outside = pageModelFromSnapshot({
+      ...snapshot(`- paragraph [ref=e1] [box=0,700,40,16]: ${"Close ".repeat(40)}`),
+      viewport: { width: 1280, height: 800 },
+    });
+    const long = describeElement(outside, outside.nodes[0]!);
+    expect(long.startsWith('paragraph showing "Close Close')).toBe(true);
+    expect(long.length).toBeLessThanOrEqual(121);
+    const banded = pageModelFromSnapshot({
+      ...snapshot("- paragraph [ref=e1] [box=0,700,40,16]: Close"),
+      viewport: { width: 1280, height: 800 },
+    });
+    expect(describeElement(banded, banded.nodes[0]!)).toBe(
+      'paragraph showing "Close" at the bottom of the viewport',
+    );
+  });
+
+  it("points an exact name at the page's only, unnamed element of its role", () => {
+    expect(evidentAbsence(pages, { role: "combobox", name: "Country" })).toEqual({
+      nearest: ["combobox (no name)"],
+    });
+    // A fragment, or a role with named elements, never stops a page whose list may still load.
+    expect(evidentAbsence(pages, { role: "combobox", nameIncludes: "Country" })).toBeUndefined();
+    expect(evidentAbsence(pages, { role: "link", name: "Target" })).toBeUndefined();
   });
 });

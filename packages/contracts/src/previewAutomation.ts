@@ -78,6 +78,8 @@ export type PreviewAutomationProfile = typeof PreviewAutomationProfile.Type;
 
 export const PreviewAutomationStatus = Schema.Struct({
   networkRefusals: Schema.optional(Schema.Array(Schema.String)),
+  /** Saved login keys bound to the tab's origin, for a task's login binding. Never values. */
+  logins: Schema.optional(Schema.Array(Schema.String)),
   backend: Schema.optional(BrowserBackend),
   connected: Schema.optional(Schema.Boolean),
   connectionMessage: Schema.optional(Schema.String),
@@ -599,12 +601,19 @@ export const PreviewAutomationSnapshot = Schema.Struct({
   consoleEntries: Schema.Array(PreviewAutomationConsoleEntry),
   networkEntries: Schema.Array(PreviewAutomationNetworkEntry),
   actionTimeline: Schema.Array(PreviewAutomationActionEvent),
-  screenshot: Schema.Struct({
-    mimeType: Schema.Literal("image/png"),
-    data: Schema.String,
-    width: Schema.Int,
-    height: Schema.Int,
-  }),
+  /** The CSS viewport the element boxes are measured in. */
+  viewport: Schema.optional(Schema.Struct({ width: Schema.Number, height: Schema.Number })),
+  /** Absent only when `screenshotRefused` says why. */
+  screenshot: Schema.optional(
+    Schema.Struct({
+      mimeType: Schema.Literal("image/png"),
+      data: Schema.String,
+      width: Schema.Int,
+      height: Schema.Int,
+    }),
+  ),
+  /** A saved login's value may show on the page, so no image was taken. */
+  screenshotRefused: Schema.optional(Schema.Literal("secret-visible")),
 });
 export type PreviewAutomationSnapshot = typeof PreviewAutomationSnapshot.Type;
 

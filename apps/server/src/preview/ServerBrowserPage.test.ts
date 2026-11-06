@@ -423,7 +423,7 @@ describe("server browser snapshot screenshot", () => {
       consoleEntries: [],
       networkEntries: [],
       actionTimeline: [],
-    });
+    }).then((snapshot) => ({ screenshot: snapshot.screenshot! }));
     // The server has no DOM types, so the decoder runs as page source.
     const points = [
       [0.15, 0.75],
@@ -477,7 +477,7 @@ describe("server browser snapshot screenshot", () => {
       actionTimeline: [],
     });
 
-    expect([screenshot.width, screenshot.height]).toEqual([1280, 800]);
+    expect([screenshot?.width, screenshot?.height]).toEqual([1280, 800]);
   });
 });
 
@@ -558,5 +558,58 @@ describe("server browser net errors", () => {
     ["net::ERR_TLS13_DOWNGRADE_DETECTED", "ERR_TLS13_DOWNGRADE_DETECTED", -2],
   ])("reads the whole error name from %j", (errorText, description, code) => {
     expect(ServerBrowserPage.parseNetError(errorText)).toEqual({ description, code });
+  });
+});
+
+describe("server browser saved logins", () => {
+  let browser: Browser;
+  let context: BrowserContext;
+
+  beforeAll(async () => {
+    browser = await chromium.launch();
+    context = await browser.newContext({ viewport: { width: 640, height: 400 } });
+  });
+  afterAll(async () => {
+    await browser.close();
+  });
+
+  const SECRET = "Synthetic secret 42";
+
+  const snapshotOf = async (html: string) => {
+    const page = await context.newPage();
+    await page.setContent(html);
+    return ServerBrowserPage.snapshot({
+      page,
+      cdp: await context.newCDPSession(page),
+      renderScale: 1,
+      consoleEntries: [],
+      networkEntries: [],
+      actionTimeline: [],
+      secrets: [SECRET],
+    });
+  };
+
+  it("refuses the screenshot while the value shows outside a password field", async () => {
+    for (const shown of [
+      `<input value="${SECRET}">`,
+      `<p>${SECRET}</p>`,
+      `<div title="${SECRET}"></div>`,
+    ]) {
+      const snapshot = await snapshotOf(shown);
+      expect(snapshot.screenshot, shown).toBeUndefined();
+      expect(snapshot.screenshotRefused).toBe("secret-visible");
+    }
+    const masked = await snapshotOf(`<input type="password" value="${SECRET}">`);
+    expect(masked.screenshot).toBeDefined();
+    expect(masked.screenshotRefused).toBeUndefined();
+  });
+
+  it("types nothing through a field whose page navigated after the server's checks", async () => {
+    const page = await context.newPage();
+    await page.setContent(`<input type="password">`);
+    const handle = (await page.$("input"))!;
+    await page.goto(`data:text/html,<input type="password">`);
+    expect(await ServerBrowserPage.typeLogin(handle, SECRET, ["null"])).toBe("stale");
+    expect(await page.locator("input").inputValue()).toBe("");
   });
 });

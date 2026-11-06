@@ -58,6 +58,7 @@ import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import * as McpToolAccessTestkit from "./McpToolAccess.testkit.ts";
+import * as BrowserLogins from "../secrets/BrowserLogins.ts";
 
 /**
  * Only the registry is built, so the tools never run and every service below is an
@@ -68,6 +69,7 @@ const serviceMocks = Layer.mergeAll(
   Layer.mock(AssetSigner.AssetSigner)({}),
   Layer.mock(DecisionService.DecisionService)({}),
   Layer.mock(BrowserTaskService.BrowserTaskService)({}),
+  Layer.mock(BrowserLogins.BrowserLogins)({}),
   Layer.mock(Champions.ChampionService)({}),
   Layer.mock(WebResearch.WebResearch)({}),
   Layer.mock(OrchestratorMcpService.OrchestratorMcpService)({}),

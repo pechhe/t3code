@@ -29,9 +29,15 @@ const setup = (options: {
       Effect.suspend(() => {
         reads.push(key);
         return options.bitwarden === "fails"
-          ? Effect.fail(new BitwardenSecrets.BitwardenSecretsError({ cause: new Error("bws") }))
+          ? Effect.fail(
+              new BitwardenSecrets.BitwardenSecretsError({
+                reason: "failed",
+                cause: new Error("bws"),
+              }),
+            )
           : Effect.succeed(Option.fromNullishOr(options.bitwarden));
       }),
+    select: () => Effect.die("unused"),
   });
   return ServerSecretStore.ServerSecretStore.pipe(
     Effect.provide(

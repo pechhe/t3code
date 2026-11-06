@@ -95,7 +95,8 @@ const ObservedSnapshot = Schema.Struct({
       }),
     ),
   }),
-  screenshot: PreviewAutomationSnapshot.fields.screenshot,
+  // Phi never refuses its screenshot, so it stays required here.
+  screenshot: PreviewAutomationSnapshot.fields.screenshot.schema,
 });
 const decodeObserved = Schema.decodeUnknownEffect(ObservedSnapshot);
 

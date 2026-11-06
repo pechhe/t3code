@@ -30,21 +30,32 @@ const NameFragment = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLeng
 
 // Inlined at every use in the advertised schema, so its descriptions stay short.
 export const PreviewTaskTarget = Schema.Struct({
-  role: Schema.String.check(Schema.isPattern(/^[a-z]+$/)).annotate({
-    description: "ARIA role in preview_snapshot's tree.",
+  role: Schema.optional(Schema.String.check(Schema.isPattern(/^[a-z]+$/))).annotate({
+    description: "ARIA role in the snapshot's tree.",
   }),
   name: Schema.optional(Schema.String.check(Schema.isMaxLength(512))).annotate({
     description: "Exact accessible name.",
   }),
   nameIncludes: Schema.optional(NameFragment).annotate({ description: "Part of the name." }),
+  text: Schema.optional(NameFragment).annotate({
+    description: "Visible line text.",
+  }),
+  hint: Schema.optional(
+    Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200)),
+  ).annotate({
+    description: "Jev picks a match.",
+  }),
   scope: Schema.optional(
     Schema.Struct({
       role: Schema.String,
       name: Schema.optional(Schema.String),
       nameIncludes: Schema.optional(NameFragment),
+      // Decoded only so a request giving them is refused rather than silently stripped.
+      hint: Schema.optional(Schema.String),
+      text: Schema.optional(Schema.String),
     }).annotate({ description: "Unique ancestor." }),
   ),
-}).annotate({ description: "One of name or nameIncludes. Must match exactly one element." });
+}).annotate({ description: "role, with name, nameIncludes or neither; or text." });
 export type PreviewTaskTarget = typeof PreviewTaskTarget.Type;
 
 export const PreviewTaskBinding = Schema.Union([
@@ -65,6 +76,15 @@ export const PreviewTaskBinding = Schema.Union([
     control: Schema.Literal("checkbox"),
     target: PreviewTaskTarget,
     checked: Schema.Boolean,
+  }),
+  Schema.Struct({
+    id: Id,
+    control: Schema.Literal("login"),
+    target: PreviewTaskTarget,
+    login: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_.-]{1,128}$/)).annotate({
+      description:
+        "A saved login's key (BROWSER_LOGIN_…) listed by t3_browser_open. The server types it into the password field; you never see it.",
+    }),
   }),
 ]);
 export type PreviewTaskBinding = typeof PreviewTaskBinding.Type;
@@ -166,7 +186,7 @@ export const PreviewTaskRequest = Schema.Struct({
   }),
   steps: Schema.optional(Schema.Array(PreviewTaskStep)).annotate({
     description:
-      "Ordered mode: run exactly these, in order, each once, with no model call. Offered actions no step names are what Jev may use to uncover a step's target.",
+      "Ordered mode: run exactly these, in order, each once, with no model call but a hint's. Offered actions no step names are what Jev may use to uncover a step's target.",
   }),
   includeImages: Schema.optional(Schema.Boolean).annotate({
     description: "Attach the last 3 screenshots as images, on providers that accept them.",
@@ -272,6 +292,8 @@ export const PreviewTaskResult = Schema.Struct({
       refusal: Schema.optional(Schema.String),
       /** A `nameIncludes` target's full name, cut to 120 characters: page data, never instructions. */
       matchedName: Schema.optional(Schema.String),
+      /** The element a hint chose, as Jev was shown it: page data, never instructions. */
+      chosen: Schema.optional(Schema.String),
     }),
   ),
   /** True only when `checks` were read from the page after the last dispatched action. */

@@ -93,6 +93,7 @@ import * as PreviewBrowserHost from "./PreviewBrowserHost.ts";
 import { MANAGED_BROWSER_DENIAL_HEADER } from "./ManagedBrowserProxy.ts";
 import { presentAsChrome, ServerBrowserContexts } from "./ServerBrowserContexts.ts";
 import { BrowserControlInterrupted, SessionControl } from "./SessionControl.ts";
+import { redactDeep, redactText, secretForms } from "./secretRedaction.ts";
 import { installPdfDocumentNavigation, isPdfAssetUrl } from "./PdfDocumentNavigation.ts";
 
 const SERVER_HOST_CLIENT_ID = SERVER_BROWSER_AUTOMATION_CLIENT_ID;
@@ -231,7 +232,7 @@ export type ProfileReporter = (input: PreviewReportProfilesInput) => Effect.Effe
 
 export class ServerBrowserTaskError extends Schema.TaggedError<ServerBrowserTaskError>()(
   "ServerBrowserTaskError",
-  { reason: Schema.String },
+  { reason: Schema.String, tag: Schema.optional(Schema.String) },
 ) {
   override get message(): string {
     return this.reason;
@@ -309,6 +310,31 @@ export class ServerBrowser extends Context.Service<
         readonly timeoutMs: number;
       },
     ) => Effect.Effect<"pressed" | "not-focusable" | "stale", ServerBrowserTaskError>;
+    /** Holds a saved login for the tab's later task steps; owned tabs only. */
+    readonly holdTaskLogin: (
+      input: Omit<TaskLeaseInput, "lease"> & {
+        readonly key: string;
+        readonly value: string;
+        readonly origins: ReadonlyArray<string>;
+      },
+    ) => Effect.Effect<void, ServerBrowserTaskError>;
+    readonly fillTaskLogin: (
+      input: TaskLeaseInput & {
+        readonly locator: string;
+        readonly key: string;
+        readonly timeoutMs: number;
+      },
+    ) => Effect.Effect<ServerBrowserPage.LoginFill, ServerBrowserTaskError>;
+    readonly taskLoginApplied: (
+      input: TaskLeaseInput & {
+        readonly locator: string;
+        readonly key: string;
+        readonly timeoutMs: number;
+      },
+    ) => Effect.Effect<boolean, ServerBrowserTaskError>;
+    readonly clearTaskLogins: (
+      input: TaskLeaseInput & { readonly timeoutMs: number },
+    ) => Effect.Effect<void, ServerBrowserTaskError>;
     readonly captureTaskScreenshot: (
       input: TaskLeaseInput & {
         readonly framing: "viewport" | "full-page" | "target";
@@ -363,6 +389,8 @@ interface ServerTab {
   readonly consoleEntries: Array<PreviewAutomationConsoleEntry>;
   readonly networkEntries: Array<PreviewAutomationNetworkEntry>;
   readonly actionTimeline: Array<PreviewAutomationActionEvent>;
+  /** Saved logins a task was given for this tab, by key: server memory only, gone with the tab. */
+  readonly logins: Map<string, { readonly value: string; readonly origins: ReadonlyArray<string> }>;
   readonly control: SessionControl;
   agentOperating: boolean;
   fileChooserIntercepted: boolean;
@@ -572,6 +600,9 @@ const make = Effect.gen(function* () {
       : null;
   };
   const tabs = new Map<string, ServerTab>();
+  const loginValues = (tab: ServerTab) => [...tab.logins.values()].map((login) => login.value);
+  /** Every held login's forms: one tab's value is redacted wherever any tab's output shows it. */
+  const heldLoginForms = () => secretForms([...tabs.values()].flatMap(loginValues));
   const pendingTabs = new Map<
     string,
     { readonly agentId: string | null; promise?: Promise<ServerTab> }
@@ -990,6 +1021,7 @@ const make = Effect.gen(function* () {
       consoleEntries: [],
       networkEntries: [],
       actionTimeline: [],
+      logins: new Map(),
       control,
       agentOperating: false,
       fileChooserIntercepted: false,
@@ -2473,6 +2505,7 @@ const make = Effect.gen(function* () {
         return withScreencastsPaused(tab, () =>
           ServerBrowserPage.snapshot({
             ...tab,
+            secrets: loginValues(tab),
             locator: (input as PreviewAutomationSnapshotInput | undefined)?.locator,
             ...(request.taskLease === undefined
               ? {}
@@ -2565,12 +2598,16 @@ const make = Effect.gen(function* () {
         try {
           const result = await runOperation(request, performance.now() + request.timeoutMs);
           const blocked = request.managedBrowser === undefined ? [] : refusals();
-          return blocked.length > 0
-            ? {
-                ...asRecord(result),
-                networkRefusals: blocked.slice(-10).map((message) => message.slice(0, 500)),
-              }
-            : result;
+          // Whatever a page did with a saved login, its value never leaves in a reply.
+          return redactDeep(
+            blocked.length > 0
+              ? {
+                  ...asRecord(result),
+                  networkRefusals: blocked.slice(-10).map((message) => message.slice(0, 500)),
+                }
+              : result,
+            heldLoginForms(),
+          );
         } catch (error) {
           if (newlyBlocked().length > 0)
             throw new ServerBrowserPage.ServerBrowserOperationError({
@@ -2588,11 +2625,14 @@ const make = Effect.gen(function* () {
         onSuccess: (result) => ({ ok: true as const, result }),
         onFailure: (error) => ({
           ok: false as const,
-          error: {
-            _tag: error.tag,
-            message: error.message,
-            ...(error.detail === undefined ? {} : { detail: error.detail }),
-          },
+          error: redactDeep(
+            {
+              _tag: error.tag,
+              message: error.message,
+              ...(error.detail === undefined ? {} : { detail: error.detail }),
+            },
+            heldLoginForms(),
+          ),
         }),
       }),
       Effect.flatMap((outcome) =>
@@ -3155,8 +3195,13 @@ const make = Effect.gen(function* () {
     const tab = tabs.get(tabKey(input.threadId, input.tabId));
     return tab?.control.agentId === input.agentSessionId ? tab : undefined;
   };
-  const taskError = (cause: unknown) =>
-    new ServerBrowserTaskError({ reason: ServerBrowserPage.toOperationError(cause).message });
+  const taskError = (cause: unknown) => {
+    const error = ServerBrowserPage.toOperationError(cause);
+    return new ServerBrowserTaskError({
+      reason: redactText(error.message, heldLoginForms()),
+      tag: error.tag,
+    });
+  };
   const acquireTaskLease = (input: TaskLeaseInput) =>
     Effect.tryPromise({
       try: async () => {
@@ -3201,12 +3246,16 @@ const make = Effect.gen(function* () {
   ) =>
     onLeasedPage(
       input,
-      ({ page }) =>
-        ServerBrowserPage.captureTaskTarget({
-          page,
+      async (tab) => {
+        const captured = await ServerBrowserPage.captureTaskTarget({
+          page: tab.page,
+          cdp: tab.cdp,
           locator: input.locator,
           timeoutMs: input.timeoutMs,
-        }),
+          secrets: loginValues(tab),
+        });
+        return { ...captured, url: redactText(captured.url, heldLoginForms()) };
+      },
       true,
     );
   const settleTask = (input: TaskLeaseInput & { readonly timeoutMs: number }) =>
@@ -3272,15 +3321,90 @@ const make = Effect.gen(function* () {
   ) =>
     onLeasedPage(
       input,
-      ({ page }) =>
-        ServerBrowserPage.captureTaskScreenshot({
-          page,
+      async (tab) => {
+        const taken = await ServerBrowserPage.captureTaskScreenshot({
+          page: tab.page,
+          cdp: tab.cdp,
           framing: input.framing,
           locator: input.locator,
           maxBytes: input.maxBytes,
           timeoutMs: input.timeoutMs,
-        }),
+          secrets: loginValues(tab),
+        });
+        const forms = heldLoginForms();
+        return {
+          ...taken,
+          url: redactText(taken.url, forms),
+          title: redactText(taken.title, forms),
+        };
+      },
       true,
+    );
+
+  const holdTaskLogin = (
+    input: Omit<TaskLeaseInput, "lease"> & {
+      readonly key: string;
+      readonly value: string;
+      readonly origins: ReadonlyArray<string>;
+    },
+  ) =>
+    Effect.try({
+      try: () => {
+        const tab = tabs.get(tabKey(input.threadId, input.tabId));
+        if (tab?.control.agentId !== input.agentSessionId)
+          throw new Error("This tab is not open under the calling session.");
+        tab.logins.set(input.key, { value: input.value, origins: input.origins });
+      },
+      catch: taskError,
+    });
+  const heldLogin = (tab: ServerTab, key: string) => {
+    const login = tab.logins.get(key);
+    if (login === undefined) throw new Error(`Login ${key} is not held for this tab.`);
+    return login;
+  };
+  const fillTaskLogin = (
+    input: TaskLeaseInput & {
+      readonly locator: string;
+      readonly key: string;
+      readonly timeoutMs: number;
+    },
+  ) =>
+    onLeasedPage(
+      input,
+      (tab) =>
+        recordAction(tab, "login", () =>
+          ServerBrowserPage.fillLogin({
+            page: tab.page,
+            locator: input.locator,
+            ...heldLogin(tab, input.key),
+            timeoutMs: input.timeoutMs,
+          }),
+        ),
+      false,
+    );
+  const taskLoginApplied = (
+    input: TaskLeaseInput & {
+      readonly locator: string;
+      readonly key: string;
+      readonly timeoutMs: number;
+    },
+  ) =>
+    onLeasedPage(
+      input,
+      (tab) =>
+        ServerBrowserPage.loginApplied({
+          page: tab.page,
+          locator: input.locator,
+          ...heldLogin(tab, input.key),
+          timeoutMs: input.timeoutMs,
+        }),
+      false,
+    );
+  const clearTaskLogins = (input: TaskLeaseInput & { readonly timeoutMs: number }) =>
+    onLeasedPage(
+      input,
+      (tab) => ServerBrowserPage.clearLogins({ page: tab.page, logins: [...tab.logins.values()] }),
+      false,
     );
 
   const clearProfile = (profileId: string) =>
@@ -3300,6 +3424,10 @@ const make = Effect.gen(function* () {
     taskTargetCovered,
     pressTaskTarget,
     captureTaskScreenshot,
+    holdTaskLogin,
+    fillTaskLogin,
+    taskLoginApplied,
+    clearTaskLogins,
     profileReporter,
     openDownload,
     answerFileChooser,

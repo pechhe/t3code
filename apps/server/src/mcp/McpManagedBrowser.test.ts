@@ -26,6 +26,7 @@ import {
   ManagedBrowserTaskToolkit,
   ManagedBrowserToolkit,
 } from "./toolkits/managedBrowser/tools.ts";
+import * as BrowserLogins from "../secrets/BrowserLogins.ts";
 
 const environmentId = EnvironmentId.make("environment-managed-browser");
 const scopeFor = (managedBrowser: boolean): McpInvocationContext.McpThreadInvocationScope => ({
@@ -159,6 +160,7 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
         McpHttpServer.layerManagedBrowserToolkit.pipe(
           Layer.provide(Layer.mock(DecisionService.DecisionService)({})),
           Layer.provide(Layer.mock(BrowserTaskService.BrowserTaskService)({})),
+          Layer.provide(Layer.mock(BrowserLogins.BrowserLogins)({})),
         ),
         McpHttpServer.layerMcpTransport(McpHttpServer.layerPreviewToolkit),
       ).pipe(Layer.provide(registry), Layer.provide(services));

@@ -23,8 +23,9 @@ import * as TestClock from "effect/testing/TestClock";
 
 import type { McpThreadInvocationScope } from "../mcp/McpInvocationContext.ts";
 import { TASK_SNAPSHOT_TEXT_LENGTH } from "../preview/ServerBrowserPage.ts";
-import type { BrowserTaskPort } from "./BrowserTaskRunner.ts";
+import { type BrowserTaskPort, LOGIN_REFUSED, SECRET_VISIBLE } from "./BrowserTaskRunner.ts";
 import { makeService, requestProblem, type TaskBackend } from "./BrowserTaskService.ts";
+import * as BrowserLogins from "../secrets/BrowserLogins.ts";
 
 const tabId = PreviewTabId.make("tab-1");
 const scope: McpThreadInvocationScope = {
@@ -137,6 +138,14 @@ const harness = Effect.fn("harness")(function* (options: {
   readonly onAct?: (operation: string, input: Record<string, unknown>, page: FakePage) => void;
   readonly loading?: () => boolean;
   readonly onSettle?: (page: FakePage) => void;
+  /** The saved-login store; a refusal reason makes every read fail that way. */
+  readonly logins?:
+    | Record<string, BrowserLogins.Login>
+    | BrowserLogins.BrowserLoginRefused["reason"];
+  /** Whether a typed login reads back as applied. */
+  readonly loginHolds?: boolean;
+  /** Screenshots are refused because a saved login may show. */
+  readonly secretVisible?: boolean;
 }) {
   const page: FakePage = { url: "http://site.test/form", email: "", submits: 0, ...options.page };
   const acts: Array<{ operation: string; input: Record<string, unknown> }> = [];
@@ -149,11 +158,23 @@ const harness = Effect.fn("harness")(function* (options: {
   const released: Array<{ leased: boolean; inspectFirst: boolean }> = [];
   const shots: Array<{ framing: string; locator?: string; maxBytes: number }> = [];
   const coverChecks: string[] = [];
+  const held: string[] = [];
+  let loginClears = 0;
   let settles = 0;
   let generation = 0;
 
   const backend: TaskBackend = {
     credentialState: () => Effect.sync(() => options.credential?.() ?? "live"),
+    readLogin: (key) => {
+      const store = options.logins ?? {};
+      if (typeof store === "string")
+        return Effect.fail(new BrowserLogins.BrowserLoginRefused({ key, reason: store }));
+      const login = store[key];
+      return login === undefined
+        ? Effect.fail(new BrowserLogins.BrowserLoginRefused({ key, reason: "missing" }))
+        : Effect.succeed(login);
+    },
+    holdLogin: (_scope, _tab, login) => Effect.sync(() => void held.push(login.key)),
     assertOwnedTab: (_scope, id) =>
       id === tabId
         ? Effect.void
@@ -191,6 +212,11 @@ const harness = Effect.fn("harness")(function* (options: {
           return {};
         }),
       capture: () => Effect.fail({ message: "unused" }),
+      loginApplied: () => Effect.succeed(options.loginHolds ?? true),
+      clearLogins: () =>
+        Effect.sync(() => {
+          loginClears += 1;
+        }),
       settle: () =>
         Effect.sync(() => {
           settles += 1;
@@ -202,20 +228,22 @@ const harness = Effect.fn("harness")(function* (options: {
           return options.covered?.(locator) ?? false;
         }),
       screenshot: (input) =>
-        Effect.sync(() => {
-          shots.push(input);
-          return {
-            path: `/artifacts/shot-${shots.length}.png`,
-            mimeType: "image/png" as const,
-            width: 1280,
-            height: 720,
-            bytes: 120_000,
-            cut: false,
-            url: page.url,
-            title: "Form",
-            capturedAt: "2026-11-06T12:00:00.000Z",
-          };
-        }),
+        options.secretVisible === true
+          ? Effect.fail({ _tag: SECRET_VISIBLE, message: "A saved login's value may show." })
+          : Effect.sync(() => {
+              shots.push(input);
+              return {
+                path: `/artifacts/shot-${shots.length}.png`,
+                mimeType: "image/png" as const,
+                width: 1280,
+                height: 720,
+                bytes: 120_000,
+                cut: false,
+                url: page.url,
+                title: "Form",
+                capturedAt: "2026-11-06T12:00:00.000Z",
+              };
+            }),
       decide: (request) =>
         Effect.suspend(() => {
           decisions.push(request);
@@ -245,6 +273,8 @@ const harness = Effect.fn("harness")(function* (options: {
     released,
     shots,
     coverChecks,
+    held,
+    loginClears: () => loginClears,
     settles: () => settles,
   };
 });
@@ -1633,7 +1663,8 @@ describe("BrowserTaskService name fragments", () => {
         {
           target: { role: "button", nameIncludes: "Reply needed" },
           tree: deskTree("now", `    - button "JPJo Petch2dWeaveReply needed" [ref=jo]`),
-          detail: 'open: 2 elements match button containing "Reply needed".',
+          detail:
+            'open: 2 elements match button containing "Reply needed". A `hint` such as "in the header" lets Jev choose one.',
         },
         {
           target: {
@@ -1765,7 +1796,7 @@ describe("BrowserTaskService name fragments", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
   );
 
-  it.effect("refuses a target without exactly one name before any effect", () =>
+  it.effect("refuses a malformed target before any effect", () =>
     Effect.gen(function* () {
       const withOpen = (target: Record<string, unknown>) =>
         requestProblem({
@@ -1774,47 +1805,431 @@ describe("BrowserTaskService name fragments", () => {
         });
       assert.strictEqual(
         withOpen({ role: "button", name: "A", nameIncludes: "A" }),
-        "open: give exactly one of name or nameIncludes.",
+        "open: give at most one of name or nameIncludes.",
       );
-      assert.strictEqual(
-        withOpen({ role: "button" }),
-        "open: give exactly one of name or nameIncludes.",
-      );
+      assert.strictEqual(withOpen({ name: "A" }), "open: give a role, or text.");
       assert.strictEqual(
         withOpen({ role: "button", nameIncludes: "  " }),
         "open: nameIncludes needs text, not only spaces.",
       );
       assert.strictEqual(
-        withOpen({ role: "button", nameIncludes: "A", scope: { role: "list" } }),
-        "open: give exactly one of name or nameIncludes.",
+        withOpen({ role: "button", scope: { role: "list", name: "A", nameIncludes: "A" } }),
+        "open: give at most one of name or nameIncludes.",
+      );
+      assert.strictEqual(
+        withOpen({ role: "button", scope: { role: "banner", hint: "top" } }),
+        "open: a scope takes no hint.",
+      );
+      assert.strictEqual(
+        withOpen({ role: "button", text: "Close" }),
+        "open: give text instead of role and name, not with them.",
       );
       assert.strictEqual(
         requestProblem({
           ...DESK_REQUEST,
-          checks: [{ id: "c", kind: "target", target: { role: "textbox" }, expect: "absent" }],
+          bindings: [{ id: "b", control: "text", target: { text: "Email" }, text: "a@b.c" }],
         }),
-        "c: give exactly one of name or nameIncludes.",
+        "b: a text target is only for clicks, submit and checks.",
       );
       assert.strictEqual(
         requestProblem({
           ...DESK_REQUEST,
-          actions: [
-            { id: "tab", press: { key: "Tab", target: { role: "textbox" } as PreviewTaskTarget } },
+          checks: [
+            {
+              id: "c",
+              kind: "target",
+              target: { role: "link", name: "past", hint: "in the header" },
+              expect: "present",
+            },
           ],
         }),
-        "tab: give exactly one of name or nameIncludes.",
+        "c: a hint is only for clicks, key presses and submit.",
+      );
+      assert.strictEqual(
+        requestProblem({
+          ...DESK_REQUEST,
+          bindings: [
+            {
+              id: "pw",
+              control: "login",
+              target: { role: "textbox", name: "Password" },
+              login: "EXECUTOR_PAT",
+            },
+          ],
+        }),
+        "pw: EXECUTOR_PAT is not a saved login. Only BROWSER_LOGIN_ keys can be used.",
       );
       assert.isUndefined(requestProblem(DESK_REQUEST));
       const task = yield* harness({ choices: ["open"], page: { tree: deskTree("now") } });
       const refused = yield* task.service
         .run({
           scope,
-          request: { ...DESK_REQUEST, actions: [{ id: "open", target: { role: "button" } }] },
+          request: {
+            ...DESK_REQUEST,
+            actions: [{ id: "open", target: { role: "button", name: "A", nameIncludes: "A" } }],
+          },
           authorize: allow,
         })
         .pipe(Effect.flip);
       assert.strictEqual(refused.code, "invalid_request");
       assert.strictEqual(task.decisions.length, 0);
+      assert.deepStrictEqual(task.acts, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+});
+
+const PASSWORD = "synthetic-pass word";
+const LOGIN: BrowserLogins.Login = {
+  key: "BROWSER_LOGIN_SITE",
+  value: PASSWORD,
+  origins: ["http://site.test"],
+};
+const LOGIN_TREE = [
+  `- main [ref=m]:`,
+  `  - textbox "Username" [ref=user]`,
+  `  - textbox "Password" [ref=pw]`,
+  `  - button "Login" [ref=go]`,
+].join("\n");
+const LOGIN_REQUEST: PreviewTaskRequest = {
+  requestId: "login",
+  tabId,
+  engine: "jev",
+  goal: "Log in",
+  bindings: [
+    {
+      id: "user",
+      control: "text",
+      target: { role: "textbox", name: "Username" },
+      text: "tomsmith",
+    },
+    {
+      id: "pw",
+      control: "login",
+      target: { role: "textbox", name: "Password" },
+      login: "BROWSER_LOGIN_SITE",
+    },
+  ],
+  submit: { id: "go", target: { role: "button", name: "Login" } },
+  checks: [{ id: "in", kind: "text", includes: "secure area", expect: "present" }],
+};
+
+const typeUsername = (operation: string, page: FakePage) => {
+  if (operation === "type")
+    page.tree = (page.tree ?? "").replace(
+      '"Username" [ref=user]',
+      '"Username" [ref=user]: tomsmith',
+    );
+};
+
+const HEADER_TREE = [
+  `- banner [ref=b]:`,
+  `  - link "past" [ref=hdr]`,
+  `- main [ref=m]:`,
+  `  - link "past" [ref=row]`,
+].join("\n");
+const PAST_REQUEST: PreviewTaskRequest = {
+  requestId: "past",
+  tabId,
+  engine: "jev",
+  goal: "Open the past front page",
+  actions: [{ id: "past", target: { role: "link", name: "past", hint: "in the header" } }],
+  steps: [{ kind: "run", id: "past" }],
+  checks: [{ id: "front", kind: "url", includes: "front" }],
+};
+const followPast = (_operation: string, input: Record<string, unknown>, page: FakePage) => {
+  if (input.locator === "aria-ref=hdr") page.url = "http://site.test/front";
+};
+
+describe("BrowserTaskService unnamed and repeated targets", () => {
+  it.effect("selects an unnamed dropdown by role alone with no decision", () =>
+    Effect.gen(function* () {
+      const tree = (picked: string) =>
+        [
+          `- main [ref=m]:`,
+          `  - combobox [ref=c]:`,
+          ...["Please select an option", "Option 1", "Option 2"].map(
+            (option) => `    - option "${option}"${option === picked ? " [selected]" : ""}`,
+          ),
+        ].join("\n");
+      const task = yield* harness({
+        page: { tree: tree("Please select an option") },
+        onAct: (operation, _input, page) => {
+          if (operation === "select") page.tree = tree("Option 2");
+        },
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            requestId: "dropdown",
+            tabId,
+            engine: "jev",
+            goal: "Pick option 2",
+            bindings: [
+              { id: "pick", control: "select", target: { role: "combobox" }, option: "Option 2" },
+            ],
+            steps: [{ kind: "run", id: "pick" }],
+            checks: [
+              {
+                id: "picked",
+                kind: "target",
+                target: { role: "combobox" },
+                expect: "present",
+                value: "Option 2",
+              },
+            ],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "passed");
+      assert.strictEqual(result.decisions, 0);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("clicks a role-less Close by its visible text", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        page: {
+          tree: `- main [ref=m]:\n  - paragraph [ref=close] [cursor=pointer]: Close`,
+          text: "This is a modal window Close",
+        },
+        onAct: (operation, input, page) => {
+          if (operation === "click" && input.locator === "aria-ref=close") {
+            page.tree = `- main [ref=m]`;
+            page.text = "Entry ad";
+          }
+        },
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            requestId: "entry-ad",
+            tabId,
+            engine: "jev",
+            goal: "Close the modal",
+            actions: [{ id: "close", target: { text: "Close" } }],
+            steps: [{ kind: "run", id: "close" }],
+            checks: [
+              { id: "gone", kind: "text", includes: "This is a modal window", expect: "absent" },
+            ],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "passed");
+      assert.strictEqual(result.decisions, 0);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("has Jev pick a hinted target among its matches and names the one it chose", () =>
+    Effect.gen(function* () {
+      for (const ordered of [true, false]) {
+        const task = yield* harness({
+          choices: ordered ? ["E1"] : ["past", "E1"],
+          page: { tree: HEADER_TREE },
+          onAct: followPast,
+        });
+        const result = yield* report(
+          task.service.run({
+            scope,
+            request: {
+              ...PAST_REQUEST,
+              requestId: `past-${ordered}`,
+              ...(ordered ? {} : { steps: undefined }),
+            },
+            authorize: allow,
+          }),
+        );
+        assert.strictEqual(result.status, "passed");
+        assert.strictEqual(result.decisions, ordered ? 1 : 2);
+        assert.strictEqual(result.actions[0]?.chosen, 'link "past" in banner');
+        const hinted = task.decisions.at(-1)!;
+        assert.strictEqual(hinted.rule.id, "bounded-browser-task-hint-target");
+        assert.deepStrictEqual(
+          hinted.questions[0]?.type === "choice" ? hinted.questions[0].choices : [],
+          [
+            { label: "E1", description: 'link "past" in banner' },
+            { label: "E2", description: 'link "past" in main' },
+            { label: "NONE", description: "No element fits the hint." },
+          ],
+        );
+        assert.deepStrictEqual(
+          task.acts.map((act) => act.input.locator),
+          ["aria-ref=hdr"],
+        );
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("blocks a repeated target with no hint, a hint Jev cannot place, or too many", () =>
+    Effect.gen(function* () {
+      const plain = yield* harness({ page: { tree: HEADER_TREE } });
+      const unhinted = yield* report(
+        plain.service.run({
+          scope,
+          request: {
+            ...PAST_REQUEST,
+            requestId: "no-hint",
+            actions: [{ id: "past", target: { role: "link", name: "past" } }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(unhinted.reason, "ambiguous-target");
+      assert.include(unhinted.detail, "2 elements match");
+      assert.include(unhinted.detail, "`hint`");
+      assert.strictEqual(unhinted.decisions, 0);
+
+      const none = yield* harness({ choices: ["NONE"], page: { tree: HEADER_TREE } });
+      const unplaced = yield* report(
+        none.service.run({ scope, request: PAST_REQUEST, authorize: allow }),
+      );
+      assert.strictEqual(unplaced.reason, "ambiguous-target");
+      assert.strictEqual(unplaced.decisions, 1);
+      assert.deepStrictEqual(none.acts, []);
+
+      const many = yield* harness({
+        page: {
+          tree: [
+            `- main [ref=m]:`,
+            ...Array.from({ length: 41 }, (_, i) => `  - link "past" [ref=l${i}]`),
+          ].join("\n"),
+        },
+      });
+      const crowded = yield* report(
+        many.service.run({ scope, request: PAST_REQUEST, authorize: allow }),
+      );
+      assert.strictEqual(crowded.reason, "ambiguous-target");
+      assert.strictEqual(crowded.decisions, 0);
+      assert.deepStrictEqual(many.acts, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("stops at once on an exact name the page's only, unnamed element lacks", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        page: { tree: `- main [ref=m]:\n  - combobox [ref=c]:\n    - option "Option 1"` },
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            requestId: "country",
+            tabId,
+            engine: "jev",
+            goal: "Pick a country",
+            bindings: [
+              {
+                id: "country",
+                control: "select",
+                target: { role: "combobox", name: "Country" },
+                option: "Option 1",
+              },
+            ],
+            steps: [{ kind: "run", id: "country" }],
+            checks: [{ id: "any", kind: "url", includes: "/" }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.reason, "target-not-found");
+      assert.strictEqual(result.decisions, 0);
+      assert.deepStrictEqual(result.missingTarget?.nearest, ["combobox (no name)"]);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+});
+
+describe("BrowserTaskService saved logins", () => {
+  it.effect("types a saved login by key alone and never returns or asks with its value", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        choices: ["go", "DONE"],
+        logins: { BROWSER_LOGIN_SITE: LOGIN },
+        page: { tree: LOGIN_TREE },
+        onAct: (operation, input, page) => {
+          typeUsername(operation, page);
+          if (operation === "click" && input.locator === "aria-ref=go") {
+            page.tree = `- heading "Secure Area" [ref=h]`;
+            page.text = "You logged into a secure area!";
+          }
+        },
+      });
+      const result = yield* report(
+        task.service.run({ scope, request: LOGIN_REQUEST, authorize: allow }),
+      );
+      assert.strictEqual(result.status, "passed");
+      assert.deepStrictEqual(task.held, ["BROWSER_LOGIN_SITE"]);
+      assert.deepStrictEqual(task.acts.find((act) => act.operation === "login")?.input, {
+        locator: "aria-ref=pw",
+        login: "BROWSER_LOGIN_SITE",
+        timeoutMs: 15_000,
+      });
+      assert.strictEqual(task.loginClears(), 1);
+      for (const seen of [result, task.acts, task.decisions])
+        assert.notInclude(JSON.stringify(seen), PASSWORD);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("refuses a login the store cannot give before anything reaches the page", () =>
+    Effect.gen(function* () {
+      for (const [logins, code, words] of [
+        [{}, "invalid_request", "No saved login BROWSER_LOGIN_SITE exists."],
+        ["unreachable", "capability_denied", "could not be read, so login BROWSER_LOGIN_SITE"],
+        ["not-configured", "capability_denied", "no saved-login store"],
+      ] as const) {
+        const task = yield* harness({ logins, page: { tree: LOGIN_TREE } });
+        const refused = yield* task.service
+          .run({ scope, request: LOGIN_REQUEST, authorize: allow })
+          .pipe(Effect.flip);
+        assert.strictEqual(refused.code, code);
+        assert.include(refused.message, words);
+        assert.deepStrictEqual(task.acts, []);
+        assert.deepStrictEqual(task.held, []);
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("blocks, untyped, when the page refuses the login field", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        choices: ["DONE"],
+        logins: { BROWSER_LOGIN_SITE: LOGIN },
+        page: { tree: LOGIN_TREE },
+        refuse: { operation: "login", tag: LOGIN_REFUSED },
+        onAct: (operation, _input, page) => typeUsername(operation, page),
+      });
+      const result = yield* report(
+        task.service.run({ scope, request: LOGIN_REQUEST, authorize: allow }),
+      );
+      assert.strictEqual(result.reason, "login-refused");
+      assert.deepStrictEqual(result.actions.find((action) => action.id === "pw")?.state, "planned");
+      assert.isFalse(task.acts.some((act) => act.operation === "click"));
+      assert.strictEqual(task.loginClears(), 1);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("blocks a screenshot step refused because a login may show", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({ secretVisible: true });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            ...FORM_REQUEST,
+            requestId: "shot",
+            steps: [
+              { kind: "screenshot", id: "page", framing: "viewport" },
+              { kind: "run", id: "email" },
+              { kind: "run", id: "save" },
+            ],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "blocked");
+      assert.strictEqual(result.reason, "secret-visible");
       assert.deepStrictEqual(task.acts, []);
     }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
   );

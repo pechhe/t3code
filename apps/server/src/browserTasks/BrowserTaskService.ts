@@ -28,7 +28,6 @@ import * as Broker from "../mcp/PreviewAutomationBroker.ts";
 import { saveBrowserScreenshot } from "../preview/browserArtifacts.ts";
 import * as ServerBrowser from "../preview/ServerBrowser.ts";
 import {
-  actionTarget,
   type BrowserTaskPort,
   emptyRecord,
   plannedScreenshots,
@@ -36,10 +35,12 @@ import {
   RECOVERY_KEYS,
   resolveLimits,
   runBrowserTask,
+  LOGIN_REFUSED,
   TARGET_NOT_FOCUSABLE,
   type RunRecord,
 } from "./BrowserTaskRunner.ts";
 import type { NameSpec } from "./pageModel.ts";
+import * as BrowserLogins from "../secrets/BrowserLogins.ts";
 
 const invalid = (message: string) =>
   new OrchestratorMcpFailure({ code: "invalid_request", message });
@@ -61,11 +62,34 @@ const COVER_CHECK_MS = 2_000;
 const duplicate = (ids: readonly string[]) => ids.find((id, index) => ids.indexOf(id) !== index);
 
 const nameProblem = (spec: NameSpec) => {
-  if ((spec.name === undefined) === (spec.nameIncludes === undefined))
-    return "give exactly one of name or nameIncludes.";
+  if (spec.name !== undefined && spec.nameIncludes !== undefined)
+    return "give at most one of name or nameIncludes.";
   if (spec.nameIncludes !== undefined && spec.nameIncludes.trim().length === 0)
     return "nameIncludes needs text, not only spaces.";
   return undefined;
+};
+
+/** Where a target sits decides which of its forms it may take. */
+type TargetUse = "click" | "press" | "submit" | "binding" | "check" | "capture" | "screenshot";
+
+const targetProblem = (target: PreviewTaskTarget, use: TargetUse) => {
+  if (target.text !== undefined) {
+    if (use !== "click" && use !== "submit" && use !== "check")
+      return "a text target is only for clicks, submit and checks.";
+    if (target.role !== undefined || target.name !== undefined || target.nameIncludes !== undefined)
+      return "give text instead of role and name, not with them.";
+    if (target.text.trim().length === 0) return "text needs words, not only spaces.";
+  } else if (target.role === undefined) return "give a role, or text.";
+  if (target.hint !== undefined) {
+    if (use !== "click" && use !== "press" && use !== "submit")
+      return "a hint is only for clicks, key presses and submit.";
+    if (target.hint.trim().length === 0) return "a hint needs words, not only spaces.";
+  }
+  if (target.scope?.hint !== undefined) return "a scope takes no hint.";
+  if (target.scope?.text !== undefined) return "a scope takes no text.";
+  return (
+    nameProblem(target) ?? (target.scope === undefined ? undefined : nameProblem(target.scope))
+  );
 };
 
 /** Rejects what can be known wrong before any provider call or browser effect. */
@@ -90,26 +114,26 @@ export const requestProblem = (request: PreviewTaskRequest): string | undefined 
     ...actions.flatMap((action) => (action.screenshot === undefined ? [] : [action.id])),
   ].find((id) => CONTROL_LABELS.has(id) || RESERVED_SCREENSHOT_IDS.has(id));
   if (reservedShot !== undefined) return `Screenshot id ${reservedShot} is reserved.`;
-  const targets: ReadonlyArray<readonly [string, PreviewTaskTarget]> = [
-    ...bindings.map((binding) => [binding.id, binding.target] as const),
-    ...actions.flatMap((action) => {
-      const target = actionTarget(action);
-      return target === undefined ? [] : [[action.id, target] as const];
-    }),
-    ...(request.submit === undefined ? [] : [[request.submit.id, request.submit.target] as const]),
-    ...(request.capture === undefined ? [] : [["capture", request.capture.target] as const]),
-    ...shots.flatMap((shot) =>
-      shot.target === undefined ? [] : [[shot.id, shot.target] as const],
-    ),
-    ...request.checks.flatMap((check) =>
-      check.kind === "target" ? [[check.id, check.target] as const] : [],
-    ),
-  ];
-  for (const [id, target] of targets) {
-    const problem =
-      nameProblem(target) ?? (target.scope === undefined ? undefined : nameProblem(target.scope));
+  const targets: Array<readonly [string, PreviewTaskTarget, TargetUse]> = [];
+  for (const binding of bindings) targets.push([binding.id, binding.target, "binding"]);
+  for (const action of actions) {
+    if ("press" in action) targets.push([action.id, action.press.target, "press"]);
+    else if ("target" in action) targets.push([action.id, action.target, "click"]);
+  }
+  if (request.submit !== undefined)
+    targets.push([request.submit.id, request.submit.target, "submit"]);
+  if (request.capture !== undefined) targets.push(["capture", request.capture.target, "capture"]);
+  for (const shot of shots)
+    if (shot.target !== undefined) targets.push([shot.id, shot.target, "screenshot"]);
+  for (const check of request.checks)
+    if (check.kind === "target") targets.push([check.id, check.target, "check"]);
+  for (const [id, target, use] of targets) {
+    const problem = targetProblem(target, use);
     if (problem !== undefined) return `${id}: ${problem}`;
   }
+  for (const binding of bindings)
+    if (binding.control === "login" && !binding.login.startsWith(BrowserLogins.LOGIN_PREFIX))
+      return `${binding.id}: ${binding.login} is not a saved login. Only ${BrowserLogins.LOGIN_PREFIX} keys can be used.`;
   for (const shot of shots)
     if ((shot.framing === "target") !== (shot.target !== undefined))
       return `Screenshot ${shot.id} names a target only with target framing.`;
@@ -194,6 +218,16 @@ export interface TaskBackend {
     options: { readonly leased: boolean; readonly inspectFirst: boolean },
   ) => Effect.Effect<"released" | "tab-lost">;
   readonly credentialState: McpSessionRegistry.McpSessionRegistryShape["credentialState"];
+  /** Read afresh for each admitted run; refused before any browser effect. */
+  readonly readLogin: (
+    key: string,
+  ) => Effect.Effect<BrowserLogins.Login, BrowserLogins.BrowserLoginRefused>;
+  /** Hands the value to the tab's host, the only place it is kept. */
+  readonly holdLogin: (
+    scope: McpThreadInvocationScope,
+    tabId: PreviewTabId,
+    login: BrowserLogins.Login,
+  ) => Effect.Effect<void, OrchestratorMcpFailure>;
 }
 
 interface RunEntry {
@@ -311,6 +345,23 @@ export const makeService = Effect.fn("BrowserTaskService.make")(function* (backe
 
     yield* backend.assertOwnedTab(scope, request.tabId);
     yield* sweepRevoked;
+    const loginKeys = new Set(
+      (request.bindings ?? []).flatMap((binding) =>
+        binding.control === "login" ? [binding.login] : [],
+      ),
+    );
+    for (const key of loginKeys) {
+      const login = yield* backend
+        .readLogin(key)
+        .pipe(
+          Effect.mapError((refused) =>
+            refused.reason === "not-configured" || refused.reason === "unreachable"
+              ? denied(refused.message)
+              : invalid(refused.message),
+          ),
+        );
+      yield* backend.holdLogin(scope, request.tabId, login);
+    }
 
     const cancelled = yield* Deferred.make<void>();
     const reported = yield* Deferred.make<void>();
@@ -446,7 +497,20 @@ const failureMessage = (cause: unknown): PortFailure => ({
     typeof cause === "object" && cause !== null && "message" in cause
       ? String(cause.message)
       : "The browser refused.",
+  // The host's own tag, such as a refused screenshot's, decides how the run reports it.
+  ...(typeof cause === "object" && cause !== null && "tag" in cause && typeof cause.tag === "string"
+    ? { _tag: cause.tag }
+    : {}),
 });
+
+const LOGIN_REFUSALS = {
+  origin: (key: string) =>
+    `Login ${key} is not bound to this page's origin, or to its frame's; nothing was typed.`,
+  "not-password": (key: string) =>
+    `The target is not a password field, so login ${key} was not typed.`,
+  "not-focused": (key: string) =>
+    `The password field did not hold focus, so login ${key} was not typed.`,
+} as const;
 
 export const layer = Layer.effect(
   BrowserTaskService,
@@ -455,12 +519,25 @@ export const layer = Layer.effect(
     const browser = yield* ServerBrowser.ServerBrowser;
     const decisions = yield* DecisionService.DecisionService;
     const registry = yield* McpSessionRegistry.McpSessionRegistry;
+    const logins = yield* BrowserLogins.BrowserLogins;
     const saveServices = yield* Effect.context<
       ServerConfig.ServerConfig | FileSystem.FileSystem | Path.Path | SecureRandom.SecureRandom
     >();
 
     const backend: TaskBackend = {
       credentialState: registry.credentialState,
+      readLogin: logins.read,
+      holdLogin: (scope, tabId, login) =>
+        browser
+          .holdTaskLogin({
+            threadId: scope.thread.threadId,
+            tabId,
+            agentSessionId: Broker.hostAssignmentKey(scope),
+            key: login.key,
+            value: login.value,
+            origins: login.origins,
+          })
+          .pipe(Effect.mapError((error) => denied(error.message))),
       assertOwnedTab: (scope, tabId) =>
         broker
           .invoke<PreviewAutomationStatus>({
@@ -509,36 +586,69 @@ export const layer = Layer.effect(
         return {
           acquire: () => browser.acquireTaskLease(lessee),
           snapshot: (timeoutMs) => invoke<PreviewAutomationSnapshot>("snapshot", {}, timeoutMs),
+          loginApplied: ({ locator, login }, timeoutMs) =>
+            browser
+              .taskLoginApplied({ ...lessee, locator, key: login, timeoutMs })
+              .pipe(Effect.mapError(failureMessage)),
+          clearLogins: (timeoutMs) =>
+            browser.clearTaskLogins({ ...lessee, timeoutMs }).pipe(Effect.mapError(failureMessage)),
           act: (operation, input, timeoutMs) =>
-            operation === "press"
+            operation === "login"
               ? browser
-                  .pressTaskTarget({
+                  .fillTaskLogin({
                     ...lessee,
                     locator: String(input.locator),
-                    key: String(input.key),
+                    key: String(input.login),
                     timeoutMs,
                   })
                   .pipe(
                     Effect.mapError(failureMessage),
                     Effect.flatMap((outcome) =>
-                      outcome === "pressed"
+                      outcome === "filled"
                         ? Effect.void
                         : Effect.fail(
                             outcome === "stale"
                               ? {
                                   _tag: "PreviewAutomationInvalidSelectorError",
                                   message:
-                                    "The target is gone or ambiguous, so the key was not pressed.",
+                                    "The target is gone or ambiguous, so the login was not typed.",
                                 }
                               : {
-                                  _tag: TARGET_NOT_FOCUSABLE,
-                                  message:
-                                    "The target did not hold focus, so the key was not pressed.",
+                                  _tag: LOGIN_REFUSED,
+                                  message: LOGIN_REFUSALS[outcome](String(input.login)),
                                 },
                           ),
                     ),
                   )
-              : invoke<unknown>(operation, input, timeoutMs),
+              : operation === "press"
+                ? browser
+                    .pressTaskTarget({
+                      ...lessee,
+                      locator: String(input.locator),
+                      key: String(input.key),
+                      timeoutMs,
+                    })
+                    .pipe(
+                      Effect.mapError(failureMessage),
+                      Effect.flatMap((outcome) =>
+                        outcome === "pressed"
+                          ? Effect.void
+                          : Effect.fail(
+                              outcome === "stale"
+                                ? {
+                                    _tag: "PreviewAutomationInvalidSelectorError",
+                                    message:
+                                      "The target is gone or ambiguous, so the key was not pressed.",
+                                  }
+                                : {
+                                    _tag: TARGET_NOT_FOCUSABLE,
+                                    message:
+                                      "The target did not hold focus, so the key was not pressed.",
+                                  },
+                            ),
+                      ),
+                    )
+                : invoke<unknown>(operation, input, timeoutMs),
           settle: (timeoutMs) =>
             browser.settleTask({ ...lessee, timeoutMs }).pipe(Effect.mapError(failureMessage)),
           covered: (locator, timeoutMs) =>

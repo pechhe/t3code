@@ -35,6 +35,10 @@ const unusedTaskLease = {
   taskTargetCovered: () => Effect.die("unused"),
   pressTaskTarget: () => Effect.die("unused"),
   captureTaskScreenshot: () => Effect.die("unused"),
+  holdTaskLogin: () => Effect.die("unused"),
+  fillTaskLogin: () => Effect.die("unused"),
+  taskLoginApplied: () => Effect.die("unused"),
+  clearTaskLogins: () => Effect.die("unused"),
 };
 
 const platformLayer = NodeHttpPlatform.layer.pipe(

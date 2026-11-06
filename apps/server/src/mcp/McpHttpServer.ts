@@ -73,6 +73,7 @@ import * as WorkspaceHandlers from "./toolkits/workspace/handlers.ts";
 import * as WorkspaceInspection from "../workspace/WorkspaceInspection.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as BitwardenSecrets from "../secrets/BitwardenSecrets.ts";
+import * as BrowserLogins from "../secrets/BrowserLogins.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import * as ProjectHandlers from "./toolkits/project/handlers.ts";
 import { AttachmentToolkit } from "./toolkits/attachment/tools.ts";
@@ -589,7 +590,8 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
             Effect.gen(function* () {
               const snapshot = encodedResult as SnapshotMetadata & {
                 readonly url: string;
-                readonly screenshot: {
+                /** Absent when a saved login's value may show on the page. */
+                readonly screenshot?: {
                   readonly mimeType: "image/png";
                   readonly data: string;
                   readonly width: number;
@@ -597,13 +599,16 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
                 };
               };
               const { screenshot, ...page } = snapshot;
-              const png = new Uint8Array(Buffer.from(screenshot.data, "base64"));
+              const png =
+                screenshot === undefined
+                  ? undefined
+                  : new Uint8Array(Buffer.from(screenshot.data, "base64"));
               const screenshotPath =
-                payload?.save === true
+                payload?.save === true && png !== undefined
                   ? yield* saveBrowserScreenshot(snapshot.url, png)
                   : undefined;
               // Providers replay images on later requests, and some reject them; include images only when requested.
-              const includeImage = payload?.includeImage === true;
+              const includeImage = payload?.includeImage === true && png !== undefined;
               if (screenshotPath !== undefined && !includeImage) {
                 const saved = {
                   url: cutText(snapshot.url, MAX_SNAPSHOT_IDENTIFIER_CHARS),
@@ -617,11 +622,15 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
               }
               const metadata = {
                 ...page,
-                screenshot: {
-                  mimeType: screenshot.mimeType,
-                  width: screenshot.width,
-                  height: screenshot.height,
-                },
+                ...(screenshot === undefined
+                  ? {}
+                  : {
+                      screenshot: {
+                        mimeType: screenshot.mimeType,
+                        width: screenshot.width,
+                        height: screenshot.height,
+                      },
+                    }),
                 ...(screenshotPath === undefined ? {} : { screenshotPath }),
               };
               const bounded = boundSnapshotMetadata(metadata);
@@ -647,8 +656,8 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
                           text: `Snapshot text was bounded. Omitted: ${bounded.omitted.join("; ")}.`,
                         },
                       ]),
-                  ...(includeImage
-                    ? [{ type: "image" as const, data: png, mimeType: screenshot.mimeType }]
+                  ...(includeImage && png !== undefined
+                    ? [{ type: "image" as const, data: png, mimeType: "image/png" }]
                     : []),
                 ],
               });
@@ -1523,6 +1532,7 @@ export const layer = Layer.mergeAll(
   ...sessionEndpointLayers,
 ).pipe(
   Layer.provide(BrowserTaskService.layer),
+  Layer.provideMerge(BrowserLogins.layer),
   Layer.provide(DecisionService.layer.pipe(Layer.provide(DecisionKeys.layerSecretStore))),
   Layer.provide(BitwardenSecrets.layer.pipe(Layer.provide(ProcessRunner.layer))),
 );

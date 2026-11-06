@@ -20,6 +20,15 @@ export interface PageNode {
   /** The node's text, inline or from its `- text:` children: a field's current value. */
   readonly value: string | undefined;
   readonly selected: boolean;
+  /** Its box in the viewport, in CSS pixels, when the snapshot measured one. */
+  readonly box: Box | undefined;
+}
+
+export interface Box {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
 }
 
 export interface PageModel {
@@ -31,10 +40,12 @@ export interface PageModel {
   readonly truncated: boolean;
   /** A loading page may still render what it lacks now. */
   readonly loading: boolean;
+  readonly viewport: { readonly width: number; readonly height: number } | undefined;
 }
 
 const KEY = /^([a-z]+)(?: ("(?:[^"\\]|\\.)*"))?((?: \[[^\]]*\])*)$/;
 const REF = /\[ref=([^\]]+)\]/;
+const BOX = /\[box=(-?\d+),(-?\d+),(\d+),(\d+)\]/;
 
 /** One snapshot list item as Playwright wrote it: a YAML key, with its value when inline. */
 const itemOf = (content: string) => {
@@ -50,6 +61,13 @@ const itemOf = (content: string) => {
   const [entry] = Object.entries(item);
   if (entry === undefined) return undefined;
   return { key: entry[0], value: typeof entry[1] === "string" ? entry[1] : undefined };
+};
+
+const boxOf = (attributes: string): Box | undefined => {
+  const box = BOX.exec(attributes);
+  return box === null
+    ? undefined
+    : { x: Number(box[1]), y: Number(box[2]), width: Number(box[3]), height: Number(box[4]) };
 };
 
 export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): PageModel => {
@@ -74,6 +92,7 @@ export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): Page
       checked: /\[checked\]/.test(parsed[3] ?? ""),
       selected: /\[selected\]/.test(parsed[3] ?? ""),
       value,
+      box: boxOf(parsed[3] ?? ""),
     });
     // Playwright moves a node's text to `- text:` children once the node has properties, such
     // as a textbox's differing `/placeholder`.
@@ -89,6 +108,7 @@ export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): Page
     text: snapshot.visibleText,
     nodes,
     loading: snapshot.loading === true,
+    viewport: snapshot.viewport,
     truncated:
       tree.length >= TASK_SNAPSHOT_TEXT_LENGTH ||
       snapshot.visibleText.length >= TASK_SNAPSHOT_TEXT_LENGTH,
@@ -98,8 +118,13 @@ export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): Page
 export type TargetResolution =
   | { readonly _tag: "unique"; readonly node: PageNode }
   | { readonly _tag: "missing" }
-  /** With `scope`, it is the ancestor that matched more than once. */
-  | { readonly _tag: "ambiguous"; readonly count: number; readonly scope?: true }
+  /** With `scope`, it is the ancestor that matched more than once; otherwise `nodes` are the matches. */
+  | {
+      readonly _tag: "ambiguous";
+      readonly count: number;
+      readonly scope?: true;
+      readonly nodes: readonly PageNode[];
+    }
   /** The snapshot was cut, so neither absence nor uniqueness holds. `count` is what it did show. */
   | { readonly _tag: "unknown"; readonly count: number };
 
@@ -111,10 +136,14 @@ export interface NameSpec {
 
 const normalized = (text: string) => text.replace(/\s+/g, " ").trim();
 
+/** With neither name nor fragment, any name matches: the role alone picks the element. */
 const nameMatches = (actual: string, spec: NameSpec) =>
-  spec.nameIncludes === undefined
-    ? actual === spec.name
-    : normalized(actual).includes(normalized(spec.nameIncludes));
+  spec.nameIncludes !== undefined
+    ? normalized(actual).includes(normalized(spec.nameIncludes))
+    : spec.name === undefined || actual === spec.name;
+
+/** What the element's own snapshot line shows: its inline text, or else its name. */
+const lineText = (node: PageNode) => normalized(node.value || node.name);
 
 const inside = (model: PageModel, node: PageNode, ancestor: PageNode) => {
   for (let parent = node.parent; parent !== null; parent = model.nodes[parent]!.parent)
@@ -127,11 +156,18 @@ const matching = (model: PageModel, role: string, spec: NameSpec) =>
     (node) => node.ref !== undefined && node.role === role && nameMatches(node.name, spec),
   );
 
+const matchingTarget = (model: PageModel, target: PreviewTaskTarget) => {
+  if (target.text === undefined) return matching(model, target.role ?? "", target);
+  const wanted = normalized(target.text);
+  return model.nodes.filter((node) => node.ref !== undefined && lineText(node) === wanted);
+};
+
 export const resolveTarget = (model: PageModel, target: PreviewTaskTarget): TargetResolution => {
-  let found = matching(model, target.role, target);
+  let found = matchingTarget(model, target);
   if (target.scope !== undefined) {
     const scopes = matching(model, target.scope.role, target.scope);
-    if (scopes.length > 1) return { _tag: "ambiguous", count: scopes.length, scope: true };
+    if (scopes.length > 1)
+      return { _tag: "ambiguous", count: scopes.length, scope: true, nodes: scopes };
     const scope = scopes[0];
     found = scope === undefined ? [] : found.filter((node) => inside(model, node, scope));
   }
@@ -139,13 +175,56 @@ export const resolveTarget = (model: PageModel, target: PreviewTaskTarget): Targ
   if (found.length === 0) return { _tag: "missing" };
   return found.length === 1
     ? { _tag: "unique", node: found[0]! }
-    : { _tag: "ambiguous", count: found.length };
+    : { _tag: "ambiguous", count: found.length, nodes: found };
 };
 
 const MAX_PAGE_NAME_CHARS = 120;
 
 const pageName = (name: string) =>
   name.length > MAX_PAGE_NAME_CHARS ? `${name.slice(0, MAX_PAGE_NAME_CHARS)}…` : name;
+
+const LANDMARKS = new Set([
+  "banner",
+  "navigation",
+  "main",
+  "contentinfo",
+  "complementary",
+  "search",
+  "form",
+  "region",
+  "dialog",
+]);
+
+/** The nearest landmark around the element, or else the band of the viewport its box sits in. */
+const regionOf = (model: PageModel, node: PageNode) => {
+  for (let parent = node.parent; parent !== null; parent = model.nodes[parent]!.parent) {
+    const landmark = model.nodes[parent]!;
+    if (LANDMARKS.has(landmark.role))
+      return `in ${landmark.role}${landmark.name ? ` "${landmark.name}"` : ""}`;
+  }
+  if (node.box === undefined || model.viewport === undefined || model.viewport.height <= 0)
+    return "position unknown";
+  const centre = (node.box.y + node.box.height / 2) / model.viewport.height;
+  return centre < 1 / 3
+    ? "at the top of the viewport"
+    : centre < 2 / 3
+      ? "in the middle of the viewport"
+      : "at the bottom of the viewport";
+};
+
+/**
+ * How Jev is shown one candidate element: role, name or visible text, and region. Page data,
+ * quoted and cut, never instructions.
+ */
+export const describeElement = (model: PageModel, node: PageNode) => {
+  const text = lineText(node);
+  const label = node.name
+    ? `${node.role} "${node.name}"`
+    : text
+      ? `${node.role} showing "${text}"`
+      : `${node.role} (no name)`;
+  return pageName(`${label} ${regionOf(model, node)}`);
+};
 
 /** What a `nameIncludes` target actually matched, so the caller can see which element was used. */
 export const matchedName = (target: PreviewTaskTarget, node: PageNode) =>
@@ -155,6 +234,8 @@ export const CONTROL_ROLES: Readonly<Record<PreviewTaskBinding["control"], reado
   text: ["textbox", "searchbox", "spinbutton"],
   select: ["combobox", "listbox"],
   checkbox: ["checkbox", "radio", "switch"],
+  // A password field is a textbox; the page itself confirms its type before anything is typed.
+  login: ["textbox"],
 };
 
 const optionsOf = (model: PageModel, node: PageNode) => {
@@ -180,6 +261,9 @@ export const bindingSatisfied = (
       return fieldValue(model, node) === binding.option;
     case "checkbox":
       return node.checked === binding.checked;
+    case "login":
+      // A snapshot masks a password field's value, so only the page can say it holds the login.
+      return false;
   }
 };
 
@@ -295,6 +379,16 @@ const editDistance = (a: string, b: string) => {
 
 const describeNode = (node: PageNode) => `${node.role} "${pageName(node.name)}"`;
 
+/** Exact-name targets only: the page's single element of the role, which has no name at all. */
+const unnamedOnly = (model: PageModel, target: PreviewTaskTarget) => {
+  if (target.text !== undefined || target.name === undefined || target.role === undefined)
+    return undefined;
+  const sameRole = model.nodes.filter(
+    (node) => node.ref !== undefined && node.role === target.role,
+  );
+  return sameRole.length === 1 && sameRole[0]!.name === "" ? `${target.role} (no name)` : undefined;
+};
+
 /** Ranked near misses of an exact name: outside the scope, another role or case, or a near spelling. */
 const nearExact = (node: PageNode, target: PreviewTaskTarget, name: string) => {
   const wanted = name.toLowerCase();
@@ -320,6 +414,8 @@ const nearFragment = (node: PageNode, target: PreviewTaskTarget, fragment: strin
 
 /** Hints for a missing target, labelled by the caller as page data. They never resolve it. */
 export const nearMatches = (model: PageModel, target: PreviewTaskTarget): readonly string[] => {
+  if (target.role === undefined || target.text !== undefined) return [];
+  if (target.name === undefined && target.nameIncludes === undefined) return [];
   const near = model.nodes
     .filter((node) => node.ref !== undefined && node.name.length > 0)
     .flatMap((node) => {
@@ -347,7 +443,10 @@ export const evidentAbsence = (
     return undefined;
   const scopeMissing =
     target.scope !== undefined && matching(model, target.scope.role, target.scope).length === 0;
+  const unnamed = unnamedOnly(model, target);
+  if (unnamed !== undefined) return { nearest: [unnamed] };
   const nearest = nearMatches(model, target);
-  if (scopeMissing || (target.nameIncludes === undefined && nearest.length > 0)) return { nearest };
+  const exact = target.name !== undefined && target.text === undefined;
+  if (scopeMissing || (exact && nearest.length > 0)) return { nearest };
   return undefined;
 };
