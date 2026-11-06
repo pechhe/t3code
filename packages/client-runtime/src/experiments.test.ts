@@ -270,7 +270,10 @@ describe("what a draft sends", () => {
 });
 
 describe("trial clashes mirror the server's start check", () => {
-  const scope = (lever: Experiment["lever"], extra: object = {}) => ({
+  const scope = (
+    lever: Experiment["lever"],
+    extra: Partial<Experiment["eligibility"]> = {},
+  ) => ({
     lever,
     eligibility: { projectIds: [project], models: [], taskCategories: [], ...extra },
   });
@@ -282,6 +285,22 @@ describe("trial clashes mirror the server's start check", () => {
         scope("reviewer", { reviewScopes: ["spec"] }),
       ),
     ).toBe(false);
+  });
+
+  it("clashes two legacy reviews that declare no scope, as the server does", () => {
+    expect(trialsClash(scope("reviewer"), scope("reviewer"))).toBe(true);
+  });
+
+  it("keeps a legacy review apart from one that declares a scope, as the server does", () => {
+    expect(trialsClash(scope("reviewer", { reviewScopes: ["spec"] }), scope("reviewer"))).toBe(
+      false,
+    );
+  });
+
+  it("leaves a legacy rollover trial out of the added-text clash, as the server does", () => {
+    // The server's thread-overlay rule excludes rollover on both sides, so a stored rollover
+    // trial does not block a new text trial even though both are thread trials.
+    expect(trialsClash(scope("rollover"), scope("instruction"))).toBe(false);
   });
 
   it("keeps different jobs on the delegation lever apart", () => {

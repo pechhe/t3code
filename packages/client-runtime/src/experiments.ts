@@ -466,11 +466,29 @@ function draftScope(draft: TrialDraft): TrialScope | null {
 const overlaps = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
   left.length === 0 || right.length === 0 || left.some((value) => right.includes(value));
 
+/**
+ * Legacy reviewer definitions admit only reviews without a declared scope, matching
+ * `admittedReviewScopes` in apps/server/src/experiments/ExperimentService.ts. A missing list is
+ * `["unscoped"]` and an explicitly empty one admits nothing, unlike `overlaps` above, where empty
+ * means every value.
+ */
+const admittedReviewScopes = (trial: TrialScope): ReadonlyArray<string> =>
+  trial.eligibility.reviewScopes ?? ["unscoped"];
+
+/**
+ * A trial that occupies its thread rather than one delegated task. There is no `rollover` here:
+ * the server's overlay rule excludes rollover on both sides, though its own `isThreadTrial` counts
+ * it for validation and unit kind, so this predicate is narrower than the server's by design.
+ */
 const isThreadTrial = (trial: TrialScope) =>
   trial.lever === "instruction" ||
   (trial.lever === "orchestration-policy" && trial.orchestrationControls === undefined);
 
-/** Mirrors the server's start check, so a clash shows before Start rather than after it. */
+/**
+ * Mirrors the server's start check (`conflicts` plus `sharesOverlay` in
+ * apps/server/src/experiments/ExperimentService.ts, enforced before Start), so a clash shows in the
+ * form rather than only when the server refuses.
+ */
 export function trialsClash(left: TrialScope, right: TrialScope): boolean {
   const projects = overlaps(left.eligibility.projectIds, right.eligibility.projectIds);
   if (!projects) return false;
@@ -478,9 +496,7 @@ export function trialsClash(left: TrialScope, right: TrialScope): boolean {
   if (left.lever === right.lever) {
     if (
       left.lever === "reviewer" &&
-      !(left.eligibility.reviewScopes ?? []).some((scope) =>
-        (right.eligibility.reviewScopes ?? []).includes(scope),
-      )
+      !admittedReviewScopes(left).some((scope) => admittedReviewScopes(right).includes(scope))
     ) {
       return false;
     }
