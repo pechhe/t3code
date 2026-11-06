@@ -258,7 +258,7 @@ const configuredAllowedHosts = (process.env.T3CODE_DEV_ALLOWED_HOSTS ?? "")
   .filter((entry) => entry.length > 0);
 const allowedHosts = [".ts.net", ...configuredAllowedHosts];
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
   return {
     run: {
       tasks: {
@@ -347,9 +347,10 @@ export default defineConfig(() => {
       // Warm the module graph before first request to avoid serial import transforms over tailnet.
       // Bundled dev ignores this; warmBundledDevPlugin handles it there.
       // Test projects inherit it: the browser server would compile the whole app on its one thread
-      // while testers wait against Vitest's fixed 60 s limits, which is T3-338's audit failure.
+      // while testers wait against Vitest's fixed 60 s limits (T3-338). Keyed on mode, not
+      // process.env.VITEST, which the landing runner's createVitest never sets.
       warmup: {
-        clientFiles: process.env.VITEST ? [] : ["./src/main.tsx"],
+        clientFiles: mode === "test" ? [] : ["./src/main.tsx"],
       },
       ...(devProxyTarget
         ? {
