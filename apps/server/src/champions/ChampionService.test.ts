@@ -3,6 +3,7 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import * as FileSystem from "effect/FileSystem";
 import * as ProcessRunner from "../processRunner.ts";
 import * as Managed from "../agents/ManagedAgentService.ts";
+import * as ProviderOverloads from "../provider/ProviderOverloads.ts";
 import { snapshot as policySnapshot, codex, codexModel } from "../agents/agentPolicy.testkit.ts";
 import * as ChampionHandlers from "../mcp/toolkits/champions/handlers.ts";
 import { ChampionsToolkit } from "../mcp/toolkits/champions/tools.ts";
@@ -175,6 +176,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
     let priorCompletedRun = false;
     let foreignProject = false;
     let foreignProviderThread = false;
+    let overloadedRun = false;
     const shell = () =>
       ({
         id: owner,
@@ -183,8 +185,9 @@ const fixture = Effect.fn("test.championFixture")(() =>
         runtimeMode: ownerMode,
         modelSelection: config.routineModelSelection,
         interactionMode: "default",
-        status: activeRun ? "running" : "idle",
+        status: activeRun ? "running" : overloadedRun ? "failed" : "idle",
         activeRunId: activeRun ? runId : null,
+        lastErrorCode: overloadedRun ? "overloaded" : null,
         activeProviderThreadId: providerThreadId,
         archivedAt: null,
         deletedAt: null,
@@ -194,7 +197,13 @@ const fixture = Effect.fn("test.championFixture")(() =>
         id: runId,
         ordinal: runHistory.length + 1,
         restartContinuationOfRunId: restartSource,
-        status: queuedRun ? "queued" : completedRun || !activeRun ? "completed" : "running",
+        status: queuedRun
+          ? "queued"
+          : overloadedRun
+            ? "failed"
+            : completedRun || !activeRun
+              ? "completed"
+              : "running",
         providerThreadId: foreignProviderThread
           ? ProviderThreadId.make("foreign-provider-thread")
           : providerThreadId,
@@ -290,6 +299,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
                     text: input.text,
                   });
                   activeRun = true;
+                  overloadedRun = false;
                   messageId = input.messageId;
                   return {} as never;
                 }),
@@ -449,6 +459,11 @@ const fixture = Effect.fn("test.championFixture")(() =>
       endRun: () => {
         activeRun = false;
         queuedRun = false;
+      },
+      overloadRun: () => {
+        activeRun = false;
+        queuedRun = false;
+        overloadedRun = true;
       },
       queueRun: () => {
         activeRun = false;
@@ -1344,6 +1359,58 @@ it.effect(
         assert.isNotNull(report.champion.lastCheckAt);
       }),
     ),
+);
+
+it.effect(
+  "retries a check that failed on a provider overload by itself, at most three times per claim",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        const pending = yield* service.runCheck({ id: config.id });
+        const claim = pending.champion.outstandingCheckId;
+        for (let retry = 1; retry <= 3; retry++) {
+          f.overloadRun();
+          yield* service.runDue;
+          assert.equal(f.counts().sends, retry);
+          const retried = yield* service.get({ id: config.id });
+          assert.equal(retried.champion.outstandingCheckId, claim);
+          assert.isFalse(retried.champion.attention.some((a) => a.includes("exhausted")));
+        }
+        f.overloadRun();
+        yield* service.runDue;
+        assert.equal(f.counts().sends, 3);
+        const exhausted = yield* service.get({ id: config.id });
+        assert.isTrue(
+          exhausted.champion.attention.some(
+            (a) => a.includes("automatic retries exhausted") && a.includes("Run check"),
+          ),
+        );
+        // A person can still retry by hand once the automatic retries are spent.
+        const manual = yield* service.runCheck({ id: config.id });
+        assert.equal(f.counts().sends, 4);
+        assert.isFalse(manual.champion.attention.some((a) => a.includes("automatic retr")));
+        const report = yield* service.report(f.caller(), {
+          samples: [sample],
+          findings: [],
+          summary: "Measured on the fallback model",
+        });
+        assert.isNull(report.champion.outstandingCheckId);
+      }),
+    ),
+);
+
+it.effect("leaves a check that ended without a report for any other reason to a person", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* definitions(service);
+      yield* service.runCheck({ id: config.id });
+      f.completeRun(true);
+      f.endRun();
+      yield* service.runDue;
+      assert.equal(f.counts().sends, 0);
+    }),
+  ),
 );
 
 const activeFinding = Effect.fn("test.activeChampionFinding")(function* (
@@ -2779,6 +2846,94 @@ it.effect(
         assert.equal(
           (yield* service.get({ id: config.id })).champion.setupThreadId,
           first.threadId,
+        );
+      }).pipe(
+        Effect.provide(f.layer),
+        Effect.provideService(Managed.ManagedAgentService, managed),
+        Effect.provideService(
+          ConfigProvider.ConfigProvider,
+          ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: root }),
+        ),
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Sqlite.layerMemory,
+          NodeServices.layer,
+          NodeCrypto.layer,
+          Layer.mock(ProcessRunner.ProcessRunner)({
+            run: () => Effect.die("Unexpected process launch"),
+          }),
+        ),
+      ),
+    ),
+);
+
+it.effect(
+  "retries an overloaded check on its class's next model and returns once the cool-down ends",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "champion-overload-" });
+      yield* fs.makeDirectory(`${root}/roles`);
+      const base = policySnapshot().manifest;
+      const manifest = {
+        ...base,
+        lists: {
+          ...base.lists,
+          fast: [
+            { model: "astra", effort: "medium" },
+            { model: "luna", effort: "medium" },
+          ],
+        },
+      };
+      yield* fs.writeFileString(`${root}/roles/policy.json`, json(manifest));
+      for (const role of Object.values(manifest.roles))
+        yield* fs.writeFileString(`${root}/${role.brief}`, "Fixture role brief");
+      const overloads = yield* ProviderOverloads.ProviderOverloads.pipe(
+        Effect.provide(ProviderOverloads.layer),
+      );
+      const managed = yield* Managed.ManagedAgentService.pipe(
+        Effect.provide(
+          Managed.layer.pipe(
+            Layer.provide(Layer.succeed(ProviderOverloads.ProviderOverloads, overloads)),
+          ),
+        ),
+      );
+      const f = yield* fixture();
+      f.setProviders([codex]);
+      yield* Effect.gen(function* () {
+        const service = yield* Champions.ChampionService;
+        yield* service.upsert({ ...config, classes: yield* decodeClasses({}).pipe(Effect.orDie) });
+        yield* service.propose({ id: config.id, metrics: [metric], reason: "Measure errors" });
+        yield* service.accept({ id: config.id });
+        const resolved = Effect.gen(function* () {
+          const attempts = (yield* service.runtimeState({ id: config.id })).attempts;
+          return attempts.filter((a) => a.kind === "check").map((a) => a.resolvedSelection.model);
+        });
+        yield* service.runCheck({ id: config.id });
+        assert.deepEqual(yield* resolved, ["gpt-astra-test"]);
+
+        yield* overloads.mark({ instanceId: codex.instanceId, model: "gpt-astra-test" });
+        f.overloadRun();
+        yield* service.runDue;
+        assert.deepEqual((yield* resolved).toSorted(), ["gpt-astra-test", "gpt-luna-test"]);
+
+        yield* TestClock.adjust(ProviderOverloads.PROVIDER_OVERLOAD_COOLDOWN_MS + 1_000);
+        f.overloadRun();
+        yield* service.runDue;
+        const models = yield* resolved;
+        assert.equal(models.length, 3);
+        assert.equal(models.filter((model) => model === "gpt-astra-test").length, 2);
+
+        // A retry that cannot start says so instead of failing quietly.
+        f.providerAllowed(codex.instanceId, false);
+        f.overloadRun();
+        yield* service.runDue;
+        assert.isTrue(
+          (yield* service.get({ id: config.id })).champion.attention.some((a) =>
+            a.includes("automatic retry after a provider overload could not start"),
+          ),
         );
       }).pipe(
         Effect.provide(f.layer),

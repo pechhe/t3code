@@ -21,6 +21,10 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import { compareByUsageReset, isProviderUsageExhausted } from "@t3tools/shared/providerPools";
+import {
+  providerOverloadKey,
+  type ProviderOverloadSnapshot,
+} from "../provider/ProviderOverloads.ts";
 
 export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentRoleError", {
   reason: Schema.Literals([
@@ -89,6 +93,8 @@ type ResolutionInput = {
    * without a finding it stays refused as unsupported, so no path can start one unchecked.
    */
   readonly browser?: { readonly refusal: BrowserRefusal | null };
+  /** Models in an overload cool-down, which serve only after every healthy candidate. */
+  readonly overloads?: ProviderOverloadSnapshot;
 };
 
 export type BrowserRefusal =
@@ -428,11 +434,22 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   );
   const limited = (candidate: { readonly provider: ServerProvider }) =>
     limitedInstances.has(candidate.provider.instanceId);
+  const overloadEnds = (instanceId: ProviderInstanceId, model: string) => {
+    const until = input.overloads?.get(providerOverloadKey(instanceId, model));
+    return until !== undefined && until > nowMs ? until : undefined;
+  };
+  const overloadedUntil = (candidate: (typeof eligible)[number]) =>
+    overloadEnds(candidate.provider.instanceId, candidate.selection.model);
+  // Healthy, then overloaded (it may recover within the provider's own retries), then out of
+  // allowance (it will refuse until its reset).
+  const tier = (candidate: (typeof eligible)[number]) =>
+    limited(candidate) ? 2 : overloadedUntil(candidate) === undefined ? 0 : 1;
   candidates.sort(
     (a, b) =>
-      // An account out of allowance serves only when every candidate is, so the work moves
-      // down the list instead of failing at once; then the soonest reset serves first.
-      (limited(a) || limited(b) ? byUsageReset(a.provider, b.provider) : 0) ||
+      tier(a) - tier(b) ||
+      // Among degraded candidates, the soonest to recover serves first.
+      (tier(a) === 2 ? byUsageReset(a.provider, b.provider) : 0) ||
+      (tier(a) === 1 ? (overloadedUntil(a) ?? 0) - (overloadedUntil(b) ?? 0) : 0) ||
       // Among accounts with allowance, a reviewer never defaults to the model that wrote the work.
       (reviewer
         ? Number(a.selection.model === request.authorModel) -
@@ -454,21 +471,28 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     executionRequirement: admission.executionRequirement,
     executionBoundary: admission.executionBoundary,
     refusal: null,
-    candidates: diagnostics.map((candidate) =>
-      candidate.reason !== "eligible"
-        ? candidate
-        : {
-            ...candidate,
-            reason:
-              candidate.alias === chosen.alias &&
-              candidate.providerInstanceId === chosen.provider.instanceId
-                ? "selected"
-                : candidate.providerInstanceId !== undefined &&
-                    limitedInstances.has(candidate.providerInstanceId)
-                  ? "usage-limited"
-                  : "lower-preference",
-          },
-    ),
+    candidates: diagnostics.map((candidate) => {
+      if (candidate.reason !== "eligible") return candidate;
+      const until =
+        candidate.providerInstanceId === undefined
+          ? undefined
+          : overloadEnds(candidate.providerInstanceId, candidate.model);
+      const selected =
+        candidate.alias === chosen.alias &&
+        candidate.providerInstanceId === chosen.provider.instanceId;
+      return {
+        ...candidate,
+        reason: selected
+          ? "selected"
+          : candidate.providerInstanceId !== undefined &&
+              limitedInstances.has(candidate.providerInstanceId)
+            ? "usage-limited"
+            : until !== undefined
+              ? "overloaded"
+              : "lower-preference",
+        ...(until === undefined ? {} : { until: DateTime.formatIso(DateTime.makeUnsafe(until)) }),
+      };
+    }),
   };
 });
 

@@ -5,11 +5,13 @@ import {
   ProviderInstanceId,
   type ServerProvider,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as TestClock from "effect/testing/TestClock";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { makeProviderRegistryMock } from "../provider/testUtils/providerRegistryMock.ts";
 import * as Resolver from "./AgentRoleResolver.ts";
+import { providerOverloadKey } from "../provider/ProviderOverloads.ts";
 import {
   snapshot,
   provider,
@@ -1176,6 +1178,97 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         }),
       );
       expect(chosen.instanceId).toBe(spare.instanceId);
+    }),
+  );
+
+  it.effect("moves past an overloaded model until its cool-down ends", () =>
+    Effect.gen(function* () {
+      const resolver = yield* Resolver.AgentRoleResolver;
+      const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+      const review = request({
+        role: "reviewer",
+        sourceRevision: "reviewed-commit",
+        review: changeReview,
+      });
+      const overloaded = (
+        entries: ReadonlyArray<readonly [ServerProvider, string, number]>,
+      ): ReadonlyMap<string, number> =>
+        new Map(
+          entries.map(([account, model, until]) => [
+            providerOverloadKey(account.instanceId, model),
+            until,
+          ]),
+        );
+
+      // Sonnet leads the list; while it is overloaded the next entry serves, and discovery
+      // says why and until when.
+      const passedOver = yield* resolver.preview(
+        input({
+          request: review,
+          overloads: overloaded([[claude, claudeModel, nowMs + 60_000]]),
+        }),
+      );
+      expect(passedOver.selection?.model).toBe(codexModel);
+      expect(passedOver.candidates).toContainEqual(
+        expect.objectContaining({
+          alias: "sonnet",
+          reason: "overloaded",
+          until: DateTime.formatIso(DateTime.makeUnsafe(nowMs + 60_000)),
+        }),
+      );
+
+      // Overload belongs to one model: another model on the same account does not demote it.
+      const otherModel = yield* resolve(
+        input({
+          request: review,
+          overloads: overloaded([[claude, "another-model", nowMs + 60_000]]),
+        }),
+      );
+      expect(otherModel.model).toBe(claudeModel);
+
+      // Once the cool-down has ended, the list's first choice serves again.
+      const recovered = yield* resolve(
+        input({ request: review, overloads: overloaded([[claude, claudeModel, nowMs]]) }),
+      );
+      expect(recovered.model).toBe(claudeModel);
+
+      // With nothing healthy left, an overloaded model outranks one out of usage...
+      const codexOut = {
+        ...codex,
+        usageLimits: {
+          checkedAt: "2026-10-15T00:00:00.000Z",
+          windows: [
+            {
+              id: "seven_day",
+              kind: "weekly" as const,
+              label: "Week",
+              usedPercent: 100,
+              resetsAt: DateTime.formatIso(DateTime.makeUnsafe(nowMs + 3_600_000)),
+            },
+          ],
+        },
+      };
+      const degraded = yield* resolver.preview(
+        input({
+          request: review,
+          providers: [codexOut, claude],
+          overloads: overloaded([[claude, claudeModel, nowMs + 60_000]]),
+        }),
+      );
+      expect(degraded.refusal).toBeNull();
+      expect(degraded.selection?.model).toBe(claudeModel);
+
+      // ...and among overloaded models the one whose cool-down ends first serves.
+      const bothOverloaded = yield* resolve(
+        input({
+          request: review,
+          overloads: overloaded([
+            [claude, claudeModel, nowMs + 120_000],
+            [codex, codexModel, nowMs + 60_000],
+          ]),
+        }),
+      );
+      expect(bothOverloaded.model).toBe(codexModel);
     }),
   );
 });

@@ -8,7 +8,12 @@ import {
   MessageId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { AgentRole, AgentTaskClass, AgentTaskBinding } from "./agentPolicy.ts";
+import {
+  AgentPolicyCandidate,
+  AgentRole,
+  AgentTaskClass,
+  AgentTaskBinding,
+} from "./agentPolicy.ts";
 import { CommandId, NodeId } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ScheduledTaskUpsertSchedule } from "./scheduledTask.ts";
@@ -81,6 +86,8 @@ export const ChampionClassChoicesResult = Schema.Struct({
       role: AgentRole,
       selection: Schema.NullOr(ModelSelection),
       refusal: Schema.NullOr(ChampionLabel),
+      /** Models passed over for an overload cool-down; absent when none is. */
+      overloaded: Schema.optional(Schema.Array(AgentPolicyCandidate).check(Schema.isMaxLength(12))),
     }),
   ).check(Schema.isMaxLength(12)),
 });

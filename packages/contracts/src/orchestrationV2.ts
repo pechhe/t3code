@@ -952,6 +952,17 @@ export type OrchestrationV2ThreadLaunchWorkspaceStrategy =
   typeof OrchestrationV2ThreadLaunchWorkspaceStrategy.Type;
 
 export const ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE = "workspace_preparation_failed";
+/** A provider's transient capacity refusal, distinct from an account's usage limit. */
+export const ORCHESTRATION_V2_PROVIDER_OVERLOADED_FAILURE_CODE = "overloaded";
+// Codex and Claude keep their own native codes for the same refusal.
+const PROVIDER_OVERLOADED_FAILURE_CODES: ReadonlySet<string> = new Set([
+  ORCHESTRATION_V2_PROVIDER_OVERLOADED_FAILURE_CODE,
+  "serverOverloaded",
+  "api_error_529",
+]);
+/** Whether a failure code says the provider was overloaded, whichever provider reported it. */
+export const isProviderOverloadedFailureCode = (code: string | null | undefined): boolean =>
+  code != null && PROVIDER_OVERLOADED_FAILURE_CODES.has(code);
 
 export const OrchestrationV2Run = Schema.Struct({
   id: RunId,

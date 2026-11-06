@@ -4160,6 +4160,96 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  const UPSTREAM_OVERLOADED =
+    '429: {"type":"server_error","message":"Upstream request failed: [overloaded] the server is overloaded; retry shortly"}';
+
+  it.effect("codes an upstream overload at retry start and on the final failure", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+
+      yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit({ type: "agent_end", messages: [], willRetry: true });
+      yield* fake.emit({
+        type: "auto_retry_start",
+        attempt: 1,
+        maxAttempts: 2,
+        delayMs: 1_000,
+        errorMessage: UPSTREAM_OVERLOADED,
+      });
+      const retry = yield* takeEvent(
+        (event) => event.type === "turn_item.updated" && event.turnItem.type === "error",
+      );
+      assert.isTrue(
+        retry.type === "turn_item.updated" &&
+          retry.turnItem.type === "error" &&
+          retry.turnItem.failure.class === "provider_error" &&
+          retry.turnItem.failure.code === "overloaded",
+      );
+
+      yield* fake.emit({
+        type: "auto_retry_end",
+        success: false,
+        attempt: 2,
+        finalError: UPSTREAM_OVERLOADED,
+      });
+      const failed = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.type === "error" &&
+          event.turnItem.status === "failed",
+      );
+      assert.isTrue(
+        failed.type === "turn_item.updated" &&
+          failed.turnItem.type === "error" &&
+          failed.turnItem.failure.code === "overloaded",
+      );
+      yield* fake.emit({ type: "agent_settled" });
+      const terminal = yield* takeEvent((event) => event.type === "turn.terminal");
+      assert.isTrue(
+        terminal.type === "turn.terminal" &&
+          terminal.status === "failed" &&
+          terminal.failure.code === "overloaded",
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect.each([
+    { errorMessage: UPSTREAM_OVERLOADED, code: "overloaded" },
+    { errorMessage: "429 Too Many Requests: rate limited", code: null },
+    { errorMessage: "temporary network failure", code: null },
+  ])(
+    "codes a model error as an overload only when the upstream said so",
+    ({ errorMessage, code }) =>
+      Effect.gen(function* () {
+        const fake = yield* makeFakePi;
+        const { runtime, takeEvent } = yield* openRuntime(fake);
+        const providerThread = yield* runtime.ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+        });
+        yield* startTurn(runtime, providerThread);
+        yield* fake.takeRequest("prompt");
+        yield* fake.emit({ type: "agent_start" });
+        yield* fake.emit({
+          type: "message_end",
+          message: { role: "assistant", content: [], stopReason: "error", errorMessage },
+        });
+        yield* fake.emit({ type: "agent_settled" });
+        const terminal = yield* takeEvent((event) => event.type === "turn.terminal");
+        assert.isTrue(terminal.type === "turn.terminal" && terminal.status === "failed");
+        assert.equal(terminal.type === "turn.terminal" ? terminal.failure?.code : undefined, code);
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect("preserves exhausted retry failure through non-retrying compaction", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;

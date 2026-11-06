@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import * as SchemaGetter from "effect/SchemaGetter";
-import { EnvironmentId, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { EnvironmentId, IsoDateTime, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { BrowserBackend, PhiBrowserLane } from "./browserBackend.ts";
@@ -645,6 +645,8 @@ export const AgentPolicyCandidate = Schema.Struct({
   model: Schema.String,
   providerInstanceId: Schema.optional(ProviderInstanceId),
   reason: Schema.String,
+  /** When an `overloaded` candidate's cool-down ends and it may serve again. */
+  until: Schema.optional(IsoDateTime),
 });
 export type AgentPolicyCandidate = typeof AgentPolicyCandidate.Type;
 export const AgentRolesResult = Schema.Struct({
@@ -665,6 +667,8 @@ export const AgentRolesResult = Schema.Struct({
       refusal: Schema.NullOr(TrimmedNonEmptyString),
       /** Accounts out of usage, passed over unless every candidate is; absent when none is. */
       usageLimited: Schema.optional(Schema.Array(AgentPolicyCandidate)),
+      /** Models in an overload cool-down, passed over while a healthy candidate remains. */
+      overloaded: Schema.optional(Schema.Array(AgentPolicyCandidate)),
     }),
   ),
 });

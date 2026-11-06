@@ -41,6 +41,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Policy from "./AgentPolicyService.ts";
 import * as Store from "./AgentPolicyStore.ts";
 import * as Resolver from "./AgentRoleResolver.ts";
+import * as ProviderOverloads from "../provider/ProviderOverloads.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import {
   checkoutRoot,
@@ -227,6 +228,12 @@ const make = Effect.gen(function* () {
   const policy = yield* Policy.AgentPolicyService;
   const store = yield* Store.AgentPolicyStore;
   const resolver = yield* Resolver.AgentRoleResolver;
+  // Optional so a layer without overload tracking resolves as if nothing were overloaded.
+  const overloadTracker = yield* Effect.serviceOption(ProviderOverloads.ProviderOverloads);
+  const currentOverloads = Option.match(overloadTracker, {
+    onNone: () => Effect.succeed<ProviderOverloads.ProviderOverloadSnapshot>(new Map()),
+    onSome: (tracker) => tracker.current,
+  });
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const processes = yield* ProcessRunner.ProcessRunner;
@@ -655,6 +662,7 @@ const make = Effect.gen(function* () {
           const result = yield* resolver.preview({
             ...context,
             snapshot,
+            overloads: yield* currentOverloads,
             ...(browser === undefined ? {} : { browser }),
             providers: input.providers,
             ...(input.selection === undefined ? {} : { selection: input.selection }),
@@ -679,6 +687,7 @@ const make = Effect.gen(function* () {
           const usageLimited = result.candidates.filter(
             (candidate) => candidate.reason === "usage-limited",
           );
+          const overloaded = result.candidates.filter((candidate) => candidate.until !== undefined);
           return {
             role,
             briefHash: brief.hash,
@@ -699,6 +708,7 @@ const make = Effect.gen(function* () {
             selection: result.selection,
             refusal: result.refusal,
             ...(usageLimited.length === 0 ? {} : { usageLimited }),
+            ...(overloaded.length === 0 ? {} : { overloaded }),
           };
         }),
       );
@@ -749,6 +759,7 @@ const make = Effect.gen(function* () {
           ...input,
           ...context,
           snapshot,
+          overloads: yield* currentOverloads,
           ...(browser === undefined ? {} : { browser }),
           ...(input.recordedBinding === undefined
             ? {}

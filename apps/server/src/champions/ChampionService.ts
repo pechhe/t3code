@@ -7,6 +7,7 @@ import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
 import { isProviderUsageExhausted } from "@t3tools/shared/providerPools";
 import {
+  isProviderOverloadedFailureCode,
   ChampionExecutionAttempt,
   type ChampionClassChoicesInput,
   type ChampionClassChoicesResult,
@@ -86,8 +87,12 @@ const Check = Schema.Struct({
   dispatchKind: Schema.Literals(["launch", "send"]),
   samples: Schema.optional(Schema.Array(ChampionSample)),
   cancelled: Schema.optional(Schema.Boolean),
+  /** Retries the server started on its own for this claim; manual retries are not counted. */
+  automaticRetries: Schema.optional(Schema.Number),
 });
 type Check = typeof Check.Type;
+/** A claim's own retries stop here, so a lasting outage cannot keep spending on it. */
+const MAX_AUTOMATIC_CHECK_RETRIES = 3;
 // Only persisted server restart ancestry carries a claim across messages.
 function checkRunMessages(run: OrchestrationV2Run, runs: ReadonlyMap<RunId, OrchestrationV2Run>) {
   const messages = [run.userMessageId];
@@ -565,6 +570,7 @@ const make = Effect.gen(function* () {
           role: role.role,
           selection: role.selection,
           refusal: role.refusal?.slice(0, 500) ?? null,
+          ...(role.overloaded === undefined ? {} : { overloaded: role.overloaded.slice(0, 12) }),
         })),
       })),
       Effect.orElseSucceed(() => ({
@@ -859,6 +865,7 @@ const make = Effect.gen(function* () {
     id: string,
     kind: Check["kind"],
     scheduled = false,
+    automatic = false,
   ) {
     const claim = yield* mutate(
       sql
@@ -895,16 +902,19 @@ const make = Effect.gen(function* () {
                       checkRunMessages(run, runsById).includes(outstanding.messageId) &&
                       !ThreadManagement.isTerminalRunStatus(run.status),
                   ) ?? false;
+                const automaticRetries = (outstanding.automaticRetries ?? 0) + (automatic ? 1 : 0);
                 if (
                   shell !== null &&
                   shell.activeRunId === null &&
                   !acceptedPending &&
                   shell.deletedAt === null &&
-                  shell.archivedAt === null
+                  shell.archivedAt === null &&
+                  automaticRetries <= MAX_AUTOMATIC_CHECK_RETRIES
                 ) {
                   const retryId = yield* uuid;
                   let retry: Check = {
                     ...outstanding,
+                    automaticRetries,
                     dispatchKind: "send",
                     dispatched: false,
                     launchStarted: false,
@@ -922,6 +932,9 @@ const make = Effect.gen(function* () {
                         (attention) =>
                           !attention.startsWith(
                             `${kind === "setup" ? "Setup" : "Check"} run ended without an authenticated report.`,
+                          ) &&
+                          !attention.startsWith(
+                            `${kind === "setup" ? "Setup" : "Check"} automatic retr`,
                           ),
                       ),
                     },
@@ -929,7 +942,9 @@ const make = Effect.gen(function* () {
                   yield* activity(
                     id,
                     "check-retry",
-                    "The previous run ended without an authenticated report. A manual retry retains the check definitions and owner.",
+                    automatic
+                      ? "The provider was overloaded, so the server retried the check on its role's next eligible model. The retry retains the check definitions and owner."
+                      : "The previous run ended without an authenticated report. A manual retry retains the check definitions and owner.",
                     undefined,
                     retry.threadId,
                   );
@@ -1027,7 +1042,7 @@ const make = Effect.gen(function* () {
                   attention: [
                     ...new Set([
                       ...doc.champion.attention,
-                      `${claim.kind === "setup" ? "Setup" : "Check"} dispatch unavailable. Retry uses the same durable claim; no fallback model was selected.`,
+                      `${claim.kind === "setup" ? "Setup" : "Check"} dispatch unavailable. Retry uses the same durable claim and resolves its class again.`,
                     ]),
                   ],
                 },
@@ -2617,6 +2632,38 @@ const make = Effect.gen(function* () {
             }),
           );
         }
+        // Decided by the failure itself: an overloaded run can also leave the thread failed.
+        const endedOnOverload =
+          endedWithoutReport && isProviderOverloadedFailureCode(shell?.lastErrorCode);
+        if (endedOnOverload && (check.automaticRetries ?? 0) < MAX_AUTOMATIC_CHECK_RETRIES) {
+          yield* start(doc.champion.id, check.kind, false, true).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("champions.overload-retry-failed", {
+                championId: doc.champion.id,
+                checkId: check.id,
+                cause,
+              }).pipe(
+                Effect.andThen(
+                  mutate(
+                    Effect.gen(function* () {
+                      const current = yield* read(doc.champion.id);
+                      const note = `${check.kind === "setup" ? "Setup" : "Check"} automatic retry after a provider overload could not start. ${check.kind === "setup" ? "Run setup" : "Run check"} to retry.`;
+                      if (current.champion.attention.includes(note)) return;
+                      yield* write({
+                        ...current,
+                        champion: {
+                          ...current.champion,
+                          attention: [...current.champion.attention, note],
+                        },
+                      });
+                    }),
+                  ).pipe(Effect.ignore),
+                ),
+              ),
+            ),
+          );
+          continue;
+        }
         const ownershipLost =
           check.dispatched &&
           (shell === null ||
@@ -2635,9 +2682,11 @@ const make = Effect.gen(function* () {
               const latest = yield* readCheck(check.id);
               if (latest.reported || latest.cancelled || latest.messageId !== check.messageId)
                 return;
-              const attention = endedWithoutReport
-                ? `${endedAttention} ${check.kind === "setup" ? "Run setup" : "Run check"} to retry.`
-                : `${check.kind === "setup" ? "Setup" : "Check"} report overdue or ownership lost. Inspect the ${check.kind === "setup" ? "setup" : "owner"} thread.`;
+              const attention = endedOnOverload
+                ? `${check.kind === "setup" ? "Setup" : "Check"} automatic retries exhausted after ${MAX_AUTOMATIC_CHECK_RETRIES} provider overloads. ${check.kind === "setup" ? "Run setup" : "Run check"} to retry.`
+                : endedWithoutReport
+                  ? `${endedAttention} ${check.kind === "setup" ? "Run setup" : "Run check"} to retry.`
+                  : `${check.kind === "setup" ? "Setup" : "Check"} report overdue or ownership lost. Inspect the ${check.kind === "setup" ? "setup" : "owner"} thread.`;
               if (!current.champion.attention.includes(attention))
                 yield* write({
                   ...current,

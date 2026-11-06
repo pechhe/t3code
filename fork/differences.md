@@ -102,6 +102,18 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Owner:** pechhe/t3code#2, #4, #5, #7, #9, #12, #19, #25 (closed); #146 open (cross-project pinned scout has no source-reading tools).
 
+### provider-overload-failover
+
+- **Kind:** durable extension
+- **Why:** a provider that says it is overloaded can stay that way for hours (Pi's DeepSeek upstream on 5–6 Nov 2026), and the cheap roles that list it first kept starting work on it while the role lists already named fallbacks.
+- **Requirements:** a turn item whose failure code says the provider was overloaded (`overloaded` from Pi's upstream `429 … [overloaded]`, Codex's `serverOverloaded`, Claude's `api_error_529`), at a retry's start or on the final failure, marks that run's account and model overloaded for 15 minutes from the latest signal. The record is in memory, so a restart forgets it. Role resolution ranks healthy candidates first, then overloaded ones (soonest cool-down end first), then accounts out of usage, and never refuses only because every candidate is degraded. Another model on the same account stays eligible. Discovery reports an overloaded candidate with reason `overloaded` and `until`, in `agent_roles` and the Champion class choices. A Champion check whose run ended on an overload, with no report, retries itself under the same claim, re-resolving its class, at most three times per claim. After that, attention says so and a manual retry still works. A failed delegated task is not retried; only later dispatches avoid the model.
+- **Integration points:** `ProviderOverloads` (provided once in `server.ts`, read optionally by `ManagedAgentService`); `ProviderOverloadMarker` on the orchestrator's domain-event stream; `AgentRoleResolver`'s candidate ordering; `isProviderOverloadedFailureCode` and `ORCHESTRATION_V2_PROVIDER_OVERLOADED_FAILURE_CODE` in contracts; the Pi adapter's failure coding (`piModelFailure`); additive optional `until` and `overloaded` on `AgentPolicyCandidate`, `AgentRolesResult` and `ChampionClassChoicesResult`; the Champion monitor and `start`. The Codex and Claude adapters are unchanged: their native codes are recognised as they are.
+- **Proof:** packages/contracts/src/orchestrationV2.test.ts, apps/server/src/agents/AgentRoleResolver.test.ts, apps/server/src/champions/ChampionService.test.ts, packages/provider-pi/src/server/adapter.test.ts.
+- **Upstream:** upstream has no cross-model failover for delegation; its Codex adapter retries capacity failures on the same model and Claude retries 529s itself. No upstream implementation is replaced.
+- **Retire when:** upstream role or provider routing moves work off an overloaded model by itself.
+- **Decision:** `retain` (new, T3-401): Henry chose moving down the existing role list over reordering lists or pinning a champion's model.
+- **Owner:** T3-401.
+
 ### managed-delegation
 
 - **Kind:** durable extension

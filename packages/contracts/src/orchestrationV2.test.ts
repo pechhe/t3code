@@ -17,6 +17,7 @@ import {
   OrchestrationV2ThreadHistoryPage,
   OrchestrationV2TurnItem,
   OrchestrationV2TurnItemJson,
+  isProviderOverloadedFailureCode,
 } from "./orchestrationV2.ts";
 
 const now = DateTime.makeUnsafe("2026-04-20T00:00:00.000Z");
@@ -728,4 +729,13 @@ it("recognizes stored fork side chats and upstream lineage side chats", () => {
   expect(isSideChatThread({ lineage: { ...lineage, sideChat: true } })).toBe(true);
   expect(isSideChatThread({ lineage })).toBe(false);
   expect(isSideChatThread({ sideChat: false, lineage })).toBe(false);
+});
+
+describe("isProviderOverloadedFailureCode", () => {
+  it("recognises each provider's overload code and nothing else", () => {
+    for (const code of ["overloaded", "serverOverloaded", "api_error_529"])
+      expect(isProviderOverloadedFailureCode(code)).toBe(true);
+    for (const code of ["api_error_429", "usageLimitExceeded", "rate_limit", "", null, undefined])
+      expect(isProviderOverloadedFailureCode(code)).toBe(false);
+  });
 });

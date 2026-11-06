@@ -227,6 +227,7 @@ import * as CursorUsageAccounts from "@t3tools/provider-cursor/server/CursorUsag
 import * as UsageService from "./usage/UsageService.ts";
 import * as CodexUsageHistory from "./usage/CodexUsageHistory.ts";
 import * as RuntimeLayer from "./orchestration-v2/runtimeLayer.ts";
+import * as ProviderOverloads from "./provider/ProviderOverloads.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
 import * as PeerEnvironments from "./peers/PeerEnvironments.ts";
@@ -866,6 +867,8 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
       layerCloudManagedEndpointRuntime,
     ),
   ),
+  // One record shared by role resolution and the runtime's overload marker.
+  Layer.provideMerge(ProviderOverloads.layer),
 );
 
 const layerRuntimeDependencies = layerRuntimeCoreDependencies.pipe(
