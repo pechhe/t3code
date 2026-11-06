@@ -445,12 +445,13 @@ describe("Pi MCP tool schemas", () => {
     }
   });
 
-  // Gemini refuses a ref loop that only required properties close, as Weave's CrmFilter
-  // declares through `not`; the recursion stays, with that one field optional.
-  it("opens a ref loop that only required properties close", async () => {
+  // opencode-go refuses any recursive schema, as Weave's CrmFilter declares through
+  // `and` and `not`; each ref that closes the loop becomes an untyped schema.
+  it("cuts each ref that leads back to its own definition", async () => {
     const inputSchema = {
       type: "object",
       properties: { filter: { $ref: "#/$defs/CrmFilter" } },
+      required: ["filter"],
       $defs: {
         CrmFilter: {
           anyOf: [
@@ -463,61 +464,78 @@ describe("Pi MCP tool schemas", () => {
             },
             {
               type: "object",
-              properties: { not: { $ref: "#/$defs/CrmFilter" } },
+              properties: { not: { $ref: "#/$defs/CrmFilter", description: "Negated filter" } },
               required: ["not"],
             },
-            {
-              type: "object",
-              properties: { attribute: { type: "string" }, operator: { type: "string" } },
-              required: ["attribute", "operator"],
-            },
+            { $ref: "#/$defs/Condition" },
           ],
         },
+        Condition: {
+          type: "object",
+          properties: { attribute: { type: "string" }, operator: { type: "string" } },
+          required: ["attribute", "operator"],
+        },
+      },
+    };
+    const bridge = await loadMcpBridge({ inputSchema });
+    assert.isAbove(bridge.tools.length, 0);
+    for (const tool of bridge.tools) {
+      assert.deepEqual(tool.parameters, {
+        ...inputSchema,
+        $defs: {
+          ...inputSchema.$defs,
+          CrmFilter: {
+            anyOf: [
+              {
+                type: "object",
+                properties: { and: { type: "array", items: {} } },
+                required: ["and"],
+              },
+              {
+                type: "object",
+                properties: { not: { description: "Negated filter" } },
+                required: ["not"],
+              },
+              { $ref: "#/$defs/Condition" },
+            ],
+          },
+        },
+      });
+    }
+  });
+
+  it("cuts a loop through several definitions and leaves refs off it", async () => {
+    const inputSchema = {
+      type: "object",
+      properties: { group: { $ref: "#/$defs/Group" } },
+      $defs: {
+        Group: {
+          type: "object",
+          properties: {
+            members: { type: "array", items: { $ref: "#/$defs/Member" } },
+            label: { $ref: "#/$defs/Label" },
+          },
+        },
+        Member: {
+          type: "object",
+          properties: { group: { $ref: "#/$defs/Group" } },
+        },
+        Label: { type: "string" },
       },
     };
     const bridge = await loadMcpBridge({ inputSchema });
     for (const tool of bridge.tools) {
       const parameters = tool.parameters as {
-        readonly $defs: {
-          readonly CrmFilter: {
-            readonly anyOf: ReadonlyArray<{ readonly required?: ReadonlyArray<string> }>;
-          };
-        };
+        readonly properties: unknown;
+        readonly $defs: Record<string, Record<string, unknown>>;
       };
-      const branches = parameters.$defs.CrmFilter.anyOf;
-      assert.deepEqual(branches[0]?.required, ["and"]);
-      assert.isUndefined(branches[1]?.required);
-      assert.deepEqual(branches[2]?.required, ["attribute", "operator"]);
-    }
-  });
-
-  it("relaxes only the edges on a ref loop, not a required ref to another loop", async () => {
-    const inputSchema = {
-      type: "object",
-      properties: { filter: { $ref: "#/$defs/Filter" } },
-      $defs: {
-        Filter: {
-          type: "object",
-          properties: {
-            not: { $ref: "#/$defs/Filter" },
-            value: { $ref: "#/$defs/Value" },
-          },
-          required: ["not", "value"],
-        },
-        Value: {
-          type: "object",
-          properties: { inner: { $ref: "#/$defs/Value" } },
-          required: ["inner"],
-        },
-      },
-    };
-    const bridge = await loadMcpBridge({ inputSchema });
-    for (const tool of bridge.tools) {
-      const { $defs } = tool.parameters as {
-        readonly $defs: Record<string, { readonly required?: ReadonlyArray<string> }>;
-      };
-      assert.deepEqual($defs.Filter?.required, ["value"]);
-      assert.isUndefined($defs.Value?.required);
+      assert.deepEqual(parameters.$defs.Group?.properties, {
+        members: { type: "array", items: {} },
+        label: { $ref: "#/$defs/Label" },
+      });
+      assert.deepEqual(parameters.$defs.Member?.properties, { group: {} });
+      assert.deepEqual(parameters.$defs.Label, { type: "string" });
+      assert.include(JSON.stringify(parameters.properties), "#/$defs/Group");
     }
   });
 

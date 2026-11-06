@@ -180,78 +180,44 @@ function definitionRefName(ref: unknown): string | undefined {
   return undefined;
 }
 
-/**
- * The definitions a schema forces a caller to pass: refs under required properties,
- * never refs under array items, since an empty array ends a loop Gemini accepts.
- */
-function requiredRefs(schema: unknown, into: Set<string>): void {
+function definitionRefs(schema: unknown, into: Set<string>): void {
   if (Array.isArray(schema)) {
-    for (const entry of schema) requiredRefs(entry, into);
+    for (const entry of schema) definitionRefs(entry, into);
     return;
   }
   if (!isSchemaObject(schema)) return;
   const ref = definitionRefName(schema.$ref);
   if (ref !== undefined) into.add(ref);
-  for (const keyword of ["anyOf", "oneOf", "allOf"]) {
-    const branches = schema[keyword];
-    if (Array.isArray(branches)) requiredRefs(branches, into);
+  for (const value of Object.values(schema)) definitionRefs(value, into);
+}
+
+function cutRefs(schema: unknown, cuts: (target: string) => boolean): unknown {
+  if (Array.isArray(schema)) return schema.map((entry) => cutRefs(entry, cuts));
+  if (!isSchemaObject(schema)) return schema;
+  const ref = definitionRefName(schema.$ref);
+  if (ref !== undefined && cuts(ref)) {
+    const { $ref: _ref, ...rest } = schema;
+    return rest;
   }
-  if (!isSchemaObject(schema.properties)) return;
-  const required = Array.isArray(schema.required) ? schema.required : [];
-  for (const [name, property] of Object.entries(schema.properties)) {
-    if (required.includes(name)) requiredRefs(property, into);
-  }
+  return Object.fromEntries(
+    Object.entries(schema).map(([key, value]) => [key, cutRefs(value, cuts)]),
+  );
 }
 
 /**
- * Gemini refuses a $ref loop whose every step is a required field, such as a
- * recursive filter whose "not" branch requires another filter. The loop is
- * genuine (a condition ends it), so the bridge keeps the recursion and leaves
- * the fields that close it optional, for the server's own validation to judge.
+ * Some providers refuse any recursive schema (opencode-go) or a loop of required
+ * fields (Gemini), and none can declare one losslessly. A $ref that leads back to
+ * its own definition becomes an untyped schema; the server still validates it all.
  */
-function relaxRequiredLoops(
-  schema: unknown,
-  /** Whether a required ref to this definition leads back to the enclosing one. */
-  closesLoop: (target: string) => boolean,
-): unknown {
-  if (Array.isArray(schema)) {
-    return schema.map((entry) => relaxRequiredLoops(entry, closesLoop));
-  }
-  if (!isSchemaObject(schema)) return schema;
-  const properties = isSchemaObject(schema.properties) ? schema.properties : undefined;
-  const required = Array.isArray(schema.required) ? schema.required : undefined;
-  const keptRequired =
-    properties !== undefined && required !== undefined
-      ? required.filter((name) => {
-          const property = typeof name === "string" ? properties[name] : undefined;
-          if (property === undefined) return true;
-          const targets = new Set<string>();
-          requiredRefs(property, targets);
-          for (const target of targets) if (closesLoop(target)) return false;
-          return true;
-        })
-      : required;
-  const droppedRequired = keptRequired !== undefined && keptRequired.length !== required.length;
-  const entries: Array<[string, unknown]> = [];
-  for (const [key, value] of Object.entries(schema)) {
-    if (key === "required" && droppedRequired) {
-      if (keptRequired.length > 0) entries.push([key, keptRequired]);
-      continue;
-    }
-    entries.push([key, relaxRequiredLoops(value, closesLoop)]);
-  }
-  return Object.fromEntries(entries);
-}
-
-function relaxDefinitionLoops(schema: Record<string, unknown>): Record<string, unknown> {
+function cutDefinitionCycles(schema: Record<string, unknown>): Record<string, unknown> {
   for (const keyword of ["$defs", "definitions"]) {
     const definitions = schema[keyword];
     if (!isSchemaObject(definitions)) continue;
-    const requiredTargets = new Map<string, ReadonlySet<string>>();
+    const edges = new Map<string, ReadonlySet<string>>();
     for (const [name, definition] of Object.entries(definitions)) {
       const targets = new Set<string>();
-      requiredRefs(definition, targets);
-      requiredTargets.set(name, targets);
+      definitionRefs(definition, targets);
+      edges.set(name, targets);
     }
     const reaches = (from: string, to: string) => {
       const seen = new Set<string>();
@@ -261,22 +227,21 @@ function relaxDefinitionLoops(schema: Record<string, unknown>): Record<string, u
         if (next === undefined || seen.has(next)) continue;
         if (next === to) return true;
         seen.add(next);
-        pending.push(...(requiredTargets.get(next) ?? []));
+        pending.push(...(edges.get(next) ?? []));
       }
       return false;
     };
-    const looping = [...requiredTargets.keys()].filter((name) =>
-      [...(requiredTargets.get(name) ?? [])].some((target) => reaches(target, name)),
+    const looping = [...edges.keys()].filter((name) =>
+      [...(edges.get(name) ?? [])].some((target) => reaches(target, name)),
     );
     if (looping.length === 0) continue;
-    // Only an edge on a cycle is relaxed: its target leads back to the enclosing definition.
     return {
       ...schema,
       [keyword]: Object.fromEntries(
         Object.entries(definitions).map(([name, definition]) => [
           name,
           looping.includes(name)
-            ? relaxRequiredLoops(definition, (target) => reaches(target, name))
+            ? cutRefs(definition, (target) => reaches(target, name))
             : definition,
         ]),
       ),
@@ -292,7 +257,7 @@ function jsonSchemaToTypebox(schema: Record<string, unknown> | undefined) {
     // servers reject. Declare it, as Pi does for its own MCP tools.
     const collapsed = collapseNullUnion(schema) as Record<string, unknown>;
     return unsafe(
-      relaxDefinitionLoops({
+      cutDefinitionCycles({
         ...collapsed,
         type: collapsed.type ?? "object",
         ...(collapsed.properties === undefined ? { properties: {} } : {}),
