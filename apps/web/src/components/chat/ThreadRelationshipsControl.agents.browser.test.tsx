@@ -12,6 +12,8 @@ const state = vi.hoisted(() => ({
   projections: null as Map<string, unknown> | null,
   navigate: vi.fn(),
   shells: [] as unknown[],
+  shell: null as unknown,
+  watchers: [] as unknown[],
   projects: [] as unknown[],
   configs: new Map<string, unknown>(),
   showTooltips: false,
@@ -39,6 +41,8 @@ vi.mock(import("../../state/entities"), async (original) => ({
       .filter((shell) => shell.environmentId === ref.environmentId)
       .map((shell) => shell.source)) as never,
   useProjects: (() => state.projects) as never,
+  useThreadShell: (() => state.shell) as never,
+  useThreadWatchers: (() => state.watchers) as never,
 }));
 vi.mock(import("../../state/environments"), async (original) => ({
   ...(await original()),
@@ -93,6 +97,8 @@ import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 
 async function setup() {
   state.shells = [];
+  state.shell = null;
+  state.watchers = [];
   state.projects = [];
   state.configs.clear();
   state.showTooltips = false;
@@ -135,6 +141,15 @@ async function setup() {
     if (!toggle) throw new Error(`No ${expanded ? "expanded" : "collapsed"} section toggle`);
     return toggle;
   }
+  // A named lineage group ("Earlier", "Watching") is its own collapse control.
+  function groupToggle(label: string) {
+    const [toggle] = buttons().filter(
+      (button) =>
+        button.getAttribute("aria-label") === null && button.textContent?.includes(label),
+    );
+    if (!toggle) throw new Error(`No "${label}" group toggle`);
+    return toggle;
+  }
   const heading = () => container.querySelector("h3")?.textContent;
   const buttonsWithLabel = (matches: (label: string) => boolean) =>
     buttons().filter((button) => matches(button.getAttribute("aria-label") ?? ""));
@@ -160,6 +175,7 @@ async function setup() {
     byLabel,
     sectionToggles,
     sectionToggle,
+    groupToggle,
     heading,
     buttonsWithLabel,
     textNodes,
@@ -169,7 +185,7 @@ async function setup() {
 
 it("keeps managed advisor conversations in their own visible section through follow-ups and completion", async () => {
   await using fixture = await setup();
-  const { render, update, click, byLabel, allByLabel, textNodes } = fixture;
+  const { render, update, click, byLabel, allByLabel, textNodes, groupToggle } = fixture;
   const child = {
     id: "advisor-chat",
     title: "Architecture advice",
@@ -246,13 +262,15 @@ it("keeps managed advisor conversations in their own visible section through fol
   await update();
   expect(text()).toContain("Earlier");
   expect(text()).not.toContain("Advisors");
+  // The Earlier list is collapsed; a closed advisor stays listed in it.
+  await click(groupToggle("Earlier"));
   expect(text()).toContain("Closed");
   expect(byLabel("Open Architecture advice chat")).toBeDefined();
 });
 
 it("lists a thread the current thread finished watching under Earlier with a Watched badge", async () => {
   await using fixture = await setup();
-  const { render, byLabel, textNodes } = fixture;
+  const { render, click, byLabel, textNodes, groupToggle } = fixture;
   state.shells = [
     { environmentId: "test", source: { id: "parent", lineage: {} } },
     {
@@ -282,9 +300,107 @@ it("lists a thread the current thread finished watching under Earlier with a Wat
   );
   const text = textNodes(" ");
   expect(text).toContain("Earlier");
-  expect(text).toContain("Watched");
-  await act(async () => byLabel("Open Fix the login chat").click());
+  await click(groupToggle("Earlier"));
+  expect(textNodes(" ")).toContain("Watched");
+  await click(byLabel("Open Fix the login chat"));
   expect(state.navigate).toHaveBeenCalledWith(
     expect.objectContaining({ params: expect.objectContaining({ threadId: "done" }) }),
   );
+});
+
+it("lists the threads it watches and the threads watching it beside the graph", async () => {
+  await using fixture = await setup();
+  const { render, click, byLabel, textNodes, groupToggle } = fixture;
+  state.shells = [
+    { environmentId: "test", source: { id: "target", title: "Fix the login", lineage: {} } },
+    { environmentId: "test", source: { id: "watcher", title: "Watching me", lineage: {} } },
+  ];
+  state.watchers = [{ id: "watcher", title: "Watching me" }];
+  state.projection = {
+    thread: {
+      id: "parent",
+      lineage: { relationshipToParent: null },
+      threadWatches: [{ target: { kind: "thread", threadId: "target" }, title: "Fix the login" }],
+    },
+    runs: [],
+    providerThreads: [],
+    providerSessions: [],
+    contextTransfers: [],
+    subagents: [],
+  };
+  await render(
+    <ThreadRelationshipsPanel
+      showLineage
+      showSideChats
+      environmentId={EnvironmentId.make("test")}
+      threadId={ThreadId.make("parent")}
+    />,
+  );
+  const text = textNodes(" ");
+  expect(text).toContain("Watching");
+  expect(text).toContain("Watched by");
+  await click(byLabel("Open Fix the login chat"));
+  expect(state.navigate).toHaveBeenCalledWith(
+    expect.objectContaining({ params: expect.objectContaining({ threadId: "target" }) }),
+  );
+  expect(byLabel("Open Watching me chat")).toBeDefined();
+  await click(groupToggle("Watching"));
+  expect(textNodes(" ")).not.toContain("Fix the login");
+});
+
+it("leaves a subagent the composer panel already shows out of Lineage", async () => {
+  await using fixture = await setup();
+  const { render, textNodes } = fixture;
+  const child = {
+    id: "worker-chat",
+    title: "Count the flaky tests",
+    creationSource: "web",
+    lineage: { parentThreadId: "parent", relationshipToParent: "subagent" },
+    status: "running",
+  };
+  state.shells = [{ environmentId: "test", source: child }];
+  state.shell = {
+    environmentId: "test",
+    source: {
+      id: "parent",
+      lineage: { relationshipToParent: null },
+      pendingBackgroundTasks: [
+        { kind: "subagent", childThreadId: child.id, status: "running" },
+      ],
+    },
+  };
+  state.projection = {
+    thread: { id: "parent", lineage: { relationshipToParent: null } },
+    runs: [],
+    providerThreads: [],
+    providerSessions: [],
+    contextTransfers: [],
+    subagents: [
+      {
+        id: "worker-1",
+        childThreadId: child.id,
+        origin: "app_owned",
+        driver: "codex",
+        providerInstanceId: "codex",
+        title: "Count the flaky tests",
+        prompt: "Count the flaky tests",
+        model: "gpt-6-astra",
+        status: "running",
+        progress: null,
+        result: null,
+        startedAt: DateTime.makeUnsafe("2026-09-16T12:00:00Z"),
+        completedAt: null,
+        updatedAt: DateTime.makeUnsafe("2026-09-16T12:00:00Z"),
+      },
+    ],
+  };
+  await render(
+    <ThreadRelationshipsPanel
+      showLineage
+      showSideChats
+      environmentId={EnvironmentId.make("test")}
+      threadId={ThreadId.make("parent")}
+    />,
+  );
+  expect(textNodes(" ")).not.toContain("Count the flaky tests");
 });

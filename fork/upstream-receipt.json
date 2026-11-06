@@ -3,37 +3,38 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.8-nightly.20261105.4234",
-      "sha": "8b570d282b5f50709185fbd26f8e36872ddafdeb"
-    },
-    "target": {
       "tag": "v0.1.8-nightly.20261106.4262",
       "sha": "c55db3e9c72fdf584f4b54192fb39beb88667b59"
+    },
+    "target": {
+      "tag": "v0.1.8-nightly.20261106.4275",
+      "sha": "6577c6b6185167c0e502fa01f9e8e8f2dee6ff25"
     }
   },
   "fork": {
-    "base": "ac78400e0db9fb7df59a9927bfa81b7928d6d3da"
+    "base": "eb430c1e2ca550546f08906f2cf84deafa5d98e4"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "fde9f9d12cf1bcf15747314957751f289df26f91"
+    "blob": "8207656b163ed624d8e6f4dd839c771d426bf5d3"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.8-nightly.20261106.4262@1793954229",
-  "reviewedAt": "2026-11-06T11:20:00.000Z",
+  "attempt": "v0.1.8-nightly.20261106.4275@1793975879",
+  "reviewedAt": "2026-11-06T15:10:00Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:15527657-3dcc-4fc6-856e-c62569cf39e4",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:e5221f8e-5a76-4357-85da-5f9e2167cf90",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 196,
+    "upstreamCommits": 12,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
       "experiments",
       "agent-policy-roles",
+      "provider-overload-failover",
       "managed-delegation",
       "t3-agent-cli",
       "run-setup-records",
@@ -100,333 +101,223 @@
       "browser-decision-evaluation",
       "bounded-browser-tasks",
       "ssh-launch-respects-boot-service",
-      "unhandled-rejection-keeps-server",
-      "provider-overload-failover"
+      "unhandled-rejection-keeps-server"
     ],
     "areas": [
-      "apps/mobile/src (312 files): workspace shell moved into features/layout/workspace, one AppBar/SheetHeader per screen, routes declare page/sheet/modal, dictation and voice screens, GitLab pull request surfaces",
-      "apps/server/src (213 files): fresh provider sessions (/clear, fresh sends, context boundary), scheduled-task thread mode, settle-after-run follow-ups, one projected live event per subscriber, batched recovery reads/commits, WAL backpressure, secret-provider credentials, WorktreeBranchSync, DPoP scheme, MCP auth span",
-      "apps/web/src (166 files): BranchToolbar/ComposerSurface restructure, pull request comments and references, dictation, Labs hide-tool-calls, Zen rows, settings search, typography rows",
-      "packages/contracts, packages/shared, packages/client-runtime: keybinding matching split, speech, settings/notification/delegation fields, source-control error types",
-      "packages/provider-*: transcription post-processing in every text-generation driver, Claude model catalog, opencode/pi/muse/fx/kiro fixes",
-      "apps/desktop: quit stop timeout and shutdown tracing, screen picker promise errors",
-      "docs, evals, scripts, packaging: user docs, MCP tool-use cases, CI/knip changes",
-      "two fork commits that landed on t3peach while the update was prepared (e008c1ce: role-list failover from an overloaded provider; ac78400e: weave connection guidance), reapplied on the merge and reconciled against it"
+      "apps/server CLI and service launcher (#29284): bin.ts, binMain.ts, scripts/cli.ts, cli/serviceLauncher.ts, apps/server/vite.config.ts \u2014 upstream's own; fork CLI commands (voice-bridge, agent) still registered; covered by voice-bridge, dev-state-tooling and ssh-launch-respects-boot-service",
+      "lineage control (#29285): apps/web/src/components/chat/ThreadRelationshipsControl.tsx \u2014 overlapping conflict, reconciled by adapt for delegated-work-visibility, thread-watches and account-pools",
+      "timeline (#31888): MessagesTimeline.logic.ts keeps todo_list updates static \u2014 adopted under subagent-return-chip",
+      "sidebar (#31924, #27691): Sidebar.tsx drag scroll fixes \u2014 adopted under web-client-customisation",
+      "desktop build and release (#31285, #31941, #31942): apps/desktop/vite.config.ts, scripts/build-desktop-artifact.ts, package.json, release workflows \u2014 adopted under desktop-fork-build",
+      "antigravity client identity (#31158): AntigravityAcpSupport.ts, AntigravityInstallation.ts, AcpSessionRuntime.ts \u2014 adopted under agent-policy-roles",
+      "devices (#25971): DeviceService/DeviceHubOperations/DevicePanel/DeviceSetup, contracts device.ts additive optional incompletePlatforms \u2014 upstream's own, no fork entry",
+      "marketing (#31142): apps/marketing SEO pages \u2014 aside, no fork code",
+      "CI caching (#31937): setup-ci-deps action \u2014 aside"
     ],
     "exclusions": [
       {
-        "what": "upstream commits that only touch apps/mobile module sources (72 files under apps/mobile/modules) and native/",
-        "why": "fork does not change them; the mobile native build is upstream-owned and unaffected by the fork entries"
+        "what": "pnpm-lock.yaml",
+        "why": "mechanical; upstream did not change dependencies in this batch beyond the new build:bundle script"
       },
       {
-        "what": "source-control-* provider packages (45 files)",
-        "why": "additive provider fixes with no recorded fork difference touching them"
+        "what": "apps/marketing/**",
+        "why": "no fork difference meets it; upstream's own site code"
       },
       {
-        "what": "docs/user and docs/internals pages describing upstream features",
-        "why": "taken as they are; only docs/operations notes the fork owns were reconciled, and no fork user doc describes a changed upstream control"
+        "what": ".github/workflows/**",
+        "why": "CI only; the fork builds locally through fork-nightly.sh, whose inputs these do not change"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "preview-browser-lifetime",
-      "upstream": "Upstream now retires the shared preview browser five minutes after it last held a context (#30306, idleBrowserMs; 517 MiB -> 1.6 MiB median).",
-      "decision": "adopt",
-      "requirements": [
-        "shared Chromium retires on upstream's idle timer",
-        "a profile's persistent Chrome still closes with its last tab",
-        "revoked access and a stalled start still close what they opened, a start is bounded at five seconds"
-      ],
-      "evidence": [
-        "apps/server/src/preview/ServerBrowserContexts.ts",
-        "apps/server/src/preview/ServerBrowser.test.ts",
-        "apps/server/src/preview/ServerBrowserContexts.test.ts (22 passed)"
-      ]
-    },
-    {
-      "entry": "scheduled-tasks-extensions",
-      "upstream": "A task can run in one thread with a fresh session per run (#30326, threadMode continue/new_thread, migration ScheduledTaskThreadMode) and links to its thread (#31764).",
+      "entry": "delegated-work-visibility",
       "decision": "adapt",
+      "upstream": "#29285 moves a linked environment's delegated task into the lineage's running/finished groups with collapsible groups",
       "requirements": [
-        "threadMode chosen in the fork's editor and sent on every upsert",
-        "a task saved by an older editor or an agent still reads as carrying on",
-        "groups, per-run role-selected model, fallback selection and webhook controls kept"
+        "a subagent still shows once, in the fork's panel and rows rather than a second list",
+        "the advisor group, subagent-panel exclusion, role chip, row time and Closed marker survive"
       ],
       "evidence": [
-        "packages/contracts/src/scheduledTask.ts",
-        "apps/server/src/scheduledTasks/ScheduledTaskService.ts",
-        "apps/web/src/components/scheduled/ScheduledTasksPage.tsx",
-        "scheduledTasks.logic.test.ts (18 passed)",
-        "ScheduledTasksSettings.browser.test.tsx (11 passed)"
-      ]
-    },
-    {
-      "entry": "side-chat",
-      "upstream": "Side chats inherit their parent permissions by default (#31114) and its fixture covers it.",
-      "decision": "retain",
-      "requirements": [
-        "a side chat's opening turn resolves at approval-required",
-        "the fork fixture keeps its rootIsDefault assertion"
-      ],
-      "evidence": [
-        "apps/server/src/orchestration-v2/ProviderTurnStartService.ts",
-        "apps/server/src/orchestration-v2/ThreadForkService.test.ts"
-      ]
-    },
-    {
-      "entry": "managed-delegation",
-      "upstream": "Settlement waits for the automatic follow-ups a run started (#31815), one secret value per request card (#30805), a managed-observability policy is refused (#30973).",
-      "decision": "adapt",
-      "requirements": [
-        "settle waits for automated follow-ups and guards on the latest run",
-        "the fork's rule refuses settlement over live background work (settleAfterRun and the orchestrator guard)",
-        "managed layer, role policy and pinned reviewers unchanged"
-      ],
-      "evidence": [
-        "apps/server/src/orchestration-v2/ThreadManagementService.ts",
-        "apps/server/src/orchestration-v2/Orchestrator.ts",
-        "apps/server/src/mcp/OrchestratorMcpService.test.ts (passed)"
+        "apps/web/src/components/chat/ThreadRelationshipsControl.tsx: remote rows are LineageRow kinds inside active/Earlier",
+        "ThreadRelationshipsControl.browser.test.tsx and .agents.browser.test.tsx pass (12 tests)"
       ]
     },
     {
       "entry": "thread-watches",
-      "upstream": "PR watch gains the leaf-subagent guard, thread.settle refuses a superseded run or live background work, and a pending user-input request no longer blocks a snooze (#20058).",
-      "decision": "adopt",
+      "decision": "adapt",
+      "upstream": "#29285 gives the lineage groups a collapse control",
       "requirements": [
-        "the fork's leaf-subagent guard and background-work blocker stay inside upstream's guards"
+        "Watching and Watched by rows still sit beside the graph, not as edges",
+        "a finished watch still rides in the collapsed Earlier list with a Watched badge"
       ],
       "evidence": [
-        "apps/server/src/orchestration-v2/Orchestrator.ts",
-        "apps/server/src/orchestration-v2/ThreadManagementService.test.ts (37 passed)"
-      ]
-    },
-    {
-      "entry": "compact-line",
-      "upstream": "A send can start a fresh provider session and /clear starts one (#30323, #30325); a queued or continued run rebinds to the conversation it belongs to and a provider thread before a fresh-context boundary is dropped.",
-      "decision": "adopt",
-      "requirements": [
-        "per-thread point, per-model point, draggable marker, Pi settings write and reported thresholds unchanged",
-        "a compaction on another model still opens the session for the summary only"
-      ],
-      "evidence": [
-        "apps/server/src/orchestration-v2/Orchestrator.ts",
-        "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts",
-        "Orchestrator.compact-at.test.ts (passed)"
-      ]
-    },
-    {
-      "entry": "claude-full-access-no-prompts",
-      "upstream": "Claude turns compile their selection against the downloaded model catalog (#31717).",
-      "decision": "adopt",
-      "requirements": [
-        "full-access child and compaction selections unchanged"
-      ],
-      "evidence": [
-        "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts",
-        "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts (382 passed)"
+        "ThreadWatchRow renders as a LineageRow kind; Earlier starts collapsed",
+        "the watch test expands Earlier before asserting the badge"
       ]
     },
     {
       "entry": "account-pools",
-      "upstream": "Simlock, Antigravity and OpenCode credentials can come from a secret provider (#31652), a secret request can be answered with a provider reference (#31670), and an unreadable secret parks its config so an unrelated save does not read the vault again.",
-      "decision": "adapt",
-      "requirements": [
-        "pool refs and pool reconciliation kept beside upstream's parked-secret map"
-      ],
-      "evidence": [
-        "apps/server/src/provider/ProviderInstanceRegistry.ts",
-        "apps/server/src/secrets/SecretRequests.test.ts (passed)"
-      ]
-    },
-    {
-      "entry": "voice-bridge",
-      "upstream": "Upstream ships its own dictation: environment speech input, a composer dictation shortcut, on-device iPhone dictation and transcription post-processing in every text-generation driver.",
-      "decision": "retain",
-      "requirements": [
-        "the FluidVoice bridge keeps its own CLI path",
-        "both text-generation operations exist in the seam"
-      ],
-      "evidence": [
-        "apps/server/src/textGeneration/TextGeneration.ts",
-        "packages/provider-core/src/server/textGenerationOperations.ts",
-        "apps/server/src/speech/http.test.ts (passed)"
-      ]
-    },
-    {
-      "entry": "mobile-fork-screens",
-      "upstream": "The mobile workspace shell moved into features/layout/workspace with one AppBar or SheetHeader per screen and routes declaring page/sheet/modal; voice settings, dictation and Side chat entry points were added.",
-      "decision": "adapt",
-      "requirements": [
-        "Forge item header and sheet, workflow badge, release approval card, Jujutsu labels, Away button and settings entries re-applied inside upstream's structure"
-      ],
-      "evidence": [
-        "apps/mobile/src/features/layout/workspace",
-        "apps/mobile/src/features/threads/ThreadHeader.tsx",
-        "apps/mobile/src/Stack.tsx",
-        "@t3tools/mobile typecheck exits 0"
-      ]
-    },
-    {
-      "entry": "web-client-customisation",
-      "upstream": "A Labs setting hides tool calls (#30000), settings descriptions use the full row (#31826), and the composer context strip gained a persisted setting and its own selector modules.",
-      "decision": "adapt",
-      "requirements": [
-        "theme and font controls re-applied on upstream's row layout",
-        "the fork keeps run context in the thread details panel; the composer strip is carried but off and its dead fork render removed",
-        "upstream's persistComposerContextStrip setting is kept for upstream clients"
-      ],
-      "evidence": [
-        "apps/web/src/components/settings/TypographySettings.tsx",
-        "apps/web/src/components/ChatView.tsx",
-        "@t3tools/web typecheck exits 0"
-      ]
-    },
-    {
-      "entry": "delegated-work-visibility",
-      "upstream": "Subagent titles, previews and background-work notices no longer end in a broken character (#30390, #30391, #30369); streamed thread batches are no longer traced (#30679).",
       "decision": "adopt",
+      "upstream": "#29285 reads provider instance settings through deriveProviderInstanceEntries/applyProviderInstanceSettings",
       "requirements": [
-        "subagent lifecycle rows and the tooltip suppression kept"
+        "pool settings still resolve per instance and project",
+        "the panel works before settings load"
       ],
       "evidence": [
-        "packages/client-runtime/src/state/subagentDisplay.ts",
-        "apps/web/src/components/chat/SubagentTooltipContent.tsx"
-      ]
-    },
-    {
-      "entry": "perf-persistence-reads",
-      "upstream": "Projection recovery reads batch into one query (#31842), shutdown recovery commits batch (#31854), and the WAL checkpoint backpressure rises to 32 768 frames while a stuck checkpoint is still released.",
-      "decision": "adopt",
-      "requirements": [
-        "reader routing and indexed selective compaction unchanged"
-      ],
-      "evidence": [
-        "apps/server/src/persistence/ProjectionStore.ts",
-        "packages/shared/src/nodeSqliteClient.ts",
-        "ProjectionStore.test.ts and ProjectionRecovery tests (passed)"
-      ]
-    },
-    {
-      "entry": "mcp-orchestration-annotations",
-      "upstream": "The MCP auth span no longer includes the tool call (#30834) and routine port polling is no longer traced (#30678).",
-      "decision": "adopt",
-      "requirements": [
-        "tool annotations and the split authenticateRequest middleware unchanged"
-      ],
-      "evidence": [
-        "apps/server/src/mcp/McpHttpServer.ts"
-      ]
-    },
-    {
-      "entry": "dpop-forwarded-proto",
-      "upstream": "A DPoP authorization scheme is accepted case-insensitively (#30337).",
-      "decision": "adopt",
-      "requirements": [
-        "the forwarded-URL DPoP regression kept"
-      ],
-      "evidence": [
-        "apps/server/src/auth/EnvironmentAuth.test.ts (passed)",
-        "apps/server/src/auth/dpop.ts"
+        "ThreadRelationshipsControl.tsx uses serverEnvironment.settingsValueAtom with derived entries as the fallback",
+        "web typecheck clean"
       ]
     },
     {
       "entry": "desktop-fork-build",
-      "upstream": "Quit shares BACKEND_QUIT_STOP_TIMEOUT and traces its phases; a slow backend is no longer orphaned (#22572).",
-      "decision": "adopt",
+      "decision": "adapt",
+      "upstream": "#31285 arm64 macOS prebuild exclusion for every native package, #31941 build:bundle CI task, #31942 release uploads",
       "requirements": [
-        "the fork's pid-collecting pool stop and orphan reaping kept on top"
+        "screen-picker staging, the no-update-feed build and T3 Peach survive",
+        "local signing and the fork bundle entry stay"
       ],
       "evidence": [
-        "apps/desktop/src/app/DesktopApp.ts",
-        "apps/desktop/src/backend/DesktopBackendManager.ts",
-        "@t3tools/desktop typecheck exits 0"
+        "scripts/build-desktop-artifact.ts and apps/desktop/vite.config.ts keep the screen-picker entry, the electron test alias and resolveDesktopProductName",
+        "build-desktop-artifact.test.ts: 50 pass; the pre-existing asarUnpack mac case and the Windows probe case still fail on the fork base"
+      ]
+    },
+    {
+      "entry": "voice-bridge",
+      "decision": "adopt",
+      "upstream": "#29284 rewrites the CLI entry and background service launcher",
+      "requirements": [
+        "t3 voice-bridge is still a registered CLI command",
+        "the bridge runtime is unchanged"
+      ],
+      "evidence": [
+        "apps/server/src/binCli.ts still lists voiceBridgeCommand; server typecheck clean"
       ]
     },
     {
       "entry": "ssh-launch-respects-boot-service",
-      "upstream": "SSH host discovery skips hidden Include matches (#30910).",
-      "decision": "adopt",
-      "requirements": [
-        "no fork behaviour in the parser"
-      ],
-      "evidence": [
-        "packages/ssh"
-      ]
-    },
-    {
-      "entry": "fork-guidance",
-      "upstream": "Upstream rewrote its orchestration instructions (environment linking, thread launching, visuals and preview, one-value secret requests).",
-      "decision": "adapt",
-      "requirements": [
-        "the fork rules the agent policy, reviewer pinning, follow-up and next behaviour depend on are merged into the same bullets"
-      ],
-      "evidence": [
-        "packages/provider-core/src/server/orchestrationInstructions.ts",
-        "packages/provider-core/src/server/orchestrationInstructions.test.ts (passed)"
-      ]
-    },
-    {
-      "entry": "provider-overload-failover",
-      "upstream": "Nothing in this tag moves work off an overloaded provider by itself; upstream adds a single usage-limit recovery notice (#29292) and stops arming subagents of archived or deleted parents (#30363).",
       "decision": "retain",
+      "upstream": "#29284 touches cli/serviceLauncher.ts, bin.ts and binMain.ts but not the unit format or serverOwnership",
       "requirements": [
-        "overload marking orders role candidates and never refuses only because every candidate is degraded",
-        "usage-limit recovery notices and arming fixes adopted beside it"
+        "the SSH launcher still defers to a service-owned home"
       ],
       "evidence": [
-        "apps/server/src/provider/ProviderOverloads.ts",
-        "apps/server/src/orchestration-v2/ProviderOverloadMarker.ts",
-        "apps/server/src/agents/AgentRoleResolver.ts"
+        "no change in this batch to packages/ssh/src/tunnel.ts, serverOwnership.ts or bootService.ts"
+      ]
+    },
+    {
+      "entry": "subagent-return-chip",
+      "decision": "adopt",
+      "upstream": "#31888 keeps todo_list task updates static in the timeline",
+      "requirements": [
+        "return chips, folds and round anchors read unchanged rows"
+      ],
+      "evidence": [
+        "MessagesTimeline.logic.ts gains three todo_list guards; the fork's fold test failure ('hides tool calls...') also fails on the fork base"
+      ]
+    },
+    {
+      "entry": "web-client-customisation",
+      "decision": "adopt",
+      "upstream": "#31924 and #27691 stop drag and drag-tagging scrolling the sidebar",
+      "requirements": [
+        "the raised-card row, its machine icon and its hover controls are unchanged"
+      ],
+      "evidence": [
+        "apps/web/src/components/Sidebar.tsx merged with both fixes"
+      ]
+    },
+    {
+      "entry": "agent-policy-roles",
+      "decision": "adopt",
+      "upstream": "#31158 identifies T3 Code to agy acp 1.5.1+ and adds an optional clientInfo.title",
+      "requirements": [
+        "Antigravity's managed read-only mode, ask mode and fs/write_text_file denial are unchanged"
+      ],
+      "evidence": [
+        "AntigravityAcpSupport.ts keeps the fork's ProviderAdapter import beside upstream's packageJson import",
+        "AntigravityAcpSupport.test.ts: 55 pass"
+      ]
+    },
+    {
+      "entry": "dev-state-tooling",
+      "decision": "adopt",
+      "upstream": "#29284's fast CLI entry and vite configs",
+      "requirements": [
+        "jj-workspace home resolution, dev watch paths and migrate-dev-db are unchanged"
+      ],
+      "evidence": [
+        "apps/server/src/bin.ts, binMain.ts and apps/server/vite.config.ts merged; server typecheck clean"
+      ]
+    },
+    {
+      "entry": null,
+      "decision": "adopt",
+      "upstream": "#25971 keeps devices listed when simulator discovery fails and adds an optional incompletePlatforms to DeviceHostStatuses",
+      "requirements": [
+        "the added contract field is optional, so shipped clients decode the same payload"
+      ],
+      "evidence": [
+        "packages/contracts/src/device.ts adds one optional field; contracts suites are selected by the gate"
       ]
     }
   ],
   "unresolved": [],
   "checks": [
     {
-      "command": "pnpm exec vp run --filter t3 typecheck",
+      "command": "node scripts/fork-upstream-receipt.ts skeleton/verify",
       "result": "passed",
-      "note": "server typecheck clean after reconciling the merge"
+      "note": "receipt written against the merge and verified at the candidate"
     },
     {
-      "command": "pnpm exec vp run --filter @t3tools/web typecheck",
+      "command": "vp run --filter @t3tools/web typecheck",
       "result": "passed",
-      "note": "web typecheck clean"
+      "note": "clean after the reconciliation; the lineage panel's side-chat narrowing was fixed once"
     },
     {
-      "command": "pnpm exec vp run --filter @t3tools/mobile typecheck",
+      "command": "vp run --filter t3 typecheck",
       "result": "passed",
-      "note": "mobile typecheck clean"
+      "note": "server clean with upstream's new binMain.ts and the fork's CLI commands"
     },
     {
-      "command": "pnpm exec vp run --filter @t3tools/desktop typecheck",
+      "command": "vp run --filter @t3tools/desktop typecheck",
       "result": "passed",
-      "note": "desktop typecheck clean"
+      "note": "desktop clean with upstream's build:bundle task and the fork's preload entry"
+    },
+    {
+      "command": "vp lint on ThreadRelationshipsControl.tsx, its browser tests and AntigravityAcpSupport.ts",
+      "result": "passed",
+      "note": "no findings"
+    },
+    {
+      "command": "vp test run (apps/web, whole suite)",
+      "result": "failed",
+      "note": "6205 passed, 6 failed after the reconciliation: runtime.test.ts (3), MessagesTimeline.logic.test.ts, BranchToolbar.panel.browser.test.tsx and GuestPage.browser.test.tsx. All six also fail at fork base dd8bdca in an isolated jj workspace (13 failures there, including AttachmentFilePreview's 6 and ChatView's 1, which passed here). Upstream's commits in this batch do not touch those code paths."
+    },
+    {
+      "command": "vp test run ThreadRelationshipsControl.browser.test.tsx, ThreadRelationshipsControl.agents.browser.test.tsx",
+      "result": "passed",
+      "note": "14 tests. Two new cases cover what the reconciliation kept: the Watching/Watched by groups with their rows, and a subagent the composer panel already shows staying out of Lineage (it fails if the panel filter is removed). The two failures the collapse introduced were fixed by opening Earlier in the tests."
+    },
+    {
+      "command": "vp test run apps/server/src/provider/acp/AntigravityAcpSupport.test.ts",
+      "result": "passed",
+      "note": "55 tests"
+    },
+    {
+      "command": "vp test run scripts/build-desktop-artifact.test.ts",
+      "result": "failed",
+      "note": "50 passed, 1 failed: 'applies platform-specific packaging to the build config' asserts mac has no asarUnpack, but the fork's own mac asarUnpack glob is present at the fork base too; the Windows probe case named in earlier receipts still fails as well"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
       "result": "passed",
-      "note": "the gate lists and selects the suites of the merged tree"
+      "note": "the gate lists and selects suites against the merged tree"
     },
     {
-      "command": "vp test apps/server/src/orchestration-v2 (Orchestrator, ThreadManagementService, ClaudeAdapterV2, RunExecutionService, ProjectionStore, LegacyV1Cutover and others)",
+      "command": "code-review (scope change, ticket-reviewer) of the conflict resolutions and reconciliation",
       "result": "passed",
-      "note": "focused suites beside every resolved file: 37+382+536+114+345 tests green across five batches"
-    },
-    {
-      "command": "vp test apps/web/src/components/scheduled/scheduledTasks.logic.test.ts and ScheduledTasksSettings.browser.test.tsx",
-      "result": "passed",
-      "note": "18 and 11 tests green after the thread-mode port"
-    },
-    {
-      "command": "code-review (scope change, ticket-reviewer) of the merge conflict resolutions and the reconciliation",
-      "result": "passed",
-      "note": "0 blocking, 5 should-fix; all five answered: dead composer-strip code removed, the browser idle retry no longer relaunches Chromium, the record covers screen-recording-video and drops the unrecorded experiments disposition, managed-delegation and the Claude reuse test now describe the code"
-    },
-    {
-      "command": "jj rebase of the merge onto t3peach@origin (ac78400e) with upstream ancestry kept, then AgentContextBudget re-measured",
-      "result": "passed",
-      "note": "one conflict, agentContextBudget.json, re-measured to 10411/12845/111030"
+      "note": "1 blocking, 2 should-fix. The blocking finding (stale record.blob) was the receipt written before the record's last edit; the blob is regenerated and verify run as the last step. Both should-fix findings answered: two tests added for the behaviours the decision lines claim (watch groups, the subagent-panel exclusion), and the collapse's user-visible change - Earlier was an always-open header and now starts closed, as thread-watches already required - stated in the record's decision lines."
     }
   ],
   "result": "reconciled"
