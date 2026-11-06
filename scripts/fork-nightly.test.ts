@@ -3507,5 +3507,34 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
       },
       TIMEOUT,
     );
+
+    it(
+      "installs the VPS runtime on a mirror from the clone path that host keeps it at",
+      async () => {
+        await withFixture(async (f) => {
+          const head = await seedRepos(f);
+          const work = NodePath.join(f.root, "work");
+          await git(work, ["tag", "v0.1.0-nightly.20260103.1", "side"]);
+          await git(work, ["push", "-q", f.upstream, "v0.1.0-nightly.20260103.1"]);
+
+          await run(f, ["build", "--rev", head, "--recovery", "roll back"], {
+            T3FORK_VPS: "vps",
+            T3_TEST_VP: "build",
+            TMPDIR: f.root,
+          });
+          const installs = (await calls(f, "ssh")).filter((line) =>
+            line.includes("fork-vps-runtime.sh install"),
+          );
+          // The primary VPS still keeps the earlier clone name; peach-box renamed its own.
+          expect(installs.find((line) => line.includes(" vps "))).toContain(
+            "~/projects/t3code-fork/scripts/fork-vps-runtime.sh install",
+          );
+          expect(installs.find((line) => line.includes(" peach-box "))).toContain(
+            "~/projects/t3peach/scripts/fork-vps-runtime.sh install",
+          );
+        });
+      },
+      TIMEOUT,
+    );
   });
 });

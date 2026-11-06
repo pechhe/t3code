@@ -74,9 +74,11 @@ SIGNING_PASS="$STATE/signing.pass"
 VPS="${T3FORK_VPS-slipjay-test}"
 VPS_CLONE="${T3FORK_VPS_CLONE:-~/projects/t3code-fork}"
 # Hosts that run the same fork runtime as VPS without building it: the second VPS.
-# Each keeps a clone at VPS_CLONE for the install script only. A mirror that fails
-# is reported and leaves the build, and VPS, as they are.
+# Each keeps a clone at VPS_MIRROR_CLONE, which differs from VPS_CLONE, for the
+# install script only. A mirror that fails is reported and leaves the build, and
+# VPS, as they are.
 VPS_MIRRORS="${T3FORK_VPS_MIRRORS-peach-box}"
+VPS_MIRROR_CLONE="${T3FORK_VPS_MIRROR_CLONE:-~/projects/t3peach}"
 LABEL=com.pechhe.t3code-fork-nightly
 # A LaunchAgent that `install --on-quit` starts on demand. When T3 Peach is
 # force-quit, macOS unloads jobs an agent inside it `launchctl submit`ted, but
@@ -1332,7 +1334,7 @@ mirror_install() {
   local version="$1" source="$2" mirrors="$3" mirror
   for mirror in $mirrors; do
     if ssh -n -o BatchMode=yes -o ConnectTimeout=30 "$mirror" \
-      "bash -lc '$VPS_CLONE/scripts/fork-vps-runtime.sh install $version $source'"; then
+      "bash -lc '$VPS_MIRROR_CLONE/scripts/fork-vps-runtime.sh install $version $source'"; then
       log "installed the fork runtime $version on $mirror"
     else
       log "installing the fork runtime $version on $mirror failed"
