@@ -292,6 +292,20 @@ export class ServerBrowser extends Context.Service<
     readonly captureTaskTarget: (
       input: TaskLeaseInput & { readonly locator: string; readonly timeoutMs: number },
     ) => Effect.Effect<ServerBrowserPage.TaskTargetCapture, ServerBrowserTaskError>;
+    readonly settleTask: (
+      input: TaskLeaseInput & { readonly timeoutMs: number },
+    ) => Effect.Effect<void, ServerBrowserTaskError>;
+    readonly taskTargetCovered: (
+      input: TaskLeaseInput & { readonly locator: string; readonly timeoutMs: number },
+    ) => Effect.Effect<boolean, ServerBrowserTaskError>;
+    readonly captureTaskScreenshot: (
+      input: TaskLeaseInput & {
+        readonly framing: "viewport" | "full-page" | "target";
+        readonly locator?: string | undefined;
+        readonly maxBytes: number;
+        readonly timeoutMs: number;
+      },
+    ) => Effect.Effect<ServerBrowserPage.TaskScreenshot, ServerBrowserTaskError>;
 
     readonly profileReporter: Effect.Effect<ProfileReporter, never, Scope.Scope>;
   }
@@ -3152,8 +3166,11 @@ const make = Effect.gen(function* () {
         ? ("released" as const)
         : ("tab-lost" as const);
     });
-  const captureTaskTarget = (
-    input: TaskLeaseInput & { readonly locator: string; readonly timeoutMs: number },
+  /** Runs on the leased tab as the task's agent, bounded by its timeout. */
+  const onLeasedPage = <A>(
+    input: TaskLeaseInput & { readonly timeoutMs: number },
+    work: (tab: { readonly page: Page }) => Promise<A>,
+    paused: boolean,
   ) =>
     Effect.tryPromise({
       try: async () => {
@@ -3161,20 +3178,65 @@ const make = Effect.gen(function* () {
         if (!tab) throw new Error("This tab is not open under the calling session.");
         return await tab.control.agent(
           input.agentSessionId,
-          () =>
-            withScreencastsPaused(tab, () =>
-              ServerBrowserPage.captureTaskTarget({
-                page: tab.page,
-                locator: input.locator,
-                timeoutMs: input.timeoutMs,
-              }),
-            ),
+          () => (paused ? withScreencastsPaused(tab, () => work(tab)) : work(tab)),
           performance.now() + input.timeoutMs,
           input.lease,
         );
       },
       catch: taskError,
     });
+  const captureTaskTarget = (
+    input: TaskLeaseInput & { readonly locator: string; readonly timeoutMs: number },
+  ) =>
+    onLeasedPage(
+      input,
+      ({ page }) =>
+        ServerBrowserPage.captureTaskTarget({
+          page,
+          locator: input.locator,
+          timeoutMs: input.timeoutMs,
+        }),
+      true,
+    );
+  const settleTask = (input: TaskLeaseInput & { readonly timeoutMs: number }) =>
+    onLeasedPage(
+      input,
+      ({ page }) => ServerBrowserPage.settleTaskPage({ page, timeoutMs: input.timeoutMs }),
+      false,
+    );
+  const taskTargetCovered = (
+    input: TaskLeaseInput & { readonly locator: string; readonly timeoutMs: number },
+  ) =>
+    onLeasedPage(
+      input,
+      ({ page }) =>
+        ServerBrowserPage.taskTargetCovered({
+          page,
+          locator: input.locator,
+          timeoutMs: input.timeoutMs,
+        }),
+      false,
+    );
+  const captureTaskScreenshot = (
+    input: TaskLeaseInput & {
+      readonly framing: "viewport" | "full-page" | "target";
+      readonly locator?: string | undefined;
+      readonly maxBytes: number;
+      readonly timeoutMs: number;
+    },
+  ) =>
+    onLeasedPage(
+      input,
+      ({ page }) =>
+        ServerBrowserPage.captureTaskScreenshot({
+          page,
+          framing: input.framing,
+          locator: input.locator,
+          maxBytes: input.maxBytes,
+          timeoutMs: input.timeoutMs,
+        }),
+      true,
+    );
 
   const clearProfile = (profileId: string) =>
     Effect.tryPromise({
@@ -3189,6 +3251,9 @@ const make = Effect.gen(function* () {
     abandonTaskLease,
     releaseTaskLease,
     captureTaskTarget,
+    settleTask,
+    taskTargetCovered,
+    captureTaskScreenshot,
     profileReporter,
     openDownload,
     answerFileChooser,

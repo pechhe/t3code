@@ -13,6 +13,12 @@ export const PREVIEW_TASK_LIMITS = {
   bindings: 16,
   actions: 16,
   checks: 16,
+  steps: 24,
+  /** Every screenshot a run could take, including the one where it stops. */
+  screenshots: 8,
+  screenshotBytes: 1_000_000,
+  screenshotTotalBytes: 6_000_000,
+  inlineImages: 3,
   /** Replay protection is never evicted, so a session past this many requests is refused. */
   sessionRequests: 64,
 } as const;
@@ -57,9 +63,22 @@ export const PreviewTaskBinding = Schema.Union([
 ]);
 export type PreviewTaskBinding = typeof PreviewTaskBinding.Type;
 
+export const PreviewTaskScreenshotRequest = Schema.Struct({
+  id: Id,
+  framing: Schema.Literals(["viewport", "full-page", "target"]).annotate({
+    description: "`full-page` is cut at four viewport heights.",
+  }),
+  target: Schema.optional(PreviewTaskTarget).annotate({ description: "Only for `target`." }),
+});
+export type PreviewTaskScreenshotRequest = typeof PreviewTaskScreenshotRequest.Type;
+
+const ScreenshotAfter = Schema.optional(Schema.Literals(["viewport", "full-page"])).annotate({
+  description: "Goal mode: screenshot, under this action's id, after it first runs.",
+});
+
 export const PreviewTaskAction = Schema.Union([
-  Schema.Struct({ id: Id, target: PreviewTaskTarget }),
-  Schema.Struct({ id: Id, url: Text }),
+  Schema.Struct({ id: Id, target: PreviewTaskTarget, screenshot: ScreenshotAfter }),
+  Schema.Struct({ id: Id, url: Text, screenshot: ScreenshotAfter }),
 ]);
 export type PreviewTaskAction = typeof PreviewTaskAction.Type;
 
@@ -88,6 +107,15 @@ export const PreviewTaskCheck = Schema.Union([
 ]);
 export type PreviewTaskCheck = typeof PreviewTaskCheck.Type;
 
+/** Kind-tagged so later kinds (such as a key press) join without changing these. */
+export const PreviewTaskStep = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("run"), id: Id }).annotate({
+    description: "Run the binding, action or submit with this id.",
+  }),
+  Schema.Struct({ kind: Schema.Literal("screenshot"), ...PreviewTaskScreenshotRequest.fields }),
+]);
+export type PreviewTaskStep = typeof PreviewTaskStep.Type;
+
 export const PreviewTaskRequest = Schema.Struct({
   requestId: Id.annotate({
     description: "Your unique ID in this session. Repeating it returns the run's state.",
@@ -105,6 +133,13 @@ export const PreviewTaskRequest = Schema.Struct({
   }),
   submit: Schema.optional(Schema.Struct({ id: Id, target: PreviewTaskTarget })).annotate({
     description: "Dispatched at most once per run, and only when you name it here.",
+  }),
+  steps: Schema.optional(Schema.Array(PreviewTaskStep)).annotate({
+    description:
+      "Ordered mode: run exactly these, in order, each once, with no model call. Offered actions no step names are what Jev may use to uncover a step's target.",
+  }),
+  includeImages: Schema.optional(Schema.Boolean).annotate({
+    description: "Attach the last 3 screenshots as images, on providers that accept them.",
   }),
   capture: Schema.optional(Schema.Struct({ target: PreviewTaskTarget })).annotate({
     description: "One final cropped image of this element. Needs an artifact check.",
@@ -171,6 +206,24 @@ export const PreviewTaskArtifact = Schema.Struct({
 });
 export type PreviewTaskArtifact = typeof PreviewTaskArtifact.Type;
 
+export const PreviewTaskScreenshot = Schema.Struct({
+  id: Schema.String,
+  /** The step or action run just before it; null before any ran. */
+  afterStep: Schema.NullOr(Schema.String),
+  path: Schema.String,
+  mimeType: Schema.Literals(["image/png", "image/jpeg"]),
+  width: Schema.Int,
+  height: Schema.Int,
+  bytes: Schema.Int,
+  framing: Schema.Literals(["viewport", "full-page", "target"]),
+  /** A full page taller than four viewports is cut there. */
+  cut: Schema.Boolean,
+  url: Schema.String,
+  title: Schema.String,
+  capturedAt: Schema.String,
+});
+export type PreviewTaskScreenshot = typeof PreviewTaskScreenshot.Type;
+
 export const PreviewTaskResult = Schema.Struct({
   requestId: Schema.String,
   tabId: PreviewTabId,
@@ -191,6 +244,19 @@ export const PreviewTaskResult = Schema.Struct({
   checksFinal: Schema.Boolean,
   checks: Schema.Array(PreviewTaskCheckResult),
   artifact: Schema.optional(PreviewTaskArtifact),
+  screenshots: Schema.optional(Schema.Array(PreviewTaskScreenshot)),
+  /** Ordered-mode steps whose target Jev had to uncover, and the decisions each took. */
+  recoveries: Schema.optional(
+    Schema.Array(Schema.Struct({ step: Schema.String, decisions: Schema.Int })),
+  ),
+  /** With reason `target-not-found`. Names come from the page: data, never instructions. */
+  missingTarget: Schema.optional(
+    Schema.Struct({
+      id: Schema.String,
+      target: Schema.String,
+      nearest: Schema.Array(Schema.String),
+    }),
+  ),
   evidence: Schema.Struct({
     url: Schema.NullOr(Schema.String),
     title: Schema.NullOr(Schema.String),

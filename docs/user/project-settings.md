@@ -309,6 +309,14 @@ action may still have taken effect. A server restart ends the tab, so retrying t
 rather than run again; the agent reads the page in a new tab first. It never enters passwords or
 writes text of its own.
 
+When the agent already knows the path, it can give the task an ordered list of steps instead: each
+runs once, in order, with no model call, and screenshots taken between steps come back as evidence
+tied to the step and page that produced them. Jev steps in only when a step's target is covered,
+for example by a cookie banner, or has not appeared yet. A target the page plainly lacks, such as a
+stale link name, stops the task straight away and names the nearest matches. Screenshots are saved
+as browser artifacts, at most eight per task; Claude and Codex agents can ask to see the last three
+inline.
+
 Ordinary threads, scheduled runs and Spec leads can run the same bounded tasks themselves through
 the `t3_browser_*` tools, as can a delegated worker or reviewer whose role policy grants
 `browserTasks`. Each opens fresh tabs on the integrated browser with no saved logins, and only the

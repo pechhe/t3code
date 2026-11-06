@@ -104,6 +104,25 @@ const DOC = `<!doctype html><title>Doc</title><main>
   <div style="position:relative;width:300px;height:40px;margin-top:-40px;background:white;z-index:2"></div>
 </main>`;
 
+/** The Save button stays in the accessibility tree while a plain overlay covers it. */
+const OVERLAY = `<!doctype html><title>Overlay</title><main>
+  <button onclick="document.querySelector('output').textContent='Saved'">Save</button>
+  <output></output>
+  <div id="cover" style="position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:5">
+    <button style="margin-top:300px" onclick="document.getElementById('cover').remove()">Dismiss</button>
+  </div>
+</main>`;
+
+/** Its target arrives with the load event, which a slow image holds back for three seconds. */
+const LATE = `<!doctype html><title>Late</title><main><img src="/slow.png" alt="">
+  <script>addEventListener("load", () => {
+    const go = document.createElement("button");
+    go.textContent = "Go";
+    go.onclick = () => { document.title = "Gone"; };
+    document.querySelector("main").append(go);
+  });</script>
+</main>`;
+
 const request = (
   change: Partial<PreviewTaskRequest> & Pick<PreviewTaskRequest, "requestId" | "tabId">,
 ): PreviewTaskRequest => ({
@@ -157,16 +176,27 @@ const withFixture = <A, E, R>(
         else response.end("ok");
         return;
       }
+      if (incoming.url === "/slow.png") {
+        // @effect-diagnostics-next-line globalTimers:off -- Node's HTTP server holds the response, outside any Effect.
+        setTimeout(() => response.end(), 3_000);
+        return;
+      }
       response.setHeader("Content-Type", "text/html");
       response.end(
-        incoming.url === "/doc"
-          ? DOC
-          : incoming.url === "/long"
-            ? `<!doctype html><title>Long</title><main>${Array.from(
-                { length: 900 },
-                (_, index) => `<p><a href="#row-${index}">Row number ${index}</a></p>`,
-              ).join("")}<button onclick="document.title='Reached'">Last control</button></main>`
-            : FORM,
+        incoming.url === "/overlay"
+          ? OVERLAY
+          : incoming.url === "/late"
+            ? LATE
+            : incoming.url === "/doc"
+              ? DOC
+              : incoming.url === "/long"
+                ? `<!doctype html><title>Long</title><main>${Array.from(
+                    { length: 900 },
+                    (_, index) => `<p><a href="#row-${index}">Row number ${index}</a></p>`,
+                  ).join(
+                    "",
+                  )}<button onclick="document.title='Reached'">Last control</button></main>`
+                : FORM,
       );
     });
     yield* Effect.promise(
@@ -765,4 +795,148 @@ it.live(
         expect(fixture.decisions).toHaveLength(0);
       }),
     ),
+);
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47];
+
+it.live("runs ordered steps with no decision and saves a real screenshot for each", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const { tabId } = yield* openTab(`${fixture.origin}/form`);
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      fixture.releaseHold();
+      const email = { role: "textbox", name: "Email" };
+      const result = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "ordered",
+          tabId,
+          bindings: [{ id: "email", control: "text", target: email, text: "a@b.c" }],
+          submit: { id: "save", target: { role: "button", name: "Save" } },
+          steps: [
+            { kind: "screenshot", id: "before", framing: "viewport" },
+            { kind: "run", id: "email" },
+            { kind: "screenshot", id: "filled", framing: "target", target: email },
+            { kind: "run", id: "save" },
+            { kind: "screenshot", id: "after", framing: "full-page" },
+          ],
+          checks: [{ id: "saved", kind: "text", includes: "Saved a@b.c", expect: "present" }],
+        }),
+      });
+      expect(result).toMatchObject({ status: "passed", decisions: 0 });
+      expect(
+        result.screenshots?.map(({ id, afterStep, framing, url }) => [
+          id,
+          afterStep,
+          framing,
+          url.endsWith("/form"),
+        ]),
+      ).toEqual([
+        ["before", null, "viewport", true],
+        ["filled", "email", "target", true],
+        ["after", "save", "full-page", true],
+      ]);
+      for (const shot of result.screenshots ?? []) {
+        const bytes = NodeFS.readFileSync(shot.path);
+        expect([...bytes.subarray(0, 4)]).toEqual(PNG_SIGNATURE);
+        expect(bytes.length).toBe(shot.bytes);
+        expect(shot.bytes).toBeLessThanOrEqual(1_000_000);
+      }
+      expect(fixture.decisions).toEqual([]);
+    }),
+  ),
+);
+
+it.live("never clicks a covered button: Jev dismisses the overlay and the step runs once", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const { tabId } = yield* openTab(`${fixture.origin}/overlay`);
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      fixture.script.push("dismiss");
+      const result = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "overlay",
+          tabId,
+          actions: [{ id: "dismiss", target: { role: "button", name: "Dismiss" } }],
+          submit: { id: "save", target: { role: "button", name: "Save" } },
+          steps: [{ kind: "run", id: "save" }],
+          checks: [{ id: "saved", kind: "text", includes: "Saved", expect: "present" }],
+        }),
+      });
+      expect(result).toMatchObject({
+        status: "passed",
+        decisions: 1,
+        recoveries: [{ step: "save", decisions: 1 }],
+      });
+      expect(result.actions.map(({ id, state }) => `${id}:${state}`)).toEqual([
+        "dismiss:completed",
+        "save:completed",
+      ]);
+      expect(fixture.decisions[0]?.rule.id).toBe("bounded-browser-task-recover-step");
+    }),
+  ),
+);
+
+it.live("waits for a target that arrives after three seconds of loading", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const { broker, tabId } = yield* openTab(`${fixture.origin}/form`);
+      yield* broker.invoke({
+        scope,
+        tabId,
+        operation: "navigate",
+        input: { url: `${fixture.origin}/late`, readiness: "commit" },
+      });
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      const result = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "late",
+          tabId,
+          actions: [{ id: "go", target: { role: "button", name: "Go" } }],
+          steps: [{ kind: "run", id: "go" }],
+          checks: [{ id: "gone", kind: "url", includes: "/late" }],
+        }),
+      });
+      expect(result.reason).not.toBe("target-not-found");
+      expect(result).toMatchObject({ status: "passed", decisions: 0 });
+    }),
+  ),
+);
+
+it.live("stops at once on a landmark the page lacks", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const { tabId } = yield* openTab(`${fixture.origin}/form`);
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      const result = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "landmark",
+          tabId,
+          actions: [
+            {
+              id: "save",
+              target: { role: "button", name: "Save", scope: { role: "navigation", name: "" } },
+            },
+          ],
+          steps: [
+            { kind: "run", id: "save" },
+            { kind: "screenshot", id: "done", framing: "viewport" },
+          ],
+        }),
+      });
+      expect(result).toMatchObject({ status: "blocked", reason: "target-not-found", decisions: 0 });
+      expect(result.missingTarget?.nearest).toEqual(['button "Save"']);
+      // No wait or decision preceded the stop, so it is well within the 5 s the Spec allows.
+      expect(result.timings.waitMs).toBe(0);
+      // A run that blocks after screenshots were asked for shows where it stopped.
+      expect(result.screenshots?.map((shot) => shot.id)).toEqual(["stopped"]);
+    }),
+  ),
 );

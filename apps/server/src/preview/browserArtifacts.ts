@@ -35,6 +35,7 @@ const screenshotSiteSlug = (rawUrl: string): string => {
 export const saveBrowserScreenshot = Effect.fn("saveBrowserScreenshot")(function* (
   pageUrl: string,
   data: Uint8Array,
+  extension: "png" | "jpg" = "png",
 ) {
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -42,7 +43,7 @@ export const saveBrowserScreenshot = Effect.fn("saveBrowserScreenshot")(function
   const millis = yield* Clock.currentTimeMillis;
   const random = yield* SecureRandom.SecureRandom;
   const unique = (yield* random.uuidV4()).slice(0, 8);
-  const fileName = `browser-screenshot-${screenshotSiteSlug(pageUrl)}-${millis.toString(36)}-${unique}.png`;
+  const fileName = `browser-screenshot-${screenshotSiteSlug(pageUrl)}-${millis.toString(36)}-${unique}.${extension}`;
   const screenshotPath = path.join(config.browserArtifactsDir, fileName);
   yield* fileSystem.makeDirectory(config.browserArtifactsDir, { recursive: true }).pipe(
     Effect.andThen(fileSystem.writeFile(screenshotPath, data)),

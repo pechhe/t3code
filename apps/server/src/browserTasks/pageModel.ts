@@ -26,6 +26,8 @@ export interface PageModel {
   readonly nodes: readonly PageNode[];
   /** A cut snapshot cannot establish absence or uniqueness. */
   readonly truncated: boolean;
+  /** A loading page may still render what it lacks now. */
+  readonly loading: boolean;
 }
 
 const LINE = /^([a-z]+)(?: ("(?:[^"\\]|\\.)*"))?((?: \[[^\]]*\])*)(?:: ?(.*))?$/;
@@ -66,6 +68,7 @@ export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): Page
     title: snapshot.title,
     text: snapshot.visibleText,
     nodes,
+    loading: snapshot.loading === true,
     truncated:
       tree.length >= TASK_SNAPSHOT_TEXT_LENGTH ||
       snapshot.visibleText.length >= TASK_SNAPSHOT_TEXT_LENGTH,
@@ -211,3 +214,56 @@ export const evaluateChecks = (
   checks: readonly PreviewTaskCheck[],
 ): readonly PreviewTaskCheckResult[] =>
   checks.map((check) => ({ id: check.id, ...evaluateCheck(model, check) }));
+
+const MAX_NEAR_MATCHES = 3;
+const MAX_NEAR_NAME_CHARS = 120;
+
+const editDistance = (a: string, b: string) => {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j += 1)
+      current[j] = Math.min(
+        previous[j]! + 1,
+        current[j - 1]! + 1,
+        previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    previous = current;
+  }
+  return previous[b.length]!;
+};
+
+const describeNode = (node: PageNode) =>
+  `${node.role} "${node.name.length > MAX_NEAR_NAME_CHARS ? `${node.name.slice(0, MAX_NEAR_NAME_CHARS)}…` : node.name}"`;
+
+/**
+ * A missing target the page plainly lacks, rather than one still to come: its named scope is
+ * absent, or something near it is rendered instead. Near matches are hints, never a resolution.
+ */
+export const evidentAbsence = (
+  model: PageModel,
+  target: PreviewTaskTarget,
+): { readonly nearest: readonly string[] } | undefined => {
+  if (model.truncated || model.loading || resolveTarget(model, target)._tag !== "missing")
+    return undefined;
+  const scopeMissing =
+    target.scope !== undefined &&
+    matching(model, target.scope.role, target.scope.name).length === 0;
+  const wanted = target.name.toLowerCase();
+  const allowed = Math.min(3, Math.max(1, Math.floor(wanted.length / 5)));
+  const near = model.nodes
+    .filter((node) => node.ref !== undefined && node.name.length > 0)
+    .flatMap((node) => {
+      const name = node.name.toLowerCase();
+      if (node.role === target.role && node.name === target.name) return [{ node, rank: 0 }];
+      if (name === wanted) return [{ node, rank: 1 }];
+      if (node.role !== target.role || Math.abs(name.length - wanted.length) > allowed) return [];
+      const distance = editDistance(name, wanted);
+      return distance <= allowed ? [{ node, rank: 1 + distance }] : [];
+    })
+    .toSorted((a, b) => a.rank - b.rank);
+  if (!scopeMissing && near.length === 0) return undefined;
+  return {
+    nearest: [...new Set(near.map(({ node }) => describeNode(node)))].slice(0, MAX_NEAR_MATCHES),
+  };
+};

@@ -103,6 +103,21 @@ const ACP_AGENT_SPAWNERS = [
 
 export const INPUT_RULES: ReadonlyArray<InputRule> = [
   {
+    when: /^apps\/mobile\/modules\/t3-highlights\/(?:cpp|tests)\//,
+    select: ["apps/mobile/modules/t3-highlights/tests/utf16-to-utf8.test.ts"],
+    reason: "run.sh compiles the highlights C++ sources from disk",
+  },
+  {
+    when: /^apps\/server\/src\/speech\/catalog\.json$/,
+    select: ["apps/server/scripts/speech-catalog.test.ts"],
+    reason: "test compares the committed speech catalogue with a fresh render",
+  },
+  {
+    when: /^evals\/pr-content\//,
+    select: ["evals/pr-content/run.test.ts"],
+    reason: "test spawns run.ts from disk",
+  },
+  {
     when: /^(?:apps\/server\/package\.json|packages\/[^/]+\/)/,
     select: ["apps/server/scripts/dev-watch.test.ts"],
     reason: "dev watcher reads its command and workspace source directories from disk",

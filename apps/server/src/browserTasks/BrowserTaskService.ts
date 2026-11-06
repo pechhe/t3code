@@ -29,6 +29,7 @@ import * as ServerBrowser from "../preview/ServerBrowser.ts";
 import {
   type BrowserTaskPort,
   emptyRecord,
+  plannedScreenshots,
   type PortFailure,
   resolveLimits,
   runBrowserTask,
@@ -45,8 +46,12 @@ const TAB_UNAVAILABLE_GUIDANCE =
   "If the tab closed or the server restarted, an earlier task on it may still have taken effect: open a new tab, read the page, and only repeat work under a new requestId.";
 
 const CONTROL_LABELS = new Set(["SCROLL_DOWN", "WAIT", "DONE", "BLOCKED"]);
+/** Ids the run gives its own screenshot and capture. */
+const RESERVED_SCREENSHOT_IDS = new Set(["stopped", "capture"]);
 /** Long enough that a finished run reports its released lease; short enough not to hold the caller. */
 const RELEASE_GRACE_MS = 500;
+/** Scrolling a rendered element into view is quick; a longer wait means it is not rendered. */
+const COVER_CHECK_MS = 2_000;
 
 const duplicate = (ids: readonly string[]) => ids.find((id, index) => ids.indexOf(id) !== index);
 
@@ -63,6 +68,43 @@ export const requestProblem = (request: PreviewTaskRequest): string | undefined 
   if (repeated !== undefined) return `Step id ${repeated} is used twice.`;
   const reserved = steps.find((id) => CONTROL_LABELS.has(id));
   if (reserved !== undefined) return `Step id ${reserved} is reserved.`;
+  const shots = (request.steps ?? []).flatMap((step) => (step.kind === "screenshot" ? [step] : []));
+  const shotIds = shots.map((shot) => shot.id);
+  const repeatedShot = duplicate([...steps, ...shotIds]);
+  if (repeatedShot !== undefined) return `Id ${repeatedShot} is used twice.`;
+  const reservedShot = [
+    ...shotIds,
+    ...actions.flatMap((action) => (action.screenshot === undefined ? [] : [action.id])),
+  ].find((id) => CONTROL_LABELS.has(id) || RESERVED_SCREENSHOT_IDS.has(id));
+  if (reservedShot !== undefined) return `Screenshot id ${reservedShot} is reserved.`;
+  for (const shot of shots)
+    if ((shot.framing === "target") !== (shot.target !== undefined))
+      return `Screenshot ${shot.id} names a target only with target framing.`;
+  if (plannedScreenshots(request) > PREVIEW_TASK_LIMITS.screenshots)
+    return `A run may take at most ${PREVIEW_TASK_LIMITS.screenshots} screenshots, counting one where a failed run stops and any capture.`;
+  if (request.steps !== undefined) {
+    const ordered = request.steps;
+    if (ordered.length === 0) return "Name at least one step, or leave steps out for goal mode.";
+    if (ordered.length > PREVIEW_TASK_LIMITS.steps)
+      return `At most ${PREVIEW_TASK_LIMITS.steps} steps are allowed.`;
+    const runs = ordered.flatMap((step) => (step.kind === "run" ? [step.id] : []));
+    const unknown = runs.find((id) => !steps.includes(id));
+    if (unknown !== undefined) return `Step ${unknown} names no binding, action or submit.`;
+    const twice = duplicate(runs);
+    if (twice !== undefined) return `Step ${twice} runs at most once.`;
+    const unrun = [
+      ...bindings.map((binding) => binding.id),
+      ...(request.submit === undefined ? [] : [request.submit.id]),
+      ...actions.flatMap((action) => ("url" in action ? [action.id] : [])),
+    ].find((id) => !runs.includes(id));
+    if (unrun !== undefined)
+      return `${unrun} needs a step: only offered clicks may be left for recovery.`;
+    if (actions.some((action) => action.screenshot !== undefined))
+      return "In ordered mode, take screenshots with screenshot steps.";
+    const maxActions = resolveLimits(request.limits).maxActions;
+    if (runs.length > maxActions)
+      return `The steps need ${runs.length} actions; raise maxActions to at least that.`;
+  }
   if (bindings.length > PREVIEW_TASK_LIMITS.bindings)
     return `At most ${PREVIEW_TASK_LIMITS.bindings} bindings are allowed.`;
   if (actions.length > PREVIEW_TASK_LIMITS.actions)
@@ -431,6 +473,47 @@ export const layer = Layer.effect(
           acquire: () => browser.acquireTaskLease(lessee),
           snapshot: (timeoutMs) => invoke<PreviewAutomationSnapshot>("snapshot", {}, timeoutMs),
           act: (operation, input, timeoutMs) => invoke<unknown>(operation, input, timeoutMs),
+          settle: (timeoutMs) =>
+            browser.settleTask({ ...lessee, timeoutMs }).pipe(Effect.mapError(failureMessage)),
+          covered: (locator, timeoutMs) =>
+            browser
+              .taskTargetCovered({
+                ...lessee,
+                locator,
+                timeoutMs: Math.min(timeoutMs, COVER_CHECK_MS),
+              })
+              .pipe(Effect.mapError(failureMessage)),
+          screenshot: Effect.fn("BrowserTaskService.screenshot")(
+            function* ({ framing, locator, maxBytes }, timeoutMs: number) {
+              const taken = yield* browser.captureTaskScreenshot({
+                ...lessee,
+                framing,
+                locator,
+                maxBytes,
+                timeoutMs,
+              });
+              if (taken.width <= 0 || taken.height <= 0 || taken.data.length === 0)
+                return yield* Effect.fail(failureMessage({ message: "The screenshot is empty." }));
+              const path = yield* saveBrowserScreenshot(
+                taken.url,
+                new Uint8Array(taken.data),
+                taken.mimeType === "image/png" ? "png" : "jpg",
+              );
+              return {
+                path,
+                mimeType: taken.mimeType,
+                width: taken.width,
+                height: taken.height,
+                bytes: taken.data.length,
+                cut: taken.cut,
+                url: taken.url,
+                title: taken.title,
+                capturedAt: DateTime.formatIso(yield* DateTime.now),
+              };
+            },
+            Effect.provide(saveServices),
+            Effect.mapError((cause) => failureMessage(cause)),
+          ),
           decide: (input) =>
             decisions.decide(input) as Effect.Effect<
               Effect.Success<ReturnType<typeof decisions.decide>>,

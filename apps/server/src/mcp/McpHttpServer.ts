@@ -58,6 +58,8 @@ import {
 } from "../telemetry/ProviderDimensions.ts";
 import { advertisedJsonSchema } from "./advertisedJsonSchema.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
+import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
+import { attachTaskImages, TASK_IMAGE_TOOLS } from "./taskImages.ts";
 import * as McpToolAccess from "./McpToolAccess.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 import { PreviewControlsToolkit } from "./toolkits/previewControls/tools.ts";
@@ -1123,6 +1125,50 @@ const withAdvertisedSchemas = Effect.fn("McpHttpServer.withAdvertisedSchemas")(f
   return yield* registration.pipe(Effect.provideService(McpServer.McpServer, advertisingServer));
 });
 
+/** Task tools return JSON; `attachTaskImages` adds screenshots for callers that ask and can take them. */
+const withTaskImages = Effect.fn("McpHttpServer.withTaskImages")(function* <A, E, R>(
+  registration: Effect.Effect<A, E, R>,
+) {
+  const server = yield* McpServer.McpServer;
+  const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);
+  const adapters = yield* Effect.serviceOption(ProviderAdapterRegistry.ProviderAdapterRegistryV2);
+  if (Option.isNone(fileSystem) || Option.isNone(adapters)) return yield* registration;
+  const driverOf = (invocation: McpInvocationContext.McpInvocationScope | undefined) =>
+    invocation?.thread === undefined
+      ? Effect.undefined
+      : adapters.value.get(invocation.thread.providerInstanceId).pipe(
+          Effect.map((adapter): string | undefined => adapter.driver),
+          Effect.orElseSucceed(() => undefined),
+        );
+  const imagingServer = McpServer.McpServer.of({
+    ...server,
+    addTool: Effect.fn("McpServer.addTool")(function (options) {
+      if (!TASK_IMAGE_TOOLS.has(options.tool.name)) return server.addTool(options);
+      return server.addTool({
+        ...options,
+        handle: (payload) =>
+          Effect.withFiber((fiber) => {
+            const includeImages = (payload as { readonly includeImages?: unknown } | undefined)
+              ?.includeImages;
+            const handled = options.handle(payload);
+            if (includeImages !== true) return handled;
+            const invocation = Context.getOption(
+              fiber.context,
+              McpInvocationContext.McpInvocationContext,
+            ).pipe(Option.getOrUndefined);
+            return Effect.all([handled, driverOf(invocation)]).pipe(
+              Effect.flatMap(([result, driver]) =>
+                attachTaskImages(result, { includeImages, driver }),
+              ),
+              Effect.provideService(FileSystem.FileSystem, fileSystem.value),
+            );
+          }),
+      });
+    }),
+  });
+  return yield* registration.pipe(Effect.provideService(McpServer.McpServer, imagingServer));
+});
+
 /** Hands each call the services its registration was built with; the request's own still win. */
 const provideRegistrationServices = <Services>() =>
   McpServer.middleware<{ provides: Services }>()(
@@ -1147,7 +1193,10 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
   Layer.effectDiscard(
     withToolAnalytics(
       withToolSpans(
-        withAdvertisedSchemas(toolkit, McpServer.registerToolkit(decodeAsAdvertised(toolkit))),
+        withAdvertisedSchemas(
+          toolkit,
+          withTaskImages(McpServer.registerToolkit(decodeAsAdvertised(toolkit))),
+        ),
       ),
     ),
   ).pipe(

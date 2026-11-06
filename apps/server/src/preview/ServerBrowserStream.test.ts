@@ -31,6 +31,9 @@ const unusedTaskLease = {
   abandonTaskLease: () => Effect.die("unused"),
   releaseTaskLease: () => Effect.die("unused"),
   captureTaskTarget: () => Effect.die("unused"),
+  settleTask: () => Effect.die("unused"),
+  taskTargetCovered: () => Effect.die("unused"),
+  captureTaskScreenshot: () => Effect.die("unused"),
 };
 
 const platformLayer = NodeHttpPlatform.layer.pipe(

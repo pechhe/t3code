@@ -1229,6 +1229,25 @@ export interface TaskTargetCapture {
   readonly centreVisible: boolean | null;
 }
 
+/** False when something else paints over the element's centre; null when the centre is off-screen. */
+const centreVisibility = (target: Locator) =>
+  target.evaluate((element) => {
+    // Runs in the page, whose DOM types this package does not compile against.
+    const page = globalThis as unknown as {
+      readonly innerWidth: number;
+      readonly innerHeight: number;
+    };
+    const rect = element.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    if (x < 0 || y < 0 || x >= page.innerWidth || y >= page.innerHeight) return null;
+    const root = element.getRootNode() as unknown as {
+      elementFromPoint(x: number, y: number): typeof element | null;
+    };
+    const hit = root.elementFromPoint(x, y);
+    return hit !== null && (element === hit || element.contains(hit) || hit.contains(element));
+  });
+
 const taskCaptureError = (message: string) =>
   new ServerBrowserOperationError({ tag: "PreviewAutomationExecutionError", message: message });
 
@@ -1250,22 +1269,7 @@ export const captureTaskTarget = async (input: {
   const box = await target.boundingBox({ timeout });
   if (box === null || box.width <= 0 || box.height <= 0)
     throw taskCaptureError("The capture target has no rendered size.");
-  const centreVisible = await target.evaluate((element) => {
-    // Runs in the page, whose DOM types this package does not compile against.
-    const page = globalThis as unknown as {
-      readonly innerWidth: number;
-      readonly innerHeight: number;
-    };
-    const rect = element.getBoundingClientRect();
-    const x = rect.left + rect.width / 2;
-    const y = rect.top + rect.height / 2;
-    if (x < 0 || y < 0 || x >= page.innerWidth || y >= page.innerHeight) return null;
-    const root = element.getRootNode() as unknown as {
-      elementFromPoint(x: number, y: number): typeof element | null;
-    };
-    const hit = root.elementFromPoint(x, y);
-    return hit !== null && (element === hit || element.contains(hit) || hit.contains(element));
-  });
+  const centreVisible = await centreVisibility(target);
   if (centreVisible === false) throw taskCaptureError("Another element covers the capture target.");
   const png = await target.screenshot({ type: "png", timeout });
   const data = png.toString("base64");
@@ -1281,5 +1285,98 @@ export const captureTaskTarget = async (input: {
     viewport: input.page.viewportSize() ?? { width: 0, height: 0 },
     url: withoutDataPayload(input.page.url()),
     centreVisible,
+  };
+};
+
+/** Load, then network quiet, each within what is left of the bound; an unsettled page is not an error. */
+export const settleTaskPage = async (input: {
+  readonly page: Page;
+  readonly timeoutMs: number;
+}) => {
+  const deadline = performance.now() + input.timeoutMs;
+  for (const state of ["load", "networkidle"] as const) {
+    const timeout = deadline - performance.now();
+    if (timeout <= 0) return;
+    await input.page.waitForLoadState(state, { timeout }).catch(() => undefined);
+  }
+};
+
+/** The same occlusion test as a target capture, after scrolling the element into view. */
+export const taskTargetCovered = async (input: {
+  readonly page: Page;
+  readonly locator: string;
+  readonly timeoutMs: number;
+}) => {
+  const target = targetLocator(input.page, { locator: input.locator })!;
+  if ((await target.count()) !== 1) throw taskCaptureError("The target is gone or ambiguous.");
+  await target.scrollIntoViewIfNeeded({ timeout: input.timeoutMs });
+  return (await centreVisibility(target)) === false;
+};
+
+/** A full page is cut at this many viewport heights. */
+const FULL_PAGE_VIEWPORTS = 4;
+const JPEG_QUALITIES = [70, 40] as const;
+
+export interface TaskScreenshot {
+  readonly data: Buffer;
+  readonly mimeType: "image/png" | "image/jpeg";
+  readonly width: number;
+  readonly height: number;
+  readonly cut: boolean;
+  readonly url: string;
+  readonly title: string;
+}
+
+/** A PNG, or a JPEG when the PNG is over budget; refused when neither fits. */
+export const captureTaskScreenshot = async (input: {
+  readonly page: Page;
+  readonly framing: "viewport" | "full-page" | "target";
+  readonly locator?: string | undefined;
+  readonly maxBytes: number;
+  readonly timeoutMs: number;
+}): Promise<TaskScreenshot> => {
+  const { page, timeoutMs: timeout } = input;
+  let shoot: (options: { type: "png" } | { type: "jpeg"; quality: number }) => Promise<Buffer>;
+  let cut = false;
+  if (input.framing === "target") {
+    const crop = await captureTaskTarget({ page, locator: input.locator!, timeoutMs: timeout });
+    const target = targetLocator(page, { locator: input.locator! })!;
+    const png = Buffer.from(crop.data, "base64");
+    shoot = (options) =>
+      options.type === "png" ? Promise.resolve(png) : target.screenshot({ ...options, timeout });
+  } else if (input.framing === "full-page") {
+    const viewport = page.viewportSize() ?? { width: 0, height: 0 };
+    const limit = viewport.height * FULL_PAGE_VIEWPORTS;
+    const height = await page.evaluate(
+      () =>
+        (globalThis as unknown as { document: { documentElement: { scrollHeight: number } } })
+          .document.documentElement.scrollHeight,
+    );
+    cut = height > limit;
+    const clip = cut ? { x: 0, y: 0, width: viewport.width, height: limit } : undefined;
+    shoot = (options) =>
+      page.screenshot({ ...options, fullPage: true, timeout, ...(clip ? { clip } : {}) });
+  } else {
+    shoot = (options) => page.screenshot({ ...options, timeout });
+  }
+  const png = await shoot({ type: "png" });
+  const { width, height } = pngSize(png.subarray(0, 24).toString("base64"));
+  let data = png;
+  let mimeType: TaskScreenshot["mimeType"] = "image/png";
+  for (const quality of JPEG_QUALITIES) {
+    if (data.length <= input.maxBytes) break;
+    data = await shoot({ type: "jpeg", quality });
+    mimeType = "image/jpeg";
+  }
+  if (data.length > input.maxBytes)
+    throw taskCaptureError(`The screenshot is larger than its ${input.maxBytes}-byte budget.`);
+  return {
+    data,
+    mimeType,
+    width,
+    height,
+    cut,
+    url: withoutDataPayload(page.url()),
+    title: (await page.title()).slice(0, 512),
   };
 };

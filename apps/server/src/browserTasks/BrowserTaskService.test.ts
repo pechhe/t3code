@@ -130,6 +130,12 @@ const harness = Effect.fn("harness")(function* (options: {
   readonly credential?: () => "live" | "expired" | "revoked";
   readonly unreadable?: () => boolean;
   readonly readHangs?: boolean;
+  /** Whether the element behind a locator is painted over. */
+  readonly covered?: (locator: string) => boolean;
+  /** Replaces the default effects of an act on the fake page. */
+  readonly onAct?: (operation: string, input: Record<string, unknown>, page: FakePage) => void;
+  readonly loading?: () => boolean;
+  readonly onSettle?: (page: FakePage) => void;
 }) {
   const page: FakePage = { url: "http://site.test/form", email: "", submits: 0, ...options.page };
   const acts: Array<{ operation: string; input: Record<string, unknown> }> = [];
@@ -140,6 +146,9 @@ const harness = Effect.fn("harness")(function* (options: {
   const quiesced = yield* Deferred.make<void>();
   const stopped = yield* Deferred.make<void>();
   const released: Array<{ leased: boolean; inspectFirst: boolean }> = [];
+  const shots: Array<{ framing: string; locator?: string; maxBytes: number }> = [];
+  const coverChecks: string[] = [];
+  let settles = 0;
   let generation = 0;
 
   const backend: TaskBackend = {
@@ -159,7 +168,10 @@ const harness = Effect.fn("harness")(function* (options: {
             ? Effect.fail({ message: "The page changed while capturing its snapshot." })
             : Effect.sync(() => {
                 generation += 1;
-                return pageSnapshot(page, generation);
+                return {
+                  ...pageSnapshot(page, generation),
+                  loading: options.loading?.() ?? false,
+                };
               }),
       act: (operation, input) =>
         Effect.gen(function* () {
@@ -170,11 +182,39 @@ const harness = Effect.fn("harness")(function* (options: {
             yield* Deferred.succeed(inFlight, undefined);
             yield* Deferred.await(ack);
           }
-          if (operation === "type") page.email = String(input.text);
-          if (operation === "click") page.submits += 1;
+          if (options.onAct !== undefined) options.onAct(operation, input, page);
+          else {
+            if (operation === "type") page.email = String(input.text);
+            if (operation === "click") page.submits += 1;
+          }
           return {};
         }),
       capture: () => Effect.fail({ message: "unused" }),
+      settle: () =>
+        Effect.sync(() => {
+          settles += 1;
+          options.onSettle?.(page);
+        }),
+      covered: (locator) =>
+        Effect.sync(() => {
+          coverChecks.push(locator);
+          return options.covered?.(locator) ?? false;
+        }),
+      screenshot: (input) =>
+        Effect.sync(() => {
+          shots.push(input);
+          return {
+            path: `/artifacts/shot-${shots.length}.png`,
+            mimeType: "image/png" as const,
+            width: 1280,
+            height: 720,
+            bytes: 120_000,
+            cut: false,
+            url: page.url,
+            title: "Form",
+            capturedAt: "2026-11-06T12:00:00.000Z",
+          };
+        }),
       decide: (request) =>
         Effect.suspend(() => {
           decisions.push(request);
@@ -192,7 +232,20 @@ const harness = Effect.fn("harness")(function* (options: {
       }),
   };
   const service = yield* makeService(backend);
-  return { service, page, acts, decisions, inFlight, ack, quiesced, stopped, released };
+  return {
+    service,
+    page,
+    acts,
+    decisions,
+    inFlight,
+    ack,
+    quiesced,
+    stopped,
+    released,
+    shots,
+    coverChecks,
+    settles: () => settles,
+  };
 });
 
 const allow: BrowserTaskPort["authorize"] = Effect.void;
@@ -839,4 +892,461 @@ describe("BrowserTaskService", () => {
     assert.include(problem({ limits: { timeoutMs: 120_001 } }), "timeoutMs");
     assert.include(problem({ checks: [{ id: "u", kind: "url" }] }), "equals or includes");
   });
+});
+
+const OVERLAY_TREE = [
+  `- main [ref=m]:`,
+  `  - button "Save" [ref=save]`,
+  `  - button "Dismiss" [ref=dismiss]`,
+].join("\n");
+
+const ORDERED_REQUEST: PreviewTaskRequest = {
+  requestId: "ordered-1",
+  tabId,
+  engine: "jev",
+  goal: "Save the email",
+  bindings: FORM_REQUEST.bindings!,
+  submit: FORM_REQUEST.submit!,
+  steps: [
+    { kind: "screenshot", id: "before", framing: "viewport" },
+    { kind: "run", id: "email" },
+    {
+      kind: "screenshot",
+      id: "filled",
+      framing: "target",
+      target: FORM_REQUEST.bindings![0]!.target,
+    },
+    { kind: "run", id: "save" },
+    { kind: "screenshot", id: "after", framing: "full-page" },
+  ],
+  checks: FORM_REQUEST.checks,
+};
+
+describe("BrowserTaskService ordered steps", () => {
+  it.effect("never clicks a covered target; Jev uncovers it with an unstepped control", () =>
+    Effect.gen(function* () {
+      let overlay = true;
+      const clickedWhileCovered: string[] = [];
+      const task = yield* harness({
+        choices: ["dismiss"],
+        page: { tree: OVERLAY_TREE },
+        covered: (locator) => overlay && locator === "aria-ref=save",
+        onAct: (operation, input, page) => {
+          if (operation !== "click") return;
+          if (overlay && input.locator === "aria-ref=save") clickedWhileCovered.push("save");
+          if (input.locator === "aria-ref=dismiss") overlay = false;
+          if (input.locator === "aria-ref=save") {
+            page.submits += 1;
+            page.tree = `${OVERLAY_TREE}\n  - heading "Saved" [ref=saved]`;
+          }
+        },
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            requestId: "overlay",
+            tabId,
+            engine: "jev",
+            goal: "Save",
+            actions: [{ id: "dismiss", target: { role: "button", name: "Dismiss" } }],
+            submit: { id: "save", target: { role: "button", name: "Save" } },
+            steps: [{ kind: "run", id: "save" }],
+            checks: [{ id: "saved", kind: "text", includes: "Saved", expect: "present" }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "passed");
+      assert.deepStrictEqual(clickedWhileCovered, []);
+      assert.deepStrictEqual(statesOf(result), ["dismiss:completed", "save:completed"]);
+      assert.deepStrictEqual(result.recoveries, [{ step: "save", decisions: 1 }]);
+      assert.strictEqual(result.decisions, 1);
+      assert.strictEqual(task.decisions[0]!.rule.id, "bounded-browser-task-recover-step");
+      assert.deepStrictEqual(
+        task.decisions[0]!.questions[0]!.type === "choice"
+          ? task.decisions[0]!.questions[0]!.choices.map((choice) => choice.label)
+          : [],
+        ["dismiss", "SCROLL_DOWN", "WAIT", "BLOCKED"],
+      );
+      assert.strictEqual(task.page.submits, 1);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("runs every step in order with no decision and returns screenshots in step order", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({});
+      const result = yield* report(
+        task.service.run({ scope, request: ORDERED_REQUEST, authorize: allow }),
+      );
+      assert.strictEqual(result.status, "passed");
+      assert.strictEqual(result.decisions, 0);
+      assert.deepStrictEqual(result.recoveries, []);
+      assert.deepStrictEqual(statesOf(result), ["email:completed", "save:completed"]);
+      assert.deepStrictEqual(
+        result.screenshots?.map(({ id, afterStep, framing }) => [id, afterStep, framing]),
+        [
+          ["before", null, "viewport"],
+          ["filled", "email", "target"],
+          ["after", "save", "full-page"],
+        ],
+      );
+      assert.strictEqual(task.shots[1]!.locator, "aria-ref=t3-2-email");
+      // Three planned plus the one a failed run takes: 6 MB shared four ways, 1 MB at most.
+      assert.strictEqual(task.shots[0]!.maxBytes, 1_000_000);
+      assert.isAtLeast(task.settles(), 2);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("does not end early when the checks already pass", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({ page: { submits: 1 } });
+      const result = yield* report(
+        task.service.run({ scope, request: ORDERED_REQUEST, authorize: allow }),
+      );
+      assert.strictEqual(result.status, "passed");
+      assert.deepStrictEqual(statesOf(result), ["email:completed", "save:completed"]);
+      assert.strictEqual(task.page.submits, 2);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("stops at once on a landmark the page lacks, naming the nearest match", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        page: { tree: `- main [ref=m]:\n  - link "new" [ref=new]\n  - link "past" [ref=past]` },
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            requestId: "scope",
+            tabId,
+            engine: "jev",
+            goal: "Open new",
+            actions: [
+              {
+                id: "new",
+                target: { role: "link", name: "new", scope: { role: "navigation", name: "" } },
+              },
+            ],
+            steps: [{ kind: "run", id: "new" }],
+            checks: [{ id: "u", kind: "url", includes: "newest" }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "blocked");
+      assert.strictEqual(result.reason, "target-not-found");
+      assert.strictEqual(result.decisions, 0);
+      assert.deepStrictEqual(result.missingTarget, {
+        id: "new",
+        target: 'link "new" in navigation ""',
+        nearest: ['link "new"'],
+      });
+      assert.deepStrictEqual(task.acts, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect(
+    "stops a goal-mode run on a stale name once Jev keeps waiting, naming the near match",
+    () =>
+      Effect.gen(function* () {
+        const task = yield* harness({
+          choices: ["SCROLL_DOWN", "WAIT", "WAIT"],
+          page: { tree: `- main [ref=m]:\n  - link "83 comments" [ref=c]` },
+        });
+        const result = yield* report(
+          task.service.run({
+            scope,
+            request: {
+              requestId: "stale",
+              tabId,
+              engine: "jev",
+              goal: "Open the comments",
+              actions: [{ id: "comments", target: { role: "link", name: "81 comments" } }],
+              checks: [{ id: "u", kind: "url", includes: "item" }],
+            },
+            authorize: allow,
+          }),
+        );
+        assert.strictEqual(result.reason, "target-not-found");
+        assert.strictEqual(result.decisions, 2);
+        assert.deepStrictEqual(result.missingTarget?.nearest, ['link "83 comments"']);
+      }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("waits for a loading page rather than calling its target absent", () =>
+    Effect.gen(function* () {
+      let loading = true;
+      const task = yield* harness({
+        page: { tree: `- main [ref=m]:\n  - button "Sav" [ref=x]` },
+        loading: () => loading,
+        onSettle: (page) => {
+          loading = false;
+          if (page.submits === 0) page.tree = `- main [ref=m]:\n  - button "Save" [ref=save]`;
+        },
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            requestId: "loading",
+            tabId,
+            engine: "jev",
+            goal: "Save",
+            submit: { id: "save", target: { role: "button", name: "Save" } },
+            steps: [{ kind: "run", id: "save" }],
+            checks: [{ id: "u", kind: "url", includes: "form" }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "passed");
+      assert.strictEqual(result.decisions, 0);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("screenshots after a goal-mode action runs, and where a failed run stopped", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({ choices: ["open", "BLOCKED"], page: { email: "a@b.c" } });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            ...FORM_REQUEST,
+            requestId: "goal-shot",
+            actions: [
+              {
+                id: "open",
+                url: "http://site.test/form",
+                screenshot: "viewport",
+              },
+            ],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.reason, "model-blocked");
+      assert.deepStrictEqual(
+        result.screenshots?.map(({ id, afterStep }) => [id, afterStep]),
+        [
+          ["open", "open"],
+          ["stopped", "open"],
+        ],
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("never replays image bytes, and keeps only paths in its record", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({});
+      const request = { ...ORDERED_REQUEST, includeImages: true };
+      yield* report(task.service.run({ scope, request, authorize: allow }));
+      const replay = yield* task.service.run({ scope, request, authorize: allow });
+      assert.strictEqual(replay.replayed, true);
+      assert.notInclude(JSON.stringify(replay), "base64");
+      assert.deepStrictEqual(
+        replay.screenshots?.map((shot) => shot.path),
+        ["/artifacts/shot-1.png", "/artifacts/shot-2.png", "/artifacts/shot-3.png"],
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("keeps a result at the screenshot cap within its size bound", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({});
+      const shots = Array.from({ length: 7 }, (_, index) => ({
+        kind: "screenshot" as const,
+        id: `shot-${index}`,
+        framing: "viewport" as const,
+      }));
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            ...ORDERED_REQUEST,
+            requestId: "cap",
+            steps: [
+              ...shots.slice(0, 4),
+              { kind: "run", id: "email" },
+              { kind: "run", id: "save" },
+              ...shots.slice(4),
+            ],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.screenshots?.length, 7);
+      // Seven of eight planned share the 6 MB total.
+      assert.strictEqual(task.shots[0]!.maxBytes, 750_000);
+      assert.isBelow(JSON.stringify(result).length, 6_000);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it("refuses an ordered or screenshot request that could break its rules before anything runs", () => {
+    const problem = (change: Partial<PreviewTaskRequest>) =>
+      requestProblem({ ...ORDERED_REQUEST, ...change });
+    assert.isUndefined(problem({}));
+    const shot = (id: string) => ({
+      kind: "screenshot" as const,
+      id,
+      framing: "viewport" as const,
+    });
+    assert.include(
+      problem({ steps: [...ORDERED_REQUEST.steps!, ...["a", "b", "c", "d", "e"].map(shot)] }),
+      "at most 8 screenshots",
+    );
+    assert.include(problem({ steps: [{ kind: "run", id: "nope" }] }), "names no binding");
+    assert.include(
+      problem({
+        steps: [
+          { kind: "run", id: "email" },
+          { kind: "run", id: "email" },
+        ],
+      }),
+      "at most once",
+    );
+    assert.include(problem({ steps: [{ kind: "run", id: "save" }] }), "email needs a step");
+    assert.include(problem({ steps: [...ORDERED_REQUEST.steps!, shot("stopped")] }), "reserved");
+    assert.include(
+      problem({ steps: [{ kind: "screenshot", id: "t", framing: "target" }] }),
+      "only with target framing",
+    );
+    assert.include(problem({ steps: [] }), "at least one step");
+    assert.include(problem({ limits: { maxActions: 1 } }), "raise maxActions");
+    assert.include(
+      problem({
+        actions: [{ id: "go", url: "http://x.test", screenshot: "viewport" }],
+      }),
+      "go needs a step",
+    );
+  });
+  it.effect("leaves goal mode alone when only a step already taken has a near match", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        choices: ["next", "SCROLL_DOWN", "SCROLL_DOWN", "BLOCKED"],
+        page: { tree: `- main [ref=m]:\n  - link "Next" [ref=n]` },
+        onAct: (operation, _input, page) => {
+          if (operation === "click") page.tree = `- main [ref=m]:\n  - link "NEXT" [ref=n2]`;
+        },
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            requestId: "taken",
+            tabId,
+            engine: "jev",
+            goal: "Page on, then finish",
+            actions: [
+              { id: "next", target: { role: "link", name: "Next" } },
+              { id: "finish", target: { role: "button", name: "Finish" } },
+            ],
+            checks: [{ id: "u", kind: "url", includes: "done" }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.reason, "model-blocked");
+      assert.strictEqual(result.decisions, 4);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("never offers recovery a control that is itself covered", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        choices: ["BLOCKED"],
+        page: { tree: OVERLAY_TREE },
+        covered: () => true,
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            requestId: "stacked",
+            tabId,
+            engine: "jev",
+            goal: "Save",
+            actions: [{ id: "dismiss", target: { role: "button", name: "Dismiss" } }],
+            submit: { id: "save", target: { role: "button", name: "Save" } },
+            steps: [{ kind: "run", id: "save" }],
+            checks: [{ id: "saved", kind: "text", includes: "Saved", expect: "present" }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.reason, "model-blocked");
+      const question = task.decisions[0]!.questions[0]!;
+      assert.deepStrictEqual(
+        question.type === "choice" ? question.choices.map((choice) => choice.label) : [],
+        ["SCROLL_DOWN", "WAIT", "BLOCKED"],
+      );
+      assert.deepStrictEqual(task.acts, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("stops a target screenshot on a stale name as target-not-found", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({});
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            ...ORDERED_REQUEST,
+            requestId: "stale-shot",
+            steps: [
+              { kind: "run", id: "email" },
+              {
+                kind: "screenshot",
+                id: "shot",
+                framing: "target",
+                target: { role: "button", name: "save" },
+              },
+              { kind: "run", id: "save" },
+            ],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.reason, "target-not-found");
+      assert.deepStrictEqual(result.missingTarget?.nearest, ['button "Save"']);
+      assert.strictEqual(result.decisions, 0);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("ties a screenshot to the step before it even when that step dispatched nothing", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        page: { tree: `- main [ref=m]:\n  - checkbox "Terms" [checked] [ref=t]` },
+      });
+      const result = yield* report(
+        task.service.run({
+          scope,
+          request: {
+            requestId: "satisfied",
+            tabId,
+            engine: "jev",
+            goal: "Accept terms",
+            bindings: [
+              {
+                id: "terms",
+                control: "checkbox",
+                target: { role: "checkbox", name: "Terms" },
+                checked: true,
+              },
+            ],
+            steps: [
+              { kind: "run", id: "terms" },
+              { kind: "screenshot", id: "after", framing: "viewport" },
+            ],
+            checks: [{ id: "u", kind: "url", includes: "form" }],
+          },
+          authorize: allow,
+        }),
+      );
+      assert.strictEqual(result.status, "passed");
+      assert.strictEqual(result.screenshots?.[0]?.afterStep, "terms");
+      assert.deepStrictEqual(task.acts, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
 });
