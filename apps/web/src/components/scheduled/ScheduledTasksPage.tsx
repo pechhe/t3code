@@ -29,7 +29,6 @@ import {
   ChevronRightIcon,
   InboxIcon,
   LinkIcon,
-  LockIcon,
   MessageSquareIcon,
   PlayIcon,
   PlusIcon,
@@ -63,7 +62,6 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Toggle } from "../ui/toggle";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { AgentRoleChip } from "../AgentRoleChip";
 import { ModelLabel } from "../ModelLabel";
@@ -116,6 +114,11 @@ const THREAD_MODE_LABELS: Record<ScheduledTaskThreadMode, string> = {
   new_thread: "a new thread each run",
   continue: "one thread, carrying on",
   fresh_session: "one thread, a fresh session each run",
+};
+/** How a run uses the thread a task is linked to. */
+const LINKED_THREAD_MODE_LABELS: Record<Exclude<ScheduledTaskThreadMode, "new_thread">, string> = {
+  continue: "carries on the conversation",
+  fresh_session: "starts a fresh session",
 };
 const ROLE_OPTIONS = AgentRole.literals;
 const DEFAULT_ROLE: AgentRole = "implementation-worker";
@@ -460,17 +463,13 @@ function TaskDetail(props: {
   const boundThreadId = group?.lead.threadId ?? null;
   // A task that runs in a thread posts there, so where it runs is that thread's.
   const bound = boundThreadId !== null && draft.threadMode !== "new_thread";
-  // One thread's runs follow it; without a thread yet, the first run starts one where it runs below.
+  // Without a thread yet, the first run starts one where it runs below.
   const threadModeDetail =
     draft.threadMode === "new_thread"
       ? null
-      : bound
-        ? draft.threadMode === "continue"
-          ? "Each run continues this thread, in its workspace and with its current model. Deleting the thread also deletes this task."
-          : "Each run opens a fresh session in this thread, without earlier runs' context. Deleting the thread also deletes this task."
-        : draft.threadMode === "continue"
-          ? "The first run starts a thread with the machine, project and role below; later runs continue that conversation."
-          : "The first run starts a thread with the machine, project and role below; later runs post there, each in a fresh session without earlier runs' context.";
+      : draft.threadMode === "continue"
+        ? "The first run starts a thread with the machine, project and role below; later runs continue that conversation."
+        : "The first run starts a thread with the machine, project and role below; later runs post there, each in a fresh session without earlier runs' context.";
   const isWebhook = draft.kind === "webhook";
   const plan = planGroupSave({
     draft: {
@@ -727,167 +726,161 @@ function TaskDetail(props: {
           onThreadModeChange={(threadMode) => update({ threadMode })}
         />
       ) : null}
-      <ChipRow label="On" locked={bound}>
-        {machines.map((machine) => {
-          const pressed = draft.machines.includes(machine.environmentId);
-          return (
-            <TintChip
-              key={machine.environmentId}
-              tint={{ color: "var(--primary)" }}
-              icon={
-                <EnvironmentMachineIcon
-                  kind={resolveEnvironmentMachineKind(machine.serverConfig)}
-                  className="size-3 shrink-0"
-                />
-              }
-              label={machine.label}
-              selected={pressed}
-              className="h-7 px-2 text-xs"
-              render={
-                <button
-                  type="button"
-                  aria-pressed={pressed}
-                  disabled={bound}
-                  onClick={() =>
-                    update({
-                      machines: pressed
-                        ? draft.machines.filter((id) => id !== machine.environmentId)
-                        : [...draft.machines, machine.environmentId],
-                    })
+      {bound ? null : (
+        <>
+          <ChipRow label="On">
+            {machines.map((machine) => {
+              const pressed = draft.machines.includes(machine.environmentId);
+              return (
+                <TintChip
+                  key={machine.environmentId}
+                  tint={{ color: "var(--primary)" }}
+                  icon={
+                    <EnvironmentMachineIcon
+                      kind={resolveEnvironmentMachineKind(machine.serverConfig)}
+                      className="size-3 shrink-0"
+                    />
+                  }
+                  label={machine.label}
+                  selected={pressed}
+                  className="h-7 px-2 text-xs"
+                  render={
+                    <button
+                      type="button"
+                      aria-pressed={pressed}
+                      onClick={() =>
+                        update({
+                          machines: pressed
+                            ? draft.machines.filter((id) => id !== machine.environmentId)
+                            : [...draft.machines, machine.environmentId],
+                        })
+                      }
+                    />
                   }
                 />
-              }
-            />
-          );
-        })}
-      </ChipRow>
-      <ChipRow label="In" locked={bound}>
-        {projectChoices.map((choice) => {
-          const pressed = projectKeys.includes(choice.key);
-          return (
-            <ProjectChip
-              key={choice.key}
-              project={choice.project}
-              label={choice.title}
-              selected={pressed}
-              className="h-7 px-2 text-xs"
-              render={
-                <button
-                  type="button"
-                  aria-pressed={pressed}
-                  disabled={bound}
-                  onClick={() =>
-                    update({
-                      projectKeys: pressed
-                        ? projectKeys.filter((key) => key !== choice.key)
-                        : [...projectKeys, choice.key],
-                    })
+              );
+            })}
+          </ChipRow>
+          <ChipRow label="In">
+            {projectChoices.map((choice) => {
+              const pressed = projectKeys.includes(choice.key);
+              return (
+                <ProjectChip
+                  key={choice.key}
+                  project={choice.project}
+                  label={choice.title}
+                  selected={pressed}
+                  className="h-7 px-2 text-xs"
+                  render={
+                    <button
+                      type="button"
+                      aria-pressed={pressed}
+                      onClick={() =>
+                        update({
+                          projectKeys: pressed
+                            ? projectKeys.filter((key) => key !== choice.key)
+                            : [...projectKeys, choice.key],
+                        })
+                      }
+                    />
                   }
                 />
+              );
+            })}
+          </ChipRow>
+          {plan.skipped.length > 0 ? (
+            <p className="text-muted-foreground text-xs">
+              Not run where the machine lacks the project:{" "}
+              {plan.skipped
+                .map(
+                  (entry) =>
+                    `${projectLabel(entry.projectKey)} on ${machineLabel(entry.environmentId)}`,
+                )
+                .join(", ")}
+              .
+            </p>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+            <span className="inline-flex items-center gap-1 text-muted-foreground">Runs in</span>
+            <Select
+              value={draft.threadMode}
+              onValueChange={(threadMode) =>
+                threadMode && update({ threadMode: threadMode as ScheduledTaskThreadMode })
               }
-            />
-          );
-        })}
-      </ChipRow>
-      {plan.skipped.length > 0 ? (
-        <p className="text-muted-foreground text-xs">
-          Not run where the machine lacks the project:{" "}
-          {plan.skipped
-            .map(
-              (entry) =>
-                `${projectLabel(entry.projectKey)} on ${machineLabel(entry.environmentId)}`,
-            )
-            .join(", ")}
-          .
-        </p>
-      ) : null}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
-        <span className="inline-flex items-center gap-1 text-muted-foreground">Runs in</span>
-        <Select
-          value={draft.threadMode}
-          onValueChange={(threadMode) =>
-            threadMode && update({ threadMode: threadMode as ScheduledTaskThreadMode })
-          }
-        >
-          <SelectTrigger size="xs" variant="ghost" aria-label="Where each run posts">
-            <SelectValue>{THREAD_MODE_LABELS[draft.threadMode]}</SelectValue>
-          </SelectTrigger>
-          <SelectPopup>
-            {(Object.keys(THREAD_MODE_LABELS) as ScheduledTaskThreadMode[]).map((threadMode) => (
-              <SelectItem key={threadMode} value={threadMode}>
-                {THREAD_MODE_LABELS[threadMode]}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-        <span className="inline-flex items-center gap-1 text-muted-foreground">
-          {bound ? <LockedMark /> : null}
-          Works in
-        </span>
-        <Select
-          value={draft.workspace}
-          onValueChange={(workspace) => workspace && update({ workspace })}
-        >
-          <SelectTrigger
-            size="xs"
-            variant="ghost"
-            aria-label="Where each run works"
-            disabled={bound}
-          >
-            <SelectValue>{WORKSPACE_LABELS[draft.workspace]}</SelectValue>
-          </SelectTrigger>
-          <SelectPopup>
-            <SelectItem value="fresh">{WORKSPACE_LABELS.fresh}</SelectItem>
-            <SelectItem value="checkout">{WORKSPACE_LABELS.checkout}</SelectItem>
-          </SelectPopup>
-        </Select>
-        <span className="text-muted-foreground">as</span>
-        <Select
-          value={draft.agentRole}
-          onValueChange={(value) => value && update({ agentRole: value as AgentRole })}
-        >
-          <SelectTrigger size="xs" variant="ghost" aria-label="Subagent role" disabled={bound}>
-            <SelectValue>
-              {bound ? (
-                <span className="text-muted-foreground">this thread's model</span>
-              ) : (
-                <AgentRoleChip role={draft.agentRole} />
-              )}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectPopup>
-            {ROLE_OPTIONS.map((role) => (
-              <SelectItem key={role} value={role}>
-                <span className="flex items-center gap-2">
-                  <AgentRoleChip role={role} />
-                  <span className="text-muted-foreground text-xs">{ROLE_DESCRIPTIONS[role]}</span>
-                </span>
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-        {roleSummary ? (
-          <span className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
-            uses
-            <ModelLabel
-              environmentId={policyMachine}
-              driverKind={roleSummary.driverKind}
-              model={roleSummary.model}
-              effort={roleSummary.effort}
-            />
-          </span>
-        ) : !bound && policy.error ? (
-          <span className="text-muted-foreground text-xs">
-            No role policy on {machineLabel(policyMachine as EnvironmentId)}
-          </span>
-        ) : null}
-      </div>
-      <p className="-mt-3 text-muted-foreground text-xs">
-        {threadModeDetail === null ? null : <>{threadModeDetail} </>}
-        A fresh run starts where a new thread does: its own workspace in a SlipJay project. The
-        project checkout runs in the project folder, which is the integration checkout in a SlipJay
-        project.
-      </p>
+            >
+              <SelectTrigger size="xs" variant="ghost" aria-label="Where each run posts">
+                <SelectValue>{THREAD_MODE_LABELS[draft.threadMode]}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                {(Object.keys(THREAD_MODE_LABELS) as ScheduledTaskThreadMode[]).map(
+                  (threadMode) => (
+                    <SelectItem key={threadMode} value={threadMode}>
+                      {THREAD_MODE_LABELS[threadMode]}
+                    </SelectItem>
+                  ),
+                )}
+              </SelectPopup>
+            </Select>
+            <span className="inline-flex items-center gap-1 text-muted-foreground">Works in</span>
+            <Select
+              value={draft.workspace}
+              onValueChange={(workspace) => workspace && update({ workspace })}
+            >
+              <SelectTrigger size="xs" variant="ghost" aria-label="Where each run works">
+                <SelectValue>{WORKSPACE_LABELS[draft.workspace]}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectItem value="fresh">{WORKSPACE_LABELS.fresh}</SelectItem>
+                <SelectItem value="checkout">{WORKSPACE_LABELS.checkout}</SelectItem>
+              </SelectPopup>
+            </Select>
+            <span className="text-muted-foreground">as</span>
+            <Select
+              value={draft.agentRole}
+              onValueChange={(value) => value && update({ agentRole: value as AgentRole })}
+            >
+              <SelectTrigger size="xs" variant="ghost" aria-label="Subagent role">
+                <SelectValue>
+                  <AgentRoleChip role={draft.agentRole} />
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                {ROLE_OPTIONS.map((role) => (
+                  <SelectItem key={role} value={role}>
+                    <span className="flex items-center gap-2">
+                      <AgentRoleChip role={role} />
+                      <span className="text-muted-foreground text-xs">
+                        {ROLE_DESCRIPTIONS[role]}
+                      </span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+            {roleSummary ? (
+              <span className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+                uses
+                <ModelLabel
+                  environmentId={policyMachine}
+                  driverKind={roleSummary.driverKind}
+                  model={roleSummary.model}
+                  effort={roleSummary.effort}
+                />
+              </span>
+            ) : policy.error ? (
+              <span className="text-muted-foreground text-xs">
+                No role policy on {machineLabel(policyMachine as EnvironmentId)}
+              </span>
+            ) : null}
+          </div>
+          <p className="-mt-3 text-muted-foreground text-xs">
+            {threadModeDetail === null ? null : <>{threadModeDetail} </>}
+            A fresh run starts where a new thread does: its own workspace in a SlipJay project. The
+            project checkout runs in the project folder, which is the integration checkout in a
+            SlipJay project.
+          </p>
+        </>
+      )}
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="scheduled-task-prompt">Prompt</Label>
@@ -1016,23 +1009,9 @@ function RunProjectLabel(props: {
   );
 }
 
-/** The lock beside a choice the linked thread decides. */
-function LockedMark() {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={<span className="inline-flex" aria-label="Set by the linked thread" />}
-      >
-        <LockIcon aria-hidden className="size-3" />
-      </TooltipTrigger>
-      <TooltipPopup side="top">Set by the linked thread</TooltipPopup>
-    </Tooltip>
-  );
-}
-
 /**
  * The thread a task posts into, when an agent bound it to one. Machine, project and
- * workspace follow that thread, so the panel names it and offers the way out.
+ * workspace are that thread's, so the editor shows only the thread and offers the way out.
  */
 function LinkedThreadPanel(props: {
   readonly environmentId: EnvironmentId;
@@ -1042,7 +1021,8 @@ function LinkedThreadPanel(props: {
   readonly onThreadModeChange: (threadMode: ScheduledTaskThreadMode) => void;
 }) {
   const navigate = useNavigate();
-  const runsInThread = props.threadMode !== "new_thread";
+  const linkedMode = props.threadMode === "new_thread" ? null : props.threadMode;
+  const runsInThread = linkedMode !== null;
   const thread = useThreadShells().find(
     (candidate) =>
       candidate.environmentId === props.environmentId && candidate.id === props.threadId,
@@ -1073,14 +1053,31 @@ function LinkedThreadPanel(props: {
         </Button>
         {props.project ? <ProjectChip project={props.project} /> : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
-        <span>
-          {!runsInThread
-            ? "After you save, each run starts a new thread and you choose where it runs."
-            : props.threadMode === "continue"
-              ? "An agent linked this task to its thread. Each run continues it, so the machine, project and workspace are that thread's and stay locked."
-              : "An agent linked this task to its thread. Each run opens a fresh session there, so the machine, project and workspace are that thread's and stay locked."}
-        </span>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
+        {linkedMode !== null ? (
+          <>
+            <span>Each run</span>
+            <Select
+              value={linkedMode}
+              onValueChange={(threadMode) =>
+                threadMode && props.onThreadModeChange(threadMode as ScheduledTaskThreadMode)
+              }
+            >
+              <SelectTrigger size="xs" variant="ghost" aria-label="How each run uses the thread">
+                <SelectValue>{LINKED_THREAD_MODE_LABELS[linkedMode]}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectItem value="continue">{LINKED_THREAD_MODE_LABELS.continue}</SelectItem>
+                <SelectItem value="fresh_session">
+                  {LINKED_THREAD_MODE_LABELS.fresh_session}
+                </SelectItem>
+              </SelectPopup>
+            </Select>
+            <span>Deleting the thread also deletes this task.</span>
+          </>
+        ) : (
+          <span>After you save, each run starts a new thread and you choose where it runs.</span>
+        )}
         <Button
           size="xs"
           variant="ghost-muted"
@@ -1093,16 +1090,11 @@ function LinkedThreadPanel(props: {
   );
 }
 
-function ChipRow(props: {
-  readonly label: string;
-  readonly locked?: boolean;
-  readonly children: React.ReactNode;
-}) {
+function ChipRow(props: { readonly label: string; readonly children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-2 text-sm">
       <span className="inline-flex w-10 shrink-0 items-center gap-1 pt-1 text-muted-foreground">
         {props.label}
-        {props.locked ? <LockedMark /> : null}
       </span>
       <div className="flex flex-wrap gap-1.5">{props.children}</div>
     </div>

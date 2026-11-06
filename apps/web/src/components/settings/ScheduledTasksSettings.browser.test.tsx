@@ -304,10 +304,8 @@ describe("ScheduledTasksSettings", () => {
   it("saves a fresh session in the task's thread when the editor chooses it", async () => {
     setup();
     await using _screen = await render(<ScheduledTasksSettings taskId={task.id} />);
-    await userEvent.click(page.getByRole("combobox", { name: "Where each run posts" }));
-    await userEvent.click(
-      page.getByRole("option", { name: "one thread, a fresh session each run" }),
-    );
+    await userEvent.click(page.getByRole("combobox", { name: "How each run uses the thread" }));
+    await userEvent.click(page.getByRole("option", { name: "starts a fresh session" }));
     await userEvent.click(page.getByRole("button", { name: "Save" }));
     await vi.waitFor(() => expect(savedTaskInputs()).toHaveLength(1));
     expect(savedTaskInputs()[0]).toMatchObject({
@@ -319,8 +317,7 @@ describe("ScheduledTasksSettings", () => {
   it("starts a new thread each run when the editor chooses it", async () => {
     setup();
     await using _screen = await render(<ScheduledTasksSettings taskId={task.id} />);
-    await userEvent.click(page.getByRole("combobox", { name: "Where each run posts" }));
-    await userEvent.click(page.getByRole("option", { name: "a new thread each run" }));
+    await userEvent.click(page.getByRole("button", { name: "Start a new thread each run" }));
     await userEvent.click(page.getByRole("button", { name: "Save" }));
     await vi.waitFor(() => expect(savedTaskInputs()).toHaveLength(1));
     expect(savedTaskInputs()[0]).toMatchObject({ threadId: null, threadMode: "new_thread" });
