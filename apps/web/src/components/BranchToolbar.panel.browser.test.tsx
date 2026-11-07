@@ -69,6 +69,9 @@ it("shows a started thread's primary machine as a static label", async () => {
       machine: "server",
     })),
   });
-  expect(screen.container.textContent).toBe("local");
+  // The strip renders a compact and a wide copy of the row; CSS shows one of them.
+  expect(screen.container.querySelector("[data-composer-context-control]")?.textContent).toBe(
+    "local",
+  );
   expect(screen.container.querySelector("button")).toBeNull();
 });
