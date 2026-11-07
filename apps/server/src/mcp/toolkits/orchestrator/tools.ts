@@ -363,21 +363,21 @@ const ThreadWaitTool = Tool.make("t3_thread_wait", {
 
 const WatchThreadTool = Tool.make("watch", {
   description:
-    'Have T3 Code wake this thread once when a target is ready: another thread here ({kind: "thread", threadId}) or a Weave Build item ({kind: "build_item", number, until}). Use it instead of polling or sleeping. A thread has finished when no run is active or queued and it has no unfinished delegated task, background command or pull request watch; a run that ends with those pending is a pause and does not wake you. It also wakes you once if the thread fails, stops, is archived or deleted, or waits for a person to answer a question or approval. A finished thread wakes you at once, and it survives server restarts. After a wake it has ended, so call watch again; it also ends without a wake when you call unwatch, read the final result, stop this thread, or this thread is archived or settled. A thread cannot watch itself or a thread in another environment, a delegated child never watches, and a settled thread must be unsettled first. A Build item needs T3\'s Weave connection and is checked once a minute at most: "unblocked" wakes you when its waits and holds are clear, "closed" when it is Landed or Accepted, and either wakes you if it is Dropped.',
+    'Have T3 Code wake this thread once when a target is ready: another thread here ({kind: "thread", threadId}), a Weave Build item ({kind: "build_item", number, until}) or a SlipJay landing ({kind: "landing", operationId}, as `slipjay land --no-wait` prints). Use it instead of polling or sleeping. A thread has finished when no run is active or queued and it has no unfinished delegated task, background command or pull request watch; a run that ends with those pending is a pause and does not wake you. It also wakes you once if the thread fails, stops, is archived or deleted, or waits for a person to answer a question or approval. A finished thread wakes you at once, and it survives server restarts. After a wake it has ended, so call watch again; it also ends without a wake when you call unwatch, read the final result, stop this thread, or this thread is archived or settled. A thread cannot watch itself or a thread in another environment, a delegated child never watches, and a settled thread must be unsettled first. A Build item needs T3\'s Weave connection and is checked once a minute at most: "unblocked" wakes you when its waits and holds are clear, "closed" when it is Landed or Accepted, and either wakes you if it is Dropped. A landing wakes you once if it fails, is declined, is cancelled or ends with no recorded outcome, so you can repair it in its workspace and land again; it ends without a wake when it publishes.',
   parameters: OrchestratorMcpThreadWatchInput,
   success: OrchestratorMcpThreadWatchResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
   dependencies,
 })
-  .annotate(Tool.Title, "Watch a thread or Build item")
+  .annotate(Tool.Title, "Watch a thread, Build item or landing")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true);
 
 const UnwatchThreadTool = Tool.make("unwatch", {
   description:
-    "Stop T3 Code from waking this thread for the given thread or Build item target, including a wake already queued behind your current turn. The target itself is not affected.",
+    "Stop T3 Code from waking this thread for the given thread, Build item or landing target, including a wake already queued behind your current turn. The target itself is not affected.",
   parameters: OrchestratorMcpThreadWatchInput,
   success: OrchestratorMcpThreadWatchResult,
   failure: OrchestratorMcpFailure,

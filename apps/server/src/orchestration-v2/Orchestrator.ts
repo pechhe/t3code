@@ -3377,7 +3377,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (landing === undefined || landing.operationId !== watch.target.operationId) return;
       const remaining = watches.filter((candidate) => candidate !== watch);
       // The thread's own `slipjay land` hands it the verdict, so the watch ends without a wake.
-      // A settled thread is not woken either: a message would unsettle it.
+      // A publication needs nothing from the thread, and a settled thread is not woken either:
+      // a message would unsettle it.
       const records = yield* projectionStore
         .getThreadRecords(command.threadId, ["runs", "turnItems"], {
           turnItemTypes: ["command_execution"],
@@ -3391,7 +3392,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         thread.archivedAt !== null ||
         thread.settledOverride === "settled" ||
         thread.settledAt !== null;
-      if (settled || landingVerdictReachesRun(records, landing.operationId)) {
+      if (
+        settled ||
+        landing.outcome === "landed" ||
+        landingVerdictReachesRun(records, landing.operationId)
+      ) {
         yield* emitThreadWatches(events, command, thread, remaining);
         return;
       }

@@ -93,15 +93,16 @@ const session = (
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
   // Upstream 4192 schemas, bounded decisions, discovery's reviewScope, a lead's trial tools
   // (list, results, create, transition) and upstream's fresh-session and worktree-base
-  // guidance measure 48,607 characters.
-  ["ordinary", undefined, 48_700],
+  // guidance measure 48,607 characters; the `landing` watch target (SJ-208), in the `watch` and
+  // `unwatch` schemas and two sentences of the `watch` description, brings them to 49,278.
+  ["ordinary", undefined, 49_300],
   // The preview endpoint is a browser session's listing, so it carries no control plane.
   // Bounded decisions adds the same 2,061 characters to the browser catalogue.
   ["browser/preview", session("phi", "browser"), 34_900],
   // Upstream schemas with the web family, including upstream's fresh-session and
   // worktree-base guidance, and t3_thread_handoff, so the thread can move itself,
-  // measure 87,483 characters on this endpoint.
-  ["researcher", session("web-research", "researcher"), 87_600],
+  // measure 87,483 characters on this endpoint, and 88,116 with the `landing` watch target.
+  ["researcher", session("web-research", "researcher"), 88_200],
   ["scout", session("source-reader", "scout"), 90_000],
   ["delegated browser", session("phi", "browser", true), 40_000],
   [

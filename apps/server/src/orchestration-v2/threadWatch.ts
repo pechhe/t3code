@@ -346,7 +346,7 @@ export function landingWatchWake(landing: LandingWakeInput): {
   lines.push(
     "",
     landing.outcome === "failed"
-      ? `Read the runner log with \`slipjay runner log ${landing.operationId}\`; \`slipjay repair ${landing.operationId}\` starts a repair of this failed operation. T3 Code has stopped watching this landing.`
+      ? `Read the runner log with \`slipjay runner log ${landing.operationId}\`, repair the change in the workspace that submitted it, and land it again from there with \`slipjay land --no-wait\` and a new watch. Only if that workspace is gone, \`slipjay repair ${landing.operationId}\` starts a repair in a new one. T3 Code has stopped watching this landing.`
       : "T3 Code has stopped watching this landing. If you already saw this result, there is nothing more to do.",
   );
   return {
@@ -360,10 +360,14 @@ export function landingWatchWake(landing: LandingWakeInput): {
 }
 
 const SLIPJAY_LAND_COMMAND = /\bslipjay\s+land\b/;
+/** `slipjay land --no-wait` returns once the runner holds the landing, so it never hands back a verdict. */
+const SLIPJAY_LAND_NO_WAIT = /\s--no-wait\b/;
 
 /**
- * Whether the thread's own `slipjay land` already hands, or will hand, it this landing's verdict:
- * a command of a run still going that is landing, or one whose output names the operation.
+ * Whether the thread's own following `slipjay land` already hands, or will hand, it this landing's
+ * verdict: one of a run still going that is landing, or whose output names the operation. Only a
+ * following `slipjay land` counts: a `--no-wait` submission, or any other command that prints the
+ * operation id while the run goes on, hands back no verdict, and must not swallow a failure.
  */
 export function landingVerdictReachesRun(
   state: {
@@ -380,8 +384,11 @@ export function landingVerdictReachesRun(
       item.type === "command_execution" &&
       item.runId !== null &&
       active.has(item.runId) &&
+      SLIPJAY_LAND_COMMAND.test(item.input) &&
+      !SLIPJAY_LAND_NO_WAIT.test(item.input) &&
       (item.output?.includes(operationId) === true ||
-        ((item.status === "pending" || item.status === "running" || item.status === "waiting") &&
-          SLIPJAY_LAND_COMMAND.test(item.input))),
+        item.status === "pending" ||
+        item.status === "running" ||
+        item.status === "waiting"),
   );
 }

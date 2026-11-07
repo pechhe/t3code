@@ -279,6 +279,59 @@ describe("OrchestratorMcpService", () => {
     }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(RemoteDelegation.RemoteDelegation)({})))),
   );
 
+  it.effect("watches a SlipJay landing by its operation id without Weave", () =>
+    Effect.gen(function* () {
+      const watcherId = ThreadId.make("thread:landing-watch");
+      const shell = liveThreadShell(watcherId);
+      const dispatched: Array<{ target?: unknown; title?: unknown; watching?: unknown }> = [];
+      const dependencies = Layer.mergeAll(
+        Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+        Layer.mock(Experiments.ExperimentService)({}),
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadShell: () => Effect.succeed(shell),
+          dispatch: (command) =>
+            Effect.sync(() => {
+              dispatched.push(command as (typeof dispatched)[number]);
+              return { sequence: 1, storedEvents: [] };
+            }),
+        }),
+        ServerSettings.layerTest(),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+      );
+      const scope: McpInvocationScope = {
+        environmentId: EnvironmentId.make("environment:watch"),
+        requestNamespace: "watch-landing",
+        thread: {
+          threadId: watcherId,
+          providerSessionId: "watch-test",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+        },
+        client: undefined,
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 1,
+      };
+      const result = yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* service.watchThread(
+          scope,
+          { target: { kind: "landing", operationId: "op_42" } },
+          true,
+        );
+      }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(dependencies))));
+      assert.deepEqual(result.target, { kind: "landing", operationId: "op_42" });
+      assert.equal(result.watching, true);
+      assert.equal(result.wasWatching, false);
+      assert.deepEqual(dispatched[0]?.target, { kind: "landing", operationId: "op_42" });
+      assert.equal(dispatched[0]?.title, "Landing op_42");
+      assert.equal(dispatched[0]?.watching, true);
+    }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(RemoteDelegation.RemoteDelegation)({})))),
+  );
+
   it.effect("stops a Build watch by number without Weave, and by ref from the watched items", () =>
     Effect.gen(function* () {
       const watcherId = ThreadId.make("thread:build-unwatch");

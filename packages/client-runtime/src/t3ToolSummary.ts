@@ -185,13 +185,17 @@ export function summarizeT3ToolCalls(
       );
       const noun = targets.every((target) => target?.kind === "build_item")
         ? "Build item"
-        : targets.every((target) => target === undefined || target.kind === "thread")
-          ? "thread"
-          : "target";
+        : targets.every((target) => target?.kind === "landing")
+          ? "landing"
+          : targets.every((target) => target === undefined || target.kind === "thread")
+            ? "thread"
+            : "target";
       const ids = targets.map((target, index) =>
         target?.kind === "build_item"
           ? `build:${target.number}:${target.until}`
-          : (id(target?.threadId) ?? threadIds[index]),
+          : target?.kind === "landing"
+            ? `landing:${String(target.operationId)}`
+            : (id(target?.threadId) ?? threadIds[index]),
       );
       label =
         action === "thread-watch"

@@ -495,14 +495,29 @@ status and does not cancel work.
 
 ### `watch` and `unwatch`
 
-Both take `target: {kind: "thread", threadId}` or
+Both take `target: {kind: "thread", threadId}`, `target: {kind: "landing", operationId}` or
 `target: {kind: "build_item", number, until: "unblocked" | "closed"}`.
 Build targets use T3's Weave connection and are refused without one.
 `unblocked` means all waits and holds are clear; `closed` means Landed, Accepted
 or Dropped. An unblocked watch also wakes on Dropped. `BuildWatchReactor` polls
 on its own one-minute cadence through the shared Build summary cache, including
 after a restart. A Build wake names the item and condition and ends the watch.
-The same watcher lifecycle and duplicate-target rules apply to both targets.
+The same watcher lifecycle and duplicate-target rules apply to every target.
+
+A landing target, `target: {kind: "landing", operationId}`, is a SlipJay landing
+by the operation id `slipjay land --no-wait` prints. `LandingWatchReactor` also
+arms it by itself for the one live thread whose workspace submitted the landing.
+It reads the runner through `slipjay watch --json`, with a one-minute sweep that
+catches a landing finished while the server was down. A failed, declined,
+cancelled or unknown outcome wakes the thread once with SlipJay's recorded
+reason; a publication ends the watch without a wake, since the landing's
+follower finishes it on the machine and a lead waits on the Build item to learn
+the Spec published. A following `slipjay land` in the watcher's active run, still
+running or with output naming the operation, already hands it the verdict, so
+the watch ends without a wake. No other command counts, a `slipjay land --no-wait`
+included: it returns before the outcome, and a failure must not be swallowed
+because some command printed the operation id. A watch whose landing the runner
+no longer tracks ends silently after six hours.
 
 With a thread target, `watch` wakes the calling thread once when another thread in its
 environment has finished, so a lead needs no timer, repeated wait or report-back

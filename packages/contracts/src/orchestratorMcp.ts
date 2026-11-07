@@ -720,6 +720,8 @@ export const OrchestratorMcpThreadWatchInput = Schema.Struct({
       number: ForgeItemReferenceInput,
       until: Schema.Literals(["unblocked", "closed"]),
     }),
+    /** A SlipJay landing, by the operation id `slipjay land --no-wait` prints. */
+    Schema.Struct({ kind: Schema.Literal("landing"), operationId: TrimmedNonEmptyString }),
   ]),
 });
 export type OrchestratorMcpThreadWatchInput = typeof OrchestratorMcpThreadWatchInput.Type;

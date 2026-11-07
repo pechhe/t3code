@@ -25,6 +25,12 @@ describe("summarizeT3ToolCalls", () => {
         completed({ target: { kind: "build_item", number: 1000001, until: "closed" } }),
       ]).label,
     ).toBe("Stopped watching 1 Build item");
+    expect(
+      summarizeT3ToolCalls("thread-watch", [
+        completed({ target: { kind: "landing", operationId: "op_1" } }),
+        completed({ target: { kind: "landing", operationId: "op_2" } }),
+      ]).label,
+    ).toBe("Watching 2 landings");
   });
 
   it("reads provider result envelopes without treating JSON in the message as result data", () => {

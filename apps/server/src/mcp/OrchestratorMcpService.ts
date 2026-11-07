@@ -4715,7 +4715,7 @@ const make = Effect.gen(function* () {
           return yield* resolveNumber(reference);
         });
         const target: OrchestrationV2WatchTarget =
-          named.kind === "thread"
+          named.kind === "thread" || named.kind === "landing"
             ? named
             : {
                 kind: "build_item",
@@ -4738,7 +4738,9 @@ const make = Effect.gen(function* () {
             target.kind === "thread" ? target.threadId : undefined,
           );
           if (refusal !== undefined) return yield* failure("invalid_request", refusal);
-          if (target.kind === "thread") {
+          if (target.kind === "landing") {
+            title = `Landing ${target.operationId}`;
+          } else if (target.kind === "thread") {
             const watched = yield* threadManagement
               .getThreadShell(target.threadId)
               .pipe(Effect.mapError(threadManagementFailure));
