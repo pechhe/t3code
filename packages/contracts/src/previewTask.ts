@@ -217,7 +217,7 @@ export const PreviewTaskRequest = Schema.Struct({
   }),
   checks: Schema.Array(PreviewTaskCheck).annotate({
     description:
-      "All must pass on the final page; the model's claim never counts. `present` means rendered: in the snapshot and not hidden.",
+      "All must pass on the final page; the model's claim never counts. `present` means rendered: in the snapshot and not hidden. Text checks ignore case.",
   }),
   limits: Schema.optional(
     Schema.Struct({

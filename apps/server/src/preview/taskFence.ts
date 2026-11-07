@@ -33,7 +33,7 @@ export async function installTaskFence(input: {
   if (browser === null)
     throw new Error("This tab's browser cannot report pop-ups, so page reach cannot fence it.");
   const sessions: CDPSession[] = [];
-  /** Each refused pop-up's target and when it opened; spent by its first request, dropped with it. */
+  /** Each refused pop-up's target and when it opened. A first request names no pop-up, so it spends the oldest. */
   const credits = new Map<string, number>();
   const waiting = new Set<() => void>();
   const fresh = () => {
@@ -100,7 +100,7 @@ export async function installTaskFence(input: {
       credits.set(created.targetId, performance.now());
       for (const wake of waiting) wake();
     });
-    // A pop-up that never sent a request leaves no claim on another tab's load.
+    // A closed pop-up's claim goes with it, unless an overlapping pop-up's request spent it.
     watcher.on("Target.targetDestroyed", ({ targetId }) => void credits.delete(targetId));
     await watcher.send("Target.setDiscoverTargets", { discover: true });
     await context.route("**/*", popups);

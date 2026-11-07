@@ -301,7 +301,7 @@ A delegated browser or UI-verifier agent on the integrated browser can hand a de
 `preview_task` instead of driving each step: reach a page, fill a form with values it supplies, or
 capture one element. It runs only when the agent asks, and Phi tasks are refused. The agent names
 the fields, the only clicks, key presses or URLs allowed, an explicit submit target and the checks
-that define success; the supplied fields are filled directly, Jev only picks among the other steps, and the result is `passed` only when every check holds
+that define success; text checks ignore letter case, since pages often restyle text in capitals; the supplied fields are filled directly, Jev only picks among the other steps, and the result is `passed` only when every check holds
 on the final page. A run defaults to 12 actions, 16 decisions and 60 seconds, up to 24, 32 and 120
 seconds. It holds the tab exclusively while it runs. Afterwards the agent keeps working in the same
 tab, reading the page first if an action's outcome is `uncertain`, since a cancelled or unanswered
