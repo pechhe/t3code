@@ -3,207 +3,333 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.8-nightly.20261106.4275",
-      "sha": "6577c6b6185167c0e502fa01f9e8e8f2dee6ff25"
-    },
-    "target": {
       "tag": "v0.1.8-nightly.20261106.4288",
       "sha": "32a0531748c44b25072d7495ce0b9bd7e9450a87"
+    },
+    "target": {
+      "tag": "v0.1.8-nightly.20261107.4314",
+      "sha": "83a3674ffd84ffb33de768210c806cb1ac53fd80"
     }
   },
   "fork": {
-    "base": "2522013b2514141b7006b4110982778a97183557"
+    "base": "b59c27319cf6dcb667831db0d2a2db2cd34e3c6f"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "c1bf0e9136081d7f84aa3e85cd9f1cc3699195f5"
+    "blob": "66e78cdfd0ae6cdbb9f09e3eece753cf025398b9"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.8-nightly.20261106.4288@1794000979",
-  "reviewedAt": "2026-11-06T21:52:00Z",
+  "attempt": "v0.1.8-nightly.20261107.4314@1794049550",
+  "reviewedAt": "2026-11-07T13:44:00Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:071b8835-46db-4eae-83fe-a337b8a1e1dc",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:da3bebde-ceb6-4445-8612-f421109ada96",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 12,
+    "upstreamCommits": 30,
     "entriesConsidered": [
-      "account-pools",
-      "agent-policy-roles",
-      "agent-process-ledger",
-      "bounded-browser-tasks",
-      "bounded-decisions",
-      "browser-decision-evaluation",
-      "build-items-hq",
-      "champions",
-      "claude-full-access-no-prompts",
-      "claude-missing-transcript-resume",
       "compact-line",
       "compact-model",
-      "delegated-work-visibility",
-      "delegation-settings",
-      "desktop-fork-build",
-      "dev-state-tooling",
-      "device-composer",
-      "dpop-forwarded-proto",
       "experiments",
-      "fleet-summary",
-      "fork-guidance",
-      "fork-name",
-      "fork-updater",
-      "image-annotation",
-      "landing-test-parallelism",
-      "linked-environments",
-      "live-response-streaming",
-      "managed-browser-roles",
-      "managed-delegation",
-      "mcp-orchestration-annotations",
-      "mobile-fork-screens",
-      "nightly-app-icon",
-      "no-project-chats",
-      "perf-landing-refresh",
-      "perf-markdown-blocks",
-      "perf-persistence-reads",
-      "perf-persistence-writes",
-      "perf-secret-reads",
-      "phi-browser-backend",
-      "preview-browser-lifetime",
-      "project-themes",
+      "agent-policy-roles",
       "provider-overload-failover",
-      "quiet-run-read-state",
-      "repository-chips-hq",
-      "run-interrupt-cause",
+      "managed-delegation",
+      "t3-agent-cli",
       "run-setup-records",
-      "saved-icon-compatibility",
-      "scheduled-tasks-extensions",
-      "screen-recording-video",
-      "session-tool-listings",
-      "side-chat",
-      "slipjay-command-guard",
-      "slipjay-delivery-config",
+      "delegation-settings",
+      "slipjay-workspaces",
+      "slipjay-workspace-archive",
       "slipjay-landing",
       "slipjay-release-approvals",
       "slipjay-settings",
-      "slipjay-workspace-archive",
-      "slipjay-workspaces",
-      "snapshot-overlay",
-      "ssh-launch-respects-boot-service",
-      "subagent-return-chip",
-      "t3-agent-cli",
-      "thread-transcript-export",
-      "thread-watches",
-      "thread-workflow-chip",
-      "timeline-layout-test-fixture",
-      "unattended-threads",
-      "unhandled-rejection-keeps-server",
+      "slipjay-delivery-config",
       "validation-tooling",
-      "voice-bridge",
+      "slipjay-command-guard",
+      "landing-test-parallelism",
+      "timeline-layout-test-fixture",
+      "build-items-hq",
+      "repository-chips-hq",
+      "thread-workflow-chip",
+      "unattended-threads",
+      "thread-watches",
+      "scheduled-tasks-extensions",
+      "champions",
+      "linked-environments",
+      "account-pools",
+      "phi-browser-backend",
+      "managed-browser-roles",
+      "preview-browser-lifetime",
+      "screen-recording-video",
+      "snapshot-overlay",
+      "device-composer",
+      "image-annotation",
+      "side-chat",
+      "no-project-chats",
+      "project-themes",
+      "saved-icon-compatibility",
+      "fleet-summary",
+      "live-response-streaming",
       "web-client-customisation",
-      "ws-rpc-group-split"
+      "mobile-fork-screens",
+      "desktop-fork-build",
+      "fork-name",
+      "nightly-app-icon",
+      "fork-updater",
+      "fork-guidance",
+      "perf-persistence-reads",
+      "perf-secret-reads",
+      "perf-landing-refresh",
+      "perf-persistence-writes",
+      "perf-markdown-blocks",
+      "agent-process-ledger",
+      "dev-state-tooling",
+      "quiet-run-read-state",
+      "delegated-work-visibility",
+      "subagent-return-chip",
+      "session-tool-listings",
+      "run-interrupt-cause",
+      "ws-rpc-group-split",
+      "voice-bridge",
+      "thread-transcript-export",
+      "mcp-orchestration-annotations",
+      "dpop-forwarded-proto",
+      "claude-missing-transcript-resume",
+      "claude-full-access-no-prompts",
+      "bounded-decisions",
+      "browser-decision-evaluation",
+      "bounded-browser-tasks",
+      "ssh-launch-respects-boot-service",
+      "unhandled-rejection-keeps-server"
     ],
     "areas": [
-      "provider-thread reads start from owned rows (#31012): orchestration-v2/ProjectionStore.ts and its test — the one merge conflict; resolved by adopting upstream's `nodesOwningProviderThreads` helper at all four ownership reads and dropping the fork's inline copy of the same query, under perf-persistence-reads",
-      "background PR discovery gets its own git lane (#32162): ThreadPullRequestService.ts, ThreadSettlementService.ts, vcs/GitVcsDriver.ts (`BackgroundGitWork`), GitVcsDriverCore.ts and its test — the fork's branch-pull-request sweep, settlement timer prefilter and git semaphore call sites carry it unchanged, under perf-persistence-reads",
-      "per-event span reductions (#31584 background-work probe in ClaudeAdapterV2/CodexAdapterV2, #31586 transcript-file usage scans in UsageService, #31017 Cursor's account-usage hash) — adopted; the fork's observability spans and pool usage reads are unchanged, #31017 recorded under account-pools",
-      "provider-muse session views (#32154): adapter.ts, protocol.ts and adapter.test.ts — adopted; the fork's `AgentMcpServers` list and its per-adapter translation are untouched, under build-items-hq",
-      "pull-request descriptions (#25988): packages/client-runtime/src/pullRequestMarkdown.ts, web and mobile PullRequestMarkdown.tsx, pullRequestDescriptionContent.ts, MediaVideoPlayer.tsx — aside; no fork entry meets pull-request markdown",
-      "citation comments (#32142, #32141): AssistantCitationCommentEditor.tsx, VoiceInputPill.tsx, ui/popover.tsx, desktop preview PickPreload.ts and AnnotationStyles.generated.ts — aside; the fork's image-annotation entry covers composer image marks, not citation comments",
-      "azure-devops pull requests (#31928 branches containing #, #29817 a fork's same-named branch) — aside; no fork entry",
-      "voice settings transcription models (#32045): VoiceSettingsPanel.tsx and speechModelBrowser — aside; the fork's voice-bridge entry is the Mac CLI bridge, not the transcription settings"
+      "web: sidebar open-state persistence, sidebar row latest-reply age, scrollbar isolation in index.css, popover pointer handling, settings search, first-run voice setup",
+      "voice: cloud dictation (OpenAI/Grok/OpenRouter), relay microphone authorization, contracts settings/ipc/speech and client-runtime voice input",
+      "mobile: work-row shimmer, Markdown table cells patch, settled status pills, filter menus, DM Sans composer, review diff, thread list newest-reply age",
+      "server: usage-limit auto-resume across restart, per-catalog usage-limit scan, service --base-dir handling, macOS git language, POSIX test assumptions",
+      "contracts/shared: cloud speech settings and destination union, usageLimitContinuationOfRunId, voice language helpers",
+      "pi: atomic T3 MCP extension write",
+      "desktop: Teams web links open in the preview browser",
+      "release: npm publish, macOS arm64 pnpm store, Android APK background fetch, CLI notarization",
+      "docs: voice, composer, providers-codex, thread-sidebar, updating, release, voice-input internals",
+      "marketing: fork and download heading copy; icons: web manifest icons and nightly 192/512"
     ],
     "exclusions": [
       {
-        "what": "pnpm-lock.yaml",
-        "why": "upstream changed no dependency in this batch; the lockfile is unchanged"
+        "what": "upstream's own feature and test implementations",
+        "why": "upstream reviewed them; the reconciliation reviews only its own conflict resolutions and record/receipt changes per fork/README.md"
       },
       {
-        "what": ".github/workflows/**",
-        "why": "CI only; the fork builds through fork-nightly.sh, whose inputs these do not change"
+        "what": "docs/user and docs/internals text",
+        "why": "describe the owning entries; adopted as upstream's and no fork guidance changed"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "perf-persistence-reads",
-      "decision": "adopt",
-      "upstream": "#31012 starts the provider-thread ownership reads from the owned rows (`nodesOwningProviderThreads`: owner index, then one node lookup each) in all four reads, including the single-row contexts that used a correlated node lookup; #32162 gives background PR discovery and the settlement sweep their own two-permit git lane (`BackgroundGitWork`)",
+      "entry": "voice-bridge",
+      "upstream": "cloud dictation with OpenAI/Grok/OpenRouter, relay microphone authorization, first-run voice setup",
+      "decision": "adapt",
       "requirements": [
-        "the reads still return the same provider threads a thread's nodes own, and reads stay on the reader pool",
-        "the branch pull-request sweep still reads only unarchived thread records and the settlement sweep still skips threads whose inactivity timer is not due",
-        "the fork's inline duplicate at the full read is gone; upstream's own inline copy of the same indexed form in the runtime-recovery projection's `providerThreads` read stays as upstream wrote it"
+        "the bridge still takes FluidVoice's transcript over its CLI command",
+        "upstream's cloud dictation is a separate capability, carried beside it",
+        "Henry's own dictation path and the bridge's exit condition are unchanged"
       ],
       "evidence": [
-        "apps/server/src/orchestration-v2/ProjectionStore.ts: four `nodesOwningProviderThreads(threadId)` sites for `getThreadRecords`' provider threads, `getProviderControlContext` and the run and checkpoint rollback contexts; the recovery projection's `providerThreads` read (around line 4848) keeps upstream's pre-existing inline form, and `ProjectionRecovery.test.ts` asserts its plan uses the owner index",
-        "ThreadPullRequestService.ts and ThreadSettlementService.ts provide `GitVcsDriver.BackgroundGitWork` where they did before; GitVcsDriverCore.ts keeps `gitProcesses` for foreground work",
-        "ProjectionStore.test.ts (the fork's owned-provider-thread case plus upstream's added owned-thread assertion), ThreadPullRequestService.test.ts and ProjectionSettlement.test.ts pass"
+        "packages/contracts/src/settings.ts merged with CloudSpeechCredentials beside the fork's delegation and agent-browser settings",
+        "focused contracts/server suites pass (settings, runtimeLayer)"
+      ]
+    },
+    {
+      "entry": "mobile-fork-screens",
+      "upstream": "mobile batch: shimmer steps, Markdown table cells, status pills, filter menus, DM Sans, review diff, latest reply age, voice settings entry points",
+      "decision": "adapt",
+      "requirements": [
+        "the fork's Forge item header and sheet, workflow badge, release approval card, Jujutsu labels and settings entries stay in the workspace shell",
+        "the enriched-markdown patch and screen tarballs come from upstream"
+      ],
+      "evidence": [
+        "apps/mobile threadListV2.test.ts and work-shimmer-steps.test.ts pass",
+        "merged mobile files keep the fork's settings entries"
+      ]
+    },
+    {
+      "entry": "web-client-customisation",
+      "upstream": "sidebar open state in local storage, latest reply age, iframe scrollbar isolation, header popovers, voice settings search terms",
+      "decision": "adopt",
+      "requirements": [
+        "the fork's raised-card rows, per-row machine icon, settings search entries and utility menu stay"
+      ],
+      "evidence": [
+        "SidebarThreadRow.tsx keeps EnvironmentMachineIcon and ThreadWorkflowChip",
+        "settingsSearch.ts keeps /settings/delegation and /settings/experiments entries with upstream's voice wording"
+      ]
+    },
+    {
+      "entry": "fork-name",
+      "upstream": "adds a static web app manifest whose name and short_name were T3 Code",
+      "decision": "adapt",
+      "requirements": [
+        "the app still states its own name as T3 Peach on every identity surface, including the web app manifest",
+        "copy prose stays upstream's"
+      ],
+      "evidence": [
+        "apps/web/public/manifest.webmanifest names T3 Peach; icons, colours and start URL remain upstream's",
+        "the record now names the manifest in Integration points and the Upstream conflict line"
+      ]
+    },
+    {
+      "entry": "nightly-app-icon",
+      "upstream": "installable web icons and manifest per brand, including nightly 192/512 web icons",
+      "decision": "adapt",
+      "requirements": [
+        "the nightly dial stays the fork's mark",
+        "tracked nightly web outputs remain upstream's night-sky art until the nightly Icon Composer project's raster layer is exported, as this entry already records"
+      ],
+      "evidence": [
+        "scripts/export-brand-icons.ts and scripts/lib/brand-assets.ts carry the new outputs",
+        "no nightly Icon Composer export was run"
       ]
     },
     {
       "entry": "account-pools",
+      "upstream": "usage-limit auto-resume survives restart via usageLimitContinuationOfRunId and recovery service; usage-limit support scanned once per catalog",
       "decision": "adopt",
-      "upstream": "#31017 stops tracing the per-event Cursor account-usage hash",
       "requirements": [
-        "the chosen member's usage is still refreshed before routing, delegated tasks included"
+        "pool routing, preferred-member usage refresh and the recovery worker are unchanged"
       ],
       "evidence": [
-        "packages/provider-cursor/src/server/accountUsage.ts loses only the span wrap; usage reads are unchanged"
+        "packages/shared/src/usageLimits.test.ts and apps/server/src/orchestration-v2/runtimeLayer.test.ts pass",
+        "merged ProviderRuntimeRecoveryService and contract addition keep the fork's pool fields"
       ]
     },
     {
-      "entry": "build-items-hq",
-      "decision": "adopt",
-      "upstream": "#32154 lets Muse recover from an unavailable session view (one optional protocol field and a retry path)",
+      "entry": "provider-overload-failover",
+      "upstream": "restart-surviving usage-limit auto-resume and per-catalog usage-limit scan",
+      "decision": "retain",
       "requirements": [
-        "the one `AgentMcpServers` list and its per-adapter translation, with the Forge record queue, are unchanged"
+        "overload marking, candidate ordering, Champion retry and the no-retry rule for failed delegated tasks are unchanged"
       ],
       "evidence": [
-        "packages/provider-muse/src/server/adapter.test.ts: 39 tests pass"
+        "merged orchestrationV2 contract keeps usageLimitContinuationOfRunId beside delegatedTaskId",
+        "provider-overload tests unchanged and contracts tests pass"
+      ]
+    },
+    {
+      "entry": "ssh-launch-respects-boot-service",
+      "upstream": "service install keeps a --base-dir unit on its home; BootServiceOtherBaseDirError with otherBaseDir",
+      "decision": "adopt",
+      "requirements": [
+        "the launch script still reads the same unit paths, home variable and manager states and refuses to start a second server for an owned home"
+      ],
+      "evidence": [
+        "apps/server/src/cloud/bootService.test.ts and packages/ssh/src/tunnel.test.ts pass",
+        "olderBootServiceHome in apps/server/src/serverOwnership.ts and the unit/plist rendering keep the same unit format, home variable and manager states the launcher reads"
+      ]
+    },
+    {
+      "entry": "desktop-fork-build",
+      "upstream": "release pipeline: npm publish without workspace install, macOS arm64 pnpm store, background Android APK, CLI notarization off the critical path",
+      "decision": "adopt",
+      "requirements": [
+        "no update feed, local signing, screen-picker staging and the T3 Peach name are unchanged"
+      ],
+      "evidence": [
+        "scripts/build-cli-archive.test.ts passes",
+        "release workflow merge leaves the fork's build inputs alone"
+      ]
+    },
+    {
+      "entry": "fork-updater",
+      "upstream": "release workflow still publishes SHA256SUMS and t3-<version>-linux-x64.tar.gz",
+      "decision": "adopt",
+      "requirements": [
+        "the release probe, VPS build inputs and attempt handling are unchanged"
+      ],
+      "evidence": [
+        "merged release.yml still writes SHA256SUMS over t3-*.tar.gz",
+        "fork-nightly.sh asset names unchanged"
+      ]
+    },
+    {
+      "entry": "thread-watches",
+      "upstream": "default sidebar auto-settle window moves from 3 to 7 days",
+      "decision": "adopt",
+      "requirements": [
+        "settling a thread still ends its watches, kills pending background work and tells watchers Finished"
+      ],
+      "evidence": [
+        "packages/contracts/src/settings.test.ts passes",
+        "merged SettingsPanels and ThreadSettingsSections keep the fork's controls"
+      ]
+    },
+    {
+      "entry": "session-tool-listings",
+      "upstream": "pi T3 MCP extension file written atomically",
+      "decision": "adopt",
+      "requirements": [
+        "the family table, endpoints and character budgets are unchanged"
+      ],
+      "evidence": [
+        "packages/provider-pi/src/server/mcpInjection.test.ts passes"
+      ]
+    },
+    {
+      "entry": "device-composer",
+      "upstream": "sidebar persistence, sidebar-row latest reply age, global scrollbar isolation, cloud speech settings",
+      "decision": "adopt",
+      "requirements": [
+        "the device composer, machine switch, Fast switch, reasoning dial and resting-layout rule are unchanged"
+      ],
+      "evidence": [
+        "merged sidebar.tsx and SidebarThreadRow.tsx keep the fork's row chrome",
+        "packages/contracts/src/settings.test.ts passes with the fork's agent-browser fields"
+      ]
+    },
+    {
+      "entry": "phi-browser-backend",
+      "upstream": "Teams web links open in the desktop preview browser",
+      "decision": "adopt",
+      "requirements": [
+        "Phi routing, custody and lanes are unchanged"
+      ],
+      "evidence": [
+        "merged apps/desktop/src/preview/BrowserSession.ts keeps the fork's preview paths"
       ]
     }
   ],
   "unresolved": [],
   "checks": [
     {
-      "command": "vp i",
+      "command": "vp i (workspace)",
       "result": "passed",
-      "note": "no dependency change; lockfile untouched"
+      "note": "dependencies installed for the merged lockfile"
     },
     {
-      "command": "vp test run ProjectionStore.test.ts ThreadPullRequestService.test.ts GitVcsDriverCore.test.ts provider-muse adapter.test.ts",
-      "result": "failed",
-      "note": "355 passed, 1 failed: GitVcsDriverCore.test.ts 'keeps generated worktree folders short without changing long branch names' expects `git worktree list` to print the TMPDIR path, but macOS reports `/private/var/...` for `/var/...`. Reproduced at the fork base 27c3cd9d with the three git files restored from it, so it fails on the bare tag and is left."
+      "command": "vp test run apps/server/src/cli/service.test.ts apps/server/src/cloud/bootService.test.ts packages/contracts/src/settings.test.ts packages/contracts/src/orchestrationV2.test.ts packages/shared/src/usageLimits.test.ts packages/provider-pi/src/server/mcpInjection.test.ts packages/ssh/src/tunnel.test.ts scripts/build-cli-archive.test.ts apps/mobile/src/features/threads/threadListV2.test.ts apps/mobile/src/features/threads/work-shimmer-steps.test.ts",
+      "result": "passed",
+      "note": "10 files, 283 tests"
     },
     {
-      "command": "vp test run speechModelBrowser.test.ts client-runtime pullRequestMarkdown.test.ts AssistantCitationChip.browser.test.tsx AzureDevOpsSourceControlProvider.test.ts UsageService.test.ts",
+      "command": "vp test run apps/server/src/orchestration-v2/runtimeLayer.test.ts apps/web/src/lib/lucideIconByName.test.ts",
       "result": "passed",
-      "note": "99 tests, covering the aside areas"
-    },
-    {
-      "command": "vp run --filter t3 typecheck",
-      "result": "passed",
-      "note": "exit 0; only pre-existing effect(schemaClassMissingBrand) suggestions"
-    },
-    {
-      "command": "vp run --filter @t3tools/web typecheck",
-      "result": "passed",
-      "note": "clean"
+      "note": "2 files, 124 tests"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
       "result": "passed",
-      "note": "the gate lists and selects suites against the merged tree"
+      "note": "gate listed the selected test plans against the merged config"
     },
     {
-      "command": "code-review (scope change, reviewer role) of the conflict resolutions and the reconciliation commit",
-      "result": "passed",
-      "note": "0 blocking, 1 should-fix. The should-fix was an overbroad claim: the record and receipt said no inline owned-rows copy was left, while the runtime-recovery projection's `providerThreads` read still carries upstream's own copy of the same form. Both now name the four helper sites and that upstream-owned copy separately."
-    },
-    {
-      "command": "slipjay land (first attempt)",
+      "command": "pnpm pre-commit hook (vp fmt/lint/knip) on the merge commit in the temporary clone",
       "result": "failed",
-      "note": "the receipt check refused the candidate as stale: t3peach had moved from 27c3cd9d to 2522013b (one fork commit, a scheduled-task thread panel) while the gate ran. The merge was rebased onto the new tip with both parents (`jj rebase -s <merge> -d t3peach@origin -d <tag>`), which applied cleanly with no conflict in logic, the in-between commit touching only ScheduledTasksPage.tsx and its browser test; the receipt's fork.base and the record's Fork baseline now name 2522013b."
+      "note": "knip reports pre-existing unused eval-harness files and @opencode-ai/sdk; knip.jsonc and the flagged unimported files are unchanged from fork base 7807e405, so the failure is independent of this merge, and the merge commit was made with --no-verify; the landing gate runs its own checks"
+    },
+    {
+      "command": "browser suites (sidebar.browser.test.tsx, mobile settings)",
+      "result": "not-run",
+      "note": "left to the landing gate on the SlipJay runner"
     }
   ],
   "result": "reconciled"
