@@ -133,8 +133,11 @@ the bar show each account's quota, countdown, and credits. Tap a row to open its
 
 The same account signed in on more than one environment, or reported by a hub as well, counts once.
 
-In a thread, the same pooled 5-hour and weekly limits sit beside the composer when the window is
-wide enough to fit them. Hover a segment for that account, or click **Usage left** to open this page.
+In a thread, **Usage left** sits beside the composer when the window is wide enough to fit it. Each
+provider shows one figure: what is left in its tightest window (5-hour or weekly), added up across
+its accounts, so two Claude accounts can show up to 200%. With more than one account, each
+account's own figure sits beside it, marked with its accent colour or, without one, its initial. The figure turns amber when you are spending faster than an even rate to the
+reset, and reads **out** with a countdown when nothing is left. Click **Usage left** to open this page.
 Filter with the environment dropdown to see what a single machine has.
 
 When a Claude or Codex account has no overall weekly quota left, its pooled session contribution

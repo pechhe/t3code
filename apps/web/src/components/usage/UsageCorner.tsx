@@ -1,16 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
+import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/provider-instance-display";
 import {
   collectLimitAccounts,
   collectLimitPools,
   formatDuration,
-  type LimitAccount,
-  type LimitPool,
-  type LimitPoolWindow,
-  planCapacity,
-  remainingPercent,
 } from "@t3tools/shared/usageLimits";
 import { useNavigate } from "@tanstack/react-router";
-import { Fragment, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { observeResize } from "../../lib/observeResize";
@@ -18,6 +14,7 @@ import { environmentPresentations } from "../../state/presentation";
 import { providerClients } from "../settings/providerDriverMeta";
 import { ArrowRightIcon } from "lucide-react";
 
+import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
 import {
   THREAD_DETAILS_CARD_GAP,
@@ -25,45 +22,11 @@ import {
 } from "../chat/threadDetailsCardLayout";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
 import { useChatCanvas } from "../chat/ChatCanvasContext";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { barColor } from "./UsageLimits";
+import { type UsageCornerRow, usageCornerRows } from "./usageCorner";
 
 // Same width and edge as the thread details card above it, so the two read as one column.
 const CARD_WIDTH_PX = THREAD_DETAILS_CARD_WIDTH;
 const GUTTER_MARGIN_PX = THREAD_DETAILS_CARD_GAP;
-
-/**
- * The account-wide session and weekly windows of each provider pool. Claude also reports
- * weekly buckets for single models (`seven_day_fable`), which the corner leaves to the
- * Usage page.
- */
-function cornerWindows(pool: LimitPool): LimitPoolWindow[] {
-  const accountWide = pool.windows.filter(
-    (window) =>
-      (window.kind === "session" || window.kind === "weekly") &&
-      !(pool.driver === "claudeAgent" && window.kind === "weekly" && window.id !== "seven_day"),
-  );
-  return (["session", "weekly"] as const).flatMap((kind) => {
-    const first = accountWide.find((window) => window.kind === kind);
-    return first ? [first] : [];
-  });
-}
-
-/**
- * A short name telling accounts apart: the instance's display name, else its instance id
- * (`claude_ys` → `ys`). Emails stay off the card, as on the Usage page.
- */
-function accountName(account: LimitAccount): string {
-  if (account.displayName) return account.displayName;
-  const id = account.key.slice(account.key.indexOf(":") + 1).replace(/\.json$/i, "");
-  return id.replace(/^(claude|codex)[_-]/i, "") || id;
-}
-
-function windowLabel(window: LimitPoolWindow): string {
-  if (window.kind === "weekly") return "wk";
-  const minutes = window.members[0]?.window.windowDurationMins;
-  return minutes ? `${Math.round(minutes / 60)}h` : "session";
-}
 
 /**
  * Where the column sits in the composer overlay: in the gutter right of the centred composer,
@@ -100,9 +63,8 @@ function useGutterPlacement(
 }
 
 /**
- * Subscription limits at a glance beside the composer: one row per provider window, each a
- * bar of account segments sized by plan capacity, so the filled area is what is left across
- * the pool. Hover a segment for that account.
+ * Subscription limits at a glance beside the composer: one figure per provider, what is left
+ * in its tightest window summed across its accounts, with each account's own figure beside it.
  */
 export function UsageCorner({ overlay }: { readonly overlay: HTMLElement | null }) {
   const placement = useGutterPlacement(overlay);
@@ -114,9 +76,7 @@ export function UsageCorner({ overlay }: { readonly overlay: HTMLElement | null 
   const now = Date.parse(`${useNowMinute()}:00.000Z`);
   const navigate = useNavigate();
   if (placement === null) return null;
-  const rows = collectLimitPools(collectLimitAccounts(presentations), now).flatMap((pool) =>
-    cornerWindows(pool).map((window) => ({ pool, window })),
-  );
+  const rows = usageCornerRows(collectLimitPools(collectLimitAccounts(presentations), now), now);
   if (rows.length === 0) return null;
   const maxHeight = Math.max(0, placement.top - columnTop - GUTTER_MARGIN_PX);
   return (
@@ -129,123 +89,86 @@ export function UsageCorner({ overlay }: { readonly overlay: HTMLElement | null 
         height: maxHeight,
       }}
     >
-      <UsageCard rows={rows} now={now} onOpenUsage={() => void navigate({ to: "/usage" })} />
+      <div className="dropdown-glass pointer-events-auto flex-none overflow-hidden rounded-3xl text-xs">
+        <ThreadDetailsSection
+          headingId="usage-corner-heading"
+          title="Usage left"
+          separated={false}
+          actions={
+            <ThreadDetailsControl
+              part="icon"
+              aria-label="Open Usage"
+              onClick={() => void navigate({ to: "/usage" })}
+            >
+              <ArrowRightIcon className="size-3.5 text-muted-foreground" />
+            </ThreadDetailsControl>
+          }
+        >
+          <div className="flex flex-col gap-1.5 px-1.5">
+            {rows.map((row) => (
+              <UsageCornerLine key={row.pool.driver} row={row} now={now} />
+            ))}
+          </div>
+        </ThreadDetailsSection>
+      </div>
     </div>
   );
 }
 
-function UsageCard({
-  rows,
-  now,
-  onOpenUsage,
-}: {
-  readonly rows: ReadonlyArray<{ readonly pool: LimitPool; readonly window: LimitPoolWindow }>;
-  readonly now: number;
-  readonly onOpenUsage: () => void;
-}) {
+function UsageCornerLine({ row, now }: { readonly row: UsageCornerRow; readonly now: number }) {
+  const provider = providerClients.get(row.pool.driver)?.label ?? String(row.pool.driver);
+  const out = row.remainingPercent === 0;
+  const back = row.backAt === null ? null : formatDuration(row.backAt - now);
+  const accounts = row.accounts.length > 1 ? row.accounts : [];
+  const summary = out
+    ? `out${back ? `, back in ${back}` : ""}`
+    : `${row.remainingPercent}% left${row.ahead ? ", spending faster than an even rate" : ""}`;
   return (
-    <div className="dropdown-glass pointer-events-auto flex-none overflow-hidden rounded-3xl text-xs">
-      <ThreadDetailsSection
-        headingId="usage-corner-heading"
-        title="Usage left"
-        separated={false}
-        actions={
-          <ThreadDetailsControl part="icon" aria-label="Open Usage" onClick={onOpenUsage}>
-            <ArrowRightIcon className="size-3.5 text-muted-foreground" />
-          </ThreadDetailsControl>
+    <div
+      role="group"
+      aria-label={[
+        `${provider}: ${summary}`,
+        ...accounts.map((entry) => `${entry.name} ${entry.remainingPercent}%`),
+      ].join("; ")}
+      className="flex items-center gap-2 tabular-nums"
+    >
+      <ProviderInstanceIcon
+        driverKind={row.pool.driver}
+        displayName={provider}
+        className="size-3.5"
+        iconClassName="size-3.5"
+      />
+      <span aria-hidden className="ms-auto flex gap-2 text-2xs text-muted-foreground">
+        {accounts.map((entry) => {
+          const accent = normalizeProviderAccentColor(entry.account.accentColor);
+          return (
+            <span key={entry.account.key} className="inline-flex items-center gap-1">
+              {/* Without an accent colour the dots would match, so the name's initial marks it. */}
+              {accent ? (
+                <span className="size-1.5 rounded-full" style={{ backgroundColor: accent }} />
+              ) : (
+                <span className="font-medium text-foreground/70">
+                  {entry.name.slice(0, 1).toUpperCase()}
+                </span>
+              )}
+              {entry.remainingPercent}
+            </span>
+          );
+        })}
+      </span>
+      <span
+        aria-hidden
+        className={
+          out
+            ? "font-semibold text-destructive"
+            : row.ahead
+              ? "font-semibold text-warning-foreground"
+              : "font-semibold text-foreground"
         }
       >
-        <div className="flex flex-col gap-2 px-1.5">
-          {rows.map(({ pool, window }, index) => (
-            <Fragment key={`${pool.driver}:${window.kind}:${window.id}`}>
-              <UsageCornerRow pool={pool} window={window} now={now} />
-              {pool.accounts.length > 1 && rows[index + 1]?.pool !== pool ? (
-                <PoolLegend pool={pool} />
-              ) : null}
-            </Fragment>
-          ))}
-        </div>
-      </ThreadDetailsSection>
-    </div>
-  );
-}
-
-/** The pool's accounts in segment order, each with the plan multiplier its segment is sized by. */
-function PoolLegend({ pool }: { readonly pool: LimitPool }) {
-  return (
-    <div className="flex flex-wrap gap-x-2 ps-20 text-2xs text-muted-foreground tabular-nums">
-      {pool.accounts.map((account) => (
-        <span key={account.key}>
-          {accountName(account)}{" "}
-          <span className="text-foreground/70">{planCapacity(account.plan)}×</span>
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function UsageCornerRow({
-  pool,
-  window,
-  now,
-}: {
-  readonly pool: LimitPool;
-  readonly window: LimitPoolWindow;
-  readonly now: number;
-}) {
-  const color = barColor(pool.driver);
-  const provider = providerClients.get(pool.driver)?.label ?? String(pool.driver);
-  const label = `${provider} ${windowLabel(window)}`;
-  // The soonest reset that hands anything back; an untouched account resets to no effect.
-  const nextRefill = window.resets.find((reset) => reset.restoresPercent > 0);
-  return (
-    <div className="grid grid-cols-[4.5rem_minmax(0,1fr)_2.25rem] items-center gap-x-2 gap-y-0.5">
-      <span className="truncate text-muted-foreground">{label}</span>
-      <div
-        role="img"
-        aria-label={`${label}: ${window.remainingPercent}% left`}
-        className="flex h-2 gap-0.5"
-      >
-        {window.columns.map((column) =>
-          column.window ? (
-            <Tooltip key={column.account.key}>
-              <TooltipTrigger
-                render={
-                  <div
-                    className="relative h-full min-w-1.5 overflow-hidden rounded-xs bg-muted"
-                    style={{ flex: `${column.capacity} 1 0` }}
-                  />
-                }
-              >
-                <div
-                  className="absolute inset-y-0 left-0"
-                  style={{ width: `${remainingPercent(column.window)}%`, backgroundColor: color }}
-                />
-              </TooltipTrigger>
-              <TooltipPopup>
-                {[
-                  accountName(column.account),
-                  column.account.plan,
-                  `${remainingPercent(column.window)}% left`,
-                  column.window.resetsAt
-                    ? `↻ ${formatDuration(Date.parse(column.window.resetsAt) - now)}`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </TooltipPopup>
-            </Tooltip>
-          ) : null,
-        )}
-      </div>
-      <span className="text-end font-semibold text-foreground tabular-nums">
-        {window.remainingPercent}%
+        {out ? "out" : `${row.remainingPercent}%`}
+        {out && back ? <span className="font-normal text-muted-foreground"> · {back}</span> : null}
       </span>
-      {nextRefill ? (
-        <span className="col-start-2 col-end-4 text-2xs text-muted-foreground tabular-nums">
-          ↻ +{nextRefill.restoresPercent}% in {formatDuration(nextRefill.at - now)}
-        </span>
-      ) : null}
     </div>
   );
 }
