@@ -12,10 +12,11 @@ import {
   ChampionSynthesisInput,
   ChampionRecommendation,
   ChampionRecommendationInput,
-  ChampionAcceptInput,
+  ChampionAgentAcceptInput,
+  ChampionAgentFindingActionInput,
   ChampionCheckContext,
   ChampionDetail,
-  ChampionFindingActionInput,
+  ChampionMetricsLeadResult,
   ChampionFindingDeliveryInput,
   ChampionGetInput,
   ChampionHistoryInput,
@@ -183,17 +184,27 @@ const propose = Tool.make("t3_champions_propose", {
 const accept = Tool.make("t3_champions_accept", {
   ...shared,
   description:
-    "Accept metric definitions only on user instruction. The champion owner cannot accept its own proposal.",
-  parameters: ChampionAcceptInput,
+    "Accept the pending metric proposal named by proposalId (from t3_champions_get) for the user. It needs approvalQuote: the user's exact words approving it, copied from a message they typed in this thread. Without one it is refused and the proposal keeps waiting for them on the Champion page. A proposal replaced since you read it is refused.",
+  parameters: ChampionAgentAcceptInput,
   success: ChampionDetail,
 })
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false);
 const finding_action = Tool.make("t3_champions_finding_action", {
   ...shared,
-  description: "Dismiss or reopen a finding, or request the user's decision on it. For a decision, reason is a one-line question and proposal holds the recommended action, one sentence of why and the other options in a few words each; the user can approve the proposal in one click.",
-  parameters: ChampionFindingActionInput,
+  description:
+    "Dismiss or reopen a finding, request the user's decision on it, or answer that decision for them. For a decision, reason is a one-line question and proposal holds the recommended action, one sentence of why and the other options in a few words each; the user can approve the proposal in one click. To answer (resolve_decision), pass decisionId, the answer as reason, and approvalQuote: the user's exact words, copied from a message they typed in this thread. Without one it is refused and the decision keeps waiting for them on the Champion page.",
+  parameters: ChampionAgentFindingActionInput,
   success: ChampionDetail,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const start_metrics_lead = Tool.make("t3_champions_start_metrics_lead", {
+  ...shared,
+  description:
+    "Fix with a lead, as the Champion page does: start a thread on the lead role's current model to shape and lead a fix for this champion's metrics. Returns the new thread's id.",
+  parameters: ChampionGetInput,
+  success: ChampionMetricsLeadResult,
 })
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false);
@@ -209,7 +220,7 @@ const check_context = Tool.make("t3_champions_check_context", {
 const propose_metrics = Tool.make("t3_champions_propose_metrics", {
   ...shared,
   description:
-    "Submit metric proposals from the authenticated setup run. Retains draft until user acceptance.",
+    "Submit metric proposals from your authenticated setup run or routine check. The proposal waits for the user to accept it on the Champion page; a check still reports as usual.",
   parameters: ChampionProposal,
   success: ChampionDetail,
 })
@@ -282,6 +293,7 @@ export const ChampionsToolkit = Toolkit.make(
   propose,
   accept,
   finding_action,
+  start_metrics_lead,
   check_context,
   propose_metrics,
   report,

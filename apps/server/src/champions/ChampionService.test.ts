@@ -48,6 +48,7 @@ import {
   type OrchestrationV2Run,
   type OrchestrationV2ProviderThread,
   type OrchestrationV2Subagent,
+  type OrchestrationV2ConversationMessage,
   type ChampionFinding,
   type ServerProvider,
   type Project,
@@ -58,6 +59,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
+import * as DateTime from "effect/DateTime";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Champions from "./ChampionService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
@@ -142,7 +144,14 @@ const fixture = Effect.fn("test.championFixture")(() =>
     let failOnce = false;
     let activeRun = true;
     let queuedRun = false;
-    const launchRequests: Array<{ commandId: string; messageId: string; model: string }> = [];
+    const launchRequests: Array<{
+      commandId: string;
+      messageId: string;
+      model: string;
+      text: string;
+      createdBy: string;
+      creationSource: string;
+    }> = [];
     const children = new Map<ThreadId, OrchestrationV2ThreadShell>();
     const childRuns = new Map<ThreadId, OrchestrationV2Run[]>();
     const dispatches: string[] = [];
@@ -150,6 +159,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
     let providerOverride: ReadonlyArray<ServerProvider> | undefined;
     const disabledProviders = new Set<string>();
     const childTasks: OrchestrationV2Subagent[] = [];
+    const threadMessages = new Map<ThreadId, OrchestrationV2ConversationMessage[]>();
     const receipts = new Map<string, CommandReceiptV2>();
     let landing: {
       status: string;
@@ -181,6 +191,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
     const shell = () =>
       ({
         id: owner,
+        title: "Quality owner",
         projectId: foreignProject ? ProjectId.make("foreign-project") : projectId,
         providerInstanceId: instanceId,
         runtimeMode: ownerMode,
@@ -225,6 +236,9 @@ const fixture = Effect.fn("test.championFixture")(() =>
               commandId: input.commandId,
               messageId,
               model: input.modelSelection.model,
+              text: input.initialMessage!.text,
+              createdBy: input.createdBy,
+              creationSource: input.creationSource,
             });
             if (failOnce) {
               failOnce = false;
@@ -246,11 +260,13 @@ const fixture = Effect.fn("test.championFixture")(() =>
               ? {
                   thread: children.get(id),
                   runs: childRuns.get(id) ?? [],
+                  messages: threadMessages.get(id) ?? [],
                   subagents: [],
                   providerSessions: [],
                 }
               : {
                   thread: shell(),
+                  messages: threadMessages.get(id) ?? [],
                   runs: [
                     ...(priorCompletedRun
                       ? [
@@ -419,6 +435,59 @@ const fixture = Effect.fn("test.championFixture")(() =>
       caller,
       registry,
       sessions,
+      /** An ordinary agent thread in the champion's project, not one of its own. */
+      installAgentThread: (threadId: ThreadId, title: string) => {
+        children.set(threadId, {
+          id: threadId,
+          title,
+          projectId,
+          modelSelection: { instanceId, model: "agent-model" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          activeRunId: null,
+          archivedAt: null,
+          deletedAt: null,
+        } as unknown as OrchestrationV2ThreadShell);
+      },
+      addMessage: (
+        threadId: ThreadId,
+        text: string,
+        provenance: Partial<OrchestrationV2ConversationMessage> = {},
+      ) => {
+        const messages = threadMessages.get(threadId) ?? [];
+        messages.push({
+          id: MessageId.make(`message:${threadId}:${messages.length}`),
+          threadId,
+          role: "user",
+          text,
+          createdBy: "user",
+          creationSource: "web",
+          createdAt: DateTime.makeUnsafe(0),
+          ...provenance,
+        } as OrchestrationV2ConversationMessage);
+        threadMessages.set(threadId, messages);
+      },
+      callTool: Effect.fn("test.championTool")(function* <
+        Name extends keyof typeof ChampionsToolkit.tools,
+      >(service: Champions.ChampionService["Service"], name: Name, input: unknown) {
+        const scope = yield* registry.resolve(
+          credential!.config.authorizationHeader.slice("Bearer ".length),
+        );
+        assert.isDefined(scope);
+        const deps = Layer.mergeAll(
+          dependencies,
+          Layer.succeed(Champions.ChampionService, service),
+          Layer.succeed(McpInvocationContext.McpInvocationContext, scope!),
+        );
+        const toolkit = yield* ChampionsToolkit.pipe(
+          Effect.provide(
+            McpToolAccess.HandlersLayer.layer(ChampionHandlers.layer).pipe(Layer.provide(deps)),
+          ),
+        );
+        return yield* toolkit
+          .handle(name, input as never)
+          .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(deps), Effect.orDie);
+      }),
       reportThroughTool: Effect.fn("test.championReportTool")(function* (
         service: Champions.ChampionService["Service"],
         input: Parameters<Champions.ChampionService["Service"]["report"]>[1],
@@ -556,6 +625,19 @@ const definitions = Effect.fn("test.championDefinitions")(function* (
   yield* service.propose({ id: config.id, metrics: [metric], reason: "Measure errors" });
   return yield* service.accept({ id: config.id });
 });
+const unquotedAgent = { threadId: undefined, quote: undefined };
+const refusedWith = <A>(effect: Effect.Effect<A, ChampionError>, detail: string) =>
+  effect.pipe(
+    Effect.match({
+      onFailure: (error) => {
+        assert.isTrue(isChampionError(error));
+        assert.include(error.message, detail);
+      },
+      onSuccess: () => {
+        assert.fail(`Expected a refusal naming: ${detail}`);
+      },
+    }),
+  );
 const isChampionError = Schema.is(ChampionError);
 const refused = <A>(effect: Effect.Effect<A, ChampionError>) =>
   effect.pipe(
@@ -1491,7 +1573,7 @@ it.effect(
               otherOptions: "Weekdays only (misses weekend regressions)",
             },
           },
-          "agent",
+          unquotedAgent,
         );
         const decision = requested.findings.find((x) => x.id === finding.id)!.decision!;
         assert.equal(decision.status, "requested");
@@ -1510,7 +1592,7 @@ it.effect(
           decisionId: decision.id,
           reason: "Include weekends.",
         };
-        yield* refused(service.findingAction(answer, "agent"));
+        yield* refused(service.findingAction(answer, unquotedAgent));
         const resolved = yield* service.findingAction(answer);
         assert.equal(
           resolved.findings.find((x) => x.id === finding.id)!.decision!.answer,
@@ -2922,6 +3004,33 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
       const history = yield* service.history({ id: config.id });
       const started = history.activity.find((entry) => entry.kind === "metrics-lead");
       assert.equal(started?.threadId, threadId);
+      // The brief is the server's words under a reserved id, so the lead can never quote it.
+      assert.match(f.launchRequests[0]!.messageId, /^champion-metrics-lead:/);
+      f.addMessage(threadId, f.launchRequests[0]!.text, {
+        id: MessageId.make(f.launchRequests[0]!.messageId),
+      });
+      yield* service.propose({ id: config.id, metrics: [metric], reason: "Lead's fix" });
+      yield* refusedWith(
+        service.accept(
+          { id: config.id, proposalId: (yield* service.get({ id: config.id })).proposal!.id! },
+          { threadId, quote: "The user asked you to fix the metrics" },
+        ),
+        "not word for word",
+      );
+
+      // An ordinary agent thread (here, the lead just launched) does the same through its tool.
+      const viaTool = yield* f.callTool(service, "t3_champions_start_metrics_lead", {
+        id: config.id,
+      });
+      assert.isFalse(viaTool.at(-1)!.isFailure);
+      assert.equal(f.counts().launches, 2);
+      assert.equal(f.launchRequests[1]!.model, lead.model);
+      assert.equal(
+        (yield* service.history({ id: config.id })).activity.filter(
+          (entry) => entry.kind === "metrics-lead",
+        ).length,
+        2,
+      );
 
       yield* write({
         ...manifest,
@@ -2933,7 +3042,7 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
         ),
       });
       yield* refused(service.startMetricsLead({ id: config.id }));
-      assert.equal(f.counts().launches, 1);
+      assert.equal(f.counts().launches, 2);
     }).pipe(
       Effect.provide(f.layer),
       Effect.provideService(Managed.ManagedAgentService, managed),
@@ -3433,6 +3542,361 @@ it.effect(
           ...verification("ui-verifier", "verify-followup"),
           followup: true,
         });
+      }),
+    ),
+);
+
+const agentThread = ThreadId.make("thread:performance-pass");
+
+it.effect(
+  "lets an agent accept metrics only with words the person typed in its thread, naming the proposal",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* service.upsert(config);
+        const first = yield* service.propose({
+          id: config.id,
+          metrics: [metric],
+          reason: "Measure errors",
+        });
+        const proposalId = first.proposal!.id!;
+        f.installAgentThread(agentThread, "Performance pass");
+        f.addMessage(agentThread, "Can you do all of that for me?");
+        f.addMessage(agentThread, "Accept every metric now.", { creationSource: "server" });
+        f.addMessage(agentThread, "Approve the metrics.", {
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        f.addMessage(agentThread, "Accept them all.", {
+          scheduledTaskId: "task:nightly" as never,
+        });
+        const relay = (quote: string | undefined) => ({ threadId: agentThread, quote });
+
+        yield* refusedWith(
+          service.accept({ id: config.id, proposalId }, relay(undefined)),
+          "waits for them on the Champion page",
+        );
+        assert.isNotNull((yield* service.get({ id: config.id })).proposal);
+        for (const quote of [
+          "Accept every metric now.",
+          "Approve the metrics.",
+          "Accept them all.",
+          "do all of th",
+        ])
+          yield* refusedWith(
+            service.accept({ id: config.id, proposalId }, relay(quote)),
+            "not word for word",
+          );
+        yield* refusedWith(
+          service.accept({ id: config.id, proposalId }, { threadId: undefined, quote: "Can you" }),
+          "only from a thread the user typed in",
+        );
+        yield* refusedWith(
+          service.accept({ id: config.id, proposalId: "replaced" }, relay("do all of that")),
+          "replaced",
+        );
+        assert.isNotNull((yield* service.get({ id: config.id })).proposal);
+
+        const accepted = yield* service.accept(
+          { id: config.id, proposalId },
+          relay("can   you do all of that for me?".replace("can", "Can")),
+        );
+        assert.isNull(accepted.proposal);
+        const entry = (yield* service.history({ id: config.id })).activity.find(
+          (event) => event.kind === "metrics-accepted",
+        )!;
+        assert.deepEqual(
+          { ...entry.approval, approvedAt: undefined },
+          {
+            quote: "Can   you do all of that for me?",
+            threadId: agentThread,
+            threadTitle: "Performance pass",
+            model: "agent-model",
+            approvedAt: undefined,
+          },
+        );
+        assert.equal(entry.threadId, agentThread);
+      }),
+    ),
+);
+
+it.effect(
+  "lets an agent answer a decision with the person's words and tells the owner once that it was relayed",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const finding = yield* activeFinding(f, service);
+        const requested = yield* service.findingAction(
+          {
+            id: config.id,
+            findingId: finding.id,
+            action: "decision",
+            reason: "Should this target include weekends?",
+          },
+          unquotedAgent,
+        );
+        const decision = requested.findings.find((x) => x.id === finding.id)!.decision!;
+        f.installAgentThread(agentThread, "Performance pass");
+        f.addMessage(agentThread, "Yes, include weekends please.");
+        const answer = {
+          id: config.id,
+          findingId: finding.id,
+          action: "resolve_decision" as const,
+          decisionId: decision.id,
+          reason: "Include weekends.",
+        };
+        yield* refusedWith(
+          service.findingAction(answer, { threadId: agentThread, quote: undefined }),
+          "The decision waits for them on the Champion page",
+        );
+        assert.equal(
+          (yield* service.get({ id: config.id })).findings.find((x) => x.id === finding.id)!
+            .decision!.status,
+          "requested",
+        );
+        const relay = { threadId: agentThread, quote: "include weekends" };
+        const resolved = yield* service.findingAction(answer, relay);
+        const approval = resolved.findings.find((x) => x.id === finding.id)!.decision!.approval!;
+        assert.equal(approval.quote, "include weekends");
+        assert.equal(approval.threadId, agentThread);
+        assert.equal(approval.model, "agent-model");
+        yield* service.findingAction(answer, relay);
+        const sends = f.sent.filter((x) => x.commandId === `champion-decision:${decision.id}`);
+        assert.equal(sends.length, 1);
+        assert.include(sends[0]!.text, `relayed by an agent in thread ${agentThread}`);
+        assert.include(sends[0]!.text, '"include weekends"');
+      }),
+    ),
+);
+
+it.effect("lets a routine check file a metric proposal that waits for the person", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* activeFinding(f, service);
+      yield* service.runCheck({ id: config.id });
+      const proposed = yield* service.proposeFromSetup(f.caller(), {
+        metrics: [{ ...metric, name: "Errors people see" }],
+        reason: "Clearer name",
+      });
+      const firstId = proposed.proposal!.id!;
+      assert.include(proposed.champion.attention, "Metric proposal awaits acceptance.");
+      yield* service.report(f.caller(), { samples: [sample], findings: [], summary: "Measured" });
+      assert.isNotNull((yield* service.get({ id: config.id })).proposal);
+      const replaced = yield* service.propose({
+        id: config.id,
+        metrics: [{ ...metric, name: "Visible errors" }],
+        reason: "Edited by you.",
+      });
+      yield* refusedWith(service.accept({ id: config.id, proposalId: firstId }), "replaced");
+      const accepted = yield* service.accept({
+        id: config.id,
+        proposalId: replaced.proposal!.id!,
+      });
+      assert.equal(accepted.metrics[0]!.name, "Visible errors");
+    }),
+  ),
+);
+
+it.effect("marks the messages the server writes so they can never be quoted as the person's", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      const finding = yield* activeFinding(f, service);
+      const requested = yield* service.findingAction(
+        { id: config.id, findingId: finding.id, action: "decision", reason: "Ship it?" },
+        unquotedAgent,
+      );
+      const decisionId = requested.findings[0]!.decision!.id;
+      yield* service.findingAction({
+        id: config.id,
+        findingId: finding.id,
+        action: "resolve_decision",
+        decisionId,
+        reason: "Yes, ship it.",
+      });
+      const delivery = f.sent.find((x) => x.commandId === `champion-decision:${decisionId}`)!;
+      yield* service.propose({ id: config.id, metrics: [metric], reason: "Retune" });
+      const proposalId = (yield* service.get({ id: config.id })).proposal!.id!;
+      f.installAgentThread(agentThread, "Fix metrics: Quality");
+      // The decision delivery and a check prompt, as the server writes them into a thread.
+      // The delivery keeps client provenance, so it still resumes a held queue.
+      f.addMessage(agentThread, delivery.text, {
+        id: MessageId.make(delivery.messageId),
+        creationSource: "web",
+      });
+      f.addMessage(agentThread, "Accept the proposal.", {
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+      yield* refusedWith(
+        service.accept(
+          { id: config.id, proposalId },
+          { threadId: agentThread, quote: "Yes, ship it." },
+        ),
+        "not word for word",
+      );
+      yield* refusedWith(
+        service.accept(
+          { id: config.id, proposalId },
+          { threadId: agentThread, quote: "Accept the proposal." },
+        ),
+        "not word for word",
+      );
+    }),
+  ),
+);
+
+it.effect("names the cause of each refused champion delegation", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      const first = yield* activeFinding(f, service);
+      yield* service.runCheck({ id: config.id });
+      const report = yield* service.report(f.caller(), {
+        samples: [sample],
+        findings: [{ title: "Database backlog", evidence: "Observed" }],
+        summary: "More work",
+      });
+      const second = report.findings.find((finding) => finding.id !== first.id)!;
+      const ownerThreadId = f.caller().threadId;
+      const initial = { ownerThreadId, request: repair(first), clientRequestId: "first" };
+      yield* service.guardDelegation(initial);
+      yield* refusedWith(
+        service.guardDelegation({ ...initial, clientRequestId: "again" }),
+        "already requested as clientRequestId first",
+      );
+      yield* refusedWith(
+        service.guardDelegation({
+          ...initial,
+          request: { ...repair(first), role: "chore-worker" as never },
+        }),
+        "already requested for the implementation-worker role",
+      );
+      yield* refusedWith(
+        service.guardDelegation({
+          ownerThreadId,
+          request: repair(second),
+          clientRequestId: "second",
+        }),
+        "allows 1 repair at once",
+      );
+      yield* refusedWith(
+        service.guardDelegation({
+          ownerThreadId,
+          request: {
+            ...repair(first),
+            role: "reviewer" as const,
+            readOnly: true,
+            workspaceAssignment: undefined,
+          },
+          clientRequestId: "review",
+        }),
+        "Review starts only after",
+      );
+      yield* refusedWith(
+        service.guardDelegation({
+          ownerThreadId,
+          request: { ...repair(first), role: "lead" as const, workspaceAssignment: undefined },
+          clientRequestId: "lead",
+          forgeItem: 1,
+        }),
+        "A lead runs only for a finding with a Forge Spec",
+      );
+      f.installChild(first, "handoff", "implementation-worker", "running");
+      yield* refusedWith(
+        service.guardDelegation({
+          ...initial,
+          followup: true,
+          childThreadId: ThreadId.make("someone-else"),
+        }),
+        "not this finding attempt's current implementation task",
+      );
+      yield* service.upsert({
+        ...config,
+        charter: { ...config.charter, maxConcurrentRepairs: 3, maxRepairsPerDay: 1 },
+      });
+      yield* service.delegationOutcome({ ...initial, state: "finished" });
+      yield* refusedWith(
+        service.guardDelegation({
+          ownerThreadId,
+          request: repair(second),
+          clientRequestId: "second",
+        }),
+        "allows 1 repair a day",
+      );
+    }),
+  ),
+);
+
+const screenAndToolOutcome = (viaTool: boolean) =>
+  Effect.gen(function* () {
+    const f = yield* fixture();
+    return yield* Effect.gen(function* () {
+      const service = yield* Champions.ChampionService;
+      yield* activeFinding(f, service);
+      const steps = [
+        ["t3_champions_lifecycle", { id: config.id, lifecycle: "paused" }],
+        ["t3_champions_lifecycle", { id: config.id, lifecycle: "active" }],
+        ["t3_champions_run_check", { id: config.id }],
+      ] as const;
+      for (const [tool, input] of steps) {
+        if (viaTool) assert.isFalse((yield* f.callTool(service, tool, input)).at(-1)!.isFailure);
+        else if (tool === "t3_champions_run_check") yield* service.runCheck(input);
+        else yield* service.setLifecycle(input as { id: string; lifecycle: "paused" | "active" });
+      }
+      const detail = yield* service.get({ id: config.id });
+      const activity = (yield* service.history({ id: config.id })).activity;
+      return {
+        lifecycle: detail.champion.lifecycle,
+        attention: detail.champion.attention,
+        outstanding: detail.champion.outstandingCheckId !== null,
+        // Entries made in the same test instant order by random id, so compare them as a set.
+        activity: activity.map((entry) => `${entry.kind}: ${entry.text}`).toSorted(),
+      };
+    }).pipe(Effect.provide(f.layer));
+  }).pipe(Effect.provide(Sqlite.layerMemory));
+
+it.effect(
+  "gives pause, resume and Check now the same outcome from an agent tool as from the screen",
+  () =>
+    Effect.gen(function* () {
+      assert.deepEqual(yield* screenAndToolOutcome(true), yield* screenAndToolOutcome(false));
+    }),
+);
+
+it.effect(
+  "refuses an approval typed before its request was filed, and a proposal without an id",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const finding = yield* activeFinding(f, service);
+        f.installAgentThread(agentThread, "Performance pass");
+        f.addMessage(agentThread, "Yes, go ahead.");
+        yield* TestClock.adjust("1 minute");
+        const requested = yield* service.findingAction(
+          { id: config.id, findingId: finding.id, action: "decision", reason: "Ship it?" },
+          unquotedAgent,
+        );
+        const answer = {
+          id: config.id,
+          findingId: finding.id,
+          action: "resolve_decision" as const,
+          decisionId: requested.findings[0]!.decision!.id,
+          reason: "Ship it.",
+        };
+        const relay = { threadId: agentThread, quote: "Yes, go ahead." };
+        yield* refusedWith(service.findingAction(answer, relay), "before this request was filed");
+        f.addMessage(agentThread, "Yes, go ahead.", { createdAt: DateTime.makeUnsafe(120_000) });
+        yield* service.findingAction(answer, relay);
+
+        yield* service.propose({ id: config.id, metrics: [metric], reason: "Older proposal" });
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`UPDATE champions SET document_json = json_remove(document_json, '$.proposal.id') WHERE id = ${config.id}`.pipe(
+          Effect.orDie,
+        );
+        yield* refusedWith(
+          service.accept({ id: config.id, proposalId: "anything" }, relay),
+          "filed before proposals had ids",
+        );
+        assert.isNull((yield* service.accept({ id: config.id })).proposal);
       }),
     ),
 );

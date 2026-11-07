@@ -61,7 +61,8 @@ const failure = (cause: unknown) =>
   isChampionError(cause) ? cause : new ChampionError({ reason: "unavailable", cause });
 const invalid = () => new ChampionError({ reason: "invalid" });
 const conflict = () => new ChampionError({ reason: "conflict" });
-const refused = () => new ChampionError({ reason: "unauthorized" });
+const refused = (detail?: string) =>
+  new ChampionError({ reason: "unauthorized", ...(detail === undefined ? {} : { detail }) });
 const decodeDoc = Schema.decodeUnknownEffect(Schema.fromJsonString(ChampionDetail));
 const decodeInvestigation = Schema.decodeUnknownEffect(
   Schema.fromJsonString(ChampionInvestigation),
@@ -611,7 +612,10 @@ export const make = Effect.gen(function* () {
     childThreadId: ThreadId,
   ) {
     const match = yield* branchForRequest(ownerThreadId, request);
-    if (!match) return yield* refused();
+    if (!match)
+      return yield* refused(
+        "That agentTask names no open investigation branch of this champion. Copy workId and attemptId from the branch.",
+      );
     const investigation = yield* readInvestigation(match.investigation.investigationId);
     const attempt = investigation.attempts.find(
       (a) =>
@@ -621,7 +625,10 @@ export const make = Effect.gen(function* () {
         a.attemptId === request.attemptId &&
         a.role === request.role,
     );
-    if (!attempt) return yield* refused();
+    if (!attempt)
+      return yield* refused(
+        "That child thread is not a task this branch started with the same workId, attemptId and role. Follow up the branch's own task.",
+      );
     const doc = yield* read(investigation.id);
     const shell = yield* threads.getThreadShell(childThreadId).pipe(Effect.mapError(failure));
     const parent = yield* threads
@@ -643,7 +650,9 @@ export const make = Effect.gen(function* () {
           t.id === attempt.taskId && t.origin === "app_owned" && t.childThreadId === childThreadId,
       )
     )
-      return yield* refused();
+      return yield* refused(
+        "That branch's child thread no longer matches its recorded binding (it was deleted, moved or rebound), so it cannot be followed up. Start a new branch attempt instead.",
+      );
     return attempt.binding;
   });
   const outcome = Effect.fn("ChampionEvidence.outcome")(function* (

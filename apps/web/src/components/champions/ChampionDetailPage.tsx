@@ -121,7 +121,11 @@ function ProposalCard(props: {
   if (proposal === null) return null;
   const initial = metrics.length === 0;
   const { id } = champion;
-  const acceptStep = () => accept({ environmentId, input: { id } });
+  const acceptStep = () =>
+    accept({
+      environmentId,
+      input: { id, ...(proposal.id === undefined ? {} : { proposalId: proposal.id }) },
+    });
   return (
     <div className="flex flex-col gap-3 rounded-lg border p-3 text-sm">
       <div className="flex flex-col gap-1">

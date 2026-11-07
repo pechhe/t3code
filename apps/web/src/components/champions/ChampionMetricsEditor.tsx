@@ -213,6 +213,8 @@ export function ChampionMetricsEditor(props: {
     const id = champion.id;
     const unchanged = metricsMatchProposal(parsed.metrics, proposal);
     const reason = proposal ? `${proposal.reason} Edited by you.` : "Edited by you.";
+    // Accept exactly the proposal shown, or the one this save just filed.
+    let proposalId = unchanged ? proposal?.id : undefined;
     const ok = await run("save", "metrics", [
       ...(unchanged
         ? []
@@ -221,9 +223,16 @@ export function ChampionMetricsEditor(props: {
               propose({
                 environmentId,
                 input: { id, metrics: parsed.metrics, reason },
+              }).then((result) => {
+                if (result._tag === "Success") proposalId = result.value.proposal?.id;
+                return result;
               }),
           ]),
-      () => accept({ environmentId, input: { id } }),
+      () =>
+        accept({
+          environmentId,
+          input: { id, ...(proposalId === undefined ? {} : { proposalId }) },
+        }),
       ...(start
         ? [() => setLifecycle({ environmentId, input: { id, lifecycle: "active" as const } })]
         : []),

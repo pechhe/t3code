@@ -457,6 +457,52 @@ describe("answering a recommendation", () => {
     });
   });
 
+  it("shows an approval an agent relayed as the person's, with its thread, time and words", async () => {
+    reset();
+    const approval = {
+      quote: "can you do all of that for me?",
+      threadId: ThreadId.make("performance-pass"),
+      threadTitle: "Performance pass",
+      model: "claude-opus-5-5",
+      approvedAt: "2026-11-07T16:00:00.000Z",
+    };
+    await using _screen = await render(
+      <List
+        finding={finding({
+          ...decision("d1", "r1"),
+          status: "resolved",
+          answer: "Approved: Measure over 7 days.",
+          resolvedAt: "2026-11-07T16:00:00.000Z",
+          approval,
+        })}
+        events={[
+          {
+            id: "e-accepted",
+            championId: "c1",
+            at: "2026-11-07T16:00:00.000Z",
+            kind: "metrics-accepted",
+            text: "Read speed now over 7 days.",
+            findingId: null,
+            threadId: approval.threadId,
+            revision: null,
+            specUrl: null,
+            approval,
+          },
+        ]}
+        state={runtime({
+          recommendations: [recommendation("r1", "Extend the script.", "2026-11-05T09:00:00.000Z")],
+        })}
+      />,
+    );
+    await userEvent.click(page.getByRole("button", { name: /Private packages stay unpatched/ }));
+    await userEvent.click(page.getByRole("button", { name: /Metrics accepted/ }));
+    const lines = page.getByText("Approved by you");
+    await expect.element(lines.nth(0)).toBeVisible();
+    await expect.element(lines.nth(1)).toBeVisible();
+    await expect.element(page.getByRole("link", { name: "Performance pass" }).nth(1)).toBeVisible();
+    await expect.element(page.getByText(approval.quote).nth(1)).toBeVisible();
+  });
+
   it("keeps the draft when the server says it arrived too late", async () => {
     reset();
     const onChanged = vi.fn();

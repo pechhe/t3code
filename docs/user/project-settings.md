@@ -124,6 +124,14 @@ read-only research options and bring you a recommendation with its trade-offs.
 Answer on the finding to authorize the stated scope. If the recommendation changes
 while you type, your draft is kept for you to reconsider.
 
+Agents you work with can do anything on the Champion page for you, such as pausing a
+champion, running **Check now** or starting **Fix with a lead**. Accepting metrics and
+answering a decision stay yours: an agent either leaves the request waiting for you on
+the page, or completes it with your own words, quoted from a message you typed in its
+thread. Those show **Approved by you**, the thread it came through, when, and your
+words. Replacing a metric proposal after it was read means accepting the old one is
+refused, from the page or an agent.
+
 Learning appears as dated activity notes. Expand one for its evidence and the
 conditions for looking again. Older conclusions stay available; a note due for
 review is uncertain, not deleted, and does not start another investigation by itself. A returned change or a landing alone

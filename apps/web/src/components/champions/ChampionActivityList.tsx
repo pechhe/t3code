@@ -3,6 +3,7 @@ import {
   canReopenChampionFinding,
   CHAMPION_FINDING_STATUS_LABELS,
   championApprovalAnswer,
+  championApprovalWhen,
   championFailureMessage,
   championFindingIsClosed,
   type ChampionFindingRuntime,
@@ -20,6 +21,7 @@ import {
   ChampionError,
   type ChampionActivity,
   type ChampionFinding,
+  type ChampionRelayedApproval,
   type ChampionRuntimeState,
   type EnvironmentId,
   type ModelSelection,
@@ -77,6 +79,36 @@ function ThreadLink(props: {
     >
       {props.label}
     </Link>
+  );
+}
+
+/** An approval an agent completed with the person's own words, and where they typed them. */
+function RelayedApproval(props: {
+  readonly environmentId: EnvironmentId;
+  readonly approval: ChampionRelayedApproval;
+}) {
+  const { approval } = props;
+  const when = championApprovalWhen(approval.approvedAt);
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-muted-foreground text-xs">
+      <Badge variant="success" size="sm">
+        Approved by you
+      </Badge>
+      <span>through</span>
+      <ThreadLink
+        environmentId={props.environmentId}
+        threadId={approval.threadId}
+        label={approval.threadTitle.trim() || "an agent thread"}
+      />
+      {when ? (
+        <>
+          <span aria-hidden>·</span>
+          <span>{when}</span>
+        </>
+      ) : null}
+      <span aria-hidden>·</span>
+      <q className="text-foreground italic">{approval.quote}</q>
+    </p>
   );
 }
 
@@ -177,6 +209,9 @@ function DecisionAnswer(props: {
       <div className="flex flex-col gap-0.5 text-sm">
         <p className="text-muted-foreground">{decision.question}</p>
         <p>Answered: {decision.answer}</p>
+        {decision.approval ? (
+          <RelayedApproval environmentId={props.environmentId} approval={decision.approval} />
+        ) : null}
       </div>
     );
   }
@@ -963,13 +998,17 @@ function EventEntry(props: {
           learningRef={event.learningRef}
         />
       ) : null}
-      <WorkLinks
-        environmentId={props.environmentId}
-        threadId={event.threadId}
-        threadLabel="Open thread"
-        specUrl={event.specUrl}
-        revision={event.revision}
-      />
+      {event.approval ? (
+        <RelayedApproval environmentId={props.environmentId} approval={event.approval} />
+      ) : (
+        <WorkLinks
+          environmentId={props.environmentId}
+          threadId={event.threadId}
+          threadLabel="Open thread"
+          specUrl={event.specUrl}
+          revision={event.revision}
+        />
+      )}
     </EntryRow>
   );
 }

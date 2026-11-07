@@ -11,6 +11,8 @@ import {
   type ChampionRuntimeState,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as DateTime from "effect/DateTime";
+import * as Option from "effect/Option";
 import { RpcClientError } from "effect/rpc";
 import * as Schema from "effect/Schema";
 
@@ -210,6 +212,19 @@ export function championApprovalAnswer(action: string): string {
   return answer.length <= DECISION_ANSWER_LIMIT
     ? answer
     : `${answer.slice(0, DECISION_ANSWER_LIMIT - 1)}…`;
+}
+
+/** When an approval relayed through an agent was given, as "7 Nov, 16:00 GMT". */
+export function championApprovalWhen(approvedAt: string, locale?: string): string {
+  const at = DateTime.make(approvedAt);
+  if (Option.isNone(at)) return "";
+  return new Intl.DateTimeFormat(locale, {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(DateTime.toEpochMillis(at.value));
 }
 
 export function pendingChampionDecision(finding: ChampionFinding) {

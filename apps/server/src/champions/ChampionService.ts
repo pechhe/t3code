@@ -15,7 +15,10 @@ import {
   type ChampionLatestSample,
   ChampionDetail,
   ChampionMetric,
-  ChampionProposal,
+  ChampionPendingProposal,
+  type ChampionProposal,
+  type ChampionAcceptInput,
+  type ChampionRelayedApproval,
   ChampionFinding,
   ChampionSample,
   ChampionActivity,
@@ -38,6 +41,7 @@ import {
   type AgentTaskRequest,
   type ModelSelection,
   type OrchestrationV2Run,
+  type OrchestrationV2ConversationMessage,
   type RunId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -66,7 +70,7 @@ const sameFinding = Schema.toEquivalence(ChampionFinding);
 const Document = Schema.Struct({
   champion: ChampionSummary,
   metrics: Schema.Array(ChampionMetric),
-  proposal: Schema.NullOr(ChampionProposal),
+  proposal: Schema.NullOr(ChampionPendingProposal),
   findings: Schema.Array(ChampionFinding),
 });
 type Document = typeof Document.Type;
@@ -116,6 +120,39 @@ function checkRunMessages(run: OrchestrationV2Run, runs: ReadonlyMap<RunId, Orch
 }
 
 const isChampionError = Schema.is(ChampionError);
+const collapse = (text: string) => text.replace(/\s+/g, " ").trim();
+const wordCharacter = /[\p{L}\p{N}]/u;
+/** Whether `quote` appears in `text` word for word: whole words, any run of spaces alike. */
+export function quotedIn(quote: string, text: string) {
+  const needle = collapse(quote);
+  const haystack = collapse(text);
+  if (needle === "") return false;
+  for (let at = haystack.indexOf(needle); at >= 0; at = haystack.indexOf(needle, at + 1)) {
+    const before = haystack[at - 1];
+    const after = haystack[at + needle.length];
+    if (
+      (before === undefined || !wordCharacter.test(before) || !wordCharacter.test(needle[0]!)) &&
+      (after === undefined || !wordCharacter.test(after) || !wordCharacter.test(needle.at(-1)!))
+    )
+      return true;
+  }
+  return false;
+}
+/**
+ * Ids of the messages Champions write into threads: check prompts, decision deliveries and the
+ * Fix-with-a-lead brief. Deliveries keep client provenance so they still resume a held queue,
+ * so these ids, not provenance, keep them (and those stored before T3-448) from being quoted.
+ */
+const CHAMPION_MESSAGE_ID_PREFIXES = ["champion:", "champion-decision:", "champion-metrics-lead:"];
+/** Words a person typed into the thread; the server's, agents', automations' and guests' never count. */
+const typedByPerson = (message: OrchestrationV2ConversationMessage) =>
+  !CHAMPION_MESSAGE_ID_PREFIXES.some((prefix) => message.id.startsWith(prefix)) &&
+  message.role === "user" &&
+  message.createdBy === "user" &&
+  (message.creationSource === "web" || message.creationSource === "mobile") &&
+  message.scheduledTaskId === undefined &&
+  message.senderThreadId === undefined &&
+  message.context?.guest === undefined;
 const decodeDocument = Schema.decodeUnknownEffect(Schema.fromJsonString(Document));
 const decodeCheck = Schema.decodeUnknownEffect(Schema.fromJsonString(Check));
 const encodeDocument = Schema.encodeEffect(Schema.fromJsonString(Document));
@@ -131,6 +168,11 @@ const encodeCharter = Schema.encodeSync(Schema.fromJsonString(ChampionCharter));
 const encodeFindings = Schema.encodeSync(Schema.fromJsonString(Schema.Array(ChampionFinding)));
 
 type Caller = McpThreadCaller | undefined;
+/** An agent completing an approval for the user: the thread it acts from and the user's words. */
+export interface ChampionRelay {
+  readonly threadId: ThreadId | undefined;
+  readonly quote: string | undefined;
+}
 type Evidence = Effect.Success<typeof ChampionEvidence.make>;
 type DetailOperation<I> = (input: I) => Effect.Effect<ChampionDetail, ChampionError>;
 
@@ -186,7 +228,11 @@ export class ChampionService extends Context.Service<
       metrics: ReadonlyArray<ChampionMetricInput>;
       reason: string;
     }>;
-    readonly accept: DetailOperation<{ id: string }>;
+    /** Without `relay` the user accepts; with it an agent does, quoting the user's own words. */
+    readonly accept: (
+      input: ChampionAcceptInput,
+      relay?: ChampionRelay,
+    ) => Effect.Effect<ChampionDetail, ChampionError>;
     readonly discardProposal: DetailOperation<{ id: string }>;
     readonly cancelSetup: DetailOperation<{ id: string }>;
     readonly completeSetup: (
@@ -195,7 +241,7 @@ export class ChampionService extends Context.Service<
     ) => Effect.Effect<ChampionDetail, ChampionError>;
     readonly findingAction: (
       input: typeof ChampionFindingActionInput.Type,
-      actor?: "user" | "agent",
+      actor?: "user" | ChampionRelay,
     ) => Effect.Effect<ChampionDetail, ChampionError>;
     readonly checkContext: (
       caller: Caller,
@@ -424,6 +470,7 @@ const make = Effect.gen(function* () {
     text: string,
     finding?: ChampionFinding,
     threadId?: ThreadId,
+    approval?: ChampionRelayedApproval,
   ) {
     const at = yield* now;
     const batch = yield* ChangeBatch;
@@ -438,6 +485,7 @@ const make = Effect.gen(function* () {
       threadId: threadId ?? finding?.childThreadId ?? null,
       revision: finding?.revision ?? null,
       specUrl: finding?.specUrl ?? null,
+      ...(approval === undefined ? {} : { approval }),
     };
     yield* sql`INSERT INTO champion_activity (id, champion_id, document_json) VALUES (${entry.id}, ${id}, ${yield* encodeActivity(entry).pipe(Effect.mapError(failure))})`.pipe(
       Effect.mapError(failure),
@@ -449,6 +497,49 @@ const make = Effect.gen(function* () {
       OR json_extract(document_json, '$.champion.setupThreadId') = ${threadId}`;
     return rows[0] === undefined ? undefined : yield* decodeDocument(rows[0].document_json);
   }, Effect.mapError(failure));
+  const relayedApproval = Effect.fn("ChampionService.relayedApproval")(function* (
+    relay: ChampionRelay,
+    waiting: string,
+    /** When the request was filed; an approval typed before it cannot be about it. */
+    filedAt: string | undefined,
+  ) {
+    const ask = (why: string) =>
+      new ChampionError({ reason: "unauthorized", detail: `${why} ${waiting}` });
+    const quote = relay.quote?.trim() ?? "";
+    if (quote === "") return yield* ask("This needs the user's approval.");
+    const shell =
+      relay.threadId === undefined
+        ? null
+        : yield* threads.getThreadShell(relay.threadId).pipe(Effect.mapError(failure));
+    if (shell === null)
+      return yield* ask("An approval quote counts only from a thread the user typed in.");
+    const { messages } = yield* threads
+      .getThreadRecords(shell.id, ["messages"], { messageRoles: ["user"] })
+      .pipe(Effect.mapError(failure));
+    const filed = filedAt === undefined ? undefined : DateTime.make(filedAt);
+    const typed = messages.filter(
+      (message) => typedByPerson(message) && quotedIn(quote, message.text),
+    );
+    if (typed.length === 0)
+      return yield* ask(
+        "That approval quote is not word for word from a message the user typed in this thread; messages T3 Code or other agents sent there do not count.",
+      );
+    if (
+      filed !== undefined &&
+      Option.isSome(filed) &&
+      !typed.some((message) => !DateTime.isLessThan(message.createdAt, filed.value))
+    )
+      return yield* ask(
+        "The user typed that before this request was filed, so it cannot approve it.",
+      );
+    return {
+      quote,
+      threadId: shell.id,
+      threadTitle: shell.title.slice(0, 500),
+      model: shell.modelSelection.model.slice(0, 500),
+      approvedAt: yield* now,
+    } satisfies ChampionRelayedApproval;
+  });
   const list: ChampionService["Service"]["list"] = Effect.fn("ChampionService.list")(
     function* (input) {
       const rows =
@@ -1082,7 +1173,12 @@ const make = Effect.gen(function* () {
               return yield* new ChampionError({ reason: "invalid" });
           const saved = yield* write({
             ...doc,
-            proposal: { metrics: input.metrics, reason: input.reason },
+            proposal: {
+              id: yield* uuid,
+              proposedAt: yield* now,
+              metrics: input.metrics,
+              reason: input.reason,
+            },
             champion: {
               ...doc.champion,
               attention: [
@@ -1121,13 +1217,38 @@ const make = Effect.gen(function* () {
     );
   });
   const accept: ChampionService["Service"]["accept"] = Effect.fn("ChampionService.accept")(
-    function* ({ id }) {
+    function* ({ id, proposalId }, relay) {
+      const pending = relay === undefined ? null : (yield* read(id)).proposal;
+      if (relay !== undefined && pending !== null && pending.id === undefined)
+        return yield* new ChampionError({
+          reason: "conflict",
+          detail:
+            "This proposal was filed before proposals had ids, so it can only be accepted on the Champion page. Ask the user to accept it there, or file it again with t3_champions_propose.",
+        });
+      const approval =
+        relay === undefined
+          ? undefined
+          : yield* relayedApproval(
+              relay,
+              "The proposal waits for them on the Champion page: ask them to accept it there, or pass approvalQuote with their exact words from a message they typed in this thread.",
+              pending?.proposedAt,
+            );
       return yield* mutate(
         sql
           .withTransaction(
             Effect.gen(function* () {
               const doc = yield* read(id);
-              if (doc.proposal === null) return yield* new ChampionError({ reason: "conflict" });
+              if (doc.proposal === null)
+                return yield* new ChampionError({
+                  reason: "conflict",
+                  detail: "There is no pending metric proposal to accept.",
+                });
+              if (proposalId !== undefined && doc.proposal.id !== proposalId)
+                return yield* new ChampionError({
+                  reason: "conflict",
+                  detail:
+                    "The pending proposal was replaced after it was read. Read the champion again and accept the current proposal by its id.",
+                });
               const metrics = yield* Effect.forEach(
                 doc.proposal.metrics,
                 Effect.fn("ChampionService.acceptMetric")(function* (metric) {
@@ -1173,7 +1294,14 @@ const make = Effect.gen(function* () {
                   ),
                 },
               });
-              yield* activity(id, "metrics-accepted", doc.proposal.reason);
+              yield* activity(
+                id,
+                "metrics-accepted",
+                doc.proposal.reason,
+                undefined,
+                approval?.threadId,
+                approval,
+              );
               return saved;
             }),
           )
@@ -1256,8 +1384,9 @@ const make = Effect.gen(function* () {
     "ChampionService.proposeFromSetup",
   )(function* (caller, input) {
     const { check } = yield* authenticate(caller);
-    if (check.kind !== "setup") return yield* new ChampionError({ reason: "unauthorized" });
     const result = yield* propose({ id: check.championId, ...input });
+    // A routine check still owes its report; only setup ends with its proposal.
+    if (check.kind === "check") return result;
     yield* mutate(
       sql
         .withTransaction(
@@ -1642,7 +1771,11 @@ const make = Effect.gen(function* () {
         threadId: doc.champion.ownerThreadId,
         commandId: CommandId.make(`champion-decision:${row.id}`),
         messageId: MessageId.make(`champion-decision:${row.id}`),
-        text: `The user resolved decision ${row.id} for finding ${row.finding_id}. Recommendation ${decision.recommendationId ?? "legacy decision"}; finding attempt ${decision.findingAttemptId ?? "legacy attempt"}; authorized proposed scope: ${decision.proposedScope ?? "the recorded question"}. Recheck the current finding and recommendation before using this answer; supersession invalidates it. Preserve charter, design, review and release authority and continue unrelated measurements.\n${row.answer}`,
+        text: `${
+          decision.approval === undefined
+            ? ""
+            : `This answer was relayed by an agent in thread ${decision.approval.threadId} ("${decision.approval.threadTitle}"), not given on the Champion page; the user's words there: "${decision.approval.quote}". `
+        }The user resolved decision ${row.id} for finding ${row.finding_id}. Recommendation ${decision.recommendationId ?? "legacy decision"}; finding attempt ${decision.findingAttemptId ?? "legacy attempt"}; authorized proposed scope: ${decision.proposedScope ?? "the recorded question"}. Recheck the current finding and recommendation before using this answer; supersession invalidates it. Preserve charter, design, review and release authority and continue unrelated measurements.\n${row.answer}`,
         attachments: [],
         mode: "queue",
         createdBy: "user",
@@ -1738,6 +1871,15 @@ const make = Effect.gen(function* () {
   const findingAction: ChampionService["Service"]["findingAction"] = Effect.fn(
     "ChampionService.findingAction",
   )(function* (input, actor = "user") {
+    const approval =
+      input.action !== "resolve_decision" || actor === "user"
+        ? undefined
+        : yield* relayedApproval(
+            actor,
+            "The decision waits for them on the Champion page: ask them to answer it there, or pass approvalQuote with their exact words from a message they typed in this thread.",
+            (yield* read(input.id)).findings.find((f) => f.id === input.findingId)?.decision
+              ?.requestedAt,
+          );
     const result = yield* mutate(
       Effect.gen(function* () {
         const doc = yield* read(input.id);
@@ -1805,9 +1947,12 @@ const make = Effect.gen(function* () {
             },
           };
         } else if (input.action === "resolve_decision") {
-          if (actor !== "user") return yield* new ChampionError({ reason: "unauthorized" });
           if (!input.decisionId || finding.decision?.id !== input.decisionId)
-            return yield* new ChampionError({ reason: "conflict" });
+            return yield* new ChampionError({
+              reason: "conflict",
+              detail:
+                "That decision is not the finding's current one. Read the champion again and answer the decision it shows by its id.",
+            });
           if (finding.decision.recommendationId !== undefined) {
             const recommendation = yield* evidence.getRecommendation(
               finding.decision.recommendationId,
@@ -1817,11 +1962,18 @@ const make = Effect.gen(function* () {
               finding.decision.findingAttemptId !== finding.attemptId ||
               recommendation.proposedScope !== finding.decision.proposedScope
             )
-              return yield* new ChampionError({ reason: "conflict" });
+              return yield* new ChampionError({
+                reason: "conflict",
+                detail:
+                  "The finding or its recommendation changed after this decision was requested, so it can no longer be answered.",
+              });
           }
           if (finding.decision.status === "resolved") {
             if (finding.decision.answer !== input.reason)
-              return yield* new ChampionError({ reason: "conflict" });
+              return yield* new ChampionError({
+                reason: "conflict",
+                detail: "This decision was already answered differently.",
+              });
             return doc;
           }
           updated = {
@@ -1830,6 +1982,7 @@ const make = Effect.gen(function* () {
               ...finding.decision,
               status: "resolved",
               answer: input.reason,
+              ...(approval === undefined ? {} : { approval }),
               resolvedAt: at,
             },
           };
@@ -1852,7 +2005,14 @@ const make = Effect.gen(function* () {
                 }
               : {}),
           };
-        yield* activity(input.id, input.action, input.reason, updated);
+        yield* activity(
+          input.id,
+          input.action,
+          input.reason,
+          updated,
+          approval?.threadId,
+          approval,
+        );
         return yield* write({
           ...doc,
           findings: doc.findings.map((f) => (f.id === updated.id ? updated : f)),
@@ -2167,7 +2327,12 @@ const make = Effect.gen(function* () {
       const prior = yield* evidence.recordedBinding(ownerThreadId, clientRequestId);
       if (prior !== undefined) return prior.effective;
       if (followup) {
-        if (!request || !childThreadId) return yield* new ChampionError({ reason: "unauthorized" });
+        if (!request || !childThreadId)
+          return yield* new ChampionError({
+            reason: "unauthorized",
+            detail:
+              "A follow-up to an investigation branch needs the branch's agentTask and the child thread it is continuing.",
+          });
         return (yield* evidence.followupBinding(ownerThreadId, request, childThreadId)).effective;
       }
       const doc = yield* byThread(ownerThreadId);
@@ -2196,13 +2361,15 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const doc = yield* byThread(ownerThreadId);
         if (doc === undefined) return;
-        const refuse = (detail?: string) =>
-          new ChampionError({
-            reason: "unauthorized",
-            ...(detail === undefined ? {} : { detail }),
-          });
-        if (doc.champion.ownerThreadId !== ownerThreadId || !request || !clientRequestId)
-          return yield* refuse();
+        const refuse = (detail: string) => new ChampionError({ reason: "unauthorized", detail });
+        if (doc.champion.ownerThreadId !== ownerThreadId)
+          return yield* refuse(
+            "Only the champion's owner thread delegates its repairs; a setup thread cannot.",
+          );
+        if (!request || !clientRequestId)
+          return yield* refuse(
+            "A champion delegation needs an agentTask with the finding's workId and attemptId, and a clientRequestId.",
+          );
         if (doc.champion.lifecycle !== "active")
           return yield* refuse(
             "This champion is paused, so it cannot delegate. Report what you measured inline and raise the delegation you needed as attention.",
@@ -2246,19 +2413,30 @@ const make = Effect.gen(function* () {
             "This check is measure-only, so it cannot dispatch repairs. Report the finding; a later full check can act on it.",
           );
         if (phase === "lead") {
-          if (
-            (!followup && !forgeItem) ||
-            !finding.specUrl ||
-            request.workspaceAssignment === "isolated"
-          )
-            return yield* refuse();
-          if ((yield* acceptedChild(doc, finding, "advice")).task.status !== "completed")
-            return yield* refuse();
+          if (!finding.specUrl)
+            return yield* refuse(
+              "A lead runs only for a finding with a Forge Spec. Record the Spec with t3_champions_update_finding action spec first.",
+            );
+          if (!followup && !forgeItem)
+            return yield* refuse(
+              "Start a lead with forgeItem set to the finding's Spec, so the lead works in that Spec's workspace.",
+            );
+          if (request.workspaceAssignment === "isolated")
+            return yield* refuse(
+              "A lead allocates its own Spec workspace. Delegate again without workspaceAssignment isolated.",
+            );
+          const advice = yield* acceptedChild(doc, finding, "advice").pipe(Effect.option);
+          if (Option.isNone(advice) || advice.value.task.status !== "completed")
+            return yield* refuse(
+              "A lead starts only after an advisor on this finding attempt has completed. Delegate the advisor first and wait for it.",
+            );
         }
         if (phase === "review" || phase === "verification") {
           const proof = yield* acceptedChild(doc, finding).pipe(Effect.option);
           if (Option.isNone(proof) || proof.value.task.status !== "completed")
-            return yield* refuse();
+            return yield* refuse(
+              `${phase === "review" ? "Review" : "Verification"} starts only after this finding attempt's ${finding.specUrl === null ? "repair worker" : "lead"} has completed and handed back. Wait for it to finish.`,
+            );
         }
         const distinctSelection =
           phase === "verification" && !followup
@@ -2280,19 +2458,34 @@ const make = Effect.gen(function* () {
             (prior[0].role !== request.role &&
               !(prior[0].role === "ui-verifier" && request.role === "browser")))
         )
-          return yield* refuse();
+          return yield* refuse(
+            prior[0].client_request_id !== clientRequestId
+              ? `This finding attempt's ${phase} was already requested as clientRequestId ${prior[0].client_request_id}. Repeat that exact request, or follow up on its task instead of starting another.`
+              : `This finding attempt's ${phase} was already requested for the ${prior[0].role} role. Repeat it with that role, or follow up on its task.`,
+          );
         if (followup) {
-          const proof = yield* acceptedChild(doc, finding, phase);
-          if (childThreadId !== undefined && proof.shell.id !== childThreadId)
-            return yield* refuse();
+          const proof = yield* acceptedChild(doc, finding, phase).pipe(Effect.option);
+          if (Option.isNone(proof))
+            return yield* refuse(
+              `There is no ${phase} task on this finding attempt to follow up. Start one instead.`,
+            );
+          if (childThreadId !== undefined && proof.value.shell.id !== childThreadId)
+            return yield* refuse(
+              `That child thread is not this finding attempt's current ${phase} task. Follow up the task it started.`,
+            );
           if (phase === "lead") {
-            const binding = proof.shell.workItem;
+            const binding = proof.value.shell.workItem;
+            if (forgeItem !== undefined)
+              return yield* refuse(
+                "A lead follow-up continues its own Spec; drop forgeItem from the follow-up.",
+              );
             if (
-              forgeItem !== undefined ||
               !binding ||
               forgeItemNumberFromUrl(finding.specUrl!, binding.origin) !== binding.number
             )
-              return yield* refuse();
+              return yield* refuse(
+                "That lead is no longer bound to the finding's recorded Spec, so it cannot be followed up for this finding.",
+              );
           }
           return (
             distinctSelection ??
@@ -2315,7 +2508,9 @@ const make = Effect.gen(function* () {
           (c) => c.work_id === finding.workId && c.attempt_id === finding.attemptId,
         );
         if (!alreadyActive && currentActive.length >= doc.champion.charter.maxConcurrentRepairs)
-          return yield* refuse();
+          return yield* refuse(
+            `The charter allows ${doc.champion.charter.maxConcurrentRepairs} repair${doc.champion.charter.maxConcurrentRepairs === 1 ? "" : "s"} at once and that many are running. Wait for one to finish, or report this finding for a later check.`,
+          );
         if (!prior[0] || prior[0].state === "rejected") {
           const since = DateTime.formatIso(DateTime.subtract(yield* DateTime.now, { days: 1 }));
           const attempted = yield* sql<{
@@ -2330,7 +2525,9 @@ const make = Effect.gen(function* () {
             ) &&
             attempted.length >= doc.champion.charter.maxRepairsPerDay
           )
-            return yield* refuse();
+            return yield* refuse(
+              `The charter allows ${doc.champion.charter.maxRepairsPerDay} repair${doc.champion.charter.maxRepairsPerDay === 1 ? "" : "s"} a day and that many were started in the last 24 hours. Report this finding; a later check can repair it.`,
+            );
         }
         if (!prior[0]) {
           yield* sql`INSERT INTO champion_repair_claims (work_id, attempt_id, phase, client_request_id, role, state, updated_at) VALUES (${finding.workId},${finding.attemptId},${phase},${clientRequestId},${request.role},'reserved',${yield* now})`.pipe(
@@ -2861,7 +3058,7 @@ const make = Effect.gen(function* () {
         recommendationId: value.recommendationId,
         reason: value.summary.slice(0, 500),
       },
-      "agent",
+      { threadId: caller?.threadId, quote: undefined },
     );
     return value;
   });

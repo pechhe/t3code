@@ -17,6 +17,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   championCadenceMs,
   championApprovalAnswer,
+  championApprovalWhen,
   championFailureMessage,
   championFindingRuntime,
   championLoadFailureMessage,
@@ -416,5 +417,15 @@ describe("learningNoteProse", () => {
     const [first] = learningNoteProse(revision({ applicabilityState: "uncertain" }));
     expect(first).toContain("doesn't make it wrong");
     expect(first).toContain("nothing reruns");
+  });
+});
+
+describe("championApprovalWhen", () => {
+  it("names the day, time and zone an approval came through", () => {
+    // The zone is the viewer's own, so only the shape is fixed here.
+    expect(championApprovalWhen("2026-11-07T12:00:00.000Z", "en-GB")).toMatch(
+      /^\d{1,2} Nov,? \d{2}:\d{2} \S+$/,
+    );
+    expect(championApprovalWhen("not a date")).toBe("");
   });
 });

@@ -141,29 +141,31 @@ export const handlers = {
       Effect.mapError(failure),
     ),
   ),
-  t3_champions_accept: McpToolAccess.writesEnvironment((input, check) =>
+  t3_champions_accept: McpToolAccess.writesEnvironment(({ approvalQuote, ...input }, check) =>
     check.pipe(
       Effect.flatMap((context) =>
-        Effect.gen(function* () {
-          const service = yield* Champions.ChampionService;
-          const doc = yield* service.get(input);
-          if (
-            context.caller?.id === doc.champion.ownerThreadId ||
-            context.caller?.id === doc.champion.setupThreadId
-          )
-            return yield* new ChampionError({ reason: "unauthorized" });
-          return yield* service.accept(input);
-        }),
+        Effect.flatMap(Champions.ChampionService, (service) =>
+          service.accept(input, { threadId: context.caller?.id, quote: approvalQuote }),
+        ),
       ),
       Effect.mapError(failure),
     ),
   ),
-  t3_champions_finding_action: McpToolAccess.writesEnvironment((input, check) =>
+  t3_champions_finding_action: McpToolAccess.writesEnvironment(
+    ({ approvalQuote, ...input }, check) =>
+      check.pipe(
+        Effect.flatMap((context) =>
+          Effect.flatMap(Champions.ChampionService, (service) =>
+            service.findingAction(input, { threadId: context.caller?.id, quote: approvalQuote }),
+          ),
+        ),
+        Effect.mapError(failure),
+      ),
+  ),
+  t3_champions_start_metrics_lead: McpToolAccess.writesEnvironment((input, check) =>
     check.pipe(
       Effect.andThen(
-        Effect.flatMap(Champions.ChampionService, (service) =>
-          service.findingAction(input, "agent"),
-        ),
+        Effect.flatMap(Champions.ChampionService, (service) => service.startMetricsLead(input)),
       ),
       Effect.mapError(failure),
     ),

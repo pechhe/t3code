@@ -6,6 +6,7 @@ import {
   CHAMPION_STATUS_LABELS,
   type ChampionAction,
   championApprovalAnswer,
+  championApprovalWhen,
   championFailureMessage,
   championFindingRuntime,
   championLoadFailureMessage,
@@ -24,6 +25,7 @@ import {
 import type {
   ChampionActivity,
   ChampionFinding,
+  ChampionRelayedApproval,
   ChampionRuntimeState,
   ChampionSummary,
   EnvironmentId,
@@ -90,6 +92,31 @@ function ThreadLinkButton(props: {
         })
       }
     />
+  );
+}
+
+/** An approval an agent completed with the person's own words, and where they typed them. */
+function RelayedApproval(props: {
+  readonly environmentId: EnvironmentId;
+  readonly approval: ChampionRelayedApproval;
+}) {
+  const { approval } = props;
+  const when = championApprovalWhen(approval.approvedAt);
+  return (
+    <View className="gap-0.5">
+      <Text className="text-sm text-foreground-muted">
+        <Text className="text-sm font-t3-medium text-foreground">Approved by you</Text> through
+      </Text>
+      <ThreadLinkButton
+        label={approval.threadTitle.trim() || "an agent thread"}
+        environmentId={props.environmentId}
+        threadId={approval.threadId}
+      />
+      <Text className="text-sm text-foreground-muted">
+        {when ? `${when} · ` : ""}
+        <Text className="text-sm italic text-foreground">“{approval.quote}”</Text>
+      </Text>
+    </View>
   );
 }
 
@@ -494,6 +521,7 @@ function ChampionControls(props: {
   readonly champion: ChampionSummary;
   readonly hasMetrics: boolean;
   readonly hasProposal: boolean;
+  readonly proposalId: string | undefined;
 }) {
   const { environmentId, champion } = props;
   const { id } = champion;
@@ -570,7 +598,14 @@ function ChampionControls(props: {
           disabled={!canAccept || busy || (initial && !canSetLifecycle)}
           onPress={() =>
             void act("metrics", [
-              () => accept({ environmentId, input: { id } }),
+              () =>
+                accept({
+                  environmentId,
+                  input: {
+                    id,
+                    ...(props.proposalId === undefined ? {} : { proposalId: props.proposalId }),
+                  },
+                }),
               ...(initial ? [lifecycleStep("active")] : []),
             ])
           }
@@ -735,6 +770,9 @@ function FindingRow(props: {
             : finding.decision.question}
         </Text>
       ) : null}
+      {finding.decision?.status === "resolved" && finding.decision.approval ? (
+        <RelayedApproval environmentId={props.environmentId} approval={finding.decision.approval} />
+      ) : null}
       {finding.decision?.status === "requested" && finding.decision.proposal ? (
         <View className="gap-0.5">
           <Text className="text-sm font-t3-medium text-foreground">
@@ -804,6 +842,11 @@ function ChampionDetailContent(props: {
   const notes = (history.data?.activity ?? []).filter(
     (event) => event.kind === "learning-recorded",
   );
+  const relayedAcceptances = (history.data?.activity ?? []).flatMap((event) =>
+    event.kind === "metrics-accepted" && event.approval !== undefined
+      ? [{ ...event, approval: event.approval }]
+      : [],
+  );
   return (
     <SettingsScreen title={data?.champion.name ?? "Champion"}>
       <ScrollView
@@ -838,6 +881,7 @@ function ChampionDetailContent(props: {
                 champion={data.champion}
                 hasMetrics={data.metrics.length > 0}
                 hasProposal={data.proposal !== null}
+                proposalId={data.proposal?.id}
               />
               <View className="flex-row flex-wrap gap-2">
                 {data.champion.lastCheckAt !== null || data.champion.outstandingCheckId !== null ? (
@@ -898,7 +942,7 @@ function ChampionDetailContent(props: {
                 ))
               )}
             </SettingsSection>
-            {data.findings.length > 0 || notes.length > 0 ? (
+            {data.findings.length > 0 || notes.length > 0 || relayedAcceptances.length > 0 ? (
               <SettingsSection title="Activity">
                 {data.findings.map((finding, index) => (
                   <FindingRow
@@ -919,6 +963,22 @@ function ChampionDetailContent(props: {
                     event={event}
                     bordered={index > 0 || data.findings.length > 0}
                   />
+                ))}
+                {relayedAcceptances.map((event, index) => (
+                  <View
+                    key={event.id}
+                    className={
+                      index > 0 || data.findings.length > 0 || notes.length > 0
+                        ? "gap-1 border-t border-border-subtle px-4 py-3"
+                        : "gap-1 px-4 py-3"
+                    }
+                  >
+                    <Text className="text-base font-t3-medium text-foreground">
+                      Metrics accepted
+                    </Text>
+                    <Text className="text-sm text-foreground-muted">{event.text}</Text>
+                    <RelayedApproval environmentId={environmentId} approval={event.approval} />
+                  </View>
                 ))}
               </SettingsSection>
             ) : null}

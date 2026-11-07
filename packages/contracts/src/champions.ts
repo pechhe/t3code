@@ -140,6 +140,16 @@ export const ChampionSummary = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type ChampionSummary = typeof ChampionSummary.Type;
+/** Henry's own words, typed in the agent thread that completed an approval for him. */
+export const ChampionRelayedApproval = Schema.Struct({
+  quote: ChampionText,
+  threadId: ThreadId,
+  threadTitle: Schema.String.check(Schema.isMaxLength(500)),
+  /** The model the relaying thread ran on. */
+  model: Schema.String.check(Schema.isMaxLength(500)),
+  approvedAt: IsoDateTime,
+});
+export type ChampionRelayedApproval = typeof ChampionRelayedApproval.Type;
 /** The path a champion asks the user to approve, kept short enough to decide from at a glance. */
 export const ChampionDecisionProposal = Schema.Struct({
   action: ChampionLabel,
@@ -173,6 +183,7 @@ export const ChampionFinding = Schema.Struct({
         proposal: Schema.optional(ChampionDecisionProposal),
         status: Schema.Literals(["requested", "resolved"]),
         answer: Schema.NullOr(ChampionText),
+        approval: Schema.optional(ChampionRelayedApproval),
         requestedAt: IsoDateTime,
         resolvedAt: Schema.NullOr(IsoDateTime),
       }),
@@ -237,6 +248,7 @@ export const ChampionActivity = Schema.Struct({
   threadId: Schema.NullOr(ThreadId),
   revision: Schema.NullOr(Schema.String),
   specUrl: Schema.NullOr(Schema.String),
+  approval: Schema.optional(ChampionRelayedApproval),
 });
 export type ChampionActivity = typeof ChampionActivity.Type;
 export const ChampionProposal = Schema.Struct({
@@ -244,11 +256,18 @@ export const ChampionProposal = Schema.Struct({
   reason: ChampionLabel,
 });
 export type ChampionProposal = typeof ChampionProposal.Type;
+/** A pending proposal; proposals filed before identities existed have none. */
+export const ChampionPendingProposal = Schema.Struct({
+  ...ChampionProposal.fields,
+  id: Schema.optional(ChampionLabel),
+  proposedAt: Schema.optional(IsoDateTime),
+});
+export type ChampionPendingProposal = typeof ChampionPendingProposal.Type;
 export const ChampionDetail = Schema.Struct({
   champion: ChampionSummary,
   latestSamples: Schema.optional(Schema.Array(ChampionLatestSample).check(Schema.isMaxLength(32))),
   metrics: Schema.Array(ChampionMetric),
-  proposal: Schema.NullOr(ChampionProposal),
+  proposal: Schema.NullOr(ChampionPendingProposal),
   findings: Schema.Array(ChampionFinding).check(Schema.isMaxLength(100)),
 });
 export type ChampionDetail = typeof ChampionDetail.Type;
@@ -262,7 +281,21 @@ export const ChampionLifecycleInput = Schema.Struct({
   lifecycle: ChampionLifecycle,
 });
 export const ChampionProposeInput = Schema.Struct({ id: ChampionId, ...ChampionProposal.fields });
-export const ChampionAcceptInput = Schema.Struct({ id: ChampionId });
+/** Names the proposal read, so one replaced since is refused; older clients omit it. */
+export const ChampionAcceptInput = Schema.Struct({
+  id: ChampionId,
+  proposalId: Schema.optional(ChampionLabel),
+});
+export type ChampionAcceptInput = typeof ChampionAcceptInput.Type;
+const ApprovalQuote = Schema.optional(ChampionText).annotate({
+  description:
+    "The user's own words, copied exactly from a message they typed in this thread, that approve this. Without it the request waits for them on the Champion page.",
+});
+export const ChampionAgentAcceptInput = Schema.Struct({
+  id: ChampionId,
+  proposalId: ChampionLabel,
+  approvalQuote: ApprovalQuote,
+});
 export const ChampionHistoryInput = Schema.Struct({
   id: ChampionId,
   before: Schema.optional(Schema.String),
@@ -283,6 +316,10 @@ export const ChampionFindingActionInput = Schema.Struct({
   recommendationId: Schema.optional(ChampionLabel),
   proposal: Schema.optional(ChampionDecisionProposal),
   reason: ChampionLabel,
+});
+export const ChampionAgentFindingActionInput = Schema.Struct({
+  ...ChampionFindingActionInput.fields,
+  approvalQuote: ApprovalQuote,
 });
 export const ChampionSetupCompleteInput = Schema.Struct({ summary: ChampionText });
 export const ChampionCheckContext = Schema.Struct({
