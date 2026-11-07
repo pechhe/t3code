@@ -381,10 +381,11 @@ const scopedProgram = Effect.scoped(
           ProcessGroupLedger.reapOrphans({
             stateDir: environment.stateDir,
             stoppedOwners: { pids, exitGrace: Duration.seconds(3) },
-          }),
-        ),
-        Effect.catchCause((cause) =>
-          Effect.logWarning("Could not stop agents left by the server", { cause }),
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Could not stop agents left by the server", { cause }),
+            ),
+          ),
         ),
         Effect.ensuring(rendererHistory.shutdown),
         Effect.ensuring(shutdown.markComplete),

@@ -110,6 +110,7 @@ it.effect.each([false, true])(
             isDevelopment: false,
             isPackaged: true,
             configuredBackendPort: Option.some(3773),
+            stateDir: "/isolated/state",
             defaultDesktopSettings: { serverExposureMode: "local-only" },
           } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]),
           Effect.provideService(DesktopPreReadyPlatform.DesktopPreReadyElectronOptions, {
@@ -179,6 +180,7 @@ it.effect.each([false, true])(
             }),
             list: Effect.succeed([
               {
+                snapshot: Effect.succeed({ activePid: Option.none() }),
                 stop: () =>
                   Deferred.succeed(firstStopStarted, undefined).pipe(
                     Effect.andThen(Deferred.await(releaseStops)),
@@ -186,6 +188,7 @@ it.effect.each([false, true])(
                   ),
               },
               {
+                snapshot: Effect.succeed({ activePid: Option.none() }),
                 stop: () =>
                   Deferred.succeed(secondStopStarted, undefined).pipe(
                     Effect.andThen(Deferred.await(releaseStops)),
