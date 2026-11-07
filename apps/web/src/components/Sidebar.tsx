@@ -59,6 +59,7 @@ import {
 } from "@t3tools/client-runtime/environment";
 import {
   AuthOrchestrationOperateScope,
+  isDelegatedTaskThread,
   ProjectId,
   type ScopedThreadRef,
   type ThreadId,
@@ -2635,9 +2636,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         // Only an environment that can move threads makes the menu wait for targets.
         const handoffTargets =
           readThreadHandoffSupported(thread.environmentId) &&
+          !isDelegatedTaskThread(thread) &&
           (thread.handoff == null || thread.handoff.state === "failed")
             ? await readThreadHandoffTargets(thread.environmentId, thread.id)
-            : [];
+            : undefined;
         if (open !== latestThreadContextMenuRef.current) return;
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
@@ -2674,7 +2676,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 titleRegeneration: configLoaded,
               },
               snoozePresets,
-              handoffTargets,
+              ...(handoffTargets === undefined ? {} : { handoffTargets }),
             }),
             position,
           ),
