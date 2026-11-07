@@ -124,6 +124,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.championsRuntimeState]: "champions",
   [WS_METHODS.championsRecommendation]: "champions",
   [WS_METHODS.championsLearningQuery]: "champions",
+  [WS_METHODS.championsLearningSearch]: "champions",
+  [WS_METHODS.championsLearningRead]: "champions",
   [WS_METHODS.championsStartInvestigation]: "champions",
   [WS_METHODS.championsCancelInvestigation]: "champions",
   [WS_METHODS.championsList]: "champions",

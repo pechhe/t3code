@@ -33,6 +33,8 @@ import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ChampionActivityList, ChampionDecisionList } from "./ChampionActivityList";
+import { ChampionLearnings, useChampionLearningCount } from "./ChampionLearnings";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { ChampionRunStrip } from "./ChampionHowItWorks";
 import { ClampedText } from "./ClampedText";
 import { ChampionMetricRow } from "./ChampionMetrics";
@@ -389,6 +391,8 @@ export function ChampionDetailPage(props: {
     serverEnvironment.championRuntimeState({ environmentId, input: { id } }),
   );
   const [pageCount, setPageCount] = useState(1);
+  const [tab, setTab] = useState<"dashboard" | "learnings">("dashboard");
+  const learningCount = useChampionLearningCount(environmentId, id);
   const history = useChampionHistory(environmentId, id, pageCount);
   const projects = useProjects();
   const { environments } = useEnvironments();
@@ -853,15 +857,31 @@ export function ChampionDetailPage(props: {
         ) : null}
       </div>
 
-      <div className="grid gap-5 @2xl/champion:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] @2xl/champion:items-start">
-        <div className="flex flex-col gap-5">
-          {pendingDecisions > 0 ? decisionsSection : metricsSection}
+      <ToggleGroup
+        aria-label="Champion view"
+        value={[tab]}
+        onValueChange={(values) => {
+          if (values[0] === "dashboard" || values[0] === "learnings") setTab(values[0]);
+        }}
+      >
+        <Toggle value="dashboard">Dashboard</Toggle>
+        <Toggle value="learnings">
+          {learningCount === undefined ? "Learnings" : `Learnings · ${learningCount}`}
+        </Toggle>
+      </ToggleGroup>
+      {tab === "learnings" ? (
+        <ChampionLearnings environmentId={environmentId} championId={id} />
+      ) : (
+        <div className="grid gap-5 @2xl/champion:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] @2xl/champion:items-start">
+          <div className="flex flex-col gap-5">
+            {pendingDecisions > 0 ? decisionsSection : metricsSection}
+          </div>
+          <div className="flex flex-col gap-5">
+            {pendingDecisions > 0 ? metricsSection : null}
+            {activitySection}
+          </div>
         </div>
-        <div className="flex flex-col gap-5">
-          {pendingDecisions > 0 ? metricsSection : null}
-          {activitySection}
-        </div>
-      </div>
+      )}
     </div>
   );
 }

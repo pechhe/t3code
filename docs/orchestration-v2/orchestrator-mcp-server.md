@@ -616,7 +616,7 @@ results use the latest assistant content from the final work turn.
   mode. It may not escalate privileges.
 - A child interaction mode may stay equal to or narrow from `default` to
   `plan`. It may not escalate from `plan` to `default`.
-- Thread tools take any thread in the environment as a target; only reads reach a linked environment. For a thread
+- Thread tools take any thread in the environment as a target; only reads reach a linked environment, with Champion learning reads and `t3_champions_contribute_learning` as the Champion exceptions. For a thread
   caller, list and search cover one project: its own unless `projectId` is given.
 - A tool that changes another thread needs the calling thread's live run, and
   the target's runtime and interaction modes may not be broader than the

@@ -25,6 +25,12 @@ import {
   ChampionError,
 } from "./champions.ts";
 import {
+  ChampionLearningReadInput,
+  ChampionLearningReadResult,
+  ChampionLearningSearchInput,
+  ChampionLearningSearchResult,
+} from "./championLearnings.ts";
+import {
   Experiment,
   ExperimentDefinition,
   ExperimentTransitionInput,
@@ -699,6 +705,8 @@ export const WS_METHODS = {
   championsRuntimeState: "champions.runtimeState",
   championsRecommendation: "champions.recommendation",
   championsLearningQuery: "champions.learningQuery",
+  championsLearningSearch: "champions.learningSearch",
+  championsLearningRead: "champions.learningRead",
   championsStartInvestigation: "champions.startInvestigation",
   championsCancelInvestigation: "champions.cancelInvestigation",
   championsList: "champions.list",
@@ -2365,6 +2373,16 @@ const WsChampionsLearningQueryRpc = Rpc.make(WS_METHODS.championsLearningQuery, 
   success: ChampionLearningQueryResult,
   error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
 });
+const WsChampionsLearningSearchRpc = Rpc.make(WS_METHODS.championsLearningSearch, {
+  payload: ChampionLearningSearchInput,
+  success: ChampionLearningSearchResult,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
+const WsChampionsLearningReadRpc = Rpc.make(WS_METHODS.championsLearningRead, {
+  payload: ChampionLearningReadInput,
+  success: ChampionLearningReadResult,
+  error: Schema.Union([ChampionError, EnvironmentAuthorizationError]),
+});
 const WsChampionsStartInvestigationRpc = Rpc.make(WS_METHODS.championsStartInvestigation, {
   payload: ChampionInvestigationStartInput,
   success: ChampionInvestigation,
@@ -2868,6 +2886,8 @@ export const WsChampionsRpcGroup = RpcGroup.make(
   WsChampionsRuntimeStateRpc,
   WsChampionsRecommendationRpc,
   WsChampionsLearningQueryRpc,
+  WsChampionsLearningSearchRpc,
+  WsChampionsLearningReadRpc,
   WsChampionsStartInvestigationRpc,
   WsChampionsCancelInvestigationRpc,
 

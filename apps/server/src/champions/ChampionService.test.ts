@@ -33,6 +33,7 @@ import {
   type ModelSelection,
   type ChampionInvestigationBranchAttempt,
   type ChampionLearningRecordInput,
+  type ChampionLearningContributor,
   ChampionError,
   EnvironmentId,
   CommandId,
@@ -2317,6 +2318,7 @@ const learning = (id = "learning:errors"): ChampionLearningRecordInput => ({
   expectedCurrentId: null,
   reason: "Observed comparison",
   topic: "errors",
+  plainSummary: "One error collector catches more problems than the others.",
   question: "Which collector detects errors?",
   conclusion: "Use the structured collector",
   attempts: [
@@ -2666,6 +2668,213 @@ it.effect(
             conclusion: "x".repeat(25_000),
           }),
         );
+      }),
+    ),
+);
+
+const peachLive = (threadId: string, role: ChampionLearningContributor["role"] = "lead") =>
+  ({
+    environmentId: EnvironmentId.make("peach-live"),
+    environmentLabel: "peach-live",
+    linkSessionId: "link-session",
+    threadId,
+    threadTitle: "Spec lead",
+    role,
+  }) satisfies ChampionLearningContributor;
+
+it.effect(
+  "searches learnings by their words without writing receipts, and keeps a contribution in history once the Champion confirms or supersedes it",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const receipts = () =>
+          sql<{ n: number }>`SELECT COUNT(*) AS n FROM champion_learning_receipts`.pipe(
+            Effect.map((rows) => rows[0]!.n),
+            Effect.orDie,
+          );
+        yield* definitions(service);
+        yield* service.runCheck({ id: config.id });
+        yield* service.recordLearning(f.caller(), learning());
+        yield* TestClock.adjust("1 second");
+        const contributed = yield* service.contributeLearning(peachLive("thread:lead"), {
+          ...learning("learning:prefetch"),
+          topic: "latency",
+          plainSummary: "Warming the cache first makes the first screen quicker.",
+          conclusion: "Prefetching the manifest halves cold start.",
+          reviewAt: "1970-03-01T00:00:00.000Z",
+        });
+        assert.deepEqual(contributed.contribution, peachLive("thread:lead"));
+
+        const before = yield* receipts();
+        const found = yield* service.learningSearch({ query: "manifest halves" });
+        assert.deepEqual(
+          found.learnings.map((entry) => entry.revision.learningId),
+          ["learning:prefetch"],
+        );
+        assert.equal(found.learnings[0]!.plainSummary, contributed.plainSummary);
+        const all = yield* service.learningSearch({});
+        assert.deepEqual(
+          all.learnings.map((entry) => entry.revision.learningId),
+          ["learning:prefetch", "learning:errors"],
+        );
+        assert.deepEqual(
+          (yield* service.learningSearch({ filter: "contributed" })).learnings.map(
+            (entry) => entry.revision.learningId,
+          ),
+          ["learning:prefetch"],
+        );
+        // learning() is due a day after the epoch; the contribution is not.
+        yield* TestClock.adjust("2 days");
+        assert.deepEqual(
+          (yield* service.learningSearch({ filter: "due" })).learnings.map(
+            (entry) => entry.revision.learningId,
+          ),
+          ["learning:errors"],
+        );
+        assert.deepEqual(
+          (yield* service.learningTopics({})).topics.map((topic) => topic.topic).sort(),
+          ["errors", "latency"],
+        );
+        assert.equal(yield* receipts(), before);
+
+        // The Champion reviews it: a confirmation adds no revision, and the review queue empties.
+        assert.deepEqual(
+          (yield* service.learningSearch({ filter: "needs-review" })).learnings.map(
+            (entry) => entry.revision.learningId,
+          ),
+          ["learning:prefetch"],
+        );
+        const confirmInput = {
+          id: config.id,
+          learningId: "learning:prefetch",
+          revisionId: contributed.id,
+          note: "Matches the cold-start readings",
+        };
+        yield* refused(service.confirmLearning(undefined, confirmInput));
+        const confirmed = yield* service.confirmLearning(f.caller(), confirmInput);
+        assert.equal(confirmed.revision.id, contributed.id);
+        assert.equal(confirmed.confirmation?.note, "Matches the cold-start readings");
+        assert.deepEqual((yield* service.learningSearch({ filter: "needs-review" })).learnings, []);
+
+        const superseded = yield* service.recordLearning(f.caller(), {
+          ...learning("learning:prefetch"),
+          topic: "latency",
+          expectedCurrentId: contributed.id,
+          reason: "Later readings show a smaller gain",
+          conclusion: "Prefetching the manifest saves a fifth of cold start.",
+        });
+        const read = yield* service.learningRead({
+          id: config.id,
+          learningId: "learning:prefetch",
+        });
+        assert.equal(read.current.revision.id, superseded.id);
+        assert.isUndefined(read.current.revision.contribution);
+        assert.deepEqual(
+          read.history.map((revision) => [revision.id, revision.isCurrent]),
+          [
+            [superseded.id, true],
+            [contributed.id, false],
+          ],
+        );
+        assert.equal(read.current.earlierRevisions, 1);
+        assert.equal(read.confirmations.length, 1);
+      }),
+    ),
+);
+
+it.effect(
+  "holds contributions to the Champion's own rules and adds plain notes without a new revision",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.runCheck({ id: config.id });
+        const reasonOf = <A>(effect: Effect.Effect<A, ChampionError>) =>
+          effect.pipe(
+            Effect.match({ onFailure: (error) => error.reason, onSuccess: () => "recorded" }),
+          );
+        const invalid = (input: ChampionLearningRecordInput) =>
+          reasonOf(service.contributeLearning(peachLive("thread:lead"), input));
+        const noReview = {
+          ...learning("learning:no-review"),
+          reviewAt: null,
+          reviewConditions: [],
+          versionConditions: [],
+          components: [],
+        };
+        assert.equal(yield* invalid(noReview), "invalid");
+        assert.equal(yield* reasonOf(service.recordLearning(f.caller(), noReview)), "invalid");
+        const { plainSummary: _, ...withoutPlain } = learning("learning:no-plain");
+        assert.equal(yield* invalid(withoutPlain), "invalid");
+        // The Champion's own thread records its learning directly.
+        yield* refused(
+          service.contributeLearning(
+            { ...peachLive(f.caller().threadId), linkSessionId: null, environmentLabel: null },
+            learning("learning:own"),
+          ),
+        );
+
+        const recorded = yield* service.recordLearning(f.caller(), learning());
+        // A contributor adds learnings or revises its own contribution, never the Champion's.
+        assert.equal(
+          yield* reasonOf(
+            service.contributeLearning(peachLive("thread:lead"), {
+              ...learning(),
+              expectedCurrentId: recorded.id,
+              reason: "Disagree",
+            }),
+          ),
+          "unauthorized",
+        );
+        const contributed = yield* service.contributeLearning(
+          peachLive("thread:lead"),
+          learning("learning:contributed"),
+        );
+        assert.equal(
+          yield* reasonOf(
+            service.contributeLearning(peachLive("thread:lead"), {
+              ...learning("learning:contributed"),
+              expectedCurrentId: contributed.id,
+              reason: "Better evidence",
+              conclusion: "Revised by its contributor",
+            }),
+          ),
+          "recorded",
+        );
+        // A plain sentence goes only where the revision has none of its own.
+        yield* refused(
+          service.noteLearning(f.caller(), {
+            id: config.id,
+            learningId: "learning:errors",
+            revisionId: recorded.id,
+            plainSummary: "Another plain sentence.",
+          }),
+        );
+        const sql = yield* SqlClient.SqlClient;
+        const legacy = { ...recorded, plainSummary: undefined };
+        yield* sql`UPDATE champion_learning_revisions SET document_json = ${JSON.stringify(legacy)} WHERE id = ${recorded.id}`.pipe(
+          Effect.orDie,
+        );
+        const signature = () =>
+          sql<{ n: number }>`SELECT COUNT(*) AS n FROM champion_learning_revisions`.pipe(
+            Effect.map((rows) => rows[0]!.n),
+            Effect.orDie,
+          );
+        const revisionsBefore = yield* signature();
+        assert.isNull(
+          (yield* service.learningRead({ id: config.id, learningId: "learning:errors" })).current
+            .plainSummary,
+        );
+        const noted = yield* service.noteLearning(f.caller(), {
+          id: config.id,
+          learningId: "learning:errors",
+          revisionId: recorded.id,
+          plainSummary: "One error collector catches more problems.",
+        });
+        assert.equal(noted.revision.id, recorded.id);
+        assert.equal(noted.plainSummary, "One error collector catches more problems.");
+        assert.equal(yield* signature(), revisionsBefore);
       }),
     ),
 );
@@ -3290,7 +3499,7 @@ it.effect(
         let history = yield* service.history({ id: config.id });
         let rows = history.activity.filter((event) => event.kind === "learning-recorded");
         assert.equal(rows.length, 1);
-        assert.equal(rows[0]!.text, input.conclusion);
+        assert.equal(rows[0]!.text, input.plainSummary);
         assert.deepEqual(rows[0]!.learningRef, {
           learningId: first.learningId,
           revisionId: first.id,

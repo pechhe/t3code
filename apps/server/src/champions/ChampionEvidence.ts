@@ -11,6 +11,7 @@ import {
   type ChampionInvestigationStartInput,
   type ChampionInvestigationCancelInput,
   type ChampionLearningRecordInput,
+  type ChampionLearningContributor,
   type ChampionLearningQueryInput,
   type ChampionLearningQueryResult,
   type ChampionSynthesisInput,
@@ -60,6 +61,7 @@ const isChampionError = Schema.is(ChampionError);
 const failure = (cause: unknown) =>
   isChampionError(cause) ? cause : new ChampionError({ reason: "unavailable", cause });
 const invalid = () => new ChampionError({ reason: "invalid" });
+const invalidBecause = (detail: string) => new ChampionError({ reason: "invalid", detail });
 const conflict = () => new ChampionError({ reason: "conflict" });
 const refused = (detail?: string) =>
   new ChampionError({ reason: "unauthorized", ...(detail === undefined ? {} : { detail }) });
@@ -235,14 +237,22 @@ export const make = Effect.gen(function* () {
   });
   const recordLearning = Effect.fn("ChampionEvidence.recordLearning")(function* (
     input: ChampionLearningRecordInput,
+    contribution?: ChampionLearningContributor,
   ) {
+    if (new TextEncoder().encode(json(input)).length > 24_000)
+      return yield* invalidBecause("The learning is over 24 000 bytes; shorten it.");
     if (
-      new TextEncoder().encode(json(input)).length > 24_000 ||
-      (input.reviewAt === null &&
-        input.reviewConditions.length === 0 &&
-        input.versionConditions.length === 0)
+      input.reviewAt === null &&
+      input.reviewConditions.length === 0 &&
+      input.versionConditions.length === 0
     )
-      return yield* invalid();
+      return yield* invalidBecause(
+        "Give a review condition: reviewAt, reviewConditions or versionConditions.",
+      );
+    if (input.plainSummary === undefined)
+      return yield* invalidBecause(
+        "Give plainSummary: one sentence someone outside engineering understands, saying what was learned.",
+      );
     const recordedAt = yield* now;
     if (
       input.components.some((component) => component.observedAt > recordedAt) ||
@@ -255,7 +265,9 @@ export const make = Effect.gen(function* () {
           ),
       )
     )
-      return yield* invalid();
+      return yield* invalidBecause(
+        "Each version condition needs a matching observed component, observed no later than now.",
+      );
     return yield* atomic(
       Effect.gen(function* () {
         const doc = yield* read(input.id);
@@ -295,6 +307,7 @@ export const make = Effect.gen(function* () {
           supersedes: input.expectedCurrentId,
           applicabilityState: "current",
           isCurrent: true,
+          ...(contribution === undefined ? {} : { contribution }),
         };
         yield* sql`INSERT INTO champion_learning_revisions (id,champion_id,learning_id,topic,at,review_at,document_json) VALUES (${revision.id},${input.id},${input.learningId},${input.topic},${revision.recordedAt},${input.reviewAt},${json(revision)})`;
         yield* sql`INSERT INTO champion_learning_heads (champion_id,learning_id,revision_id) VALUES (${input.id},${input.learningId},${revision.id}) ON CONFLICT(champion_id,learning_id) DO UPDATE SET revision_id = excluded.revision_id`;
@@ -303,14 +316,14 @@ export const make = Effect.gen(function* () {
           championId: input.id,
           at: revision.recordedAt,
           kind: "learning-recorded",
-          text: revision.conclusion,
+          text: revision.plainSummary ?? revision.conclusion,
           learningRef: {
             learningId: revision.learningId,
             revisionId: revision.id,
             topic: revision.topic,
           },
           findingId: null,
-          threadId: doc.champion.ownerThreadId,
+          threadId: contribution === undefined ? doc.champion.ownerThreadId : null,
           revision: null,
           specUrl: null,
         };

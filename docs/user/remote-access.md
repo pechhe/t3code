@@ -176,8 +176,10 @@ other, for example to check whether a thread on your Mac is already working on
 something before starting it on your VPS. On web and desktop, open the row menu
 of a saved environment in **Settings → Connections** and choose **Link threads**.
 One action links both directions; each environment then reads the other's thread
-titles and messages. Linked environments are read-only: they cannot send
-messages, change threads or run anything on each other.
+titles and messages, and its Champions' learnings. Linked environments are
+read-only: they cannot send messages, change threads or run anything on each other.
+The one thing an agent can add across a link is a learning for a Champion there,
+which shows as contributed from that environment.
 
 The row shows **Threads linked**, or the problem when one side cannot be
 reached, was revoked or needs a newer version. Choose **Unlink threads** to

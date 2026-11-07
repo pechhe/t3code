@@ -7,6 +7,7 @@ import {
   RunId,
   MessageId,
   TrimmedNonEmptyString,
+  EnvironmentId,
 } from "./baseSchemas.ts";
 import {
   AgentPolicyCandidate,
@@ -18,8 +19,8 @@ import { CommandId, NodeId } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ScheduledTaskUpsertSchedule } from "./scheduledTask.ts";
 
-const ChampionText = Schema.String.check(Schema.isMaxLength(8000));
-const ChampionLabel = TrimmedNonEmptyString.check(Schema.isMaxLength(500));
+export const ChampionText = Schema.String.check(Schema.isMaxLength(8000));
+export const ChampionLabel = TrimmedNonEmptyString.check(Schema.isMaxLength(500));
 export const DEFAULT_CHAMPION_INSTRUCTIONS =
   "Inspect and measure without editing the shared root. Delegate bounded repairs into isolated workspaces, independently review their pinned handoff with the appropriate reviewer (and a browser task when needed), apply fixes, then adopt and land once through normal SlipJay. A returned worker commit is a handoff, not delivery. Record the confirmed landing operation before verification; verify a fresh observation on the running revision. Use an advisor on the configured stronger selection for larger work, then shape a Forge Spec and delegate its lead; the lead allocates its own Spec workspace. Record unavailable tools and failures honestly.";
 
@@ -416,6 +417,8 @@ export const ChampionComponentObservation = Schema.Struct({
 });
 export const ChampionLearningContent = Schema.Struct({
   topic: ChampionLabel,
+  /** One sentence someone outside engineering understands; required on new revisions. */
+  plainSummary: Schema.optional(ChampionLabel),
   question: ChampionText,
   conclusion: ChampionText,
   attempts: Schema.Array(
@@ -443,6 +446,19 @@ export const ChampionLearningContent = Schema.Struct({
     }),
   ).check(Schema.isMaxLength(16)),
 });
+/**
+ * Who contributed a learning. A linked environment vouches for the thread and role it forwards;
+ * the link itself is named from this environment's own record of it.
+ */
+export const ChampionLearningContributor = Schema.Struct({
+  environmentId: Schema.NullOr(EnvironmentId),
+  environmentLabel: Schema.NullOr(ChampionLabel),
+  linkSessionId: Schema.NullOr(ChampionLabel),
+  threadId: ChampionLabel,
+  threadTitle: Schema.NullOr(ChampionLabel),
+  role: Schema.NullOr(AgentRole),
+});
+export type ChampionLearningContributor = typeof ChampionLearningContributor.Type;
 export const ChampionLearningRecordInput = Schema.Struct({
   id: ChampionId,
   learningId: ChampionLabel,
@@ -462,6 +478,8 @@ export const ChampionLearningRevision = Schema.Struct({
   reason: ChampionLabel,
   applicabilityState: Schema.Literals(["current", "uncertain"]),
   isCurrent: Schema.Boolean,
+  /** Present when an agent other than the Champion recorded it. */
+  contribution: Schema.optional(ChampionLearningContributor),
 });
 export type ChampionLearningRevision = typeof ChampionLearningRevision.Type;
 export const ChampionLearningQueryInput = Schema.Struct({

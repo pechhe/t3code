@@ -1,4 +1,6 @@
 import {
+  AGENT_ROLE_TITLE_LABEL,
+  type ChampionLearningEntry,
   ChampionError,
   type ChampionFinding,
   type ChampionLatestSample,
@@ -490,4 +492,36 @@ export function learningNoteProse(revision: ChampionLearningRevision): ReadonlyA
     revision.tradeoffs,
     ...reconsider,
   ].flatMap((line) => (line.trim() ? [line.trim().replace(/\.\.$/, ".")] : []));
+}
+
+/** Who recorded a learning: the Champion, or the agent and the machine it ran on. */
+export function championLearningAuthor(
+  revision: Pick<ChampionLearningRevision, "contribution">,
+): string {
+  const from = revision.contribution;
+  if (from === undefined) return "The Champion";
+  const who = from.role === null ? "An agent thread" : AGENT_ROLE_TITLE_LABEL[from.role];
+  return from.environmentLabel === null ? who : `${who} on ${from.environmentLabel}`;
+}
+
+/** The expanded detail's "Recorded by" line: the author, and the thread a contribution came from. */
+export function championLearningRecordedBy(
+  revision: Pick<ChampionLearningRevision, "contribution">,
+): string {
+  const title = revision.contribution?.threadTitle;
+  const author = championLearningAuthor(revision);
+  return title == null ? author : `${author}, in “${title}”`;
+}
+
+/** The line a learning leads with: its plain sentence, or its conclusion until it has one. */
+export function championLearningHeadline(entry: ChampionLearningEntry): string {
+  return entry.plainSummary ?? entry.revision.conclusion;
+}
+
+/** Where a contributed learning stands with its Champion; null for the Champion's own. */
+export function championLearningReview(entry: ChampionLearningEntry): string | null {
+  if (entry.revision.contribution === undefined) return null;
+  return entry.confirmation === null
+    ? "Counts now; the Champion confirms or replaces it on its next check."
+    : `Confirmed by the Champion: ${entry.confirmation.note}`;
 }

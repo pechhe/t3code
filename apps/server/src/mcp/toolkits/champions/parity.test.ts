@@ -30,6 +30,8 @@ const SCREEN_READS = new Set<string>([
   WS_METHODS.championsRuntimeState,
   WS_METHODS.championsRecommendation,
   WS_METHODS.championsLearningQuery,
+  WS_METHODS.championsLearningSearch,
+  WS_METHODS.championsLearningRead,
   WS_METHODS.championsList,
   WS_METHODS.championsSubscribe,
   WS_METHODS.championsGet,
@@ -44,7 +46,12 @@ const RUN_ONLY_TOOLS = new Set([
   "t3_champions_propose_metrics",
   "t3_champions_report",
   "t3_champions_update_finding",
+  "t3_champions_confirm_learning",
+  "t3_champions_learning_note",
 ]);
+
+/** Agent writes with no screen command: people read learnings, agents record them (T3-444). */
+const AGENT_ONLY_TOOLS = new Set(["t3_champions_contribute_learning"]);
 
 const championMethods = Object.values(WS_METHODS).filter((method) =>
   method.startsWith("champions."),
@@ -75,6 +82,7 @@ describe("Champion screen and agent tool parity", () => {
       ...Object.values(SCREEN_WRITES_TO_TOOLS),
       ...Object.values(EXCEPTIONS),
       ...RUN_ONLY_TOOLS,
+      ...AGENT_ONLY_TOOLS,
     ]);
     expect(writeTools.filter((tool) => !matched.has(tool))).toEqual([]);
   });

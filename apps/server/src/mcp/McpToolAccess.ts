@@ -531,8 +531,41 @@ export const writesEnvironment = <P, A, E, R>(
   );
 };
 
+/** Who records a contributed learning: a thread here, or a link passing one on. */
+export type Contributor =
+  | { readonly kind: "thread"; readonly caller: Caller }
+  | { readonly kind: "link"; readonly sessionId: string; readonly label: string };
+
 /**
- * Away is the one write a linked environment may make here: its link already reads every thread,
+ * A learning contributed to a Champion: by an orchestrating thread here, which
+ * may pass it on to a linked environment itself, or by a linked environment
+ * passing one on for a thread it authenticated. Managed workers are refused
+ * where they run, so no link carries one.
+ */
+export const contributes = <P, A, E, R>(
+  handle: (params: P, from: Contributor) => Effect.Effect<A, E, R>,
+) =>
+  declare(
+    (params: P) =>
+      McpInvocationContext.McpInvocationContext.pipe(
+        Effect.flatMap((scope) =>
+          scope.thread === undefined && scope.client?.linked === true
+            ? handle(params, {
+                kind: "link",
+                sessionId: scope.client.sessionId,
+                label: scope.client.label,
+              })
+            : requireThreadCaller.pipe(
+                Effect.andThen(orchestratingCaller),
+                Effect.flatMap((caller) => handle(params, { kind: "thread", caller })),
+              ),
+        ),
+      ),
+    undefined,
+  );
+
+/**
+ * Away is one of the two writes a linked environment may make here (`contributes` is the other): its link already reads every thread,
  * and it lets the person set Away on each machine from an agent on another.
  */
 export const setsAway = <P, A, E, R>(
@@ -585,10 +618,9 @@ export class HandlersLayer<Tools extends Record<string, Tool.Any>, EX = never, R
 }
 
 /**
- * The only tools a linked environment may call: it reads threads, learns the
- * peer's identity and version, and sets Away (`setsAway`), nothing else. Every
- * other tool refuses it before running, so a tool added later is closed to
- * peers until listed here.
+ * The only tools a linked environment may call: thread and Champion reads, Away (`setsAway`)
+ * and passing on a contributed learning (`contributes`). Every other tool refuses it before
+ * running, so a tool added later is closed to peers until listed here.
  */
 const PEER_THREAD_TOOLS: ReadonlySet<string> = new Set([
   "t3_fleet_summary",
@@ -597,6 +629,12 @@ const PEER_THREAD_TOOLS: ReadonlySet<string> = new Set([
   "t3_thread_read",
   "t3_environment_read",
   "t3_environment_set_away",
+  "t3_champions_list",
+  "t3_champions_get",
+  "t3_champions_learning_search",
+  "t3_champions_learning_topics",
+  "t3_champions_learning_read",
+  "t3_champions_contribute_learning",
 ]);
 
 const refusePeerClient = McpInvocationContext.McpInvocationContext.pipe(
@@ -605,7 +643,8 @@ const refusePeerClient = McpInvocationContext.McpInvocationContext.pipe(
       ? Effect.fail(
           new OrchestratorMcpFailure({
             code: "capability_denied",
-            message: "A linked environment may only read threads.",
+            message:
+              "A linked environment may only read threads and Champion learnings, and contribute learnings.",
           }),
         )
       : Effect.void,

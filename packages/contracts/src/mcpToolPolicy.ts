@@ -24,6 +24,7 @@ export type ToolFamily =
   | "peer"
   | "leaf"
   | "report"
+  | "learnings"
   | "web";
 
 export interface SessionToolProfile {
@@ -95,6 +96,12 @@ const CORE_THREAD_TOOLS = new Set([
   "unwatch",
 ]);
 
+const LEARNING_READ_TOOLS = new Set([
+  "t3_champions_learning_search",
+  "t3_champions_learning_topics",
+  "t3_champions_learning_read",
+]);
+
 const PULL_REQUEST_TOOLS = new Set([
   "link_pull_request",
   "unlink_pull_request",
@@ -115,6 +122,8 @@ export const toolFamily = (name: string): ToolFamily => {
   if (REPORT_TOOLS.has(name)) return "report";
   if (LEAF_TOOLS.has(name)) return "leaf";
   if (SCHEDULING_TOOLS.has(name)) return "scheduling";
+  // Every agent searches Champion learnings before working in an area one covers, children included.
+  if (LEARNING_READ_TOOLS.has(name)) return "learnings";
   if (name.startsWith("t3_champions_")) return "scheduling";
   // A lead reads and drafts trials; recording evidence stays with the research endpoint.
   if (LEAD_EXPERIMENT_TOOLS.has(name)) return "lead-experiments";
@@ -149,6 +158,7 @@ export const toolFamily = (name: string): ToolFamily => {
  * (`McpInvocationScope.boundedBrowser`); the family only says which endpoints may serve them.
  */
 const CONTROL: ReadonlySet<ToolFamily> = new Set([
+  "learnings",
   "bounded-browser",
   "decision",
   "control",
@@ -158,6 +168,7 @@ const CONTROL: ReadonlySet<ToolFamily> = new Set([
   "leaf",
 ]);
 const WORKSPACE: ReadonlySet<ToolFamily> = new Set([
+  "learnings",
   "bounded-browser",
   "decision",
   "control",
@@ -184,6 +195,7 @@ const PREVIEW: ReadonlySet<ToolFamily> = new Set([
   "report",
 ]);
 const RESEARCH: ReadonlySet<ToolFamily> = new Set([
+  "learnings",
   "web",
   "control",
   "workspace",
@@ -202,9 +214,10 @@ const RESEARCH: ReadonlySet<ToolFamily> = new Set([
  * A delegated child's listing: the leaf tools plus what its own role does, and
  * nothing that belongs to the thread that delegated it.
  */
-const CHILD_READER: ReadonlySet<ToolFamily> = new Set(["leaf", "report"]);
-const CHILD_RESEARCH: ReadonlySet<ToolFamily> = new Set(["leaf", "report", "web"]);
+const CHILD_READER: ReadonlySet<ToolFamily> = new Set(["learnings", "leaf", "report"]);
+const CHILD_RESEARCH: ReadonlySet<ToolFamily> = new Set(["learnings", "leaf", "report", "web"]);
 const CHILD_PREVIEW: ReadonlySet<ToolFamily> = new Set([
+  "learnings",
   "decision",
   "leaf",
   "report",
@@ -212,6 +225,7 @@ const CHILD_PREVIEW: ReadonlySet<ToolFamily> = new Set([
   "device",
 ]);
 const CHILD_IMPLEMENTATION: ReadonlySet<ToolFamily> = new Set([
+  "learnings",
   "decision",
   "leaf",
   "report",

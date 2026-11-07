@@ -1355,6 +1355,16 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:champions:learning",
       tag: WS_METHODS.championsLearningQuery,
     }),
+    championLearningSearch: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:champions:learning-search",
+      tag: WS_METHODS.championsLearningSearch,
+      refreshTrigger: ({ environmentId }) => championsLive({ environmentId, input: {} }),
+    }),
+    championLearningRead: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:champions:learning-read",
+      tag: WS_METHODS.championsLearningRead,
+      refreshTrigger: ({ environmentId }) => championsLive({ environmentId, input: {} }),
+    }),
     championDetail: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:champions:detail",
       tag: WS_METHODS.championsGet,

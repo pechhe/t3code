@@ -52,6 +52,8 @@ import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspace
 import { useSettingsEnvironmentMenu } from "./components/SettingsEnvironmentFilterHeader";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
+import { SegmentedControl } from "../../components/ui/SegmentedControl";
+import { ChampionLearningsSection, useChampionLearningCount } from "./ChampionLearningsSection";
 import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-environment-filter";
 import { settingsTargetsForProject } from "./settings-environment-filter.logic";
 
@@ -847,6 +849,8 @@ function ChampionDetailContent(props: {
       ? [{ ...event, approval: event.approval }]
       : [],
   );
+  const [tab, setTab] = useState<"dashboard" | "learnings">("dashboard");
+  const learningCount = useChampionLearningCount(environmentId, id);
   return (
     <SettingsScreen title={data?.champion.name ?? "Champion"}>
       <ScrollView
@@ -900,7 +904,22 @@ function ChampionDetailContent(props: {
                 ) : null}
               </View>
             </View>
-            {data.proposal ? (
+            <SegmentedControl
+              role="tab"
+              options={[
+                { value: "dashboard", label: "Dashboard" },
+                {
+                  value: "learnings",
+                  label: learningCount === undefined ? "Learnings" : `Learnings · ${learningCount}`,
+                },
+              ]}
+              selected={tab}
+              onSelect={setTab}
+            />
+            {tab === "learnings" ? (
+              <ChampionLearningsSection environmentId={environmentId} championId={id} />
+            ) : null}
+            {tab === "dashboard" && data.proposal ? (
               <SettingsSection title="Proposed metrics">
                 <Text className="px-4 pt-4 text-sm text-foreground-muted">
                   {data.proposal.reason}
@@ -916,33 +935,36 @@ function ChampionDetailContent(props: {
                 ))}
               </SettingsSection>
             ) : null}
-            <SettingsSection title="Metrics">
-              {data.metrics.length === 0 ? (
-                <Text className="p-4 text-base text-foreground-muted">No metrics yet.</Text>
-              ) : (
-                data.metrics.map((metric, index) => (
-                  <View
-                    key={metric.id}
-                    className={
-                      index === 0
-                        ? "flex-row items-baseline gap-3 px-4 py-3"
-                        : "flex-row items-baseline gap-3 border-t border-border-subtle px-4 py-3"
-                    }
-                  >
-                    <Text className="min-w-0 flex-1 text-base text-foreground" numberOfLines={2}>
-                      {metric.name}
-                    </Text>
-                    <Text className="text-base font-t3-medium text-foreground">
-                      {championReadingLabel(
-                        championReading(metric, data.latestSamples, nowMs),
-                        metric.unit,
-                      )}
-                    </Text>
-                  </View>
-                ))
-              )}
-            </SettingsSection>
-            {data.findings.length > 0 || notes.length > 0 || relayedAcceptances.length > 0 ? (
+            {tab === "dashboard" ? (
+              <SettingsSection title="Metrics">
+                {data.metrics.length === 0 ? (
+                  <Text className="p-4 text-base text-foreground-muted">No metrics yet.</Text>
+                ) : (
+                  data.metrics.map((metric, index) => (
+                    <View
+                      key={metric.id}
+                      className={
+                        index === 0
+                          ? "flex-row items-baseline gap-3 px-4 py-3"
+                          : "flex-row items-baseline gap-3 border-t border-border-subtle px-4 py-3"
+                      }
+                    >
+                      <Text className="min-w-0 flex-1 text-base text-foreground" numberOfLines={2}>
+                        {metric.name}
+                      </Text>
+                      <Text className="text-base font-t3-medium text-foreground">
+                        {championReadingLabel(
+                          championReading(metric, data.latestSamples, nowMs),
+                          metric.unit,
+                        )}
+                      </Text>
+                    </View>
+                  ))
+                )}
+              </SettingsSection>
+            ) : null}
+            {tab === "dashboard" &&
+            (data.findings.length > 0 || notes.length > 0 || relayedAcceptances.length > 0) ? (
               <SettingsSection title="Activity">
                 {data.findings.map((finding, index) => (
                   <FindingRow

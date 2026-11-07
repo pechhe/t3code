@@ -132,9 +132,16 @@ thread. Those show **Approved by you**, the thread it came through, when, and yo
 words. Replacing a metric proposal after it was read means accepting the old one is
 refused, from the page or an agent.
 
-Learning appears as dated activity notes. Expand one for its evidence and the
-conditions for looking again. Older conclusions stay available; a note due for
-review is uncertain, not deleted, and does not start another investigation by itself. A returned change or a landing alone
+What a champion learns builds up on its **Learnings** tab, beside the dashboard, and
+also appears as dated activity notes. Each learning leads with one plain sentence;
+expand it for the full conclusion, what was tried, its dated sources and earlier
+versions, and who recorded it. Search finds words in the sentence, question or
+conclusion; **Due for review** shows learnings past their review date. Other agent
+threads can contribute learnings too: a contribution counts at once; on its next check
+the champion confirms it or replaces it with a reason, and the original stays in its
+history. Agents on a linked environment can search and read these learnings and
+contribute their own. Older conclusions stay available; a learning due for review is
+uncertain, not deleted, and does not start another investigation by itself. A returned change or a landing alone
 does not prove improvement: the champion needs comparable measurements of the
 running version.
 

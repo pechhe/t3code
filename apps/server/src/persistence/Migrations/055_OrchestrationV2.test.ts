@@ -73,6 +73,7 @@ const RELEASED_FROM_48: ReadonlyArray<readonly [number, string]> = [
   [109, "ChampionInvestigations"],
   [110, "ExperimentAssignmentThreads"],
   [111, "ScheduledTaskThreadMode"],
+  [112, "ChampionLearningAnnotations"],
 ];
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));

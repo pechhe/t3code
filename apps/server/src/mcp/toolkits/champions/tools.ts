@@ -30,7 +30,21 @@ import {
   ChampionReportInput,
   ChampionUpsertInput,
   OrchestratorMcpFailure,
+  OrchestratorMcpEnvironmentTarget,
+  EnvironmentId,
+  ChampionLearningSearchInput,
+  ChampionLearningSearchResult,
+  ChampionLearningTopicsInput,
+  ChampionLearningTopicsResult,
+  ChampionLearningReadInput,
+  ChampionLearningReadResult,
+  ChampionLearningContributeInput,
+  ChampionLearningForwardedFrom,
+  ChampionLearningConfirmInput,
+  ChampionLearningNoteInput,
+  ChampionLearningEntry,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 import * as Champions from "../../../champions/ChampionService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -73,7 +87,7 @@ const runtime_state = Tool.make("t3_champions_runtime_state", {
 const learning_query = Tool.make("t3_champions_learning_query", {
   ...shared,
   description:
-    "Retrieve scoped learning by exact topic before investigating; retain the retrieval receipt. Due filters mark uncertainty without launching work.",
+    "Champion owners: retrieve scoped learning by exact topic before investigating; retain the retrieval receipt. Due filters mark uncertainty without launching work. Other agents use t3_champions_learning_search, which writes nothing.",
   parameters: ChampionLearningQueryInput,
   success: ChampionLearningQueryResult,
 })
@@ -115,18 +129,101 @@ const synthesize = Tool.make("t3_champions_synthesize", {
 })
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false);
+const learning_search = Tool.make("t3_champions_learning_search", {
+  ...shared,
+  description:
+    "Search what Champions have learned before working in an area one covers: words match each learning's plain sentence, question and conclusion, ranked by relevance then recency. Omit projectId to search every Champion; name a linked environment with environmentId to search its Champions. Filters: due (review date passed), contributed (from other agents), needs-review. Reads only: no retrieval receipt, so it never admits an investigation.",
+  parameters: Schema.Struct({
+    ...ChampionLearningSearchInput.fields,
+    environmentId: OrchestratorMcpEnvironmentTarget,
+  }),
+  success: ChampionLearningSearchResult,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const learning_topics = Tool.make("t3_champions_learning_topics", {
+  ...shared,
+  description:
+    "List the topics Champions hold learnings on, with counts and the latest date, here or in a linked environment.",
+  parameters: Schema.Struct({
+    ...ChampionLearningTopicsInput.fields,
+    environmentId: OrchestratorMcpEnvironmentTarget,
+  }),
+  success: ChampionLearningTopicsResult,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const learning_read = Tool.make("t3_champions_learning_read", {
+  ...shared,
+  description:
+    "Read one learning in full: its current revision with evidence and attempts, every earlier revision with what superseded it, and the Champion's confirmations. Reads only.",
+  parameters: Schema.Struct({
+    ...ChampionLearningReadInput.fields,
+    environmentId: OrchestratorMcpEnvironmentTarget,
+  }),
+  success: ChampionLearningReadResult,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const contribute_learning = Tool.make("t3_champions_contribute_learning", {
+  ...shared,
+  description:
+    "Record what you learned in an area a Champion covers, as an orchestrating thread that is not that Champion; name its environment with environmentId when it runs elsewhere. Same content and rules as the Champion's own: plainSummary first, dated evidence, failed or inconclusive attempts, and a review condition. It counts at once, marked as contributed by you; the Champion confirms or supersedes it on its next check. Delegated workers cannot: report the learning to your lead instead. A new learning takes a fresh learningId and expectedCurrentId null.",
+  parameters: Schema.Struct({
+    ...ChampionLearningContributeInput.fields,
+    environmentId: Schema.optional(
+      EnvironmentId.annotate({
+        description: "Environment whose Champion this is. Omit for this one.",
+      }),
+    ),
+    forwardedFrom: Schema.optional(
+      ChampionLearningForwardedFrom.annotate({
+        description: "Set by T3 when a linked environment passes the call on. Never set it.",
+      }),
+    ),
+  }),
+  success: ChampionLearningRevision,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const confirm_learning = Tool.make("t3_champions_confirm_learning", {
+  ...shared,
+  description:
+    "As the authenticated Champion owner, confirm a learning another agent contributed after checking it. It records a confirmation on that revision and makes no new revision. To disagree, supersede it with t3_champions_record_learning and a reason instead.",
+  parameters: ChampionLearningConfirmInput,
+  success: ChampionLearningEntry,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const learning_note = Tool.make("t3_champions_learning_note", {
+  ...shared,
+  description:
+    "As the authenticated Champion owner, add the plain sentence to a current learning recorded without one: one sentence someone outside engineering understands, saying what was learned. It is a presentation note; the revision, its conclusion and retrieval receipts stay as they are.",
+  parameters: ChampionLearningNoteInput,
+  success: ChampionLearningEntry,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
 const list = Tool.make("t3_champions_list", {
   ...shared,
-  description: "Read compact champion summaries in this environment.",
-  parameters: ChampionListInput,
+  description:
+    "Read compact champion summaries here, or in a linked environment named with environmentId.",
+  parameters: Schema.Struct({
+    ...ChampionListInput.fields,
+    environmentId: OrchestratorMcpEnvironmentTarget,
+  }),
   success: ChampionListResult,
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
 const get = Tool.make("t3_champions_get", {
   ...shared,
-  description: "Read champion configuration, metrics, pending proposal and open findings.",
-  parameters: ChampionGetInput,
+  description:
+    "Read champion configuration, metrics, pending proposal and open findings, here or in a linked environment named with environmentId.",
+  parameters: Schema.Struct({
+    ...ChampionGetInput.fields,
+    environmentId: OrchestratorMcpEnvironmentTarget,
+  }),
   success: ChampionDetail,
 })
   .annotate(Tool.Readonly, true)
@@ -275,7 +372,13 @@ export const ChampionsToolkit = Toolkit.make(
   runtime_state,
   recommendation,
   learning_query,
+  learning_search,
+  learning_topics,
+  learning_read,
   record_learning,
+  contribute_learning,
+  confirm_learning,
+  learning_note,
   start_investigation,
   cancel_investigation,
   synthesize,

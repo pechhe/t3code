@@ -1,7 +1,14 @@
-import { ChampionError, OrchestratorMcpFailure } from "@t3tools/contracts";
+import {
+  ChampionError,
+  isLeafAgentTask,
+  type ChampionLearningContributor,
+  OrchestratorMcpFailure,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Champions from "../../../champions/ChampionService.ts";
+import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { ChampionsToolkit } from "./tools.ts";
@@ -38,6 +45,106 @@ export const handlers = {
     Effect.gen(function* () {
       const service = yield* Champions.ChampionService;
       return yield* service.recordLearning(
+        (yield* McpInvocationContext.McpInvocationContext).thread,
+        input,
+      );
+    }).pipe(Effect.mapError(failure)),
+  ),
+  t3_champions_learning_search: McpToolAccess.reads((input) =>
+    Effect.flatMap(Champions.ChampionService, (service) => service.learningSearch(input)).pipe(
+      Effect.mapError(failure),
+    ),
+  ),
+  t3_champions_learning_topics: McpToolAccess.reads((input) =>
+    Effect.flatMap(Champions.ChampionService, (service) => service.learningTopics(input)).pipe(
+      Effect.mapError(failure),
+    ),
+  ),
+  t3_champions_learning_read: McpToolAccess.reads((input) =>
+    Effect.flatMap(Champions.ChampionService, (service) => service.learningRead(input)).pipe(
+      Effect.mapError(failure),
+    ),
+  ),
+  t3_champions_contribute_learning: McpToolAccess.contributes(
+    ({ environmentId, forwardedFrom, ...input }, from) =>
+      Effect.gen(function* () {
+        const service = yield* Champions.ChampionService;
+        if (from.kind === "link") {
+          // The link authenticated the thread; a call without one is not a forwarded contribution.
+          if (
+            forwardedFrom === undefined ||
+            isLeafAgentTask(forwardedFrom.role === null ? undefined : { role: forwardedFrom.role })
+          )
+            return yield* new OrchestratorMcpFailure({
+              code: "capability_denied",
+              message:
+                "A linked environment passes on contributions only for an orchestrating thread it authenticated.",
+            });
+          return yield* service
+            .contributeLearning(
+              { ...forwardedFrom, environmentLabel: from.label, linkSessionId: from.sessionId },
+              input,
+            )
+            .pipe(Effect.mapError(failure));
+        }
+        if (forwardedFrom !== undefined)
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message:
+              "forwardedFrom is set by T3 when a linked environment passes a call on. Omit it.",
+          });
+        const scope = from.caller.scope;
+        const shell = from.caller.caller;
+        const contributor = {
+          environmentId: scope.environmentId,
+          environmentLabel: null,
+          linkSessionId: null,
+          threadId: scope.thread!.threadId,
+          threadTitle: shell?.title.trim().slice(0, 500) || null,
+          role: shell?.agentTask?.role ?? null,
+        } satisfies ChampionLearningContributor;
+        const target = PeerForwarding.remoteTarget(scope, environmentId);
+        if (target === undefined)
+          return yield* service
+            .contributeLearning(contributor, input)
+            .pipe(Effect.mapError(failure));
+        if (scope.linkedEnvironments === false) return yield* PeerForwarding.linkedEnvironmentsOff;
+        const forwarding = yield* Effect.serviceOption(PeerForwarding.PeerForwarding);
+        if (Option.isNone(forwarding))
+          return yield* new OrchestratorMcpFailure({
+            code: "orchestration_error",
+            message: "This environment cannot reach linked environments.",
+          });
+        return yield* forwarding.value.call(
+          scope,
+          ChampionsToolkit.tools.t3_champions_contribute_learning,
+          target,
+          {
+            ...input,
+            environmentId: target,
+            forwardedFrom: {
+              environmentId: scope.environmentId,
+              threadId: contributor.threadId,
+              threadTitle: contributor.threadTitle,
+              role: contributor.role,
+            },
+          },
+        );
+      }),
+  ),
+  t3_champions_confirm_learning: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const service = yield* Champions.ChampionService;
+      return yield* service.confirmLearning(
+        (yield* McpInvocationContext.McpInvocationContext).thread,
+        input,
+      );
+    }).pipe(Effect.mapError(failure)),
+  ),
+  t3_champions_learning_note: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const service = yield* Champions.ChampionService;
+      return yield* service.noteLearning(
         (yield* McpInvocationContext.McpInvocationContext).thread,
         input,
       );

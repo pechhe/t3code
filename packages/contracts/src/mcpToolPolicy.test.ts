@@ -64,3 +64,23 @@ describe("browser role tools", () => {
       }
   });
 });
+
+describe("Champion learning tools", () => {
+  it("lists the learning reads to every agent session and keeps the other Champion tools off delegated ones", () => {
+    for (const name of [
+      "t3_champions_learning_search",
+      "t3_champions_learning_topics",
+      "t3_champions_learning_read",
+    ]) {
+      expect(toolFamily(name)).toBe("learnings");
+      expect(isToolListedForSession(name, undefined)).toBe(true);
+      for (const toolProfile of ["source-reader", "implementation", "phi", "web-research"] as const)
+        expect(isToolListedForSession(name, { toolProfile, delegated: true })).toBe(true);
+    }
+    for (const name of ["t3_champions_contribute_learning", "t3_champions_learning_query"]) {
+      expect(isToolListedForSession(name, undefined)).toBe(true);
+      for (const toolProfile of ["source-reader", "implementation", "phi", "web-research"] as const)
+        expect(isToolListedForSession(name, { toolProfile, delegated: true })).toBe(false);
+    }
+  });
+});
