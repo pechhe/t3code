@@ -22,7 +22,7 @@ import {
 } from "../chat/threadDetailsCardLayout";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
 import { useChatCanvas } from "../chat/ChatCanvasContext";
-import { type UsageCornerRow, usageCornerRows } from "./usageCorner";
+import { type UsageCornerRow, usageCornerRows } from "./usageCornerRows";
 
 // Same width and edge as the thread details card above it, so the two read as one column.
 const CARD_WIDTH_PX = THREAD_DETAILS_CARD_WIDTH;

@@ -2,7 +2,7 @@ import { ProviderDriverKind } from "@t3tools/contracts";
 import { collectLimitPools, type LimitAccount } from "@t3tools/shared/usageLimits";
 import { describe, expect, it } from "vite-plus/test";
 
-import { usageCornerRows } from "./usageCorner";
+import { usageCornerRows } from "./usageCornerRows";
 
 const now = Date.parse("2026-09-03T12:00:00.000Z");
 
