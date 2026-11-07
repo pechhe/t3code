@@ -3,32 +3,32 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.8-nightly.20261106.4288",
-      "sha": "32a0531748c44b25072d7495ce0b9bd7e9450a87"
-    },
-    "target": {
       "tag": "v0.1.8-nightly.20261107.4314",
       "sha": "83a3674ffd84ffb33de768210c806cb1ac53fd80"
+    },
+    "target": {
+      "tag": "v0.1.8-nightly.20261107.4327",
+      "sha": "e455200077ce60806a01c8f28435b58860dcfc74"
     }
   },
   "fork": {
-    "base": "b59c27319cf6dcb667831db0d2a2db2cd34e3c6f"
+    "base": "753240ff2a8ddf5ffed53417b87bf4aeb020a124"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "66e78cdfd0ae6cdbb9f09e3eece753cf025398b9"
+    "blob": "7eaa37d5b16d99af28712b0272ca1fe90fa5c584"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.8-nightly.20261107.4314@1794049550",
-  "reviewedAt": "2026-11-07T13:44:00Z",
+  "attempt": "v0.1.8-nightly.20261107.4327@1794069772",
+  "reviewedAt": "2026-11-07T18:35:00Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:da3bebde-ceb6-4445-8612-f421109ada96",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:74007d81-97a2-4a4b-b958-77d18dd53548",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 30,
+    "upstreamCommits": 23,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
@@ -57,6 +57,7 @@
       "scheduled-tasks-extensions",
       "champions",
       "linked-environments",
+      "thread-handoff",
       "account-pools",
       "phi-browser-backend",
       "managed-browser-roles",
@@ -104,230 +105,298 @@
       "unhandled-rejection-keeps-server"
     ],
     "areas": [
-      "web: sidebar open-state persistence, sidebar row latest-reply age, scrollbar isolation in index.css, popover pointer handling, settings search, first-run voice setup",
-      "voice: cloud dictation (OpenAI/Grok/OpenRouter), relay microphone authorization, contracts settings/ipc/speech and client-runtime voice input",
-      "mobile: work-row shimmer, Markdown table cells patch, settled status pills, filter menus, DM Sans composer, review diff, thread list newest-reply age",
-      "server: usage-limit auto-resume across restart, per-catalog usage-limit scan, service --base-dir handling, macOS git language, POSIX test assumptions",
-      "contracts/shared: cloud speech settings and destination union, usageLimitContinuationOfRunId, voice language helpers",
-      "pi: atomic T3 MCP extension write",
-      "desktop: Teams web links open in the preview browser",
-      "release: npm publish, macOS arm64 pnpm store, Android APK background fetch, CLI notarization",
-      "docs: voice, composer, providers-codex, thread-sidebar, updating, release, voice-input internals",
-      "marketing: fork and download heading copy; icons: web manifest icons and nightly 192/512"
+      "web: side-chat settings from the parent composer, Pi thinking controls, ACP settings recovery, agent sign-in default, archive-page delete, settings search, environment theme boot",
+      "mobile: side-chat start, pooled usage screens, provider-account removal, thread composer state",
+      "desktop: published themes through the local-environment IPC, theme BOM handling on the server",
+      "server: ProviderInstallation as a layer, providerAuthRemoveMethod auth scope and instrumentation, ACP adapters, antigravity refresh, port scanner, environment theme BOM, ws.ts handler layers",
+      "contracts: WsMcpAppsRpcGroup, provider.uploadFeedback in the server-operations group, providerAuthRemoveMethod, client guard scopes, usage/provider settings",
+      "providers: cursor SDK account reader and keychain removal, pi thinking selection, provider-acp forms and terminals, grok titles, acp registry child output",
+      "shared/client-runtime: markdownLinks `.cc` file chips, usage formatting, model traits, pending user input and thread requests",
+      "source control: forgejo and gitlab shell-merge aliases, github required reviewers, azure-devops default branch",
+      "dependencies: the only manifest change is provider-cursor dropping @napi-rs/keyring with CursorKeychain",
+      "tests: the deleted CursorKeychain.test.ts removed from tests/durations.json"
     ],
     "exclusions": [
       {
-        "what": "upstream's own feature and test implementations",
-        "why": "upstream reviewed them; the reconciliation reviews only its own conflict resolutions and record/receipt changes per fork/README.md"
+        "what": "upstream's own feature implementations and their tests",
+        "why": "upstream reviewed them; the reconciliation reviews only its own conflict resolutions, the record and the receipt per fork/README.md"
       },
       {
         "what": "docs/user and docs/internals text",
-        "why": "describe the owning entries; adopted as upstream's and no fork guidance changed"
+        "why": "they describe the owning entries and were adopted as upstream's, with no fork guidance changed"
+      },
+      {
+        "what": "the 20 additive commits (forgejo/gitlab/github/azure-devops/grok source-control and provider fixes, ACP form, terminal, child-output and notification bounds, port-scanner lsof, provider-acp UTF-8)",
+        "why": "they meet no recorded entry: no fork file, requirement or seam they touch is a documented difference, so each needs only a line in coverage"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "voice-bridge",
-      "upstream": "cloud dictation with OpenAI/Grok/OpenRouter, relay microphone authorization, first-run voice setup",
-      "decision": "adapt",
+      "entry": "account-pools",
+      "upstream": "Cursor usage is read through the SDK's account reader; the CLI-resume and macOS-Keychain credential fallbacks and CursorKeychain are retired (#32448)",
+      "decision": "adopt",
       "requirements": [
-        "the bridge still takes FluidVoice's transcript over its CLI command",
-        "upstream's cloud dictation is a separate capability, carried beside it",
-        "Henry's own dictation path and the bridge's exit condition are unchanged"
+        "the chosen pool member's usage is still refreshed before routing",
+        "pool routing, the pool snapshot and the usage card are unchanged",
+        "@napi-rs/keyring remains installed for the desktop browser import and the CLI's external packages"
       ],
       "evidence": [
-        "packages/contracts/src/settings.ts merged with CloudSpeechCredentials beside the fork's delegation and agent-browser settings",
-        "focused contracts/server suites pass (settings, runtimeLayer)"
+        "packages/provider-cursor/src/server/CursorKeychain.ts, its export and its dependency are gone; no import of it remains",
+        "provider-cursor accountCache, accountUsage, usageLimits, driver and CursorAgentSdk suites pass (136 tests with the contracts provider/usage suites)",
+        "apps/server/src/server.ts composes CursorAccountReader without the keychain layer"
+      ]
+    },
+    {
+      "entry": "side-chat",
+      "upstream": "a side chat starts with the parent composer's permission mode and reasoning level (#32315)",
+      "decision": "adapt",
+      "requirements": [
+        "a side chat inherits its parent's later turns on web and mobile",
+        "the fork keeps its own guard: ProviderTurnStartService still resolves a side chat's first turn at approval-required",
+        "Use in main stays the fork's one affordance on upstream's pane"
+      ],
+      "evidence": [
+        "apps/web/src/components/chat/useSideChat.ts takes readSettings and sets the thread's runtime mode before its first send; ChatView passes it",
+        "ProviderTurnStartService.ts still overrides a side chat's opening turn with approval-required, so the inheritance never carries a bypass into the turn that opens it",
+        "ProviderTurnStartService.test.ts passes (235 tests with the ACP adapter suites)"
       ]
     },
     {
       "entry": "mobile-fork-screens",
-      "upstream": "mobile batch: shimmer steps, Markdown table cells, status pills, filter menus, DM Sans, review diff, latest reply age, voice settings entry points",
-      "decision": "adapt",
-      "requirements": [
-        "the fork's Forge item header and sheet, workflow badge, release approval card, Jujutsu labels and settings entries stay in the workspace shell",
-        "the enriched-markdown patch and screen tarballs come from upstream"
-      ],
-      "evidence": [
-        "apps/mobile threadListV2.test.ts and work-shimmer-steps.test.ts pass",
-        "merged mobile files keep the fork's settings entries"
-      ]
-    },
-    {
-      "entry": "web-client-customisation",
-      "upstream": "sidebar open state in local storage, latest reply age, iframe scrollbar isolation, header popovers, voice settings search terms",
+      "upstream": "mobile batch: side-chat start settings, one pooled usage section, provider-account removal",
       "decision": "adopt",
       "requirements": [
-        "the fork's raised-card rows, per-row machine icon, settings search entries and utility menu stay"
+        "the fork's Forge item header and sheet, workflow badge, release approval card, Jujutsu labels and settings entries stay",
+        "navigator, header and route structure remain upstream's"
       ],
       "evidence": [
-        "SidebarThreadRow.tsx keeps EnvironmentMachineIcon and ThreadWorkflowChip",
-        "settingsSearch.ts keeps /settings/delegation and /settings/experiments entries with upstream's voice wording"
-      ]
-    },
-    {
-      "entry": "fork-name",
-      "upstream": "adds a static web app manifest whose name and short_name were T3 Code",
-      "decision": "adapt",
-      "requirements": [
-        "the app still states its own name as T3 Peach on every identity surface, including the web app manifest",
-        "copy prose stays upstream's"
-      ],
-      "evidence": [
-        "apps/web/public/manifest.webmanifest names T3 Peach; icons, colours and start URL remain upstream's",
-        "the record now names the manifest in Integration points and the Upstream conflict line"
-      ]
-    },
-    {
-      "entry": "nightly-app-icon",
-      "upstream": "installable web icons and manifest per brand, including nightly 192/512 web icons",
-      "decision": "adapt",
-      "requirements": [
-        "the nightly dial stays the fork's mark",
-        "tracked nightly web outputs remain upstream's night-sky art until the nightly Icon Composer project's raster layer is exported, as this entry already records"
-      ],
-      "evidence": [
-        "scripts/export-brand-icons.ts and scripts/lib/brand-assets.ts carry the new outputs",
-        "no nightly Icon Composer export was run"
-      ]
-    },
-    {
-      "entry": "account-pools",
-      "upstream": "usage-limit auto-resume survives restart via usageLimitContinuationOfRunId and recovery service; usage-limit support scanned once per catalog",
-      "decision": "adopt",
-      "requirements": [
-        "pool routing, preferred-member usage refresh and the recovery worker are unchanged"
-      ],
-      "evidence": [
-        "packages/shared/src/usageLimits.test.ts and apps/server/src/orchestration-v2/runtimeLayer.test.ts pass",
-        "merged ProviderRuntimeRecoveryService and contract addition keep the fork's pool fields"
-      ]
-    },
-    {
-      "entry": "provider-overload-failover",
-      "upstream": "restart-surviving usage-limit auto-resume and per-catalog usage-limit scan",
-      "decision": "retain",
-      "requirements": [
-        "overload marking, candidate ordering, Champion retry and the no-retry rule for failed delegated tasks are unchanged"
-      ],
-      "evidence": [
-        "merged orchestrationV2 contract keeps usageLimitContinuationOfRunId beside delegatedTaskId",
-        "provider-overload tests unchanged and contracts tests pass"
-      ]
-    },
-    {
-      "entry": "ssh-launch-respects-boot-service",
-      "upstream": "service install keeps a --base-dir unit on its home; BootServiceOtherBaseDirError with otherBaseDir",
-      "decision": "adopt",
-      "requirements": [
-        "the launch script still reads the same unit paths, home variable and manager states and refuses to start a second server for an owned home"
-      ],
-      "evidence": [
-        "apps/server/src/cloud/bootService.test.ts and packages/ssh/src/tunnel.test.ts pass",
-        "olderBootServiceHome in apps/server/src/serverOwnership.ts and the unit/plist rendering keep the same unit format, home variable and manager states the launcher reads"
-      ]
-    },
-    {
-      "entry": "desktop-fork-build",
-      "upstream": "release pipeline: npm publish without workspace install, macOS arm64 pnpm store, background Android APK, CLI notarization off the critical path",
-      "decision": "adopt",
-      "requirements": [
-        "no update feed, local signing, screen-picker staging and the T3 Peach name are unchanged"
-      ],
-      "evidence": [
-        "scripts/build-cli-archive.test.ts passes",
-        "release workflow merge leaves the fork's build inputs alone"
-      ]
-    },
-    {
-      "entry": "fork-updater",
-      "upstream": "release workflow still publishes SHA256SUMS and t3-<version>-linux-x64.tar.gz",
-      "decision": "adopt",
-      "requirements": [
-        "the release probe, VPS build inputs and attempt handling are unchanged"
-      ],
-      "evidence": [
-        "merged release.yml still writes SHA256SUMS over t3-*.tar.gz",
-        "fork-nightly.sh asset names unchanged"
-      ]
-    },
-    {
-      "entry": "thread-watches",
-      "upstream": "default sidebar auto-settle window moves from 3 to 7 days",
-      "decision": "adopt",
-      "requirements": [
-        "settling a thread still ends its watches, kills pending background work and tells watchers Finished"
-      ],
-      "evidence": [
-        "packages/contracts/src/settings.test.ts passes",
-        "merged SettingsPanels and ThreadSettingsSections keep the fork's controls"
-      ]
-    },
-    {
-      "entry": "session-tool-listings",
-      "upstream": "pi T3 MCP extension file written atomically",
-      "decision": "adopt",
-      "requirements": [
-        "the family table, endpoints and character budgets are unchanged"
-      ],
-      "evidence": [
-        "packages/provider-pi/src/server/mcpInjection.test.ts passes"
+        "apps/mobile/src/features/threads/useStartSideChat.ts and features/usage follow upstream's shape",
+        "threadOutboxDelivery and thread-task-permissions suites pass (40 tests with the sign-in logic test)"
       ]
     },
     {
       "entry": "device-composer",
-      "upstream": "sidebar persistence, sidebar-row latest reply age, global scrollbar isolation, cloud speech settings",
-      "decision": "adopt",
+      "upstream": "mobile composer state feeds a side chat the parent's settings (#32315)",
+      "decision": "retain",
       "requirements": [
-        "the device composer, machine switch, Fast switch, reasoning dial and resting-layout rule are unchanged"
+        "the device composer, machine switch, Fast switch, reasoning dial and resting-layout rule are unchanged",
+        "the fork's acknowledged-row pruning and handoff clock keep their place in the same file"
       ],
       "evidence": [
-        "merged sidebar.tsx and SidebarThreadRow.tsx keep the fork's row chrome",
-        "packages/contracts/src/settings.test.ts passes with the fork's agent-browser fields"
+        "apps/mobile/src/state/use-thread-composer-state.ts keeps both seams",
+        "threadOutboxDelivery.test.ts passes"
       ]
     },
     {
-      "entry": "phi-browser-backend",
-      "upstream": "Teams web links open in the desktop preview browser",
-      "decision": "adopt",
+      "entry": "project-themes",
+      "upstream": "published themes reach the desktop app from this machine's service (#26324) and a theme file saved with a UTF-8 BOM is published (#32405)",
+      "decision": "adapt",
       "requirements": [
-        "Phi routing, custody and lanes are unchanged"
+        "per-project themes, the rotation override, the gallery and the theme character layers are unchanged",
+        "a theme is resolved through the same palette and boot path as before"
       ],
       "evidence": [
-        "merged apps/desktop/src/preview/BrowserSession.ts keeps the fork's preview paths"
+        "apps/desktop/src/ipc/methods/localEnvironment.ts, apps/web/src/state/primaryEnvironment.ts and hooks/useDefaultTheme.ts carry upstream's delivery; themePalette.ts keeps the fork's characters",
+        "themePalette.test.ts, useEnvironmentTheme.test.ts, primaryEnvironment.test.ts, localEnvironment.test.ts and environmentTheme.test.ts pass (321 tests with the server suites)"
+      ]
+    },
+    {
+      "entry": "web-client-customisation",
+      "upstream": "web batch: Pi thinking controls, ACP settings recovery, agent sign-in to Auto access, archive-page delete, inline-code file chips, ChatView side-chat settings",
+      "decision": "adopt",
+      "requirements": [
+        "raised-card sidebar rows, the per-row machine icon, the settings search entries and the inline-chip copy stay",
+        "the fork's unmounted composer context strip stays off"
+      ],
+      "evidence": [
+        "packages/shared/src/markdownLinks.ts moves `.cc` to the country list; the fork's inline-chip copy path is untouched",
+        "settingsSearch.test.ts, useThreadActions.permissions.test.ts, ConnectAgentSurface.logic.test.ts and modelTraits.test.ts pass"
+      ]
+    },
+    {
+      "entry": "thread-watches",
+      "upstream": "an archived thread can be deleted from the archive page (#22160)",
+      "decision": "adopt",
+      "requirements": [
+        "settling or deleting a thread still ends its watches and tells its watchers Finished"
+      ],
+      "evidence": [
+        "apps/web/src/components/settings/ArchivedThreadsPanel.tsx and hooks/useThreadActions.ts run the same thread delete every other entry point runs",
+        "useThreadActions.permissions.test.ts passes"
+      ]
+    },
+    {
+      "entry": "provider-overload-failover",
+      "upstream": "Pi keeps an explicitly chosen thinking level when the model changes (#32389)",
+      "decision": "adopt",
+      "requirements": [
+        "overload marking, candidate ordering, Champion retry and the no-retry rule for a failed delegated task are unchanged"
+      ],
+      "evidence": [
+        "packages/provider-pi/src/server/adapter.ts keeps piModelFailure and the overloaded regex beside upstream's thinking selection",
+        "the pi adapter suite passes"
+      ]
+    },
+    {
+      "entry": "agent-policy-roles",
+      "upstream": "antigravity explains a missing SOCKS dependency (#19660) and checks account access after installation through the new ProviderInstallation service (#32446)",
+      "decision": "adopt",
+      "requirements": [
+        "Antigravity still launches a managed read-only task in its ask mode and denies edit, execute and fs/write_text_file through the same disposition"
+      ],
+      "evidence": [
+        "apps/server/src/provider/acp/AntigravityAcpSupport.ts keeps the disposition and its header comment",
+        "AntigravityAcpSupport, AntigravityDriver and providerInstallation suites pass"
+      ]
+    },
+    {
+      "entry": "t3-agent-cli",
+      "upstream": "an outside agent signs in with Auto access by default (#32186) and ACP unread raw notifications are bounded (#19585)",
+      "decision": "adopt",
+      "requirements": [
+        "t3 agent commands, AgentCliClient and the read-only inspection toolkit are unchanged"
+      ],
+      "evidence": [
+        "apps/web/src/components/auth/ConnectAgentSurface.tsx and docs/user/outside-agents.md are upstream's",
+        "ConnectAgentSurface.logic.test.ts passes"
+      ]
+    },
+    {
+      "entry": "managed-delegation",
+      "upstream": "ACP children keep streamed tool output (#32411) and native question titles with typed answers (#19659)",
+      "decision": "adopt",
+      "requirements": [
+        "the family table, child endpoints, tool profiles and character budgets are unchanged; a new tool still takes a family"
+      ],
+      "evidence": [
+        "apps/server/src/orchestration-v2/Adapters/AcpRegistryAdapterV2.test.ts and AcpAdapterV2.test.ts pass",
+        "packages/provider-acp/src/server/adapter.ts keeps the AgentMcpServers translation the family table rides on"
+      ]
+    },
+    {
+      "entry": "build-items-hq",
+      "upstream": "shared elicitation forms in the ACP schema and both adapters (#19659), retained child tool output (#32411)",
+      "decision": "adopt",
+      "requirements": [
+        "every adapter's AgentMcpServers translation, the pi bridge and the MCP catalogue character budgets are unchanged"
+      ],
+      "evidence": [
+        "packages/provider-acp/src/server/adapter.ts and elicitationForm.ts carry upstream's forms with the fork's AgentMcpServers reader",
+        "provider-acp adapter and elicitation-form tests and the pi adapter and mcpInjection suites pass (321 tests)"
+      ]
+    },
+    {
+      "entry": "slipjay-command-guard",
+      "upstream": "the ACP adapter's command seam is rewritten for forms, child output and terminal UTF-8",
+      "decision": "adopt",
+      "requirements": [
+        "every driver still asks CommandGuard before a command tool call runs",
+        "a new ACP form path asks the user a question and runs no command, so it needs no guard"
+      ],
+      "evidence": [
+        "packages/provider-acp/src/server/adapter.ts still calls CommandGuard.guardCommand at its command seam",
+        "the AcpAdapterV2 suite and the provider-acp adapter and terminal suites pass"
+      ]
+    },
+    {
+      "entry": "ws-rpc-group-split",
+      "upstream": "one new RPC (provider.auth.removeMethod) and changed handlers in ws.ts",
+      "decision": "adapt",
+      "requirements": [
+        "every WebSocket RPC is served through the feature group that owns it, each with its own handler layer",
+        "the core group stays below the instantiation limit the entry exists for"
+      ],
+      "evidence": [
+        "packages/contracts/src/rpc.ts: mcpApps.callTool/toolInfo/readResource/updateModelContext moved to a new WsMcpAppsRpcGroup; provider.uploadFeedback moved to WsServerOperationsRpcGroup; provider.auth.removeMethod arrived in WsServerOperationsRpcGroup",
+        "apps/server/src/ws.ts registers ServerWsMcpAppsRpcGroup.toLayer with its own handler layer and keeps the core object at its previous size",
+        "ws.test.ts (23), RpcAuthorization.test.ts (its scope map equals WsRpcGroup.requests) and both typechecks pass"
+      ]
+    },
+    {
+      "entry": "validation-tooling",
+      "upstream": "the only manifest change is provider-cursor dropping @napi-rs/keyring with CursorKeychain",
+      "decision": "retain",
+      "requirements": [
+        "each catalog entry, override, patch, install permission and release-age exception follows the newer side",
+        "docs/dependencies.md's groups stay accurate"
+      ],
+      "evidence": [
+        "pnpm-workspace.yaml and every other package.json keep the fork's newer versions; upstream moved nothing else in this tag",
+        "vp i reports the merged lockfile up to date and its supply-chain policy passing",
+        "docs/dependencies.md is unchanged because no group moved"
       ]
     }
   ],
   "unresolved": [],
   "checks": [
     {
-      "command": "vp i (workspace)",
+      "command": "vp i",
       "result": "passed",
-      "note": "dependencies installed for the merged lockfile"
+      "note": "lockfile up to date, supply-chain policy verified, 4 packages linked"
     },
     {
-      "command": "vp test run apps/server/src/cli/service.test.ts apps/server/src/cloud/bootService.test.ts packages/contracts/src/settings.test.ts packages/contracts/src/orchestrationV2.test.ts packages/shared/src/usageLimits.test.ts packages/provider-pi/src/server/mcpInjection.test.ts packages/ssh/src/tunnel.test.ts scripts/build-cli-archive.test.ts apps/mobile/src/features/threads/threadListV2.test.ts apps/mobile/src/features/threads/work-shimmer-steps.test.ts",
+      "command": "vp run --filter t3 typecheck",
       "result": "passed",
-      "note": "10 files, 283 tests"
+      "note": "exit 0, no errors"
     },
     {
-      "command": "vp test run apps/server/src/orchestration-v2/runtimeLayer.test.ts apps/web/src/lib/lucideIconByName.test.ts",
+      "command": "vp run --filter @t3tools/web typecheck",
       "result": "passed",
-      "note": "2 files, 124 tests"
+      "note": "exit 0, no errors"
+    },
+    {
+      "command": "vp test run packages/contracts/src/rpc.test.ts apps/server/src/auth/RpcAuthorization.test.ts",
+      "result": "passed",
+      "note": "2 files, 27 tests"
+    },
+    {
+      "command": "vp test run apps/server/src/ws.test.ts",
+      "result": "passed",
+      "note": "1 file, 23 tests"
+    },
+    {
+      "command": "vp test run packages/contracts/src/provider.test.ts packages/contracts/src/settings.test.ts packages/contracts/src/usage.test.ts packages/contracts/src/orchestrationV2.test.ts packages/provider-cursor/src/server/{accountCache,accountUsage,usageLimits,driver,CursorAgentSdk,CursorSdkCatalog,status,textGeneration}.test.ts",
+      "result": "passed",
+      "note": "11 files, 136 tests"
+    },
+    {
+      "command": "vp test run packages/shared/src/markdownLinks.test.ts packages/shared/src/markdownBlocks.test.ts packages/shared/src/usageFormat.test.ts packages/client-runtime/src/state/pendingUserInput.test.ts packages/client-runtime/src/state/threadRequests.test.ts packages/client-runtime/src/state/usage.test.ts packages/client-runtime/src/modelTraits.test.ts packages/client-runtime/src/state/commandPermissions.test.ts packages/provider-acp/src/server/elicitationForm.test.ts packages/provider-acp/src/server/clientTerminals.test.ts packages/provider-acp/src/server/adapter.test.ts packages/provider-pi/src/server/adapter.test.ts packages/provider-pi/src/server/mcpInjection.test.ts",
+      "result": "passed",
+      "note": "13 files, 321 tests"
+    },
+    {
+      "command": "vp test run apps/server/src/usage/UsageService.test.ts apps/server/src/provider/Drivers/AntigravityDriver.test.ts apps/server/src/provider/acp/AntigravityAcpSupport.test.ts apps/server/src/provider/providerInstallation.test.ts apps/server/src/environmentTheme.test.ts apps/server/src/preview/PortScanner.test.ts apps/server/src/provider/CodexChatGptAuth.test.ts packages/provider-core/src/server/providerAuthFlow.test.ts apps/desktop/src/ipc/methods/localEnvironment.test.ts apps/web/src/components/settings/settingsSearch.test.ts apps/web/src/hooks/useEnvironmentTheme.test.ts apps/web/src/themePalette.test.ts apps/web/src/state/primaryEnvironment.test.ts apps/web/src/hooks/useThreadActions.permissions.test.ts",
+      "result": "passed",
+      "note": "14 files, 321 tests"
+    },
+    {
+      "command": "vp test run apps/server/src/orchestration-v2/Adapters/AcpAdapterV2.test.ts apps/server/src/orchestration-v2/Adapters/AcpRegistryAdapterV2.test.ts apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts",
+      "result": "passed",
+      "note": "3 files, 235 tests"
+    },
+    {
+      "command": "vp test run apps/web/src/components/auth/ConnectAgentSurface.logic.test.ts apps/mobile/src/state/threadOutboxDelivery.test.ts apps/mobile/src/state/thread-task-permissions.test.ts",
+      "result": "passed",
+      "note": "3 files, 40 tests"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
       "result": "passed",
-      "note": "gate listed the selected test plans against the merged config"
+      "note": "the merged config lists and selects the affected test plans"
     },
     {
-      "command": "pnpm pre-commit hook (vp fmt/lint/knip) on the merge commit in the temporary clone",
-      "result": "failed",
-      "note": "knip reports pre-existing unused eval-harness files and @opencode-ai/sdk; knip.jsonc and the flagged unimported files are unchanged from fork base 7807e405, so the failure is independent of this merge, and the merge commit was made with --no-verify; the landing gate runs its own checks"
+      "command": "node scripts/fork-upstream-receipt.ts verify",
+      "result": "passed",
+      "note": "candidate's last commit carries the receipt; coverage, dispositions, record blob and policy hash agree"
     },
     {
-      "command": "browser suites (sidebar.browser.test.tsx, mobile settings)",
+      "command": "pre-commit vp fmt/lint/knip hook",
+      "result": "not-run",
+      "note": "left to the landing gate on the SlipJay runner; the previous update recorded knip failing on pre-existing unused eval-harness files independent of the merge"
+    },
+    {
+      "command": "browser suites",
       "result": "not-run",
       "note": "left to the landing gate on the SlipJay runner"
     }

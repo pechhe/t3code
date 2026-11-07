@@ -161,7 +161,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const query = useSettingsSearchQuery((state) => state.query);
   const setQuery = useSettingsSearchQuery((state) => state.setQuery);
   const [activeResultIndex, setActiveResultIndex] = useState(0);
-  const searchableItems = useAvailableSettingsSearchItems(scopeSearch);
+  const searchableItems = useAvailableSettingsSearchItems();
   // The list lags the box by a render, so a keystroke never waits on up to
   // hundreds of result rows.
   const listedQuery = useDeferredValue(query);

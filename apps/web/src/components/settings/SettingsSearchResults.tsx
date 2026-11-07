@@ -152,9 +152,9 @@ export const SettingsSearchResults = memo(function SettingsSearchResults({
 }) {
   const navigate = useNavigate();
   const setQuery = useSettingsSearchQuery((state) => state.setQuery);
-  const { scope, search, connectedEnvironments } = useSettingsScope();
+  const { scope, connectedEnvironments } = useSettingsScope();
   const { environments } = useEnvironments();
-  const searchableItems = useAvailableSettingsSearchItems(search);
+  const searchableItems = useAvailableSettingsSearchItems();
 
   const { matchCount, pages, anchorIds } = (() => {
     const autoSettlementAvailable = getThreadAutoSettlementSearchAvailability(

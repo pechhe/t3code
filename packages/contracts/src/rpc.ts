@@ -105,6 +105,7 @@ import {
   ProviderAuthCompleteInput,
   ProviderAuthState,
   ProviderAuthStartInput,
+  ProviderAuthRemoveMethodInput,
   ProviderAuthRespondInput,
   ProviderInstallCancelInput,
   ProviderInstallState,
@@ -560,6 +561,7 @@ export const WS_METHODS = {
   chatGptHandoffSubscribe: "provider.chatgpt.handoff.subscribe",
   providerAuthRespond: "provider.auth.respond",
   providerAuthCancel: "provider.auth.cancel",
+  providerAuthRemoveMethod: "provider.auth.removeMethod",
   providerAuthLogout: "provider.auth.logout",
   providerAuthSubscribe: "provider.auth.subscribe",
   providerInstallStart: "provider.install.start",
@@ -904,6 +906,12 @@ const WsChatGptHandoffSubscribeRpc = Rpc.make(WS_METHODS.chatGptHandoffSubscribe
 
 const WsProviderAuthCancelRpc = Rpc.make(WS_METHODS.providerAuthCancel, {
   payload: ProviderAuthCancelInput,
+  success: ProviderAuthState,
+  error: ProviderSetupRpcError,
+});
+
+const WsProviderAuthRemoveMethodRpc = Rpc.make(WS_METHODS.providerAuthRemoveMethod, {
+  payload: ProviderAuthRemoveMethodInput,
   success: ProviderAuthState,
   error: ProviderSetupRpcError,
 });
@@ -2668,11 +2676,6 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsAssetsPersistChatAttachmentsRpc,
   WsAttachmentsCreateUploadUrlRpc,
   WsAttachmentsDeleteRpc,
-  WsMcpAppsCallToolRpc,
-  WsMcpAppsToolInfoRpc,
-  WsMcpAppsReadResourceRpc,
-  WsMcpAppsUpdateModelContextRpc,
-  WsProviderUploadFeedbackRpc,
   WsSubscribeVcsStatusRpc,
   WsSubscribeWorktreeSetupRpc,
   WsWorktreeSetupCancelRpc,
@@ -2774,6 +2777,14 @@ export const WsPeersRpcGroup = RpcGroup.make(
 export const WsGuestShareRpcGroup =
   RpcGroup.make(WsGuestShareCreateRpc).middleware(RpcScopeAuthorization);
 
+// The MCP app requests a started app makes against its own thread's provider session.
+export const WsMcpAppsRpcGroup = RpcGroup.make(
+  WsMcpAppsCallToolRpc,
+  WsMcpAppsToolInfoRpc,
+  WsMcpAppsReadResourceRpc,
+  WsMcpAppsUpdateModelContextRpc,
+).middleware(RpcScopeAuthorization);
+
 // The thread-structure reads the shell and Lineage call; they stay out of the core group too.
 export const WsThreadStructureRpcGroup = RpcGroup.make(
   WsOrchestrationV2GetThreadFamilyRpc,
@@ -2805,7 +2816,9 @@ export const WsServerOperationsRpcGroup = RpcGroup.make(
   WsProviderAuthRespondRpc,
   WsProviderAuthCancelRpc,
   WsProviderAuthLogoutRpc,
+  WsProviderAuthRemoveMethodRpc,
   WsProviderAuthSubscribeRpc,
+  WsProviderUploadFeedbackRpc,
   WsProviderInstallStartRpc,
   WsProviderInstallCancelRpc,
   WsProviderInstallSubscribeRpc,
@@ -2911,6 +2924,7 @@ export const WsRpcGroup = WsCoreRpcGroup.merge(WsPullRequestRpcGroup)
   .merge(WsPeersRpcGroup)
   .merge(WsWeaveRpcGroup)
   .merge(WsGuestShareRpcGroup)
+  .merge(WsMcpAppsRpcGroup)
   .merge(WsThreadStructureRpcGroup)
   .merge(WsAwayRpcGroup)
   .merge(WsChampionsRpcGroup)

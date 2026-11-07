@@ -114,6 +114,7 @@ import {
   WsServerOperationsRpcGroup,
   WsThreadControlRpcGroup,
   WsGuestShareRpcGroup,
+  WsMcpAppsRpcGroup,
   WsWeaveRpcGroup,
   type WeaveSignInStartInput,
   retainedWeaveSignInStartInput,
@@ -212,7 +213,7 @@ import * as AcpRegistrySupport from "@t3tools/provider-acp-registry/server/AcpRe
 import * as AcpRegistryRuntimeCoordinator from "@t3tools/provider-acp-registry/server/AcpRegistryRuntimeCoordinator";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
 import * as ProviderAuthService from "./provider/ProviderAuthService.ts";
-import { makeProviderInstallation } from "./provider/providerInstallation.ts";
+import * as ProviderInstallation from "./provider/providerInstallation.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as NpmRelease from "./cloud/npmRelease.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
@@ -714,6 +715,7 @@ const ServerWsPullRequestRpcGroup = WsPullRequestRpcGroup.middleware(RpcInstrume
 const ServerWsPeersRpcGroup = WsPeersRpcGroup.middleware(RpcInstrumentation);
 const ServerWsWeaveRpcGroup = WsWeaveRpcGroup.middleware(RpcInstrumentation);
 const ServerWsGuestShareRpcGroup = WsGuestShareRpcGroup.middleware(RpcInstrumentation);
+const ServerWsMcpAppsRpcGroup = WsMcpAppsRpcGroup.middleware(RpcInstrumentation);
 const ServerWsThreadStructureRpcGroup = WsThreadStructureRpcGroup.middleware(RpcInstrumentation);
 const ServerWsAwayRpcGroup = WsAwayRpcGroup.middleware(RpcInstrumentation);
 // Past this gap behind the head, a resuming client gets a fresh shell snapshot instead of a
@@ -1512,7 +1514,6 @@ export const layerWsRpc = (
       const threadSearch = yield* ThreadSearch.ThreadSearch;
 
       const providerSessionsV2 = yield* ProviderSessionManager.ProviderSessionManagerV2;
-      const mcpAppRequests = yield* McpAppRequests.McpAppRequests;
       const analytics = yield* AnalyticsService.AnalyticsService;
       const originProps = clientAnalyticsProps;
       const recordClientCommandAnalytics = (command: OrchestrationV2Command) => {
@@ -1594,7 +1595,7 @@ export const layerWsRpc = (
         yield* AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
       const providerAuth = yield* ProviderAuthService.ProviderAuthService;
-      const providerInstallation = yield* makeProviderInstallation();
+      const providerInstallation = yield* ProviderInstallation.ProviderInstallation;
       const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const npmRelease = yield* NpmRelease.NpmRelease;
       const config = yield* ServerConfig.ServerConfig;
@@ -2358,58 +2359,6 @@ export const layerWsRpc = (
             Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
               Effect.as(commandOutputHub.subscribe(input)),
             ),
-          ),
-        [WS_METHODS.mcpAppsCallTool]: (input) => mcpAppRequests.callTool(input),
-        [WS_METHODS.mcpAppsToolInfo]: (input) => mcpAppRequests.toolInfo(input),
-        [WS_METHODS.mcpAppsUpdateModelContext]: (input) => mcpAppRequests.updateModelContext(input),
-        [WS_METHODS.mcpAppsReadResource]: (input) => mcpAppRequests.readResource(input),
-        [WS_METHODS.providerUploadFeedback]:
-          /* Request instrumentation already owns the span; keep this helper in that context. */
-          Effect.fnUntraced(
-            function* (input) {
-              const projection = yield* threadManagement.getThreadRecords(input.threadId, [
-                "providerThreads",
-              ]);
-              const providerThread =
-                projection.providerThreads.find(
-                  (candidate) => candidate.id === projection.thread.activeProviderThreadId,
-                ) ?? projection.providerThreads.at(-1);
-              const providerSessionId = providerThread?.providerSessionId ?? null;
-              if (providerThread === undefined || providerSessionId === null) {
-                return yield* new ProviderUploadFeedbackError({
-                  threadId: input.threadId,
-                  cause: "No provider session has run in this thread yet.",
-                });
-              }
-              const runtime = Option.getOrNull(yield* providerSessionsV2.get(providerSessionId));
-              if (runtime === null) {
-                return yield* new ProviderUploadFeedbackError({
-                  threadId: input.threadId,
-                  cause: "The provider session is no longer running. Send a message first.",
-                });
-              }
-              if (runtime.uploadFeedback === undefined) {
-                return yield* new ProviderUploadFeedbackError({
-                  threadId: input.threadId,
-                  cause: `Provider '${runtime.driver}' does not support feedback uploads.`,
-                });
-              }
-              return yield* runtime.uploadFeedback({
-                providerThread,
-                ...(input.reason === undefined ? {} : { reason: input.reason }),
-              });
-            },
-            (effect, input) =>
-              effect.pipe(
-                Effect.mapError((cause) =>
-                  isProviderUploadFeedbackError(cause)
-                    ? cause
-                    : new ProviderUploadFeedbackError({
-                        threadId: input.threadId,
-                        cause,
-                      }),
-                ),
-              ),
           ),
         [WS_METHODS.cloudGetRelayClientStatus]: (_input) => relayClient.resolve,
         [WS_METHODS.cloudInstallRelayClient]: (_input) =>
@@ -3396,6 +3345,55 @@ export const layerWsRpc = (
         [WS_METHODS.chatGptHandoffSubscribe]: (input) =>
           subscribeChatGptHandoff(input, currentSessionId),
         [WS_METHODS.providerAuthCancel]: (input) => providerAuth.cancel(input, currentSessionId),
+        [WS_METHODS.providerAuthRemoveMethod]: (input) => providerAuth.removeMethod(input),
+        [WS_METHODS.providerUploadFeedback]:
+          /* Request instrumentation already owns the span; keep this helper in that context. */
+          Effect.fnUntraced(
+            function* (input) {
+              const projection = yield* threadManagement.getThreadRecords(input.threadId, [
+                "providerThreads",
+              ]);
+              const providerThread =
+                projection.providerThreads.find(
+                  (candidate) => candidate.id === projection.thread.activeProviderThreadId,
+                ) ?? projection.providerThreads.at(-1);
+              const providerSessionId = providerThread?.providerSessionId ?? null;
+              if (providerThread === undefined || providerSessionId === null) {
+                return yield* new ProviderUploadFeedbackError({
+                  threadId: input.threadId,
+                  cause: "No provider session has run in this thread yet.",
+                });
+              }
+              const runtime = Option.getOrNull(yield* providerSessionsV2.get(providerSessionId));
+              if (runtime === null) {
+                return yield* new ProviderUploadFeedbackError({
+                  threadId: input.threadId,
+                  cause: "The provider session is no longer running. Send a message first.",
+                });
+              }
+              if (runtime.uploadFeedback === undefined) {
+                return yield* new ProviderUploadFeedbackError({
+                  threadId: input.threadId,
+                  cause: `Provider '${runtime.driver}' does not support feedback uploads.`,
+                });
+              }
+              return yield* runtime.uploadFeedback({
+                providerThread,
+                ...(input.reason === undefined ? {} : { reason: input.reason }),
+              });
+            },
+            (effect, input) =>
+              effect.pipe(
+                Effect.mapError((cause) =>
+                  isProviderUploadFeedbackError(cause)
+                    ? cause
+                    : new ProviderUploadFeedbackError({
+                        threadId: input.threadId,
+                        cause,
+                      }),
+                ),
+              ),
+          ),
         [WS_METHODS.providerAuthLogout]: (input) => providerAuth.logout(input),
         [WS_METHODS.providerAuthSubscribe]: (input) =>
           providerAuth.subscribe(input, currentSessionId),
@@ -3487,6 +3485,18 @@ export const layerWsRpc = (
       });
       return Layer.mergeAll(
         ServerWsCoreRpcGroup.toLayer(handlers),
+        ServerWsMcpAppsRpcGroup.toLayer(
+          Effect.gen(function* () {
+            const mcpAppRequests = yield* McpAppRequests.McpAppRequests;
+            return ServerWsMcpAppsRpcGroup.of({
+              [WS_METHODS.mcpAppsCallTool]: (input) => mcpAppRequests.callTool(input),
+              [WS_METHODS.mcpAppsToolInfo]: (input) => mcpAppRequests.toolInfo(input),
+              [WS_METHODS.mcpAppsUpdateModelContext]: (input) =>
+                mcpAppRequests.updateModelContext(input),
+              [WS_METHODS.mcpAppsReadResource]: (input) => mcpAppRequests.readResource(input),
+            });
+          }),
+        ),
         WsServerOperationsRpcGroup.middleware(RpcInstrumentation).toLayer(serverHandlers),
       );
     }),

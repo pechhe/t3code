@@ -1772,7 +1772,6 @@
   "packages/provider-cursor/src/server/auth.test.ts": 0.1,
   "packages/provider-cursor/src/server/credentialStore.test.ts": 0.1,
   "packages/provider-cursor/src/server/CursorAgentSdk.test.ts": 0.1,
-  "packages/provider-cursor/src/server/CursorKeychain.test.ts": 0.1,
   "packages/provider-cursor/src/server/CursorSdk.test.ts": 1.9,
   "packages/provider-cursor/src/server/CursorSdkCatalog.test.ts": 0.1,
   "packages/provider-cursor/src/server/driver.test.ts": 0.1,
