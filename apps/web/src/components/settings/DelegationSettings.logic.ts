@@ -19,6 +19,15 @@ export function rolePolicy(manifest: Manifest, role: AgentRole): RolePolicy {
   return policy;
 }
 
+/**
+ * The policy as the page edits it: without the retired ui-verifier role, so saving a policy
+ * that still sets it removes it.
+ */
+export function editableManifest(manifest: Manifest): Manifest {
+  const { "ui-verifier": _retired, ...roles } = manifest.roles;
+  return { ...manifest, roles };
+}
+
 /** The jobs in the order the page lists them; roles sharing a list appear together. */
 const ROLE_ORDER: ReadonlyArray<AgentRole> = [
   "lead",
@@ -28,7 +37,6 @@ const ROLE_ORDER: ReadonlyArray<AgentRole> = [
   "advisor",
   "chore-worker",
   "browser",
-  "ui-verifier",
   "researcher",
   "scout",
 ];

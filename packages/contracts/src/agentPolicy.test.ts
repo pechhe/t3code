@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 import {
   AgentPolicyManifest,
+  AgentPolicyManifestEdit,
   AgentPolicySnapshot,
   AgentTaskRequest,
   AgentTaskBinding,
@@ -301,21 +302,61 @@ describe("AgentPolicyManifest", () => {
     ).toBe("Failure");
   });
 
-  it("lets only the UI worker write source and drive Phi", () => {
+  it("reads a saved Phi-driving UI writer as an implementation writer with bounded browser tasks", () => {
     const manifest = encodeManifest(decodeManifest(legacy));
-    const withRole = (name: "ui-worker" | "implementation-worker" | "advisor", edit: object) =>
+    const saved = {
+      ...manifest,
+      roles: {
+        ...manifest.roles,
+        "ui-worker": { ...manifest.roles["ui-worker"], toolProfile: "implementation-phi" },
+      },
+    };
+    const uiWorker = decodeManifest(saved).roles["ui-worker"];
+    expect(uiWorker.toolProfile).toBe("implementation");
+    expect(uiWorker.browserTasks).toBe(true);
+    expect(encodeManifest(decodeManifest(saved)).roles["ui-worker"].toolProfile).toBe(
+      "implementation",
+    );
+    // A stored version 1 policy reads the same way.
+    const v1 = decodeManifest({
+      ...legacy,
+      roles: {
+        ...legacy.roles,
+        "ui-worker": { ...legacy.roles["ui-worker"], toolProfile: "implementation-phi" },
+      },
+    });
+    expect(v1.roles["ui-worker"].toolProfile).toBe("implementation");
+    // Bounded browser tasks are still only for the roles that may hold them.
+    expect(
       decodeManifestExit({
         ...manifest,
-        roles: { ...manifest.roles, [name]: { ...manifest.roles[name], ...edit } },
-      })._tag;
-    expect(withRole("ui-worker", { toolProfile: "implementation-phi" })).toBe("Success");
-    expect(
-      withRole("ui-worker", { toolProfile: "implementation-phi", sourceAccess: "read-only" }),
+        roles: {
+          ...manifest.roles,
+          advisor: { ...manifest.roles.advisor, toolProfile: "implementation-phi" },
+        },
+      })._tag,
     ).toBe("Failure");
-    expect(withRole("implementation-worker", { toolProfile: "implementation-phi" })).toBe(
-      "Failure",
-    );
-    expect(withRole("advisor", { toolProfile: "implementation-phi" })).toBe("Failure");
+  });
+
+  it("reads a policy without ui-verifier, and a save can set neither it nor implementation-phi", () => {
+    const manifest = encodeManifest(decodeManifest(legacy));
+    const { "ui-verifier": _retired, ...roles } = manifest.roles;
+    const current = { ...manifest, roles };
+    expect(decodeManifest(current).roles["ui-verifier"]).toBeUndefined();
+    const decodeEdit = Schema.decodeUnknownExit(AgentPolicyManifestEdit, {
+      onExcessProperty: "error",
+    });
+    expect(decodeEdit(current)._tag).toBe("Success");
+    expect(decodeEdit(manifest)._tag).toBe("Failure");
+    expect(
+      decodeEdit({
+        ...current,
+        roles: {
+          ...roles,
+          "ui-worker": { ...roles["ui-worker"], toolProfile: "implementation-phi" },
+        },
+      })._tag,
+    ).toBe("Failure");
   });
 
   it("grants bounded browser tasks only to writers and the reviewer, and never by request", () => {
@@ -510,5 +551,47 @@ describe("modelMaker", () => {
     expect(modelMaker({ driverKind: "opencode", model: "opencode/crouton-alpha-free" })).toBe(
       "crouton",
     );
+  });
+});
+
+describe("AgentTaskBinding", () => {
+  const binding = (role: string, sourceAccess: string, toolProfile: string, extra: object = {}) =>
+    decodeBinding({
+      ...extra,
+      role,
+      taskClass: "ui",
+      workId: "work",
+      attemptId: "attempt",
+      workspacePath: "/workspace",
+      requestFingerprint: "a".repeat(64),
+      policyHash: "b".repeat(64),
+      policyRevision: "policy",
+      briefHash: "c".repeat(64),
+      sourceAccess,
+      toolProfile,
+      requested: { instanceId: "codex", model: "model" },
+      assigned: null,
+      effective: { instanceId: "codex", model: "model" },
+    });
+
+  it("resumes a UI worker bound to Phi with bounded browser tasks and no Phi", () => {
+    const writer = binding("ui-worker", "scoped-write", "implementation-phi");
+    expect([writer.toolProfile, writer.browserTasks]).toEqual(["implementation", true]);
+    expect(encodeBinding(writer).toolProfile).toBe("implementation");
+    const reader = binding("ui-worker", "read-only", "phi");
+    expect([reader.toolProfile, reader.browserTasks]).toEqual(["source-reader", true]);
+    // A UI worker that selected Phi resumes without the selection, which it may no longer make.
+    const selected = binding("ui-worker", "scoped-write", "implementation-phi", {
+      browser: { backend: "phi", phiLane: "agents" },
+    });
+    expect(selected.browser).toBeUndefined();
+    expect(binding("browser", "read-only", "phi", { browser: { backend: "phi" } }).browser).toEqual(
+      { backend: "phi" },
+    );
+    // The browser roles keep their browser.
+    for (const role of ["browser", "ui-verifier"]) {
+      const browser = binding(role, "read-only", "phi");
+      expect([browser.toolProfile, browser.browserTasks]).toEqual(["phi", undefined]);
+    }
   });
 });

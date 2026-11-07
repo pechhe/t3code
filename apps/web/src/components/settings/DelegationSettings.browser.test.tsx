@@ -149,7 +149,6 @@ function fixture(): AgentPolicySettings {
       "implementation-worker": role("implementation-worker", "workhorse", writer),
       "ui-worker": role("ui-worker", "workhorse", { ...writer, taskClasses: ["ui"] }),
       browser: role("browser", "fast", { toolProfile: "phi" }),
-      "ui-verifier": role("ui-verifier", "fast", { toolProfile: "phi" }),
       advisor: role("advisor", "workhorse"),
       reviewer: { ...role("reviewer", "workhorse"), specList: "workhorse" },
     },
@@ -214,6 +213,31 @@ it("saves a reordered list as soon as it changes, against the loaded revision", 
   });
   expect(state.data!.snapshot.manifest.lists["workhorse"]?.[0]?.model).toBe("sol");
   expect(state.refresh).toHaveBeenCalledOnce();
+});
+
+it("lists no UI verifier, and the next save of a policy that still sets it removes it", async () => {
+  reset();
+  const manifest = state.data!.snapshot.manifest;
+  state.data = {
+    ...state.data!,
+    snapshot: {
+      ...state.data!.snapshot,
+      manifest: {
+        ...manifest,
+        roles: {
+          ...manifest.roles,
+          "ui-verifier": { ...manifest.roles.browser, brief: "roles/ui-verifier.md" },
+        },
+      },
+    },
+  };
+  await using _screen = await mount();
+  expect(text()).not.toContain("UI verifier");
+  expect(text()).not.toContain("Checks the running app");
+  await click("Move claude-test up");
+  const saved = state.save.mock.calls[0]![0].input.manifest;
+  expect(Object.keys(saved.roles)).not.toContain("ui-verifier");
+  expect(Object.keys(saved.roles)).toContain("browser");
 });
 
 it("reports a stale save, reloads the current policy and does not retry", async () => {

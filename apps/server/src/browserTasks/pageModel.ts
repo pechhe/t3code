@@ -73,6 +73,34 @@ const boxOf = (attributes: string): Box | undefined => {
     : { x: Number(box[1]), y: Number(box[2]), width: Number(box[3]), height: Number(box[4]) };
 };
 
+/** Roles whose accessible name comes from their content (WAI-ARIA "name from: contents"). */
+const NAME_FROM_CONTENT = new Set([
+  "button",
+  "link",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "option",
+  "tab",
+  "treeitem",
+  "checkbox",
+  "radio",
+  "switch",
+]);
+
+/** The text a node's descendants carry, in document order. */
+const contentText = (nodes: ReadonlyArray<PageNode>, index: number): string => {
+  const within = new Set([index]);
+  const parts: Array<string> = [];
+  for (let i = index + 1; i < nodes.length && within.has(nodes[i]!.parent ?? -1); i++) {
+    within.add(i);
+    const node = nodes[i]!;
+    const text = node.role === "text" ? node.value : node.name || node.value;
+    if (text) parts.push(text);
+  }
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+};
+
 export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): PageModel => {
   const tree = typeof snapshot.accessibilityTree === "string" ? snapshot.accessibilityTree : "";
   const nodes: Array<Mutable<PageNode>> = [];
@@ -107,6 +135,11 @@ export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): Page
     }
     open.push({ indent, index: nodes.length - 1 });
   }
+  // Playwright 1.64 leaves out a control's name once its content holds a node of its own, such
+  // as a `time`; the name is still that content, as the accessible name computes it.
+  nodes.forEach((node, index) => {
+    if (node.name === "" && NAME_FROM_CONTENT.has(node.role)) node.name = contentText(nodes, index);
+  });
   return {
     url: snapshot.url,
     title: snapshot.title,

@@ -300,6 +300,8 @@ const phaseForRole = (role: string) =>
       "ui-worker": "implementation",
       advisor: "advice",
       reviewer: "review",
+      browser: "verification",
+      // Retired; a verification claimed on it before it went still completes.
       "ui-verifier": "verification",
       lead: "lead",
     } as Record<string, string>
@@ -2042,7 +2044,7 @@ const make = Effect.gen(function* () {
             selection: { instanceId: provider.instanceId, model: model.slug },
           })
           .pipe(Effect.mapError(failure));
-        const selected = result.roles.find((role) => role.role === "ui-verifier");
+        const selected = result.roles.find((role) => role.role === request.role);
         if (selected?.selection != null && selected.refusal === null) return selected.selection;
       }
     return yield* new ChampionError({ reason: "unavailable" });
@@ -2053,13 +2055,13 @@ const make = Effect.gen(function* () {
     const doc = yield* byThread(proof.ownerThreadId);
     if (
       doc !== undefined &&
-      (proof.binding.role === "ui-verifier" || proof.binding.role === "reviewer")
+      ["verification", "review"].includes(phaseForRole(proof.binding.role) ?? "")
     ) {
       const finding = doc.findings.find(
         (f) => f.workId === proof.binding.workId && f.attemptId === proof.binding.attemptId,
       );
       if (!finding) return yield* new ChampionError({ reason: "unauthorized" });
-      if (proof.binding.role === "ui-verifier") {
+      if (phaseForRole(proof.binding.role) === "verification") {
         if ((yield* observedPhaseModel(doc, finding, "review")) === proof.selection.model)
           return yield* new ChampionError({ reason: "unavailable" });
       } else {
@@ -2181,7 +2183,9 @@ const make = Effect.gen(function* () {
         if (
           prior[0] &&
           !followup &&
-          (prior[0].client_request_id !== clientRequestId || prior[0].role !== request.role)
+          (prior[0].client_request_id !== clientRequestId ||
+            (prior[0].role !== request.role &&
+              !(prior[0].role === "ui-verifier" && request.role === "browser")))
         )
           return yield* refuse();
         if (followup) {
@@ -2246,7 +2250,7 @@ const make = Effect.gen(function* () {
             finding,
           );
         } else if (prior[0].state === "rejected" || followup) {
-          yield* sql`UPDATE champion_repair_claims SET state = 'reserved', command_id = NULL, updated_at = ${yield* now} WHERE work_id = ${finding.workId} AND attempt_id = ${finding.attemptId} AND phase = ${phase}`.pipe(
+          yield* sql`UPDATE champion_repair_claims SET state = 'reserved', role = ${request.role}, command_id = NULL, updated_at = ${yield* now} WHERE work_id = ${finding.workId} AND attempt_id = ${finding.attemptId} AND phase = ${phase}`.pipe(
             Effect.mapError(failure),
           );
         }

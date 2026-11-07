@@ -17,6 +17,7 @@ import {
   removeEntry,
   replaceEntry,
   roleGroups,
+  editableManifest,
   runsFast,
   setCaller,
   setCouncil,
@@ -66,7 +67,6 @@ const manifest = () =>
         toolProfile: "implementation",
       }),
       browser: role("fast", { brief: "roles/browser.md", toolProfile: "phi" }),
-      "ui-verifier": role("fast", { brief: "roles/ui-verifier.md", toolProfile: "phi" }),
       "implementation-worker": role("workhorse", {
         brief: "roles/implementation-worker.md",
         sourceAccess: "scoped-write",
@@ -219,12 +219,21 @@ describe("delegation settings", () => {
     );
   });
 
-  it("shows roles that share a list as one job, in page order", () => {
+  it("shows roles that share a list as one job, in page order, and edits no ui-verifier", () => {
     expect(roleGroups(manifest()).map((group) => group.roles)).toEqual([
       ["implementation-worker", "reviewer"],
       ["ui-worker", "advisor"],
-      ["chore-worker", "browser", "ui-verifier"],
+      ["chore-worker", "browser"],
     ]);
+    const saved = manifest();
+    const retired = {
+      ...saved,
+      roles: {
+        ...saved.roles,
+        "ui-verifier": { ...saved.roles.browser, brief: "roles/ui-verifier.md" },
+      },
+    };
+    expect(editableManifest(retired)).toEqual(saved);
   });
 
   it("splitting a shared job gives each role its own copy and stays valid", () => {
@@ -235,7 +244,7 @@ describe("delegation settings", () => {
     expect(split.roles.browser.list).toBe("browser");
     expect(split.lists["browser"]).toEqual(original.lists["fast"]);
     expect(split.lists["fast"]).toBeUndefined();
-    expect(roleGroups(split)).toHaveLength(5);
+    expect(roleGroups(split)).toHaveLength(4);
   });
 
   it("removing a model drops the exceptions that named it", () => {

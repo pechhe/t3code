@@ -38,6 +38,7 @@ import {
   removeEntry,
   replaceEntry,
   ROLE_DESCRIPTIONS,
+  editableManifest,
   roleGroups,
   setCaller,
   setCouncil,
@@ -224,7 +225,7 @@ function PolicyEditor({
   onError: (message: string) => void;
 }) {
   const saved = data.snapshot.manifest;
-  const [draft, setDraft] = useState<Manifest>(saved);
+  const [draft, setDraft] = useState<Manifest>(() => editableManifest(saved));
   const [pending, setPending] = useState(false);
   // Edits made while a save runs queue behind it; each save builds on the revision the last one wrote.
   const queue = useRef<{
@@ -271,7 +272,7 @@ function PolicyEditor({
     setPending(false);
     if (failures.length === 0) return onSaved();
     // Show what is on disk rather than an edit that did not save.
-    setDraft(saved);
+    setDraft(editableManifest(saved));
     onError(failures.join("; "));
   };
   const change = (next: Manifest) => {
@@ -322,7 +323,11 @@ function PolicyEditor({
                 : "Every selected environment needs a readable policy before changes save. Choose one environment to save to it alone."}
           </AlertDescription>
           <AlertAction>
-            <Button size="xs" variant="ghost-muted" onClick={() => setDraft(saved)}>
+            <Button
+              size="xs"
+              variant="ghost-muted"
+              onClick={() => setDraft(editableManifest(saved))}
+            >
               Discard
             </Button>
           </AlertAction>

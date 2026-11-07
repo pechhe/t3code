@@ -572,10 +572,10 @@ describe("CodexAdapterV2 process spawning", () => {
     assert.deepEqual(disabled["t3-code"], { enabled: false });
   });
 
-  it("attaches the preview endpoint to a delegated browser or ui-verifier child", () => {
+  it("attaches the preview endpoint to a delegated browser child", () => {
     for (const session of [
       { endpoint: "http://127.0.0.1:43123/mcp/child-preview" },
-      { endpoint: "http://127.0.0.1:43123/mcp/child-ui-verifier", listsDevice: true },
+      { endpoint: "http://127.0.0.1:43123/mcp/child-preview", listsDevice: true },
     ]) {
       const params = CodexAdapterV2.codexThreadRuntimeParams({
         mcpSession: {

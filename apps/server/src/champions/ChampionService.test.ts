@@ -51,6 +51,7 @@ import {
   type ChampionFinding,
   type ServerProvider,
   type Project,
+  isToolListedForSession,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -3198,6 +3199,154 @@ it.effect(
           )).length,
           0,
         );
+      }),
+    ),
+);
+
+/** A finding implemented and reviewed on "strong", with managed role discovery offering `eligible`. */
+const reviewedFinding = (
+  body: (input: {
+    readonly f: Effect.Success<ReturnType<typeof fixture>>;
+    readonly service: Champions.ChampionService["Service"];
+    readonly verification: (
+      role: "browser" | "ui-verifier",
+      clientRequestId: string,
+    ) => Parameters<Champions.ChampionService["Service"]["guardDelegation"]>[0];
+    readonly finding: ChampionFinding;
+    readonly eligible: Set<string>;
+    readonly asked: Array<string>;
+  }) => Effect.Effect<void, ChampionError, SqlClient.SqlClient | Scope.Scope>,
+) =>
+  Effect.gen(function* () {
+    const eligible = new Set(["cheap", "strong"]);
+    const asked: Array<string> = [];
+    const managed = {
+      roles: (input: {
+        readonly request: { readonly role?: string };
+        readonly selection?: { readonly model?: string };
+      }) =>
+        Effect.sync(() => {
+          const model = input.selection?.model ?? "";
+          asked.push(model);
+          const offered = eligible.has(model);
+          return {
+            policyHash: "a".repeat(64),
+            policyRevision: "test",
+            roles: [
+              {
+                role: input.request.role,
+                selection: offered ? { instanceId, model } : null,
+                refusal: offered ? null : "no-eligible-model",
+              },
+            ],
+          };
+        }),
+    } as unknown as Managed.ManagedAgentService["Service"];
+    const f = yield* fixture();
+    yield* Effect.gen(function* () {
+      const service = yield* Champions.ChampionService;
+      const finding = yield* activeFinding(f, service);
+      const ownerThreadId = f.caller().threadId;
+      const implement = { ownerThreadId, request: repair(finding), clientRequestId: "implement" };
+      yield* service.guardDelegation(implement);
+      f.installChild(finding, "author-commit");
+      yield* service.delegationOutcome({ ...implement, state: "finished" });
+      const review = {
+        ownerThreadId,
+        clientRequestId: "review",
+        request: {
+          ...repair(finding),
+          role: "reviewer" as const,
+          readOnly: true,
+          sourceRevision: "author-commit",
+          review: {
+            scope: "change" as const,
+            baseRevision: "base",
+            includedChanges: ["author-commit"],
+            coverage: "complete" as const,
+          },
+        },
+      };
+      yield* service.guardDelegation(review);
+      f.installChild(finding, "Reviewed", "reviewer", "completed", undefined, {
+        instanceId,
+        model: "strong",
+      });
+      yield* service.delegationOutcome({ ...review, state: "finished" });
+      yield* body({
+        f,
+        service,
+        finding,
+        eligible,
+        asked,
+        verification: (role, clientRequestId) => ({
+          ownerThreadId,
+          clientRequestId,
+          request: {
+            role,
+            taskClass: "ui",
+            workId: finding.workId,
+            attemptId: finding.attemptId,
+            workspacePath: "/project/root",
+            readOnly: true,
+          },
+        }),
+      });
+    }).pipe(Effect.provide(f.layer), Effect.provideService(Managed.ManagedAgentService, managed));
+  }).pipe(Effect.provide(Sqlite.layerMemory));
+
+it.effect(
+  "verifies a UI finding on the browser role, with device tools and a model other than the reviewer's",
+  () =>
+    reviewedFinding(({ service, verification, eligible, asked }) =>
+      Effect.gen(function* () {
+        // Only the reviewing model is eligible: refused as unavailable, as before.
+        eligible.delete("cheap");
+        yield* refused(service.guardDelegation(verification("browser", "verify")));
+        assert.notInclude(asked, "strong");
+        eligible.add("cheap");
+        const selection = yield* service.guardDelegation(verification("browser", "verify"));
+        assert.deepEqual(selection, { instanceId, model: "cheap" });
+        assert.isTrue(
+          isToolListedForSession("device_open", {
+            toolProfile: "phi",
+            agentRole: "browser",
+            delegated: true,
+          }),
+        );
+      }),
+    ),
+);
+
+it.effect(
+  "completes a verification claimed on the retired ui-verifier, and lets the browser role retry its claim",
+  () =>
+    reviewedFinding(({ f, service, finding, verification }) =>
+      Effect.gen(function* () {
+        // Claimed before the role was retired, then refused at launch.
+        yield* service.guardDelegation(verification("ui-verifier", "verify"));
+        yield* service.delegationOutcome({
+          ...verification("ui-verifier", "verify"),
+          state: "failed",
+        });
+        // The same claim retries on the browser role.
+        const selection = yield* service.guardDelegation(verification("browser", "verify"));
+        assert.deepEqual(selection, { instanceId, model: "cheap" });
+        yield* refused(service.guardDelegation(verification("browser", "another-claim")));
+
+        // A ui-verifier child that already ran completes the phase and takes follow-ups.
+        f.installChild(finding, "Verified", "ui-verifier", "completed", undefined, {
+          instanceId,
+          model: "cheap",
+        });
+        yield* service.delegationOutcome({
+          ...verification("browser", "verify"),
+          state: "finished",
+        });
+        yield* service.guardDelegation({
+          ...verification("ui-verifier", "verify-followup"),
+          followup: true,
+        });
       }),
     ),
 );

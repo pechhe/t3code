@@ -103,6 +103,29 @@ describe("pageModelFromSnapshot", () => {
     expect(model.nodes[note.parent!]!.ref).toBe("e7");
   });
 
+  it("names a control from its content when Playwright prints it without a name", () => {
+    // Playwright 1.64 writes a button whose content holds a `time` this way.
+    const desk = pageModelFromSnapshot(
+      snapshot(String.raw`- list "Open cases" [ref=e4]:
+  - listitem [ref=e5]:
+    - button [ref=e11]:
+      - text: HPHenry Petch
+      - time [ref=e7]: 1m
+      - text: YardSmithReply needed
+  - listitem [ref=e8]:
+    - button "Jo Petch 2d" [ref=e12]`),
+    );
+    const row = resolveTarget(desk, { role: "button", nameIncludes: "Henry Petch" });
+    expect(row._tag).toBe("unique");
+    if (row._tag === "unique") {
+      expect(row.node.ref).toBe("e11");
+      expect(row.node.name).toBe("HPHenry Petch 1m YardSmithReply needed");
+    }
+    // A listitem names nothing from its content, and a printed name is kept as written.
+    expect(desk.nodes.find((node) => node.ref === "e5")!.name).toBe("");
+    expect(desk.nodes.find((node) => node.ref === "e12")!.name).toBe("Jo Petch 2d");
+  });
+
   it("keeps every complete line before a cut", () => {
     const cut = pageModelFromSnapshot(snapshot(TREE.slice(0, TREE.indexOf("it's: fine") + 3)));
     expect(cut.nodes.some((node) => node.name === "Colon" && node.ref === "e6")).toBe(true);

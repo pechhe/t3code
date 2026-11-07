@@ -1,6 +1,5 @@
 import type {
   AgentPolicySnapshot,
-  AgentToolProfile,
   AgentTaskRequest,
   ModelSelection,
   ProviderInstanceId,
@@ -104,12 +103,6 @@ export type BrowserRefusal =
   | "phi-skill-missing"
   | "phi-unreachable";
 
-export const canImplementWithoutPhi = (
-  request: Pick<AgentTaskRequest, "role" | "readOnly">,
-  toolProfile: AgentToolProfile,
-) =>
-  request.role === "ui-worker" && request.readOnly !== true && toolProfile === "implementation-phi";
-
 export class AgentRoleResolver extends Context.Service<
   AgentRoleResolver,
   {
@@ -150,7 +143,11 @@ const explain = (
 const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: ResolutionInput) {
   const { request, snapshot } = input;
   const role = snapshot.manifest.roles[request.role];
-  if (role === undefined) return yield* new AgentRoleError({ reason: "role-not-configured" });
+  if (role === undefined)
+    return yield* new AgentRoleError({
+      reason: "role-not-configured",
+      detail: `the agent policy does not configure ${request.role}`,
+    });
   if (!role.taskClasses.includes(request.taskClass))
     return yield* new AgentRoleError({ reason: "classification" });
   const reviewer = isReviewerRole(request.role);
@@ -187,23 +184,16 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
           "review.priorReview.sourceRevision equals the pinned sourceRevision, so there is nothing new to review; omit priorReview for a full review",
       });
   }
-  if (request.role === "ui-worker" && request.browser?.backend === "integrated")
+  if (request.role === "ui-worker" && request.browser !== undefined)
     return yield* new AgentRoleError({
       reason: "unsupported-options",
       detail:
-        "Use browser or ui-verifier for managed headless browsing; ui-worker keeps its Phi tools.",
+        "ui-worker takes no browser selection: it checks its work with t3_browser_*. Use browser for a managed browser task.",
     });
-  // Only UI implementation can proceed without an unreachable Phi route.
   if (usesPhi(role.toolProfile)) {
     if (input.browser === undefined)
       return yield* new AgentRoleError({ reason: "unsupported-tools" });
-    if (
-      input.browser.refusal !== null &&
-      !(
-        input.browser.refusal === "phi-unreachable" &&
-        canImplementWithoutPhi(request, role.toolProfile)
-      )
-    )
+    if (input.browser.refusal !== null)
       return yield* new AgentRoleError({ reason: input.browser.refusal });
   }
   // A Spec lead has a top-level thread's permissions: no narrower boundary, and none of the

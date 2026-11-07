@@ -106,26 +106,25 @@ const BriefPath = TrimmedNonEmptyString.check(Schema.isPattern(/^roles\/[a-z][a-
 const SourceAccess = Schema.Literals(["read-only", "scoped-write"]);
 /**
  * `web-research` reads source like `source-reader` and may also search and fetch the web.
- * `phi` reads source and drives Phi; `implementation-phi` is a writer that also drives Phi.
+ * `phi` reads source and drives a managed browser, integrated or Phi: the browser role's.
  */
 export const AgentToolProfile = Schema.Literals([
   "source-reader",
   "implementation",
   "phi",
-  "implementation-phi",
   "web-research",
 ]);
 export type AgentToolProfile = typeof AgentToolProfile.Type;
-/** Whether a task with this profile gets its own Phi browser endpoint. */
-export const usesPhi = (profile: AgentToolProfile | undefined) =>
-  profile === "phi" || profile === "implementation-phi";
+/**
+ * The retired UI-writer profile that also drove Phi. Saved policies, snapshots and task
+ * bindings still carry it; it reads back as `implementation` with bounded browser tasks.
+ */
+const RetiredWriterProfile = Schema.Literal("implementation-phi");
+/** Whether a task with this profile gets its own managed browser endpoint. */
+export const usesPhi = (profile: AgentToolProfile | undefined) => profile === "phi";
 /** The profile a role runs with when a task narrows it to read-only: it loses writing, not Phi. */
 export const readOnlyToolProfile = (profile: AgentToolProfile): AgentToolProfile =>
-  profile === "implementation"
-    ? "source-reader"
-    : profile === "implementation-phi"
-      ? "phi"
-      : profile;
+  profile === "implementation" ? "source-reader" : profile;
 const ModelBinding = Schema.Struct({
   driverKind: ProviderDriverKind,
   model: TrimmedNonEmptyString,
@@ -216,10 +215,24 @@ const RolePolicy = Schema.Struct({
    */
   browserTasks: Schema.optional(Schema.Boolean),
 });
+const StoredRolePolicy = Schema.Union([
+  RolePolicy,
+  Schema.Struct({ ...RolePolicy.fields, toolProfile: RetiredWriterProfile }).pipe(
+    Schema.decodeTo(RolePolicy, {
+      decode: SchemaGetter.transform((role) => ({
+        ...role,
+        toolProfile: "implementation" as const,
+        browserTasks: true,
+      })),
+      encode: SchemaGetter.forbidden(() => "implementation-phi is never written."),
+    }),
+  ),
+]);
 
 /**
  * One entry per role. `researcher`, `scout` and `lead` were added after policies and task
  * snapshots were saved, so a policy may leave them out; such a role is then unavailable.
+ * `ui-verifier` is retired: saved snapshots still carry it, and a policy may no longer set it.
  */
 const rolesRecord = <S extends Schema.Top>(entry: S) =>
   Schema.Struct({
@@ -227,7 +240,7 @@ const rolesRecord = <S extends Schema.Top>(entry: S) =>
     "implementation-worker": entry,
     "ui-worker": entry,
     browser: entry,
-    "ui-verifier": entry,
+    "ui-verifier": Schema.optionalKey(entry),
     advisor: entry,
     reviewer: entry,
     researcher: Schema.optionalKey(entry),
@@ -235,14 +248,14 @@ const rolesRecord = <S extends Schema.Top>(entry: S) =>
     lead: Schema.optionalKey(entry),
   });
 
-const Manifest = Schema.Struct({
+const manifestFields = {
   version: Schema.Literal(2),
   revision: TrimmedNonEmptyString,
   models: Schema.Record(Alias, ModelBinding),
   /** Each list orders the models a role may use; the first available one is the default. */
   lists: Schema.Record(Alias, Schema.Array(AgentListEntry).check(Schema.isMinLength(1))),
-  roles: rolesRecord(RolePolicy),
-});
+};
+const Manifest = Schema.Struct({ ...manifestFields, roles: rolesRecord(StoredRolePolicy) });
 
 /** Structural authority is fixed; model identities and order belong to the versioned policy. */
 function validManifest(manifest: typeof Manifest.Type): boolean {
@@ -260,12 +273,6 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
   for (const [name, role] of Object.entries(roles)) {
     if (role === undefined) continue;
     if (role.toolProfile === "web-research" && role.sourceAccess !== "read-only") return false;
-    // Only UI work both writes source and drives a browser, to check what it built.
-    if (
-      role.toolProfile === "implementation-phi" &&
-      (name !== "ui-worker" || role.sourceAccess !== "scoped-write")
-    )
-      return false;
     if ((name === "reviewer") !== (role.specList !== undefined)) return false;
     if (role.specList !== undefined && lists[role.specList] === undefined) return false;
     const list = lists[role.list]?.map((entry) => entry.model);
@@ -288,7 +295,7 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
       (roles.lead.sourceAccess === "scoped-write" &&
         roles.lead.toolProfile === "implementation")) &&
     readOnly(roles.browser, "phi") &&
-    readOnly(roles["ui-verifier"], "phi") &&
+    (roles["ui-verifier"] === undefined || readOnly(roles["ui-verifier"], "phi")) &&
     [roles.reviewer, roles.advisor].every((role) => readOnly(role, "source-reader")) &&
     [roles["chore-worker"], roles["implementation-worker"]].every(
       (role) =>
@@ -299,6 +306,15 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
   );
 }
 const CurrentManifest = Manifest.check(Schema.makeFilter(validManifest));
+/**
+ * What a policy save may set: the current form only, without the retired `ui-verifier` role
+ * or `implementation-phi` profile. A saved role it leaves out is dropped from the file.
+ */
+const { "ui-verifier": _retired, ...editableRoles } = rolesRecord(RolePolicy).fields;
+export const AgentPolicyManifestEdit = Schema.Struct({
+  ...manifestFields,
+  roles: Schema.Struct(editableRoles),
+}).check(Schema.makeFilter(validManifest));
 
 /**
  * Version 1 kept fixed pools, per-class restrictions and per-role effort. Saved task
@@ -333,7 +349,7 @@ const LegacyManifest = Schema.Struct({
       pool: LegacyPool,
       brief: BriefPath,
       sourceAccess: SourceAccess,
-      toolProfile: AgentToolProfile,
+      toolProfile: Schema.Union([AgentToolProfile, RetiredWriterProfile]),
       taskClasses: Schema.Array(AgentTaskClass),
       restrictions: Schema.Struct({
         "non-ui": Schema.optional(Aliases),
@@ -355,7 +371,7 @@ const LegacyManifest = Schema.Struct({
 });
 const upgradeManifest = (legacy: typeof LegacyManifest.Type): typeof Manifest.Encoded => {
   const lists: Record<string, Array<AgentListEntry>> = {};
-  const roles: Record<string, typeof RolePolicy.Encoded> = {};
+  const roles: Record<string, typeof StoredRolePolicy.Encoded> = {};
   for (const [legacyName, role] of Object.entries(legacy.roles)) {
     const pool = legacy.pools[role.pool];
     const prefer =
@@ -396,10 +412,10 @@ const upgradeManifest = (legacy: typeof LegacyManifest.Type): typeof Manifest.En
 const SplitManifest = Schema.Struct({
   ...Manifest.fields,
   roles: Schema.Struct({
-    ...rolesRecord(RolePolicy).fields,
-    reviewer: Schema.optionalKey(RolePolicy),
-    "ticket-reviewer": RolePolicy,
-    "spec-reviewer": RolePolicy,
+    ...rolesRecord(StoredRolePolicy).fields,
+    reviewer: Schema.optionalKey(StoredRolePolicy),
+    "ticket-reviewer": StoredRolePolicy,
+    "spec-reviewer": StoredRolePolicy,
   }),
 });
 const mergeReviewers = (split: typeof SplitManifest.Type): typeof Manifest.Encoded => {
@@ -651,8 +667,44 @@ const agentTaskBindingFields = {
   ),
 };
 const CurrentAgentTaskBinding = Schema.Struct(agentTaskBindingFields);
+/**
+ * A UI worker bound while its profile drove Phi resumes with the same source access, bounded
+ * browser tasks and no Phi: `implementation-phi` reads back as `implementation`, a read-only
+ * one's `phi` as `source-reader`, and its Phi selection is dropped.
+ */
+const StoredAgentTaskBinding = Schema.toEncoded(
+  Schema.Struct({
+    ...agentTaskBindingFields,
+    toolProfile: Schema.Union([AgentToolProfile, RetiredWriterProfile]),
+  }),
+).pipe(
+  Schema.decodeTo(CurrentAgentTaskBinding, {
+    decode: SchemaGetter.transform(({ toolProfile, ...binding }) => {
+      if (binding.role === "ui-worker") {
+        const { browser: _phi, ...uiWorker } = binding;
+        if (toolProfile === "implementation-phi")
+          return {
+            ...uiWorker,
+            toolProfile: "implementation" as const,
+            browserTasks: true as const,
+          };
+        if (toolProfile === "phi")
+          return {
+            ...uiWorker,
+            toolProfile: "source-reader" as const,
+            browserTasks: true as const,
+          };
+        return { ...uiWorker, toolProfile };
+      }
+      if (toolProfile === "implementation-phi")
+        return { ...binding, toolProfile: "implementation" as const, browserTasks: true as const };
+      return { ...binding, toolProfile };
+    }),
+    encode: SchemaGetter.transform((binding) => binding),
+  }),
+);
 export const AgentTaskBinding = Schema.Union([
-  CurrentAgentTaskBinding,
+  StoredAgentTaskBinding,
   Schema.Struct({ ...agentTaskBindingFields, role: SplitReviewerRole }).pipe(
     Schema.decodeTo(CurrentAgentTaskBinding, {
       decode: SchemaGetter.transform(legacyReviewer),

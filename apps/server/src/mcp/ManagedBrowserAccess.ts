@@ -21,15 +21,9 @@ import { assertLiveCaller, type Caller, loadCaller } from "./threadAccess.ts";
 const refuse = (message: string) =>
   new OrchestratorMcpFailure({ code: "capability_denied", message });
 
-/** The UI worker keeps its existing Phi-only browser alongside source writing. */
-export const PHI_ONLY_BROWSER_BACKENDS: AgentBrowserBackends = {
-  enabled: ["phi"],
-  default: "phi",
-};
-
 /**
- * Whether a role listing carries the preview family, which is the browser and ui-verifier roles.
- * The one policy table decides, so a child is refused exactly when its endpoint lists no browser.
+ * Whether a role listing carries the preview family (the browser profile's), from the one policy
+ * table, so a child is refused exactly when its endpoint lists no browser.
  * Reads use the listing recorded on their credential, because a read must not gain the thread load,
  * liveness check or refusal it never had; actions use the thread's live task binding below.
  */

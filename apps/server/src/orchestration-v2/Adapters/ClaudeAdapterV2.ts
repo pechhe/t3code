@@ -2151,9 +2151,9 @@ export function claudeMcpQueryOverrides(input: {
   readonly readOnlySandbox: boolean;
   /**
    * A managed task is a leaf with no T3 tools, so an independent reviewer cannot read the author's
-   * thread. The narrow exceptions are a managed browser task's own session, a browser or
-   * ui-verifier child's preview endpoint and a leaf's bounded browser endpoint, none of which
-   * can reach the delegating thread.
+   * thread. The narrow exceptions are a managed browser task's own session, a browser child's
+   * preview endpoint and a leaf's bounded browser endpoint, none of which can reach the
+   * delegating thread.
    */
   readonly managedAgent?: boolean;
   readonly allowedTools?: ReadonlyArray<string>;

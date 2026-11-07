@@ -36,8 +36,6 @@ http://127.0.0.1:<server-port>/mcp/control
 http://127.0.0.1:<server-port>/mcp/workspace
 http://127.0.0.1:<server-port>/mcp/research
 http://127.0.0.1:<server-port>/mcp/preview
-http://127.0.0.1:<server-port>/mcp/ui-verifier
-http://127.0.0.1:<server-port>/mcp/implementation-phi
 ```
 
 The provider-visible server key is `t3-code`. Each endpoint serves one session

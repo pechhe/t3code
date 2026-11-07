@@ -1438,7 +1438,7 @@ const seedDelegatedChild = (input: {
               policyRevision: "test",
               briefHash: "c".repeat(64),
               sourceAccess: "scoped-write",
-              toolProfile: "implementation-phi",
+              toolProfile: "implementation",
               requested: modelSelection,
               assigned: null,
               effective: modelSelection,

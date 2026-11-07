@@ -104,7 +104,7 @@ const AgentSessionAttachTool = Tool.make("agent_session_attach", {
   .annotate(Tool.Idempotent, true);
 const AgentRolesTool = Tool.make("agent_roles", {
   description:
-    "Discover eligible delegation roles, model/effort choices and refusal causes without launching. Pass model to check a choice in each role's pool; usageLimited reports exhausted accounts. Browser/ui-verifier default to integrated; pass browser.backend='phi' to check Phi availability. Pass reviewScope=spec for the Reviewer Spec list; discovery defaults to its change list. Discovery grants no launch authority.",
+    "Discover eligible delegation roles, model/effort choices and refusal causes without launching. Pass model to check a choice in each role's pool; usageLimited reports exhausted accounts. Browser defaults to integrated; pass browser.backend='phi' to check Phi availability. Pass reviewScope=spec for the Reviewer Spec list; discovery defaults to its change list. Discovery grants no launch authority.",
   parameters: AgentRolesInput,
   success: AgentRolesResult,
   failure: OrchestratorMcpFailure,
@@ -130,7 +130,7 @@ const OrchestratorCapabilitiesTool = Tool.make("orchestrator_capabilities", {
 
 const DelegateTaskTool = Tool.make("delegate_task", {
   description:
-    "Start one child agent with only `task`: no parent history. Call `agent_roles` first. Supply agentTask (role, taskClass, workId, attemptId, workspacePath) and clientRequestId. Browser/ui-verifier default to integrated; select browser.backend='phi' and optional phiLane explicitly. Reviewers need sourceRevision and review scope. Isolated workspaceAssignment returns a handoff. Pass `followup` with a `taskId` to continue that conversation.",
+    "Start one child agent with only `task`: no parent history. Call `agent_roles` first. Supply agentTask (role, taskClass, workId, attemptId, workspacePath) and clientRequestId. Browser defaults to integrated; select browser.backend='phi' and optional phiLane explicitly. Reviewers need sourceRevision and review scope. Isolated workspaceAssignment returns a handoff. Pass `followup` with a `taskId` to continue that conversation.",
   parameters: OrchestratorMcpDelegateTaskWireInput,
   success: OrchestratorMcpDelegateTaskResult,
   failure: OrchestratorMcpFailure,

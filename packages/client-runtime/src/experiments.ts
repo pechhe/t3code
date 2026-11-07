@@ -167,7 +167,7 @@ export const TRIAL_JOBS: Readonly<Record<TrialJob, TrialJobInfo>> = {
     role: "scout",
     unit: "task",
     subject: "Scout tasks",
-    note: "Scout shares its setting with Browser and UI verifier. Only Scout's work is in this trial.",
+    note: "Scout shares its setting with Browser. Only Scout's work is in this trial.",
   },
   researcher: {
     name: "Researcher",

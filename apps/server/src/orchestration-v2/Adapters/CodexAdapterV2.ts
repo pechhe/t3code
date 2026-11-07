@@ -1498,8 +1498,8 @@ export function codexThreadRuntimeParams(input: {
   const { mcpSession } = input;
   const compactLimit = codexCompactLimit(input.runtimePolicy, input.autoCompactWindow);
   // One `mcp_servers` table: every server a managed leaf must not reach is disabled. The narrow
-  // exceptions are a managed browser task's own endpoint, a browser or ui-verifier child's
-  // preview endpoint and a leaf's bounded browser endpoint, so an independent reviewer cannot
+  // exceptions are a managed browser task's own endpoint, a browser child's preview
+  // endpoint and a leaf's bounded browser endpoint, so an independent reviewer cannot
   // read the thread that delegated it.
   const managedLeaf =
     input.runtimePolicy?.managedAgent === true &&

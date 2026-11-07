@@ -96,7 +96,7 @@ it.effect("denies stale thread invocations", () =>
 it.effect.each([
   scope(),
   scope("implementation", "implementation-worker"),
-  scope("implementation-phi", "ui-worker"),
+  scope("implementation", "ui-worker"),
   scope("phi", "browser"),
   scope("phi", "ui-verifier"),
 ])("authorizes ordinary and managed implementation/browser calls", (invocation) =>

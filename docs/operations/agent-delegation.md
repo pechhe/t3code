@@ -89,11 +89,16 @@ its revision and the role names, or the reason the policy is refused.
   other providers with `read-only-unenforced` and refuses when none qualify,
   including explicit model choices and resumes; that rule only chooses reader
   accounts.
-- The `phi` tool profile gives a reader its own browser endpoint serving only
-  Phi's operations on the task's own tabs; `implementation-phi` gives a writer
-  the same, and only `ui-worker` may hold it, to check what it built. Either
-  starts only once the project allows Phi and Phi answers. A read-only request
-  drops writing but never the browser, so `implementation-phi` narrows to `phi`.
+- The `phi` tool profile, the `browser` role's, gives a reader its own browser
+  endpoint serving only browser operations on the task's own tabs, plus the
+  device tools for simulators. It starts only once the project allows the
+  selected backend (integrated by default, or Phi when the task selects it).
+  Writers and reviewers check pages with bounded browser tasks (`browserTasks`
+  in the role policy) instead. The retired `implementation-phi` profile and
+  `ui-verifier` role still read back from saved policies and tasks:
+  `implementation-phi` as `implementation` with bounded browser tasks, and a
+  `ui-verifier` task under the `browser` role's authority. Neither can be saved:
+  a policy that still sets them is rewritten without them at its next save.
 - The `web-research` tool profile, which only a read-only role may use, gives a
   reader web search and page fetching: Claude and Codex use their own native web
   tools, and any other provider gets T3's `web_search` and `web_fetch` through

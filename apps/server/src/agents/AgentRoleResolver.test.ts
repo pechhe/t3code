@@ -738,42 +738,38 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       }),
   );
 
-  it.effect("admits a UI worker without Phi only when the checked route is unreachable", () =>
+  it.effect("starts a UI worker with no browser route and refuses a browser selection for it", () =>
     Effect.gen(function* () {
-      const policy = snapshot();
       const base = input({
-        snapshot: {
-          ...policy,
-          manifest: {
-            ...policy.manifest,
-            roles: {
-              ...policy.manifest.roles,
-              "ui-worker": {
-                ...policy.manifest.roles["ui-worker"],
-                toolProfile: "implementation-phi",
-              },
-            },
-          },
-        },
         providers: [claude],
         allowTrustedClaudeWriters: true,
         request: request({ role: "ui-worker", taskClass: "ui" }),
       });
-      for (const refusal of [null, "phi-unreachable"] as const) {
-        const admitted = yield* resolve({ ...base, browser: { refusal } });
-        expect(admitted.instanceId).toBe(claude.instanceId);
-      }
-      expect((yield* refusal(base)).reason).toBe("unsupported-tools");
-      for (const reason of ["browser-access-off", "phi-disabled", "phi-skill-missing"] as const) {
-        expect((yield* refusal({ ...base, browser: { refusal: reason } })).reason).toBe(reason);
-      }
-      expect(
-        (yield* refusal({
+      expect((yield* resolve(base)).instanceId).toBe(claude.instanceId);
+      for (const backend of ["integrated", "phi"] as const) {
+        const refused = yield* refusal({
           ...base,
-          request: { ...base.request, readOnly: true },
-          browser: { refusal: "phi-unreachable" },
-        })).reason,
-      ).toBe("phi-unreachable");
+          request: { ...base.request, browser: { backend } },
+        });
+        expect(refused.reason).toBe("unsupported-options");
+        expect(refused.detail).toContain("t3_browser_*");
+      }
+    }),
+  );
+
+  it.effect("refuses a role the policy does not configure, naming it", () =>
+    Effect.gen(function* () {
+      const policy = snapshot();
+      const { "ui-verifier": _retired, ...roles } = policy.manifest.roles;
+      const refused = yield* refusal(
+        input({
+          snapshot: { ...policy, manifest: { ...policy.manifest, roles } },
+          request: request({ role: "ui-verifier", taskClass: "ui", readOnly: true }),
+          browser: { refusal: null },
+        }),
+      );
+      expect(refused.reason).toBe("role-not-configured");
+      expect(refused.message).toContain("the agent policy does not configure ui-verifier");
     }),
   );
 

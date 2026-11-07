@@ -135,6 +135,35 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       );
     }),
   );
+  it.effect("saves a policy that still sets the retired UI roles in their current form", () =>
+    Effect.gen(function* () {
+      const service = yield* AgentPolicy.AgentPolicyService;
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* source;
+      const retired = manifest();
+      retired.roles["ui-worker"] = {
+        ...retired.roles["ui-worker"],
+        toolProfile: "implementation-phi",
+      };
+      yield* fs.writeFileString(`${root}/roles/policy.json`, JSON.stringify(retired));
+      const first = yield* service.snapshot(root);
+      expect(first.manifest.roles["ui-worker"]).toMatchObject({
+        toolProfile: "implementation",
+        browserTasks: true,
+      });
+      yield* service.save(root, { expectedHash: first.hash, manifest: first.manifest });
+      const written = JSON.parse(yield* fs.readFileString(`${root}/roles/policy.json`));
+      expect(Object.keys(written.roles)).not.toContain("ui-verifier");
+      expect(written.roles["ui-worker"]).toMatchObject({
+        toolProfile: "implementation",
+        browserTasks: true,
+      });
+      // The brief may then go: nothing loads it.
+      yield* fs.remove(`${root}/roles/ui-verifier.md`);
+      expect((yield* service.snapshot(root)).manifest.roles["ui-verifier"]).toBeUndefined();
+    }),
+  );
+
   it.effect("loads split policies through the Spec brief and saves both reviewer lists", () =>
     Effect.gen(function* () {
       const service = yield* AgentPolicy.AgentPolicyService;

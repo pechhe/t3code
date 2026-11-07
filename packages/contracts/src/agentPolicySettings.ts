@@ -3,7 +3,7 @@ import {
   AgentExecutionRequirement,
   AgentExecutionBoundary,
   AgentPolicyCandidate,
-  AgentPolicyManifest,
+  AgentPolicyManifestEdit,
   AgentPolicySnapshot,
   Sha256,
 } from "./agentPolicy.ts";
@@ -36,7 +36,7 @@ export const AgentPolicySettings = Schema.Struct({
 export type AgentPolicySettings = typeof AgentPolicySettings.Type;
 export const AgentPolicySaveInput = Schema.Struct({
   expectedHash: Sha256,
-  manifest: AgentPolicyManifest,
+  manifest: AgentPolicyManifestEdit,
 });
 export type AgentPolicySaveInput = typeof AgentPolicySaveInput.Type;
 export class AgentPolicySettingsError extends Schema.TaggedError<AgentPolicySettingsError>()(

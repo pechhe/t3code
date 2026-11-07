@@ -31,7 +31,6 @@ import {
   assertProjectBrowserAccess,
   drivesOwnBrowser,
   listsBrowserFamily,
-  PHI_ONLY_BROWSER_BACKENDS,
 } from "./ManagedBrowserAccess.ts";
 import { resolveInteractionMode, resolveRuntimeMode } from "./delegatedTaskModes.ts";
 import {
@@ -167,11 +166,7 @@ const previewActionScope = Effect.fn("mcp.previewActionScope")(function* (
   if (options.checkSettings) yield* assertProjectBrowserAccess(caller);
   return {
     ...caller.scope,
-    browserBackends:
-      caller.scope.browserBackends ??
-      (caller.caller?.agentTask?.role === "ui-worker"
-        ? PHI_ONLY_BROWSER_BACKENDS
-        : DEFAULT_AGENT_BROWSER_BACKENDS),
+    browserBackends: caller.scope.browserBackends ?? DEFAULT_AGENT_BROWSER_BACKENDS,
   } satisfies McpInvocationContext.McpInvocationScope;
 });
 
@@ -197,11 +192,7 @@ export const readsAsPreviewCaller = <P, A, E, R>(handle: (params: P) => Effect.E
             listsBrowserFamily(scope)
               ? {
                   ...scope,
-                  browserBackends:
-                    scope.browserBackends ??
-                    (scope.agentRole === "ui-worker"
-                      ? PHI_ONLY_BROWSER_BACKENDS
-                      : DEFAULT_AGENT_BROWSER_BACKENDS),
+                  browserBackends: scope.browserBackends ?? DEFAULT_AGENT_BROWSER_BACKENDS,
                 }
               : scope,
           ),

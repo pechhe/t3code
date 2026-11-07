@@ -168,32 +168,15 @@ const WORKSPACE: ReadonlySet<ToolFamily> = new Set([
   "report",
 ]);
 /**
- * A browser session drives `preview_*`, and needs `leaf` for its own task status, cancel,
- * watch and the html tools that show the user a page, plus `report` for its outcome. It
- * orchestrates nothing, so it lists no control, workspace, scheduling, worktree or project
- * tool; that listing is the child-preview one.
+ * A browser session drives `preview_*` and the device tools for simulators, and needs `leaf`
+ * for its own task status, cancel, watch and the html tools that show the user a page, plus
+ * `report` for its outcome. It orchestrates nothing, so it lists no control, workspace,
+ * scheduling, worktree or project tool; that listing is the child-preview one.
  */
-const PREVIEW: ReadonlySet<ToolFamily> = new Set(["decision", "preview", "leaf", "report"]);
-const PREVIEW_DEVICE: ReadonlySet<ToolFamily> = new Set([
+const PREVIEW: ReadonlySet<ToolFamily> = new Set([
   "decision",
-  "control",
-  "workspace",
-  "scheduling",
-  "worktree",
-  "project",
   "preview",
   "device",
-  "leaf",
-  "report",
-]);
-const IMPLEMENTATION_PHI: ReadonlySet<ToolFamily> = new Set([
-  "decision",
-  "control",
-  "workspace",
-  "scheduling",
-  "worktree",
-  "project",
-  "preview",
   "leaf",
   "report",
 ]);
@@ -218,8 +201,7 @@ const RESEARCH: ReadonlySet<ToolFamily> = new Set([
  */
 const CHILD_READER: ReadonlySet<ToolFamily> = new Set(["leaf", "report"]);
 const CHILD_RESEARCH: ReadonlySet<ToolFamily> = new Set(["leaf", "report", "web"]);
-const CHILD_PREVIEW: ReadonlySet<ToolFamily> = new Set(["decision", "leaf", "report", "preview"]);
-const CHILD_PREVIEW_DEVICE: ReadonlySet<ToolFamily> = new Set([
+const CHILD_PREVIEW: ReadonlySet<ToolFamily> = new Set([
   "decision",
   "leaf",
   "report",
@@ -241,12 +223,9 @@ export type SessionEndpointKey =
   | "workspace"
   | "research"
   | "preview"
-  | "ui-verifier"
-  | "implementation-phi"
   | "child-reader"
   | "child-research"
   | "child-preview"
-  | "child-ui-verifier"
   | "child-implementation"
   | "bounded-browser";
 
@@ -263,15 +242,9 @@ export const SESSION_TOOL_ENDPOINTS: Readonly<
   workspace: { path: "/mcp/workspace", families: WORKSPACE },
   research: { path: "/mcp/research", families: RESEARCH },
   preview: { path: "/mcp/preview", families: PREVIEW },
-  "ui-verifier": { path: "/mcp/ui-verifier", families: PREVIEW_DEVICE },
-  "implementation-phi": {
-    path: "/mcp/implementation-phi",
-    families: IMPLEMENTATION_PHI,
-  },
   "child-reader": { path: "/mcp/child-reader", families: CHILD_READER },
   "child-research": { path: "/mcp/child-research", families: CHILD_RESEARCH },
   "child-preview": { path: "/mcp/child-preview", families: CHILD_PREVIEW },
-  "child-ui-verifier": { path: "/mcp/child-ui-verifier", families: CHILD_PREVIEW_DEVICE },
   "child-implementation": {
     path: "/mcp/child-implementation",
     families: CHILD_IMPLEMENTATION,
@@ -286,12 +259,10 @@ export const SESSION_TOOL_ENDPOINTS: Readonly<
 export const sessionEndpointKey = (session: SessionToolProfile | undefined): SessionEndpointKey => {
   if (session === undefined) return "control";
   if (session.delegated === true) {
-    if (session.agentRole === "ui-verifier") return "child-ui-verifier";
     switch (session.toolProfile) {
       case "phi":
         return "child-preview";
       case "implementation":
-      case "implementation-phi":
         return "child-implementation";
       case "web-research":
         return "child-research";
@@ -299,12 +270,9 @@ export const sessionEndpointKey = (session: SessionToolProfile | undefined): Ses
         return "child-reader";
     }
   }
-  if (session.agentRole === "ui-verifier") return "ui-verifier";
   switch (session.toolProfile) {
     case "phi":
       return "preview";
-    case "implementation-phi":
-      return "implementation-phi";
     case "implementation":
     case "source-reader":
       return "workspace";
@@ -334,8 +302,6 @@ export const canUseDecisions = (session: SessionToolProfile | undefined): boolea
     return false;
   return (
     session?.toolProfile === undefined ||
-    ["implementation", "implementation-phi", "phi"].some(
-      (profile) => profile === session.toolProfile,
-    )
+    ["implementation", "phi"].some((profile) => profile === session.toolProfile)
   );
 };

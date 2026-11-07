@@ -282,8 +282,9 @@ a tab it did not open there, and it needs Phi's Settings > Developer > "Allow ag
 your Spaces". If Phi is unavailable, the agent reports that failure rather than opening the page
 in another browser.
 
-Delegated browser, UI-verifier and UI-worker agents use Phi through T3 Code's browser tools only.
-They have no shell, only the UI worker can change files, and none can touch another task's tabs.
+Delegated browser agents use Phi through T3 Code's browser tools only, when their task selects it.
+They have no shell, cannot change files, and cannot touch another task's tabs. UI workers check
+their work with bounded browser tasks on the integrated browser, never Phi.
 They are refused up front,
 with the reason, when browser access is off for the project, Phi is not enabled, the Phi skill is
 missing, or Phi cannot be reached. Turning access off mid-task stops their browser actions, but
@@ -297,7 +298,7 @@ the default is `~/.agents/skills/phi-browser`. New sessions use the changed dire
 
 ### Bounded browser tasks
 
-A delegated browser or UI-verifier agent on the integrated browser can hand a defined job to
+A delegated browser agent on the integrated browser can hand a defined job to
 `preview_task` instead of driving each step: reach a page, fill a form with values it supplies, or
 capture one element. It runs only when the agent asks, and Phi tasks are refused. The agent names
 the fields, the only clicks, key presses or URLs allowed, an explicit submit target and the checks

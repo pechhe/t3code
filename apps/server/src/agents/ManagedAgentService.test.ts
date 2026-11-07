@@ -4,7 +4,7 @@ import { expect, it } from "@effect/vitest";
 import {
   ProjectId,
   type AgentPolicyManifest,
-  type AgentTaskBinding,
+  AgentTaskBinding,
   type AgentTaskRequest,
   type ModelSelection,
   type OrchestrationV2AppThread,
@@ -17,6 +17,7 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Sqlite from "../persistence/Sqlite.ts";
@@ -64,6 +65,8 @@ const dependencies = Layer.mergeAll(
 const testLayer = Layer.mergeAll(Managed.layer, Store.layer, Policy.layer).pipe(
   Layer.provideMerge(dependencies),
 );
+const decodeBinding = Schema.decodeUnknownEffect(AgentTaskBinding);
+const encodeBinding = Schema.encodeEffect(AgentTaskBinding);
 const fixture = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const temporary = yield* fs.makeTempDirectoryScoped({ prefix: "managed-agent-test-" });
@@ -1435,89 +1438,129 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
     }).pipe(Effect.provide(Settings.layerTest())),
   );
 
-  it.effect("lets a UI worker drive Phi to check its own work, and still writes", () =>
-    Effect.gen(function* () {
-      const f = yield* fixture;
-      const settings = yield* Settings.ServerSettingsService;
-      let availability: PhiBrowser.PhiAvailability = "available";
-      const phi = PhiBrowser.PhiBrowser.of({
-        hasTab: () => Effect.succeed(false),
-        invoke: () => Effect.die("unused"),
-        list: () => Effect.succeed([]),
-        releaseSession: () => Effect.void,
-        availability: () => Effect.sync(() => availability),
-      });
-      yield* f.writeManifest({
-        ...f.manifest,
-        roles: {
-          ...f.manifest.roles,
-          "ui-worker": { ...f.manifest.roles["ui-worker"], toolProfile: "implementation-phi" },
-        },
-      });
-      yield* settings.updateSettings({
-        agentBrowserBackends: { enabled: ["phi"], default: "phi" },
-        delegation: { allowTrustedClaudeWriters: true },
-      });
-      const launch = (readOnly: boolean) =>
-        f
-          .prepare({
-            request: {
-              ...request({ role: "ui-worker", taskClass: "ui", readOnly }),
-              workspacePath: f.workspacePath,
+  it.effect(
+    "starts and resumes a UI worker from a saved Phi-writer policy with bounded browser tasks and no Phi",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        const phi = PhiBrowser.PhiBrowser.of({
+          hasTab: () => Effect.succeed(false),
+          invoke: () => Effect.die("unused"),
+          list: () => Effect.succeed([]),
+          releaseSession: () => Effect.void,
+          availability: () => Effect.die("A UI worker never asks Phi"),
+        });
+        yield* f.fs.writeFileString(
+          `${f.policyRoot}/roles/policy.json`,
+          JSON.stringify({
+            ...f.manifest,
+            roles: {
+              ...f.manifest.roles,
+              "ui-worker": { ...f.manifest.roles["ui-worker"], toolProfile: "implementation-phi" },
             },
+          }),
+        );
+        const settings = yield* Settings.ServerSettingsService;
+        yield* settings.updateSettings({ delegation: { allowTrustedClaudeWriters: true } });
+        const launch = (readOnly: boolean) =>
+          f
+            .prepare({
+              request: {
+                ...request({ role: "ui-worker", taskClass: "ui", readOnly }),
+                workspacePath: f.workspacePath,
+              },
+            })
+            .pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
+        const writer = yield* launch(false);
+        expect(writer.binding).toMatchObject({
+          sourceAccess: "scoped-write",
+          toolProfile: "implementation",
+          browserTasks: true,
+        });
+        expect(writer.brief).not.toContain("Phi");
+        expect((yield* launch(true)).binding).toMatchObject({
+          sourceAccess: "read-only",
+          toolProfile: "source-reader",
+          browserTasks: true,
+        });
+        // A task bound while the profile drove Phi, even one that selected Phi, resumes the same way.
+        const stored = yield* decodeBinding({
+          ...(yield* encodeBinding(writer.binding)),
+          toolProfile: "implementation-phi",
+          browserTasks: undefined,
+          browser: { backend: "phi" },
+        }).pipe(Effect.orDie);
+        yield* f.validate(stored).pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
+        const resumed = yield* f
+          .prepare({
+            request: request({
+              role: "ui-worker",
+              taskClass: "ui",
+              workspacePath: f.workspacePath,
+            }),
+            recordedBinding: stored,
           })
           .pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
+        expect(resumed.binding).toMatchObject({
+          toolProfile: "implementation",
+          browserTasks: true,
+        });
+      }).pipe(Effect.provide(Settings.layerTest())),
+  );
 
-      const writer = yield* launch(false);
-      expect(writer.binding).toMatchObject({
-        sourceAccess: "scoped-write",
-        toolProfile: "implementation-phi",
-      });
-      // A read-only critique loses writing but can still look at the page.
-      expect((yield* launch(true)).binding).toMatchObject({
-        sourceAccess: "read-only",
-        toolProfile: "phi",
-      });
-      yield* f.validate(writer.binding).pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
-
-      availability = "unreachable";
-      const degraded = yield* launch(false);
-      expect(degraded.binding).toMatchObject({
-        sourceAccess: "scoped-write",
-        toolProfile: "implementation",
-      });
-      expect(degraded.brief).toContain("Phi is unavailable");
-      expect(degraded.brief).toContain("Check your work with the t3_browser_* tools");
-      expect(degraded.brief).toContain("ui-verifier");
-      const discovered = yield* f.service
-        .roles({
-          providers: [codex, claude],
-          ceiling: "full-access",
-          request: { taskClass: "ui" },
-        })
-        .pipe(
-          Effect.provideService(ConfigProvider.ConfigProvider, f.config),
-          Effect.provideService(PhiBrowser.PhiBrowser, phi),
-        );
-      expect(discovered.roles.find((role) => role.role === "ui-worker")).toMatchObject({
-        toolProfile: "implementation",
-        refusal: null,
-        selection: expect.anything(),
-      });
-      yield* f.validate(degraded.binding).pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
-      availability = "available";
-      yield* f.validate(degraded.binding).pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
-      const resumed = yield* f
-        .prepare({
-          request: request({ role: "ui-worker", taskClass: "ui", workspacePath: f.workspacePath }),
-          recordedBinding: degraded.binding,
-        })
-        .pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
-      expect(resumed.binding.toolProfile).toBe("implementation");
-      expect(resumed.brief).toContain("Phi is unavailable");
-      availability = "unreachable";
-      expect((yield* launch(true).pipe(Effect.flip)).message).toContain("phi-unreachable");
-    }).pipe(Effect.provide(Settings.layerTest())),
+  it.effect(
+    "lists no ui-verifier once the policy drops it, and still resumes one bound before",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        const settings = yield* Settings.ServerSettingsService;
+        yield* settings.updateSettings({
+          agentBrowserBackends: { enabled: ["integrated"], default: "integrated" },
+        });
+        const verifier = yield* f.prepare({
+          request: request({
+            role: "ui-verifier",
+            taskClass: "ui",
+            readOnly: true,
+            workspacePath: f.workspacePath,
+          }),
+        });
+        const { "ui-verifier": _retired, ...roles } = f.manifest.roles;
+        yield* f.writeManifest({ ...f.manifest, roles });
+        const discovered = yield* f.service
+          .roles({
+            providers: [codex, claude],
+            ceiling: "full-access",
+            request: { taskClass: "ui" },
+          })
+          .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+        expect(discovered.roles.map((role) => role.role)).not.toContain("ui-verifier");
+        expect(discovered.roles.find((role) => role.role === "browser")?.refusal).toBeNull();
+        const refused = yield* f
+          .prepare({
+            request: request({
+              role: "ui-verifier",
+              taskClass: "ui",
+              readOnly: true,
+              workspacePath: f.workspacePath,
+            }),
+          })
+          .pipe(Effect.flip);
+        expect(refused.reason).toBe("selection");
+        expect(refused.cause).toMatchObject({ reason: "role-not-configured" });
+        // The task bound before keeps its own policy snapshot.
+        yield* f.validate(verifier.binding);
+        const resumed = yield* f.prepare({
+          request: request({
+            role: "ui-verifier",
+            taskClass: "ui",
+            readOnly: true,
+            workspacePath: f.workspacePath,
+          }),
+          recordedBinding: verifier.binding,
+        });
+        expect(resumed.binding.role).toBe("ui-verifier");
+      }).pipe(Effect.provide(Settings.layerTest())),
   );
 
   it.effect("discovers each role under a requested model, as a launch would resolve it", () =>

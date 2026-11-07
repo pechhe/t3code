@@ -193,7 +193,7 @@ To continue a task of any role in its existing conversation, submit
 `externalSessionKey`, supply a new stable `clientRequestId`, and put the question or
 correction in `task`; omit `agentTask` and target or runtime overrides. Use it for
 repeated advice on one piece of work, to send a worker its corrections instead
-of starting a fresh one, and to finish a reviewer or UI verifier that stopped partway. The same conversation, model, workspace and permissions
+of starting a fresh one, and to finish a reviewer or browser task that stopped partway. The same conversation, model, workspace and permissions
 are reused, with a separate task ID and result for each follow-up. Tasks originally started
 with a source revision are checked against the
 follow-up's revision. Workers started without a pin stay unpinned as they write.

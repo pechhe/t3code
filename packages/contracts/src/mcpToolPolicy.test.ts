@@ -26,12 +26,7 @@ describe("web research tools", () => {
     expect(toolFamily(name)).toBe("web");
     for (const delegated of [true, false]) {
       expect(isToolListedForSession(name, { toolProfile: "web-research", delegated })).toBe(true);
-      for (const toolProfile of [
-        "source-reader",
-        "implementation",
-        "phi",
-        "implementation-phi",
-      ] as const) {
+      for (const toolProfile of ["source-reader", "implementation", "phi"] as const) {
         expect(isToolListedForSession(name, { toolProfile, delegated })).toBe(false);
       }
     }
@@ -55,5 +50,17 @@ describe("bounded browser tools", () => {
     expect(
       sessionEndpointKey({ toolProfile: "source-reader", agentRole: "reviewer", delegated: true }),
     ).toBe("child-reader");
+  });
+});
+
+describe("browser role tools", () => {
+  it("lists the device tools beside preview for a browser task, and for a task bound as the retired ui-verifier", () => {
+    for (const agentRole of ["browser", "ui-verifier"] as const)
+      for (const delegated of [true, false]) {
+        const session = { toolProfile: "phi" as const, agentRole, delegated };
+        expect(isToolListedForSession("preview_open", session)).toBe(true);
+        expect(isToolListedForSession("device_list", session)).toBe(true);
+        expect(isToolListedForSession("t3_thread_launch", session)).toBe(false);
+      }
   });
 });

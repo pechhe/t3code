@@ -626,10 +626,10 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     assert.deepEqual(overrides, { allowedTools: ["Read"] });
   });
 
-  it("keeps a delegated browser or ui-verifier child's preview endpoint", () => {
+  it("keeps a delegated browser child's preview endpoint", () => {
     for (const session of [
       { endpoint: "http://127.0.0.1:43123/mcp/child-preview" },
-      { endpoint: "http://127.0.0.1:43123/mcp/child-ui-verifier", listsDevice: true },
+      { endpoint: "http://127.0.0.1:43123/mcp/child-preview", listsDevice: true },
     ]) {
       const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
         mcpSession: {

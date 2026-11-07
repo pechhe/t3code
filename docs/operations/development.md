@@ -447,7 +447,7 @@ Add `--signed` after configuring the platform credentials in the
 
 ## Managed headless browser access
 
-Managed `browser` and `ui-verifier` tasks default to the server's integrated Chromium.
+Managed `browser` tasks default to the server's integrated Chromium.
 Select `agentTask.browser: { backend: "phi", phiLane: "agents" }` explicitly when a task
 needs a logged-in Phi Space or a page the owner will use. `agent_roles` accepts the same
 `browser` selection to check its availability. A task's credential keeps that selection

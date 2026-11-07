@@ -274,8 +274,9 @@ function makeThreadCreatedEvent(input: {
       ...(input.managedBrowser || input.agentTask !== undefined
         ? {
             agentTask: {
-              role: "ui-worker" as const,
+              role: "browser" as const,
               taskClass: "ui" as const,
+              browser: { backend: "phi" as const },
               workId: "browser-work",
               attemptId: "1",
               workspacePath: "/fixture/browser",
@@ -285,7 +286,7 @@ function makeThreadCreatedEvent(input: {
               policyRevision: "test",
               briefHash: "c".repeat(64),
               sourceAccess: "read-only" as const,
-              toolProfile: "implementation-phi" as const,
+              toolProfile: "phi" as const,
               requested: modelSelection,
               assigned: null,
               effective: modelSelection,
@@ -2918,30 +2919,32 @@ it.effect("keeps a granted leaf's bounded credential across re-attach with devic
   }),
 );
 
-it.effect("keeps a granted UI worker's bounded tasks when its project turns Phi off", () =>
-  Effect.gen(function* () {
-    const parent = ThreadId.make("thread-bounded-ui-parent");
-    const phiOff = yield* runBrowserAccessScenario({
-      enableAgentBrowserAccess: true,
-      agentBrowserBackends: { enabled: ["integrated"], default: "integrated" },
-      managedBrowser: true,
-      delegatedBy: parent,
-      agentTask: { browserTasks: true },
-    });
-    assert.isTrue(phiOff?.boundedBrowser);
-    assert.isUndefined(phiOff?.resolvedManagedBrowser);
-    assert.match(phiOff?.endpoint ?? "", /\/mcp\/bounded-browser$/);
-    const phiOn = yield* runBrowserAccessScenario({
-      enableAgentBrowserAccess: true,
-      agentBrowserBackends: { enabled: ["phi", "integrated"], default: "phi" },
-      managedBrowser: true,
-      delegatedBy: parent,
-      agentTask: { browserTasks: true },
-    });
-    assert.isTrue(phiOn?.resolvedManagedBrowser);
-    assert.isTrue(phiOn?.boundedBrowser);
-    assert.match(phiOn?.endpoint ?? "", /\/mcp\/browser$/);
-  }),
+it.effect(
+  "gives a granted UI worker bounded tasks and never Phi, whatever its project allows",
+  () =>
+    Effect.gen(function* () {
+      const parent = ThreadId.make("thread-bounded-ui-parent");
+      const uiWorker = {
+        role: "ui-worker" as const,
+        sourceAccess: "scoped-write" as const,
+        toolProfile: "implementation" as const,
+        browserTasks: true as const,
+      };
+      for (const agentBrowserBackends of [
+        { enabled: ["integrated"], default: "integrated" },
+        { enabled: ["phi", "integrated"], default: "phi" },
+      ] as const) {
+        const captured = yield* runBrowserAccessScenario({
+          enableAgentBrowserAccess: true,
+          agentBrowserBackends,
+          delegatedBy: parent,
+          agentTask: uiWorker,
+        });
+        assert.isTrue(captured?.boundedBrowser);
+        assert.isUndefined(captured?.resolvedManagedBrowser);
+        assert.match(captured?.endpoint ?? "", /\/mcp\/bounded-browser$/);
+      }
+    }),
 );
 
 it.effect(

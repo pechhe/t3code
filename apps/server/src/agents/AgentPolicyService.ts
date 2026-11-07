@@ -9,7 +9,11 @@ import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
 import * as Semaphore from "effect/Semaphore";
 import { lock } from "proper-lockfile";
-import { AgentPolicyManifest, AgentPolicySnapshot } from "@t3tools/contracts";
+import {
+  AgentPolicyManifest,
+  AgentPolicyManifestEdit,
+  AgentPolicySnapshot,
+} from "@t3tools/contracts";
 
 export class AgentPolicyLoadError extends Schema.TaggedError<AgentPolicyLoadError>()(
   "AgentPolicyLoadError",
@@ -86,11 +90,21 @@ export class AgentPolicyService extends Context.Service<
 >()("t3/agents/AgentPolicyService") {}
 
 const decodeManifest = Schema.decodeEffect(Schema.fromJsonString(AgentPolicyManifest));
-const decodeEdit = Schema.decodeUnknownEffect(AgentPolicyManifest, { onExcessProperty: "error" });
+const decodeEdit = Schema.decodeUnknownEffect(AgentPolicyManifestEdit, {
+  onExcessProperty: "error",
+});
 const encodeManifest = Schema.encodeEffect(
   Schema.fromJsonString(AgentPolicyManifest, { space: 2 }),
 );
 const decodeSnapshot = Schema.decodeUnknownEffect(AgentPolicySnapshot);
+/** A policy saved before ui-verifier was retired drops it; the edit schema refuses the rest. */
+const withoutRetiredRole = (manifest: unknown): unknown => {
+  if (typeof manifest !== "object" || manifest === null || !("roles" in manifest)) return manifest;
+  const roles = manifest.roles;
+  if (typeof roles !== "object" || roles === null) return manifest;
+  const { "ui-verifier": _retired, ...kept } = roles as Record<string, unknown>;
+  return { ...manifest, roles: kept };
+};
 const manifestPath = "roles/policy.json";
 function freeze<A>(value: A): A {
   if (value !== null && typeof value === "object") {
@@ -198,7 +212,7 @@ const make = Effect.gen(function* () {
         const current = yield* load(root);
         if (current.hash !== edit.expectedHash)
           return yield* new AgentPolicySaveError({ reason: "stale" });
-        const proposed = yield* decodeEdit(edit.manifest).pipe(
+        const proposed = yield* decodeEdit(withoutRetiredRole(edit.manifest)).pipe(
           Effect.mapError((cause) => new AgentPolicySaveError({ reason: "invalid", cause })),
         );
         // Revision labels are opaque to consumers. Continue a numeric suffix when present,

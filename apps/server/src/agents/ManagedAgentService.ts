@@ -297,7 +297,7 @@ const make = Effect.gen(function* () {
     toolProfile: AgentToolProfile,
     projectId: ProjectId | undefined,
     when: "discovery" | "launch" | "resume",
-    request: Pick<AgentTaskRequest, "role" | "browser">,
+    request: Pick<AgentTaskRequest, "browser">,
   ) {
     if (!usesPhi(toolProfile)) return undefined;
 
@@ -314,9 +314,7 @@ const make = Effect.gen(function* () {
           }
         : resolveProjectSettings(configured, projectId).settings;
     if (!effective.enableAgentBrowserAccess) return { refusal: "browser-access-off" as const };
-    const backend =
-      request.browser?.backend ??
-      (request.role === "browser" || request.role === "ui-verifier" ? "integrated" : "phi");
+    const backend = request.browser?.backend ?? "integrated";
     if (backend === "integrated")
       return {
         refusal: effective.agentBrowserBackends.enabled.includes("integrated")
@@ -694,12 +692,9 @@ const make = Effect.gen(function* () {
             sourceAccess:
               input.request.readOnly === true ? ("read-only" as const) : policy.sourceAccess,
             toolProfile:
-              browser?.refusal === "phi-unreachable" &&
-              Resolver.canImplementWithoutPhi(context.request, policy.toolProfile)
-                ? "implementation"
-                : input.request.readOnly === true
-                  ? readOnlyToolProfile(policy.toolProfile)
-                  : policy.toolProfile,
+              input.request.readOnly === true
+                ? readOnlyToolProfile(policy.toolProfile)
+                : policy.toolProfile,
             executionRequirement: context.request.executionRequirement,
             ...(grantsBrowserTasks(role, policy) ? { browserTasks: true } : {}),
             ...(result.executionBoundary === undefined
@@ -731,7 +726,10 @@ const make = Effect.gen(function* () {
       if (role === undefined || brief === undefined)
         return yield* new ManagedAgentError({
           reason: "selection",
-          cause: new Resolver.AgentRoleError({ reason: "role-not-configured" }),
+          cause: new Resolver.AgentRoleError({
+            reason: "role-not-configured",
+            detail: `the agent policy does not configure ${input.request.role}`,
+          }),
         });
       yield* workspace(
         input.request,
@@ -750,10 +748,6 @@ const make = Effect.gen(function* () {
         input.recordedBinding === undefined ? "launch" : "resume",
         context.request,
       );
-      const withoutPhi =
-        Resolver.canImplementWithoutPhi(context.request, role.toolProfile) &&
-        (browser?.refusal === "phi-unreachable" ||
-          input.recordedBinding?.toolProfile === "implementation");
       const selection = yield* resolver
         .resolve({
           ...input,
@@ -790,9 +784,8 @@ const make = Effect.gen(function* () {
           policyRevision: snapshot.sourceRevision,
           briefHash: brief.hash,
           sourceAccess: input.request.readOnly === true ? "read-only" : role.sourceAccess,
-          toolProfile: withoutPhi
-            ? "implementation"
-            : input.request.readOnly === true
+          toolProfile:
+            input.request.readOnly === true
               ? readOnlyToolProfile(role.toolProfile)
               : role.toolProfile,
           requested: selection,
@@ -802,9 +795,7 @@ const make = Effect.gen(function* () {
             ? { browserTasks: true as const }
             : {}),
         },
-        brief: withoutPhi
-          ? `${brief.text}\nPhi is unavailable for this task; you have plain implementation tools and no Phi tools. Check your work with the t3_browser_* tools (the repo's headless Playwright without them). The owner or an independent ui-verifier must check it in a real browser later. This overrides the brief's Phi preview requirement for this implementation task.\n`
-          : brief.text,
+        brief: brief.text,
       };
     }),
     validate: Effect.fn("ManagedAgentService.validate")(function* (input) {
@@ -854,12 +845,10 @@ const make = Effect.gen(function* () {
         recordedRole === undefined ||
         input.binding.sourceAccess !==
           (input.binding.readOnly === true ? "read-only" : recordedRole.sourceAccess) ||
-        ((input.binding.toolProfile !== "implementation" ||
-          !Resolver.canImplementWithoutPhi(input.binding, recordedRole.toolProfile)) &&
-          input.binding.toolProfile !==
-            (input.binding.readOnly === true
-              ? readOnlyToolProfile(recordedRole.toolProfile)
-              : recordedRole.toolProfile))
+        input.binding.toolProfile !==
+          (input.binding.readOnly === true
+            ? readOnlyToolProfile(recordedRole.toolProfile)
+            : recordedRole.toolProfile)
       )
         return yield* new ManagedAgentError({ reason: "policy" });
       if (snapshot.briefs[input.binding.role]?.hash !== input.binding.briefHash)
@@ -904,7 +893,10 @@ const make = Effect.gen(function* () {
       // Preserve the original effort and brief; current policy can revoke authority,
       // but a preference edit cannot rewrite the treatment of an accepted task.
       const current = yield* currentPolicy;
-      const role = current.manifest.roles[input.binding.role];
+      // The browser role took over the retired ui-verifier's work, and its authority with it.
+      const role =
+        current.manifest.roles[input.binding.role] ??
+        (input.binding.role === "ui-verifier" ? current.manifest.roles.browser : undefined);
       if (role === undefined) return yield* new ManagedAgentError({ reason: "revoked" });
       const allowed = (
         current.manifest.lists[

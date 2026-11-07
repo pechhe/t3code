@@ -98,14 +98,11 @@ const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> =
   // The preview endpoint is a browser session's listing, so it carries no control plane.
   // Bounded decisions adds the same 2,061 characters to the browser catalogue.
   ["browser/preview", session("phi", "browser"), 34_900],
-  ["ui-verifier", session("phi", "ui-verifier"), 120_000],
-  ["ui-worker", session("implementation-phi", "ui-worker"), 115_000],
   // Upstream schemas with the web family, including upstream's fresh-session and
   // worktree-base guidance, measure 86,558 characters on this endpoint.
   ["researcher", session("web-research", "researcher"), 86_700],
   ["scout", session("source-reader", "scout"), 90_000],
   ["delegated browser", session("phi", "browser", true), 40_000],
-  ["delegated ui-verifier", session("phi", "ui-verifier", true), 40_000],
   [
     "delegated implementation-worker",
     session("implementation", "implementation-worker", true),
@@ -129,6 +126,7 @@ it("lists a browser session only the families it uses", () => {
   // family added here fails this test rather than quietly raising the budget.
   expect([...SESSION_TOOL_ENDPOINTS.preview.families].sort()).toEqual([
     "decision",
+    "device",
     "leaf",
     "preview",
     "report",
@@ -148,12 +146,9 @@ const instructionCases: ReadonlyArray<[string, SessionToolProfile | undefined]> 
   ["ordinary", undefined],
   // No parent browser session: a thread's profile and role come only from its agentTask,
   // and the preview endpoint no longer carries the control plane the parent text names.
-  ["ui-verifier", session("phi", "ui-verifier")],
-  ["ui-worker", session("implementation-phi", "ui-worker")],
   ["researcher", session("web-research", "researcher")],
   ["scout", session("source-reader", "scout")],
   ["delegated browser", session("phi", "browser", true)],
-  ["delegated ui-verifier", session("phi", "ui-verifier", true)],
   ["delegated implementation-worker", session("implementation", "implementation-worker", true)],
   ["delegated researcher", session("web-research", "researcher", true)],
   ["delegated scout", session("source-reader", "scout", true)],
@@ -223,7 +218,7 @@ it("tells a narrow browser child about preview only, and that listing is all pre
   }
 });
 
-it("lists the preview family only for Phi profiles, and device only for a UI verifier", () => {
+it("lists the preview and device families only for the browser profile", () => {
   const ordinary = names(undefined);
   expect(ordinary.has("preview_interact")).toBe(false);
   expect(ordinary.has("preview_open")).toBe(false);
@@ -238,17 +233,16 @@ it("lists the preview family only for Phi profiles, and device only for a UI ver
 
   const browser = names(session("phi", "browser"));
   expect(browser.has("preview_interact")).toBe(true);
-  expect(browser.has("device_open")).toBe(false);
+  expect(browser.has("device_open")).toBe(true);
   expect(browser.has("delegate_task")).toBe(false);
   expect(browser.has("t3_worktree_status")).toBe(false);
   expect(browser.has("agent_task_outcome")).toBe(true);
 
-  const verifier = names(session("phi", "ui-verifier"));
-  expect(verifier.has("preview_interact")).toBe(true);
-  expect(verifier.has("device_open")).toBe(true);
+  // A task bound as the retired ui-verifier lists what a browser task does.
+  expect(names(session("phi", "ui-verifier"))).toEqual(browser);
 
-  const worker = names(session("implementation-phi", "ui-worker"));
-  expect(worker.has("preview_interact")).toBe(true);
+  const worker = names(session("implementation", "ui-worker"));
+  expect(worker.has("preview_interact")).toBe(false);
   expect(worker.has("t3_worktree_status")).toBe(true);
 
   const researcher = names(session("web-research", "researcher"));
@@ -275,8 +269,8 @@ it("gives a delegated child its own work family and the leaf tools, never the co
     expect(browser.has(parentOnly), `browser child lists ${parentOnly}`).toBe(false);
   }
 
-  const verifier = names(session("phi", "ui-verifier", true));
-  expect(verifier.has("device_open")).toBe(true);
+  expect(browser.has("device_open")).toBe(true);
+  expect(names(session("phi", "ui-verifier", true))).toEqual(browser);
 
   const reader = names(session("source-reader", "scout", true));
   expect(reader.has("preview_interact")).toBe(false);

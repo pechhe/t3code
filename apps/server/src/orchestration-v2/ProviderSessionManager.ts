@@ -388,14 +388,11 @@ export const layerWithOptions = (
           return yield* Effect.gen(function* () {
             const settings = yield* serverSettings.value.getSettings;
             const thread = yield* projectionStore.getThread(threadId);
-            // Browser roles and UI workers use the narrow endpoint, pinned to their task's backend.
+            // Browser roles use the narrow endpoint, pinned to their task's backend.
             const managedBrowser =
               usesPhi(thread.agentTask?.toolProfile) &&
-              ["ui-worker", "browser", "ui-verifier"].includes(thread.agentTask?.role ?? "");
-            const selectedBrowser = thread.agentTask?.browser ?? {
-              backend:
-                thread.agentTask?.role === "ui-worker" ? ("phi" as const) : ("integrated" as const),
-            };
+              ["browser", "ui-verifier"].includes(thread.agentTask?.role ?? "");
+            const selectedBrowser = thread.agentTask?.browser ?? { backend: "integrated" as const };
             const pinnedBackends = {
               enabled: [selectedBrowser.backend],
               default: selectedBrowser.backend,
