@@ -61,6 +61,7 @@ import {
   clampCompactionSummary,
   COMPACTION_SUMMARY_MAX_BYTES,
   DEFAULT_COMPACTION_WINDOW_TOKENS,
+  COMPACTION_TRANSCRIPT_ITEM_TYPES,
   renderCompactionTranscript,
 } from "./CompactionTranscript.ts";
 import { isActiveRun } from "./CommandPolicy.ts";
@@ -1152,10 +1153,22 @@ export const layer: Layer.Layer<
             const windowTokens =
               summariserSnapshot?.models.find((model) => model.slug === summariser.model)
                 ?.contextWindowTokens ?? DEFAULT_COMPACTION_WINDOW_TOKENS;
+            // The turn-start projection holds only this run's items, so read the whole thread.
+            const history = yield* projectionStore.getTurnStartHistory(
+              projection.thread.id,
+              undefined,
+              COMPACTION_TRANSCRIPT_ITEM_TYPES,
+            );
             const transcript = renderCompactionTranscript({
-              items: projection.turnItems.filter((item) => item.runId !== run.id),
+              items: history.filter((item) => item.runId !== run.id),
               windowTokens,
             });
+            if (transcript.text === "") {
+              return yield* new ProviderTurnStartError({
+                runId,
+                cause: `There was no conversation to send ${modelName}, so the session was kept.`,
+              });
+            }
             const threadTitle = projection.thread.title?.trim() ?? "";
             const generated = yield* summariserInstance.textGeneration.generateCompactionSummary({
               cwd: resolvedRuntimePolicy.cwd ?? "",

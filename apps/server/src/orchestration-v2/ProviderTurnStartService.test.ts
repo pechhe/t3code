@@ -1111,6 +1111,13 @@ function makeLocalCommandHarness(input: {
           : projection,
     ),
   );
+  const generateCompactionSummary = vi.fn((_request: { readonly transcript: string }) =>
+    input.summariser?.failure === undefined
+      ? Effect.succeed({
+          summary: input.summariser?.summary ?? "Summarised conversation.",
+        })
+      : Effect.fail(input.summariser.failure),
+  );
   const getTurnStartContext = vi.fn(() =>
     Effect.succeed({
       ...projection,
@@ -1254,14 +1261,7 @@ function makeLocalCommandHarness(input: {
                         ],
                       }),
                     },
-                    textGeneration: {
-                      generateCompactionSummary: () =>
-                        input.summariser?.failure === undefined
-                          ? Effect.succeed({
-                              summary: input.summariser?.summary ?? "Summarised conversation.",
-                            })
-                          : Effect.fail(input.summariser.failure),
-                    },
+                    textGeneration: { generateCompactionSummary },
                   } as never),
             ),
         }),
@@ -1272,6 +1272,7 @@ function makeLocalCommandHarness(input: {
     settledRuns,
     getThreadRecords,
     getTurnStartContext,
+    generateCompactionSummary,
     setProjection: (next: OrchestrationV2ThreadProjection) => {
       projection = next;
     },
@@ -2626,6 +2627,64 @@ describe("Claude compaction model", () => {
 
 describe("Claude compaction on another account", () => {
   const SUMMARISER_INSTANCE = ProviderInstanceId.make("pi-personal");
+  const historyItem = (
+    id: string,
+    runId: string,
+    fields: Record<string, unknown>,
+  ): OrchestrationV2TurnItem => {
+    const at = DateTime.makeUnsafe("2026-09-04T11:00:00Z");
+    return {
+      id: TurnItemId.make(id),
+      threadId: ThreadId.make("thread-native-account-command"),
+      runId: RunId.make(runId),
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      ordinal: 1,
+      status: "completed",
+      title: null,
+      startedAt: at,
+      completedAt: at,
+      updatedAt: at,
+      ...fields,
+    } as unknown as OrchestrationV2TurnItem;
+  };
+  // Earlier runs of the thread, as the projection store holds them, and this run's `/compact`.
+  const threadHistory = [
+    historyItem("earlier-request", "run-earlier-1", {
+      type: "user_message",
+      messageId: MessageId.make("message-earlier-request"),
+      text: "Fix the login redirect",
+      createdBy: "user",
+      creationSource: "web",
+      inputIntent: "turn_start",
+      attachments: [],
+    }),
+    historyItem("earlier-tool", "run-earlier-2", {
+      type: "dynamic_tool",
+      toolName: "mcp__t3-code__task_status",
+      input: { taskId: "review-task-42" },
+      output: "still running",
+    }),
+    historyItem("earlier-reply", "run-earlier-2", {
+      type: "assistant_message",
+      messageId: MessageId.make("message-earlier-reply"),
+      text: "The redirect fix is waiting on review.",
+      createdBy: "agent",
+      creationSource: "provider",
+    }),
+    historyItem("compact-request", "run-native-account-command", {
+      type: "user_message",
+      messageId: MessageId.make("message-compact-request"),
+      text: "/compact",
+      createdBy: "user",
+      creationSource: "web",
+      inputIntent: "turn_start",
+      attachments: [],
+    }),
+  ];
   const otherAccountSettings = (
     config: {
       compactModel?: string;
@@ -2654,10 +2713,17 @@ describe("Claude compaction on another account", () => {
           model: "deepseek-v4.1-flash",
           summary: "The user is fixing the login redirect.",
         },
+        history: threadHistory,
       });
 
       yield* harness.start;
 
+      // The summariser reads every earlier run, tool calls included, but not the `/compact` itself.
+      const transcript = harness.generateCompactionSummary.mock.calls[0]?.[0].transcript ?? "";
+      expect(transcript).toContain("Fix the login redirect");
+      expect(transcript).toContain("review-task-42");
+      expect(transcript).toContain("The redirect fix is waiting on review.");
+      expect(transcript).not.toContain("/compact");
       // The thread's own provider never sees this compaction: T3 wrote the summary.
       expect(harness.open).not.toHaveBeenCalled();
       expect(harness.startRootRun).not.toHaveBeenCalled();
@@ -2704,6 +2770,7 @@ describe("Claude compaction on another account", () => {
           model: "deepseek-v4.1-flash",
           failure: new Error("the summariser is offline"),
         },
+        history: threadHistory,
       });
 
       yield* harness.start;
@@ -2736,6 +2803,7 @@ describe("Claude compaction on another account", () => {
             CACHE_EXPIRED,
           ),
           summariser: { instanceId: SUMMARISER_INSTANCE, model: "deepseek-v4.1-flash" },
+          history: threadHistory,
         });
 
         yield* harness.start;
@@ -2746,6 +2814,36 @@ describe("Claude compaction on another account", () => {
         ]);
         expect(harness.projection().contextHandoffs).toEqual([]);
       }),
+  );
+
+  effectIt.effect("keeps the session when the thread has nothing to summarise", () =>
+    Effect.gen(function* () {
+      yield* setClaudeClock;
+      const harness = makeLocalCommandHarness({
+        text: "/compact",
+        previousMessages: ["Fix the login redirect"],
+        nativeSession: true,
+        claude: otherAccountSettings(
+          {
+            compactModel: "deepseek-v4.1-flash",
+            compactModelInstanceId: SUMMARISER_INSTANCE,
+          },
+          CACHE_EXPIRED,
+        ),
+        summariser: { instanceId: SUMMARISER_INSTANCE, model: "deepseek-v4.1-flash" },
+        history: threadHistory.filter((item) => item.runId === "run-native-account-command"),
+      });
+
+      yield* harness.start;
+
+      expect(harness.generateCompactionSummary).not.toHaveBeenCalled();
+      expect(harness.projection().runs.at(-1)?.status).toBe("failed");
+      expect(harness.projection().turnItems).toMatchObject([
+        { type: "error", title: "Compacting context with deepseek-v4.1-flash failed" },
+      ]);
+      expect(harness.projection().contextHandoffs).toEqual([]);
+      expect(harness.projection().providerThreads[0]?.nativeThreadRef).not.toBeNull();
+    }),
   );
 
   effectIt.effect("refuses while the thread's own work is still running", () =>

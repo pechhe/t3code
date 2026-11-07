@@ -24,6 +24,25 @@ function limitText(text: string, maxChars: number): string {
     : `${trimmed.slice(0, maxChars)}\n[rest of this item omitted]`;
 }
 
+/** The stored item types `renderItem` writes into a transcript. */
+export const COMPACTION_TRANSCRIPT_ITEM_TYPES: ReadonlyArray<OrchestrationV2TurnItem["type"]> = [
+  "user_message",
+  "assistant_message",
+  "proposed_plan",
+  "command_execution",
+  "dynamic_tool",
+  "file_change",
+  "error",
+  "run_interrupt_result",
+  "compaction",
+  "handoff",
+];
+
+function toolText(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
+}
+
 function renderItem(item: OrchestrationV2TurnItem): string | null {
   switch (item.type) {
     case "user_message":
@@ -42,6 +61,13 @@ function renderItem(item: OrchestrationV2TurnItem): string | null {
       ]
         .filter((line) => line.length > 0)
         .join("\n");
+    case "dynamic_tool":
+      return [
+        `Tool: ${item.toolName ?? "unknown"} ${limitText(toolText(item.input), 400)}`,
+        limitText(toolText(item.output), MAX_COMMAND_OUTPUT_CHARS),
+      ]
+        .filter((line) => line.length > 0)
+        .join("\n");
     case "file_change":
       return `File change: ${item.fileName}`;
     case "error":
@@ -49,7 +75,14 @@ function renderItem(item: OrchestrationV2TurnItem): string | null {
     case "run_interrupt_result":
       return `Run stopped: ${limitText(item.message, 1_000)}`;
     case "compaction":
-      return "[Context was compacted here; everything before this line is no longer in the conversation.]";
+      return [
+        "[Context was compacted here; everything before this line is no longer in the conversation.]",
+        ...(item.summary === undefined || item.summary.trim() === ""
+          ? []
+          : [
+              `Summary the conversation continued from:\n${limitText(item.summary, MAX_ITEM_CHARS * 2)}`,
+            ]),
+      ].join("\n");
     case "handoff":
       return `[Conversation context was handed over here]\n${limitText(item.summary ?? "", 2_000)}`;
     default:

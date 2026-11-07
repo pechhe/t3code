@@ -230,6 +230,16 @@ export type ProjectionSettlementCandidate = Pick<
     readonly latestUserAuthoredMessageAt: DateTime.Utc | null;
   };
 
+const TURN_START_HISTORY_ITEM_TYPES: ReadonlyArray<OrchestrationV2TurnItem["type"]> = [
+  "user_message",
+  "assistant_message",
+  "command_execution",
+  "error",
+  "run_interrupt_result",
+  "file_change",
+  "proposed_plan",
+];
+
 const ProjectionCheckpointContext = Schema.Struct({
   runs: Schema.Array(
     OrchestrationV2RunJsonSchema.mapFields(({ id, ordinal, status }) => ({ id, ordinal, status })),
@@ -615,6 +625,7 @@ export interface ProjectionStoreV2Shape {
   readonly getTurnStartHistory: (
     threadId: ThreadId,
     runIds?: ReadonlyArray<RunId>,
+    itemTypes?: ReadonlyArray<OrchestrationV2TurnItem["type"]>,
   ) => Effect.Effect<ReadonlyArray<OrchestrationV2TurnItem>, ProjectionStoreV2Error>;
   readonly getThreadProjection: (
     threadId: ThreadId,
@@ -4659,18 +4670,17 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
     const getTurnStartHistory: ProjectionStoreV2Shape["getTurnStartHistory"] = Effect.fn(
       "ProjectionStore.getTurnStartHistory",
     )(
-      function* (threadId, runIds) {
+      function* (threadId, runIds, itemTypes = TURN_START_HISTORY_ITEM_TYPES) {
         const rows = yield* sql<PayloadRow>`
           SELECT payload_json FROM orchestration_v2_projection_turn_items
           WHERE thread_id = ${threadId}
-            AND type IN ('user_message','assistant_message','command_execution','error',
-              'run_interrupt_result','file_change','proposed_plan')
+            AND type IN ${sql.in(itemTypes)}
             AND ${runIds === undefined ? sql`1` : sql`run_id IN ${sql.in(runIds)}`}
           ORDER BY ordinal ASC, turn_item_id ASC
         `;
         return yield* decodeRows(decodeTurnItemPayload, threadId)(rows);
       },
-      (effect, threadId, _runIds) =>
+      (effect, threadId, _runIds, _itemTypes) =>
         effect.pipe(Effect.mapError((cause) => new ProjectionStoreReadError({ threadId, cause }))),
     );
 

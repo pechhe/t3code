@@ -109,6 +109,26 @@ describe("renderCompactionTranscript", () => {
     expect(text).toContain("[Context was compacted here");
   });
 
+  it("carries an earlier summary forward, since it was the conversation's whole memory", () => {
+    const items = [
+      {
+        ...base(),
+        type: "compaction",
+        driver: "claudeAgent",
+        title: "Compacted",
+        summary: "Leading SJ-202; the review task is review-task-42.",
+      } as never,
+      userMessage("How is the review going?"),
+    ];
+
+    const { text } = renderCompactionTranscript({
+      items,
+      windowTokens: DEFAULT_COMPACTION_WINDOW_TOKENS,
+    });
+
+    expect(text).toContain("review-task-42");
+  });
+
   it("clamps a multi-byte summary by bytes, never in the middle of a character", () => {
     // A CJK summary is three bytes per character, so a character count would let it through
     // three times over the handoff budget.
