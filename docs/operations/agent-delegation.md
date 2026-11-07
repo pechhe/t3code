@@ -41,8 +41,10 @@ Any installed provider's models can be listed, not only Codex and Claude. A role
 when a named model asks. Reviewers can prefer a provider other than the author's.
 Briefs remain read-only.
 
-Save validates the choices against the policy rules and installed model catalog,
-advances the revision, and writes the policy file. Running tasks retain their
+Each change in Settings → Delegation saves at once; an edit made while a save runs
+waits for it and saves against the revision it wrote. A list left with no model stays
+unsaved, with Discard, until it has one. A save validates the choices against the
+policy rules and installed model catalog, advances the revision, and writes the policy file. Running tasks retain their
 recorded snapshot. A concurrent source edit refuses the save and reloads the
 current values. The page shows the installed agent-config revision, whether it has
 unlanded changes, and how far it trails main, until you publish agent-config through

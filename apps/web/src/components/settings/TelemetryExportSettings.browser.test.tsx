@@ -68,7 +68,7 @@ function setup() {
 }
 
 describe("TelemetryExportSettings", () => {
-  it("does not resend a field the user restored after another client changed it", async () => {
+  it("saves an endpoint on leaving it, without resending a field restored after another client changed it", async () => {
     setup();
     state.observability = {
       ...DEFAULT_SERVER_SETTINGS.observability,
@@ -85,13 +85,32 @@ describe("TelemetryExportSettings", () => {
     state.observability = { ...state.observability, otlpTracesUrl: "http://other/v1/traces" };
     await screen.rerender(<TelemetryExportSettings />);
     await replace("otlpMetricsUrl", "http://new/v1/metrics");
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await userEvent.tab();
 
     await expect.element(screen.getByText("Saved. Restart the server to apply.")).toBeVisible();
     expect(updateSettings).toHaveBeenCalledExactlyOnceWith({
       environmentId: "env",
       input: { patch: { observability: { otlpMetricsUrl: "http://new/v1/metrics" } } },
     });
+  });
+
+  it("keeps an endpoint that is not an HTTP URL unsaved and says why", async () => {
+    setup();
+    state.observability = { ...DEFAULT_SERVER_SETTINGS.observability };
+    await using screen = await render(<TelemetryExportSettings />);
+
+    await userEvent.fill(
+      screen.container.querySelector<HTMLInputElement>("#otlpLogsUrl")!,
+      "collector",
+    );
+    await userEvent.tab();
+
+    await expect
+      .element(
+        screen.getByText("Enter an HTTP or HTTPS endpoint, or leave it empty to turn export off."),
+      )
+      .toBeVisible();
+    expect(updateSettings).not.toHaveBeenCalled();
   });
 
   it("reports and tests the endpoint the environment set over an empty setting", async () => {

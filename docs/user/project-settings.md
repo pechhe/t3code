@@ -430,8 +430,10 @@ In a SlipJay project, select the project and open Project to see **SlipJay polic
 committed to the project's integration branch, which every machine and agent uses.
 
 - Change the spare workspace count, the process level (**Standard** or **Light**) or the landing
-  checks, then choose **Save**. Saving lands one change through the runner without running the
+  checks, and the change saves itself: a count or level when you choose it, the landing checks
+  when you leave the box. Each save lands one change through the runner without running the
   landing checks; the section shows its place in the queue, then its landing, then the outcome.
+  Landing checks that cannot be read stay unsaved, with **Discard** to return to the policy in force.
 - If someone changed the policy since you opened it, the save is refused as stale and the section
   shows the policy now in force. A check whose command does not exist on the runner is refused too,
   with SlipJay's reason, and nothing changes.

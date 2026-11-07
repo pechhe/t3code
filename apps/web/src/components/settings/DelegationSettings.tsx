@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import * as Schema from "effect/Schema";
 import {
   AgentPolicyManifest,
@@ -175,7 +175,7 @@ function ScopedDelegation({
         <Alert variant="info">
           <AlertDescription>
             Policies differ across {editable.map((policy) => policy.label).join(", ")}. This shows{" "}
-            {shown.label}&apos;s; saving applies it to all of them.
+            {shown.label}&apos;s; a change applies it to all of them.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -226,27 +226,59 @@ function PolicyEditor({
   const saved = data.snapshot.manifest;
   const [draft, setDraft] = useState<Manifest>(saved);
   const [pending, setPending] = useState(false);
+  // Edits made while a save runs queue behind it; each save builds on the revision the last one wrote.
+  const queue = useRef<{
+    next: Manifest | null;
+    running: boolean;
+    hashes: Map<EnvironmentId, string>;
+  }>({
+    next: null,
+    running: false,
+    hashes: new Map(targets.map((target) => [target.environmentId, target.hash])),
+  });
   const save = useAtomCommand(serverEnvironment.agentPolicySave);
   const catalog = catalogModels(data.providers);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
   const jobs = jobsFor(draft, roleGroups(draft));
   const issue = councilIssue(draft);
-  const submit = async () => {
+  const blocked = !isValid(draft) || issue !== null || unsavedEnvironments > 0;
+  const flush = async () => {
+    const state = queue.current;
+    if (state.running) return;
+    state.running = true;
     setPending(true);
     const failures: string[] = [];
-    for (const target of targets) {
-      const result = await save({
-        environmentId: target.environmentId,
-        input: { expectedHash: target.hash, manifest: draft },
-      });
-      if (result._tag !== "Success") {
-        const message = String(squashAtomCommandFailure(result));
-        failures.push(targets.length > 1 ? `${target.label}: ${message}` : message);
+    for (
+      let manifest = state.next;
+      manifest !== null && failures.length === 0;
+      manifest = state.next
+    ) {
+      state.next = null;
+      for (const target of targets) {
+        const result = await save({
+          environmentId: target.environmentId,
+          input: { expectedHash: state.hashes.get(target.environmentId) ?? target.hash, manifest },
+        });
+        if (result._tag === "Success") {
+          state.hashes.set(target.environmentId, result.value.snapshot.hash);
+        } else {
+          const message = String(squashAtomCommandFailure(result));
+          failures.push(targets.length > 1 ? `${target.label}: ${message}` : message);
+        }
       }
     }
+    state.next = null;
+    state.running = false;
     setPending(false);
-    if (failures.length === 0) onSaved();
-    else onError(failures.join("; "));
+    if (failures.length === 0) return onSaved();
+    // Show what is on disk rather than an edit that did not save.
+    setDraft(saved);
+    onError(failures.join("; "));
+  };
+  const change = (next: Manifest) => {
+    setDraft(next);
+    if (!isValid(next) || councilIssue(next) !== null || unsavedEnvironments > 0) return;
+    queue.current.next = next;
+    void flush();
   };
   const unenforced = readOnlyUnenforcedProviders(data.providers);
   return (
@@ -276,37 +308,22 @@ function PolicyEditor({
             rolesDir={`${data.sourceRoot}/roles`}
             providers={data.providers}
             catalog={catalog}
-            disabled={pending}
-            onChange={setDraft}
+            onChange={change}
           />
         ))}
       </SettingsSection>
-      {dirty ? (
+      {blocked && JSON.stringify(draft) !== JSON.stringify(saved) ? (
         <Alert variant="info">
           <AlertDescription>
             {!isValid(draft)
-              ? "Every list needs at least one model before saving."
+              ? "Every list needs at least one model. Changes save once each has one."
               : issue !== null
                 ? issue
-                : unsavedEnvironments > 0
-                  ? "Every selected environment needs a readable policy before saving. Choose one environment to save to it alone."
-                  : "Unsaved changes apply to new tasks once saved."}
+                : "Every selected environment needs a readable policy before changes save. Choose one environment to save to it alone."}
           </AlertDescription>
           <AlertAction>
-            <Button
-              size="xs"
-              variant="ghost-muted"
-              disabled={pending}
-              onClick={() => setDraft(saved)}
-            >
+            <Button size="xs" variant="ghost-muted" onClick={() => setDraft(saved)}>
               Discard
-            </Button>
-            <Button
-              size="xs"
-              disabled={pending || !isValid(draft) || issue !== null || unsavedEnvironments > 0}
-              onClick={() => void submit()}
-            >
-              {pending ? "Saving…" : "Save"}
             </Button>
           </AlertAction>
         </Alert>
@@ -314,6 +331,7 @@ function PolicyEditor({
       <p className="px-4 text-xs text-muted-foreground">
         {data.sourceRoot}/roles/policy.json · policy {data.snapshot.sourceRevision}
         {data.checkout === undefined ? null : ` · ${describeCheckout(data.checkout)}`}
+        {pending ? " · Saving…" : null}
       </p>
     </>
   );
@@ -373,7 +391,6 @@ function ListEditor({
   manifest,
   providers,
   catalog,
-  disabled,
   onChange,
   makers,
   children,
@@ -383,7 +400,6 @@ function ListEditor({
   manifest: Manifest;
   providers: ReadonlyArray<ServerProvider>;
   catalog: ReadonlyArray<CatalogModel>;
-  disabled: boolean;
   onChange: (manifest: Manifest) => void;
   /** Council members are labelled with their model's maker. */
   makers?: boolean;
@@ -425,7 +441,6 @@ function ListEditor({
                 environmentId={environmentId}
                 catalog={catalog}
                 binding={binding}
-                disabled={disabled}
                 pickDisabledReason={listed}
                 onPick={(model) =>
                   onChange(
@@ -443,7 +458,6 @@ function ListEditor({
                 environmentId={environmentId}
                 binding={binding}
                 effort={entry.effort}
-                disabled={disabled}
                 onChange={(effort) => onChange(setEntryEffort(manifest, list, entry.model, effort))}
                 onModelOptionsChange={(options) =>
                   onChange(setModelOptions(manifest, entry.model, options))
@@ -458,7 +472,6 @@ function ListEditor({
                   >
                     <Switch
                       checked={runsFast(binding)}
-                      disabled={disabled}
                       onCheckedChange={(fast) =>
                         onChange(setModelFast(manifest, entry.model, fast))
                       }
@@ -478,7 +491,7 @@ function ListEditor({
                 size="icon-xs"
                 variant="ghost-muted"
                 aria-label={`Move ${label(entry.model)} up`}
-                disabled={disabled || index === 0}
+                disabled={index === 0}
                 onClick={() => onChange(moveEntry(manifest, list, index, -1))}
               >
                 <ArrowUpIcon />
@@ -487,7 +500,7 @@ function ListEditor({
                 size="icon-xs"
                 variant="ghost-muted"
                 aria-label={`Move ${label(entry.model)} down`}
-                disabled={disabled || index === entries.length - 1}
+                disabled={index === entries.length - 1}
                 onClick={() => onChange(moveEntry(manifest, list, index, 1))}
               >
                 <ArrowDownIcon />
@@ -496,7 +509,6 @@ function ListEditor({
                 size="icon-xs"
                 variant="ghost-muted"
                 aria-label={`Remove ${label(entry.model)}`}
-                disabled={disabled}
                 onClick={() => onChange(removeEntry(manifest, list, entry.model))}
               >
                 <XIcon />
@@ -510,10 +522,9 @@ function ListEditor({
           environmentId={environmentId}
           catalog={catalog}
           binding={undefined}
-          disabled={disabled}
           pickDisabledReason={listed}
           trigger={
-            <Button size="xs" variant="outline" disabled={disabled}>
+            <Button size="xs" variant="outline">
               <PlusIcon />
               Add model
             </Button>
@@ -534,7 +545,6 @@ function JobRow({
   rolesDir,
   providers,
   catalog,
-  disabled,
   onChange,
 }: {
   environmentId: EnvironmentId;
@@ -544,7 +554,6 @@ function JobRow({
   rolesDir: string;
   providers: ReadonlyArray<ServerProvider>;
   catalog: ReadonlyArray<CatalogModel>;
-  disabled: boolean;
   onChange: (manifest: Manifest) => void;
 }) {
   const primary = job.sections[0]!;
@@ -629,7 +638,6 @@ function JobRow({
         <Button
           size="xs"
           variant="ghost-muted"
-          disabled={disabled}
           onClick={() =>
             onChange(setLarge(manifest, single, primaryEntries[primaryEntries.length - 1]))
           }
@@ -642,7 +650,6 @@ function JobRow({
           environmentId={environmentId}
           catalog={catalog}
           binding={undefined}
-          disabled={disabled}
           pickDisabledReason={(model) => {
             const alias = aliasOf(manifest, model);
             return alias !== undefined &&
@@ -651,7 +658,7 @@ function JobRow({
               : null;
           }}
           trigger={
-            <Button size="xs" variant="ghost-muted" disabled={disabled}>
+            <Button size="xs" variant="ghost-muted">
               Different model for one agent
             </Button>
           }
@@ -664,12 +671,7 @@ function JobRow({
         />
       ) : null}
       {job.splitGroups.length > 0 ? (
-        <Button
-          size="xs"
-          variant="ghost-muted"
-          disabled={disabled}
-          onClick={() => onChange(splitJob(manifest, job))}
-        >
+        <Button size="xs" variant="ghost-muted" onClick={() => onChange(splitJob(manifest, job))}>
           Split into separate jobs
         </Button>
       ) : null}
@@ -728,7 +730,6 @@ function JobRow({
                   manifest={manifest}
                   providers={providers}
                   catalog={catalog}
-                  disabled={disabled}
                   onChange={onChange}
                   makers={council && section === councilSection}
                 >
@@ -745,7 +746,6 @@ function JobRow({
                 policy={rolePolicy(manifest, role)}
                 catalog={catalog}
                 manifest={manifest}
-                disabled={disabled}
                 onChange={(edit) => onChange(edit(manifest, role))}
               />
             ))}
@@ -753,18 +753,12 @@ function JobRow({
               <div className="flex flex-wrap items-center gap-1.5">{actions}</div>
             ) : null}
             {job.roles.includes("reviewer") ? (
-              <CouncilBlock
-                manifest={manifest}
-                providers={providers}
-                disabled={disabled}
-                onChange={onChange}
-              />
+              <CouncilBlock manifest={manifest} providers={providers} onChange={onChange} />
             ) : null}
             {job.roles.filter(isReviewerRole).map((role) => (
               <label key={role} className="flex items-center gap-2 text-xs">
                 <Switch
                   checked={manifest.roles[role].preferOtherAuthorProvider === true}
-                  disabled={disabled}
                   onCheckedChange={(value) =>
                     onChange(setPreferOtherAuthorProvider(manifest, role, value))
                   }
@@ -784,12 +778,10 @@ function JobRow({
 function CouncilBlock({
   manifest,
   providers,
-  disabled,
   onChange,
 }: {
   manifest: Manifest;
   providers: ReadonlyArray<ServerProvider>;
-  disabled: boolean;
   onChange: (manifest: Manifest) => void;
 }) {
   const on = councilOn(manifest);
@@ -802,7 +794,6 @@ function CouncilBlock({
       <label className="flex items-center gap-2 text-sm font-medium">
         <Switch
           checked={on}
-          disabled={disabled}
           aria-label="Council for Spec reviews"
           onCheckedChange={(value) => onChange(setCouncil(manifest, value))}
         />
@@ -843,7 +834,6 @@ function ExceptionLine({
   policy,
   catalog,
   manifest,
-  disabled,
   onChange,
 }: {
   environmentId: EnvironmentId;
@@ -852,7 +842,6 @@ function ExceptionLine({
   policy: RolePolicy;
   catalog: ReadonlyArray<CatalogModel>;
   manifest: Manifest;
-  disabled: boolean;
   onChange: (edit: (manifest: Manifest, role: AgentRole) => Manifest) => void;
 }) {
   let body: ReactNode;
@@ -866,7 +855,6 @@ function ExceptionLine({
           environmentId={environmentId}
           catalog={catalog}
           binding={manifest.models[large.model]}
-          disabled={disabled}
           onPick={(model) =>
             onChange((m, r) => {
               const effort = effortForModel(model, large.effort);
@@ -882,7 +870,6 @@ function ExceptionLine({
           environmentId={environmentId}
           binding={manifest.models[large.model]}
           effort={large.effort}
-          disabled={disabled}
           onChange={(effort) => onChange((m, r) => setLarge(m, r, { ...large, effort }))}
           onModelOptionsChange={(options) =>
             onChange((m) => setModelOptions(m, large.model, options))
@@ -912,7 +899,6 @@ function ExceptionLine({
           environmentId={environmentId}
           catalog={catalog}
           binding={manifest.models[first]}
-          disabled={disabled}
           onPick={(model) =>
             onChange((m, r) => {
               const [next, alias] = listModel(m, policy.list, model, effortForModel(model));
@@ -933,7 +919,6 @@ function ExceptionLine({
         variant="ghost-muted"
         className="ms-auto"
         aria-label="Remove exception"
-        disabled={disabled}
         onClick={() => onChange(remove)}
       >
         <XIcon />

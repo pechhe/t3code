@@ -149,21 +149,25 @@ function PolicyForm({
   const setPolicy = useAtomCommand(vcsEnvironment.slipJaySetPolicy, { reportFailure: false });
   const [draft, setDraft] = useState<SlipJayPolicyDraft>(() => policyDraft(settings));
   const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [following, setFollowing] = useState<string | null>(null);
   const { data: runner } = useEnvironmentQuery(
     following === null ? null : vcsEnvironment.slipJayRunner({ environmentId, input: {} }),
   );
   const update = (change: Partial<SlipJayPolicyDraft>) => {
-    setDraft((current) => ({ ...current, ...change }));
+    const next = { ...draft, ...change };
+    setDraft(next);
+    setFailed(false);
     onOutcome(null);
+    return next;
   };
   const planned = policyPatch(settings, draft);
-  const changed = "patch" in planned && Object.keys(planned.patch).length > 0;
 
-  const save = async () => {
-    if (!("patch" in planned)) return;
+  const save = async (next: SlipJayPolicyDraft) => {
+    const plan = policyPatch(settings, next);
+    if (!("patch" in plan) || Object.keys(plan.patch).length === 0) return;
     setSaving(true);
-    const input = { cwd, base: settings.revision, ...planned.patch };
+    const input = { cwd, base: settings.revision, ...plan.patch };
     let result = await setPolicy({ environmentId, input });
     // Once the runner has it, asking again with the same change waits for its outcome.
     while (result._tag === "Success" && result.value.phase === "following") {
@@ -174,6 +178,7 @@ function PolicyForm({
     setSaving(false);
     if (result._tag === "Failure") {
       const error = squashAtomCommandFailure(result);
+      setFailed(true);
       toastManager.add({
         type: "error",
         title: "Could not save the SlipJay policy",
@@ -200,7 +205,7 @@ function PolicyForm({
     <>
       <SettingsRow
         title="Shared policy"
-        description={`Committed to ${settings.integrationBranch}, so every machine and agent uses it. Saving lands one change through the runner without running the landing checks.`}
+        description={`Committed to ${settings.integrationBranch}, so every machine and agent uses it. Each change lands through the runner as you make it, without running the landing checks.`}
         status={
           status ? (
             <span
@@ -214,23 +219,19 @@ function PolicyForm({
           ) : undefined
         }
         control={
-          canEdit ? (
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={saving || !changed}
-                onClick={() => {
-                  setDraft(policyDraft(settings));
-                  onOutcome(null);
-                }}
-              >
-                Discard
-              </Button>
-              <Button size="sm" disabled={saving || !changed} onClick={() => void save()}>
-                {saving ? "Saving…" : "Save"}
-              </Button>
-            </div>
+          // An edit that cannot land stays on screen, with a way back to the policy in force.
+          canEdit && !saving && ("error" in planned || failed) ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setDraft(policyDraft(settings));
+                setFailed(false);
+                onOutcome(null);
+              }}
+            >
+              Discard
+            </Button>
           ) : null
         }
       />
@@ -247,6 +248,9 @@ function PolicyForm({
             disabled={!canEdit || saving}
             onValueChange={(value) => {
               if (value !== null) update({ spares: Math.round(value) });
+            }}
+            onValueCommitted={(value) => {
+              if (value !== null) void save(update({ spares: Math.round(value) }));
             }}
           >
             <NumberFieldGroup>
@@ -265,7 +269,7 @@ function PolicyForm({
             value={draft.process}
             disabled={!canEdit || saving}
             onValueChange={(value) => {
-              if (value === "standard" || value === "light") update({ process: value });
+              if (value === "standard" || value === "light") void save(update({ process: value }));
             }}
           >
             <SelectTrigger size="sm" aria-label="Process level">
@@ -292,6 +296,7 @@ function PolicyForm({
             disabled={!canEdit || saving}
             value={draft.checksText}
             onChange={(event) => update({ checksText: event.target.value })}
+            onBlur={() => void save(draft)}
           />
         </div>
       </SettingsRow>

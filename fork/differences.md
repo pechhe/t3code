@@ -170,7 +170,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Policy, pools and roles are editable by job from Settings on web and mobile.
-- **Requirements:** job-based delegation settings with a resolution preview; fast-tier switch per model; role brief shown on hover; the Reviewer row edits separate change-review and Spec-review model lists; an unavailable model is struck through in its list, with no separate warning banner; default child permission and idle-advisor closing; one editor under the environment picker (no project axis), where All environments saves one policy to every connected environment against each one's own revision.
+- **Requirements:** job-based delegation settings with a resolution preview; fast-tier switch per model; role brief shown on hover; the Reviewer row edits separate change-review and Spec-review model lists; an unavailable model is struck through in its list, with no separate warning banner; default child permission and idle-advisor closing; one editor under the environment picker (no project axis), where All environments saves one policy to every connected environment against each one's own revision; each change saves at once with no Save button, an edit made during a save queues behind it against the revision that save wrote, and a list left without a model stays unsaved with Discard.
 - **Integration points:** Settings → Delegation route/components; agent-policy RPC; shared settings state.
 - **Proof:** apps/web/src/components/settings/DelegationSettings.browser.test.tsx, DelegationSettings.logic.test.ts.
 - **Upstream:** none known.
@@ -240,7 +240,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Machine runner, spares and project policy are managed from T3 Settings.
-- **Requirements:** machine runner and spare settings, project policy editing; Projects entry in settings sidebar opens the current project on every environment.
+- **Requirements:** machine runner and spare settings, project policy editing, where each policy change lands as it is made (a count or level when chosen, the landing checks on leaving the box) with no Save button, and an unreadable or failed change stays on screen with Discard; Projects entry in settings sidebar opens the current project on every environment.
 - **Integration points:** `SlipJaySettings`; Settings → Projects/SlipJay routes; project contracts.
 - **Proof:** apps/server/src/project/SlipJaySettings.test.ts.
 - **Upstream:** none known.
@@ -615,7 +615,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** A set of small client behaviours the owner relies on.
-- **Requirements:** (unverified full list) thread IDs copied from title/pasted/dragged into composer; copy a cited selection to paste into another thread; inline code chips copy on click, run button on command blocks; sound for settling a thread; settings search; subagent hover cards (tokens, markdown briefs); selected sidebar row as raised card; once projects span machines, every sidebar thread row shows its machine icon in the corner, replacing upstream's machine-name line on Scratch rows.
+- **Requirements:** (unverified full list) thread IDs copied from title/pasted/dragged into composer; copy a cited selection to paste into another thread; inline code chips copy on click, run button on command blocks; sound for settling a thread; settings search; settings save as they change, with no Save button: OpenTelemetry export saves each endpoint on leaving its field or pressing Enter, where upstream's form had Save and Discard; subagent hover cards (tokens, markdown briefs); selected sidebar row as raised card; once projects span machines, every sidebar thread row shows its machine icon in the corner, replacing upstream's machine-name line on Scratch rows.
 - **Integration points:** The unmounted upstream host and workspace selector wrappers (`BranchToolbarEnvironmentSelector` and `WorktreeBaseBranchPicker`) are deleted by T3-213; later upstream edits must preserve the fork behavior rather than restore unused wrappers. chat components, settings route, sidebar (`SidebarThreadRow` machine icon, upstream's `scratchMachineLabel`).
 - **Proof:** none systematic.
 - **Upstream:** none known.
@@ -630,7 +630,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Mobile shows the fork's thread features.
-- **Requirements:** Forge item/header and sheet; workflow badge; release approval card; Jujutsu checkouts shown instead of "Not a repo"; experiments and delegation settings entries; agent browser setting.
+- **Requirements:** Forge item/header and sheet; workflow badge; release approval card; Jujutsu checkouts shown instead of "Not a repo"; experiments and delegation settings entries; agent browser setting; a project's name saves when editing ends or the screen closes, where upstream shows a Save button.
 - **Integration points:** `apps/mobile/src/features/threads`, `settings`, `state/build-work-items`; shared client-runtime state.
 - **Proof:** apps/mobile/src/features/threads/git/jujutsuCheckout.test.ts.
 - **Upstream:** mobile is upstream. The Screens dependency (`apps/mobile/deps/react-native-screens-5.0.0-t3.<n>.tgz`, its `apps/mobile/package.json` entry and `docs/operations/mobile-screens-fork.md`) is upstream's own tarball and moves with any upstream batch that bumps it (t3.37 to t3.43 in v0.1.3-nightly.20261024.3617); it is not a fork difference, so an update takes upstream's tarball and regenerates the lockfile.

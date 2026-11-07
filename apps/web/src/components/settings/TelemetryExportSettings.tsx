@@ -89,7 +89,6 @@ function TelemetryExportForm() {
   const { environment } = useSettingsScope();
   const saved = useScopedSettings((settings) => settings.observability);
   const [draft, setDraft] = useState<Partial<typeof saved>>({});
-  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const environmentId = environment?.environmentId;
   const canEdit = useAtomValue(
@@ -109,8 +108,32 @@ function TelemetryExportForm() {
   const updateSettings = useAtomCommand(serverEnvironment.updateSettings, { reportFailure: true });
   const checkOtlpEndpoint = useAtomCommand(serverEnvironment.checkOtlpEndpoint);
   const values = { ...saved, ...draft };
-  const changedSignals = SIGNALS.filter(({ key }) => values[key].trim() !== saved[key]);
-  const changed = changedSignals.length > 0;
+
+  const commit = async () => {
+    if (!environment) return;
+    const committed = Object.fromEntries(
+      SIGNALS.flatMap(({ key }) => {
+        const url = values[key].trim();
+        return url !== saved[key] && (url === "" || isHttpUrl(url)) ? [[key, url]] : [];
+      }),
+    );
+    if (SIGNALS.some(({ key }) => values[key].trim() !== "" && !isHttpUrl(values[key].trim())))
+      setMessage("Enter an HTTP or HTTPS endpoint, or leave it empty to turn export off.");
+    if (Object.keys(committed).length === 0) return;
+    setMessage("Saving…");
+    const result = await updateSettings({
+      environmentId: environment.environmentId,
+      input: { patch: { observability: committed } },
+    });
+    if (result._tag !== "Success") return setMessage(null);
+    // Keep anything typed while the save ran.
+    setDraft((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).filter(([key, value]) => value.trim() !== committed[key]),
+      ),
+    );
+    setMessage("Saved. Restart the server to apply.");
+  };
 
   const sendCheck = async (key: SignalKey, signal: OtlpSignal, url: string) => {
     if (!environmentId) return;
@@ -146,26 +169,9 @@ function TelemetryExportForm() {
     <SettingsSection title="OpenTelemetry export" id="telemetry-export">
       <form
         className="grid gap-4 px-4 py-4 sm:px-5"
-        onSubmit={async (event) => {
+        onSubmit={(event) => {
           event.preventDefault();
-          if (!environment || saving) return;
-          setSaving(true);
-          setMessage(null);
-          const result = await updateSettings({
-            environmentId: environment.environmentId,
-            input: {
-              patch: {
-                observability: Object.fromEntries(
-                  changedSignals.map(({ key }) => [key, values[key]]),
-                ),
-              },
-            },
-          });
-          setSaving(false);
-          if (result._tag === "Success") {
-            setDraft({});
-            setMessage("Saved. Restart the server to apply.");
-          }
+          void commit();
         }}
       >
         <p className="text-xs text-muted-foreground">
@@ -207,7 +213,7 @@ function TelemetryExportForm() {
                   title="Enter an HTTP or HTTPS endpoint, or leave empty to disable export."
                   placeholder={`http://localhost:4318/v1/${signal}`}
                   value={values[key]}
-                  disabled={saving || !canEdit}
+                  disabled={!canEdit}
                   onChange={(event) => {
                     const value = event.target.value;
                     // Clear restored drafts so later saves cannot overwrite another client's changes.
@@ -218,6 +224,7 @@ function TelemetryExportForm() {
                     });
                     setMessage(null);
                   }}
+                  onBlur={() => void commit()}
                 />
                 {canCheck && (
                   <Button
@@ -245,34 +252,9 @@ function TelemetryExportForm() {
             </div>
           );
         })}
-        <div className="flex items-center justify-between gap-3">
-          <p role="status" className="text-xs text-muted-foreground">
-            {message}
-          </p>
-          <div className="flex shrink-0 gap-2">
-            <Button
-              type="button"
-              size="xs"
-              variant="outline"
-              disabled={!changed || saving || !canEdit}
-              onClick={() => {
-                setDraft({});
-                setMessage(null);
-                if (!canCheck) return;
-                for (const descriptor of SIGNALS) {
-                  const { key, signal } = descriptor;
-                  if (runningOverride(running, descriptor)) continue;
-                  if (checks[key]?.url !== saved[key]) checkEndpoint(key, signal, saved[key]);
-                }
-              }}
-            >
-              Discard
-            </Button>
-            <Button type="submit" size="xs" disabled={!changed || saving || !canEdit}>
-              {saving ? "Saving…" : "Save"}
-            </Button>
-          </div>
-        </div>
+        <p role="status" className="text-xs text-muted-foreground">
+          {message}
+        </p>
       </form>
     </SettingsSection>
   );

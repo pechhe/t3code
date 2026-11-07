@@ -1,7 +1,6 @@
-import { act, type ReactNode } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import type { ReactNode } from "react";
 import { userEvent } from "vite-plus/test/browser";
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import * as Schema from "effect/Schema";
@@ -117,6 +116,7 @@ vi.mock("../ui/select", () => ({
   SelectItem: passthrough,
 }));
 
+import { act, render } from "../../../test/render";
 import { DelegationSettings, describeCheckout } from "./DelegationSettings";
 
 const decodeManifest = Schema.decodeUnknownSync(AgentPolicyManifest);
@@ -169,13 +169,14 @@ function fixture(): AgentPolicySettings {
   };
 }
 
-let root: Root;
-let container: HTMLDivElement;
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
+let container: HTMLElement;
+/** Renders against the fixture as each test has arranged it; call it after arranging. */
+async function mount() {
+  const screen = await render(<DelegationSettings />, { router: false });
+  container = screen.container;
+  return screen;
+}
+const reset = () => {
   state.data = fixture();
   state.extra = {};
   state.unreadable.clear();
@@ -184,25 +185,19 @@ beforeEach(() => {
   state.save.mockReset();
   state.refresh.mockReset();
   state.save.mockResolvedValue(AsyncResult.success(state.data));
-});
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
-const mount = () => act(async () => root.render(<DelegationSettings />));
+};
 const buttons = (label: string) =>
   [...container.querySelectorAll("button")].filter(
     (button) => button.getAttribute("aria-label") === label || button.textContent === label,
   );
 const button = (label: string) => buttons(label)[0]!;
-const click = (label: string) => act(async () => userEvent.click(button(label)));
+const click = (label: string) => userEvent.click(button(label));
 const text = () => container.textContent ?? "";
 
-it("saves a reordered list against the loaded revision without touching the loaded policy", async () => {
-  await mount();
+it("saves a reordered list as soon as it changes, against the loaded revision", async () => {
+  reset();
+  await using _screen = await mount();
   await click("Move claude-test up");
-  await click("Save");
   expect(state.save).toHaveBeenCalledWith({
     environmentId: EnvironmentId.make("test-env"),
     input: {
@@ -222,27 +217,50 @@ it("saves a reordered list against the loaded revision without touching the load
 });
 
 it("reports a stale save, reloads the current policy and does not retry", async () => {
+  reset();
   state.save.mockResolvedValue(
     AsyncResult.failure(Cause.fail(new AgentPolicySettingsError({ reason: "stale" }))),
   );
-  await mount();
+  await using _screen = await mount();
   await click("Move claude-test up");
-  await click("Save");
   expect(text()).toContain("policy changed on disk");
   expect(state.refresh).toHaveBeenCalledOnce();
   expect(state.save).toHaveBeenCalledOnce();
 });
 
-it("a job without models cannot be saved, and discarding restores it", async () => {
-  await mount();
+it("a job without models is not saved, and discarding restores it", async () => {
+  reset();
+  await using _screen = await mount();
   // The chore job's list holds only gpt-test; the shared workhorse list keeps a model.
-  await act(async () => userEvent.click(buttons("Remove gpt-test").at(-1)!));
-  expect(button("Save").disabled).toBe(true);
+  await userEvent.click(buttons("Remove gpt-test").at(-1)!);
+  expect(state.save).not.toHaveBeenCalled();
+  expect(text()).toContain("Every list needs at least one model");
   await click("Discard");
-  expect(buttons("Save")).toHaveLength(0);
+  expect(buttons("Discard")).toHaveLength(0);
+});
+
+it("queues an edit made while a save runs and saves it against the revision just written", async () => {
+  reset();
+  let finish = (_: unknown) => {};
+  const written = { ...fixture(), snapshot: { ...fixture().snapshot, hash: "d".repeat(64) } };
+  state.save
+    .mockReturnValueOnce(new Promise((resolve) => (finish = resolve)))
+    .mockResolvedValue(AsyncResult.success(written));
+  await using _screen = await mount();
+  await click("Move claude-test up");
+  await click("Move claude-test down");
+  expect(state.save).toHaveBeenCalledOnce();
+  await act(async () => finish(AsyncResult.success(written)));
+  expect(state.save.mock.calls.map(([call]) => call.input.expectedHash)).toEqual([
+    "a".repeat(64),
+    "d".repeat(64),
+  ]);
+  expect(state.save.mock.calls[1]![0].input.manifest.lists.workhorse[0].model).toBe("sol");
+  expect(state.refresh).toHaveBeenCalledOnce();
 });
 
 it("describes an unreadable agent-config checkout as unknown, never up to date", () => {
+  reset();
   expect(describeCheckout({ revision: null, hasLocalChanges: null, behindMain: null })).toBe(
     "agent-config unknown · unlanded changes unknown · behind main unknown",
   );
@@ -252,9 +270,10 @@ it("describes an unreadable agent-config checkout as unknown, never up to date",
 });
 
 it("shows the checkout as unknown when the policy cannot be read", async () => {
+  reset();
   state.data = null;
   state.error = "Could not read the delegation policy.";
-  await mount();
+  await using _screen = await mount();
   expect(text()).toContain("agent-config unknown");
   expect(text()).not.toContain("up to date");
 });
@@ -269,12 +288,12 @@ const addEnvironment = (policy: AgentPolicySettings) => {
 };
 
 it("saves one policy to every selected environment against each one's own revision", async () => {
+  reset();
   const base = fixture();
   addEnvironment({ ...base, snapshot: { ...base.snapshot, hash: "c".repeat(64) } });
-  await mount();
+  await using _screen = await mount();
   expect(text().match(/Implementer/g)).toHaveLength(1);
   await click("Move claude-test up");
-  await click("Save");
   expect(
     state.save.mock.calls.map(([call]) => [call.environmentId, call.input.expectedHash]),
   ).toEqual([
@@ -284,6 +303,7 @@ it("saves one policy to every selected environment against each one's own revisi
 });
 
 it("says when the selected environments hold different policies", async () => {
+  reset();
   const base = fixture();
   addEnvironment({
     ...base,
@@ -292,30 +312,32 @@ it("says when the selected environments hold different policies", async () => {
       manifest: decodeManifest({ ...base.snapshot.manifest, revision: "fixture.2" }),
     },
   });
-  await mount();
+  await using _screen = await mount();
   expect(text()).toContain("Policies differ across Test Mac, Other Box");
 });
 
 it("names the environment whose save failed", async () => {
+  reset();
   addEnvironment(fixture());
   state.save
     .mockResolvedValueOnce(AsyncResult.success(state.data))
     .mockResolvedValueOnce(
       AsyncResult.failure(Cause.fail(new AgentPolicySettingsError({ reason: "stale" }))),
     );
-  await mount();
+  await using _screen = await mount();
   await click("Move claude-test up");
-  await click("Save");
   expect(text()).toContain("Other Box:");
 });
 
 it("cannot save to all environments while one has no readable policy", async () => {
+  reset();
   addEnvironment(fixture());
   state.unreadable.add("other-env");
-  await mount();
+  await using _screen = await mount();
   expect(text()).toContain("Other Box: Could not read");
   await click("Move claude-test up");
-  expect(button("Save").disabled).toBe(true);
+  expect(state.save).not.toHaveBeenCalled();
+  expect(text()).toContain("Every selected environment needs a readable policy");
 });
 
 const separateReviewerLists = () => {
@@ -345,8 +367,9 @@ const separateReviewerLists = () => {
 };
 
 it("shows the Reviewer with a change list and a Spec list, each editable", async () => {
+  reset();
   separateReviewerLists();
-  await mount();
+  await using _screen = await mount();
   for (const phrase of [
     "Change reviews",
     "A chore or other work with no Spec",
@@ -361,11 +384,11 @@ it("shows the Reviewer with a change list and a Spec list, each editable", async
 });
 
 it("saves a Spec list edit without touching the change list", async () => {
+  reset();
   const manifest = separateReviewerLists();
-  await mount();
+  await using _screen = await mount();
   // Shared job, then the Reviewer's change list and Spec list.
-  await act(async () => userEvent.click(buttons("Move gpt-test down")[2]!));
-  await click("Save");
+  await userEvent.click(buttons("Move gpt-test down")[2]!);
   expect(state.save).toHaveBeenCalledWith(
     expect.objectContaining({
       input: expect.objectContaining({
@@ -384,7 +407,8 @@ it("saves a Spec list edit without touching the change list", async () => {
 });
 
 it("does not warn when a first choice is unavailable", async () => {
-  await mount();
+  reset();
+  await using _screen = await mount();
   expect(text()).not.toContain("will be refused");
   expect(text()).not.toContain("will use");
 });
@@ -393,8 +417,9 @@ const councilSwitch = () =>
   container.querySelector<HTMLElement>('[aria-label="Council for Spec reviews"]')!;
 
 it("shows the council Off for a policy without it, and turning it On saves council true", async () => {
+  reset();
   separateReviewerLists();
-  await mount();
+  await using _screen = await mount();
   expect(councilSwitch().getAttribute("aria-checked")).toBe("false");
   expect(text()).not.toContain("council on");
   await act(async () => councilSwitch().click());
@@ -403,7 +428,6 @@ it("shows the council Off for a policy without it, and turning it On saves counc
   expect(text()).toMatch(/makers? can sit now/);
   expect(text()).toContain("OpenAI");
   expect(text()).toContain("Anthropic");
-  await click("Save");
   expect(state.save).toHaveBeenCalledWith(
     expect.objectContaining({
       input: expect.objectContaining({
@@ -417,19 +441,22 @@ it("shows the council Off for a policy without it, and turning it On saves counc
   );
 });
 
-it("cannot save a council whose Spec list has fewer than two makers", async () => {
+it("does not save a council whose Spec list has fewer than two makers", async () => {
+  reset();
   separateReviewerLists();
-  await mount();
+  await using _screen = await mount();
   await act(async () => councilSwitch().click());
-  await act(async () => userEvent.click(buttons("Remove claude-test").at(-1)!));
+  state.save.mockClear();
+  await userEvent.click(buttons("Remove claude-test").at(-1)!);
   expect(text()).toContain("at least two makers");
-  expect(button("Save").disabled).toBe(true);
+  expect(state.save).not.toHaveBeenCalled();
   await act(async () => councilSwitch().click());
   expect(text()).not.toContain("at least two makers");
-  expect(button("Save").disabled).toBe(false);
+  expect(state.save).toHaveBeenCalledOnce();
 });
 
 it("turning the council Off removes the key from what is saved", async () => {
+  reset();
   separateReviewerLists();
   const policy = state.data!;
   const manifest = policy.snapshot.manifest;
@@ -443,10 +470,9 @@ it("turning the council Off removes the key from what is saved", async () => {
       },
     },
   };
-  await mount();
+  await using _screen = await mount();
   expect(councilSwitch().getAttribute("aria-checked")).toBe("true");
   await act(async () => councilSwitch().click());
-  await click("Save");
   const saved = state.save.mock.calls[0]![0].input.manifest;
   expect("council" in saved.roles.reviewer).toBe(false);
 });

@@ -1,6 +1,5 @@
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { AppText as Text, AppTextInput } from "../../components/ui/AppText";
-import { Button } from "../../components/ui/Button";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import * as Dialog from "../../components/ui/Dialog";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
@@ -15,7 +14,7 @@ import {
 } from "@t3tools/client-runtime/state/project-grouping";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { useNavigation } from "@react-navigation/native";
-import { useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -282,7 +281,11 @@ function ProjectOverviewContent(props: {
   };
 
   const saveName = () => {
-    if (!canSave) return;
+    if (!canSave) {
+      // An empty or unchanged name goes back to the saved one.
+      if (!isSaving) setDraftName(null);
+      return;
+    }
     setIsSaving(true);
     void (async () => {
       const results = await Promise.all(
@@ -297,6 +300,11 @@ function ProjectOverviewContent(props: {
       if (results.every((result) => result._tag !== "Failure")) setDraftName(null);
     })();
   };
+
+  // Save on exit too: Android Back hides the keyboard without ending editing.
+  const saveNameOnLeave = useEffectEvent(saveName);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- saves an unsent project name when the screen unmounts
+  useEffect(() => () => saveNameOnLeave(), []);
 
   return (
     <>
@@ -322,25 +330,15 @@ function ProjectOverviewContent(props: {
       <SettingsSection title="Project">
         <View className="gap-3 p-4">
           <Text className="text-sm font-t3-medium text-foreground-muted">Name</Text>
-          <View className="flex-row items-center gap-3">
-            <AppTextInput
-              accessibilityLabel="Project name"
-              className="min-h-11 min-w-0 flex-1 rounded-xl border-continuous bg-card px-3 text-base text-foreground"
-              value={draftName ?? displayName}
-              onChangeText={setDraftName}
-              onSubmitEditing={saveName}
-              returnKeyType="done"
-              editable={!isSaving}
-            />
-            {canSave ? (
-              <Button
-                label="Save"
-                accessibilityHint="Save project name"
-                tone="secondary"
-                onPress={saveName}
-              />
-            ) : null}
-          </View>
+          <AppTextInput
+            accessibilityLabel="Project name"
+            className="min-h-11 min-w-0 rounded-xl border-continuous bg-card px-3 text-base text-foreground"
+            value={draftName ?? displayName}
+            onChangeText={setDraftName}
+            onEndEditing={saveName}
+            returnKeyType="done"
+            editable={!isSaving}
+          />
         </View>
       </SettingsSection>
 
