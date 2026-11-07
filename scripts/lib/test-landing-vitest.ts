@@ -35,6 +35,27 @@ function flagValues(flags: ReadonlyArray<string>, name: string) {
   );
 }
 
+/** Where this process spent its time, so the gate's log separates Vitest setup from running tests. */
+const phases = { contexts: 0, load: 0, discovery: 0, tests: 0, close: 0 };
+
+async function timed<T>(phase: Exclude<keyof typeof phases, "contexts">, work: () => Promise<T>) {
+  const started = performance.now();
+  try {
+    return await work();
+  } finally {
+    phases[phase] += performance.now() - started;
+  }
+}
+
+function phaseSummary(mode: "list" | "run", directory: string) {
+  const seconds = (milliseconds: number) => `${(milliseconds / 1000).toFixed(1)}s`;
+  return (
+    `Vitest ${mode} ${directory}: ${phases.contexts} context${phases.contexts === 1 ? "" : "s"}; ` +
+    `load ${seconds(phases.load)}, discovery ${seconds(phases.discovery)}, ` +
+    `tests ${seconds(phases.tests)}, close ${seconds(phases.close)}`
+  );
+}
+
 async function vitest(
   { root, directory: workspaceDirectory, flags }: VitestWorkspace,
   options: Record<string, unknown>,
@@ -44,18 +65,21 @@ async function vitest(
   const config = flagValues(flags, "--config")[0];
   const dir = flagValues(flags, "--dir")[0];
   const projects = flagValues(flags, "--project");
-  return createVitest(
-    "test",
-    {
-      root: directory,
-      watch: false,
-      run: true,
-      ...(config ? { config: NodePath.resolve(directory, config) } : {}),
-      ...(dir ? { dir: NodePath.resolve(directory, dir) } : {}),
-      ...(projects.length > 0 ? { project: projects } : {}),
-      ...options,
-    },
-    {},
+  phases.contexts += 1;
+  return timed("load", () =>
+    createVitest(
+      "test",
+      {
+        root: directory,
+        watch: false,
+        run: true,
+        ...(config ? { config: NodePath.resolve(directory, config) } : {}),
+        ...(dir ? { dir: NodePath.resolve(directory, dir) } : {}),
+        ...(projects.length > 0 ? { project: projects } : {}),
+        ...options,
+      },
+      {},
+    ),
   );
 }
 
@@ -69,9 +93,9 @@ async function listInProcess(request: ListRequest) {
     related ? { related: related.map((file) => NodePath.join(root, file)) } : {},
   );
   try {
-    const specifications = related
-      ? await context.getRelevantTestSpecifications()
-      : await context.globTestSpecifications();
+    const specifications = await timed("discovery", () =>
+      related ? context.getRelevantTestSpecifications() : context.globTestSpecifications(),
+    );
     // A file in two projects (web's unit and browser) is one file to run.
     return [
       ...new Set(
@@ -79,7 +103,7 @@ async function listInProcess(request: ListRequest) {
       ),
     ].toSorted();
   } finally {
-    await context.close();
+    await timed("close", () => context.close());
   }
 }
 
@@ -95,43 +119,6 @@ async function selected(context: Awaited<ReturnType<typeof vitest>>, request: Ru
     const file = repositoryPath(root, specification.moduleId);
     return (!wanted || wanted.has(file)) && !excluded.has(file);
   });
-}
-
-async function runInProcess(request: RunRequest) {
-  const { root, files, exclude = [] } = request;
-  // A workspace whose every test is quarantined has nothing left to run.
-  const passWithNoTests = request.flags.includes("--passWithNoTests") || exclude.length > 0;
-  const lister = await vitest(request, {});
-  let projects: ReadonlyArray<string>;
-  let unused: boolean;
-  try {
-    const specifications = await selected(lister, request);
-    const found = new Set(
-      specifications.map((specification) => repositoryPath(root, specification.moduleId)),
-    );
-    const missing = (files ?? []).filter((file) => !found.has(file) && !exclude.includes(file));
-    if (missing.length > 0)
-      throw new Error(`Not test files of ${request.directory}: ${missing.join(" ")}`);
-    if (specifications.length === 0) {
-      if (passWithNoTests) return 0;
-      throw new Error(`No test files found in ${request.directory}`);
-    }
-    projects = [...new Set(specifications.map((specification) => specification.project.name))];
-    unused = lister.projects.some((project) => !projects.includes(project.name));
-  } finally {
-    await lister.close();
-  }
-  // A browser project that runs no file never closes, so the run starts only the projects it uses.
-  return runProjects(
-    unused ? { ...request, flags: withProjects(request.flags, projects) } : request,
-  );
-}
-
-function withProjects(flags: ReadonlyArray<string>, projects: ReadonlyArray<string>) {
-  const others = flags.filter(
-    (flag, index) => flag !== "--project" && flags[index - 1] !== "--project",
-  );
-  return [...others, ...projects.flatMap((project) => ["--project", project])];
 }
 
 /**
@@ -150,8 +137,11 @@ function recordRejectionsOnRun(context: Awaited<ReturnType<typeof vitest>>) {
   });
 }
 
-async function runProjects(request: RunRequest) {
-  const { files, workers, reportFile } = request;
+/** One Vitest context: it finds the files, chooses their projects, runs them and closes. */
+async function runInProcess(request: RunRequest) {
+  const { root, files, exclude = [], workers, reportFile } = request;
+  // A workspace whose every test is quarantined has nothing left to run.
+  const passWithNoTests = request.flags.includes("--passWithNoTests") || exclude.length > 0;
   const context = await vitest(request, {
     fileParallelism: true,
     maxWorkers: workers,
@@ -160,17 +150,35 @@ async function runProjects(request: RunRequest) {
     ...(reportFile ? { outputFile: { json: reportFile } } : {}),
   });
   recordRejectionsOnRun(context);
+  const projects = context.projects;
   try {
-    // Starts the reporters and coverage, as `vitest run` does before its first run.
-    await context.standalone();
-    const specifications = await selected(context, request);
-    const result = await context.runTestSpecifications(specifications, !files);
+    const specifications = await timed("discovery", () => selected(context, request));
+    const found = new Set(
+      specifications.map((specification) => repositoryPath(root, specification.moduleId)),
+    );
+    const missing = (files ?? []).filter((file) => !found.has(file) && !exclude.includes(file));
+    if (missing.length > 0)
+      throw new Error(`Not test files of ${request.directory}: ${missing.join(" ")}`);
+    if (specifications.length === 0) {
+      if (passWithNoTests) return 0;
+      throw new Error(`No test files found in ${request.directory}`);
+    }
+    // A browser project that runs no file never closes, so the run starts only the projects it
+    // uses, as `--project` would have; closing still tears every project down.
+    const used = new Set(specifications.map((specification) => specification.project));
+    context.projects = projects.filter((project) => used.has(project));
+    const result = await timed("tests", async () => {
+      // Starts the reporters and coverage, as `vitest run` does before its first run.
+      await context.standalone();
+      return context.runTestSpecifications(specifications, !files);
+    });
     const failed =
       result.unhandledErrors.length > 0 ||
       result.testModules.some((module) => module.state() === "failed");
     return failed ? 1 : 0;
   } finally {
-    await context.close();
+    context.projects = projects;
+    await timed("close", () => context.close());
   }
 }
 
@@ -234,11 +242,14 @@ export async function mapConcurrently<T, R>(
 if (import.meta.main) {
   const [mode, request] = process.argv.slice(2);
   if (mode === "list") {
-    console.log(
-      `FILES ${JSON.stringify(await listInProcess(JSON.parse(request!) as ListRequest))}`,
-    );
+    const list = JSON.parse(request!) as ListRequest;
+    console.log(`FILES ${JSON.stringify(await listInProcess(list))}`);
+    console.error(phaseSummary("list", list.directory));
   } else if (mode === "run") {
-    const exit = await runInProcess(JSON.parse(request!) as RunRequest);
+    const run = JSON.parse(request!) as RunRequest;
+    const exit = await runInProcess(run).finally(() =>
+      console.error(phaseSummary("run", run.directory)),
+    );
     // Vitest reports a teardown failure in `close()` through the exit code alone; keep it.
     if (exit !== 0) process.exitCode = exit;
   } else {

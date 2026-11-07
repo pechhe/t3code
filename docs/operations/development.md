@@ -293,6 +293,9 @@ on the runner.
 `node scripts/test-landing.ts --plan` prints the selection and commands without running them, and
 `--replay` prints what the last 30 first-parent integration commits would have run and deferred,
 with each one's estimate.
+Each listing and each Vitest run prints a `Vitest list|run <workspace>` line on stderr with the
+contexts it built and its load, discovery, tests and close times, so a slow gate shows whether
+Vitest setup or the tests themselves took the time.
 
 A flaky test can be quarantined in `tests/quarantine.json` as
 `{"file": "<repository-relative test file>", "issue": 123, "reason": "..."}`. The gate leaves it

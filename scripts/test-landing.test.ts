@@ -1069,19 +1069,23 @@ describe("an empty whole suite", () => {
   });
 });
 
+/** A temporary checkout with the repository's dependencies and an empty `pkg/src`. */
+function temporaryCheckout(prefix: string) {
+  const root = NodeFS.realpathSync(NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), prefix)));
+  NodeFS.symlinkSync(
+    NodePath.join(REPOSITORY_ROOT, "node_modules"),
+    NodePath.join(root, "node_modules"),
+    "dir",
+  );
+  NodeFS.mkdirSync(NodePath.join(root, "pkg/src"), { recursive: true });
+  return root;
+}
+
 describe("the Vitest runner", () => {
   // oxlint-disable-next-line t3code/no-test-timeout-or-unreasoned-skip -- spawns real vitest runs in a temporary checkout.
   it("runs exactly the requested files, not a sibling its path prefixes, and fails with them or their teardown", () => {
-    const root = NodeFS.realpathSync(
-      NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-landing-run-")),
-    );
+    const root = temporaryCheckout("t3-landing-run-");
     try {
-      NodeFS.symlinkSync(
-        NodePath.join(REPOSITORY_ROOT, "node_modules"),
-        NodePath.join(root, "node_modules"),
-        "dir",
-      );
-      NodeFS.mkdirSync(NodePath.join(root, "pkg/src"), { recursive: true });
       const body =
         'import { expect, it } from "vite-plus/test";\nit("runs", () => expect(1).toBe(1));\n';
       for (const file of ["a.test.ts", "a.test.tsx", "b.test.ts", "flaky.test.ts"]) {
@@ -1152,18 +1156,104 @@ describe("the Vitest runner", () => {
     }
   }, 60_000);
 
+  // oxlint-disable-next-line t3code/no-test-timeout-or-unreasoned-skip -- spawns real vitest runs in a temporary checkout.
+  it("refuses a file that is not a test, and passes an empty run only when allowed", () => {
+    const root = temporaryCheckout("t3-landing-empty-");
+    try {
+      NodeFS.writeFileSync(
+        NodePath.join(root, "pkg/src/a.test.ts"),
+        'import { expect, it } from "vite-plus/test";\nit("runs", () => expect(1).toBe(1));\n',
+      );
+      NodeFS.writeFileSync(NodePath.join(root, "pkg/src/a.ts"), "export const a = 1;\n");
+      const run = (overrides: Partial<RunRequest>) => {
+        const [executable, ...args] = runCommand({
+          root,
+          directory: "pkg",
+          flags: [],
+          workers: 2,
+          ...overrides,
+        });
+        return NodeChildProcess.spawnSync(executable!, args, {
+          cwd: NodePath.join(root, "pkg"),
+          encoding: "utf8",
+        });
+      };
+      const notATest = run({ files: ["pkg/src/a.ts"] });
+      assert.strictEqual(notATest.status, 1);
+      assert.include(notATest.stderr, "Not test files of pkg: pkg/src/a.ts");
+      // Every test quarantined leaves nothing to run, which passes.
+      assert.strictEqual(
+        run({ files: ["pkg/src/a.test.ts"], exclude: ["pkg/src/a.test.ts"] }).status,
+        0,
+      );
+      NodeFS.rmSync(NodePath.join(root, "pkg/src/a.test.ts"));
+      const none = run({});
+      assert.strictEqual(none.status, 1);
+      assert.include(none.stderr, "No test files found in pkg");
+      assert.strictEqual(run({ flags: ["--passWithNoTests"] }).status, 0);
+    } finally {
+      NodeFS.rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  // oxlint-disable-next-line t3code/no-test-timeout-or-unreasoned-skip -- spawns a real vitest run in a temporary checkout.
+  it("starts only the projects whose files it runs, from one Vitest context", () => {
+    const root = temporaryCheckout("t3-landing-projects-");
+    try {
+      const body =
+        'import { expect, it } from "vite-plus/test";\nit("runs", () => expect(1).toBe(1));\n';
+      NodeFS.writeFileSync(NodePath.join(root, "pkg/src/a.test.ts"), body);
+      NodeFS.mkdirSync(NodePath.join(root, "pkg/idle"));
+      NodeFS.writeFileSync(NodePath.join(root, "pkg/idle/b.test.ts"), body);
+      // A browser project that runs no file never closes, so the idle one must never start.
+      NodeFS.writeFileSync(
+        NodePath.join(root, "pkg/running.ts"),
+        'import * as NodeFS from "node:fs";\nexport default (project) => {\n  NodeFS.writeFileSync(`${project.name}.json`, JSON.stringify(project.vitest.projects.map((p) => p.name)));\n};\n',
+      );
+      NodeFS.writeFileSync(
+        NodePath.join(root, "pkg/vitest.config.ts"),
+        [
+          'import { playwright } from "vite-plus/test/browser-playwright";',
+          "export default { test: { projects: [",
+          '  { test: { name: "used", include: ["src/**/*.test.ts"], globalSetup: ["./running.ts"] } },',
+          '  { test: { name: "idle", include: ["idle/**/*.test.ts"], globalSetup: ["./running.ts"], browser: { enabled: true, provider: playwright(), headless: true, instances: [{ browser: "chromium" }] } } },',
+          "] } };",
+          "",
+        ].join("\n"),
+      );
+      const [executable, ...args] = runCommand({
+        root,
+        directory: "pkg",
+        flags: ["--config", "vitest.config.ts"],
+        files: ["pkg/src/a.test.ts"],
+        workers: 2,
+      });
+      const result = NodeChildProcess.spawnSync(executable!, args, {
+        cwd: NodePath.join(root, "pkg"),
+        encoding: "utf8",
+        // An idle browser project that hangs the run fails here instead of at the test's timeout.
+        timeout: 45_000,
+      });
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      assert.deepStrictEqual(
+        JSON.parse(NodeFS.readFileSync(NodePath.join(root, "pkg/used.json"), "utf8")),
+        ["used"],
+      );
+      assert.isFalse(NodeFS.existsSync(NodePath.join(root, "pkg/idle.json")));
+      // The gate's log separates Vitest setup from running the tests.
+      assert.match(
+        result.stderr,
+        /Vitest run pkg: 1 context; load \d+\.\ds, discovery \d+\.\ds, tests \d+\.\ds, close \d+\.\ds/,
+      );
+    } finally {
+      NodeFS.rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   // oxlint-disable-next-line t3code/no-test-timeout-or-unreasoned-skip -- spawns a real vitest run in a temporary checkout.
   it("reports a rejection outside any test with the run's files, and still fails", () => {
-    const root = NodeFS.realpathSync(
-      NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-landing-rejection-")),
-    );
+    const root = temporaryCheckout("t3-landing-rejection-");
     try {
-      NodeFS.symlinkSync(
-        NodePath.join(REPOSITORY_ROOT, "node_modules"),
-        NodePath.join(root, "node_modules"),
-        "dir",
-      );
-      NodeFS.mkdirSync(NodePath.join(root, "pkg/src"), { recursive: true });
       NodeFS.writeFileSync(
         NodePath.join(root, "pkg/src/a.test.ts"),
         'import { expect, it } from "vite-plus/test";\nit("runs", () => expect(1).toBe(1));\n',
