@@ -65,6 +65,7 @@ import { ThreadPullRequestsSheet } from "./features/threads/ThreadPullRequestsSh
 import { ThreadAgentsSheet } from "./features/threads/ThreadAgentsSheet";
 import { ThreadBackgroundWorkSheet } from "./features/threads/ThreadBackgroundWorkSheet";
 import { ThreadForgeItemSheet } from "./features/threads/ThreadForgeItemSheet";
+import { ThreadHandoffSheet } from "./features/threads/ThreadHandoffSheet";
 import { ThreadQueueSheet } from "./features/threads/ThreadQueueControl";
 import {
   FullscreenThreadRouteScreen,
@@ -688,6 +689,10 @@ const RootStackConfig = createWorkspaceStackNavigator({
     ThreadForgeItem: createNativeStackScreen({
       screen: ThreadForgeItemSheet,
       options: sheetRoute({ detent: 0.6, header: "none" }),
+    }),
+    ThreadHandoff: createNativeStackScreen({
+      screen: ThreadHandoffSheet,
+      options: sheetRoute({ detent: 0.5, androidMaxDetent: 0.9, header: "none" }),
     }),
     GitOverview: createNativeStackScreen({
       screen: GitOverviewSheet,

@@ -95,3 +95,24 @@ it("acts at an administrator's ceiling for a client approved above it", () => {
   expect(modes(scope("auto-accept-edits"), "auto").runtimeMode).toBe("auto-accept-edits");
   expect(modes(scope("full-access")).runtimeMode).toBe("full-access");
 });
+
+it.effect("offers a thread import only to another environment's link", () => {
+  const caller = (linked: boolean): McpInvocationContext.McpInvocationScope => ({
+    environmentId: EnvironmentId.make("environment-1"),
+    requestNamespace: "client:session-1",
+    thread: undefined,
+    client: { sessionId: "session-1", label: "T3 Code · Mac", access: "full-access", linked },
+    capabilities: new Set(["orchestration"]),
+    issuedAt: 1,
+  });
+  const listed = (scope: McpInvocationContext.McpInvocationScope) =>
+    Effect.sync(McpInvocationContext.onlyForLinkedEnvironments).pipe(
+      Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+    );
+
+  return Effect.gen(function* () {
+    expect(yield* listed(caller(true))).toBe(true);
+    expect(yield* listed(caller(false))).toBe(false);
+    expect(yield* Effect.sync(McpInvocationContext.onlyForLinkedEnvironments)).toBe(false);
+  });
+});

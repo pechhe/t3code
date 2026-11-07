@@ -88,6 +88,8 @@ export type ThreadGitMenuProps = {
   readonly onOpenFilesInspector?: () => void;
   readonly onOpenGitInspector?: () => void;
   readonly onMergeBack?: () => void;
+  /** Present only when the thread can move to a linked environment. */
+  readonly onContinueOn?: () => void;
   readonly onPull: () => Promise<void>;
   readonly onRunAction: (input: GitActionRequestInput) => Promise<GitRunStackedActionResult | null>;
 };
@@ -355,6 +357,17 @@ export function useThreadGitMenuDefinition(props: ThreadGitMenuProps): AppBarMen
               icon: PullRequestGlyph.merged,
               subtitle: "Bring this thread's latest turn into its source",
               onPress: props.onMergeBack,
+            },
+          ]
+        : []),
+      ...(props.onContinueOn
+        ? [
+            {
+              id: "git-continue-on",
+              title: "Continue on…",
+              icon: "arrow.up.right",
+              subtitle: "Move this thread and its work to a linked environment",
+              onPress: props.onContinueOn,
             },
           ]
         : []),

@@ -68,6 +68,7 @@ import {
   PeerLinkRemoveResult,
   PeerLinkRequestAnswerInput,
   PeerLinkRequestError,
+  ThreadHandoffError,
   PeerLinkSummary,
 } from "./peerLink.ts";
 import {
@@ -86,7 +87,13 @@ import {
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
-import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  EnvironmentId,
+  NonNegativeInt,
+  ProjectId,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import {
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
@@ -326,6 +333,7 @@ import {
   OrchestrationV2CommandOutputError,
   OrchestrationV2GetThreadProjectionError,
   OrchestrationV2RpcSchemas,
+  OrchestrationV2ThreadHandoff,
   OrchestrationV2ThreadLaunchError,
 } from "./orchestrationV2.ts";
 import {
@@ -629,6 +637,9 @@ export const WS_METHODS = {
   agentPolicyRead: "agentPolicy.read",
   agentPolicySave: "agentPolicy.save",
   peerLinksList: "peerLinks.list",
+  threadHandoffOptions: "threadHandoff.options",
+  threadHandoffStart: "threadHandoff.start",
+  threadHandoffCancel: "threadHandoff.cancel",
   peerLinksLink: "peerLinks.link",
   peerLinksUnlink: "peerLinks.unlink",
   peerLinksAnswerRequest: "peerLinks.answerRequest",
@@ -969,6 +980,37 @@ const WsServerGetDatabaseStorageRpc = Rpc.make(WS_METHODS.serverGetDatabaseStora
   success: Schema.NullOr(DatabaseStorageStatus),
   stream: true,
   error: EnvironmentAuthorizationError,
+});
+
+const WsThreadHandoffOptionsRpc = Rpc.make(WS_METHODS.threadHandoffOptions, {
+  payload: Schema.Struct({ threadId: ThreadId }),
+  success: Schema.Struct({
+    options: Schema.Array(
+      Schema.Struct({
+        environmentId: EnvironmentId,
+        label: Schema.String,
+        projectId: Schema.NullOr(ProjectId),
+        reason: Schema.NullOr(Schema.String),
+      }),
+    ),
+  }),
+  error: Schema.Union([ThreadHandoffError, EnvironmentAuthorizationError]),
+});
+
+const WsThreadHandoffStartRpc = Rpc.make(WS_METHODS.threadHandoffStart, {
+  payload: Schema.Struct({
+    threadId: ThreadId,
+    environmentId: EnvironmentId,
+    projectId: Schema.optional(ProjectId),
+  }),
+  success: OrchestrationV2ThreadHandoff,
+  error: Schema.Union([ThreadHandoffError, EnvironmentAuthorizationError]),
+});
+
+const WsThreadHandoffCancelRpc = Rpc.make(WS_METHODS.threadHandoffCancel, {
+  payload: Schema.Struct({ threadId: ThreadId }),
+  success: Schema.Struct({}),
+  error: Schema.Union([ThreadHandoffError, EnvironmentAuthorizationError]),
 });
 
 const WsPeerLinksListRpc = Rpc.make(WS_METHODS.peerLinksList, {
@@ -2701,6 +2743,9 @@ export const WsPeersRpcGroup = RpcGroup.make(
   WsPeersListRpc,
   WsPeersUpdateRpc,
   WsPeerLinksListRpc,
+  WsThreadHandoffOptionsRpc,
+  WsThreadHandoffStartRpc,
+  WsThreadHandoffCancelRpc,
   WsPeerLinksLinkRpc,
   WsPeerLinksUnlinkRpc,
   WsPeerLinksAnswerRequestRpc,

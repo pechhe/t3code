@@ -1,4 +1,5 @@
-import { isSideChatThread } from "@t3tools/contracts";
+import { isDelegatedTaskThread, isSideChatThread } from "@t3tools/contracts";
+import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
@@ -40,6 +41,8 @@ import { useSelectedWorkspace } from "../hooks/useSelectedWorkspace";
 import { SlipJayRunnerControl } from "./SlipJayRunnerControl";
 import { ForgeHomeButton } from "./forgeItem/ForgeHomeButton";
 import { DeviceEnvironmentSwitch } from "./chat/device/DeviceEnvironmentSwitch";
+import { ThreadMoveDialog } from "./chat/ThreadMoveDialog";
+import { threadHandoffEnvironment } from "../state/threadHandoff";
 import { leverEnvironments } from "./chat/device/leverEnvironments.logic";
 import {
   SNAP_SHOT_DOCK_CLASS_NAME,
@@ -205,6 +208,10 @@ import {
   usePreviewMiniPlayerStore,
 } from "../previewMiniPlayerStore";
 import { threadPullRequestPanelTarget } from "./pullRequest/pullRequestDetail.logic";
+import {
+  threadHandoffSendBlockReason,
+  useThreadHandoffBannerItem,
+} from "./chat/ThreadHandoffBanner";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { LinkForgeItemDialogHost } from "./forgeItem/LinkForgeItemDialog";
 import { GuestPendingMessages } from "./chat/GuestShareControls";
@@ -1984,6 +1991,8 @@ export default function ChatView(props: ChatViewProps) {
     if (!isServerThread || activeThreadId === null) {
       throw new Error("Messages from apps need a started thread.");
     }
+    const handoffBlockReason = threadHandoffSendBlockReason(activeThreadShell);
+    if (handoffBlockReason !== null) throw new Error(handoffBlockReason);
     const result = await startThreadTurn({
       environmentId,
       input: {
@@ -2726,6 +2735,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadShell ?? null,
     activeProjectIsScratch,
   );
+  const threadHandoffBannerItem = useThreadHandoffBannerItem(activeThreadShell);
   const composerBannerItems = (() => {
     const fallbackSelection = draftFallback?.selection;
     const defaultSelection =
@@ -2779,6 +2789,7 @@ export default function ChatView(props: ChatViewProps) {
     const extensionStatusItems = extensionStatusBanner === null ? [] : [extensionStatusBanner];
     const projectSuggestionItems =
       projectSuggestionBanner === null ? [] : [projectSuggestionBanner];
+    const handoffItems = threadHandoffBannerItem === null ? [] : [threadHandoffBannerItem];
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
     // An approval's feedback goes to that approval; the armed session waits for the next message.
@@ -2799,6 +2810,8 @@ export default function ChatView(props: ChatViewProps) {
         ...freshSessionItems,
         ...systemComposerBannerItems,
         ...gitProjectItems,
+        // After the system notices, so a reconnect or update notice wins a priority tie.
+        ...handoffItems,
       ];
     }
     return [
@@ -2812,6 +2825,7 @@ export default function ChatView(props: ChatViewProps) {
       ...freshSessionItems,
       ...systemComposerBannerItems,
       ...gitProjectItems,
+      ...handoffItems,
       branchMismatchBannerItem({
         mismatchKey: activeBranchMismatchKey,
         mismatch: localCheckoutBranchMismatch,
@@ -3206,16 +3220,51 @@ export default function ChatView(props: ChatViewProps) {
       ? (switchEnvironments?.find((environment) => environment.environmentId === balanceTarget)
           ?.label ?? null)
       : null;
+  // A started thread's lever offers to move it to the other machine instead.
+  const canStartMove = useAtomValue(
+    threadHandoffEnvironment.start.permissionAtom(activeThreadShell?.environmentId ?? null),
+  );
+  const [moveDialogThreadKey, setMoveDialogThreadKey] = useState<string | null>(null);
+  const leverSource = switchEnvironments?.find(
+    (environment) => environment.environmentId === leverEnvironmentId,
+  );
+  const leverOther = switchEnvironments?.find(
+    (environment) => environment.environmentId !== leverEnvironmentId,
+  );
+  const movableShell =
+    switchLocked &&
+    canStartMove &&
+    activeThreadShell != null &&
+    activeEnvironment?.serverConfig?.environment.capabilities.peerLinks === true &&
+    !isDelegatedTaskThread(activeThreadShell) &&
+    (activeThreadShell.handoff == null || activeThreadShell.handoff.state === "failed")
+      ? activeThreadShell
+      : null;
   const deviceEnvironmentSwitch =
     switchEnvironments && leverEnvironmentId ? (
-      <DeviceEnvironmentSwitch
-        environments={switchEnvironments}
-        environmentId={leverEnvironmentId}
-        locked={switchLocked}
-        {...(balanceState ? { balanceState } : {})}
-        {...(balancedEnvironmentLabel ? { balancedEnvironmentLabel } : {})}
-        onChange={onEnvironmentChangeStable}
-      />
+      <>
+        <DeviceEnvironmentSwitch
+          environments={switchEnvironments}
+          environmentId={leverEnvironmentId}
+          locked={switchLocked}
+          {...(balanceState ? { balanceState } : {})}
+          {...(balancedEnvironmentLabel ? { balancedEnvironmentLabel } : {})}
+          onChange={onEnvironmentChangeStable}
+          {...(movableShell && leverOther
+            ? { onMove: () => setMoveDialogThreadKey(routeThreadKey) }
+            : {})}
+        />
+        {movableShell && leverOther && moveDialogThreadKey === routeThreadKey ? (
+          <ThreadMoveDialog
+            environmentId={movableShell.environmentId}
+            threadId={movableShell.id}
+            sourceLabel={leverSource?.label ?? movableShell.environmentId}
+            target={leverOther}
+            running={threadRuntimeIsActive(movableShell.runtime)}
+            onClose={() => setMoveDialogThreadKey(null)}
+          />
+        ) : null}
+      </>
     ) : null;
   // Read from the projection the footer renders, so the scroll below sees the new message.
   const pendingGuestMessageIds =
@@ -4000,17 +4049,18 @@ export default function ChatView(props: ChatViewProps) {
                                 sendDisabledReason={
                                   !canOperateThread
                                     ? "This connection cannot change threads."
-                                    : isEnvironmentChanging
-                                      ? "Preparing machine"
-                                      : isRevertingCheckpoint
-                                        ? "Rewinding conversation"
-                                        : feedbackUploading
-                                          ? "Sending feedback"
-                                          : threadDetailLoading
-                                            ? "Messages loading"
-                                            : worktreeSetupBlocksSend
-                                              ? "Preparing worktree"
-                                              : projectCloneSendBlockReason
+                                    : (threadHandoffSendBlockReason(activeThreadShell) ??
+                                      (isEnvironmentChanging
+                                        ? "Preparing machine"
+                                        : isRevertingCheckpoint
+                                          ? "Rewinding conversation"
+                                          : feedbackUploading
+                                            ? "Sending feedback"
+                                            : threadDetailLoading
+                                              ? "Messages loading"
+                                              : worktreeSetupBlocksSend
+                                                ? "Preparing worktree"
+                                                : projectCloneSendBlockReason))
                                 }
                                 isPreparingWorktree={isPreparingWorktree && !sendQueuesBehindSetup}
                                 queuedRunsControl={queuedRunsControl}
@@ -4141,8 +4191,7 @@ export default function ChatView(props: ChatViewProps) {
                           <div
                             data-terminal-open={terminalUiState.terminalOpen ? "true" : undefined}
                             className="relative z-0"
-                          >
-                          </div>
+                          ></div>
                         </div>
                       </ComposerSurface.Shell>
                       {isDraftHeroState && composerBannerItems.length > 0 ? (

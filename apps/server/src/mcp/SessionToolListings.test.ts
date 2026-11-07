@@ -56,6 +56,9 @@ import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "./ThreadMetadataMcpService.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
+import * as HandoffImport from "../peer/handoff/HandoffImport.ts";
+import * as ThreadHandoff from "../peer/handoff/ThreadHandoff.ts";
+import * as ThreadImportService from "../orchestration-v2/ThreadImportService.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import * as McpToolAccessTestkit from "./McpToolAccess.testkit.ts";
 import * as BrowserLogins from "../secrets/BrowserLogins.ts";
@@ -90,6 +93,9 @@ const serviceMocks = Layer.mergeAll(
   Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({}),
   Layer.mock(TerminalManager.TerminalManager)({}),
   Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+  Layer.mock(HandoffImport.HandoffImport)({}),
+  Layer.mock(ThreadHandoff.ThreadHandoff)({}),
+  Layer.mock(ThreadImportService.ThreadImportService)({}),
   Layer.mock(WeaveAgentConnections.WeaveAgentConnections)({}),
   Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/tmp/projects" }),
   Layer.mock(ProviderAdapterRegistryV2.ProviderAdapterRegistryV2)({}),

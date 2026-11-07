@@ -10,6 +10,7 @@ import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
 import * as PeerLinkRequests from "./peer/PeerLinkRequests.ts";
 import * as PeerLinks from "./peer/PeerLinks.ts";
+import * as ThreadHandoff from "./peer/handoff/ThreadHandoff.ts";
 
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -3610,6 +3611,7 @@ const layerWsPeersRpc = ServerWsPeersRpcGroup.toLayer(
     const peers = yield* PeerEnvironments.PeerEnvironments;
     const peerLinks = yield* PeerLinks.PeerLinks;
     const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
+    const threadHandoff = yield* ThreadHandoff.ThreadHandoff;
     return ServerWsPeersRpcGroup.of({
       [WS_METHODS.peerLinksList]: (_input) =>
         peerLinks.list.pipe(Effect.map((links) => ({ links }))),
@@ -3619,6 +3621,20 @@ const layerWsPeersRpc = ServerWsPeersRpcGroup.toLayer(
       [WS_METHODS.peerLinksAnswerRequest]: (input) =>
         Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
           Effect.andThen(peerLinkRequests.answer(input)),
+        ),
+      [WS_METHODS.threadHandoffOptions]: ({ threadId }) =>
+        Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": threadId }).pipe(
+          Effect.andThen(threadHandoff.options(threadId)),
+          Effect.map((options) => ({ options })),
+        ),
+      [WS_METHODS.threadHandoffStart]: (input) =>
+        Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
+          Effect.andThen(threadHandoff.start(input)),
+        ),
+      [WS_METHODS.threadHandoffCancel]: ({ threadId }) =>
+        Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": threadId }).pipe(
+          Effect.andThen(threadHandoff.cancel(threadId)),
+          Effect.as({}),
         ),
 
       [WS_METHODS.peersList]: (input) => (input.probe === false ? peers.stored : peers.list),
@@ -3795,6 +3811,7 @@ export const layer = Layer.unwrap(
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
     const peerLinks = yield* PeerLinks.PeerLinks;
     const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
+    const threadHandoff = yield* ThreadHandoff.ThreadHandoff;
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -3899,6 +3916,7 @@ export const layer = Layer.unwrap(
               ),
               Layer.provide(Layer.succeed(PeerLinks.PeerLinks, peerLinks)),
               Layer.provide(Layer.succeed(PeerLinkRequests.PeerLinkRequests, peerLinkRequests)),
+              Layer.provide(Layer.succeed(ThreadHandoff.ThreadHandoff, threadHandoff)),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(

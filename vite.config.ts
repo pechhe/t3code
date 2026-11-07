@@ -657,6 +657,7 @@ export default defineConfig({
           "apps/mobile/src/features/threads/ThreadQueueControl.tsx",
           "apps/mobile/src/features/threads/ThreadAgentsSheet.tsx",
           "apps/mobile/src/features/threads/ThreadForgeItemSheet.tsx",
+          "apps/mobile/src/features/threads/ThreadHandoffSheet.tsx",
           "apps/mobile/src/features/review/ReviewCommentCard.tsx",
           "apps/mobile/src/features/threads/thread-list-v2-items.tsx",
           "apps/mobile/src/components/ui/SecretTextInput.android.tsx",

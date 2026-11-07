@@ -224,6 +224,13 @@ export const listsDeviceTools = (): boolean => {
   return scope?.managedBrowser !== true || scope.capabilities.has("device");
 };
 
+/** `McpSchema.EnabledWhen` for tools only another environment's link calls, such as a thread import. */
+export const onlyForLinkedEnvironments = (): boolean => {
+  const fiber = Fiber.getCurrent();
+  const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
+  return scope?.client?.linked === true;
+};
+
 /** `McpSchema.EnabledWhen` for tools that only serve links, hidden while the beta is off. */
 export const hiddenWhileLinksOff = (): boolean => {
   const fiber = Fiber.getCurrent();

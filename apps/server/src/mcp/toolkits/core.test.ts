@@ -70,8 +70,10 @@ import * as AttachmentHandlers from "./attachment/handlers.ts";
 import * as PeerForwarding from "../../peer/PeerForwarding.ts";
 import * as PeerLinkRequests from "../../peer/PeerLinkRequests.ts";
 import * as PeerLinks from "../../peer/PeerLinks.ts";
+import * as ThreadHandoff from "../../peer/handoff/ThreadHandoff.ts";
 
 const layerOrchestratorToolkit = McpHttpServer.layerOrchestratorToolkit.pipe(
+  Layer.provide(Layer.mock(ThreadHandoff.ThreadHandoff)({})),
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
   Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),

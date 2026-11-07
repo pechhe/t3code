@@ -99,8 +99,9 @@ const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> =
   // Bounded decisions adds the same 2,061 characters to the browser catalogue.
   ["browser/preview", session("phi", "browser"), 34_900],
   // Upstream schemas with the web family, including upstream's fresh-session and
-  // worktree-base guidance, measure 86,558 characters on this endpoint.
-  ["researcher", session("web-research", "researcher"), 86_700],
+  // worktree-base guidance, and t3_thread_handoff, so the thread can move itself,
+  // measure 87,483 characters on this endpoint.
+  ["researcher", session("web-research", "researcher"), 87_600],
   ["scout", session("source-reader", "scout"), 90_000],
   ["delegated browser", session("phi", "browser", true), 40_000],
   [
@@ -453,6 +454,12 @@ it("keeps workspace inspection off every session endpoint and its listing small"
   );
   // Measured at 5,011 characters for seven tools; external clients list them, threads never do.
   expect(chars).toBeLessThan(6_000);
+});
+
+it("keeps the peer-only thread import off every session endpoint", () => {
+  expect(toolFamily("t3_thread_import")).toBe("peer");
+  for (const endpoint of Object.values(SESSION_TOOL_ENDPOINTS))
+    expect(endpoint.families.has("peer")).toBe(false);
 });
 
 it("lists t3_background_wait on control endpoints only, which is where its Claude instruction goes", () => {

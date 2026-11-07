@@ -31,6 +31,7 @@ import * as ScheduledTaskService from "../../scheduledTasks/ScheduledTaskService
 import * as SecretRequests from "../../secrets/SecretRequests.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
+import * as ThreadHandoff from "../../peer/handoff/ThreadHandoff.ts";
 import * as McpHttpServer from "../McpHttpServer.ts";
 import * as McpInvocationContext from "../McpInvocationContext.ts";
 import * as McpToolAccessTestkit from "../McpToolAccess.testkit.ts";
@@ -128,6 +129,7 @@ const withTool = <A, E>(
   return body(cards).pipe(
     Effect.provide(
       McpHttpServer.layerOrchestratorToolkit.pipe(
+        Layer.provide(Layer.mock(ThreadHandoff.ThreadHandoff)({})),
         Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
         Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
         Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),

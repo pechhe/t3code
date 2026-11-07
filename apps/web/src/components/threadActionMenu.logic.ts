@@ -29,6 +29,8 @@ export type ThreadActionMenuId =
   | "copy-thread"
   | "copy-thread-id"
   | "export-transcript"
+  | "continue-on"
+  | `continue-on:${string}`
   | "archive"
   | "delete";
 
@@ -100,6 +102,16 @@ export interface ThreadActionMenuState {
   readonly canShareWithGuest?: boolean;
   /** A No project thread with its own folder, on a server that can promote it. */
   readonly canTurnIntoProject?: boolean;
+  /**
+   * Linked environments the thread can move to, read when the menu opens.
+   * Absent hides "Continue on…"; empty shows it disabled, saying none answered.
+   * `reason` disables one target with a hint.
+   */
+  readonly handoffTargets?: ReadonlyArray<{
+    readonly environmentId: string;
+    readonly label: string;
+    readonly reason: string | null;
+  }>;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -173,6 +185,30 @@ export function buildThreadActionMenuItems(
               },
         ]
       : []),
+    ...(state.handoffTargets === undefined
+      ? []
+      : state.handoffTargets.length === 0
+        ? [
+            {
+              id: "continue-on" as const,
+              label: "Continue on… (no linked environment answered)",
+              icon: "folder-tree",
+              disabled: true,
+            },
+          ]
+        : [
+            {
+              id: "continue-on" as const,
+              label: "Continue on…",
+              icon: "folder-tree",
+              disabled: state.isRunning,
+              children: state.handoffTargets.map((target) => ({
+                id: `continue-on:${target.environmentId}` as const,
+                label: target.reason === null ? target.label : `${target.label} (${target.reason})`,
+                disabled: target.reason !== null,
+              })),
+            },
+          ]),
     { id: "rename", label: "Rename thread", icon: "pencil", separatorBefore: true },
     ...(state.supports.titleRegeneration
       ? [

@@ -13,6 +13,8 @@ import {
   OrchestratorMcpEnvironmentLinksResult,
   OrchestratorMcpEnvironmentUnlinkInput,
   OrchestratorMcpEnvironmentUnlinkResult,
+  OrchestratorMcpThreadHandoffInput,
+  OrchestratorMcpThreadHandoffResult,
   OrchestratorMcpCreateThreadsInput,
   OrchestratorMcpCreateThreadsResult,
   OrchestratorMcpDelegateTaskWireInput,
@@ -56,6 +58,7 @@ import * as ThreadManagementService from "../../../orchestration-v2/ThreadManage
 import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
 import * as PeerLinkRequests from "../../../peer/PeerLinkRequests.ts";
 import * as PeerLinks from "../../../peer/PeerLinks.ts";
+import * as ThreadHandoff from "../../../peer/handoff/ThreadHandoff.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
@@ -398,6 +401,20 @@ const ThreadInterruptTool = Tool.make("t3_thread_interrupt", {
   .annotate(Tool.Title, "Interrupt a T3 thread")
   .annotate(Tool.Destructive, true);
 
+const ThreadHandoffTool = Tool.make("t3_thread_handoff", {
+  description:
+    "Move a thread to a linked environment (t3_environment_links), such as the user's VPS, with its conversation and its git work: unpushed commits, uncommitted edits and new files. It continues there in a new worktree of the project with the same repository, and the copy here becomes read-only. Omit threadId to move the calling thread: the move then happens as soon as this turn ends, and continuationPrompt becomes its first message there, so end the turn after saying what you will do there. A message to the thread before then cancels the move. Another thread must be idle to move.",
+  parameters: OrchestratorMcpThreadHandoffInput,
+  success: OrchestratorMcpThreadHandoffResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies: [...dependencies, ThreadHandoff.ThreadHandoff],
+})
+  .annotate(Tool.Title, "Move a thread to a linked environment")
+  .annotate(Tool.Destructive, true)
+  .annotate(Tool.OpenWorld, true)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWhileLinksOff);
+
 const EnvironmentLinksTool = Tool.make("t3_environment_links", {
   description:
     "List linked environments (the user's other machines) and whether each answers now. Pass one's `environmentId` to a tool to act there; `delegate_task` takes `target.environmentId`. Expired: link it again with `t3_environment_link`.",
@@ -467,4 +484,5 @@ export const OrchestratorToolkit = Toolkit.make(
   EnvironmentLinksTool,
   EnvironmentLinkTool,
   EnvironmentUnlinkTool,
+  ThreadHandoffTool,
 );

@@ -62,6 +62,7 @@ import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ForgeHome from "../weave/ForgeHome.ts";
 import * as ThreadProjectMoveService from "./ThreadProjectMoveService.ts";
+import * as ThreadImportService from "./ThreadImportService.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
@@ -297,6 +298,9 @@ const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
     ),
   ),
 );
+const layerThreadImportProvided = ThreadImportService.layer.pipe(
+  Layer.provide(Layer.merge(layerEventSink, layerThreadManagementProvided)),
+);
 const layerWorkspaceAttachmentsProvided = WorkspaceAttachments.layer.pipe(
   Layer.provide(
     Layer.mergeAll(layerProjectService, WorkspaceProvider.layer, layerThreadManagementProvided),
@@ -433,6 +437,7 @@ export const layerProduction = Layer.mergeAll(
   layerManagedProjectFoldersProvided,
   layerThreadLaunchProvided,
   layerWorkspaceAttachmentsProvided,
+  layerThreadImportProvided,
   layerScheduledTaskProvided,
   layerChampionsProvided,
   layerThreadProjectMoveProvided,

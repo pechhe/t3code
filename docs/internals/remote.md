@@ -152,6 +152,32 @@ internal command reuses the parent half of a local finalize, so the parent
 wakes the same way. Open remote tasks are followed again at startup, which is
 also what keeps restart recovery from treating them as abandoned provider work.
 
+**A thread moves with exactly one live copy.** [`ThreadHandoff`](../../apps/server/src/peer/handoff/ThreadHandoff.ts)
+marks the thread `departing`, which the orchestrator refuses new turns for,
+packs its git work with [`HandoffGit`](../../apps/server/src/peer/handoff/HandoffGit.ts),
+uploads the bundle through the other side's signed attachment route, and calls
+its `t3_thread_import`. Only then is the thread `departed` here. A failure
+before the import call is sent marks it `failed`, which takes turns again.
+After it is sent, a failure is not proof that nothing arrived: the import may
+still be running there. The import id derives from the handoff, so the thread
+reads that id there: found means `departed`; not found releases the thread
+only when the other side itself refused the call (`isPeerRefusal`). Otherwise
+it stays `departing` with `lastError`, and the sweep rechecks it at least 30
+seconds later, sending the same import again while it is still not there. The
+import is idempotent there, workspace included: imports of one handoff run one
+at a time, and an existing thread skips the bundle. A failure before sending
+releases the thread only when this process began the move and has not sent it. Unlinking that environment is the way out while it never answers. A
+restart's sweep resumes a cut-short move with the same id. An agent's move of its
+own thread waits as `pending` until its run ends, and any message to the
+thread in between cancels it.
+
+A move needs a full-access link (below that, the moved thread would be fenced
+there), and refuses a delegated task's thread or one with background work or
+watches, which would wake the copy left behind. In a SlipJay project the
+work lands in a fresh SlipJay workspace as a new jj change on the moved tip,
+not a git worktree, and the first message tells the agent to re-claim its
+workflow and work item from the new thread.
+
 The link is routing, not isolation: an agent the link starts runs as the
 receiving environment's user. **A full-access link is therefore not fenced**:
 its agents can already do anything that user can, so the fence would only stop

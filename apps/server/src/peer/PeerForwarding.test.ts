@@ -47,6 +47,9 @@ import { liveThreadShell } from "../mcp/McpToolAccess.testkit.ts";
 import * as PeerForwarding from "./PeerForwarding.ts";
 import * as PeerLinks from "./PeerLinks.ts";
 import * as PeerLinkRequests from "./PeerLinkRequests.ts";
+import * as ThreadImportService from "../orchestration-v2/ThreadImportService.ts";
+import * as ThreadHandoff from "./handoff/ThreadHandoff.ts";
+import * as HandoffImport from "./handoff/HandoffImport.ts";
 import { descriptorOf, layerLinkingEnvironment, linkTo, servePeer } from "./PeerLinks.testkit.ts";
 
 const laptop = descriptorOf("environment-laptop", "Laptop");
@@ -244,10 +247,22 @@ const serveBox = (seen: Ref.Ref<Seen>, linkSession: Ref.Ref<string>) =>
       Layer.provide(Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({})),
       Layer.provide(Layer.mock(SecretRequests.SecretRequests)({})),
       Layer.provide(ServerSettings.layerTest()),
-      Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
-      Layer.provide(Layer.mock(RemoteDelegation.RemoteDelegation)({})),
-      Layer.provide(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),
-      Layer.provide(Layer.mock(PeerLinks.PeerLinks)({})),
+      // Services the toolkits declare that these calls never reach.
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+          Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
+          Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+          Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(PeerForwarding.PeerForwarding)({}),
+          Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+          Layer.mock(PeerLinkRequests.PeerLinkRequests)({}),
+          Layer.mock(PeerLinks.PeerLinks)({}),
+          Layer.mock(ThreadImportService.ThreadImportService)({}),
+          Layer.mock(ThreadHandoff.ThreadHandoff)({}),
+          Layer.mock(HandoffImport.HandoffImport)({}),
+        ),
+      ),
     ),
   );
 
@@ -320,6 +335,8 @@ const makeLaptop = Effect.gen(function* () {
           } as never),
       }),
     ),
+    Layer.provide(ServerSettings.layerTest()),
+    // Services the toolkits declare that these calls never reach.
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ProviderRegistry.ProviderRegistry)({}),
@@ -328,9 +345,11 @@ const makeLaptop = Effect.gen(function* () {
         Layer.mock(ProjectService.ProjectService)({}),
         Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({}),
         Layer.mock(SecretRequests.SecretRequests)({}),
-        ServerSettings.layerTest(),
         Layer.mock(RemoteDelegation.RemoteDelegation)({}),
         Layer.mock(PeerLinkRequests.PeerLinkRequests)({}),
+        Layer.mock(ThreadImportService.ThreadImportService)({}),
+        Layer.mock(ThreadHandoff.ThreadHandoff)({}),
+        Layer.mock(HandoffImport.HandoffImport)({}),
       ),
     ),
     Layer.fresh,

@@ -19,6 +19,8 @@ import {
   OrchestratorMcpClientRequestId,
   OrchestratorMcpEnvironmentTarget,
   OrchestratorMcpFailure,
+  OrchestratorMcpThreadImportInput,
+  OrchestratorMcpThreadImportResult,
   SourceControlCloneRepositoryInput,
   SourceControlCloneRepositoryResult,
   SecretRef,
@@ -29,11 +31,13 @@ import * as DocumentText from "../../../provider/DocumentText.ts";
 import * as ServerConfig from "../../../config.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
+import * as ThreadImportService from "../../../orchestration-v2/ThreadImportService.ts";
+import * as HandoffImport from "../../../peer/handoff/HandoffImport.ts";
 import * as ThreadLaunchService from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as Digest from "effect/crypto/Digest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Schema from "effect/Schema";
-import { Tool, Toolkit } from "effect/ai";
+import { McpSchema, Tool, Toolkit } from "effect/ai";
 import * as ForgeWorkItems from "../../../weave/ForgeWorkItems.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
@@ -217,8 +221,27 @@ const ConnectionTool = Tool.make(WEAVE_NAMES.connectionTool, {
   ],
 }).annotate(Tool.Destructive, false);
 
+const ThreadImportTool = Tool.make("t3_thread_import", {
+  ...shared,
+  description:
+    "Create a thread here that continues a conversation from another T3 Code environment, as when a thread is handed off to this one. The messages become the thread's history and its first run gets them as context; continuationPrompt, if given, starts that run. Retrying with the same source returns the thread the first call created. It runs within the caller's modes.",
+  parameters: OrchestratorMcpThreadImportInput,
+  success: OrchestratorMcpThreadImportResult,
+  dependencies: [
+    ...shared.dependencies,
+    ThreadImportService.ThreadImportService,
+    HandoffImport.HandoffImport,
+    WorkspaceProvider.WorkspaceProvider,
+    Digest.Digest,
+  ],
+})
+  .annotate(Tool.Destructive, true)
+  .annotate(Tool.Idempotent, true)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForLinkedEnvironments);
+
 export const ProjectToolkit = Toolkit.make(
   ThreadLaunchTool,
+  ThreadImportTool,
   ProjectListTool,
   ProjectReadTool,
   ProjectCreateTool,

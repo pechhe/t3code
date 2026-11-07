@@ -21,6 +21,7 @@ export type ToolFamily =
   | "lead-experiments"
   | "work"
   | "inspection"
+  | "peer"
   | "leaf"
   | "report"
   | "web";
@@ -122,6 +123,8 @@ export const toolFamily = (name: string): ToolFamily => {
   if (name.startsWith("t3_work_")) return "work";
   // Source inspection is for external OAuth clients; no session endpoint lists it.
   if (name.startsWith("workspace_")) return "inspection";
+  // A linked environment's server calls this to hand a thread over; no agent session lists it.
+  if (name === "t3_thread_import") return "peer";
   if (name.startsWith("preview_") || name.startsWith("t3_preview_")) return "preview";
   if (name.startsWith("t3_browser_")) return "bounded-browser";
   if (name.startsWith("device_")) return "device";

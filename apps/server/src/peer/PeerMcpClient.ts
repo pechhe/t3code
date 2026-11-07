@@ -65,6 +65,19 @@ const decodeFailure = Schema.decodeUnknownOption(
   ),
 );
 
+const refusals = new WeakSet<OrchestratorMcpFailure>();
+const refusal = (failure: OrchestratorMcpFailure) => {
+  refusals.add(failure);
+  return failure;
+};
+
+/**
+ * Whether the peer answered with this failure: the call reached it and it
+ * refused, so the call is over there. Any other may have left it running there.
+ */
+export const isPeerRefusal = (error: unknown): boolean =>
+  typeof error === "object" && error !== null && refusals.has(error as OrchestratorMcpFailure);
+
 /** A peer link problem, as the agent that asked hears it. */
 const fromLinkError = (error: PeerLinkError) =>
   new OrchestratorMcpFailure({
@@ -213,7 +226,9 @@ const make = Effect.gen(function* () {
       );
       if (body.error !== undefined) {
         return Result.fail(
-          new OrchestratorMcpFailure({ code: "invalid_request", message: body.error.message }),
+          refusal(
+            new OrchestratorMcpFailure({ code: "invalid_request", message: body.error.message }),
+          ),
         );
       }
       if (body.result === undefined) {
@@ -227,15 +242,17 @@ const make = Effect.gen(function* () {
         // A refusal keeps the peer's own code, so the agent sees why it was refused.
         const refused = decodeFailure(text);
         return Result.fail(
-          refused._tag === "Some"
-            ? new OrchestratorMcpFailure({
-                code: refused.value.code,
-                message: refused.value.message,
-              })
-            : new OrchestratorMcpFailure({
-                code: "orchestration_error",
-                message: text || "The linked environment refused the call.",
-              }),
+          refusal(
+            refused._tag === "Some"
+              ? new OrchestratorMcpFailure({
+                  code: refused.value.code,
+                  message: refused.value.message,
+                })
+              : new OrchestratorMcpFailure({
+                  code: "orchestration_error",
+                  message: text || "The linked environment refused the call.",
+                }),
+          ),
         );
       }
       const success = Schema.fromJsonString(input.success);

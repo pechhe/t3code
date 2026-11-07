@@ -574,6 +574,28 @@ it.effect("requires access management to answer a link request", () =>
   ),
 );
 
+it.effect("requires operate access to move a thread or keep it here", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const registry = yield* setup;
+      registry.set(sessions(env), AsyncResult.success(grant(false)));
+      for (const tag of [WS_METHODS.threadHandoffStart, WS_METHODS.threadHandoffCancel]) {
+        const command = createCommandPermissions(runtime, tag);
+        expect(registry.get(command.permissionAtom(env))).toBe(false);
+        expect((yield* command.authorize(registry, env).pipe(Effect.flip)).requiredPermission).toBe(
+          AuthOrchestrationOperateScope,
+        );
+      }
+      registry.set(sessions(env), AsyncResult.success(grant(true)));
+      for (const tag of [WS_METHODS.threadHandoffStart, WS_METHODS.threadHandoffCancel]) {
+        const command = createCommandPermissions(runtime, tag);
+        expect(registry.get(command.permissionAtom(env))).toBe(true);
+        yield* command.authorize(registry, env);
+      }
+    }),
+  ),
+);
+
 it.effect("honors exact empty permissions and preserves legacy parent grants", () =>
   Effect.scoped(
     Effect.gen(function* () {
