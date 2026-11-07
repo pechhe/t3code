@@ -26,7 +26,7 @@ it only if it fails. **Hide all** hides every call and shows **Thinking** while 
 **Zen** also hides the agent's in-between messages, so each turn shows your message
 and the agent's last reply, which appears when the turn ends. If you steer while the agent is
 answering, the answer it finished before reading your steer stays too; **Hide successful** also
-keeps that answer outside the collapsed turn. When a finished task wakes the agent, Zen shows the
-wake and keeps the earlier reply in view. On web and desktop, Find
+keeps that answer outside the collapsed turn. While the agent answers a finished task that woke
+it, Zen shows the wake and keeps the earlier reply in view. On web and desktop, Find
 shows the in-between messages while it is open. Approvals, questions, and errors always show. The
 setting applies to this browser or device only.
