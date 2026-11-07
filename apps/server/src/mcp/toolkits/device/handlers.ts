@@ -216,7 +216,7 @@ const handlers = {
       };
     }).pipe(Effect.mapError(toolError)),
   ),
-  device_open: McpToolAccess.actsAsCaller((input) =>
+  device_open: McpToolAccess.actsAsDeviceCaller((input) =>
     Effect.gen(function* () {
       const scope = yield* requireDeviceAccess;
       const devices = yield* DeviceService.DeviceService;
@@ -330,7 +330,7 @@ const handlers = {
       };
     }).pipe(Effect.mapError(toolError)),
   ),
-  device_close: McpToolAccess.actsAsCaller((input) =>
+  device_close: McpToolAccess.actsAsDeviceCaller((input) =>
     Effect.gen(function* () {
       const scope = yield* requireDeviceAccess;
       const devices = yield* DeviceService.DeviceService;

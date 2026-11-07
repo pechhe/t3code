@@ -277,7 +277,9 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
                 delegated: request.delegated,
               });
       const listsPreview = managedBrowser || families?.has("preview") === true;
-      const listsDevice = !managedBrowser && families?.has("device") === true;
+      const grantsDevice = request.capabilities?.has("device") === true;
+      // A managed browser task drives simulators as well as pages when agent device access is on.
+      const listsDevice = managedBrowser ? grantsDevice : families?.has("device") === true;
       const listsHtml = !managedBrowser && families?.has("leaf") === true;
       const listsBackgroundWait =
         !managedBrowser &&
@@ -297,14 +299,17 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         },
         client: undefined,
         capabilities: new Set<McpInvocationContext.McpCapability>(
-          managedBrowser || boundedOnly
-            ? ["preview"]
-            : [
-                "orchestration",
-                "worktree",
-                "pull-requests",
-                ...(request.capabilities ?? (browserToolsAvailable ? (["preview"] as const) : [])),
-              ],
+          managedBrowser
+            ? ["preview", ...(grantsDevice ? (["device"] as const) : [])]
+            : boundedOnly
+              ? ["preview"]
+              : [
+                  "orchestration",
+                  "worktree",
+                  "pull-requests",
+                  ...(request.capabilities ??
+                    (browserToolsAvailable ? (["preview"] as const) : [])),
+                ],
         ),
         issuedAt,
         ...(request.toolProfile === undefined ? {} : { toolProfile: request.toolProfile }),

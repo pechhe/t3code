@@ -27,6 +27,9 @@ import {
   ManagedBrowserToolkit,
 } from "./toolkits/managedBrowser/tools.ts";
 import * as BrowserLogins from "../secrets/BrowserLogins.ts";
+import * as DeviceService from "../device/DeviceService.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import { DeviceStandardToolkit } from "./toolkits/device/tools.ts";
 
 const environmentId = EnvironmentId.make("environment-managed-browser");
 const scopeFor = (managedBrowser: boolean): McpInvocationContext.McpThreadInvocationScope => ({
@@ -46,6 +49,7 @@ const tokens = {
   managed: "managedTokenWithoutDots",
   general: "generalTokenWithoutDots",
   bounded: "boundedTokenWithoutDots",
+  device: "deviceTokenWithoutDots",
 };
 const registry = Layer.mock(McpSessionRegistry.McpSessionRegistry)({
   resolve: (presented) =>
@@ -56,7 +60,9 @@ const registry = Layer.mock(McpSessionRegistry.McpSessionRegistry)({
           ? scopeFor(false)
           : presented === tokens.bounded
             ? { ...scopeFor(true), boundedBrowser: true as const }
-            : undefined,
+            : presented === tokens.device
+              ? { ...scopeFor(true), capabilities: new Set(["preview", "device"] as const) }
+              : undefined,
     ),
 });
 const services = Layer.mergeAll(
@@ -139,6 +145,8 @@ it("lists exactly the managed browser tools the adapters pre-approve", () => {
     ...Object.keys(ManagedBrowserToolkit.tools),
     ...Object.keys(ManagedBrowserTaskToolkit.tools),
     ...Object.keys(ManagedBrowserSnapshotToolkit.tools),
+    ...Object.keys(DeviceStandardToolkit.tools),
+    "device_screenshot",
   ];
   expect([...toolkit].sort()).toEqual([...MANAGED_BROWSER_TOOL_NAMES].sort());
   // Nothing that runs page code, shells out, or reaches T3 state is among them.
@@ -161,6 +169,8 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
           Layer.provide(Layer.mock(DecisionService.DecisionService)({})),
           Layer.provide(Layer.mock(BrowserTaskService.BrowserTaskService)({})),
           Layer.provide(Layer.mock(BrowserLogins.BrowserLogins)({})),
+          Layer.provide(Layer.mock(DeviceService.DeviceService)({})),
+          Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
         ),
         McpHttpServer.layerMcpTransport(McpHttpServer.layerPreviewToolkit),
       ).pipe(Layer.provide(registry), Layer.provide(services));
@@ -168,9 +178,19 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
         Layer.build,
       );
 
+      const deviceTools = MANAGED_BROWSER_TOOL_NAMES.filter((name) => name.startsWith("device_"));
+      const withoutDevices = MANAGED_BROWSER_TOOL_NAMES.filter(
+        (name) => !name.startsWith("device_"),
+      );
+      const withDevices = yield* listTools("/mcp/browser", tokens.device);
+      expect(withDevices.status).toBe(200);
+      expect([...withDevices.names].sort()).toEqual([...MANAGED_BROWSER_TOOL_NAMES].sort());
+
+      // Without agent device access the device tools are not listed at all.
       const mine = yield* listTools("/mcp/browser", tokens.managed);
       expect(mine.status).toBe(200);
-      expect([...mine.names].sort()).toEqual([...MANAGED_BROWSER_TOOL_NAMES].sort());
+      expect([...mine.names].sort()).toEqual([...withoutDevices].sort());
+      expect(deviceTools).toHaveLength(4);
 
       const general = yield* listTools("/mcp", tokens.general);
       expect(general.status).toBe(200);
@@ -181,10 +201,10 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
       expect((yield* listTools("/mcp", tokens.managed)).status).toBe(401);
       expect((yield* listTools("/mcp/browser", "unknownTokenWithoutDots")).status).toBe(401);
 
-      // A UI worker granted bounded tasks lists them beside its own browser, and nothing else.
+      // A browser task granted bounded tasks lists them beside its own browser, and nothing else.
       const bounded = yield* listTools("/mcp/browser", tokens.bounded);
       expect([...bounded.names].sort()).toEqual(
-        [...MANAGED_BROWSER_TOOL_NAMES, ...BOUNDED_BROWSER_TOOL_NAMES].sort(),
+        [...withoutDevices, ...BOUNDED_BROWSER_TOOL_NAMES].sort(),
       );
       expect(mine.names.some((name) => name.startsWith("t3_browser_"))).toBe(false);
 

@@ -213,6 +213,17 @@ export const hiddenFromSubagents = (): boolean => {
   return scope?.thread?.subagent !== true;
 };
 
+/**
+ * `McpSchema.EnabledWhen` for the device tools. A managed browser task lists them only with the
+ * device grant; elsewhere they stay listed so a refused call can tell the user where to turn
+ * access on.
+ */
+export const listsDeviceTools = (): boolean => {
+  const fiber = Fiber.getCurrent();
+  const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
+  return scope?.managedBrowser !== true || scope.capabilities.has("device");
+};
+
 /** `McpSchema.EnabledWhen` for tools that only serve links, hidden while the beta is off. */
 export const hiddenWhileLinksOff = (): boolean => {
   const fiber = Fiber.getCurrent();

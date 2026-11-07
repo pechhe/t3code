@@ -637,7 +637,7 @@ export const layerWithOptions = (
                     resolved.capabilities.has("preview") ===
                       (managedBrowser || boundedOnly || browserToolsAvailable) &&
                     resolved.capabilities.has("device") ===
-                      (!managedBrowser && !boundedOnly && deviceToolsAvailable) &&
+                      (!boundedOnly && deviceToolsAvailable) &&
                     resolved.webResearchTools === webResearchTools &&
                     (resolved.boundedBrowser === true) === boundedBrowser &&
                     resolved.toolProfile === toolProfile &&

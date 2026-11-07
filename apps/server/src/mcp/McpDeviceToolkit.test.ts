@@ -19,6 +19,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpToolAccessTestkit from "./McpToolAccess.testkit.ts";
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 
 const environmentId = EnvironmentId.make("environment-device-test");
 const threadId = ThreadId.make("thread-device-test");
@@ -285,6 +286,60 @@ it.effect("rejects unavailable agent access before booting or opening a device",
     ),
   );
 });
+
+it.effect.each([
+  { role: "browser", toolProfile: "phi", admitted: true },
+  { role: "implementation-worker", toolProfile: "implementation", admitted: false },
+] as const)(
+  "opens and closes a device for a managed $role task only when it drives its own browser",
+  ({ role, toolProfile, admitted }) =>
+    Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      const call = (name: string, args: Record<string, unknown>) =>
+        server
+          .callTool({ name, arguments: args })
+          .pipe(
+            Effect.provideService(
+              McpInvocationContext.McpInvocationContext,
+              invocation(["preview", "device"]),
+            ),
+            Effect.provideService(McpSchema.McpServerClient, client),
+          );
+      const opened = yield* call("device_open", { platform: "ios" });
+      const closed = yield* call("device_close", { deviceId: "UDID-1" });
+      expect(opened.isError).toBe(!admitted);
+      expect(closed.isError).toBe(!admitted);
+      if (!admitted)
+        expect(opened.content).toEqual([
+          {
+            type: "text",
+            text: "Managed workers are leaf tasks and cannot change T3 state or delegate.",
+          },
+        ]);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        McpHttpServer.layerDeviceToolkit.pipe(
+          Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+          Layer.provideMerge(
+            Layer.mock(ThreadManagement.ThreadManagementService)({
+              getThreadShell: (id) =>
+                Effect.succeed({
+                  ...McpToolAccessTestkit.liveThreadShell(id),
+                  agentTask: { role, toolProfile },
+                } as ReturnType<typeof McpToolAccessTestkit.liveThreadShell>),
+            }),
+          ),
+          Layer.provideMerge(layerDeviceServiceMock),
+          Layer.provide(layerProjectsMock),
+          Layer.provide(
+            ServerConfig.layerTest(process.cwd(), { prefix: "t3-mcp-device-toolkit-test-" }),
+          ),
+          Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        ),
+      ),
+    ),
+);
 
 describe("device targeting across hosts", () => {
   const macHost = {

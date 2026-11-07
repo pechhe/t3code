@@ -1456,8 +1456,10 @@ export const layerManagedBrowserToolkit = Layer.fresh(
       registerPreviewSnapshot(PreviewSnapshotToolkit, PreviewSnapshotTool),
       ManagedBrowserHandlers.layerSnapshot,
     ),
-    // A UI worker granted bounded tasks lists them beside its own browser, on their own tabs.
+    // A browser task granted bounded tasks lists them beside its own browser, on their own tabs.
     layerBoundedBrowserRegistration,
+    layerDeviceStandardToolkitRegistration,
+    layerDeviceScreenshotRegistration,
   ).pipe((registrations) =>
     McpServer.layerHttp({
       name: "T3 Code browser",

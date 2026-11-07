@@ -91,7 +91,7 @@ its revision and the role names, or the reason the policy is refused.
   accounts.
 - The `phi` tool profile, the `browser` role's, gives a reader its own browser
   endpoint serving only browser operations on the task's own tabs, plus the
-  device tools for simulators. It starts only once the project allows the
+  device tools for simulators when agent device access is on. It starts only once the project allows the
   selected backend (integrated by default, or Phi when the task selects it).
   Writers and reviewers check pages with bounded browser tasks (`browserTasks`
   in the role policy) instead. The retired `implementation-phi` profile and

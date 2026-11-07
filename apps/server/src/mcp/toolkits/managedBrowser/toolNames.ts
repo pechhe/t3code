@@ -20,4 +20,8 @@ export const MANAGED_BROWSER_TOOL_NAMES = [
   "t3_preview_close",
   "preview_task",
   "preview_task_cancel",
+  "device_list",
+  "device_open",
+  "device_screenshot",
+  "device_close",
 ] as const;

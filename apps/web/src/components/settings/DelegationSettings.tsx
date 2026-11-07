@@ -313,7 +313,7 @@ function PolicyEditor({
           />
         ))}
       </SettingsSection>
-      {blocked && JSON.stringify(draft) !== JSON.stringify(saved) ? (
+      {blocked && JSON.stringify(draft) !== JSON.stringify(editableManifest(saved)) ? (
         <Alert variant="info">
           <AlertDescription>
             {!isValid(draft)

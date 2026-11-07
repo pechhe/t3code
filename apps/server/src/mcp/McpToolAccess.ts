@@ -317,6 +317,25 @@ export const readsTask = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E,
 export const readsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare((params: P) => requireThreadCaller.pipe(Effect.flatMap(() => handle(params))), undefined);
 
+/**
+ * Opening or closing a simulator for the caller's own thread. A browser task may, as its device
+ * capability allows; other managed leaves stay refused. The handler checks the capability.
+ */
+export const actsAsDeviceCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
+  declare(
+    (params: P) =>
+      requireThreadCaller.pipe(
+        Effect.andThen(refuseReadOnlyClient),
+        Effect.andThen(loadCaller()),
+        Effect.tap(assertLiveCaller),
+        Effect.tap((caller) =>
+          drivesOwnBrowser(caller) ? Effect.void : refuseManagedChildWrites(caller),
+        ),
+        Effect.flatMap(() => handle(params)),
+      ),
+    undefined,
+  );
+
 export const actsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare(
     (params: P) =>

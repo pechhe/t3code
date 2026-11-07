@@ -215,6 +215,34 @@ it("saves a reordered list as soon as it changes, against the loaded revision", 
   expect(state.refresh).toHaveBeenCalledOnce();
 });
 
+const withUiVerifier = () => {
+  const manifest = state.data!.snapshot.manifest;
+  state.data = {
+    ...state.data!,
+    snapshot: {
+      ...state.data!.snapshot,
+      manifest: {
+        ...manifest,
+        roles: {
+          ...manifest.roles,
+          "ui-verifier": { ...manifest.roles.browser, brief: "roles/ui-verifier.md" },
+        },
+      },
+    },
+  };
+};
+
+it("shows no unsaved change for a policy that still sets ui-verifier while saving is blocked", async () => {
+  reset();
+  withUiVerifier();
+  addEnvironment(fixture());
+  state.unreadable.add("other-env");
+  await using _screen = await mount();
+  expect(text()).toContain("Other Box: Could not read");
+  expect(text()).not.toContain("Every selected environment needs a readable policy");
+  expect(buttons("Discard")).toHaveLength(0);
+});
+
 it("lists no UI verifier, and the next save of a policy that still sets it removes it", async () => {
   reset();
   const manifest = state.data!.snapshot.manifest;

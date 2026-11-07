@@ -110,6 +110,34 @@ it.effect("always grants pull-requests and gates browser and device access indep
   }),
 );
 
+it.effect("gives a managed browser task the device tools only when agent device access is on", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry(() => 1_000);
+    const browserTask = (threadId: string, capabilities: ReadonlyArray<"preview" | "device">) =>
+      registry.issue({
+        threadId: ThreadId.make(threadId),
+        providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+        capabilities: new Set(capabilities),
+        toolProfile: "phi",
+        agentRole: "browser",
+        delegated: true,
+        managedBrowser: true,
+      });
+    const withDevice = yield* browserTask("thread-browser-device", ["preview", "device"]);
+    const withoutDevice = yield* browserTask("thread-browser-no-device", ["preview"]);
+    const capabilitiesOf = (issued: typeof withDevice) =>
+      registry
+        .resolve(issued.config.authorizationHeader.replace(/^Bearer\s+/, ""))
+        .pipe(Effect.map((scope) => [...(scope?.capabilities ?? [])].sort()));
+
+    expect(withDevice.config.endpoint).toBe("http://127.0.0.1:43123/mcp/browser");
+    expect(yield* capabilitiesOf(withDevice)).toEqual(["device", "preview"]);
+    expect(withDevice.config.listsDevice).toBe(true);
+    expect(yield* capabilitiesOf(withoutDevice)).toEqual(["preview"]);
+    expect(withoutDevice.config.listsDevice).toBe(false);
+  }),
+);
+
 // regression: #3114 use bound host for MCP endpoint
 it.effect("builds MCP endpoints from the bound server host", () =>
   Effect.gen(function* () {
@@ -308,7 +336,8 @@ it.effect(
       const resolved = yield* registry.resolve(
         issued.config.authorizationHeader.replace(/^Bearer\s+/, ""),
       );
-      expect(resolved?.capabilities).toEqual(new Set(["preview"]));
+      // It drives simulators as its device grant allows, and never orchestrates.
+      expect(resolved?.capabilities).toEqual(new Set(["preview", "device"]));
       expect(resolved?.managedBrowser).toBe(true);
       expect(resolved?.browserBackends).toEqual({ enabled: ["phi"], default: "phi" });
     }),

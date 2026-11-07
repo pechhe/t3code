@@ -202,18 +202,19 @@ it("lists every tool the instructions its threads receive name", () => {
   expect(childNamed.has("html_render")).toBe(true);
 });
 
-it("tells a narrow browser child about preview only, and that listing is all preview", () => {
-  // A ui-worker keeps the managed-browser endpoint, whose credential serves Phi's
-  // operations and nothing else, so its child text must not name html or worktree.
-  const narrow = t3OrchestrationText(true, { preview: true, html: false });
+it("tells a managed browser task about preview and devices, and that listing is only those", () => {
+  // A managed browser task's endpoint serves Phi's operations and the device tools and nothing
+  // else, so its child text must not name html or worktree.
+  const narrow = t3OrchestrationText(true, { preview: true, hasDeviceTools: true, html: false });
   const narrowNamed = new Set(toolsNamedIn(narrow));
   expect(narrowNamed.has("preview_open")).toBe(true);
+  expect(narrowNamed.has("device_open")).toBe(true);
   expect(narrowNamed.has("html_render")).toBe(false);
   expect(narrowNamed.has("t3_worktree_handoff")).toBe(false);
 
   for (const name of MANAGED_BROWSER_TOOL_NAMES) {
     expect(toolFamily(name), `${name} has its explicit tool family`).toBe(
-      name === "t3_decide" ? "decision" : "preview",
+      name === "t3_decide" ? "decision" : name.startsWith("device_") ? "device" : "preview",
     );
   }
 });
