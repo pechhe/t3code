@@ -118,6 +118,32 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       }),
     );
 
+    it.effect("raises Node's HTTP header limit beside inherited options", () =>
+      Effect.gen(function* () {
+        const run = (baseEnv: NodeJS.ProcessEnv) =>
+          createDevRunnerEnv({
+            mode: "dev",
+            baseEnv,
+            serverOffset: 0,
+            webOffset: 0,
+            t3Home: undefined,
+            browser: undefined,
+            autoBootstrapProjectFromCwd: undefined,
+            logWebSocketEvents: undefined,
+            host: undefined,
+            port: undefined,
+            devUrl: undefined,
+          });
+
+        const inherited = yield* run({ NODE_OPTIONS: "--trace-warnings" });
+        const explicit = yield* run({ NODE_OPTIONS: "--max-http-header-size=65536" });
+
+        assert.match(inherited.NODE_OPTIONS ?? "", /--trace-warnings/);
+        assert.match(inherited.NODE_OPTIONS ?? "", /--max-http-header-size=1048576/);
+        assert.equal(explicit.NODE_OPTIONS, "--max-http-header-size=65536");
+      }),
+    );
+
     it.effect("strips inherited service-launcher context", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({

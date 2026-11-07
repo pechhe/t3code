@@ -43,6 +43,11 @@ const FETCH_BAD_PORTS = new Set([
 const DEV_PORT_PROBE_HOSTS = ["127.0.0.1", "::1"] as const;
 // Migration prunes after copying, so large sources also need an automatic-seeding limit.
 const LARGE_DEV_DATABASE_BYTES = 500 * 1024 * 1024;
+// Browsers share one `localhost` cookie jar across ports, so a developer's other
+// dev servers can push the Cookie header past Node's 16 KiB default and every
+// preview request fails with 431.
+const DEV_MAX_HTTP_HEADER_SIZE = 1024 * 1024;
+const MAX_HTTP_HEADER_SIZE_OPTION = /(?:^|\s)--max-http-header-size(?:[=\s]|$)/;
 
 /** Only loopback and wildcard binds keep the loopback proxy target reachable. */
 export function isProxiableBindHost(host: string): boolean {
@@ -325,6 +330,16 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
       devUrl?.toString() ??
       `http://${isDesktopMode ? DESKTOP_DEV_LOOPBACK_HOST : "localhost"}:${webPort}`,
   };
+
+  // A header limit the developer set themselves wins, including a smaller one.
+  if (!MAX_HTTP_HEADER_SIZE_OPTION.test(output.NODE_OPTIONS ?? "")) {
+    output.NODE_OPTIONS = [
+      output.NODE_OPTIONS?.trim(),
+      `--max-http-header-size=${DEV_MAX_HTTP_HEADER_SIZE}`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
 
   if (configuredBaseDir !== undefined) {
     output.T3CODE_HOME = resolvedBaseDir;

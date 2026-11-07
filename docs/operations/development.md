@@ -190,6 +190,11 @@ then open its printed startup pairing URL once per browser profile on that hostn
 servers on the same hostname accept the shared cookie across ports. The cookie expires after 30
 days. Reload an old tab if its URL now serves a replacement environment.
 
+That shared cookie jar grows with every local dev server on `localhost`, and all ports collect
+it. The dev runner therefore starts its processes with `NODE_OPTIONS` carrying
+`--max-http-header-size=1048576`, beside any options already set, because Node's 16 KiB default
+answers such a request with HTTP 431 and the page never loads. A value you set yourself is kept.
+
 The token and startup pairing URLs are reusable administrative secrets. Never put them in a
 commit, pull request, or public output. Every server still seeds its own auth database record at
 startup and keeps its own SQLite data, signing key, and revocation state. Desktop and non-dev
