@@ -10,8 +10,10 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as TestClock from "effect/testing/TestClock";
 import { vi } from "vite-plus/test";
 
 import * as SqlitePersistence from "./Sqlite.ts";
@@ -87,9 +89,17 @@ it.effect("keeps writes moving past a 48 MiB WAL while a reader retains its snap
       return Effect.sync(() => checkpointWorker.off("message", onMessage));
     });
     assert.isBelow(state.checkpointed, state.log);
-    assert.isFalse(state.blocked);
+    // Past the fork's 10,000-frame backstop the pinned checkpoint holds the gate, and its
+    // one-second stall release is what lets the next write through.
+    assert.isTrue(state.blocked);
 
-    yield* sql.withTransaction(sql`INSERT INTO burst_probe VALUES (3, NULL)`);
+    const write = yield* sql
+      .withTransaction(sql`INSERT INTO burst_probe VALUES (3, NULL)`)
+      .pipe(Effect.forkChild({ startImmediately: true }));
+    yield* TestClock.adjust("999 millis");
+    assert.isUndefined(write.pollUnsafe());
+    yield* TestClock.adjust("1 millis");
+    yield* Fiber.join(write);
     assert.equal(reader.prepare("SELECT COUNT(*) AS count FROM burst_probe").get()?.count, 1);
     reader.exec("COMMIT");
     assert.equal(reader.prepare("SELECT COUNT(*) AS count FROM burst_probe").get()?.count, 3);
