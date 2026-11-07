@@ -602,11 +602,11 @@
     "@t3tools/source-control-definitions": "workspace:*",
     "effect": "catalog:",
     "jszip": "3.10.1",
-    "three": "0.180.0"
+    "three": "0.187.0"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@types/three": "0.180.0",
+    "@types/three": "0.187.0",
     "vite-plus": "catalog:"
   }
 }

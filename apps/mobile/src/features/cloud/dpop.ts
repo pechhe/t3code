@@ -130,7 +130,7 @@ export const generateDpopProofKeyPair = Effect.fn("dpop.generateDpopProofKeyPair
         32, // P-256 private scalars use a fixed 32-byte encoding.
         "Could not generate DPoP key pair randomness.",
       );
-    } while (!p256.utils.isValidPrivateKey(privateKey));
+    } while (!p256.utils.isValidSecretKey(privateKey));
     const publicJwk = yield* Effect.try({
       try: () => publicJwkFromUncompressedPublicKey(p256.getPublicKey(privateKey, false)),
       catch: cloudDpopError("Generated DPoP public key is invalid."),
@@ -195,7 +195,7 @@ export const loadOrCreateProofKey = Effect.fn("dpop.loadOrCreateProofKey")(funct
         Effect.provideService(Digest.Digest, digest),
         Effect.flatMap((hash) =>
           Effect.try({
-            try: () => p256.sign(hash, privateKey, { prehash: false }).toCompactRawBytes(),
+            try: () => p256.sign(hash, privateKey, { prehash: false, format: "compact" }),
             catch: cloudDpopError("Could not sign DPoP proof."),
           }),
         ),

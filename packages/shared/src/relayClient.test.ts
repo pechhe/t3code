@@ -1,4 +1,4 @@
-import { sha256 } from "@noble/hashes/sha2";
+import { sha256 } from "@noble/hashes/sha2.js";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";

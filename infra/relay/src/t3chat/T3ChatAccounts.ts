@@ -1,6 +1,6 @@
 import { createClerkClient } from "@clerk/backend";
-import { hmac } from "@noble/hashes/hmac";
-import { sha256 } from "@noble/hashes/sha2";
+import { hmac } from "@noble/hashes/hmac.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";

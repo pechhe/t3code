@@ -3,6 +3,9 @@ import type { VcsError } from "@t3tools/contracts";
 import { CHECKPOINT_DIFF_MAX_OUTPUT_BYTES, type VcsListAuthoredPathsInput } from "./VcsDriver.ts";
 import type { VcsProcessInput, VcsProcessOutput } from "./VcsProcess.ts";
 
+// Paths are repository-relative, and log.showSignature prints verification text into the output.
+const STABLE_OUTPUT_CONFIG = ["-c", "diff.relative=false", "-c", "log.showSignature=false"];
+
 /** Filters clean imported upstream changes out of a turn's checkpoint summary. */
 export const listGitCheckpointAuthoredPaths = Effect.fn("listGitCheckpointAuthoredPaths")(
   function* (
@@ -14,6 +17,7 @@ export const listGitCheckpointAuthoredPaths = Effect.fn("listGitCheckpointAuthor
       operation,
       cwd: input.cwd,
       args: [
+        ...STABLE_OUTPUT_CONFIG,
         "log",
         "--no-walk=unsorted",
         "--format=%P %ct",
@@ -33,7 +37,7 @@ export const listGitCheckpointAuthoredPaths = Effect.fn("listGitCheckpointAuthor
       read({
         operation,
         cwd: input.cwd,
-        args: [...args, "--name-only", "-z", "--no-renames", "--no-ext-diff"],
+        args: [...STABLE_OUTPUT_CONFIG, ...args, "--name-only", "-z", "--no-renames", "--no-ext-diff"],
         maxOutputBytes: CHECKPOINT_DIFF_MAX_OUTPUT_BYTES,
         outputMode: "error",
       }).pipe(Effect.map((result) => result.stdout.split("\0")));

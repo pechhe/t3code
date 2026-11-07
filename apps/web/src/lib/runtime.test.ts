@@ -33,7 +33,7 @@ describe("web runtime relay telemetry policy", () => {
     vi.stubEnv("VITE_RELAY_OTLP_TRACES_URL", "https://telemetry.example.test/v1/traces");
     vi.stubEnv("VITE_RELAY_OTLP_TRACES_DATASET", "relay-test");
     vi.stubEnv("VITE_RELAY_OTLP_TRACES_TOKEN", "test-token");
-    vi.stubGlobal("window", { desktopBridge });
+    vi.stubGlobal("window", { desktopBridge, location: new URL("http://localhost/") });
     const fetchFn = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
     vi.stubGlobal("fetch", fetchFn);
     // Re-import after setting runtime policy: static initialization creates the exporter layer.
