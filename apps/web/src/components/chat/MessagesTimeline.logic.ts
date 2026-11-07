@@ -1022,6 +1022,18 @@ function lastResponseBoundaryIndex(timelineEntries: ReadonlyArray<TimelineEntry>
   return timelineEntries.findLastIndex(timelineEntryStartsResponse);
 }
 
+/** Zen answers each wake on its own, though folds keep a wake inside its prompt's response. */
+function timelineEntryStartsZenAnswer(entry: TimelineEntry): boolean {
+  return (
+    timelineEntryStartsResponse(entry) ||
+    (entry.kind === "work" && entry.entry.itemType === "notification")
+  );
+}
+
+function lastZenAnswerBoundaryIndex(timelineEntries: ReadonlyArray<TimelineEntry>): number {
+  return timelineEntries.findLastIndex(timelineEntryStartsZenAnswer);
+}
+
 function deriveActiveVisualResponseRunIds(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
   unsettledRunId: RunId | null;
@@ -1130,6 +1142,7 @@ function deriveTurnFolds(input: {
   unfoldedRunIds: ReadonlySet<RunId>;
   runlessWorkActive: boolean;
   completeSupersededReplyEntryIds: ReadonlySet<string>;
+  steerAnswerEntryIds: ReadonlySet<string>;
 }): ReadonlyMap<string, TurnFold> {
   const interruptedRunIds = new Set<RunId>();
   for (const entry of input.timelineEntries) {
@@ -1254,7 +1267,11 @@ function deriveTurnFolds(input: {
       ? group.entries.findIndex((entry) => entry.id === terminalEntry.id)
       : group.entries.length;
     for (const [index, entry] of group.entries.entries()) {
-      if (entry.id === terminalEntry?.id || entry.id === buriedReport?.id) {
+      if (
+        entry.id === terminalEntry?.id ||
+        entry.id === buriedReport?.id ||
+        input.steerAnswerEntryIds.has(entry.id)
+      ) {
         continue;
       }
       const isCompaction = timelineEntryIsCompaction(entry);
@@ -1519,7 +1536,7 @@ function workShownAsFinalAnswerOnly(
       pendingApprovalRequestIds?.has(item.requestId) === true) ||
     work.questionAnswer !== undefined ||
     timelineEntryIsCompaction(entry) ||
-    timelineEntryStartsResponse(entry) ||
+    timelineEntryStartsZenAnswer(entry) ||
     work.tone === "error" ||
     work.sourceActivityKind === "runtime.error" ||
     (work.itemType === "error" && work.toolLifecycleStatus !== "completed")
@@ -1547,8 +1564,22 @@ function deriveInFlightSteerAnswerIds(entries: ReadonlyArray<TimelineEntry>): Re
   return ids;
 }
 
+/**
+ * A steer is the user's own message, so modes that hide work keep its direct reply (one followed
+ * by another reply, not by tool work) out of the fold. Unfiltered entries keep a hidden tool call
+ * marking the message before it as a step.
+ */
+function foldExemptSteerAnswerIds(
+  entries: ReadonlyArray<TimelineEntry>,
+  visibility: ToolCallVisibility | undefined,
+): ReadonlySet<string> {
+  return visibility === "zen" || visibility === "hideSuccessful"
+    ? deriveInFlightSteerAnswerIds(entries)
+    : new Set();
+}
+
 export function liveAnswerPreview(entries: ReadonlyArray<TimelineEntry>): string | null {
-  const boundary = lastResponseBoundaryIndex(entries);
+  const boundary = lastZenAnswerBoundaryIndex(entries);
   for (let index = entries.length - 1; index > boundary; index -= 1) {
     const entry = entries[index]!;
     const text =
@@ -1583,7 +1614,7 @@ function timelineRowEntries(
     const answeringRunId = answering
       ? deriveUnsettledRunId(input.latestRun ?? null, input.runningRunId ?? null)
       : null;
-    const answeringFrom = answering ? lastResponseBoundaryIndex(entries) + 1 : entries.length;
+    const answeringFrom = answering ? lastZenAnswerBoundaryIndex(entries) + 1 : entries.length;
     const terminalIds = deriveTerminalAssistantMessageIds(entries);
     const steerAnswerIds = deriveInFlightSteerAnswerIds(entries);
     shown = entries.filter((entry, index) => {
@@ -1637,6 +1668,7 @@ function deriveTimelineTurnFolds(
     unfoldedRunIds: new Set([...activeVisualResponseRunIds, ...failedRunIds]),
     runlessWorkActive: input.isWorking && input.runlessWorkActive === true,
     completeSupersededReplyEntryIds: completeSupersededReplyEntryIds(timelineEntries),
+    steerAnswerEntryIds: foldExemptSteerAnswerIds(input.timelineEntries, input.toolCallVisibility),
   });
 }
 
@@ -1711,6 +1743,7 @@ export function deriveMessagesTimelineRows(input: {
     unfoldedRunIds: new Set([...activeVisualResponseRunIds, ...failedRunIds]),
     runlessWorkActive,
     completeSupersededReplyEntryIds: completeSupersededReplyIds,
+    steerAnswerEntryIds: foldExemptSteerAnswerIds(input.timelineEntries, input.toolCallVisibility),
   });
   const timelineEntryById = new Map(timelineEntries.map((entry) => [entry.id, entry]));
   const collapsedEntryIds = new Set<string>();
