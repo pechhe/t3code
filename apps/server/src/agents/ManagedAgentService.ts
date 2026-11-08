@@ -121,8 +121,9 @@ type Authority = {
   readonly projectRoot?: string;
   /**
    * The task works in another registered project's repository, where the caller holds no
-   * checkout: only pinned readers and isolated writers go there, and even that project's main
-   * checkout is checked for live writers.
+   * checkout: pinned readers, isolated writers and a Spec lead, whose item's own workspace the
+   * launch allocates in the item's own project, go there, and even that project's main checkout
+   * is checked for live writers.
    */
   readonly foreignProject?: boolean;
   /** Threads bound to workspaces, so an isolated one has one owner and one writer. */
@@ -419,10 +420,16 @@ const make = Effect.gen(function* () {
           return yield* refuse(occupied);
       }
     } else if (assignment === "lead") {
-      if (expected !== lead && !retained)
-        return yield* refuse(
-          `a task sharing the lead's workspace must use ${lead}; pin sourceRevision for read-only work elsewhere, or pass workspaceAssignment "isolated" with a separately allocated workspace`,
-        );
+      // A Spec lead runs in its Forge item's own workspace, which the launch allocates or
+      // resumes, so the path it names only has to be in the task's project.
+      const allocatesLead = authority.allocatesWorkspace === true && request.role === "lead";
+      if (expected !== lead && !retained) {
+        if (!allocatesLead)
+          return yield* refuse(
+            `a task sharing the lead's workspace must use ${lead}; pin sourceRevision for read-only work elsewhere, or pass workspaceAssignment "isolated" with a separately allocated workspace`,
+          );
+        yield* sameRepository();
+      }
     } else {
       // An isolated helper gets its own registered workspace of the lead's repository on
       // this host: never the lead's checkout, the main checkout, a subdirectory, another

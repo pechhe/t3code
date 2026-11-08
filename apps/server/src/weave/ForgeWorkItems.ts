@@ -6,6 +6,7 @@
  */
 import {
   type ForgeItemReference,
+  type ForgeItemReferenceInput,
   type ForgeWorkItemCard,
   type ForgeWorkItemCardInput,
   type ForgeWorkItemCardResult,
@@ -93,6 +94,8 @@ const BuildRead = Schema.Struct({
   kind: Schema.String,
   title: Schema.String,
   status: Schema.String,
+  /** The repository the item belongs to; an older Weave omits it. */
+  project: Schema.optionalKey(Schema.NullOr(Schema.String)),
   holds: Schema.Array(
     Schema.Struct({
       kind: Schema.String,
@@ -320,6 +323,14 @@ export class ForgeWorkItems extends Context.Service<
       reference: string,
     ) => Effect.Effect<OrchestrationV2ThreadWorkItem, ForgeWorkItemError>;
     /**
+     * The repository a Forge item belongs to, as the item's own read names it, so a task can be
+     * refused when it is sent to another project. `none` when the item names no repository, or
+     * when T3 cannot read it now: a project a caller cannot see is not one it may refuse.
+     */
+    readonly projectOf: (
+      reference: ForgeItemReferenceInput,
+    ) => Effect.Effect<Option.Option<string>>;
+    /**
      * Links the thread to the item a reference names, replacing any earlier link, or unlinks it
      * for null. The one way people, agents and scheduled tasks set the link.
      */
@@ -529,55 +540,70 @@ const make = Effect.gen(function* () {
     },
   );
 
+  /** The item a reference names, with the repository its own read names. */
+  const readReference = Effect.fn("ForgeWorkItems.readReference")(function* (reference: string) {
+    const connection = yield* readConnection;
+    if (connection === null) return yield* error("not_connected", "T3 is not connected to Weave.");
+    const parsed = parseForgeReference(reference);
+    if (parsed === null)
+      return yield* error(
+        "invalid_reference",
+        "Give a Forge URL such as https://weave.example/build/1000123, a ref such as YS-12 or YS-ARC-01, #1000123 or 1000123.",
+      );
+    if (
+      parsed.kind === "number" &&
+      parsed.origin !== null &&
+      !sameWeaveAddress(parsed.origin, connection.origin)
+    )
+      return yield* error(
+        "other_hq",
+        `That link is on ${parsed.origin}, but T3 uses ${connection.origin}.`,
+      );
+    const named = parsed.kind === "ref" ? parsed.ref : `#${parsed.number}`;
+    const read = yield* weave
+      .observe(
+        "weave_forge_read",
+        parsed.kind === "ref" ? { ref: parsed.ref } : { number: parsed.number },
+      )
+      .pipe(
+        Effect.mapError((cause) =>
+          cause.reason === "failed"
+            ? error(
+                "not_found",
+                parsed.kind === "ref"
+                  ? `Forge has no item ${named} you can see (or this Weave doesn't know friendly refs yet).`
+                  : `Forge has no item ${named} you can see.`,
+              )
+            : cause.reason === "not_connected"
+              ? error("not_connected", "T3 is not connected to Weave.")
+              : error("unavailable", "Weave could not be reached. Try again shortly."),
+        ),
+      );
+    const item = decodeForgeRead(read.value);
+    if (Option.isNone(item))
+      return yield* error("unavailable", "Weave returned an item T3 could not read.");
+    if (!isItemKind(item.value.kind))
+      return yield* error(
+        "unsupported_kind",
+        `${named} is a Forge ${item.value.kind}; link a Spec, a Ticket or an Arc.`,
+      );
+    return {
+      item: { itemId: item.value.id, number: item.value.number, origin: read.origin },
+      project: item.value.project ?? null,
+    };
+  });
+
   const resolve: ForgeWorkItems["Service"]["resolve"] = Effect.fn("ForgeWorkItems.resolve")(
     function* (reference) {
-      const connection = yield* readConnection;
-      if (connection === null)
-        return yield* error("not_connected", "T3 is not connected to Weave.");
-      const parsed = parseForgeReference(reference);
-      if (parsed === null)
-        return yield* error(
-          "invalid_reference",
-          "Give a Forge URL such as https://weave.example/build/1000123, a ref such as YS-12 or YS-ARC-01, #1000123 or 1000123.",
-        );
-      if (
-        parsed.kind === "number" &&
-        parsed.origin !== null &&
-        !sameWeaveAddress(parsed.origin, connection.origin)
-      )
-        return yield* error(
-          "other_hq",
-          `That link is on ${parsed.origin}, but T3 uses ${connection.origin}.`,
-        );
-      const named = parsed.kind === "ref" ? parsed.ref : `#${parsed.number}`;
-      const read = yield* weave
-        .observe(
-          "weave_forge_read",
-          parsed.kind === "ref" ? { ref: parsed.ref } : { number: parsed.number },
-        )
-        .pipe(
-          Effect.mapError((cause) =>
-            cause.reason === "failed"
-              ? error(
-                  "not_found",
-                  parsed.kind === "ref"
-                    ? `Forge has no item ${named} you can see (or this Weave doesn't know friendly refs yet).`
-                    : `Forge has no item ${named} you can see.`,
-                )
-              : cause.reason === "not_connected"
-                ? error("not_connected", "T3 is not connected to Weave.")
-                : error("unavailable", "Weave could not be reached. Try again shortly."),
-          ),
-        );
-      const item = decodeForgeRead(read.value);
-      if (Option.isNone(item))
-        return yield* error("unavailable", "Weave returned an item T3 could not read.");
-      if (!isItemKind(item.value.kind))
-        return yield* error(
-          "unsupported_kind",
-          `${named} is a Forge ${item.value.kind}; link a Spec, a Ticket or an Arc.`,
-        );
-      return { itemId: item.value.id, number: item.value.number, origin: read.origin };
+      const { item } = yield* readReference(reference);
+      return item;
+    },
+  );
+
+  const projectOf: ForgeWorkItems["Service"]["projectOf"] = Effect.fn("ForgeWorkItems.projectOf")(
+    function* (reference) {
+      const read = yield* readReference(String(reference)).pipe(Effect.option);
+      return Option.flatMap(read, (found) => Option.fromNullishOr(found.project));
     },
   );
 
@@ -801,6 +827,7 @@ const make = Effect.gen(function* () {
     card,
     mentions,
     resolve,
+    projectOf,
     link,
     connected: readConnection.pipe(
       Effect.map((connection) => ({

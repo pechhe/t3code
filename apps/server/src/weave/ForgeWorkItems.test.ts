@@ -8,6 +8,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
 
 import { DEFAULT_WEAVE_ORIGIN } from "@t3tools/shared/weaveOrigins";
@@ -140,6 +141,8 @@ interface FakeItem {
   /** The waits Forge derives for it, as `weave_forge_waits` returns them. */
   waits: Array<{ required: "landed" | "accepted"; blocker: FakeItem }>;
   parentId?: string;
+  /** The repository Forge says the item belongs to; an older Weave omits it. */
+  project?: string | null;
   governedBy?: Array<{ id: string; number: number; title: string; status: string }>;
   updates?: Array<{ createdAt: string }>;
 }
@@ -310,6 +313,31 @@ it.effect("links by URL, #number or number through T3's own observer agent", () 
     assert.isNull(thread.workItem);
     assert.isNull(yield* service.view(threadId));
     assertNoSecretsIn(linked);
+  }),
+);
+
+it.effect("reads the repository an item belongs to, and none when it cannot", () =>
+  Effect.gen(function* () {
+    const { weave, service, add } = yield* makeHarness;
+    const before = weave.toolCalls.length;
+    add({
+      ...item(1_000_078, "spec", "Show the Forge item", "in_progress"),
+      project: "pechhe/t3code",
+    });
+    assert.deepStrictEqual(yield* service.projectOf(1_000_078), Option.some("pechhe/t3code"));
+    // An item that names no repository, an unknown one and a reference T3 cannot read all
+    // answer none rather than guess, so a caller refuses only a project it can see is wrong.
+    add({ ...item(1_000_079, "spec", "No repository", "in_progress"), project: null });
+    assert.isTrue(Option.isNone(yield* service.projectOf(1_000_079)));
+    add({ ...item(1_000_080, "spec", "Older Weave", "in_progress") });
+    assert.isTrue(Option.isNone(yield* service.projectOf(1_000_080)));
+    assert.isTrue(Option.isNone(yield* service.projectOf(1_000_090)));
+    assert.isTrue(Option.isNone(yield* service.projectOf("YS-12.x")));
+    // Each answer is the item's own read, by number; an unreadable reference asks nothing.
+    assert.deepStrictEqual(
+      weave.toolCalls.slice(before).map((call) => call.name),
+      ["weave_forge_read", "weave_forge_read", "weave_forge_read", "weave_forge_read"],
+    );
   }),
 );
 

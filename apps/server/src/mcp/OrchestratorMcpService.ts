@@ -159,6 +159,7 @@ import {
   threadOwner,
 } from "../agents/workspaceIdentity.ts";
 import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
+import { weaveRepositoryKeyOf } from "@t3tools/shared/projectIdentity";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -3498,6 +3499,24 @@ const make = Effect.gen(function* () {
         // attachment elsewhere. Without one, the task never shares a workspace there.
         const leadCheckout = callerCheckoutIn(parent.thread, taskProjectId);
         const foreign = leadCheckout === undefined;
+        // A Spec lead runs in its Forge item's own workspace, so the item names the project its
+        // child belongs to, whichever project the caller's workspace path pointed at.
+        if (specLead && input.forgeItem !== undefined && !isRetryOfAcceptedDelegation) {
+          const itemProject = yield* forgeWorkItems.projectOf(input.forgeItem);
+          const taskProject = yield* requireProject(taskProjectId);
+          const taskRepository = weaveRepositoryKeyOf(taskProject);
+          // An unreadable item, or a project T3 knows no repository for, cannot be told apart;
+          // only a project the item itself names differently is refused.
+          if (
+            Option.isSome(itemProject) &&
+            taskRepository !== null &&
+            itemProject.value.toLowerCase() !== taskRepository.toLowerCase()
+          )
+            return yield* failure(
+              "capability_denied",
+              `Forge item ${typeof input.forgeItem === "number" ? `#${input.forgeItem}` : input.forgeItem} belongs to ${itemProject.value}, but this task would run in ${taskProject.title} (${taskRepository}): a \`lead\` task runs in its item's own project, so pass a workspacePath or agentTask.projectId there, or correct this project's Weave repository in its settings if that is what is wrong.`,
+            );
+        }
         const eligibleProviders =
           input.agentTask === undefined
             ? providers
@@ -3613,9 +3632,9 @@ const make = Effect.gen(function* () {
                         ceiling: parent.thread.runtimeMode,
                         workspacePath: leadCheckout ?? null,
                         ...workspaceAuthority,
-                        ...(specLead && taskProjectId === parent.thread.projectId
-                          ? { allocatesWorkspace: true }
-                          : {}),
+                        // A Spec lead's item worktree is allocated in the task's project, which
+                        // may be another registered one the caller holds no checkout in.
+                        ...(specLead ? { allocatesWorkspace: true } : {}),
                         callerModel: parent.thread.modelSelection.model,
                         caller: parent.thread.modelSelection,
                         ...selectionOf(input.target),
@@ -3821,9 +3840,7 @@ const make = Effect.gen(function* () {
                 ceiling: parent.thread.runtimeMode,
                 workspacePath: leadCheckout ?? null,
                 ...(yield* readWorkspaceAuthority),
-                ...(specLead && taskProjectId === parent.thread.projectId
-                  ? { allocatesWorkspace: true }
-                  : {}),
+                ...(specLead ? { allocatesWorkspace: true } : {}),
               })
               .pipe(
                 Effect.tapError((error) =>

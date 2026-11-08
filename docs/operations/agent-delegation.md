@@ -118,7 +118,14 @@ its revision and the role names, or the reason the policy is refused.
 - A `lead` task is the one delegated task that is not a leaf: an Arc lead starts
   it with the Spec as `forgeItem`, and it runs in that item's SlipJay workspace with
   exactly a top-level thread's runtime mode, tools and authority, so it can
-  delegate, watch and land. It is still a subagent: it wakes its parent when it
+  delegate, watch and land. The item's own repository decides the project the
+  child belongs to; when that is another registered project, where the caller
+  holds no checkout, the child still belongs to it and runs in the item's own
+  workspace, allocated or resumed there, so the caller's `workspacePath` only has
+  to be a checkout of that project. A `lead` whose item belongs to a different
+  project than the request resolved is refused, naming both repositories, before
+  any child exists; an item, or a project's repository, that T3 cannot read is
+  never refused on that ground. It is still a subagent: it wakes its parent when it
   finishes, shows only among its parent's subagents, and cannot start another `lead`. Like `researcher`,
   the role is optional in a policy.
 - An `isolated` task runs in its own registered workspace of the lead's
@@ -157,11 +164,11 @@ its revision and the role names, or the reason the policy is refused.
   project's, while the caller's runtime ceiling still bounds it. T3 resolves the
   project from the workspace path; `agentTask.projectId` names it when several
   projects are registered in one repository, and a call without it is refused
-  as ambiguous. Without a workspace attached there, only pinned readers and
-  isolated writers go there, since the caller holds no checkout of that
-  project; its main checkout, too, is refused while a writer of any project
-  registered in the repository runs there. An external session cannot name
-  another project.
+  as ambiguous. Without a workspace attached there, only pinned readers, isolated
+  writers and a `lead` in its item's own workspace go there, since the caller
+  holds no checkout of that project; its main checkout, too, is refused while a
+  writer of any project registered in the repository runs there. An external
+  session cannot name another project.
 - A workspace a thread attached in another project with `t3_worktree_attach`
   is the caller's checkout there while it is live: a `"lead"` writer may share
   it, a task whose `workspacePath` is the attachment belongs to its project,

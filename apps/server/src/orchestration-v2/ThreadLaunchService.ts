@@ -81,6 +81,8 @@ export type ThreadLaunchWorkspaceStrategy =
       readonly branch?: string | undefined;
       readonly startFromOrigin?: boolean | undefined;
       readonly forgeItem?: number | undefined;
+      /** The contract's older name for `forgeItem`, which `withForgeItem` reads until it goes. */
+      readonly buildItem?: number | undefined;
     };
 
 export interface ThreadLaunchInitialMessage {
@@ -267,6 +269,17 @@ function describeCause(error: unknown): string {
   }
   return messages.join(" Caused by: ");
 }
+
+/**
+ * A launch naming the item by the contract's older key (`buildItem`) reads as `forgeItem` from
+ * here on, so a saved client keeps binding the item's workspace.
+ */
+const withForgeItem = (strategy: ThreadLaunchWorkspaceStrategy): ThreadLaunchWorkspaceStrategy =>
+  strategy.type !== "worktree" ||
+  strategy.forgeItem !== undefined ||
+  strategy.buildItem === undefined
+    ? strategy
+    : { ...strategy, forgeItem: strategy.buildItem };
 
 const MAX_REPLACEMENT_DETAIL_CHARS = 1500;
 
@@ -1111,20 +1124,10 @@ const make = Effect.gen(function* () {
 
   const launch: ThreadLaunchService["Service"]["launch"] = Effect.fn("ThreadLaunchService.launch")(
     function* (request) {
-      // A launch naming the item by its older key (`forgeItem`) reads as `forgeItem` from here on,
-      // so a saved client or an agent's older instructions keep binding the item's workspace.
-      const normalised: ThreadLaunchInput =
-        request.workspaceStrategy.type === "worktree" &&
-        request.workspaceStrategy.forgeItem === undefined &&
-        request.workspaceStrategy.forgeItem !== undefined
-          ? {
-              ...request,
-              workspaceStrategy: {
-                ...request.workspaceStrategy,
-                forgeItem: request.workspaceStrategy.forgeItem,
-              },
-            }
-          : request;
+      const normalised: ThreadLaunchInput = {
+        ...request,
+        workspaceStrategy: withForgeItem(request.workspaceStrategy),
+      };
       // Scratch has no Git repository. Normalize before folder allocation so
       // durable preparation and retries use the thread's own Scratch folder.
       const input: ThreadLaunchInput =
@@ -1146,15 +1149,15 @@ const make = Effect.gen(function* () {
         ),
       );
       // Refused before any receipt, thread or workspace exists, whichever transport launched.
-      // It reads the request: the Scratch normalization above would drop the Build item silently.
+      // It reads `normalised`, not `input`: the Scratch normalization above would drop the Build item silently.
       if (
-        request.workspaceStrategy.type === "worktree" &&
-        request.workspaceStrategy.forgeItem !== undefined &&
+        normalised.workspaceStrategy.type === "worktree" &&
+        normalised.workspaceStrategy.forgeItem !== undefined &&
         (yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay"
       ) {
         return yield* new ThreadLaunchForgeItemError({
           projectId: input.projectId,
-          forgeItem: request.workspaceStrategy.forgeItem,
+          forgeItem: normalised.workspaceStrategy.forgeItem,
         });
       }
       if (input.reuseExistingThread === true && input.threadId === undefined) {

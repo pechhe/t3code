@@ -769,6 +769,63 @@ it.effect("runs a scheduled Build item task in that item's SlipJay workspace", (
   );
 });
 
+// The contract kept `buildItem` as the older name of `forgeItem`, so a saved client still sends it.
+const legacyBuildItemStrategy = { type: "worktree", baseRef: "HEAD", buildItem: 42 } as const;
+
+it.effect("reads a saved client's older buildItem as the Forge item it launches in", () => {
+  const harness = makeHarness({
+    slipjay: true,
+    allocateWorkspace: allocateInTurn("/slipjay/workspaces/legacy-item"),
+  });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch(
+      launchInput({
+        command: "command:launch:legacy-build-item",
+        thread: "thread:launch:legacy-build-item",
+        message: "Work on the item",
+        workspace: legacyBuildItemStrategy,
+      }),
+    );
+    yield* waitForThreadProjection(threads, launched.threadId, () =>
+      threads
+        .getThreadProjection(launched.threadId)
+        .pipe(Effect.map(({ thread }) => thread.worktreePath !== null)),
+    );
+    assert.deepEqual(
+      harness.allocateWorkspace.mock.calls.map(([input]) => input.issue),
+      [{ number: 42, mode: "resume" }],
+    );
+    const { thread } = yield* threads.getThreadProjection(launched.threadId);
+    assert.equal(thread.workspaceIssue, 42);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("refuses a saved client's older buildItem outside a SlipJay project", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const error = yield* launches
+      .launch(
+        launchInput({
+          command: "command:launch:legacy-build-item-plain",
+          thread: "thread:launch:legacy-build-item-plain",
+          workspace: legacyBuildItemStrategy,
+        }),
+      )
+      .pipe(Effect.flip);
+    assert.ok(error._tag === "ThreadLaunchForgeItemError");
+    // The legacy key names the item T3 refuses to place.
+    assert.equal(error.forgeItem, 42);
+    assert.isNull(
+      yield* threads.getThreadShell(ThreadId.make("thread:launch:legacy-build-item-plain")),
+    );
+    assert.isEmpty(harness.allocateWorkspace.mock.calls);
+  }).pipe(Effect.provide(harness.layer));
+});
+
 it.effect.each(["slipjay", "git", "scratch"] as const)(
   "starts an unbound scheduled run in a %s project where a new thread does, with no main branch",
   (kind) => {

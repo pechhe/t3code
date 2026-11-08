@@ -294,6 +294,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       readonly providers?: ReadonlyArray<ServerProvider>;
       /** The lead is itself a delegated task with this binding, such as a Spec lead. */
       readonly parentTask?: Partial<AgentTaskBinding>;
+      /** The repository Forge says a Forge item belongs to, when a lead names one. */
+      readonly itemProject?: string | null;
       /** Edits the saved policy, such as turning the review council on. */
       readonly policy?: (manifest: AgentPolicyManifestType) => AgentPolicyManifestType;
     } = {},
@@ -335,6 +337,16 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         ...(options.register?.includes("foreign") ? [["foreign-project", foreign] as const] : []),
         ...(options.register?.includes("twin")
           ? [["twin-project", `${foreign}/packages/app`] as const]
+          : []),
+      ]);
+      // Each project's Weave repository, so a Forge item's project can be compared with it.
+      const projectRepositories = new Map<string, string>([
+        [projectId, options.scratch ? "pechhe/scratch" : "pechhe/lead"],
+        ...(options.register?.includes("foreign")
+          ? [["foreign-project", "pechhe/foreign"] as const]
+          : []),
+        ...(options.register?.includes("twin")
+          ? [["twin-project", "pechhe/foreign"] as const]
           : []),
       ]);
       let parent = {
@@ -457,7 +469,15 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           getById: (id) =>
             Effect.succeed(
               Option.fromNullishOr(projectRoots.get(id)).pipe(
-                Option.map((workspaceRoot) => ({ id, workspaceRoot }) as never),
+                Option.map(
+                  (workspaceRoot) =>
+                    ({
+                      id,
+                      workspaceRoot,
+                      weaveRepositoryKey: projectRepositories.get(id) ?? null,
+                      repositoryIdentity: null,
+                    }) as never,
+                ),
               ),
             ),
           listShells: () =>
@@ -601,6 +621,10 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
                     ),
               }),
             );
+      const forgeWorkItems = Layer.mock(ForgeWorkItems.ForgeWorkItems)({
+        // Forge names the item's repository; most tests have no item to read.
+        projectOf: () => Effect.succeed(Option.fromNullishOr(options.itemProject)),
+      });
       const delegate = (
         input: Parameters<Mcp.OrchestratorMcpService["Service"]["delegateTask"]>[1],
       ) =>
@@ -610,7 +634,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         }).pipe(
           Effect.provide(
             Mcp.layer.pipe(
-              Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
+              Layer.provide(forgeWorkItems),
               Layer.provide(transport),
               Layer.provide(championLayer),
               Layer.provide(WorkspaceProvider.layerGitWorktree),
@@ -636,7 +660,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         }).pipe(
           Effect.provide(
             Mcp.layer.pipe(
-              Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
+              Layer.provide(forgeWorkItems),
               Layer.provide(transport),
               Layer.provide(championLayer),
               Layer.provide(WorkspaceProvider.layerGitWorktree),
@@ -1414,6 +1438,132 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       }).pipe(
         Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
       ),
+  );
+
+  it.effect(
+    "runs a Spec lead as a child in its Forge item's workspace of another registered project",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* harness(() => [], true, {
+          register: ["foreign"],
+          itemProject: "pechhe/foreign",
+        });
+        const commands = h.dispatched as Array<{
+          type: string;
+          parentThreadId: ThreadId;
+          agentTask: AgentTaskBinding;
+          workspaceStrategy?: unknown;
+        }>;
+        yield* h.delegate({
+          task: "Run YS-9",
+          clientRequestId: "foreign-spec-lead",
+          forgeItem: 9,
+          // The caller holds no checkout there, so it names a path in that project; the launch
+          // replaces it with the item's own workspace.
+          agentTask: request({
+            role: "lead",
+            taskClass: "mixed",
+            workId: "YS-9",
+            workspacePath: h.foreign,
+          }),
+        });
+        expect(commands).toHaveLength(1);
+        // Still the calling thread's child, belonging to the other project.
+        expect(commands[0]?.type).toBe("delegated_task.request");
+        expect(commands[0]?.parentThreadId).toBe(h.scope.thread?.threadId);
+        expect(commands[0]?.agentTask).toMatchObject({
+          role: "lead",
+          workspacePath: h.foreign,
+          projectId: "foreign-project",
+        });
+        expect(commands[0]?.workspaceStrategy).toEqual({
+          type: "worktree",
+          baseRef: "HEAD",
+          forgeItem: 9,
+        });
+        // The allocation claimed the item's workspace under the lock.
+        expect(h.locked).toEqual([true]);
+        // The lead exception is theirs alone: a writer of the calling project is still refused.
+        const sharing = yield* h.delegate({
+          task: "Write in the foreign checkout",
+          clientRequestId: "foreign-worker",
+          agentTask: request({ workId: "foreign-worker", workspacePath: h.foreign }),
+        });
+        expect(sharing.message).toContain("no workspace of its own in that project");
+        // A lead still names a checkout of the project it runs in, not one of another.
+        const elsewhere = yield* h.delegate({
+          task: "Run YS-10",
+          clientRequestId: "foreign-spec-lead-elsewhere",
+          forgeItem: 10,
+          agentTask: {
+            ...request({
+              role: "lead",
+              taskClass: "mixed",
+              workId: "YS-10",
+              workspacePath: h.lead,
+            }),
+            projectId: ProjectId.make("foreign-project"),
+          },
+        });
+        expect(elsewhere.message).toContain("is not a checkout of the project's repository");
+        expect(commands).toHaveLength(1);
+        // The item names its own project: another one is refused before anything is launched.
+        const mismatched = yield* harness(() => [], true, {
+          register: ["foreign"],
+          itemProject: "pechhe/elsewhere",
+        });
+        const misplaced = yield* mismatched.delegate({
+          task: "Run YS-11",
+          clientRequestId: "foreign-spec-lead-mismatch",
+          forgeItem: 11,
+          agentTask: request({
+            role: "lead",
+            taskClass: "mixed",
+            workId: "YS-11",
+            workspacePath: mismatched.foreign,
+          }),
+        });
+        expect(misplaced.message).toContain("belongs to pechhe/elsewhere");
+        expect(misplaced.message).toContain("runs in its item's own project");
+        expect(mismatched.dispatched).toHaveLength(0);
+        expect(mismatched.locked).toEqual([]);
+      }).pipe(
+        Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+      ),
+  );
+
+  it.effect("starts a same-project Spec lead in its own repository's workspace, unlocked", () =>
+    Effect.gen(function* () {
+      const h = yield* harness(undefined, true, { itemProject: "pechhe/lead" });
+      yield* h.delegate({
+        task: "Run T3-9",
+        clientRequestId: "spec-lead-own-project",
+        forgeItem: 9,
+        agentTask: request({
+          role: "lead",
+          taskClass: "mixed",
+          workId: "T3-9",
+          workspacePath: h.lead,
+        }),
+      });
+      const command = h.dispatched[0] as {
+        agentTask: AgentTaskBinding;
+        workspaceStrategy?: unknown;
+      };
+      expect(command.agentTask).toMatchObject({
+        role: "lead",
+        workspacePath: h.lead,
+      });
+      expect(command.agentTask.projectId).toBeUndefined();
+      expect(command.workspaceStrategy).toEqual({
+        type: "worktree",
+        baseRef: "HEAD",
+        forgeItem: 9,
+      });
+      expect(h.locked).toEqual([false]);
+    }).pipe(
+      Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+    ),
   );
 
   it.effect("asks which project when several are registered in the target repository", () =>
