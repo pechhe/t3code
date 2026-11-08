@@ -105,6 +105,9 @@ const makeFakeWeave = () => {
         if (bearer !== delegations.get(weaveOrigin) || state.delegationRevoked)
           return respond(request, 401, { error: "invalid_delegation" });
         const claim = parseJson(body) as Record<string, string>;
+        // Weave's claim pattern: a reference is 1 to 300 printable ASCII characters.
+        if (!/^[\x21-\x7e]{1,300}$/.test(claim.agentRef ?? ""))
+          return respond(request, 400, { error: "invalid_agent" });
         const forRef = agents.filter(
           (a) => a.origin === weaveOrigin && a.agentRef === claim.agentRef && a.role === claim.role,
         );

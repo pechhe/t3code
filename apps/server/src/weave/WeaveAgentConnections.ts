@@ -33,6 +33,8 @@ const PROJECT_STORE_FILE = /^(hq-connection-[0-9a-f]{32})\.bin$/;
 /** Weave tokens last at most 12 hours; renewing this early keeps a call from meeting an expired one. */
 const RENEW_BEFORE_EXPIRY_MS = 15 * 60 * 1_000;
 const WEAVE_REQUEST_TIMEOUT = "60 seconds";
+/** Weave's claim for an agent reference: 1 to 300 printable ASCII characters. */
+const WEAVE_AGENT_REF_MAX_LENGTH = 300;
 
 export interface WeaveAgent {
   readonly threadId: ThreadId;
@@ -504,7 +506,16 @@ const make = Effect.gen(function* () {
     if (connection !== undefined) connection.token = undefined;
   };
 
-  const agentRef = (threadId: ThreadId) => `${environmentId}/${threadId}`;
+  /**
+   * Who a thread's Weave agent is. Weave takes a reference of at most 300 printable characters, and
+   * a delegated child's id escapes each ancestor's, so a thread nested a few levels deep outgrows
+   * it; past that length the thread is named by its digest instead, which stays stable and unique.
+   */
+  const agentRef = Effect.fn("WeaveAgentConnections.agentRef")(function* (threadId: ThreadId) {
+    const readable = `${environmentId}/${threadId}`;
+    if (readable.length <= WEAVE_AGENT_REF_MAX_LENGTH) return readable;
+    return `${environmentId}/thread-${(yield* digest(threadId)).slice(0, 32)}`;
+  });
 
   // Never pass an HTTP client error on: it carries the request, and so the bearer credential.
   const postAgents = (
@@ -546,7 +557,7 @@ const make = Effect.gen(function* () {
           return cached.value;
         const { status, json } = yield* postAgents(stored, {
           action: "exchange",
-          agentRef: agentRef(threadId),
+          agentRef: yield* agentRef(threadId),
           role: agent.role,
           model: agent.model,
           harness: "t3",
@@ -984,7 +995,7 @@ const make = Effect.gen(function* () {
         if (Option.isNone(stored)) return;
         const { status } = yield* postAgents(stored.value, {
           action: "end",
-          agentRef: agentRef(agent.threadId),
+          agentRef: yield* agentRef(agent.threadId),
           role: agent.role,
         });
         if (status === 200) return;

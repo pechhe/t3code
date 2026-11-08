@@ -49,6 +49,44 @@ it.effect("a lead and its spec-reviewer reach Weave as two different agents", ()
   }),
 );
 
+it.effect("a deeply delegated thread reaches Weave under a reference it accepts", () =>
+  Effect.gen(function* () {
+    // Each delegated child's id escapes its parent's, so a child of a child of a child repeats
+    // two levels of escaping; with the environment it outgrows Weave's 300-character reference.
+    const delegatedThread = (parent: string, task: string) =>
+      ThreadId.make(
+        `thread:delegated-task:command%3Amcp%3A${encodeURIComponent(parent)}%3Adelegate-task%3A${task}`,
+      );
+    const first = delegatedThread("d779967b-b9af-44b7-881b-f7dd9d53eebe", "lead");
+    const second = delegatedThread(first, "chore-storage-methods-throw");
+    const third = delegatedThread(second, "review-storage-methods");
+    assert.isAbove(`environment-weave/${third}`.length, 300);
+
+    const { weave, connections, call, assertNoSecretsIn } = yield* makeHarness;
+    yield* connections.prepare({ threadId: third, role: "spec-reviewer", model: "gpt-5.5" });
+    const read = yield* call(third);
+    assert.isDefined(read.json.result);
+    const ref = weave.agents.at(-1)!.agentRef;
+    assert.isAtMost(ref.length, 300);
+    assert.match(ref, /^environment-weave\/thread-[0-9a-f]{32}$/);
+
+    // The reference names the thread, not the moment: a renewal and a fresh process both reuse it,
+    // so ending the agent Weave holds reaches the same one.
+    yield* TestClock.adjust(12 * hourMs);
+    yield* call(third);
+    assert.strictEqual(weave.agents.length, 1);
+    const {
+      weave: restartedWeave,
+      connections: restarted,
+      call: callRestarted,
+    } = yield* makeHarness;
+    yield* restarted.prepare({ threadId: third, role: "spec-reviewer", model: "gpt-5.5" });
+    yield* callRestarted(third);
+    assert.strictEqual(restartedWeave.agents[0]!.agentRef, ref);
+    assertNoSecretsIn(read);
+  }),
+);
+
 it.effect("forwarded Forge writes expire display caches, excluding reads and heartbeats", () =>
   Effect.gen(function* () {
     const { connections, weave } = yield* makeHarness;
