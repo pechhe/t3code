@@ -220,6 +220,7 @@ const make = Effect.gen(function* () {
                       ...(arcRunInput!.ref === undefined ? {} : { ref: arcRunInput!.ref }),
                     },
                   }),
+              ...(arcRunInput!.specs === undefined ? {} : { specs: arcRunInput!.specs }),
               ...(arcRunInput!.phase === undefined ? {} : { phase: arcRunInput!.phase }),
               ...(arcRunInput!.note === undefined ? {} : { note: arcRunInput!.note }),
             })

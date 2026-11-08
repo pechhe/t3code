@@ -73,6 +73,12 @@ export const isDelegatedTaskDone = (status: OrchestrationV2Subagent["status"]) =
 export const isArcRunHeld = (arcRun: OrchestrationV2ThreadArcRun | undefined) =>
   arcRun?.state === "paused" || arcRun?.state === "attention";
 
+/** Two runs may share an Arc only when each answers for its own named Specs. */
+export const arcRunScopesOverlap = (
+  left: ReadonlyArray<number> | undefined,
+  right: ReadonlyArray<number> | undefined,
+) => left === undefined || right === undefined || left.some((number) => right.includes(number));
+
 /** The parent whose Arc run a Spec lead answers to, if it might have one. */
 export function arcLeadThreadId(
   thread: Pick<OrchestrationV2AppThread, "agentTask" | "lineage">,
@@ -196,6 +202,13 @@ function checkpointLine(arcRun: OrchestrationV2ThreadArcRun): string {
   return `Your last checkpoint: ${checkpoint.phase}${checkpoint.note === undefined ? "" : ` (${checkpoint.note})`}.`;
 }
 
+function arcRunRole(arcRun: OrchestrationV2ThreadArcRun): string {
+  const label = arcLabel(arcRun);
+  return arcRun.specs === undefined
+    ? `You are the Arc lead for ${label}, responsible for its combined outcome.`
+    : `You lead Specs ${arcRun.specs.map((number) => `#${number}`).join(", ")} within Arc ${label}, responsible for delivering those and not the rest of the Arc.`;
+}
+
 const YIELD_RULE =
   "Before this turn ends, one of these must hold: work is running; a delegated task or watch will wake you; every remaining item is a Forge hold with a watch on it; or the outcome is proven and you have called t3_thread_update action arc_run with op end. A final report alone does not end the run. Record each step with op checkpoint.";
 
@@ -209,7 +222,11 @@ export function arcRunWakeMessage(input: {
   const resumed = arcRun.resumed
     ? " The owner resumed this run after stopping it, so some delegated results may be missing and earlier work may have been stopped. If his message only asked a question, answer it and pause the run with op pause."
     : "";
-  const body = `You are the Arc lead for ${label}, responsible for its combined outcome. T3 resumed this thread because ${CONDITION[input.decision.kind]}. ${checkpointLine(arcRun)}${resumed} Re-read the Arc and its member Specs from Forge, reconcile what is actually delivered and who owns what before dispatching anything, decide within your authority and continue. ${YIELD_RULE}`;
+  const reread =
+    arcRun.specs === undefined
+      ? "the Arc and its member Specs"
+      : "those Specs and the Arc's direction";
+  const body = `${arcRunRole(arcRun)} T3 resumed this thread because ${CONDITION[input.decision.kind]}. ${checkpointLine(arcRun)}${resumed} Re-read ${reread} from Forge, reconcile what is actually delivered and who owns what before dispatching anything, decide within your authority and continue. ${YIELD_RULE}`;
   const text = input.answersQuestion ? `${ARC_RUN_ANSWER}\n\n${body}` : body;
   return {
     text,
@@ -233,7 +250,7 @@ export function arcRunStallMessage(input: {
 }): { readonly text: string; readonly notification: OrchestrationV2Notification } {
   const { stall } = input;
   const label = arcLabel(input.arcRun);
-  const text = `You are the Arc lead for ${label}. Your delegated task "${stall.title}" (thread ${stall.childThreadId}) has been silent for ${stall.quietMinutes} minutes${stall.openWork ? " with a command or tool still open, which can be legitimate" : " with nothing open"}. T3 has changed nothing. Read that thread, then decide: leave it, send it a correction, or cancel and replace it. ${YIELD_RULE}`;
+  const text = `${arcRunRole(input.arcRun)} Your delegated task "${stall.title}" (thread ${stall.childThreadId}) has been silent for ${stall.quietMinutes} minutes${stall.openWork ? " with a command or tool still open, which can be legitimate" : " with nothing open"}. T3 has changed nothing. Read that thread, then decide: leave it, send it a correction, or cancel and replace it. ${YIELD_RULE}`;
   return {
     text,
     notification: {

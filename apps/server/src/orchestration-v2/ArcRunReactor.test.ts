@@ -123,6 +123,7 @@ const arcRunCommand = Effect.fn(function* (
   body: {
     readonly op: "start" | "checkpoint" | "pause" | "end";
     readonly arc?: { readonly number: number; readonly ref?: string };
+    readonly specs?: ReadonlyArray<number>;
     readonly phase?: string;
   },
 ) {
@@ -1315,6 +1316,39 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
         order.map((id) => id.split(":").at(-1)),
         ["result-of-turn-1", "result-of-turn-2"],
       );
+    }),
+  );
+
+  it.effect("threads can run separate Specs of one Arc, but not the same Specs or the whole", () =>
+    Effect.gen(function* () {
+      const reactor = yield* ArcRunReactor.ArcRunReactor;
+      const number = (arcNumbers += 1);
+      const first = yield* createThread("scope-first");
+      const start = (threadId: ThreadId, id: string, specs?: ReadonlyArray<number>) =>
+        Effect.exit(
+          arcRunCommand(threadId, id, {
+            op: "start",
+            arc: { number, ref: `YS-ARC-${number}` },
+            ...(specs === undefined ? {} : { specs }),
+          }),
+        );
+      assert.equal((yield* start(first, "start", [101, 102]))._tag, "Success");
+
+      const second = yield* createThread("scope-second");
+      assert.equal((yield* start(second, "overlap", [102, 103]))._tag, "Failure");
+      assert.equal((yield* start(second, "whole"))._tag, "Failure");
+      assert.equal((yield* start(second, "separate", [103]))._tag, "Success");
+
+      // A run's scope never changes silently: widening it means ending it first.
+      assert.equal((yield* start(first, "same", [101, 102]))._tag, "Success");
+      assert.equal((yield* start(first, "widen"))._tag, "Failure");
+      assert.deepEqual((yield* arcRunOf(first))?.specs, [101, 102]);
+
+      yield* send(first, "start");
+      yield* reactor.handle(yield* finish(yield* latestRun(first)));
+      const [wake] = yield* wakes(first);
+      assert.include(wake!.text, "You lead Specs #101, #102 within Arc");
+      assert.include(wake!.text, "not the rest of the Arc");
     }),
   );
 

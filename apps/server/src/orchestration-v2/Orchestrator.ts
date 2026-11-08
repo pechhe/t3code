@@ -139,6 +139,7 @@ import {
 } from "./RestartBackgroundNote.ts";
 import {
   arcRunAttentionMessage,
+  arcRunScopesOverlap,
   isArcRunHeld,
   arcRunStallMessage,
   arcRunWakeMessage,
@@ -3595,18 +3596,30 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
             ),
           );
+        const specs = command.specs;
+        if (current !== undefined && String(current.specs) !== String(specs)) {
+          return yield* refuse(
+            "This run already answers for a different scope. End it, then start again to change that.",
+          );
+        }
         const owner = others.find(
           (candidate) =>
-            candidate.id !== thread.id && candidate.arcRun?.arc.number === command.arc?.number,
+            candidate.id !== thread.id &&
+            candidate.arcRun?.arc.number === command.arc?.number &&
+            arcRunScopesOverlap(candidate.arcRun?.specs, specs),
         );
         if (owner !== undefined) {
+          const held = owner.arcRun?.specs?.map((number) => `#${number}`).join(", ");
           return yield* refuse(
-            `Arc #${command.arc.number} is already being run by thread ${owner.id}. Coordinate with it, or end its run first.`,
+            held === undefined
+              ? `Thread ${owner.id} runs the whole of Arc #${command.arc.number}. Coordinate with it, or end its run first.`
+              : `Thread ${owner.id} answers for Specs ${held} of Arc #${command.arc.number}. Name only Specs outside those; the whole Arc is refused until its run ends.`,
           );
         }
         next = {
           ...current,
           arc: command.arc,
+          ...(specs === undefined ? {} : { specs }),
           state: "active",
           startedAt: current?.startedAt ?? nowIso,
           progressAt: current?.progressAt ?? nowIso,

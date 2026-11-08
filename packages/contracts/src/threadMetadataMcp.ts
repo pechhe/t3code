@@ -109,12 +109,13 @@ export const ThreadMetadataMcpUpdateInput = Schema.Struct({
       op: Schema.Literals(["start", "checkpoint", "pause", "end"]),
       arc: Schema.optional(PositiveInt),
       ref: Schema.optional(TrimmedNonEmptyString),
+      specs: Schema.optional(Schema.NonEmptyArray(PositiveInt)),
       phase: Schema.optional(TrimmedNonEmptyString),
       note: Schema.optional(TrimmedNonEmptyString),
     }),
   ).annotate({
     description:
-      "Required only for arc_run, on your own thread. start names arc (its Forge number) and ref; checkpoint names phase (a new phase counts as progress) and note; only end finishes the run.",
+      "Required only for arc_run, on your own thread. start names arc (its Forge number) and ref, plus specs (Forge numbers) to answer for only those Specs in that Arc; checkpoint names phase (a new phase counts as progress) and note; only end finishes the run.",
   }),
   clientRequestId: Schema.optional(ThreadMetadataClientRequestId),
 }).check(

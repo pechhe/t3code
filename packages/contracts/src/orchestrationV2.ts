@@ -609,6 +609,8 @@ export const OrchestrationV2ThreadArcRun = Schema.Struct({
     number: PositiveInt,
     ref: Schema.optional(TrimmedNonEmptyString),
   }),
+  /** Forge numbers when this thread answers for only these Specs; absent means the whole Arc. */
+  specs: Schema.optional(Schema.NonEmptyArray(PositiveInt)),
   state: Schema.Literals(["active", "paused", "attention"]),
   startedAt: IsoDateTime,
   /** The last advancing checkpoint or message from the owner; bounds the no-progress wakes. */
@@ -4199,6 +4201,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     threadId: ThreadId,
     op: Schema.Literals(["start", "checkpoint", "pause", "end"]),
     arc: Schema.optional(OrchestrationV2ThreadArcRun.fields.arc),
+    specs: OrchestrationV2ThreadArcRun.fields.specs,
     phase: Schema.optional(TrimmedNonEmptyString),
     note: Schema.optional(TrimmedNonEmptyString),
   }),

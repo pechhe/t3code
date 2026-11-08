@@ -161,7 +161,8 @@ takes effect when each current turn ends.
 Tell an agent to run an Arc and that one thread takes responsibility for the Arc's whole
 outcome, whether or not Away is on. It moves between Specs and makes its own decisions without
 waiting for you to say continue, and T3 Code brings it back whenever a turn ends with nothing
-else due to wake it. Your other threads behave as usual.
+else due to wake it. Your other threads behave as usual. A request that takes a few Specs inside
+an Arc gets a run over just those Specs, so another thread can run other Specs in that Arc.
 
 Press Stop, or tell it to stop, to pause the run; send it a message to resume. If it stops making
 progress, T3 Code gives it one last turn to tell you what is stuck, then leaves it until you reply.
