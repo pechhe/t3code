@@ -128,6 +128,15 @@ its revision and the role names, or the reason the policy is refused.
   never refused on that ground. It is still a subagent: it wakes its parent when it
   finishes, shows only among its parent's subagents, and cannot start another `lead`. Like `researcher`,
   the role is optional in a policy.
+- An agent working inside a thread that starts a top-level thread with
+  `t3_thread_launch` or `create_threads` must say in `whyNotDelegated` why that
+  thread beats a `delegate_task` child, including a `lead` in another project.
+  Without it the call is refused as an invalid request before any thread,
+  receipt or workspace exists. The server logs the reason on acceptance
+  (`orchestrator-mcp.thread.launched-instead-of-delegated`) rather than record
+  it on the thread. A caller with no calling thread, such as an outside MCP
+  client or the app's own UI, needs no reason, and a retry with the same
+  `clientRequestId` replays as before.
 - An `isolated` task runs in its own registered workspace of the lead's
   repository, or of any other registered project's repository, on this
   computer, never the lead's checkout or the project's main checkout, and is

@@ -180,7 +180,12 @@ import {
   runtimeModeRank,
   taskPrompt,
 } from "./delegatedTaskModes.ts";
-import { isLiveCallerShell, threadNotFound } from "./threadAccess.ts";
+import {
+  isLiveCallerShell,
+  logWhyNotDelegated,
+  requireWhyNotDelegated,
+  threadNotFound,
+} from "./threadAccess.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
@@ -4207,6 +4212,9 @@ const make = Effect.gen(function* () {
                 index,
               });
               const isRetryOfAcceptedCreation = yield* threadManagement.hasReceipt(commandId);
+              // A retry replays the accepted creation, so it needs no reason again.
+              if (!isRetryOfAcceptedCreation)
+                yield* requireWhyNotDelegated(parent.thread, input.whyNotDelegated);
               const committedThread = isRetryOfAcceptedCreation
                 ? yield* threadManagement
                     .getThreadShell(threadId)
@@ -4305,6 +4313,12 @@ const make = Effect.gen(function* () {
                     ),
                   );
               }
+              if (!isRetryOfAcceptedCreation)
+                yield* logWhyNotDelegated({
+                  launchedFrom: parent.thread.id,
+                  threadId,
+                  whyNotDelegated: input.whyNotDelegated,
+                });
               const projection = yield* loadProjection(threadId);
               const run = projection.runs.at(-1);
               yield* threadManagement

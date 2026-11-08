@@ -361,6 +361,12 @@ export const OrchestratorMcpCreateThreadsInput = Schema.Struct({
     Schema.isMaxLength(20),
   ),
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
+  whyNotDelegated: Schema.optional(
+    Schema.String.annotate({
+      description:
+        "Required inside a thread: one sentence on why these must be separate top-level threads rather than `delegate_task` children.",
+    }),
+  ),
 });
 export type OrchestratorMcpCreateThreadsInput = typeof OrchestratorMcpCreateThreadsInput.Type;
 

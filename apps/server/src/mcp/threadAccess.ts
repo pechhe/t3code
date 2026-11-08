@@ -113,6 +113,38 @@ export const loadCaller = Effect.fn("mcp.loadCaller")(function* () {
   } satisfies Caller;
 });
 
+/**
+ * An agent inside a thread must say why a new top-level thread beats a delegated
+ * child; an outside client, with no calling thread, needs no reason.
+ */
+export const requireWhyNotDelegated = (
+  caller: { readonly id: ThreadId } | undefined,
+  whyNotDelegated: string | undefined,
+): Effect.Effect<void, OrchestratorMcpFailure> =>
+  caller === undefined || (whyNotDelegated !== undefined && whyNotDelegated.trim() !== "")
+    ? Effect.void
+    : Effect.fail(
+        new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message:
+            "Is this better as a delegated task? Use `delegate_task` for work this thread owns, including a `lead` in another project. If it must be its own thread, say why in `whyNotDelegated`.",
+        }),
+      );
+
+/** The reason is logged on the server: no thread record carries it and none should. */
+export const logWhyNotDelegated = (input: {
+  readonly launchedFrom: ThreadId;
+  readonly threadId: ThreadId;
+  readonly whyNotDelegated: string | undefined;
+}) =>
+  input.whyNotDelegated === undefined
+    ? Effect.void
+    : Effect.logInfo("orchestrator-mcp.thread.launched-instead-of-delegated", {
+        launchedFrom: input.launchedFrom,
+        threadId: input.threadId,
+        whyNotDelegated: input.whyNotDelegated,
+      });
+
 export const assertTargetWithinLimits = (
   limits: CallerLimits,
   target: { readonly runtimeMode: RuntimeMode; readonly interactionMode: ProviderInteractionMode },

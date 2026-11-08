@@ -35,7 +35,14 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as ForgeWorkItems from "../../../weave/ForgeWorkItems.ts";
 import * as WeaveAgentConnections from "../../../weave/WeaveAgentConnections.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
-import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
+import {
+  logWhyNotDelegated,
+  newCommandId,
+  readCaller,
+  requireWhyNotDelegated,
+  resolveProjectId,
+  unavailable,
+} from "../../threadAccess.ts";
 import { ProjectToolkit } from "./tools.ts";
 
 const isAboveCeilingError = Schema.is(OrchestratorRuntimeModeAboveCeilingError);
@@ -126,6 +133,13 @@ export const handlers = {
             : yield* launchCommandId(scope.requestNamespace, input.clientRequestId);
         const threadId = ThreadId.make(commandId);
         const messageId = MessageId.make(commandId);
+        // A retry of an accepted launch replays it, so it needs no reason again.
+        const launched =
+          input.clientRequestId === undefined
+            ? null
+            : yield* context.threads.getThreadShell(threadId).pipe(Effect.mapError(unavailable));
+        if (launched === null || launched.deletedAt !== null)
+          yield* requireWhyNotDelegated(caller, input.whyNotDelegated);
         const attachments = input.attachments ?? [];
         if (attachments.some((attachment) => !Claims.attachmentIsPendingUpload(attachment)))
           return yield* new OrchestratorMcpFailure({
@@ -180,10 +194,6 @@ export const handlers = {
         // A retry of an accepted launch replays it: it keeps the model it started
         // with and skips the checks only a new launch needs, which the project
         // may no longer pass, such as a base branch deleted since.
-        const launched =
-          input.clientRequestId === undefined
-            ? null
-            : yield* context.threads.getThreadShell(threadId).pipe(Effect.mapError(unavailable));
         const launchedModel =
           launched === null || launched.deletedAt !== null ? undefined : launched.modelSelection;
         const replaying = launchedModel !== undefined;
@@ -345,6 +355,12 @@ export const handlers = {
           }),
         );
         const thread = result.projection.thread;
+        if (!result.resumed && caller !== undefined)
+          yield* logWhyNotDelegated({
+            launchedFrom: caller.id,
+            threadId: thread.id,
+            whyNotDelegated: input.whyNotDelegated,
+          });
         const run = result.projection.runs.find((run) => run.userMessageId === messageId);
         return {
           threadId: thread.id,

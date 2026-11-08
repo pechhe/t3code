@@ -277,7 +277,7 @@ const RequestReleaseApprovalTool = Tool.make("request_release_approval", {
 
 const CreateThreadsTool = Tool.make("create_threads", {
   description:
-    "Create new top-level threads in this checkout. Not delegation and creates no child agents: use `delegate_task` for child work and prefer `t3_thread_launch` for one thread of its own; both need the user to ask for separate threads. Entries may override provider, model, options and modes; project, branch and worktree inherit.",
+    "Create new top-level threads in this checkout. Not delegation and creates no child agents: use `delegate_task` for child work and prefer `t3_thread_launch` for one thread of its own; both need the user to ask for separate threads and, inside a thread, say why in `whyNotDelegated`. Entries may override provider, model, options and modes; project, branch and worktree inherit.",
   parameters: OrchestratorMcpCreateThreadsInput,
   success: OrchestratorMcpCreateThreadsResult,
   failure: OrchestratorMcpFailure,

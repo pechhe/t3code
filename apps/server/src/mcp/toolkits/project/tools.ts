@@ -135,7 +135,7 @@ const ProjectCloneTool = Tool.make("t3_project_clone", {
 const ThreadLaunchTool = Tool.make("t3_thread_launch", {
   ...shared,
   description:
-    "Create one new top-level thread, bound to its workspace before the agent starts. Use `delegate_task` for child subagents. Bind a Forge item with `forgeItem`. Task in `message`. Omit `projectId`, model and modes to inherit yours (outside a thread, pass `projectId` or `scratch`); modes cannot exceed yours. After an error or lost reply, retry with the same `clientRequestId`. Follow it with `t3_thread_read` or `t3_thread_wait`. `watch` wakes you when it finishes. Mention it with its `link`.",
+    "Create one new top-level thread, bound to its workspace before the agent starts. Use `delegate_task` for child subagents; inside a thread, say in `whyNotDelegated` why this must be its own thread. Bind a Forge item with `forgeItem`. Task in `message`. Omit `projectId`, model and modes to inherit yours (outside a thread, pass `projectId` or `scratch`); modes cannot exceed yours. After an error or lost reply, retry with the same `clientRequestId`. Follow it with `t3_thread_read` or `t3_thread_wait`. `watch` wakes you when it finishes. Mention it with its `link`.",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     projectId: Schema.optional(ProjectId),
@@ -175,6 +175,12 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
       }),
     ),
     clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
+    whyNotDelegated: Schema.optional(
+      Schema.String.annotate({
+        description:
+          "Required inside a thread: one sentence on why this must be a separate top-level thread rather than a `delegate_task` child.",
+      }),
+    ),
     /** Set by a linked environment launching its agent's delegated task here; ignored otherwise. */
     delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
   }),

@@ -39,6 +39,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
@@ -3618,6 +3619,10 @@ describe("OrchestratorMcpService provider resolution", () => {
               ),
             ),
           );
+          const logs: Array<ReadonlyArray<unknown>> = [];
+          const capture = Logger.make<unknown, void>(({ message }) => {
+            if (Array.isArray(message)) logs.push(message);
+          });
           yield* Effect.gen(function* () {
             const orchestrator = yield* Orchestrator.OrchestratorV2;
             const service = yield* OrchestratorMcpService.OrchestratorMcpService;
@@ -3650,7 +3655,25 @@ describe("OrchestratorMcpService provider resolution", () => {
             const request = {
               threads: [{ target: { driverKind: driver, model } }],
               clientRequestId: "create-retry",
+              whyNotDelegated: "The user asked for separate top-level threads.",
             };
+            const listedBefore = yield* service.listThreads(scope, {});
+            for (const refused of [
+              yield* service
+                .createThreads(scope, { threads: request.threads, clientRequestId: "no-reason" })
+                .pipe(Effect.flip),
+              yield* service
+                .createThreads(scope, {
+                  threads: request.threads,
+                  clientRequestId: "blank-reason",
+                  whyNotDelegated: "  ",
+                })
+                .pipe(Effect.flip),
+            ]) {
+              assert.equal(refused.code, "invalid_request");
+              assert.include(refused.message, "whyNotDelegated");
+            }
+            assert.equal((yield* service.listThreads(scope, {})).total, listedBefore.total);
             const first = yield* service.createThreads(scope, request);
             const child = first.threads[0]!;
             const selection = parentEnabled
@@ -3660,6 +3683,19 @@ describe("OrchestratorMcpService provider resolution", () => {
             assert.equal(child.providerInstanceId, selection.instanceId);
             assert.equal(child.model, selection.model);
             assert.deepEqual(yield* service.createThreads(scope, request), first);
+            // A replay of an accepted creation needs no reason again.
+            assert.deepEqual(
+              yield* service.createThreads(scope, { ...request, whyNotDelegated: undefined }),
+              first,
+            );
+            assert.deepInclude(logs, [
+              "orchestrator-mcp.thread.launched-instead-of-delegated",
+              {
+                launchedFrom: parentThreadId,
+                threadId: child.threadId,
+                whyNotDelegated: request.whyNotDelegated,
+              },
+            ]);
 
             // The creation receipt exists, but this prompt has not been accepted yet.
             const withPrompt = {
@@ -3678,6 +3714,7 @@ describe("OrchestratorMcpService provider resolution", () => {
             const emojiAtLimit = yield* service.createThreads(scope, {
               threads: [{ ...request.threads[0]!, prompt: `${"a".repeat(76)}😀 and more work.` }],
               clientRequestId: "emoji-title",
+              whyNotDelegated: request.whyNotDelegated,
             });
             const titled = yield* orchestrator.getThreadProjection(
               emojiAtLimit.threads[0]!.threadId,
@@ -3718,7 +3755,7 @@ describe("OrchestratorMcpService provider resolution", () => {
             const untouched = yield* orchestrator.getThreadProjection(empty.threads[0]!.threadId);
             assert.equal(untouched.messages.length, 0);
             assert.equal(untouched.runs.length, 0);
-          }).pipe(Effect.provide(layerTest));
+          }).pipe(Effect.provide(layerTest), Effect.withLogger(capture));
         }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
       ),
   );
@@ -3929,6 +3966,7 @@ describe("OrchestratorMcpService provider resolution", () => {
                   .createThreads(scope, {
                     threads: [{ prompt: "Summarize the diff.", target }],
                     clientRequestId: `disabled-threads-${testCase.name}`,
+                    whyNotDelegated: "The user asked for separate threads.",
                   })
                   .pipe(Effect.flip);
                 assert.equal(threadError.code, "provider_unavailable");
@@ -3940,6 +3978,7 @@ describe("OrchestratorMcpService provider resolution", () => {
                   .createThreads(scope, {
                     threads: [{ prompt: "Summarize the diff.", target }],
                     clientRequestId: `delegate-threads-${testCase.name}`,
+                    whyNotDelegated: "The user asked for separate threads.",
                   })
                   .pipe(Effect.flip);
                 assert.equal(
