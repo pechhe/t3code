@@ -4,8 +4,8 @@ This record lists the material, deliberate differences between the T3peach fork 
 
 ## Baseline
 
-- Upstream: v0.1.8-nightly.20261108.4367 (`6417151c093e54dbba0e6c824c69d03983793b9a`)
-- Fork: `abf1ecbb6a7f792a315515a5a142e9c119e8789f`
+- Upstream: v0.1.8-nightly.20261108.4380 (`ade473018d32003658b7d38693e083ee2e314bd8`)
+- Fork: `64a47a45e4e332de75d13f0eabecf97cb31ddfd6`
 
 ## Coverage
 

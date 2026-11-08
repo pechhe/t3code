@@ -3,32 +3,32 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.8-nightly.20261108.4353",
-      "sha": "3cd97a1ee230437b1bfd8441dffe65eac55be1e5"
-    },
-    "target": {
       "tag": "v0.1.8-nightly.20261108.4367",
       "sha": "6417151c093e54dbba0e6c824c69d03983793b9a"
+    },
+    "target": {
+      "tag": "v0.1.8-nightly.20261108.4380",
+      "sha": "ade473018d32003658b7d38693e083ee2e314bd8"
     }
   },
   "fork": {
-    "base": "abf1ecbb6a7f792a315515a5a142e9c119e8789f"
+    "base": "64a47a45e4e332de75d13f0eabecf97cb31ddfd6"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "9fc2895024817d61bab2cf84070dddb1f5b99332"
+    "blob": "e9e3dd287154a91197aeb5eb317711a65033fde0"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.8-nightly.20261108.4367@1794146872",
-  "reviewedAt": "2026-11-08T14:29:55Z",
+  "attempt": "v0.1.8-nightly.20261108.4380@1794166121",
+  "reviewedAt": "2026-11-08T19:35:00Z",
   "reviewer": {
-    "thread": "thread:delegated-task:command%3Amcp%3Athread%253Athread%253Aproject%253Amcp%25253A2839a4ae-3ff8-46cd-8c81-2763c53b5b42%253A619a5f30-cf1f-4d2d-a570-073e1ccfec83%3Adelegate-task%3Afork-4367-review-2",
-    "model": "opencode-go/deepseek-v4.1-flash"
+    "thread": "thread:delegated-task:command%3Amcp%3Athread%253Athread%253Aproject%253Amcp%25253A2839a4ae-3ff8-46cd-8c81-2763c53b5b42%253A336830cf-9076-4c33-b295-16131c738d81%3Adelegate-task%3Afork-4380-review-1",
+    "model": "claude-sonnet-5-5"
   },
   "coverage": {
-    "upstreamCommits": 8,
+    "upstreamCommits": 1,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
@@ -103,28 +103,17 @@
       "browser-decision-evaluation",
       "bounded-browser-tasks",
       "ssh-launch-respects-boot-service",
-      "unhandled-rejection-keeps-server"
+      "unhandled-rejection-keeps-server",
+      "champion-journey-checks"
     ],
     "areas": [
-      "server/provider + orchestration-v2: Codex stops waiting on reasoning summaries (#31149: `features.concurrent_reasoning_summaries` in CODEX_THREAD_CONFIG) and an existing provider session refreshes its linking tools when `linkedEnvironmentsEnabled` changes (#26737) - the codex change reaches the fork's own expected frames in CodexAdapterV2.test.ts and the refresh lands inside the fork's managed-MCP registration check",
-      "server/mcp: `html_preview`/`html_render` take an HTML file's path (#32833) - the leaf html tools grow and both the MCP payload ceilings and agentContextBudget.json move; eval mcp-tool-use cases and McpProviderSessions follow upstream",
-      "server/scheduledTasks + web + mobile: a task can move to another thread (#31379) and mobile's prompt field clears the microphone (#32498) - upstream's web panel is the fork's deleted one, so the picker is ported into the fork's Scheduled page; the server's new `requireDestinationThread` is adopted unchanged",
-      "web/cloud + client-runtime: a failed relay unlink reports its reason (#25198) - adopted beside the fork's peer sessions",
-      "web/components/ui + shared: a combobox search input fills its row (#32926) and whole-word title matches outrank busy prefixes (#32242) - adopted, no fork edit in either file",
-      "no structural changes: no migrations, no contract change, no dependency, catalog, override or lockfile change, and no platform service split"
+      "provider maintenance (mise): upstream #21524 makes mise-installed providers requested as latest update through `mise upgrade <tool>` instead of their own updater \u2014 each driver (Claude, Codex, Grok, Muse, OpenCode, Pi) names its fixed mise tool, maintenanceResolver checks mise first, requires mise to resolve the binary with an active latest-requested install, and keeps pinned/versioned/wrapper paths manual-only; docs updated in providers.md and install.md. No fork code in any touched file except an unrelated generateCompactionSummary addition in the OpenCode driver, which merged cleanly; no fork entry covers provider maintenance, so this is aside/adopt with no record change",
+      "no structural changes: no contracts, migrations, dependencies, catalog, override or lockfile change, and no platform service split"
     ],
     "exclusions": [
       {
         "what": "upstream's own changes and their tests",
-        "why": "upstream reviewed them; this reconciliation reviews only its own conflict resolutions, the record and this receipt per fork/README.md"
-      },
-      {
-        "what": "the Codex transcript fixtures upstream re-recorded (28 files)",
-        "why": "upstream's own replay recordings, taken as they are; the fork's expected frames are fixed separately in CodexAdapterV2.test.ts"
-      },
-      {
-        "what": "the evals/mcp-tool-use case additions",
-        "why": "upstream's own eval cases for its own html-tool change, with no fork edit in them"
+        "why": "upstream reviewed them; this reconciliation reviews only its own conflict resolutions (none \u2014 clean merge), the record and this receipt per fork/README.md"
       },
       {
         "what": "dependency and catalog comparison",
@@ -132,170 +121,38 @@
       }
     ]
   },
-  "dispositions": [
-    {
-      "entry": "scheduled-tasks-extensions",
-      "upstream": "#31379 adds a destination picker (any unarchived thread of the task's project, with `new_thread` switching to `continue`), `moveDraftToThread`/`unbindDraftFromThread`/`changeDraftProject`/`scheduledTaskDestinationThreads` helpers, and `ScheduledTaskService.requireDestinationThread`; #32498 clears the mobile prompt field from the microphone.",
-      "decision": "adapt",
-      "requirements": [
-        "the fork's `/scheduled` page, not upstream's deleted settings panel, gains the picker: `LinkedThreadPanel`'s \"Change thread\" and the unbound \"Runs in\" row, listing only the task's own machine and project",
-        "saving sends the picked `threadId` per member through `planGroupSave`, replacing the stored-thread-only value",
-        "the role picker (never a model picker), the group model, the \"fresh\" destination default and the programmatic MCP surface are unchanged",
-        "a pick is only offered where one machine and one project are chosen, so the server's other-project refusal cannot be triggered by the picker",
-        "unbinding in the web editor leaves the workspace choice alone, while the mobile editor keeps upstream's flip of a root workspace to a worktree from origin as it merged"
-      ],
-      "evidence": [
-        "apps/server/src/scheduledTasks/ScheduledTaskService.test.ts and ScheduledTaskService.role.test.ts pass (destination validation, role tests)",
-        "apps/web/src/components/scheduled/scheduledTasks.logic.test.ts passes (25 tests, including the pick being saved over the stored thread, binding a task that had none, moving a `new_thread` task, unbinding, and the pick dropping when machine or project changes)",
-        "apps/web/src/components/settings/ScheduledTasksSettings.browser.test.tsx passes (11 tests) through the fork's page",
-        "apps/mobile/src/features/settings/scheduledTaskDraft.test.ts and scheduled-task-editor-state.test.ts pass (27 tests) with the fork's role field and upstream's thread picker side by side",
-        "apps/server/src/orchestration-v2/ThreadLaunchService.test.ts and runtimeLayer.test.ts pass"
-      ]
-    },
-    {
-      "entry": "session-tool-listings",
-      "upstream": "#32833 gives the leaf html tools a file-path form, lengthening their descriptions; #26737 re-reads `linkedEnvironmentsEnabled` and unloads or reopens a provider session when it changes.",
-      "decision": "adapt",
-      "requirements": [
-        "the fork's family table, endpoints, child texts and per-endpoint ceilings stay; the two ceilings that the measurement moved are raised with the numbers recorded in the test",
-        "upstream's release-and-reopen runs before the fork's managed-MCP registration check, which still refuses a registration change while provider work is active and still forgets and re-reads the session entry",
-        "the agent context budget is re-measured rather than carried over"
-      ],
-      "evidence": [
-        "apps/server/src/mcp/ToolSessionPolicy.test.ts passes (9 budgets across 12 tests): ordinary 50,882 under 50,950, researcher 89,720 under 89,800",
-        "apps/server/src/provider/AgentContextBudget.test.ts passes with the re-measured 10,311 / 12,745 / 122,863 bytes",
-        "apps/server/src/orchestration-v2/ProviderSessionManager.test.ts passes (66 tests), including upstream's linked-environments refresh cases",
-        "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts passes (168 tests) after the fork's expected frames gained upstream's `features.concurrent_reasoning_summaries`",
-        "packages/provider-core/src/server/orchestrationInstructions.test.ts passes (6 tests)"
-      ]
-    },
-    {
-      "entry": "fork-guidance",
-      "upstream": "#32833 rewrites the visuals bullet to offer an HTML file's path beside inline HTML.",
-      "decision": "adapt",
-      "requirements": [
-        "upstream's wording is the base and the fork's rules sit inside that one bullet (publish before the final reply, do not restate the page, a `.png` path for an image to send)",
-        "the `preview_*` usage rules stay in `T3_CODE_BROWSER_TOOL_INSTRUCTIONS`, which only a thread whose listing carries that family receives, so instructions name only listed tools",
-        "the environment-linking bullets upstream keeps adding stay out"
-      ],
-      "evidence": [
-        "packages/provider-core/src/server/orchestrationInstructions.test.ts passes (6 tests)",
-        "the merged file keeps the fork's unchanged delegated-child sections and ACP fallback text"
-      ]
-    },
-    {
-      "entry": "linked-environments",
-      "upstream": "#25198 reports why a relay unlink failed through `relayFailureReason.ts` and the cloud link controller.",
-      "decision": "adopt",
-      "requirements": [
-        "the fork's peer sessions, thread directory, Champion reads and environment-qualified thread link rule are untouched",
-        "upstream's session refresh keyed on `linkedEnvironmentsEnabled` uses the fork's existing setting, with no second switch"
-      ],
-      "evidence": [
-        "apps/web/src/cloud/linkEnvironment.test.ts passes (2 tests)",
-        "apps/server/src/orchestration-v2/ProviderSessionManager.test.ts's linked-environments cases pass"
-      ]
-    },
-    {
-      "entry": "web-client-customisation",
-      "upstream": "#32926 makes a combobox search input fill its row; #32242 carries a `wholeWords` tier through the shared palette search so whole-word titles outrank busy prefixes.",
-      "decision": "adopt",
-      "requirements": [
-        "the fork's response font stack and its copy-bounce rule on inline code are unchanged",
-        "no fork behaviour in `packages/shared` is displaced: the new field is additive on the match types"
-      ],
-      "evidence": [
-        "packages/shared/src/paletteSearch.test.ts passes",
-        "apps/web/src/components/scheduled/scheduledTasks.logic.test.ts and the Scheduled settings browser test exercise the combobox parts unchanged"
-      ]
-    }
-  ],
+  "dispositions": [],
   "unresolved": [],
   "checks": [
     {
       "command": "vp i",
       "result": "passed",
-      "note": "lockfile up to date, supply-chain policy verified; this tag changes no manifest or lockfile entry"
+      "note": "lockfile up to date; this tag changes no manifest or lockfile entry"
     },
     {
-      "command": "vp test run src/provider/AgentContextBudget.test.ts (apps/server)",
+      "command": "vp test run src/server/maintenanceResolver.test.ts (packages/provider-core)",
       "result": "passed",
-      "note": "re-measured 10,311 / 12,745 / 122,863 bytes after the merged visuals bullet, upstream's html tools and the landed Arc-run tool text"
+      "note": "100 tests passed, including the new mise resolution cases"
     },
     {
-      "command": "vp test run src/mcp/ToolSessionPolicy.test.ts (apps/server)",
+      "command": "vp test run src/provider/Drivers/ClaudeMaintenance.test.ts (apps/server)",
       "result": "passed",
-      "note": "12 budgets; the landed Arc-run commit moved ordinary to 50,773 and researcher to 89,611, and the html tools' file-path guidance adds 109 characters to both, so the ceilings sit at 50,950 and 89,800 (measured 50,882 and 89,720)"
-    },
-    {
-      "command": "vp test run src/orchestration-v2/ProviderSessionManager.test.ts (apps/server)",
-      "result": "passed",
-      "note": "66 tests"
-    },
-    {
-      "command": "vp test run src/orchestration-v2/Adapters/CodexAdapterV2.test.ts (apps/server)",
-      "result": "passed",
-      "note": "168 tests, after the three fork-written expected frames gained upstream's concurrent-reasoning key"
-    },
-    {
-      "command": "vp test run src/scheduledTasks/ScheduledTaskService.test.ts src/scheduledTasks/ScheduledTaskService.role.test.ts src/orchestration-v2/ThreadLaunchService.test.ts src/orchestration-v2/runtimeLayer.test.ts src/mcp/ToolSessionPolicy.test.ts (apps/server)",
-      "result": "passed",
-      "note": "the only failure in this batch was ToolSessionPolicy's researcher budget, fixed as above; the four other files passed unchanged"
-    },
-    {
-      "command": "vp test run src/features/settings/scheduledTaskDraft.test.ts src/features/settings/scheduled-task-editor-state.test.ts (apps/mobile)",
-      "result": "passed",
-      "note": "27 tests"
-    },
-    {
-      "command": "vp test run src/components/scheduled/scheduledTasks.logic.test.ts (apps/web)",
-      "result": "passed",
-      "note": "25 tests, the ported destination logic"
-    },
-    {
-      "command": "vp test run src/components/settings/ScheduledTasksSettings.browser.test.tsx (apps/web)",
-      "result": "passed",
-      "note": "11 tests in Chromium through the fork's page"
-    },
-    {
-      "command": "vp test run src/cloud/linkEnvironment.test.ts (apps/web)",
-      "result": "passed",
-      "note": "2 tests"
-    },
-    {
-      "command": "vp test run src/server/orchestrationInstructions.test.ts (packages/provider-core)",
-      "result": "passed",
-      "note": "6 tests"
-    },
-    {
-      "command": "vp run typecheck (apps/web)",
-      "result": "passed",
-      "note": "the web package type-checks after the port; the workspace-wide run was interrupted by kills in unrelated packages"
+      "note": "14 tests passed"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
       "result": "passed",
-      "note": "exit 0; the planner cannot narrow a two-parent merge candidate, so it selects the complete plan and the runner assembles the single landed merge"
+      "note": "exit 0"
     },
     {
       "command": "independent review (reviewer, change scope)",
       "result": "passed",
-      "note": "0 blocking, 3 should-fix, 1 note: the session-tool-listings Decision and the matching disposition cited pre-rebase measurements (corrected to 50,882/50,950, 89,720/89,800 and 122,863), '12 budgets' became '9 budgets across 12 tests', the unbind claim was scoped to the web editor because mobile keeps upstream's root-to-worktree flip, and this receipt's reviewer field was replaced with the review that ran. The reviewer verified by reading (it had no shell): the picker's machine/project scoping, planGroupSave's shape, the managed-MCP refusal beside releaseForLinkedEnvironments, all 74 coverage entries and that no Retire-when was met. Note, not fixed: the picker's trigger uses layout classes on the Button, following the neighbouring navigate button."
+      "note": "0 blocking, 2 should-fix, 2 notes: both should-fix were receipt checks-note placeholders (fixed with actual outcomes) and reviewer identity (now the review that ran); reviewer verified baseline/target, all 75 coverage entries and that no Retire-when was met"
     },
     {
       "command": "landing gate on the SlipJay runner",
       "result": "not-run",
       "note": "runs at slipjay land"
-    },
-    {
-      "command": "jj rebase -s <merge> -d t3peach@origin -d 6417151c09",
-      "result": "passed",
-      "note": "origin's t3peach moved twice while this update ran (36789e1ab0e5, then abf1ecbb6a7f: an Arc-run refusal reason); the merge was rebased onto each, its first parent is now abf1ecbb6a7f, and the two files the first move touched (ToolSessionPolicy.test.ts ceilings, agentContextBudget.json) were re-measured; the second touched only ThreadMetadataMcpService and its test, with no budget or record conflict"
-    },
-    {
-      "command": "vp test run src/mcp/ThreadMetadataMcpService.test.ts (apps/server)",
-      "result": "passed",
-      "note": "the commit that landed while this update ran; its 39 new test lines pass beside the rebased merge"
     }
   ],
   "result": "reconciled"
