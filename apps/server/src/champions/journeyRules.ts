@@ -209,6 +209,24 @@ export const describeSteps = (steps: ReadonlyArray<ChampionJourneyStep>) => {
     .join("\n");
 };
 
+/** One bug's journeys end the same way: the same last step on the same page, reaching the same page. */
+export const sameFailure = (
+  a: { readonly steps: ReadonlyArray<ChampionJourneyStep>; readonly finalUrl: string | null },
+  b: { readonly steps: ReadonlyArray<ChampionJourneyStep>; readonly finalUrl: string | null },
+) => {
+  const last = a.steps.at(-1);
+  const other = b.steps.at(-1);
+  return (
+    last !== undefined &&
+    other !== undefined &&
+    pathOf(a.finalUrl) === pathOf(b.finalUrl) &&
+    pathOf(last.url) === pathOf(other.url) &&
+    last.operation === other.operation &&
+    last.target?.role === other.target?.role &&
+    last.target?.name === other.target?.name
+  );
+};
+
 /** Which paths a journey walked, for coverage and to tell one bug's failure from another's. */
 export const urlsOf = (steps: ReadonlyArray<ChampionJourneyStep>) => [
   ...new Set(steps.flatMap((step) => pathOf(step.url) ?? [])),

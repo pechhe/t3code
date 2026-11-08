@@ -229,6 +229,59 @@ describe("findingEvidence", () => {
   });
 });
 
+describe("sameFailure", () => {
+  const ending = (url: string, name: string, finalUrl: string) => ({
+    finalUrl,
+    steps: [
+      {
+        id: "P1",
+        kind: "page",
+        operation: "click",
+        target: { role: "button", name },
+        description: null,
+        option: null,
+        value: null,
+        url,
+        state: "completed",
+        at: "2026-11-08T20:00:00.000Z",
+        ms: 1,
+      } as const,
+    ],
+  });
+
+  it("joins two journeys that end on the same step and page, on any shard", () => {
+    expect(
+      Rules.sameFailure(
+        ending("http://localhost:3301/notes", "Search", "http://localhost:3301/notes?q=x"),
+        ending("http://localhost:3302/notes", "Search", "http://localhost:3302/notes?q=x"),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps apart bugs that read alike but end elsewhere", () => {
+    const search = ending(
+      "http://localhost:3301/notes",
+      "Search",
+      "http://localhost:3301/notes?q=x",
+    );
+    expect(
+      Rules.sameFailure(
+        search,
+        ending("http://localhost:3301/docs", "Search", "http://localhost:3301/docs?q=x"),
+      ),
+    ).toBe(false);
+    expect(
+      Rules.sameFailure(
+        search,
+        ending("http://localhost:3301/notes", "Save", "http://localhost:3301/notes?q=x"),
+      ),
+    ).toBe(false);
+    expect(Rules.sameFailure({ finalUrl: null, steps: [] }, { finalUrl: null, steps: [] })).toBe(
+      false,
+    );
+  });
+});
+
 describe("describeSteps", () => {
   it("says a repeated click once, with how many times", () => {
     const click = {
