@@ -134,7 +134,8 @@ export class ServerBrowserContexts {
         "--force-device-scale-factor=2",
         "--disable-blink-features=AutomationControlled",
       ],
-      ignoreDefaultArgs: ["--enable-automation"],
+      // Playwright's flooding-protection opt-out lets a page navigate unthrottled, as no real Chrome does.
+      ignoreDefaultArgs: ["--enable-automation", "--disable-ipc-flooding-protection"],
       headless: true,
       // Only an explicit operator opt-out disables sandboxing. Launch errors never do.
       chromiumSandbox: !sandboxDisabled(env),
@@ -327,20 +328,22 @@ export class ServerBrowserContexts {
       );
       const { chromium } = loadPlaywright();
       const { executable, ...launchOptions } = launch;
-      browser = await this.launch(executable, (executablePath) =>
-        chromium.launch({
-          ...launchOptions,
-          executablePath,
-          timeout: 10_000,
-          proxy: { server: "per-context" },
-          args: [
-            ...launch.args,
-            "--proxy-bypass-list=<-loopback>",
-            "--disable-quic",
-            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-            ...(options.journey === undefined ? [] : [options.journey.marker]),
-          ],
-        }),
+      browser = await this.launch(
+        executable,
+        (executablePath) =>
+          chromium.launch({
+            ...launchOptions,
+            executablePath,
+            timeout: 10_000,
+            proxy: { server: "per-context" },
+            args: [
+              ...launch.args,
+              "--proxy-bypass-list=<-loopback>",
+              "--disable-quic",
+              "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+              ...(options.journey === undefined ? [] : [options.journey.marker]),
+            ],
+          }),
         { lowestPriority: options.journey !== undefined },
       );
       const context = await managedStart(

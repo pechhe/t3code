@@ -441,6 +441,8 @@ interface ServerTab {
   recording: Recording | null;
   initialNavigation: Promise<void> | null;
   navigationGeneration: number;
+  readingTitle: boolean;
+  titleStale: boolean;
 
   abortedNavigation: {
     readonly url: string;
@@ -760,7 +762,7 @@ const make = Effect.gen(function* () {
       });
   };
 
-  const reportLoaded = async (tab: ServerTab) => {
+  const reportLoadedOnce = async (tab: ServerTab) => {
     const url = tab.page.url();
     // Chromium's error page loads after `requestfailed` and must not clear LoadFailed.
     if (url === "about:blank" || url.startsWith("chrome-error://")) return;
@@ -773,6 +775,20 @@ const make = Effect.gen(function* () {
       url: ServerBrowserPage.withoutDataPayload(url).slice(0, 2048),
       title,
     });
+  };
+
+  // A page looping on same-document navigation once queued a title read per event and exhausted the heap.
+  const reportLoaded = async (tab: ServerTab) => {
+    if (tab.readingTitle) {
+      tab.titleStale = true;
+      return;
+    }
+    tab.readingTitle = true;
+    do {
+      tab.titleStale = false;
+      await reportLoadedOnce(tab);
+    } while (tab.titleStale);
+    tab.readingTitle = false;
   };
 
   const reportLiveTabs = () => {
@@ -1107,6 +1123,8 @@ const make = Effect.gen(function* () {
       recordingStart: null,
       initialNavigation: null,
       navigationGeneration: 0,
+      readingTitle: false,
+      titleStale: false,
       abortedNavigation: null,
       captureLock: Promise.resolve(),
       capturing: 0,

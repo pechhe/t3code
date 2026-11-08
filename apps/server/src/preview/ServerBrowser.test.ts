@@ -1669,6 +1669,33 @@ it.live("a detached file picker stays open across same-document navigation", () 
   ).pipe(Effect.provide(layer)),
 );
 
+it.live("a burst of same-document navigations reads the title once, then once more", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      yield* ready;
+      const page = contexts[0]!.page;
+      yield* Effect.promise(() => page.goto("http://127.0.0.1:3000/looping"));
+      yield* Effect.promise(() => new Promise((resolve) => setImmediate(resolve)));
+      const release = Promise.withResolvers<string>();
+      const title = vi.mocked(page.title);
+      title.mockClear();
+      title.mockImplementationOnce(() => release.promise);
+      title.mockImplementation(async () => "after the burst");
+
+      for (let event = 0; event < 1000; event++) page.emit("framenavigated", page);
+      expect(title).toHaveBeenCalledTimes(1);
+
+      release.resolve("during the burst");
+      yield* Effect.promise(() => vi.waitFor(() => expect(title).toHaveBeenCalledTimes(2)));
+      yield* Effect.promise(() => new Promise((resolve) => setImmediate(resolve)));
+      expect(title).toHaveBeenCalledTimes(2);
+
+      page.emit("framenavigated", page);
+      yield* Effect.promise(() => vi.waitFor(() => expect(title).toHaveBeenCalledTimes(3)));
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
 it.live.each(["main", "iframe"])(
   "a file picker closes at %s document commit before DOMContentLoaded",
   (frame) =>
@@ -2284,7 +2311,9 @@ it.live.each([
           input: { reuseExistingTab: false, show: false },
         });
       for (let index = 1; index < limit - 3; index++) {
-        yield* open(budget === "agent" ? scope : asSession(`other-${Math.floor(index / AGENT_TAB_LIMIT)}`));
+        yield* open(
+          budget === "agent" ? scope : asSession(`other-${Math.floor(index / AGENT_TAB_LIMIT)}`),
+        );
       }
 
       const sessionGate = Promise.withResolvers<void>();
@@ -2400,7 +2429,9 @@ it.live("failed session and browser launches release capacity, as does closing a
       let failedSession = yield* PubSub.take(events);
       while (failedSession.type !== "opened") failedSession = yield* PubSub.take(events);
       // A failed launch must not leave a session a viewer can relaunch past the budget.
-      expect((yield* manager.list({ threadId: scope.thread.threadId })).sessions).toHaveLength(AGENT_TAB_LIMIT - 1);
+      expect((yield* manager.list({ threadId: scope.thread.threadId })).sessions).toHaveLength(
+        AGENT_TAB_LIMIT - 1,
+      );
       contextFailure = null;
       pageSetupFailure = new Error("Target page, context or browser has been closed");
       expect(yield* open.pipe(Effect.result)).toMatchObject({ _tag: "Failure" });
@@ -2408,7 +2439,9 @@ it.live("failed session and browser launches release capacity, as does closing a
       // Setup that fails after the page exists must not leave the page or its context open.
       expect(contexts.at(-1)!.close).toHaveBeenCalled();
       expect(contexts.at(-1)!.page.isClosed()).toBe(true);
-      expect((yield* manager.list({ threadId: scope.thread.threadId })).sessions).toHaveLength(AGENT_TAB_LIMIT - 1);
+      expect((yield* manager.list({ threadId: scope.thread.threadId })).sessions).toHaveLength(
+        AGENT_TAB_LIMIT - 1,
+      );
       expect((yield* open).available).toBe(true);
       expect(yield* open.pipe(Effect.flip)).toMatchObject({ reason: "tabLimit" });
       expect(
@@ -2509,7 +2542,11 @@ it.live("a full server takes back the slot of the longest idle agent tab nobody 
 
       now.mockReturnValue(31 * 60 * 1000);
       // A session at its own limit couldn't use a freed slot, so nothing closes for it.
-      expect(yield* open(`agent-${Math.floor((SERVER_TAB_LIMIT - 1) / AGENT_TAB_LIMIT)}`).pipe(Effect.flip)).toMatchObject({ reason: "tabLimit" });
+      expect(
+        yield* open(`agent-${Math.floor((SERVER_TAB_LIMIT - 1) / AGENT_TAB_LIMIT)}`).pipe(
+          Effect.flip,
+        ),
+      ).toMatchObject({ reason: "tabLimit" });
       expect(releasedDesktopTabs).toEqual([]);
       // Tabs a desktop window shows keep their slots however long they sit idle.
       for (const tabId of opened) shownDesktopTabs.add(tabId);
