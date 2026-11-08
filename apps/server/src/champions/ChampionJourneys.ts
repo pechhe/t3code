@@ -120,6 +120,9 @@ const PROBE_TIMEOUT_MS = 4_000;
 const PROBES_TO_DOWN = 3;
 /** Each replay is a production server and a database clone beside the journey browsers. */
 export const MAX_OPEN_REPLAYS = 4;
+/** One per process however many services this module serves: a check absent here outlived a restart. */
+const monitors = new Map<string, Fiber.Fiber<void, never>>();
+const downShards = new Map<string, string[]>();
 const NETWORK_FLUSH_EVERY = Duration.seconds(2);
 
 const argv = (template: ReadonlyArray<string>, values: Record<string, string>) =>
@@ -378,7 +381,6 @@ const cpuTimes = () => {
 export const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const processes = yield* ProcessRunner.ProcessRunner;
-  const monitors = new Map<string, Fiber.Fiber<void, never>>();
   const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
   const runJson = Effect.fn("ChampionJourneys.runJson")(function* (
@@ -621,7 +623,6 @@ export const make = Effect.gen(function* () {
     }).pipe(Effect.ignore);
     yield* sample.pipe(Effect.repeat(Schedule.spaced(SAMPLE_EVERY)));
   }, Effect.asVoid);
-  const downShards = new Map<string, string[]>();
 
   /** The last word on a shard the monitor may have last seen moments before it stopped. */
   const unanswering = Effect.fn("ChampionJourneys.unanswering")(function* (
