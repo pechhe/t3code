@@ -1013,6 +1013,20 @@ describe("BrowserTaskService journeys", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
   );
 
+  it.effect("keeps a journey going after its first action until the model says it is done", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({ choices: ["save", "DONE"], journeys });
+      const fiber = yield* task.service
+        .run({ scope, request: FORM_REQUEST, authorize: allow })
+        .pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      yield* passGrace;
+      const result = yield* Fiber.join(fiber);
+      assert.strictEqual(result.status, "passed");
+      assert.strictEqual(result.decisions, 2);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
   it.effect("still passes an ordinary task whose checks already hold", () =>
     Effect.gen(function* () {
       const task = yield* harness({ choices: [], page: { submits: 1 } });

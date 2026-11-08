@@ -491,7 +491,7 @@ export const makeService = Effect.fn("BrowserTaskService.make")(function* (backe
             cancelled,
             ...(grant === undefined
               ? {}
-              : { onStep: (step) => journeySteps.push(step), requireAction: true }),
+              : { onStep: (step) => journeySteps.push(step), journey: true }),
           });
           // The lease outlives the report when in-flight work has not quiesced.
           const released = yield* Deferred.make<void>();
