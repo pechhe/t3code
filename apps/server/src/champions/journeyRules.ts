@@ -193,8 +193,21 @@ export const describeStep = (step: ChampionJourneyStep) => {
   return path === null ? action : `On ${path}: ${action}`;
 };
 
-export const describeSteps = (steps: ReadonlyArray<ChampionJourneyStep>) =>
-  steps.map((step, index) => `${index + 1}. ${describeStep(step)}`).join("\n");
+export const describeSteps = (steps: ReadonlyArray<ChampionJourneyStep>) => {
+  const runs: Array<{ text: string; times: number }> = [];
+  for (const step of steps) {
+    const text = describeStep(step);
+    const last = runs.at(-1);
+    if (last?.text === text) last.times += 1;
+    else runs.push({ text, times: 1 });
+  }
+  return runs
+    .map(
+      ({ text, times }, index) =>
+        `${index + 1}. ${text}${times === 1 ? "" : ` (repeated ${times} times)`}`,
+    )
+    .join("\n");
+};
 
 /** Which paths a journey walked, for coverage and to tell one bug's failure from another's. */
 export const urlsOf = (steps: ReadonlyArray<ChampionJourneyStep>) => [

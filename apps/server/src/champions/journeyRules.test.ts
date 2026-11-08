@@ -228,3 +228,24 @@ describe("findingEvidence", () => {
     expect(evidence).toContain("Screenshot: /shots/one.png");
   });
 });
+
+describe("describeSteps", () => {
+  it("says a repeated click once, with how many times", () => {
+    const click = {
+      id: "P1",
+      kind: "page",
+      operation: "click",
+      target: { role: "link", name: "Open" },
+      description: null,
+      option: null,
+      value: null,
+      url: "http://localhost:3300/list",
+      state: "completed",
+      at: "2026-11-08T00:00:00.000Z",
+      ms: 1,
+    } as const;
+    expect(Rules.describeSteps([click, click, click])).toBe(
+      '1. On /list: click the link named "Open" (repeated 3 times)',
+    );
+  });
+});
