@@ -1027,6 +1027,30 @@ describe("BrowserTaskService journeys", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
   );
 
+  it.effect("fails a journey whose model judges the page broken, naming what it saw", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        choices: ["BROKEN"],
+        page: { text: "Error 500" },
+        journeys,
+      });
+      const fiber = yield* task.service
+        .run({
+          scope,
+          request: { ...alreadyTrue, requestId: "broken", pageReach: {} },
+          authorize: allow,
+        })
+        .pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      yield* passGrace;
+      const result = yield* Fiber.join(fiber);
+      assert.strictEqual(result.status, "failed");
+      assert.strictEqual(result.reason, "page-broken");
+      assert.include(result.detail, "Error 500");
+      assert.strictEqual(task.decisions[0]!.rule.id, "bounded-browser-task-journey");
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
   it.effect("still passes an ordinary task whose checks already hold", () =>
     Effect.gen(function* () {
       const task = yield* harness({ choices: [], page: { submits: 1 } });
