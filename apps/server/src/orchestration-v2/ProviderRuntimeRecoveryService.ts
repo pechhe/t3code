@@ -981,12 +981,56 @@ export const make = Effect.gen(function* () {
               .continueThreadsAfterServerUpdate
           )
             return;
-          const run = restartContinuationRun(projection, yield* DateTime.now);
+          const now = yield* DateTime.now;
+          const run = restartContinuationRun(projection, now);
           if (!run) return;
           const commandId = CommandId.make(`command:restart-prepare:${run.id}`);
+          // Stopping the provider process drops its roster before the shutdown reconciliation
+          // reads it, so record the lost work here or the continuation reports nothing.
+          const providerThread = projection.providerThreads.find(
+            (candidate) => candidate.id === run.providerThreadId,
+          );
+          const coveredNativeIds = new Set(
+            projection.turnItems.flatMap((item) =>
+              isNonterminalTurnItemStatus(item.status) &&
+              isBackgroundCapableTurnItemType(item.type) &&
+              !isAppOwnedDelegationItem(item) &&
+              item.nativeItemRef?.nativeId != null
+                ? [item.nativeItemRef.nativeId]
+                : [],
+            ),
+          );
+          const lostWork =
+            providerThread === undefined || providerThread.ownerNodeId !== null
+              ? []
+              : (providerThread.pendingBackgroundTasks ?? []).flatMap((task) =>
+                  coveredNativeIds.has(task.taskId) ||
+                  (task.parentTaskId !== undefined && coveredNativeIds.has(task.parentTaskId))
+                    ? []
+                    : [cancelledRosterTaskWork(task)],
+                );
           yield* eventSink.writeWithEffects({
             commandId,
-            events: [],
+            events:
+              lostWork.length === 0
+                ? []
+                : [
+                    {
+                      id: yield* ids.allocate.event({ threadId, commandId }),
+                      type: "run.background-work-cancelled" as const,
+                      threadId,
+                      runId: run.id,
+                      providerInstanceId: run.providerInstanceId,
+                      occurredAt: now,
+                      payload: {
+                        runId: run.id,
+                        restartCancelledBackgroundWork: mergeRestartCancelledBackgroundWork(
+                          run.restartCancelledBackgroundWork ?? [],
+                          lostWork,
+                        ),
+                      },
+                    },
+                  ],
             effects: [
               {
                 id: `effect:restart-continuation:${run.id}`,

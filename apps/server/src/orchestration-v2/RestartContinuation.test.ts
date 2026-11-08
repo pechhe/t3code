@@ -1329,3 +1329,108 @@ it.effect("skips restart discovery when no project enables continuation", () =>
     yield* recovery.prepareForShutdown;
   }),
 );
+
+it.effect("records roster work with the prepared continuation before shutdown drops it", () =>
+  Effect.gen(function* () {
+    const base = makeProjection();
+    const lostWork = [
+      { taskId: "b6zhso7dl", kind: "command" as const, awaited: true as const },
+      { taskId: "dev-server", kind: "command" as const },
+    ];
+    const projection = {
+      ...base,
+      runs: [{ ...base.runs[0]!, status: "completed", completedAt: now }],
+      providerThreads: [
+        {
+          ...base.providerThreads[0]!,
+          status: "active",
+          pendingBackgroundTasks: lostWork,
+        },
+      ],
+      providerTurns: [{ ...base.providerTurns[0]!, status: "completed" }],
+    } as unknown as OrchestrationV2ThreadProjection;
+    const writes: Parameters<EventSink.EventSinkV2["Service"]["writeWithEffects"]>[0][] = [];
+    const recovery = yield* ProviderRuntimeRecovery.make.pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          ServerSettings.layerTest({ continueThreadsAfterServerUpdate: true }),
+          Layer.mock(ProjectionStore.ProjectionStoreV2)({
+            getRecoveryThreadIds: () => Effect.succeed([threadId]),
+            getRuntimeRecoveryProjection: () => Effect.succeed(projection),
+          }),
+          Layer.mock(EventSink.EventSinkV2)({
+            writeWithEffects: (input) =>
+              Effect.sync(() => {
+                writes.push(input);
+                return [];
+              }),
+          }),
+          IdAllocator.layer,
+          Layer.mock(EffectWorker.OrchestrationEffectWorkerV2)({}),
+          Layer.mock(EffectOutbox.EffectOutboxV2)({}),
+        ),
+      ),
+    );
+    yield* recovery.prepareForShutdown;
+    assert.lengthOf(writes, 1);
+    assert.deepEqual(
+      writes[0]!.effects.map((effect) => effect.request),
+      [{ type: "provider-runtime.continue", sourceRunId: runId }],
+    );
+    const noted = writes[0]!.events.filter(
+      (event) => event.type === "run.background-work-cancelled",
+    );
+    assert.deepEqual(
+      noted.map((event) =>
+        event.type === "run.background-work-cancelled"
+          ? event.payload.restartCancelledBackgroundWork
+          : [],
+      ),
+      [
+        [
+          { kind: "shell", label: "b6zhso7dl", id: "b6zhso7dl", awaited: true },
+          { kind: "shell", label: "dev-server", id: "dev-server" },
+        ],
+      ],
+    );
+
+    const commands: Parameters<
+      ThreadManagementService.ThreadManagementService["Service"]["dispatch"]
+    >[0][] = [];
+    yield* continueRestartedRun({ threadId, sourceRunId: runId }).pipe(
+      Effect.provide(
+        Layer.merge(
+          Layer.mock(ThreadManagementService.ThreadManagementService)({
+            getThreadRecords: () =>
+              Effect.succeed({
+                ...projection,
+                providerThreads: [
+                  { ...projection.providerThreads[0]!, pendingBackgroundTasks: [] },
+                ],
+                runs: [
+                  {
+                    ...projection.runs[0]!,
+                    restartCancelledBackgroundWork:
+                      noted[0]?.type === "run.background-work-cancelled"
+                        ? noted[0].payload.restartCancelledBackgroundWork
+                        : [],
+                  },
+                ],
+              } as unknown as OrchestrationV2ThreadProjection),
+            recoverDelegatedTask: () => Effect.void,
+            dispatch: (command) => {
+              commands.push(command);
+              return Effect.succeed({} as never);
+            },
+          }),
+          ServerSettings.layerTest({ continueThreadsAfterServerUpdate: true }),
+        ),
+      ),
+    );
+    assert.lengthOf(commands, 1);
+    const command = commands[0]!;
+    assert.equal(command.type, "message.dispatch");
+    if (command.type !== "message.dispatch") return;
+    assert.include(command.text, "- shell: b6zhso7dl");
+  }),
+);
