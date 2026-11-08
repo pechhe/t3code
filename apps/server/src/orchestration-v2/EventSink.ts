@@ -860,32 +860,31 @@ const layerBase: Layer.Layer<
       readonly eventType?: OrchestrationV2DomainEvent["type"];
     }): Stream.Stream<OrchestrationV2StoredEvent, unknown> => {
       const pageSize = 256;
-      const loop = (afterSequence: number): Stream.Stream<OrchestrationV2StoredEvent, unknown> =>
-        Stream.unwrap(
-          eventStore
-            .read({
-              afterSequence,
-              throughSequence: input.throughSequence,
-              ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
-              ...(input.eventType === undefined ? {} : { eventType: input.eventType }),
-              limit: pageSize,
-            })
-            .pipe(
-              Stream.runCollect,
-              Effect.map((chunk) => Array.from(chunk)),
-              Effect.map((events) => {
-                if (events.length === 0) {
-                  return Stream.empty;
-                }
-                const current = Stream.fromIterable(events);
-                const last = events.at(-1)?.sequence ?? input.throughSequence;
-                return events.length < pageSize || last >= input.throughSequence
-                  ? current
-                  : Stream.concat(current, loop(last));
-              }),
-            ),
-        );
-      return loop(input.afterSequence);
+      // One page at a time: a recursive concat would keep every page read on the fiber's stack,
+      // which is gigabytes when a reader starts far behind.
+      return Stream.paginate(input.afterSequence, (afterSequence: number) =>
+        eventStore
+          .read({
+            afterSequence,
+            throughSequence: input.throughSequence,
+            ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
+            ...(input.eventType === undefined ? {} : { eventType: input.eventType }),
+            limit: pageSize,
+          })
+          .pipe(
+            Stream.runCollect,
+            Effect.map((chunk) => {
+              const events = Array.from(chunk);
+              const last = events.at(-1)?.sequence ?? input.throughSequence;
+              return [
+                events,
+                events.length < pageSize || last >= input.throughSequence
+                  ? Option.none<number>()
+                  : Option.some(last),
+              ] as const;
+            }),
+          ),
+      );
     };
 
     const stream = (input?: Parameters<EventSinkV2Shape["stream"]>[0]) => {

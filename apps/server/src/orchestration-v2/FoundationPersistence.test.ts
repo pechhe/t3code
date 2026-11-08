@@ -342,6 +342,52 @@ it.effect("paces scheduled compaction while preserving retention state and fixed
   }).pipe(Effect.scoped, Effect.provide(layerTest)),
 );
 
+it.effect("replays every event in order across pages, including one that ends exactly on a page", () =>
+  Effect.gen(function* () {
+    const sink = yield* EventSink.EventSinkV2;
+    const now = yield* DateTime.now;
+    const thread = makeThread(ThreadId.make("thread:paged-replay"), now);
+    yield* sink.write({ events: [threadCreatedEvent({ id: "paged-created", thread, now })] });
+    const start = yield* sink.latestSequence();
+    // The replay reads 256 at a time: two whole pages, then a read that finds nothing more.
+    const written = Array.from({ length: 512 }, (_, index) => `paged-${index}`);
+    for (const id of written) {
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make(id),
+            type: "message.updated",
+            threadId: thread.id,
+            occurredAt: now,
+            payload: {
+              id: MessageId.make("paged-message"),
+              threadId: thread.id,
+              runId: null,
+              nodeId: null,
+              createdBy: "agent",
+              creationSource: "provider",
+              role: "assistant",
+              text: id,
+              streaming: true,
+              attachments: [],
+              createdAt: now,
+              updatedAt: now,
+            },
+          },
+        ],
+      });
+    }
+    const replayed = yield* sink.stream({ afterSequence: start }).pipe(
+      Stream.take(written.length),
+      Stream.runCollect,
+    );
+    assert.deepStrictEqual(
+      Array.from(replayed).map((stored) => String(stored.event.id)),
+      written,
+    );
+  }).pipe(Effect.scoped, Effect.provide(layerTest)),
+);
+
 it.effect(
   "commits an ordered provider batch atomically and publishes only after the outer commit",
   () =>
