@@ -1052,6 +1052,36 @@ describe("BrowserTaskService journeys", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
   );
 
+  it.effect("stops offering a journey more scrolling after two idle moves in a row", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        choices: ["SCROLL_DOWN", "WAIT", "BROKEN"],
+        page: { text: "Error 500" },
+        journeys,
+      });
+      const fiber = yield* task.service
+        .run({
+          scope,
+          request: { ...alreadyTrue, requestId: "idle", pageReach: {} },
+          authorize: allow,
+        })
+        .pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      yield* passGrace;
+      yield* TestClock.adjust("5 seconds");
+      yield* Fiber.join(fiber);
+      const offered = task.decisions.map((decision) =>
+        decision.questions[0]?.type === "choice"
+          ? decision.questions[0].choices.map((choice) => choice.label)
+          : [],
+      );
+      assert.include(offered[1] ?? [], "SCROLL_DOWN");
+      assert.notInclude(offered[2] ?? [], "SCROLL_DOWN");
+      assert.notInclude(offered[2] ?? [], "WAIT");
+      assert.include(offered[2] ?? [], "BROKEN");
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
   it.effect("records what a journey typed and where, so its steps can be replayed", () =>
     Effect.gen(function* () {
       const recorded: Array<ReadonlyArray<ChampionJourneyStep>> = [];
