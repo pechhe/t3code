@@ -129,6 +129,7 @@ type Choice = string | DecisionError | ((request: DecisionRequest) => string);
 
 const harness = Effect.fn("harness")(function* (options: {
   readonly choices?: ReadonlyArray<Choice>;
+  readonly journeys?: TaskBackend["journeys"];
   readonly page?: Partial<FakePage>;
   /** Blocks the act matching this until `ack` is completed; never answered otherwise. */
   readonly withhold?: (operation: string, input: Record<string, unknown>) => boolean;
@@ -175,6 +176,7 @@ const harness = Effect.fn("harness")(function* (options: {
   let generation = 0;
 
   const backend: TaskBackend = {
+    ...(options.journeys === undefined ? {} : { journeys: options.journeys }),
     credentialState: () => Effect.sync(() => options.credential?.() ?? "live"),
     readLogin: (key) => {
       const store = options.logins ?? {};
@@ -974,6 +976,57 @@ const ORDERED_REQUEST: PreviewTaskRequest = {
   ],
   checks: FORM_REQUEST.checks,
 };
+
+describe("BrowserTaskService journeys", () => {
+  const journeys = {
+    forThread: () =>
+      Effect.succeed({
+        checkId: "check-1",
+        allow: ["localhost:3300"],
+        tabLimit: 32,
+        decisionCap: 16,
+        journeyLimit: 32,
+      }),
+    record: () => undefined,
+    admitTask: () => Effect.succeed({ _tag: "admitted" as const, decisions: 16 }),
+    recordTask: () => Effect.void,
+  };
+  const alreadyTrue = {
+    requestId: "already-true",
+    tabId: FORM_REQUEST.tabId,
+    engine: FORM_REQUEST.engine,
+    goal: "Look around.",
+    checks: FORM_REQUEST.checks,
+  };
+
+  it.effect("does not pass a journey on checks that already held when it arrived", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({ choices: ["DONE"], page: { submits: 1 }, journeys });
+      const fiber = yield* task.service
+        .run({ scope, request: alreadyTrue, authorize: allow })
+        .pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      yield* passGrace;
+      const result = yield* Fiber.join(fiber);
+      assert.strictEqual(result.status, "blocked");
+      assert.strictEqual(result.reason, "nothing-tested");
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("still passes an ordinary task whose checks already hold", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({ choices: [], page: { submits: 1 } });
+      const fiber = yield* task.service
+        .run({ scope, request: alreadyTrue, authorize: allow })
+        .pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      yield* passGrace;
+      const result = yield* Fiber.join(fiber);
+      assert.strictEqual(result.status, "passed");
+      assert.strictEqual(result.decisions, 0);
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+});
 
 describe("BrowserTaskService ordered steps", () => {
   const KEY_TARGET = { role: "textbox", name: "Email" } as const;

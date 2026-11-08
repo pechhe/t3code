@@ -377,6 +377,12 @@ export const emptyRecord = (request: PreviewTaskRequest): RunRecord => ({
  * Drives one admitted task to a terminal record. Returns whether an uncertain mutation was left
  * behind, which decides how the tab may be used next. The caller owns the lease release.
  */
+/** A journey that never acted proves nothing, even when its checks happen to hold on arrival. */
+export const nothingTested = (
+  requireAction: boolean,
+  actions: ReadonlyArray<{ readonly state: string }>,
+) => requireAction && !actions.some((action) => action.state === "completed");
+
 export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (input: {
   readonly request: PreviewTaskRequest;
   readonly record: RunRecord;
@@ -385,6 +391,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
   readonly cancelled: Deferred.Deferred<void>;
   /** Hears every step that reached the page, with what a later replay needs. */
   readonly onStep?: ((step: ChampionJourneyStep) => void) | undefined;
+  readonly requireAction?: boolean | undefined;
 }) {
   const { request, record, port, limits, cancelled, onStep } = input;
   const timings = record.timings as Mutable<RunRecord["timings"]>;
@@ -1695,7 +1702,8 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         // A capture target still loading is worth waiting for, not a failed capture.
         (request.capture === undefined ||
           resolveTarget(model, request.capture.target)._tag === "unique");
-      if (verified) return yield* finalize(model, false);
+      if (verified && !nothingTested(input.requireAction === true, record.actions))
+        return yield* finalize(model, false);
 
       const plan = yield* offersFor(model);
       if (plan === undefined) return;
@@ -1716,6 +1724,14 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         return yield* explainStillMissing(model);
       }
       if (next === "DONE") {
+        if (nothingTested(input.requireAction === true, record.actions)) {
+          yield* stop(
+            "blocked",
+            "nothing-tested",
+            "The task ended without taking any action, so it tested nothing. Give it a goal that acts on the page.",
+          );
+          return;
+        }
         const fresh = yield* observe;
         if (fresh === undefined) return;
         return yield* finalize(fresh, true);
