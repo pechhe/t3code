@@ -111,10 +111,14 @@ import {
   SettingsScheduledTaskEditRouteScreen,
 } from "./features/settings/SettingsScheduledTasksRouteScreen";
 import {
+import {
   SettingsChampionDetailRouteScreen,
   SettingsChampionsRouteScreen,
 } from "./features/settings/SettingsChampionsRouteScreen";
-import { ScheduledTaskBranchPickerRouteScreen } from "./features/settings/ScheduledTaskPickerScreens";
+import {
+  ScheduledTaskBranchPickerRouteScreen,
+  ScheduledTaskThreadPickerRouteScreen,
+} from "./features/settings/ScheduledTaskPickerScreens";
 import { SettingsKeyboardRouteScreen } from "./features/settings/SettingsKeyboardRouteScreen";
 import { SettingsLegalRouteScreen } from "./features/settings/SettingsLegalRouteScreen";
 import { SettingsVoiceRouteScreen } from "./features/settings/SettingsVoiceRouteScreen";
@@ -318,6 +322,10 @@ const SETTINGS_SCREENS = {
   SettingsScheduledTaskBranch: createNativeStackScreen({
     screen: ScheduledTaskBranchPickerRouteScreen,
     options: settingsPage("Base branch"),
+  }),
+  SettingsScheduledTaskThread: createNativeStackScreen({
+    screen: ScheduledTaskThreadPickerRouteScreen,
+    options: settingsPage("Destination"),
   }),
   SettingsClientStorage: createNativeStackScreen({
     screen: SettingsClientStorageRouteScreen,

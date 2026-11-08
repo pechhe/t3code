@@ -15,9 +15,11 @@ import {
   AgentRole,
   AuthOrchestrationOperateScope,
   type EnvironmentId,
+  type ThreadId,
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
   MAX_WEBHOOK_FILTERS,
   type ModelSelection,
+  type ProjectId,
   type ScheduledTaskThreadMode,
   type ScheduledTaskUpsertSchedule,
   resolveEnvironmentMachineKind,
@@ -26,6 +28,7 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import {
   CalendarClockIcon,
+  ChevronDownIcon,
   ChevronRightIcon,
   InboxIcon,
   LinkIcon,
@@ -43,7 +46,8 @@ import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
 } from "@t3tools/client-runtime/state/project-grouping";
-import { useProjects, useThreadShells } from "../../state/entities";
+import { useProjects, useThreadShells, useVisibleThreadShells } from "../../state/entities";
+import { useThreadSearch } from "../../state/queries";
 import { environmentAtomList, environmentIdsKey } from "../../state/environmentAtomList";
 import { useEnvironments } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
@@ -54,6 +58,15 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import {
+  Combobox,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+  ComboboxSearchInput,
+  ComboboxTrigger,
+} from "../ui/combobox";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -79,16 +92,21 @@ import {
   type ProjectChoice,
   type ScheduleDraft,
   type ScheduleKind,
+  type ScheduledTaskDestination,
   type ScheduledTaskGroup,
   type WorkspaceChoice,
+  chosenThreadId,
   groupScheduledTasks,
   groupStatus,
   markGroupFailuresSeen,
+  moveDraftToThread,
   planGroupSave,
   roleModelSummary,
   scheduleDraftOf,
+  scheduledTaskDestinationThreads,
   soonestRunAt,
   timedScheduleOf,
+  unbindDraftFromThread,
   webhookDraftErrors,
   webhookDraftOf,
   webhookScheduleOf,
@@ -153,6 +171,8 @@ interface EditorDraft extends ScheduleDraft, WebhookDraft {
   readonly workspace: WorkspaceChoice;
   readonly agentRole: AgentRole;
   readonly threadMode: ScheduledTaskThreadMode;
+  /** The thread picked in this editor; null keeps the one the task is stored with. */
+  readonly destination: ScheduledTaskDestination | null;
 }
 
 const reportFailure = (title: string, error: unknown) =>
@@ -401,6 +421,7 @@ function draftOf(
     workspace: lead ? workspaceChoiceOf(lead.workspaceStrategy) : "fresh",
     agentRole: lead?.agentRole ?? DEFAULT_ROLE,
     threadMode: lead ? scheduledTaskThreadMode(lead) : "new_thread",
+    destination: null,
   };
 }
 
@@ -460,7 +481,35 @@ function TaskDetail(props: {
   );
   const update = (patch: Partial<EditorDraft>) => setDraft((current) => ({ ...current, ...patch }));
   const leadEnvironmentId = group === null ? null : leadEnvironmentOf(group);
-  const boundThreadId = group?.lead.threadId ?? null;
+  // The thread the lead task posts into, or the one picked here in its place.
+  const boundThreadId =
+    group === null || leadEnvironmentId === null
+      ? null
+      : chosenThreadId(draft.destination, group.lead.threadId ?? null, {
+          environmentId: leadEnvironmentId,
+          projectId: group.lead.projectId,
+        });
+  // A single machine and project is where an unbound task can pick an existing thread.
+  const soleEnvironmentId = draft.machines.length === 1 ? (draft.machines[0] ?? null) : null;
+  const soleProject =
+    projectKeys.length === 1
+      ? projectChoices.find((choice) => choice.key === projectKeys[0])
+      : undefined;
+  const soleProjectId =
+    soleEnvironmentId === null
+      ? undefined
+      : soleProject?.projectIdByEnvironment.get(soleEnvironmentId);
+  const pickedThreadId =
+    soleEnvironmentId === null || soleProjectId === undefined
+      ? null
+      : chosenThreadId(
+          draft.destination,
+          group?.members.find(
+            (member) =>
+              member.environmentId === soleEnvironmentId && member.task.projectId === soleProjectId,
+          )?.task.threadId ?? null,
+          { environmentId: soleEnvironmentId, projectId: soleProjectId },
+        );
   // A task that runs in a thread posts there, so where it runs is that thread's.
   const bound = boundThreadId !== null && draft.threadMode !== "new_thread";
   // Without a thread yet, the first run starts one where it runs below.
@@ -482,6 +531,7 @@ function TaskDetail(props: {
       workspace: draft.workspace,
       agentRole: draft.agentRole,
       threadMode: draft.threadMode,
+      destination: draft.destination,
     },
     groupId: "",
     existing: group?.members ?? [],
@@ -723,7 +773,13 @@ function TaskDetail(props: {
           threadId={boundThreadId}
           threadMode={draft.threadMode}
           project={projectChoices.find((choice) => choice.key === projectKeys[0])?.project ?? null}
+          projectId={group?.lead.projectId ?? null}
           onThreadModeChange={(threadMode) => update({ threadMode })}
+          onMove={(thread) =>
+            setDraft((current) =>
+              thread === null ? unbindDraftFromThread(current) : moveDraftToThread(current, thread),
+            )
+          }
         />
       ) : null}
       {bound ? null : (
@@ -821,6 +877,23 @@ function TaskDetail(props: {
                 )}
               </SelectPopup>
             </Select>
+            {draft.threadMode !== "new_thread" &&
+            soleEnvironmentId !== null &&
+            soleProjectId !== undefined ? (
+              <ThreadDestinationPicker
+                environmentId={soleEnvironmentId}
+                projectId={soleProjectId}
+                threadId={pickedThreadId}
+                label={pickedThreadId === null ? "Thread started by the first run" : undefined}
+                onSelect={(thread) =>
+                  setDraft((current) =>
+                    thread === null
+                      ? unbindDraftFromThread(current)
+                      : moveDraftToThread(current, thread),
+                  )
+                }
+              />
+            ) : null}
             <span className="inline-flex items-center gap-1 text-muted-foreground">Works in</span>
             <Select
               value={draft.workspace}
@@ -1018,7 +1091,10 @@ function LinkedThreadPanel(props: {
   readonly threadId: NonNullable<ScheduledTaskGroup["lead"]["threadId"]>;
   readonly threadMode: ScheduledTaskThreadMode;
   readonly project: ReturnType<typeof useProjects>[number] | null;
+  readonly projectId: ProjectId | null;
   readonly onThreadModeChange: (threadMode: ScheduledTaskThreadMode) => void;
+  /** Moves the task to the picked thread; null starts a new thread each run. */
+  readonly onMove: (thread: PickedThread | null) => void;
 }) {
   const navigate = useNavigate();
   const linkedMode = props.threadMode === "new_thread" ? null : props.threadMode;
@@ -1052,6 +1128,15 @@ function LinkedThreadPanel(props: {
           <span className="min-w-0 truncate">{thread?.title ?? "A thread not loaded here"}</span>
         </Button>
         {props.project ? <ProjectChip project={props.project} /> : null}
+        {props.projectId !== null ? (
+          <ThreadDestinationPicker
+            environmentId={props.environmentId}
+            projectId={props.projectId}
+            threadId={props.threadId}
+            label="Change thread"
+            onSelect={props.onMove}
+          />
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
         {linkedMode !== null ? (
@@ -1087,6 +1172,106 @@ function LinkedThreadPanel(props: {
         </Button>
       </div>
     </div>
+  );
+}
+
+type PickedThread = {
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+  readonly id: ThreadId;
+};
+
+/** Sorts first and never matches a thread id, so "New thread each run" is a plain list entry. */
+const NEW_THREAD_DESTINATION = " new-thread";
+
+/**
+ * Picks the thread a task posts into: an open thread of the same machine and project, or a
+ * new thread each run. The server refuses an archived, deleted or other-project thread on save.
+ */
+function ThreadDestinationPicker(props: {
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+  readonly threadId: ThreadId | null;
+  /** Names the trigger; it shows the current thread's title when absent. */
+  readonly label?: string | undefined;
+  readonly onSelect: (thread: PickedThread | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const shells = useVisibleThreadShells(open);
+  // Mounts older settled threads matching the query, which the shells may leave out.
+  useThreadSearch(open ? [props.environmentId] : [], query, {
+    titlesOnly: true,
+    projectIds: [props.projectId],
+  });
+  const current = useThreadShells().find(
+    (candidate) =>
+      candidate.environmentId === props.environmentId && candidate.id === props.threadId,
+  );
+  const threads = scheduledTaskDestinationThreads(shells, {
+    environmentId: props.environmentId,
+    projectId: props.projectId,
+    currentThreadId: props.threadId,
+    query,
+  });
+  const search = query.trim().toLocaleLowerCase();
+  const items: ReadonlyArray<string> = [
+    ...(search ? [] : [NEW_THREAD_DESTINATION]),
+    ...threads.map((thread) => thread.id),
+  ];
+  const close = () => {
+    setOpen(false);
+    setQuery("");
+  };
+  return (
+    <Combobox
+      items={items}
+      filteredItems={items}
+      filter={null}
+      autoHighlight
+      open={open}
+      onOpenChange={(next) => (next ? setOpen(true) : close())}
+      value={props.threadId}
+      onValueChange={(value) => {
+        if (value === NEW_THREAD_DESTINATION) props.onSelect(null);
+        else {
+          const picked = threads.find((thread) => thread.id === value);
+          if (picked) props.onSelect(picked);
+        }
+        close();
+      }}
+    >
+      <ComboboxTrigger
+        aria-label="Destination thread"
+        render={<Button variant="outline" size="xs" className="min-w-0 max-w-72" />}
+      >
+        <MessageSquareIcon />
+        <span className="min-w-0 truncate">
+          {props.label ?? (current?.title.trim() || "A thread not loaded here")}
+        </span>
+        <ChevronDownIcon />
+      </ComboboxTrigger>
+      <ComboboxPopup align="start" side="bottom" className="w-80">
+        <ComboboxSearchInput
+          aria-label="Search threads"
+          placeholder="Search this project's threads..."
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <ComboboxEmpty>No threads found.</ComboboxEmpty>
+        <ComboboxList className="max-h-72">
+          {items.map((value, index) => (
+            <ComboboxItem key={value} index={index} value={value}>
+              <span className="block truncate">
+                {value === NEW_THREAD_DESTINATION
+                  ? "New thread each run"
+                  : threads.find((thread) => thread.id === value)?.title || "Untitled thread"}
+              </span>
+            </ComboboxItem>
+          ))}
+        </ComboboxList>
+      </ComboboxPopup>
+    </Combobox>
   );
 }
 

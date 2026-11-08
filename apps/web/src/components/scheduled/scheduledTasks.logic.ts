@@ -5,8 +5,10 @@ import {
   webhookFilterDraftsChanged,
   type WebhookFilterDraft,
 } from "@t3tools/client-runtime/scheduled-task-webhook";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   EnvironmentId,
+  isListedThreadLineage,
   isWebhookDedupeTemplate,
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
   ScheduledTaskId,
@@ -19,6 +21,7 @@ import {
   type ScheduledTaskThreadMode,
   type ScheduledTaskUpsertInput,
   type ScheduledTaskUpsertSchedule,
+  type ThreadId,
 } from "@t3tools/contracts";
 
 /** `/scheduled?environmentId=…&taskId=…` opens that task. */
@@ -215,6 +218,91 @@ export interface GroupDraftFields {
   readonly agentRole: AgentRole;
   /** One thread each run continues or opens a fresh session in; "new_thread" starts one per run. */
   readonly threadMode: ScheduledTaskThreadMode;
+  /**
+   * The thread the person picked for the machine and project it belongs to. Absent or null
+   * keeps each stored task's own thread. A pair it does not belong to ignores it, so
+   * choosing another machine or project drops the pick.
+   */
+  readonly destination?: ScheduledTaskDestination | null;
+}
+
+/** A thread chosen as where a task posts: it belongs to one machine and one project. */
+export interface ScheduledTaskDestination {
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+  readonly threadId: ThreadId;
+}
+
+/** The thread a task posts into: the pick if it belongs to this machine and project, else the stored one. */
+export function chosenThreadId(
+  destination: ScheduledTaskDestination | null | undefined,
+  stored: ThreadId | null,
+  target: { readonly environmentId: EnvironmentId; readonly projectId: ProjectId },
+): ThreadId | null {
+  return destination &&
+    destination.environmentId === target.environmentId &&
+    destination.projectId === target.projectId
+    ? destination.threadId
+    : stored;
+}
+
+/** Posts into the picked thread; a task that started a thread per run now runs in one. */
+export function moveDraftToThread<
+  TDraft extends {
+    readonly threadMode: ScheduledTaskThreadMode;
+    readonly destination?: ScheduledTaskDestination | null;
+  },
+>(
+  draft: TDraft,
+  thread: {
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+    readonly id: ThreadId;
+  },
+): TDraft {
+  return {
+    ...draft,
+    destination: {
+      environmentId: thread.environmentId,
+      projectId: thread.projectId,
+      threadId: thread.id,
+    },
+    threadMode: draft.threadMode === "new_thread" ? "continue" : draft.threadMode,
+  };
+}
+
+/** Leaves the thread: each run starts a new one, and the save clears the stored binding. */
+export function unbindDraftFromThread<
+  TDraft extends {
+    readonly threadMode: ScheduledTaskThreadMode;
+    readonly destination?: ScheduledTaskDestination | null;
+  },
+>(draft: TDraft): TDraft {
+  return { ...draft, destination: null, threadMode: "new_thread" };
+}
+
+/** Threads a task can move to. The current one is left out; the picker always shows it. */
+export function scheduledTaskDestinationThreads(
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+  target: {
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+    readonly currentThreadId: ThreadId | null;
+    readonly query: string;
+  },
+): ReadonlyArray<EnvironmentThreadShell> {
+  const search = target.query.trim().toLocaleLowerCase();
+  return threads
+    .filter(
+      (thread) =>
+        thread.environmentId === target.environmentId &&
+        thread.projectId === target.projectId &&
+        thread.id !== target.currentThreadId &&
+        thread.archivedAt === null &&
+        isListedThreadLineage(thread.lineage) &&
+        thread.title.toLocaleLowerCase().includes(search),
+    )
+    .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
 /**
@@ -254,7 +342,13 @@ export function planGroupSave(input: {
           enabled: draft.enabled,
           schedule: draft.schedule,
           projectId,
-          threadId: draft.threadMode === "new_thread" ? null : (previous?.threadId ?? null),
+          threadId:
+            draft.threadMode === "new_thread"
+              ? null
+              : chosenThreadId(draft.destination, previous?.threadId ?? null, {
+                  environmentId,
+                  projectId,
+                }),
           threadMode: draft.threadMode,
           workspaceStrategy: workspaceStrategyFor(
             draft.workspace,

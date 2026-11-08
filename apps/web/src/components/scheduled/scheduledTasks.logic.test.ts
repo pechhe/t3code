@@ -9,10 +9,15 @@ import {
 } from "@t3tools/contracts";
 import { assert, describe, expect, it } from "vite-plus/test";
 
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
+  chosenThreadId,
   groupScheduledTasks,
   markGroupFailuresSeen,
+  moveDraftToThread,
   planGroupSave,
+  scheduledTaskDestinationThreads,
+  unbindDraftFromThread,
   scheduleDraftOf,
   scheduledSignal,
   timedScheduleOf,
@@ -371,5 +376,126 @@ describe("webhook delivery labels and validation messages", () => {
       "Coalesce key must contain a valid request placeholder.",
       "Coalesce window must be whole seconds from 10 to 3600.",
     ]);
+  });
+});
+
+const shell = (
+  id: string,
+  overrides: Partial<{
+    environmentId: EnvironmentId;
+    projectId: string;
+    title: string;
+    updatedAt: string;
+    archivedAt: string | null;
+    lineage: unknown;
+  }> = {},
+) =>
+  ({
+    id: ThreadId.make(id),
+    environmentId: mac,
+    projectId: ProjectId.make("p-mac"),
+    title: id,
+    updatedAt: "2026-10-15T08:00:00.000Z",
+    archivedAt: null,
+    lineage: {},
+    ...overrides,
+  }) as unknown as EnvironmentThreadShell;
+
+describe("choosing the thread a task posts into", () => {
+  const bound = task({ id: "bound", threadId: ThreadId.make("thread-1") });
+  const destination = {
+    environmentId: mac,
+    projectId: ProjectId.make("p-mac"),
+    threadId: ThreadId.make("thread-2"),
+  };
+  const planWith = (fields: Partial<GroupDraftFields>) =>
+    planGroupSave({
+      draft: draft(fields),
+      groupId: "g",
+      existing: [{ environmentId: mac, task: bound }],
+      projects: [t3peach],
+    }).upserts[0]?.input;
+
+  it("saves the picked thread in place of the stored one", () => {
+    expect(planWith({ destination })).toMatchObject({ threadId: "thread-2" });
+    expect(planWith({ destination: null })).toMatchObject({ threadId: "thread-1" });
+  });
+
+  it("binds a task that had no thread yet", () => {
+    const plan = planGroupSave({
+      draft: draft({ destination }),
+      groupId: "g",
+      existing: [],
+      projects: [t3peach],
+    });
+    expect(plan.upserts[0]?.input).toMatchObject({ threadId: "thread-2", threadMode: "continue" });
+  });
+
+  it("moves a task that started a thread per run into the picked one", () => {
+    const moved = moveDraftToThread(
+      { threadMode: "new_thread" as ScheduledTaskThreadMode, destination: null },
+      { environmentId: mac, projectId: ProjectId.make("p-mac"), id: ThreadId.make("thread-2") },
+    );
+    expect(moved.threadMode).toBe("continue");
+    expect(planWith(moved)).toMatchObject({ threadId: "thread-2", threadMode: "continue" });
+    const kept = moveDraftToThread(
+      { threadMode: "fresh_session" as ScheduledTaskThreadMode, destination: null },
+      { environmentId: mac, projectId: ProjectId.make("p-mac"), id: ThreadId.make("thread-2") },
+    );
+    expect(kept.threadMode).toBe("fresh_session");
+  });
+
+  it("unbinding clears the thread and the pick", () => {
+    const unbound = unbindDraftFromThread({
+      threadMode: "continue" as ScheduledTaskThreadMode,
+      destination,
+    });
+    expect(planWith(unbound)).toMatchObject({ threadId: null, threadMode: "new_thread" });
+  });
+
+  it("drops the pick when the machine or project changes", () => {
+    const other = ProjectId.make("p-box");
+    expect(chosenThreadId(destination, null, { environmentId: mac, projectId: other })).toBeNull();
+    expect(
+      chosenThreadId(destination, null, { environmentId: box, projectId: destination.projectId }),
+    ).toBeNull();
+    const plan = planGroupSave({
+      draft: draft({ machines: [box], destination }),
+      groupId: "g",
+      existing: [],
+      projects: [t3peach],
+    });
+    expect(plan.upserts[0]?.input.threadId).toBeNull();
+  });
+});
+
+describe("scheduledTaskDestinationThreads", () => {
+  const target = {
+    environmentId: mac,
+    projectId: ProjectId.make("p-mac"),
+    currentThreadId: ThreadId.make("current"),
+    query: "",
+  };
+
+  it("lists open threads of the same machine and project, newest first", () => {
+    const threads = [
+      shell("old", { updatedAt: "2026-10-01T00:00:00.000Z" }),
+      shell("new", { updatedAt: "2026-10-20T00:00:00.000Z" }),
+      shell("current"),
+      shell("archived", { archivedAt: "2026-10-02T00:00:00.000Z" }),
+      shell("elsewhere", { projectId: "p-splay" }),
+      shell("other-machine", { environmentId: box }),
+      shell("subagent", { lineage: { relationshipToParent: "subagent" } }),
+      shell("side-chat", { lineage: { sideChat: true } }),
+    ];
+    const ids = scheduledTaskDestinationThreads(threads, target).map((thread) => thread.id);
+    expect(ids).toEqual(["new", "old"]);
+  });
+
+  it("filters by title ignoring case", () => {
+    const threads = [shell("a", { title: "Fix Login" }), shell("b", { title: "Deploy" })];
+    expect(
+      scheduledTaskDestinationThreads(threads, { ...target, query: " login " }).map((t) => t.id),
+    ).toEqual(["a"]);
   });
 });

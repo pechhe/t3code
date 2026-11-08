@@ -30,7 +30,7 @@ Reuse a stable \`clientRequestId\` for a retry of \`t3_thread_launch\`. Retain i
 - T3 tools may load late, or appear under a harness-normalized MCP prefix such as \`mcp__t3_code__delegate_task\`. Try the name once before you conclude that cross-provider delegation is unavailable; in Codex code mode, call \`tools.mcp__t3_code__orchestrator_capabilities({})\` first. Keep wait loops bounded, do not duplicate active work, and use stable \`clientRequestId\` values when retrying a tool that accepts one.`,
   `### Visuals and preview
 
-- Showing a visual: when a chart, table, diagram, image collage or mockup says more than prose, build a self-contained HTML page with inline <style> and <script>, check it with \`html_preview\`, then publish it with \`html_render\` before your final reply. The reader sees the page above that reply, so don't announce or restate it: add only what it doesn't say. A screenshot on disk or a text description does not show it, and a page a web tool exposes gives data only. Asked for an image to post or send elsewhere: a \`.png\` file and its path, never \`html_render\`.`,
+- Answer data with a trend or comparison with a chart, and show any visual the user asks for here: pass the path to an HTML file, or inline HTML to \`html_preview\`, then \`html_render\` before your final reply. The reader sees the page above that reply, so don't announce or restate it: add only what it doesn't say. A screenshot on disk or a text description does not show it. Never start a server for it. Tools a web page exposes give data only. Never use them to show results. Asked for an image to post, send or use elsewhere: a \`.png\` file and its path, never \`html_render\`.`,
 ];
 
 export const T3_CODE_ORCHESTRATION_INSTRUCTIONS = `

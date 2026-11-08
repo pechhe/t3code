@@ -3,32 +3,32 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.8-nightly.20261107.4340",
-      "sha": "a9e709f15f825cacac1b6d665fa1920c328d68b7"
-    },
-    "target": {
       "tag": "v0.1.8-nightly.20261108.4353",
       "sha": "3cd97a1ee230437b1bfd8441dffe65eac55be1e5"
+    },
+    "target": {
+      "tag": "v0.1.8-nightly.20261108.4367",
+      "sha": "6417151c093e54dbba0e6c824c69d03983793b9a"
     }
   },
   "fork": {
-    "base": "f1bea6732bdb466ac22c496b2cd5fdb35735a977"
+    "base": "abf1ecbb6a7f792a315515a5a142e9c119e8789f"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "a89302f01a6b92808b227687b27537acf0881e6e"
+    "blob": "9fc2895024817d61bab2cf84070dddb1f5b99332"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.8-nightly.20261108.4353@1794139517",
-  "reviewedAt": "2026-11-08T12:25:00Z",
+  "attempt": "v0.1.8-nightly.20261108.4367@1794146872",
+  "reviewedAt": "2026-11-08T14:29:55Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:08d43120-7a55-4bea-8c0f-ec8829f5db90",
+    "thread": "thread:delegated-task:command%3Amcp%3Athread%253Athread%253Aproject%253Amcp%25253A2839a4ae-3ff8-46cd-8c81-2763c53b5b42%253A619a5f30-cf1f-4d2d-a570-073e1ccfec83%3Adelegate-task%3Afork-4367-review-2",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 11,
+    "upstreamCommits": 8,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
@@ -52,6 +52,7 @@
       "build-items-hq",
       "repository-chips-hq",
       "thread-workflow-chip",
+      "arc-runs",
       "unattended-threads",
       "thread-watches",
       "scheduled-tasks-extensions",
@@ -105,26 +106,25 @@
       "unhandled-rejection-keeps-server"
     ],
     "areas": [
-      "server/mcp + preview: a saved preview screenshot keeps the page's own resolution while the agent's image stays capped (#28255) - the only area that collides with a recorded entry",
-      "mobile: the Android attachment viewer shares PDFs (#32266)",
-      "server/providers: Antigravity takes the agy CLI as a custom binaryPath (#32503), Muse reports a declined /compact's reason and no longer wedges the thread (#28454), and handoff selection skips a message too large for the remaining budget (#23821)",
-      "server/storage: the storage report lists project worktrees nested inside plain folders (#25883)",
-      "web: lineage phase headers truncate instead of overflowing (#27582), the mobile sidebar keeps its width (#27541), device tool update buttons fit their popovers (#27030), and rendered Markdown keeps its bold weight (#25694)",
-      "scripts: report:renders starts on Windows without a vp shim (#32777)",
-      "no structural changes: no migrations, no dependency, catalog or lockfile changes, no contract unification and no platform service split"
+      "server/provider + orchestration-v2: Codex stops waiting on reasoning summaries (#31149: `features.concurrent_reasoning_summaries` in CODEX_THREAD_CONFIG) and an existing provider session refreshes its linking tools when `linkedEnvironmentsEnabled` changes (#26737) - the codex change reaches the fork's own expected frames in CodexAdapterV2.test.ts and the refresh lands inside the fork's managed-MCP registration check",
+      "server/mcp: `html_preview`/`html_render` take an HTML file's path (#32833) - the leaf html tools grow and both the MCP payload ceilings and agentContextBudget.json move; eval mcp-tool-use cases and McpProviderSessions follow upstream",
+      "server/scheduledTasks + web + mobile: a task can move to another thread (#31379) and mobile's prompt field clears the microphone (#32498) - upstream's web panel is the fork's deleted one, so the picker is ported into the fork's Scheduled page; the server's new `requireDestinationThread` is adopted unchanged",
+      "web/cloud + client-runtime: a failed relay unlink reports its reason (#25198) - adopted beside the fork's peer sessions",
+      "web/components/ui + shared: a combobox search input fills its row (#32926) and whole-word title matches outrank busy prefixes (#32242) - adopted, no fork edit in either file",
+      "no structural changes: no migrations, no contract change, no dependency, catalog, override or lockfile change, and no platform service split"
     ],
     "exclusions": [
       {
         "what": "upstream's own changes and their tests",
-        "why": "upstream reviewed them; the reconciliation reviews only its own conflict resolutions, the record and this receipt per fork/README.md"
+        "why": "upstream reviewed them; this reconciliation reviews only its own conflict resolutions, the record and this receipt per fork/README.md"
       },
       {
-        "what": "upstream's mobile PDF-share change (apps/mobile FilePreview, FilePreviewModal, ThreadFilesRouteScreen)",
-        "why": "no test accompanies it upstream and none of the three files carries a fork edit, so the reconciliation has nothing to weigh"
+        "what": "the Codex transcript fixtures upstream re-recorded (28 files)",
+        "why": "upstream's own replay recordings, taken as they are; the fork's expected frames are fixed separately in CodexAdapterV2.test.ts"
       },
       {
-        "what": "the win32 branch of AntigravityInstallation's agy resolution",
-        "why": "upstream's own code and test, untouched by the fork; see the failing check below"
+        "what": "the evals/mcp-tool-use case additions",
+        "why": "upstream's own eval cases for its own html-tool change, with no fork edit in them"
       },
       {
         "what": "dependency and catalog comparison",
@@ -134,72 +134,79 @@
   },
   "dispositions": [
     {
-      "entry": "managed-browser-roles",
-      "upstream": "#28255: the preview snapshot carries `fullScreenshot`, the uncapped capture beside the capped one, requested through the snapshot input; `save` writes the uncapped file.",
+      "entry": "scheduled-tasks-extensions",
+      "upstream": "#31379 adds a destination picker (any unarchived thread of the task's project, with `new_thread` switching to `continue`), `moveDraftToThread`/`unbindDraftFromThread`/`changeDraftProject`/`scheduledTaskDestinationThreads` helpers, and `ScheduledTaskService.requireDestinationThread`; #32498 clears the mobile prompt field from the microphone.",
       "decision": "adapt",
       "requirements": [
-        "`preview_snapshot` turns `save` into the `fullScreenshot` request, so the saved file keeps the page's resolution while the agent's image stays capped",
-        "the request rides the existing `PreviewAutomationSnapshotInput` but is left out of the listed tool parameters, so the single `preview_interact`/`preview_snapshot` surface and its character budget are unchanged",
-        "the fork's secret-visible refusal still wins: a refused snapshot carries no image, so no saved file and no `fullScreenshot`, and the capture is skipped outright when the value was already visible",
-        "`fullScreenshot` stays out of the snapshot metadata the agent receives"
+        "the fork's `/scheduled` page, not upstream's deleted settings panel, gains the picker: `LinkedThreadPanel`'s \"Change thread\" and the unbound \"Runs in\" row, listing only the task's own machine and project",
+        "saving sends the picked `threadId` per member through `planGroupSave`, replacing the stored-thread-only value",
+        "the role picker (never a model picker), the group model, the \"fresh\" destination default and the programmatic MCP surface are unchanged",
+        "a pick is only offered where one machine and one project are chosen, so the server's other-project refusal cannot be triggered by the picker",
+        "unbinding in the web editor leaves the workspace choice alone, while the mobile editor keeps upstream's flip of a root workspace to a worktree from origin as it merged"
       ],
       "evidence": [
-        "apps/server/src/mcp/McpHttpServer.test.ts ('saves the uncapped screenshot while the agent sees the capped one') passes, including its assertion that the metadata has no `fullScreenshot` and the tool result carries the capped image",
-        "apps/server/src/preview/ServerBrowserPage.test.ts passes (31 tests), including the full capture beside the shrunk image and the saved-login refusal",
-        "apps/server/src/preview/ServerBrowser.test.ts passes"
+        "apps/server/src/scheduledTasks/ScheduledTaskService.test.ts and ScheduledTaskService.role.test.ts pass (destination validation, role tests)",
+        "apps/web/src/components/scheduled/scheduledTasks.logic.test.ts passes (25 tests, including the pick being saved over the stored thread, binding a task that had none, moving a `new_thread` task, unbinding, and the pick dropping when machine or project changes)",
+        "apps/web/src/components/settings/ScheduledTasksSettings.browser.test.tsx passes (11 tests) through the fork's page",
+        "apps/mobile/src/features/settings/scheduledTaskDraft.test.ts and scheduled-task-editor-state.test.ts pass (27 tests) with the fork's role field and upstream's thread picker side by side",
+        "apps/server/src/orchestration-v2/ThreadLaunchService.test.ts and runtimeLayer.test.ts pass"
       ]
     },
     {
-      "entry": "phi-browser-backend",
-      "upstream": "#28255 reshapes the server-browser snapshot; #27030 widens the device tools' update buttons in Integrations.",
-      "decision": "retain",
+      "entry": "session-tool-listings",
+      "upstream": "#32833 gives the leaf html tools a file-path form, lengthening their descriptions; #26737 re-reads `linkedEnvironmentsEnabled` and unloads or reopens a provider session when it changes.",
+      "decision": "adapt",
       "requirements": [
-        "Phi routing, custody and lanes unchanged",
-        "a Phi snapshot is the extension's own capture beside the capped server-browser one, so no `fullScreenshot` is set there and its saved file already keeps the page's resolution",
-        "the integration decision stands ahead of the browser role check"
+        "the fork's family table, endpoints, child texts and per-endpoint ceilings stay; the two ceilings that the measurement moved are raised with the numbers recorded in the test",
+        "upstream's release-and-reopen runs before the fork's managed-MCP registration check, which still refuses a registration change while provider work is active and still forgets and re-reads the session entry",
+        "the agent context budget is re-measured rather than carried over"
       ],
       "evidence": [
-        "apps/server/src/preview/PhiBrowser.test.ts, PhiBrowserRunner.test.ts and PhiBrowserProtocol.test.ts pass",
-        "the merged `PhiBrowserProtocol.decodeSnapshotInput` accepts the extended snapshot input and reads only the locator from it"
+        "apps/server/src/mcp/ToolSessionPolicy.test.ts passes (9 budgets across 12 tests): ordinary 50,882 under 50,950, researcher 89,720 under 89,800",
+        "apps/server/src/provider/AgentContextBudget.test.ts passes with the re-measured 10,311 / 12,745 / 122,863 bytes",
+        "apps/server/src/orchestration-v2/ProviderSessionManager.test.ts passes (66 tests), including upstream's linked-environments refresh cases",
+        "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts passes (168 tests) after the fork's expected frames gained upstream's `features.concurrent_reasoning_summaries`",
+        "packages/provider-core/src/server/orchestrationInstructions.test.ts passes (6 tests)"
       ]
     },
     {
-      "entry": "preview-browser-lifetime",
-      "upstream": "#28255 reshapes the capture in `ServerBrowserPage` (a `{data, full}` promise instead of a base64 string).",
-      "decision": "retain",
+      "entry": "fork-guidance",
+      "upstream": "#32833 rewrites the visuals bullet to offer an HTML file's path beside inline HTML.",
+      "decision": "adapt",
       "requirements": [
-        "the fork's profile and context lifetime is unchanged",
-        "the secret-visible refusal still keeps the image out, so a refused snapshot drops the uncapped capture with it; the capture is skipped outright when the value was already visible"
+        "upstream's wording is the base and the fork's rules sit inside that one bullet (publish before the final reply, do not restate the page, a `.png` path for an image to send)",
+        "the `preview_*` usage rules stay in `T3_CODE_BROWSER_TOOL_INSTRUCTIONS`, which only a thread whose listing carries that family receives, so instructions name only listed tools",
+        "the environment-linking bullets upstream keeps adding stay out"
       ],
       "evidence": [
-        "apps/server/src/preview/ServerBrowserContexts.test.ts passes",
-        "apps/server/src/preview/ServerBrowser.test.ts passes"
+        "packages/provider-core/src/server/orchestrationInstructions.test.ts passes (6 tests)",
+        "the merged file keeps the fork's unchanged delegated-child sections and ACP fallback text"
       ]
     },
     {
-      "entry": "slipjay-workspace-archive",
-      "upstream": "#25883: the storage report also lists linked worktrees nested inside a plain folder, asking the projects' Git for them instead of walking the tree.",
+      "entry": "linked-environments",
+      "upstream": "#25198 reports why a relay unlink failed through `relayFailureReason.ts` and the cloud link controller.",
       "decision": "adopt",
       "requirements": [
-        "a nested worktree feeds the orphan report rather than a release, so it is only listed and never removed; the fork's settled-days release rule applies to worktrees a thread uses and is untouched, and these paths never reach it because the report skips referenced worktrees and folders inside a project root",
-        "SlipJay release, refusal and restore behaviour is unchanged"
+        "the fork's peer sessions, thread directory, Champion reads and environment-qualified thread link rule are untouched",
+        "upstream's session refresh keyed on `linkedEnvironmentsEnabled` uses the fork's existing setting, with no second switch"
       ],
       "evidence": [
-        "apps/server/src/storageCleanup.test.ts passes, including 'a SlipJay workspace is released through SlipJay, never git' and 'when a checkout may go'",
-        "upstream's nested-listing hunk sits outside the fork's eligibility and release code: the merged tree routes a nested worktree to the orphan report, which lists it as kept and never releases it",
-        "neither upstream's hunk nor the merge names the fork's release rule or `worktreeEligibility`, so no fork behaviour changed"
+        "apps/web/src/cloud/linkEnvironment.test.ts passes (2 tests)",
+        "apps/server/src/orchestration-v2/ProviderSessionManager.test.ts's linked-environments cases pass"
       ]
     },
     {
       "entry": "web-client-customisation",
-      "upstream": "#25694 restores the bold weight of rendered Markdown in `index.css`.",
+      "upstream": "#32926 makes a combobox search input fill its row; #32242 carries a `wholeWords` tier through the shared palette search so whole-word titles outrank busy prefixes.",
       "decision": "adopt",
       "requirements": [
-        "the fork's response font stack and its copy-bounce rule on inline code are unchanged"
+        "the fork's response font stack and its copy-bounce rule on inline code are unchanged",
+        "no fork behaviour in `packages/shared` is displaced: the new field is additive on the match types"
       ],
       "evidence": [
-        "the merged `index.css` keeps both the fork's `--font-response` stack and its `code[data-copy-bounce]` rule beside upstream's `font-weight: 700`",
-        "the landing gate selects the web campaign for `index.css`"
+        "packages/shared/src/paletteSearch.test.ts passes",
+        "apps/web/src/components/scheduled/scheduledTasks.logic.test.ts and the Scheduled settings browser test exercise the combobox parts unchanged"
       ]
     }
   ],
@@ -211,29 +218,59 @@
       "note": "lockfile up to date, supply-chain policy verified; this tag changes no manifest or lockfile entry"
     },
     {
-      "command": "vp test (apps/web) pnpm exec playwright install chromium-headless-shell",
+      "command": "vp test run src/provider/AgentContextBudget.test.ts (apps/server)",
       "result": "passed",
-      "note": "the server's browser suites need the headless shell; it was absent on this host"
+      "note": "re-measured 10,311 / 12,745 / 122,863 bytes after the merged visuals bullet, upstream's html tools and the landed Arc-run tool text"
     },
     {
-      "command": "vp test -- McpHttpServer.test.ts ServerBrowser.test.ts ServerBrowserContexts.test.ts storageCleanup.test.ts antigravityAuthSupport.test.ts AntigravityInstallation.test.ts (apps/server)",
-      "result": "failed",
-      "note": "6 files, 367 tests: 366 pass and AntigravityInstallation.test.ts fails one case ('agy.cmd' resolves as 'agy.CMD') because macOS's case-insensitive filesystem accepts upstream's win32 PATHEXT probe; the test and the code it drives are upstream's, with no fork edit and no hunk in this merge, so it fails on the bare tag too"
+      "command": "vp test run src/mcp/ToolSessionPolicy.test.ts (apps/server)",
+      "result": "passed",
+      "note": "12 budgets; the landed Arc-run commit moved ordinary to 50,773 and researcher to 89,611, and the html tools' file-path guidance adds 109 characters to both, so the ceilings sit at 50,950 and 89,800 (measured 50,882 and 89,720)"
     },
     {
-      "command": "vp test -- ServerBrowserPage.test.ts (apps/server)",
+      "command": "vp test run src/orchestration-v2/ProviderSessionManager.test.ts (apps/server)",
       "result": "passed",
-      "note": "31 tests, after fixing the auto-merge that left the fork's non-null narrowing wrapping upstream's new `fullScreenshot` field in the test helper"
+      "note": "66 tests"
     },
     {
-      "command": "vp test (packages/provider-muse)",
+      "command": "vp test run src/orchestration-v2/Adapters/CodexAdapterV2.test.ts (apps/server)",
       "result": "passed",
-      "note": "10 files, 106 tests"
+      "note": "168 tests, after the three fork-written expected frames gained upstream's concurrent-reasoning key"
     },
     {
-      "command": "vp test -- preview (packages/contracts)",
+      "command": "vp test run src/scheduledTasks/ScheduledTaskService.test.ts src/scheduledTasks/ScheduledTaskService.role.test.ts src/orchestration-v2/ThreadLaunchService.test.ts src/orchestration-v2/runtimeLayer.test.ts src/mcp/ToolSessionPolicy.test.ts (apps/server)",
       "result": "passed",
-      "note": "2 files, 9 tests"
+      "note": "the only failure in this batch was ToolSessionPolicy's researcher budget, fixed as above; the four other files passed unchanged"
+    },
+    {
+      "command": "vp test run src/features/settings/scheduledTaskDraft.test.ts src/features/settings/scheduled-task-editor-state.test.ts (apps/mobile)",
+      "result": "passed",
+      "note": "27 tests"
+    },
+    {
+      "command": "vp test run src/components/scheduled/scheduledTasks.logic.test.ts (apps/web)",
+      "result": "passed",
+      "note": "25 tests, the ported destination logic"
+    },
+    {
+      "command": "vp test run src/components/settings/ScheduledTasksSettings.browser.test.tsx (apps/web)",
+      "result": "passed",
+      "note": "11 tests in Chromium through the fork's page"
+    },
+    {
+      "command": "vp test run src/cloud/linkEnvironment.test.ts (apps/web)",
+      "result": "passed",
+      "note": "2 tests"
+    },
+    {
+      "command": "vp test run src/server/orchestrationInstructions.test.ts (packages/provider-core)",
+      "result": "passed",
+      "note": "6 tests"
+    },
+    {
+      "command": "vp run typecheck (apps/web)",
+      "result": "passed",
+      "note": "the web package type-checks after the port; the workspace-wide run was interrupted by kills in unrelated packages"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
@@ -241,19 +278,24 @@
       "note": "exit 0; the planner cannot narrow a two-parent merge candidate, so it selects the complete plan and the runner assembles the single landed merge"
     },
     {
-      "command": "independent review (ticket-reviewer, non-ui change)",
+      "command": "independent review (reviewer, change scope)",
       "result": "passed",
-      "note": "0 blocking, 3 should-fix on record and receipt accuracy; all three corrected in the same commit (Decision lines moved above each entry's Owner line, the secret-visible refusal wording narrowed to what the code does, and the nested-worktree decision corrected to the orphan report it feeds), with no code or behaviour affected"
-    },
-    {
-      "command": "node scripts/fork-upstream-receipt.ts verify",
-      "result": "passed",
-      "note": "candidate's last commit carries the receipt; coverage, dispositions, record blob and policy hash agree"
+      "note": "0 blocking, 3 should-fix, 1 note: the session-tool-listings Decision and the matching disposition cited pre-rebase measurements (corrected to 50,882/50,950, 89,720/89,800 and 122,863), '12 budgets' became '9 budgets across 12 tests', the unbind claim was scoped to the web editor because mobile keeps upstream's root-to-worktree flip, and this receipt's reviewer field was replaced with the review that ran. The reviewer verified by reading (it had no shell): the picker's machine/project scoping, planGroupSave's shape, the managed-MCP refusal beside releaseForLinkedEnvironments, all 74 coverage entries and that no Retire-when was met. Note, not fixed: the picker's trigger uses layout classes on the Button, following the neighbouring navigate button."
     },
     {
       "command": "landing gate on the SlipJay runner",
       "result": "not-run",
       "note": "runs at slipjay land"
+    },
+    {
+      "command": "jj rebase -s <merge> -d t3peach@origin -d 6417151c09",
+      "result": "passed",
+      "note": "origin's t3peach moved twice while this update ran (36789e1ab0e5, then abf1ecbb6a7f: an Arc-run refusal reason); the merge was rebased onto each, its first parent is now abf1ecbb6a7f, and the two files the first move touched (ToolSessionPolicy.test.ts ceilings, agentContextBudget.json) were re-measured; the second touched only ThreadMetadataMcpService and its test, with no budget or record conflict"
+    },
+    {
+      "command": "vp test run src/mcp/ThreadMetadataMcpService.test.ts (apps/server)",
+      "result": "passed",
+      "note": "the commit that landed while this update ran; its 39 new test lines pass beside the rebased merge"
     }
   ],
   "result": "reconciled"

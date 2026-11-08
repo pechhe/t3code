@@ -9,6 +9,7 @@ import type {
   ScheduledTaskThreadMode,
   ScheduledTaskUpsertSchedule,
   ScheduledTaskWebhookSignature,
+  ThreadId,
 } from "@t3tools/contracts";
 
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
@@ -208,6 +209,7 @@ export type ScheduledTaskDraft = {
   /** The role whose policy picks the model at each run. */
   readonly agentRole: AgentRole;
   /** Only a fallback for a machine whose policy cannot resolve `agentRole`; nothing picks it. */
+  readonly threadId: ThreadId | null;
   readonly modelSelection: ModelSelection | null;
   /** Whether a saved task kept its own fallback model rather than the project default. */
   readonly modelSelectionIsExplicit: boolean;
@@ -227,6 +229,7 @@ function draftSignature(draft: ScheduledTaskDraft): string {
     draft.prompt,
     draft.projectId,
     draft.agentRole,
+    draft.threadId,
     draft.modelSelection?.instanceId,
     draft.modelSelection?.model,
     [...(draft.modelSelection?.options ?? [])]
@@ -259,6 +262,38 @@ export function hasScheduledTaskDraftChanges(
   return draftSignature(initial) !== draftSignature(current);
 }
 
+export function moveDraftToThread(
+  draft: ScheduledTaskDraft,
+  thread: { readonly id: ThreadId; readonly projectId: ProjectId },
+): ScheduledTaskDraft {
+  return {
+    ...draft,
+    threadId: thread.id,
+    projectId: thread.projectId,
+    threadMode: draft.threadMode === "new_thread" ? "continue" : draft.threadMode,
+  };
+}
+
+/** Leaves the thread but keeps the mode. Matches MCP: new threads stay out of the shared checkout. */
+export function unbindDraftFromThread(draft: ScheduledTaskDraft): ScheduledTaskDraft {
+  if (draft.threadId === null) return draft;
+  return {
+    ...draft,
+    threadId: null,
+    ...(draft.workspace === "root"
+      ? { workspace: "worktree" as const, startFromOrigin: true }
+      : {}),
+  };
+}
+
+export function changeDraftProject(
+  draft: ScheduledTaskDraft,
+  projectId: ProjectId,
+): ScheduledTaskDraft {
+  if (projectId === draft.projectId) return draft;
+  return { ...unbindDraftFromThread(draft), projectId };
+}
+
 export function createDraft(
   projectId: ProjectId | null,
   modelSelection: ModelSelection | null,
@@ -269,6 +304,7 @@ export function createDraft(
     prompt: "",
     projectId,
     agentRole: DEFAULT_SCHEDULED_TASK_ROLE,
+    threadId: null,
     modelSelection,
     modelSelectionIsExplicit: false,
     schedule: DEFAULT_SCHEDULE,
@@ -289,6 +325,7 @@ export function editDraft(task: ScheduledTask): ScheduledTaskDraft {
     prompt: task.prompt,
     projectId: task.projectId,
     agentRole: task.agentRole ?? DEFAULT_SCHEDULED_TASK_ROLE,
+    threadId: task.threadId,
     modelSelection: task.modelSelection,
     modelSelectionIsExplicit: true,
     schedule: scheduleDraftForTask(task),
