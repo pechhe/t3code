@@ -467,6 +467,13 @@ export const make = Effect.gen(function* () {
     return { record: yield* decodeRecord(row.document_json), threadId: row.thread_id as ThreadId };
   });
 
+  const latestCheckOf = Effect.fn("ChampionJourneys.latestCheckOf")(function* (threadId: string) {
+    const [row] = yield* sql<{ check_id: string }>`
+      SELECT check_id FROM champion_journey_checks
+      WHERE thread_id = ${threadId} ORDER BY started_at DESC LIMIT 1`;
+    return row?.check_id;
+  });
+
   const journeysOf = Effect.fn("ChampionJourneys.journeysOf")(function* (checkId: string) {
     const rows = yield* sql<{
       document_json: string;
@@ -1076,6 +1083,7 @@ export const make = Effect.gen(function* () {
   return {
     overLoadLimit,
     ownerBusy,
+    latestCheckOf,
     start,
     finish,
     recordOf,

@@ -68,6 +68,7 @@ import {
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -194,6 +195,7 @@ export interface ChampionRelay {
   readonly threadId: ThreadId | undefined;
   readonly quote: string | undefined;
 }
+const JOURNEY_OWNER_GONE_AFTER = Duration.minutes(5);
 const JOURNEY_DEFER_MINUTES = 30;
 const encodeClicks = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
@@ -879,7 +881,7 @@ const make = Effect.gen(function* () {
       "2. Choose journeys a real person might take and break: dead ends, unusual input, going back or away mid-task and losing work, double submits, empty and very long values. Prefer areas no earlier check covered and areas that recently changed; do not repeat a covered path unless it is a re-test. Never name or assume a bug you have not seen.",
       "3. Run them all at once, spread evenly across the shards. In ONE message issue one t3_browser_open per journey with url = the shard's origin + its signInPath (add next=<path> for where it starts). Then in ONE message issue one t3_browser_task per tab, each with a goal, pageReach: {}, a limit of decisions from the plan, bindings for any unusual input, and checks that can pass only at the journey's end, such as text the finished task must show. A check already true on the first page ends the task at once with no decisions and tests nothing, so never use a bare url check, and do not fall back to scripted steps. Run the plan's full journeyLimit: a check that started fewer has not done its job. Repeat in parallel batches of whole messages, never one at a time; one tab is one journey, and more tasks in the same tab continue it. The server records every journey, its clicks and its timing. Your browsers can reach only the shards. Close each tab when its journey ends.",
       "4. A journey that shows an error page, a dead end, lost work or anything a person would call broken is a candidate: call t3_champions_journey_candidate with its tabId, what should have happened and what did. That tells nobody. Do not judge whether it is real; a stronger model decides. If a journey only stalled on a limit or a slow page, it is not a candidate.",
-      "5. For every candidate, and for every re-test the plan names, call t3_champions_candidate_replay. It starts a fresh database and returns workId, attemptId and a brief. Call delegate_task with agentTask {role: browser, taskClass: non-ui, readOnly: true, demanding: true, browser: {backend: integrated}, workId, attemptId, workspacePath: your workspace} and task = the brief, unchanged; any other task is refused, and so is a follow-up. At most four replays run at once: when a call says so, settle one and go on. When each finishes call t3_champions_candidate_settle: the server reads that agent's verdict itself; what you say about it does not count. Only a confirmed candidate becomes a finding.",
+      "5. For every candidate, and for every re-test the plan names, call t3_champions_candidate_replay. It starts a fresh database and returns workId, attemptId and a brief. Call delegate_task with agentTask {role: browser, taskClass: non-ui, readOnly: true, demanding: true, browser: {backend: integrated}, workId, attemptId, workspacePath: your workspace} and mode wait, and task = the brief, unchanged; any other task is refused, and so is a follow-up. At most four replays run at once: when a call says so, settle one and go on. When each finishes call t3_champions_candidate_settle: the server reads that agent's verdict itself; what you say about it does not count. Only a confirmed candidate becomes a finding.",
       "6. Retain what you covered and under which build with t3_champions_record_learning, plainSummary first.",
       "7. Call t3_champions_report with samples for each frozen metric, findings: [] (the server raises findings from confirmed candidates; never file one yourself), journeys: {started, passed, failed, stopped} counted honestly from your results, and a summary. The server compares your counts with its own and marks the check incomplete if they differ or if a shard stopped. Report plainly a check that could not finish, or that found nothing, with the paths it covered.",
       `Known findings: ${encodeFindings(doc.findings.filter((f) => f.status !== "verified" && f.status !== "dismissed"))}. Charter: ${encodeCharter(doc.champion.charter)}`,
@@ -1467,8 +1469,17 @@ const make = Effect.gen(function* () {
     }>`SELECT document_json FROM champion_checks WHERE thread_id = ${shell.id} AND message_id IN ${sql.in(checkRunMessages(run, runsById))}`.pipe(
       Effect.mapError(failure),
     );
-    if (!rows[0]) return yield* new ChampionError({ reason: "unauthorized" });
-    const check = yield* decodeCheck(rows[0].document_json).pipe(Effect.mapError(failure));
+    // A journey check's owner waits for replays, and each wakes it in a run its check message did not start.
+    const journeyCheckId =
+      rows[0] === undefined
+        ? yield* journeys.latestCheckOf(shell.id).pipe(Effect.mapError(failure))
+        : undefined;
+    if (!rows[0] && journeyCheckId === undefined)
+      return yield* new ChampionError({ reason: "unauthorized" });
+    const check = rows[0]
+      ? yield* decodeCheck(rows[0].document_json).pipe(Effect.mapError(failure))
+      : yield* readCheck(journeyCheckId!);
+    if (!rows[0] && check.reported) return yield* new ChampionError({ reason: "unauthorized" });
     if (check.cancelled) return yield* new ChampionError({ reason: "conflict" });
     const doc = yield* read(check.championId);
     if (doc.champion.projectId !== shell.projectId)
@@ -3408,6 +3419,33 @@ const make = Effect.gen(function* () {
         const endedWithoutReport =
           matchingRuns.some((run) => ThreadManagement.isTerminalRunStatus(run.status)) &&
           !matchingRuns.some(ThreadManagement.isActiveRun);
+        // An owner that stopped for good would otherwise keep its target's servers until they expire.
+        if (doc.champion.journeys !== undefined && check.kind === "check" && shell !== null) {
+          const subagents = yield* threads
+            .getThreadRecords(check.threadId, ["subagents"])
+            .pipe(Effect.mapError(failure));
+          const quietFor = DateTime.distance(
+            DateTime.makeUnsafe(shell.updatedAt),
+            yield* DateTime.now,
+          );
+          if (
+            shell.activeRunId === null &&
+            endedWithoutReport &&
+            !subagents.subagents.some((task) => task.status === "running") &&
+            Duration.isGreaterThanOrEqualTo(quietFor, JOURNEY_OWNER_GONE_AFTER)
+          ) {
+            yield* journeys
+              .finish({
+                checkId: check.id,
+                championId: doc.champion.id,
+                threadId: doc.champion.ownerThreadId,
+                config: doc.champion.journeys,
+                owner: undefined,
+                forcedReason: "The check's owner stopped without reporting.",
+              })
+              .pipe(Effect.ignore);
+          }
+        }
         const endedAttention = `${check.kind === "setup" ? "Setup" : "Check"} run ended without an authenticated report.`;
         if (
           matchingRuns.some(ThreadManagement.isActiveRun) &&

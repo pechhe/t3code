@@ -213,6 +213,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
         activeProviderThreadId: providerThreadId,
         archivedAt: null,
         deletedAt: null,
+        updatedAt: DateTime.makeUnsafe(0),
       }) as OrchestrationV2ThreadShell;
     const currentRun = () =>
       ({
@@ -540,6 +541,12 @@ const fixture = Effect.fn("test.championFixture")(() =>
       endRun: () => {
         activeRun = false;
         queuedRun = false;
+      },
+      /** The owner woken in a new run by something other than its check message. */
+      wakeOwner: () => {
+        activeRun = true;
+        queuedRun = false;
+        messageId = MessageId.make("message:wake");
       },
       overloadRun: () => {
         activeRun = false;
@@ -4420,6 +4427,72 @@ describe("a journey check", () => {
           }).pipe(withPolicy),
         ),
       ),
+  );
+
+  it.effect("keeps a check open to its owner when a replay wakes it in a new run", () =>
+    withFixture((f, service) =>
+      withTarget(
+        [manifest("aaaaaaaa", "commit-1"), manifest("bbbbbbbb", "commit-1")],
+        (directory) =>
+          Effect.gen(function* () {
+            yield* activate(service, journeysConfig(directory));
+            yield* service.runCheck({ id: config.id });
+            const plan = yield* service.journeysStart(f.caller());
+            const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
+            yield* walk(policy, f.caller().threadId, "tab-one", "/tasks");
+            const { candidateId } = yield* service.journeyCandidate(f.caller(), {
+              tabId: "tab-one",
+              title: "Broken",
+              expected: "Works",
+              observed: "Broken",
+            });
+            const replay = yield* service.candidateReplay(f.caller(), { candidateId });
+            f.endRun();
+            f.installReplay(
+              replay.workId,
+              replay.attemptId,
+              verdict("reproduced", "Seen."),
+              "strong",
+            );
+            f.wakeOwner();
+            assert.equal(
+              (yield* service.candidateSettle(f.caller(), { candidateId })).status,
+              "confirmed",
+            );
+            yield* service.report(f.caller(), {
+              samples: [quietSample],
+              findings: [],
+              summary: "One bug.",
+              journeys: { started: 1, passed: 0, failed: 1, stopped: 0 },
+            });
+            const { record } = yield* service.journeyRecord({ checkId: plan.checkId });
+            assert.equal(record.status, "complete");
+            // Reported, it no longer answers for anything.
+            yield* refusedWith(service.checkContext(f.caller()), "");
+          }).pipe(withPolicy),
+      ),
+    ),
+  );
+
+  it.effect("closes a check whose owner stopped without reporting", () =>
+    withFixture((f, service) =>
+      withTarget([manifest("aaaaaaaa", "commit-1")], (directory) =>
+        Effect.gen(function* () {
+          yield* activate(service, journeysConfig(directory));
+          yield* service.runCheck({ id: config.id });
+          const plan = yield* service.journeysStart(f.caller());
+          f.endRun();
+          yield* service.runDue;
+          const early = yield* service.journeyRecord({ checkId: plan.checkId });
+          assert.equal(early.record.status, "running");
+          yield* TestClock.adjust("6 minutes");
+          yield* service.runDue;
+          const { record } = yield* service.journeyRecord({ checkId: plan.checkId });
+          assert.equal(record.status, "incomplete");
+          assert.include(record.reason ?? "", "stopped without reporting");
+        }),
+      ),
+    ),
   );
 
   it.effect("gives a replay no task but its brief, and no follow-up", () =>
