@@ -131,11 +131,14 @@
       "agreed": "duplicate"
     }
   ],
-  "runAt": "2026-11-05T13:05:18.307Z",
-  "engines": ["jev", "luna"],
+  "runAt": "2026-11-08T17:32:04.233Z",
+  "engines": [
+    "jev",
+    "luna"
+  ],
   "run": {
     "checkout": {
-      "head": "a09b228bdf279787363f047a0bb4cfca7778185e",
+      "head": "28994c54a73344de2d62fa1b08b12a98d63b2332",
       "workingCopyDirty": true
     },
     "runtime": {
@@ -153,11 +156,11 @@
       "apps/server/src/decisionEvaluations/evidenceScreening/corpusAuthentic.json": "d55670cb72c2a138007672f9a09b507e4a7cd5434bd9974fc73fbe7f09317ed6",
       "apps/server/src/decisionEvaluations/evidenceScreening/corpusTune.ts": "746cc4eea1874af277c9b59af98a36fa9222daa596aea3e7638f8e34282cf169",
       "apps/server/src/decisionEvaluations/evidenceScreening/corpusHeldout.ts": "519db0e3d60d58b72d5538af5c5d0f32b990672260643478b98c812ecc530a10",
-      "apps/server/src/decisions/DecisionService.ts": "60d2f7f879fe5f7c6ee11f7f771e776fc30ce3f16dfd20681eeedea805154a19",
+      "apps/server/src/decisions/DecisionService.ts": "0365453452279692ca8480b0ae4ab3d665a52e9da1d5316ffe2ac3fc0061fd07",
       "apps/server/src/decisions/adapters.ts": "ce64942a3311d10543b83fe3c9b3c47fcc72b9cec6c7b1efdf0067005913a492",
       "apps/server/src/decisions/decisions.testkit.ts": "80cebd187858cfa6029c6356822962a363431afb30ff7b6fb08adbd2c15a2016",
-      "packages/contracts/src/decisions.ts": "4225d2f33a0754c8bbe47500e29a59f19d85c795ed17517db4b1f0f262e26f18",
-      "pnpm-lock.yaml": "9bb3c0493b82866a5d97b361b4c8d5c7f295446338fe4fd39b5e9e0e0714a4c2"
+      "packages/contracts/src/decisions.ts": "1634ce312d8af8dca8c2070bacc1aad034f8b55ddd9931748e7c6f44ec110caa",
+      "pnpm-lock.yaml": "e138678538eccfc6c37db073c25072e88bed6f79456e6134160cb9210ed41f5a"
     }
   },
   "scorer": {
@@ -168,12 +171,12 @@
       "apps/server/src/decisionEvaluations/evidenceScreening/baseline.ts": "1b1633a12a0709139b8340d19a431767a922e1544300fb24d63c703048b0c4df",
       "apps/server/src/decisionEvaluations/evidenceScreening/results/labels-A.json": "e572de5716f65df61eeac7120fc47e317280add950238d2396fc9ed0181fa161",
       "apps/server/src/decisionEvaluations/evidenceScreening/results/labels-B.json": "13e0a2b00bdddad9e7e5e7fd8b625d1728c3e9f2b6cd92ac027dec956e226d63",
-      "apps/server/src/decisionEvaluations/evidenceScreening/results/freeze.json": "ff25c049ba221dc438eb2c767614a53f1d0764b4512917edc9f309e4d2be3004",
+      "apps/server/src/decisionEvaluations/evidenceScreening/results/freeze.json": "514ca47b7d4404f3255320ec5376fd1b907a374e4487d38bed1556038deeb48a",
       "apps/server/src/decisionEvaluations/semanticLint/scoring.ts": "1fc9dd94096e4573aca56aa36236473c8d858445df5e419cc6eb00d01cde1790"
     },
     "build": {
       "apps/server/src/decisionEvaluations/evidenceScreening/buildAuthentic.ts": "fa0a073c68eb44dad078ece5652f97766dd97251536130ba5ed1df8fae3131f9",
-      "apps/server/src/decisionEvaluations/evidenceScreening/labelPacket.ts": "a5ad3f315a113ec6cb998f133a415d40deaa8c5d8357a67e33aa08e640878308"
+      "apps/server/src/decisionEvaluations/evidenceScreening/labelPacket.ts": "7e5ee1a9eb656d30a5deea89587320f439c45da0c1b696af48e97aae953416a1"
     }
   },
   "records": [
@@ -186,20 +189,20 @@
         "choice": "insufficient",
         "probabilities": {
           "supported": 0,
-          "contradicted": 0.02,
-          "insufficient": 0.98
+          "contradicted": 0.03,
+          "insufficient": 0.97
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "564dcc19fae6c3c74b1b69e052566840895a4b9162046bb01c7e62e6c5a1f15e",
-      "latencyMs": 288,
+      "latencyMs": 215,
       "inputTokens": 574,
       "outputTokens": 47,
       "costUsd": 0.000024108,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:23.806Z"
+      "startedAt": "2026-11-08T17:31:11.967Z"
     },
     {
       "caseId": "t-t355-checks",
@@ -218,12 +221,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "f1a514fa0e2d0645ad3407ebcc6460dc03ea265b4687fdeeb86e928e83d9767c",
-      "latencyMs": 443,
+      "latencyMs": 179,
       "inputTokens": 346,
       "outputTokens": 0,
       "costUsd": 0.0000346,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:26.097Z"
+      "startedAt": "2026-11-08T17:31:14.184Z"
     },
     {
       "caseId": "t-t355-cost",
@@ -233,21 +236,21 @@
         "kind": "answered",
         "choice": "supported",
         "probabilities": {
-          "supported": 0.91,
+          "supported": 0.94,
           "contradicted": 0.03,
-          "insufficient": 0.06
+          "insufficient": 0.03
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "cd6fe459ea73c89d46d9fc7566205e922e8f8cf95f011ec7523c98684dfbb29a",
-      "latencyMs": 260,
+      "latencyMs": 235,
       "inputTokens": 631,
       "outputTokens": 44,
       "costUsd": 0.000026502,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:28.542Z"
+      "startedAt": "2026-11-08T17:31:16.365Z"
     },
     {
       "caseId": "t-t355-cost",
@@ -266,12 +269,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "120d0ef518dfec7edebf42b71765c6864953e8c246948e91b6aa44c4ae88891b",
-      "latencyMs": 552,
+      "latencyMs": 150,
       "inputTokens": 389,
       "outputTokens": 0,
       "costUsd": 0.000038900000000000004,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:30.804Z"
+      "startedAt": "2026-11-08T17:31:18.601Z"
     },
     {
       "caseId": "t-audit-oct26",
@@ -290,12 +293,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "0104fe2905509d12baf745f9f313ecbb2e7684fcaf8f837e859b3e553c5e40fc",
-      "latencyMs": 235,
+      "latencyMs": 172,
       "inputTokens": 1401,
       "outputTokens": 47,
       "costUsd": 0.000058842000000000003,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:33.359Z"
+      "startedAt": "2026-11-08T17:31:20.751Z"
     },
     {
       "caseId": "t-audit-oct26",
@@ -314,12 +317,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "bb750c82b063abd1cc1aa94d57098e78c6c1ec72333796c2ba569ef2267e361b",
-      "latencyMs": 218,
+      "latencyMs": 375,
       "inputTokens": 1125,
       "outputTokens": 0,
       "costUsd": 0.0001125,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:35.595Z"
+      "startedAt": "2026-11-08T17:31:22.925Z"
     },
     {
       "caseId": "t-d-upstream-policy",
@@ -329,8 +332,8 @@
         "kind": "answered",
         "choice": "settled-consequential",
         "probabilities": {
-          "settled-consequential": 0.89,
-          "tentative": 0.09,
+          "settled-consequential": 0.91,
+          "tentative": 0.07,
           "routine": 0.01,
           "duplicate": 0.01
         }
@@ -339,12 +342,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "f8ac2faa22d5e14cb30a9d4af1798d811b2a577050f1d7d6450e64f4298297a3",
-      "latencyMs": 176,
+      "latencyMs": 166,
       "inputTokens": 622,
       "outputTokens": 56,
       "costUsd": 0.000026124000000000003,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:37.814Z"
+      "startedAt": "2026-11-08T17:31:25.302Z"
     },
     {
       "caseId": "t-d-upstream-policy",
@@ -364,12 +367,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "683e934a3ba67638526170c770138c3878fbd99eb39152d743e74ba4615fd73c",
-      "latencyMs": 289,
+      "latencyMs": 138,
       "inputTokens": 391,
       "outputTokens": 0,
       "costUsd": 0.0000391,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:39.992Z"
+      "startedAt": "2026-11-08T17:31:27.468Z"
     },
     {
       "caseId": "t-d-adopt-force-kill",
@@ -379,9 +382,9 @@
         "kind": "answered",
         "choice": "settled-consequential",
         "probabilities": {
-          "settled-consequential": 0.83,
+          "settled-consequential": 0.79,
           "tentative": 0,
-          "routine": 0.16,
+          "routine": 0.2,
           "duplicate": 0.01
         }
       },
@@ -389,12 +392,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "00ef0cb1f32999921181be2d48942e4f95fdc6f11c9bd336d482feb912608c71",
-      "latencyMs": 183,
+      "latencyMs": 158,
       "inputTokens": 892,
       "outputTokens": 56,
       "costUsd": 0.000037464000000000006,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:42.365Z"
+      "startedAt": "2026-11-08T17:31:29.605Z"
     },
     {
       "caseId": "t-d-adopt-force-kill",
@@ -414,12 +417,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "658ddafe106a0eb0e9ba38ff270dea190314712f04f10cd99334cb2a04c68a34",
-      "latencyMs": 297,
+      "latencyMs": 161,
       "inputTokens": 604,
       "outputTokens": 0,
       "costUsd": 0.000060400000000000004,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:44.572Z"
+      "startedAt": "2026-11-08T17:31:31.764Z"
     },
     {
       "caseId": "t-syn-tests-passed",
@@ -429,8 +432,8 @@
         "kind": "answered",
         "choice": "insufficient",
         "probabilities": {
-          "supported": 0.46,
-          "contradicted": 0.05,
+          "supported": 0.47,
+          "contradicted": 0.04,
           "insufficient": 0.49
         }
       },
@@ -438,12 +441,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "5fcd9cb2233cb4a81dfce857f5e6ce48fe07159ba528d48b4c59a659ad86d58c",
-      "latencyMs": 159,
+      "latencyMs": 165,
       "inputTokens": 583,
       "outputTokens": 47,
       "costUsd": 0.000024486,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:46.870Z"
+      "startedAt": "2026-11-08T17:31:33.926Z"
     },
     {
       "caseId": "t-syn-tests-passed",
@@ -462,12 +465,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "f1e229461d3485732c05d2ff3a9e9592a6b0452deb77f59635add37ec64d0532",
-      "latencyMs": 221,
+      "latencyMs": 141,
       "inputTokens": 366,
       "outputTokens": 0,
       "costUsd": 0.0000366,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:49.030Z"
+      "startedAt": "2026-11-08T17:31:36.093Z"
     },
     {
       "caseId": "t-syn-tests-not-run",
@@ -478,20 +481,20 @@
         "choice": "contradicted",
         "probabilities": {
           "supported": 0,
-          "contradicted": 0.93,
-          "insufficient": 0.07
+          "contradicted": 0.92,
+          "insufficient": 0.08
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "3cfba4891305ed7db12f3f87096cfea115c16eb1c1c40f04581c1d126eddf7d5",
-      "latencyMs": 193,
+      "latencyMs": 172,
       "inputTokens": 568,
       "outputTokens": 47,
       "costUsd": 0.000023856000000000003,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:51.253Z"
+      "startedAt": "2026-11-08T17:31:38.235Z"
     },
     {
       "caseId": "t-syn-tests-not-run",
@@ -510,12 +513,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "edfe1fa44b0557131efd04600fa771dc34d8fece178bc01693839af33724496a",
-      "latencyMs": 366,
+      "latencyMs": 133,
       "inputTokens": 348,
       "outputTokens": 0,
       "costUsd": 0.000034800000000000006,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:53.450Z"
+      "startedAt": "2026-11-08T17:31:40.408Z"
     },
     {
       "caseId": "t-syn-truncated",
@@ -534,12 +537,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "8627c5d9057f28b22ecc28ca2d0a46c620cb1a102e146f8496cd9ec471034de5",
-      "latencyMs": 168,
+      "latencyMs": 161,
       "inputTokens": 566,
       "outputTokens": 47,
       "costUsd": 0.000023772000000000002,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:55.817Z"
+      "startedAt": "2026-11-08T17:31:42.541Z"
     },
     {
       "caseId": "t-syn-truncated",
@@ -558,12 +561,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "90ef29715c4c8bd3c488dc959a3e6e622e720ac31a028a8b30dc6518b0dbac99",
-      "latencyMs": 238,
+      "latencyMs": 151,
       "inputTokens": 346,
       "outputTokens": 0,
       "costUsd": 0.0000346,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:04:57.985Z"
+      "startedAt": "2026-11-08T17:31:44.702Z"
     },
     {
       "caseId": "t-d-syn-tentative",
@@ -583,12 +586,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "7cbb05662b22e5bb05792a9ec8fa3e1cfdb98d55cd6e579a0820e2d436032a5b",
-      "latencyMs": 197,
+      "latencyMs": 133,
       "inputTokens": 561,
       "outputTokens": 52,
       "costUsd": 0.000023562000000000002,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:00.227Z"
+      "startedAt": "2026-11-08T17:31:46.853Z"
     },
     {
       "caseId": "t-d-syn-tentative",
@@ -608,12 +611,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "f7c8d831ed1a2480ebb53f832162d21b526c591b81c1af23091eb599f5e6bd86",
-      "latencyMs": 312,
+      "latencyMs": 142,
       "inputTokens": 332,
       "outputTokens": 0,
       "costUsd": 0.0000332,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:02.436Z"
+      "startedAt": "2026-11-08T17:31:48.988Z"
     },
     {
       "caseId": "t-d-syn-settled",
@@ -633,12 +636,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "ca224152ec643a0d660c11972cad1928830a63551bf262d0a4847ebe66f9c954",
-      "latencyMs": 290,
+      "latencyMs": 164,
       "inputTokens": 562,
       "outputTokens": 56,
       "costUsd": 0.000023604000000000003,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:04.749Z"
+      "startedAt": "2026-11-08T17:31:51.130Z"
     },
     {
       "caseId": "t-d-syn-settled",
@@ -658,12 +661,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "f8523e4bf2bb7d9d0e1ac1e04a9a1881bc1ace711ad939b7b449bbc15faa8fa6",
-      "latencyMs": 231,
+      "latencyMs": 185,
       "inputTokens": 332,
       "outputTokens": 0,
       "costUsd": 0.0000332,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:07.040Z"
+      "startedAt": "2026-11-08T17:31:53.295Z"
     },
     {
       "caseId": "t-d-syn-routine",
@@ -683,12 +686,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "cbd86b5361106c3b0ff67b26550cfa448690a1f8745df32a9c08889737a60d7f",
-      "latencyMs": 209,
+      "latencyMs": 157,
       "inputTokens": 548,
       "outputTokens": 51,
       "costUsd": 0.000023016,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:09.271Z"
+      "startedAt": "2026-11-08T17:31:55.480Z"
     },
     {
       "caseId": "t-d-syn-routine",
@@ -708,12 +711,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "a77fa3ebbc986851370cefd6340ae03f6391b7442f4fa9c7171faf05358b597f",
-      "latencyMs": 299,
+      "latencyMs": 174,
       "inputTokens": 319,
       "outputTokens": 0,
       "costUsd": 0.0000319,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:11.480Z"
+      "startedAt": "2026-11-08T17:31:57.639Z"
     },
     {
       "caseId": "t-d-syn-duplicate",
@@ -733,12 +736,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "599b95f4de1b65f4ca3b23f4884b8b96e8cfc2218bc39123d9d7b39192e187fe",
-      "latencyMs": 170,
+      "latencyMs": 221,
       "inputTokens": 599,
       "outputTokens": 51,
       "costUsd": 0.000025158000000000002,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:13.780Z"
+      "startedAt": "2026-11-08T17:31:59.813Z"
     },
     {
       "caseId": "t-d-syn-duplicate",
@@ -758,12 +761,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "be6674b3897be6bc962e4a950025b7624bc450d1ed95340d6629fa84bbf08508",
-      "latencyMs": 343,
+      "latencyMs": 181,
       "inputTokens": 363,
       "outputTokens": 0,
       "costUsd": 0.0000363,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:15.950Z"
+      "startedAt": "2026-11-08T17:32:02.034Z"
     }
   ],
   "summary": {
@@ -790,7 +793,12 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -800,7 +808,10 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          "cases": [
+            "t-audit-oct26",
+            "t-syn-tests-not-run"
+          ]
         },
         "falseAlarms": {
           "numerator": 0,
@@ -822,7 +833,12 @@
             "low": 0.29998832134152864,
             "high": 0.9032306674407831
           },
-          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
         },
         "exact": {
           "numerator": 4,
@@ -832,7 +848,12 @@
             "low": 0.29998832134152864,
             "high": 0.9032306674407831
           },
-          "cases": ["t-t355-checks", "t-t355-cost", "t-syn-tests-passed", "t-syn-truncated"]
+          "cases": [
+            "t-t355-checks",
+            "t-t355-cost",
+            "t-syn-tests-passed",
+            "t-syn-truncated"
+          ]
         }
       },
       "decision": {
@@ -847,7 +868,10 @@
             "low": 0.2076549551264879,
             "high": 0.9385096847238394
           },
-          "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "missedCandidates": {
           "numerator": 1,
@@ -857,7 +881,9 @@
             "low": 0.0614903152761605,
             "high": 0.7923450448735121
           },
-          "cases": ["t-d-upstream-policy"]
+          "cases": [
+            "t-d-upstream-policy"
+          ]
         },
         "falseEscalations": {
           "numerator": 0,
@@ -880,7 +906,10 @@
             "low": 0.09676933255921683,
             "high": 0.7000116786584712
           },
-          "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "exact": {
           "numerator": 5,
@@ -923,7 +952,12 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -933,7 +967,10 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          "cases": [
+            "t-audit-oct26",
+            "t-syn-tests-not-run"
+          ]
         },
         "falseAlarms": {
           "numerator": 1,
@@ -943,7 +980,9 @@
             "low": 0.09452865480086614,
             "high": 0.9054713451991339
           },
-          "cases": ["t-syn-tests-passed"]
+          "cases": [
+            "t-syn-tests-passed"
+          ]
         },
         "flagged": 5,
         "abstentions": 0,
@@ -992,7 +1031,11 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "missedCandidates": {
           "numerator": 0,
@@ -1025,7 +1068,11 @@
             "low": 0.18761280689940868,
             "high": 0.8123871931005913
           },
-          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "exact": {
           "numerator": 6,
@@ -1069,7 +1116,12 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -1079,7 +1131,10 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          "cases": [
+            "t-audit-oct26",
+            "t-syn-tests-not-run"
+          ]
         },
         "falseAlarms": {
           "numerator": 1,
@@ -1089,7 +1144,9 @@
             "low": 0.09452865480086614,
             "high": 0.9054713451991339
           },
-          "cases": ["t-syn-tests-passed"]
+          "cases": [
+            "t-syn-tests-passed"
+          ]
         },
         "flagged": 5,
         "abstentions": 0,
@@ -1138,7 +1195,11 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "missedCandidates": {
           "numerator": 0,
@@ -1171,7 +1232,11 @@
             "low": 0.18761280689940868,
             "high": 0.8123871931005913
           },
-          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "exact": {
           "numerator": 6,
@@ -1215,7 +1280,12 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -1225,7 +1295,10 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          "cases": [
+            "t-audit-oct26",
+            "t-syn-tests-not-run"
+          ]
         },
         "falseAlarms": {
           "numerator": 1,
@@ -1235,7 +1308,9 @@
             "low": 0.09452865480086614,
             "high": 0.9054713451991339
           },
-          "cases": ["t-syn-tests-passed"]
+          "cases": [
+            "t-syn-tests-passed"
+          ]
         },
         "flagged": 5,
         "abstentions": 0,
@@ -1284,7 +1359,11 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "missedCandidates": {
           "numerator": 0,
@@ -1317,7 +1396,11 @@
             "low": 0.18761280689940868,
             "high": 0.8123871931005913
           },
-          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "exact": {
           "numerator": 6,
@@ -1361,7 +1444,12 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -1371,7 +1459,10 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          "cases": [
+            "t-audit-oct26",
+            "t-syn-tests-not-run"
+          ]
         },
         "falseAlarms": {
           "numerator": 1,
@@ -1381,7 +1472,9 @@
             "low": 0.09452865480086614,
             "high": 0.9054713451991339
           },
-          "cases": ["t-syn-tests-passed"]
+          "cases": [
+            "t-syn-tests-passed"
+          ]
         },
         "flagged": 5,
         "abstentions": 0,
@@ -1431,7 +1524,11 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "missedCandidates": {
           "numerator": 0,
@@ -1464,7 +1561,11 @@
             "low": 0.18761280689940868,
             "high": 0.8123871931005913
           },
-          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "exact": {
           "numerator": 6,
@@ -1508,7 +1609,12 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -1518,7 +1624,10 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          "cases": [
+            "t-audit-oct26",
+            "t-syn-tests-not-run"
+          ]
         },
         "falseAlarms": {
           "numerator": 1,
@@ -1528,7 +1637,9 @@
             "low": 0.09452865480086614,
             "high": 0.9054713451991339
           },
-          "cases": ["t-syn-tests-passed"]
+          "cases": [
+            "t-syn-tests-passed"
+          ]
         },
         "flagged": 5,
         "abstentions": 0,
@@ -1578,7 +1689,11 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "missedCandidates": {
           "numerator": 0,
@@ -1611,7 +1726,11 @@
             "low": 0.18761280689940868,
             "high": 0.8123871931005913
           },
-          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "exact": {
           "numerator": 6,
@@ -1655,7 +1774,12 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -1665,7 +1789,10 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          "cases": [
+            "t-audit-oct26",
+            "t-syn-tests-not-run"
+          ]
         },
         "falseAlarms": {
           "numerator": 0,
@@ -1687,7 +1814,12 @@
             "low": 0.29998832134152864,
             "high": 0.9032306674407831
           },
-          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
         },
         "exact": {
           "numerator": 6,
@@ -1719,7 +1851,11 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "missedCandidates": {
           "numerator": 0,
@@ -1752,7 +1888,11 @@
             "low": 0.18761280689940868,
             "high": 0.8123871931005913
           },
-          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "exact": {
           "numerator": 6,
@@ -1796,7 +1936,12 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
         },
         "contradictedRecall": {
           "numerator": 2,
@@ -1806,7 +1951,10 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+          "cases": [
+            "t-audit-oct26",
+            "t-syn-tests-not-run"
+          ]
         },
         "falseAlarms": {
           "numerator": 2,
@@ -1816,7 +1964,10 @@
             "low": 0.34237195288961925,
             "high": 1
           },
-          "cases": ["t-t355-cost", "t-syn-tests-passed"]
+          "cases": [
+            "t-t355-cost",
+            "t-syn-tests-passed"
+          ]
         },
         "flagged": 6,
         "abstentions": 0,
@@ -1860,7 +2011,11 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "missedCandidates": {
           "numerator": 0,
@@ -1880,7 +2035,11 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": ["t-d-syn-tentative", "t-d-syn-routine", "t-d-syn-duplicate"]
+          "cases": [
+            "t-d-syn-tentative",
+            "t-d-syn-routine",
+            "t-d-syn-duplicate"
+          ]
         },
         "falseEscalationsByReference": {
           "tentative": 1,
@@ -1931,7 +2090,12 @@
             "low": 0.5100999795960008,
             "high": 1
           },
-          "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+          "cases": [
+            "t-t355-checks",
+            "t-audit-oct26",
+            "t-syn-tests-not-run",
+            "t-syn-truncated"
+          ]
         },
         "reviewRecall": {
           "numerator": 0,
@@ -2008,7 +2172,11 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+          "cases": [
+            "t-d-upstream-policy",
+            "t-d-adopt-force-kill",
+            "t-d-syn-settled"
+          ]
         },
         "falseEscalations": {
           "numerator": 0,
@@ -2050,9 +2218,9 @@
     "jev": {
       "calls": 12,
       "latencyMs": {
-        "mean": 210.66666666666666,
-        "p50": 193,
-        "max": 290
+        "mean": 176.58333333333334,
+        "p50": 165,
+        "max": 235
       },
       "unobservedAttempts": 0,
       "inputTokens": 8107,
@@ -2060,21 +2228,27 @@
       "costUsd": 0.000340494,
       "knownCostUsd": 0.000340494,
       "costKnownCalls": 12,
-      "costStatuses": ["estimated"],
+      "costStatuses": [
+        "estimated"
+      ],
       "attempts": 12,
       "failedAttempts": 0,
       "failureCodes": [],
       "unanswered": [],
       "outputTokensKnown": 601,
-      "requestedModels": ["jev-1.14.0"],
-      "resolvedModels": ["jev-1.14.0"]
+      "requestedModels": [
+        "jev-1.14.0"
+      ],
+      "resolvedModels": [
+        "jev-1.14.0"
+      ]
     },
     "luna": {
       "calls": 12,
       "latencyMs": {
-        "mean": 317.4166666666667,
-        "p50": 297,
-        "max": 552
+        "mean": 175.83333333333334,
+        "p50": 151,
+        "max": 375
       },
       "unobservedAttempts": 0,
       "inputTokens": 5261,
@@ -2082,14 +2256,20 @@
       "costUsd": 0.0005260999999999999,
       "knownCostUsd": 0.0005260999999999999,
       "costKnownCalls": 12,
-      "costStatuses": ["estimated"],
+      "costStatuses": [
+        "estimated"
+      ],
       "attempts": 12,
       "failedAttempts": 0,
       "failureCodes": [],
       "unanswered": [],
       "outputTokensKnown": 0,
-      "requestedModels": ["gpt-6-luna"],
-      "resolvedModels": ["gpt-6-luna"]
+      "requestedModels": [
+        "gpt-6-luna"
+      ],
+      "resolvedModels": [
+        "gpt-6-luna"
+      ]
     }
   },
   "verdicts": {
@@ -2683,7 +2863,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -2693,7 +2878,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 0,
@@ -2715,7 +2903,12 @@
               "low": 0.29998832134152864,
               "high": 0.9032306674407831
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "exact": {
             "numerator": 4,
@@ -2725,7 +2918,12 @@
               "low": 0.29998832134152864,
               "high": 0.9032306674407831
             },
-            "cases": ["t-t355-checks", "t-t355-cost", "t-syn-tests-passed", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-syn-tests-passed",
+              "t-syn-truncated"
+            ]
           }
         },
         "decision": {
@@ -2740,7 +2938,10 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 1,
@@ -2750,7 +2951,9 @@
               "low": 0.0614903152761605,
               "high": 0.7923450448735121
             },
-            "cases": ["t-d-upstream-policy"]
+            "cases": [
+              "t-d-upstream-policy"
+            ]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -2773,7 +2976,10 @@
               "low": 0.09676933255921683,
               "high": 0.7000116786584712
             },
-            "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "exact": {
             "numerator": 5,
@@ -2816,7 +3022,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -2826,7 +3037,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -2836,7 +3050,9 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": ["t-syn-tests-passed"]
+            "cases": [
+              "t-syn-tests-passed"
+            ]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -2885,7 +3101,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -2918,7 +3138,11 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "exact": {
             "numerator": 6,
@@ -2962,7 +3186,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -2972,7 +3201,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -2982,7 +3214,9 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": ["t-syn-tests-passed"]
+            "cases": [
+              "t-syn-tests-passed"
+            ]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -3031,7 +3265,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -3064,7 +3302,11 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "exact": {
             "numerator": 6,
@@ -3108,7 +3350,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -3118,7 +3365,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -3128,7 +3378,9 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": ["t-syn-tests-passed"]
+            "cases": [
+              "t-syn-tests-passed"
+            ]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -3177,7 +3429,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -3210,7 +3466,11 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "exact": {
             "numerator": 6,
@@ -3254,7 +3514,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -3264,7 +3529,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -3274,7 +3542,9 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": ["t-syn-tests-passed"]
+            "cases": [
+              "t-syn-tests-passed"
+            ]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -3324,7 +3594,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -3357,7 +3631,11 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "exact": {
             "numerator": 6,
@@ -3401,7 +3679,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -3411,7 +3694,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -3421,7 +3707,9 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": ["t-syn-tests-passed"]
+            "cases": [
+              "t-syn-tests-passed"
+            ]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -3471,7 +3759,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -3504,7 +3796,11 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "exact": {
             "numerator": 6,
@@ -3548,7 +3844,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -3558,7 +3859,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 0,
@@ -3580,7 +3884,12 @@
               "low": 0.29998832134152864,
               "high": 0.9032306674407831
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "exact": {
             "numerator": 6,
@@ -3612,7 +3921,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -3645,7 +3958,11 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "exact": {
             "numerator": 6,
@@ -3689,7 +4006,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -3699,7 +4021,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 2,
@@ -3709,7 +4034,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-t355-cost", "t-syn-tests-passed"]
+            "cases": [
+              "t-t355-cost",
+              "t-syn-tests-passed"
+            ]
           },
           "flagged": 6,
           "abstentions": 0,
@@ -3753,7 +4081,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -3773,7 +4105,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-syn-tentative", "t-d-syn-routine", "t-d-syn-duplicate"]
+            "cases": [
+              "t-d-syn-tentative",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
           },
           "falseEscalationsByReference": {
             "tentative": 1,
@@ -3824,7 +4160,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "reviewRecall": {
             "numerator": 0,
@@ -3901,7 +4242,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -3963,7 +4308,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -3973,7 +4323,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 0,
@@ -3995,7 +4348,12 @@
               "low": 0.29998832134152864,
               "high": 0.9032306674407831
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "exact": {
             "numerator": 4,
@@ -4005,7 +4363,12 @@
               "low": 0.29998832134152864,
               "high": 0.9032306674407831
             },
-            "cases": ["t-t355-checks", "t-t355-cost", "t-syn-tests-passed", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-t355-cost",
+              "t-syn-tests-passed",
+              "t-syn-truncated"
+            ]
           }
         },
         "decision": {
@@ -4020,7 +4383,10 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 1,
@@ -4030,7 +4396,9 @@
               "low": 0.0614903152761605,
               "high": 0.7923450448735121
             },
-            "cases": ["t-d-upstream-policy"]
+            "cases": [
+              "t-d-upstream-policy"
+            ]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -4053,7 +4421,10 @@
               "low": 0.09676933255921683,
               "high": 0.7000116786584712
             },
-            "cases": ["t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "exact": {
             "numerator": 5,
@@ -4096,7 +4467,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -4106,7 +4482,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -4116,7 +4495,9 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": ["t-syn-tests-passed"]
+            "cases": [
+              "t-syn-tests-passed"
+            ]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -4165,7 +4546,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -4198,7 +4583,11 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "exact": {
             "numerator": 6,
@@ -4242,7 +4631,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -4252,7 +4646,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -4262,7 +4659,9 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": ["t-syn-tests-passed"]
+            "cases": [
+              "t-syn-tests-passed"
+            ]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -4311,7 +4710,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -4344,7 +4747,11 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "exact": {
             "numerator": 6,
@@ -4388,7 +4795,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -4398,7 +4810,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -4408,7 +4823,9 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": ["t-syn-tests-passed"]
+            "cases": [
+              "t-syn-tests-passed"
+            ]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -4457,7 +4874,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -4490,7 +4911,11 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "exact": {
             "numerator": 6,
@@ -4534,7 +4959,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -4544,7 +4974,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -4554,7 +4987,9 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": ["t-syn-tests-passed"]
+            "cases": [
+              "t-syn-tests-passed"
+            ]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -4604,7 +5039,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -4637,7 +5076,11 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "exact": {
             "numerator": 6,
@@ -4681,7 +5124,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -4691,7 +5139,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 1,
@@ -4701,7 +5152,9 @@
               "low": 0.09452865480086614,
               "high": 0.9054713451991339
             },
-            "cases": ["t-syn-tests-passed"]
+            "cases": [
+              "t-syn-tests-passed"
+            ]
           },
           "flagged": 5,
           "abstentions": 0,
@@ -4751,7 +5204,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -4784,7 +5241,11 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "exact": {
             "numerator": 6,
@@ -4828,7 +5289,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -4838,7 +5304,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 0,
@@ -4860,7 +5329,12 @@
               "low": 0.29998832134152864,
               "high": 0.9032306674407831
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "exact": {
             "numerator": 6,
@@ -4892,7 +5366,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -4925,7 +5403,11 @@
               "low": 0.18761280689940868,
               "high": 0.8123871931005913
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "exact": {
             "numerator": 6,
@@ -4969,7 +5451,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "contradictedRecall": {
             "numerator": 2,
@@ -4979,7 +5466,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-audit-oct26", "t-syn-tests-not-run"]
+            "cases": [
+              "t-audit-oct26",
+              "t-syn-tests-not-run"
+            ]
           },
           "falseAlarms": {
             "numerator": 2,
@@ -4989,7 +5479,10 @@
               "low": 0.34237195288961925,
               "high": 1
             },
-            "cases": ["t-t355-cost", "t-syn-tests-passed"]
+            "cases": [
+              "t-t355-cost",
+              "t-syn-tests-passed"
+            ]
           },
           "flagged": 6,
           "abstentions": 0,
@@ -5033,7 +5526,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "missedCandidates": {
             "numerator": 0,
@@ -5053,7 +5550,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-syn-tentative", "t-d-syn-routine", "t-d-syn-duplicate"]
+            "cases": [
+              "t-d-syn-tentative",
+              "t-d-syn-routine",
+              "t-d-syn-duplicate"
+            ]
           },
           "falseEscalationsByReference": {
             "tentative": 1,
@@ -5104,7 +5605,12 @@
               "low": 0.5100999795960008,
               "high": 1
             },
-            "cases": ["t-t355-checks", "t-audit-oct26", "t-syn-tests-not-run", "t-syn-truncated"]
+            "cases": [
+              "t-t355-checks",
+              "t-audit-oct26",
+              "t-syn-tests-not-run",
+              "t-syn-truncated"
+            ]
           },
           "reviewRecall": {
             "numerator": 0,
@@ -5181,7 +5687,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-d-upstream-policy", "t-d-adopt-force-kill", "t-d-syn-settled"]
+            "cases": [
+              "t-d-upstream-policy",
+              "t-d-adopt-force-kill",
+              "t-d-syn-settled"
+            ]
           },
           "falseEscalations": {
             "numerator": 0,

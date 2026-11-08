@@ -331,11 +331,14 @@
       "agreed": "tentative"
     }
   ],
-  "runAt": "2026-11-05T13:08:10.156Z",
-  "engines": ["jev", "luna"],
+  "runAt": "2026-11-08T17:31:10.775Z",
+  "engines": [
+    "jev",
+    "luna"
+  ],
   "run": {
     "checkout": {
-      "head": "a09b228bdf279787363f047a0bb4cfca7778185e",
+      "head": "28994c54a73344de2d62fa1b08b12a98d63b2332",
       "workingCopyDirty": true
     },
     "runtime": {
@@ -353,11 +356,11 @@
       "apps/server/src/decisionEvaluations/evidenceScreening/corpusAuthentic.json": "d55670cb72c2a138007672f9a09b507e4a7cd5434bd9974fc73fbe7f09317ed6",
       "apps/server/src/decisionEvaluations/evidenceScreening/corpusTune.ts": "746cc4eea1874af277c9b59af98a36fa9222daa596aea3e7638f8e34282cf169",
       "apps/server/src/decisionEvaluations/evidenceScreening/corpusHeldout.ts": "519db0e3d60d58b72d5538af5c5d0f32b990672260643478b98c812ecc530a10",
-      "apps/server/src/decisions/DecisionService.ts": "60d2f7f879fe5f7c6ee11f7f771e776fc30ce3f16dfd20681eeedea805154a19",
+      "apps/server/src/decisions/DecisionService.ts": "0365453452279692ca8480b0ae4ab3d665a52e9da1d5316ffe2ac3fc0061fd07",
       "apps/server/src/decisions/adapters.ts": "ce64942a3311d10543b83fe3c9b3c47fcc72b9cec6c7b1efdf0067005913a492",
       "apps/server/src/decisions/decisions.testkit.ts": "80cebd187858cfa6029c6356822962a363431afb30ff7b6fb08adbd2c15a2016",
-      "packages/contracts/src/decisions.ts": "4225d2f33a0754c8bbe47500e29a59f19d85c795ed17517db4b1f0f262e26f18",
-      "pnpm-lock.yaml": "9bb3c0493b82866a5d97b361b4c8d5c7f295446338fe4fd39b5e9e0e0714a4c2"
+      "packages/contracts/src/decisions.ts": "1634ce312d8af8dca8c2070bacc1aad034f8b55ddd9931748e7c6f44ec110caa",
+      "pnpm-lock.yaml": "e138678538eccfc6c37db073c25072e88bed6f79456e6134160cb9210ed41f5a"
     }
   },
   "scorer": {
@@ -368,12 +371,12 @@
       "apps/server/src/decisionEvaluations/evidenceScreening/baseline.ts": "1b1633a12a0709139b8340d19a431767a922e1544300fb24d63c703048b0c4df",
       "apps/server/src/decisionEvaluations/evidenceScreening/results/labels-A.json": "e572de5716f65df61eeac7120fc47e317280add950238d2396fc9ed0181fa161",
       "apps/server/src/decisionEvaluations/evidenceScreening/results/labels-B.json": "13e0a2b00bdddad9e7e5e7fd8b625d1728c3e9f2b6cd92ac027dec956e226d63",
-      "apps/server/src/decisionEvaluations/evidenceScreening/results/freeze.json": "ff25c049ba221dc438eb2c767614a53f1d0764b4512917edc9f309e4d2be3004",
+      "apps/server/src/decisionEvaluations/evidenceScreening/results/freeze.json": "514ca47b7d4404f3255320ec5376fd1b907a374e4487d38bed1556038deeb48a",
       "apps/server/src/decisionEvaluations/semanticLint/scoring.ts": "1fc9dd94096e4573aca56aa36236473c8d858445df5e419cc6eb00d01cde1790"
     },
     "build": {
       "apps/server/src/decisionEvaluations/evidenceScreening/buildAuthentic.ts": "fa0a073c68eb44dad078ece5652f97766dd97251536130ba5ed1df8fae3131f9",
-      "apps/server/src/decisionEvaluations/evidenceScreening/labelPacket.ts": "a5ad3f315a113ec6cb998f133a415d40deaa8c5d8357a67e33aa08e640878308"
+      "apps/server/src/decisionEvaluations/evidenceScreening/labelPacket.ts": "7e5ee1a9eb656d30a5deea89587320f439c45da0c1b696af48e97aae953416a1"
     }
   },
   "records": [
@@ -386,20 +389,20 @@
         "choice": "insufficient",
         "probabilities": {
           "supported": 0,
-          "contradicted": 0.07,
-          "insufficient": 0.93
+          "contradicted": 0.06,
+          "insufficient": 0.94
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "9a2dd0d3cb0ccf3fb4b60165818fd90fe537b12463128960d28c0d2bcaeaafb2",
-      "latencyMs": 269,
+      "latencyMs": 229,
       "inputTokens": 736,
       "outputTokens": 47,
       "costUsd": 0.000030912000000000005,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:21.787Z"
+      "startedAt": "2026-11-08T17:28:27.446Z"
     },
     {
       "caseId": "h-t359-checks",
@@ -418,12 +421,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "b79149310cee8cc9863fc1e710a6d2873bf3d5b34edfd506ae7392cbb5dcd7e0",
-      "latencyMs": 319,
+      "latencyMs": 161,
       "inputTokens": 460,
       "outputTokens": 0,
       "costUsd": 0.000046,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:24.059Z"
+      "startedAt": "2026-11-08T17:28:29.678Z"
     },
     {
       "caseId": "h-t359-reliability",
@@ -433,21 +436,21 @@
         "kind": "answered",
         "choice": "contradicted",
         "probabilities": {
-          "supported": 0,
-          "contradicted": 0.65,
-          "insufficient": 0.35
+          "supported": 0.01,
+          "contradicted": 0.51,
+          "insufficient": 0.48
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "7858aeb4575e4e67ce42e4991dc1659a6e0033a0de14a352502fc231c8765a20",
-      "latencyMs": 183,
+      "latencyMs": 171,
       "inputTokens": 738,
       "outputTokens": 47,
       "costUsd": 0.000030996,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:26.379Z"
+      "startedAt": "2026-11-08T17:28:31.841Z"
     },
     {
       "caseId": "h-t359-reliability",
@@ -466,12 +469,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "b43988b0bc619d7fda9f8b3e57dc62ce8d691f56ec4c24a77b4de5e91eec2ba2",
-      "latencyMs": 281,
+      "latencyMs": 358,
       "inputTokens": 482,
       "outputTokens": 0,
       "costUsd": 0.000048200000000000006,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:28.563Z"
+      "startedAt": "2026-11-08T17:28:34.013Z"
     },
     {
       "caseId": "h-t359-scope",
@@ -481,21 +484,21 @@
         "kind": "answered",
         "choice": "supported",
         "probabilities": {
-          "supported": 0.57,
-          "contradicted": 0.08,
-          "insufficient": 0.35
+          "supported": 0.56,
+          "contradicted": 0.06,
+          "insufficient": 0.38
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "700587052576d8ff7990a68747cdb3d5fa0d5e714c3af56b470271ea9d3e7f62",
-      "latencyMs": 179,
+      "latencyMs": 147,
       "inputTokens": 1252,
       "outputTokens": 44,
       "costUsd": 0.000052584000000000003,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:30.844Z"
+      "startedAt": "2026-11-08T17:28:36.372Z"
     },
     {
       "caseId": "h-t359-scope",
@@ -514,12 +517,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "aa4b81614c668841ba5ed3514ec1fc2ef4501fb2b490e4b4fb861788dea9bb4a",
-      "latencyMs": 155,
+      "latencyMs": 167,
       "inputTokens": 841,
       "outputTokens": 0,
       "costUsd": 0.00008410000000000001,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:33.024Z"
+      "startedAt": "2026-11-08T17:28:38.521Z"
     },
     {
       "caseId": "h-t357-checks",
@@ -529,21 +532,21 @@
         "kind": "answered",
         "choice": "supported",
         "probabilities": {
-          "supported": 0.69,
-          "contradicted": 0.08,
-          "insufficient": 0.23
+          "supported": 0.72,
+          "contradicted": 0.06,
+          "insufficient": 0.22
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "7818168b032025e38ca84d85631773b0668f986a7d38c3421531f15c6a5f5c99",
-      "latencyMs": 194,
+      "latencyMs": 157,
       "inputTokens": 984,
       "outputTokens": 44,
       "costUsd": 0.000041328,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:35.181Z"
+      "startedAt": "2026-11-08T17:28:40.690Z"
     },
     {
       "caseId": "h-t357-checks",
@@ -562,12 +565,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "b8e656c921cc6bdd685e9bce2959c1960ffcaadab08f4fee496c9eafb97e74e0",
-      "latencyMs": 160,
+      "latencyMs": 221,
       "inputTokens": 613,
       "outputTokens": 0,
       "costUsd": 0.0000613,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:37.375Z"
+      "startedAt": "2026-11-08T17:28:42.849Z"
     },
     {
       "caseId": "h-t357-recall",
@@ -577,21 +580,21 @@
         "kind": "answered",
         "choice": "supported",
         "probabilities": {
-          "supported": 0.6,
+          "supported": 0.58,
           "contradicted": 0.15,
-          "insufficient": 0.25
+          "insufficient": 0.27
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "070b9197635325181deb22c983277474a62bd27414a09d4d5a12dbc45cc7f267",
-      "latencyMs": 146,
+      "latencyMs": 138,
       "inputTokens": 647,
       "outputTokens": 44,
       "costUsd": 0.000027174000000000004,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:39.537Z"
+      "startedAt": "2026-11-08T17:28:45.089Z"
     },
     {
       "caseId": "h-t357-recall",
@@ -610,12 +613,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "1bf8aa0674152dbebe64446d931f91032450ea2a60cae211e65b50955c9ba3ae",
-      "latencyMs": 267,
+      "latencyMs": 149,
       "inputTokens": 401,
       "outputTokens": 0,
       "costUsd": 0.0000401,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:41.684Z"
+      "startedAt": "2026-11-08T17:28:47.228Z"
     },
     {
       "caseId": "h-t357-stale-digest",
@@ -626,20 +629,20 @@
         "choice": "contradicted",
         "probabilities": {
           "supported": 0.01,
-          "contradicted": 0.86,
-          "insufficient": 0.13
+          "contradicted": 0.88,
+          "insufficient": 0.11
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "12cdfe5d65d16732e3a15327cc6fa342ae4125790dfe67bf5b6a69d08bb12546",
-      "latencyMs": 182,
+      "latencyMs": 152,
       "inputTokens": 688,
       "outputTokens": 47,
       "costUsd": 0.000028896,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:43.952Z"
+      "startedAt": "2026-11-08T17:28:49.379Z"
     },
     {
       "caseId": "h-t357-stale-digest",
@@ -658,12 +661,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "803f532d58804e448bcf4c08ae3c7a5c679755404fc171fe795318e6bcf3c9fc",
-      "latencyMs": 437,
+      "latencyMs": 286,
       "inputTokens": 437,
       "outputTokens": 0,
       "costUsd": 0.000043700000000000005,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:46.135Z"
+      "startedAt": "2026-11-08T17:28:51.532Z"
     },
     {
       "caseId": "h-t356-accuracy",
@@ -673,8 +676,8 @@
         "kind": "answered",
         "choice": "supported",
         "probabilities": {
-          "supported": 0.96,
-          "contradicted": 0.03,
+          "supported": 0.97,
+          "contradicted": 0.02,
           "insufficient": 0.01
         }
       },
@@ -682,12 +685,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "50488a0bc127ee456c1175eefe2666625d49185a54350d5b04d25d36e1ed1a7e",
-      "latencyMs": 224,
+      "latencyMs": 148,
       "inputTokens": 772,
       "outputTokens": 44,
       "costUsd": 0.000032424,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:48.573Z"
+      "startedAt": "2026-11-08T17:28:53.819Z"
     },
     {
       "caseId": "h-t356-accuracy",
@@ -706,12 +709,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "0afb2d361063680c8d0eaaea606bfbbfc09ae88896cd91864011ee3419735537",
-      "latencyMs": 275,
+      "latencyMs": 303,
       "inputTokens": 501,
       "outputTokens": 0,
       "costUsd": 0.0000501,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:50.797Z"
+      "startedAt": "2026-11-08T17:28:55.968Z"
     },
     {
       "caseId": "h-t356-cost",
@@ -721,21 +724,21 @@
         "kind": "answered",
         "choice": "supported",
         "probabilities": {
-          "supported": 0.55,
-          "contradicted": 0.35,
-          "insufficient": 0.1
+          "supported": 0.58,
+          "contradicted": 0.33,
+          "insufficient": 0.09
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "59fdcdcb7c9ae7400b41aa4e304173c9df8835a4983a3b54971f074b472ae098",
-      "latencyMs": 187,
+      "latencyMs": 174,
       "inputTokens": 645,
       "outputTokens": 44,
       "costUsd": 0.000027090000000000003,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:53.074Z"
+      "startedAt": "2026-11-08T17:28:58.272Z"
     },
     {
       "caseId": "h-t356-cost",
@@ -754,12 +757,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "c6360bd836e8562e5bd02e1bf8fec3cea81be0dbf0b5d57f980e90ec30c99720",
-      "latencyMs": 263,
+      "latencyMs": 145,
       "inputTokens": 403,
       "outputTokens": 0,
       "costUsd": 0.000040300000000000004,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:55.262Z"
+      "startedAt": "2026-11-08T17:29:00.447Z"
     },
     {
       "caseId": "h-t357-installed",
@@ -778,12 +781,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "38fcd52695b4f3a7997ecff7c4f7a152f6d26a42566868b21cfd5404aedb29f0",
-      "latencyMs": 192,
+      "latencyMs": 161,
       "inputTokens": 643,
       "outputTokens": 47,
       "costUsd": 0.000027006,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:57.529Z"
+      "startedAt": "2026-11-08T17:29:02.594Z"
     },
     {
       "caseId": "h-t357-installed",
@@ -802,12 +805,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "4b930a1019d6b60743a0d81876b1081495b3bec3231487599c032845b89047af",
-      "latencyMs": 224,
+      "latencyMs": 153,
       "inputTokens": 407,
       "outputTokens": 0,
       "costUsd": 0.0000407,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:05:59.731Z"
+      "startedAt": "2026-11-08T17:29:04.757Z"
     },
     {
       "caseId": "h-t359-wrong-tests",
@@ -818,20 +821,20 @@
         "choice": "contradicted",
         "probabilities": {
           "supported": 0,
-          "contradicted": 0.9,
-          "insufficient": 0.1
+          "contradicted": 0.89,
+          "insufficient": 0.11
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "ac7027735160ada8b994d62bce30169bb6a3f7800f1263c223667f4e7306b180",
-      "latencyMs": 198,
+      "latencyMs": 139,
       "inputTokens": 563,
       "outputTokens": 47,
       "costUsd": 0.000023646,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:01.957Z"
+      "startedAt": "2026-11-08T17:29:06.911Z"
     },
     {
       "caseId": "h-t359-wrong-tests",
@@ -850,12 +853,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "38b0375156ff6861901721263c3a145633a3552f289662d2de0b11ab44b8b2e4",
-      "latencyMs": 292,
+      "latencyMs": 259,
       "inputTokens": 333,
       "outputTokens": 0,
       "costUsd": 0.0000333,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:04.156Z"
+      "startedAt": "2026-11-08T17:29:09.050Z"
     },
     {
       "caseId": "h-audit-nov2-passed",
@@ -874,12 +877,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "adf2ee8a2039fd373653078ebc4e8e6cf7fff9b72a0cad590135af9eda0162b1",
-      "latencyMs": 161,
+      "latencyMs": 170,
       "inputTokens": 1135,
       "outputTokens": 47,
       "costUsd": 0.00004767,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:06.450Z"
+      "startedAt": "2026-11-08T17:29:11.309Z"
     },
     {
       "caseId": "h-audit-nov2-passed",
@@ -898,12 +901,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "aaedda1210ad8e106f2608431e3f79ab91b18e937ad6f0a94ec84af2f9f394e1",
-      "latencyMs": 303,
+      "latencyMs": 573,
       "inputTokens": 826,
       "outputTokens": 0,
       "costUsd": 0.0000826,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:08.614Z"
+      "startedAt": "2026-11-08T17:29:13.479Z"
     },
     {
       "caseId": "h-audit-oct29-count",
@@ -922,12 +925,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "c5e509f28026e2a61e0a672887c2667da56d0683ef57bf1518e4e5bc005aa213",
-      "latencyMs": 208,
+      "latencyMs": 158,
       "inputTokens": 1330,
       "outputTokens": 47,
       "costUsd": 0.000055860000000000004,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:10.918Z"
+      "startedAt": "2026-11-08T17:29:16.053Z"
     },
     {
       "caseId": "h-audit-oct29-count",
@@ -946,12 +949,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "c92fead31d48bb491336e8f8f320333369ba249a8b579c34484f96abe328cd2d",
-      "latencyMs": 402,
+      "latencyMs": 189,
       "inputTokens": 1064,
       "outputTokens": 0,
       "costUsd": 0.00010640000000000001,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:13.378Z"
+      "startedAt": "2026-11-08T17:29:18.212Z"
     },
     {
       "caseId": "h-audit-nov4-not-regression",
@@ -962,20 +965,20 @@
         "choice": "contradicted",
         "probabilities": {
           "supported": 0.02,
-          "contradicted": 0.79,
-          "insufficient": 0.19
+          "contradicted": 0.78,
+          "insufficient": 0.2
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "548ddc1daf054085446c3c6f016dc95e83de246a8777a06271e6fefa5cf94bf3",
-      "latencyMs": 183,
+      "latencyMs": 154,
       "inputTokens": 1119,
       "outputTokens": 47,
       "costUsd": 0.000046998000000000006,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:16.939Z"
+      "startedAt": "2026-11-08T17:29:20.403Z"
     },
     {
       "caseId": "h-audit-nov4-not-regression",
@@ -994,12 +997,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "466e120b1340fe04d4292e9cf2595158154d5efbcfe90d94231dda629a6f5625",
-      "latencyMs": 256,
+      "latencyMs": 243,
       "inputTokens": 816,
       "outputTokens": 0,
       "costUsd": 0.0000816,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:19.563Z"
+      "startedAt": "2026-11-08T17:29:22.557Z"
     },
     {
       "caseId": "h-d-compaction",
@@ -1019,12 +1022,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "49aef56c0578da14add7420010d95f7eb822e4a4049a1466663dec61bcb9c1d2",
-      "latencyMs": 225,
+      "latencyMs": 148,
       "inputTokens": 884,
       "outputTokens": 56,
       "costUsd": 0.000037128,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:21.904Z"
+      "startedAt": "2026-11-08T17:29:24.800Z"
     },
     {
       "caseId": "h-d-compaction",
@@ -1044,12 +1047,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "cc2ae6f9a471ca3f9c1dabe8c0fced88753732d96302f2f0bf83120f68bab133",
-      "latencyMs": 401,
+      "latencyMs": 132,
       "inputTokens": 610,
       "outputTokens": 0,
       "costUsd": 0.000061,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:24.131Z"
+      "startedAt": "2026-11-08T17:29:26.947Z"
     },
     {
       "caseId": "h-d-processes",
@@ -1060,21 +1063,21 @@
         "choice": "settled-consequential",
         "probabilities": {
           "settled-consequential": 0.9,
-          "tentative": 0.06,
+          "tentative": 0.07,
           "routine": 0.02,
-          "duplicate": 0.02
+          "duplicate": 0.01
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "ab8b5b8ed3f10678e2837122d8edb1c235659fa6c31f83041d98d3ad3ba89a01",
-      "latencyMs": 170,
+      "latencyMs": 151,
       "inputTokens": 730,
       "outputTokens": 56,
       "costUsd": 0.00003066,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:26.533Z"
+      "startedAt": "2026-11-08T17:29:29.081Z"
     },
     {
       "caseId": "h-d-processes",
@@ -1094,12 +1097,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "5101e7d52829bbbec4e929666ddfde3c0ca841c32a67409fc64208948accb6be",
-      "latencyMs": 260,
+      "latencyMs": 197,
       "inputTokens": 495,
       "outputTokens": 0,
       "costUsd": 0.0000495,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:28.704Z"
+      "startedAt": "2026-11-08T17:29:31.234Z"
     },
     {
       "caseId": "h-d-origins",
@@ -1109,8 +1112,8 @@
         "kind": "answered",
         "choice": "settled-consequential",
         "probabilities": {
-          "settled-consequential": 0.86,
-          "tentative": 0.05,
+          "settled-consequential": 0.85,
+          "tentative": 0.06,
           "routine": 0.08,
           "duplicate": 0.01
         }
@@ -1119,12 +1122,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "000c92afd2f6e39539e2c134f97b245195ee55147280f197f7c2fe28b31bc500",
-      "latencyMs": 142,
+      "latencyMs": 151,
       "inputTokens": 719,
       "outputTokens": 56,
       "costUsd": 0.000030198,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:30.964Z"
+      "startedAt": "2026-11-08T17:29:33.432Z"
     },
     {
       "caseId": "h-d-origins",
@@ -1144,12 +1147,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "b0a2e80e5d3d62e5b23607e35c39237b9566c9ac2f0cad87f06820b2cf0d10a6",
-      "latencyMs": 288,
+      "latencyMs": 1303,
       "inputTokens": 477,
       "outputTokens": 0,
       "costUsd": 0.0000477,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:33.107Z"
+      "startedAt": "2026-11-08T17:29:35.584Z"
     },
     {
       "caseId": "h-d-chat-tables",
@@ -1157,11 +1160,11 @@
       "engine": "jev",
       "outcome": {
         "kind": "answered",
-        "choice": "routine",
+        "choice": "settled-consequential",
         "probabilities": {
-          "settled-consequential": 0.46,
+          "settled-consequential": 0.53,
           "tentative": 0,
-          "routine": 0.53,
+          "routine": 0.46,
           "duplicate": 0.01
         }
       },
@@ -1169,12 +1172,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "e89843dadfac593be36be6c294e572a87360951642e0c809b97930b772091593",
-      "latencyMs": 161,
+      "latencyMs": 143,
       "inputTokens": 963,
-      "outputTokens": 51,
+      "outputTokens": 56,
       "costUsd": 0.000040446000000000005,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:35.396Z"
+      "startedAt": "2026-11-08T17:29:38.889Z"
     },
     {
       "caseId": "h-d-chat-tables",
@@ -1194,12 +1197,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "a87f3d4fd3cd3f99f272534c0551bb3423a16f8aa059f6304f322ad28a08f003",
-      "latencyMs": 266,
+      "latencyMs": 138,
       "inputTokens": 673,
       "outputTokens": 0,
       "costUsd": 0.0000673,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:37.558Z"
+      "startedAt": "2026-11-08T17:29:41.033Z"
     },
     {
       "caseId": "h-d-highlights",
@@ -1209,9 +1212,9 @@
         "kind": "answered",
         "choice": "settled-consequential",
         "probabilities": {
-          "settled-consequential": 0.73,
+          "settled-consequential": 0.81,
           "tentative": 0,
-          "routine": 0.26,
+          "routine": 0.18,
           "duplicate": 0.01
         }
       },
@@ -1219,12 +1222,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "fceef8bee2bea2060a0f4a171ce92ed2c0385dbb1bcff7e780fb6c5b92409a3b",
-      "latencyMs": 161,
+      "latencyMs": 160,
       "inputTokens": 934,
       "outputTokens": 56,
       "costUsd": 0.000039228000000000005,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:39.825Z"
+      "startedAt": "2026-11-08T17:29:43.172Z"
     },
     {
       "caseId": "h-d-highlights",
@@ -1244,12 +1247,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "2f4eb806cedf87b822b443102eb72bfd9a7d244421231af46ae2bdac9c1baf95",
-      "latencyMs": 196,
+      "latencyMs": 224,
       "inputTokens": 645,
       "outputTokens": 0,
       "costUsd": 0.0000645,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:41.987Z"
+      "startedAt": "2026-11-08T17:29:45.333Z"
     },
     {
       "caseId": "h-d-usage-padding",
@@ -1269,12 +1272,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "11e960f26b77ca6a13e7c7f76e89149b2a96da85b0c46c086a93f9089e4cec16",
-      "latencyMs": 170,
+      "latencyMs": 152,
       "inputTokens": 773,
       "outputTokens": 51,
       "costUsd": 0.000032466000000000004,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:44.184Z"
+      "startedAt": "2026-11-08T17:29:47.559Z"
     },
     {
       "caseId": "h-d-usage-padding",
@@ -1294,12 +1297,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "3ee5dceffc87d3e635185d4e31a7b10b03d8436696435d0439593bf97317e0c6",
-      "latencyMs": 350,
+      "latencyMs": 368,
       "inputTokens": 527,
       "outputTokens": 0,
       "costUsd": 0.0000527,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:46.355Z"
+      "startedAt": "2026-11-08T17:29:49.712Z"
     },
     {
       "caseId": "h-d-next-step",
@@ -1309,22 +1312,22 @@
         "kind": "answered",
         "choice": "tentative",
         "probabilities": {
-          "settled-consequential": 0.24,
-          "tentative": 0.7,
+          "settled-consequential": 0.21,
+          "tentative": 0.72,
           "routine": 0.01,
-          "duplicate": 0.05
+          "duplicate": 0.06
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "65ffcf91d584471e8971f859dd6cbec72d4402a668c77af3db0fa47b98b8a8c4",
-      "latencyMs": 161,
+      "latencyMs": 136,
       "inputTokens": 668,
       "outputTokens": 52,
       "costUsd": 0.000028056,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:48.706Z"
+      "startedAt": "2026-11-08T17:29:52.081Z"
     },
     {
       "caseId": "h-d-next-step",
@@ -1344,12 +1347,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "5126e8767d6d7f03b240694cb07c5f528946b88d53281684aa14b51077b4dcfc",
-      "latencyMs": 206,
+      "latencyMs": 244,
       "inputTokens": 435,
       "outputTokens": 0,
       "costUsd": 0.0000435,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:50.867Z"
+      "startedAt": "2026-11-08T17:29:54.219Z"
     },
     {
       "caseId": "h-d-follow-up",
@@ -1359,9 +1362,9 @@
         "kind": "answered",
         "choice": "tentative",
         "probabilities": {
-          "settled-consequential": 0.03,
-          "tentative": 0.93,
-          "routine": 0.03,
+          "settled-consequential": 0.05,
+          "tentative": 0.9,
+          "routine": 0.04,
           "duplicate": 0.01
         }
       },
@@ -1369,12 +1372,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "c07d1279036f93b13009f11a3b824a657b2208d3db6ec19e131ff3e7b9cebdcd",
-      "latencyMs": 152,
+      "latencyMs": 125,
       "inputTokens": 641,
       "outputTokens": 52,
       "costUsd": 0.000026922,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:53.074Z"
+      "startedAt": "2026-11-08T17:29:56.463Z"
     },
     {
       "caseId": "h-d-follow-up",
@@ -1394,12 +1397,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "58635b560902dc54b6cc080ce302d5a29d8fdbd1070df64d4a597f5952959987",
-      "latencyMs": 358,
+      "latencyMs": 148,
       "inputTokens": 408,
       "outputTokens": 0,
       "costUsd": 0.0000408,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:55.227Z"
+      "startedAt": "2026-11-08T17:29:58.611Z"
     },
     {
       "caseId": "h-d-invariant",
@@ -1409,22 +1412,22 @@
         "kind": "answered",
         "choice": "settled-consequential",
         "probabilities": {
-          "settled-consequential": 0.82,
+          "settled-consequential": 0.8,
           "tentative": 0.02,
           "routine": 0.07,
-          "duplicate": 0.09
+          "duplicate": 0.11
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "e016484b471958e26fa2c04093e30a1628ec1a203891cfe9c8f283c868deffa2",
-      "latencyMs": 190,
+      "latencyMs": 159,
       "inputTokens": 611,
       "outputTokens": 56,
       "costUsd": 0.000025662000000000003,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:57.585Z"
+      "startedAt": "2026-11-08T17:30:00.758Z"
     },
     {
       "caseId": "h-d-invariant",
@@ -1444,12 +1447,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "0ea9fc0c6d5757b4616b99a0fbdfd7665faad9ebc51cdcf0e04a31d41fc4f6e7",
-      "latencyMs": 256,
+      "latencyMs": 134,
       "inputTokens": 378,
       "outputTokens": 0,
       "costUsd": 0.000037800000000000004,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:06:59.777Z"
+      "startedAt": "2026-11-08T17:30:02.919Z"
     },
     {
       "caseId": "h-d-restated-processes",
@@ -1469,12 +1472,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "4e854787a4d9ec665b8a73ba2be1c380b3a8377b211e20bc0708562216357552",
-      "latencyMs": 193,
+      "latencyMs": 148,
       "inputTokens": 706,
       "outputTokens": 51,
       "costUsd": 0.000029652,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:02.034Z"
+      "startedAt": "2026-11-08T17:30:05.054Z"
     },
     {
       "caseId": "h-d-restated-processes",
@@ -1494,12 +1497,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "feb62b3a5a6b6abb60f63791edcbe551865eaf4a72098f3c0753c30ca600252f",
-      "latencyMs": 176,
+      "latencyMs": 296,
       "inputTokens": 472,
       "outputTokens": 0,
       "costUsd": 0.0000472,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:04.228Z"
+      "startedAt": "2026-11-08T17:30:07.203Z"
     },
     {
       "caseId": "h-d-restated-origins",
@@ -1519,12 +1522,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "6989562dc718b0519fb48f6928b3aab3cc9480d856bab322e943c7e795f88132",
-      "latencyMs": 157,
+      "latencyMs": 127,
       "inputTokens": 702,
       "outputTokens": 51,
       "costUsd": 0.000029484,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:06.404Z"
+      "startedAt": "2026-11-08T17:30:09.499Z"
     },
     {
       "caseId": "h-d-restated-origins",
@@ -1544,12 +1547,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "d8f0f20b3c5cbd288ab818e47d210a8d25078c43abdbaae218cb6dbf39426847",
-      "latencyMs": 286,
+      "latencyMs": 166,
       "inputTokens": 460,
       "outputTokens": 0,
       "costUsd": 0.000046,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:08.561Z"
+      "startedAt": "2026-11-08T17:30:11.628Z"
     },
     {
       "caseId": "h-syn-tests-skipped",
@@ -1560,20 +1563,20 @@
         "choice": "insufficient",
         "probabilities": {
           "supported": 0,
-          "contradicted": 0.4,
-          "insufficient": 0.6
+          "contradicted": 0.32,
+          "insufficient": 0.68
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "71aebf10bea2f77d7ee73131dcee00db46e5c7e57fb33f2195beeec6001d5b2d",
-      "latencyMs": 148,
+      "latencyMs": 149,
       "inputTokens": 572,
       "outputTokens": 47,
       "costUsd": 0.000024024000000000002,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:10.848Z"
+      "startedAt": "2026-11-08T17:30:13.795Z"
     },
     {
       "caseId": "h-syn-tests-skipped",
@@ -1592,12 +1595,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "7019f9cd08dc034e38e108864804841bb94a89a3ab5142c7b76238f4d59d7243",
-      "latencyMs": 274,
+      "latencyMs": 125,
       "inputTokens": 353,
       "outputTokens": 0,
       "costUsd": 0.000035300000000000004,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:12.997Z"
+      "startedAt": "2026-11-08T17:30:15.945Z"
     },
     {
       "caseId": "h-syn-flaky-retried",
@@ -1607,21 +1610,21 @@
         "kind": "answered",
         "choice": "supported",
         "probabilities": {
-          "supported": 0.76,
-          "contradicted": 0.16,
-          "insufficient": 0.08
+          "supported": 0.55,
+          "contradicted": 0.28,
+          "insufficient": 0.17
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "108da44d2c91a9863acffb4684ece57a71f94b4d21bae99ab4fd8fe2888df840",
-      "latencyMs": 181,
+      "latencyMs": 200,
       "inputTokens": 647,
       "outputTokens": 44,
       "costUsd": 0.000027174000000000004,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:15.272Z"
+      "startedAt": "2026-11-08T17:30:18.071Z"
     },
     {
       "caseId": "h-syn-flaky-retried",
@@ -1640,12 +1643,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "448f885ffecfc1081cfa53d88f7a9153f8c0ae749fc6bf35e10678013c0614fd",
-      "latencyMs": 265,
+      "latencyMs": 281,
       "inputTokens": 422,
       "outputTokens": 0,
       "costUsd": 0.0000422,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:17.454Z"
+      "startedAt": "2026-11-08T17:30:20.271Z"
     },
     {
       "caseId": "h-syn-typecheck-truncated",
@@ -1664,12 +1667,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "e06936a59658391497c235163d2a2451ac624ab347b5a68781707c2179ca9a9f",
-      "latencyMs": 196,
+      "latencyMs": 155,
       "inputTokens": 612,
       "outputTokens": 47,
       "costUsd": 0.000025704,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:19.720Z"
+      "startedAt": "2026-11-08T17:30:22.552Z"
     },
     {
       "caseId": "h-syn-typecheck-truncated",
@@ -1688,12 +1691,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "b06d85857059092a7c8bd965e27ebbc333fb469e05fe596e0e9946197ff29319",
-      "latencyMs": 568,
+      "latencyMs": 271,
       "inputTokens": 385,
       "outputTokens": 0,
       "costUsd": 0.0000385,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:21.917Z"
+      "startedAt": "2026-11-08T17:30:24.707Z"
     },
     {
       "caseId": "h-syn-stale-revision",
@@ -1703,21 +1706,21 @@
         "kind": "answered",
         "choice": "contradicted",
         "probabilities": {
-          "supported": 0.12,
-          "contradicted": 0.56,
-          "insufficient": 0.32
+          "supported": 0.09,
+          "contradicted": 0.65,
+          "insufficient": 0.26
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "0b23f42bcc69bc4497f2d03e1bd9715fb155fe3d83a87697147d16d220904c3d",
-      "latencyMs": 181,
+      "latencyMs": 164,
       "inputTokens": 609,
       "outputTokens": 47,
       "costUsd": 0.000025578,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:24.486Z"
+      "startedAt": "2026-11-08T17:30:26.979Z"
     },
     {
       "caseId": "h-syn-stale-revision",
@@ -1736,12 +1739,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "6e6c2a5fa68b9acb7e7268716abd3e6dbb4081e37740218875704b75cdae8754",
-      "latencyMs": 581,
+      "latencyMs": 144,
       "inputTokens": 381,
       "outputTokens": 0,
       "costUsd": 0.000038100000000000005,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:26.668Z"
+      "startedAt": "2026-11-08T17:30:29.144Z"
     },
     {
       "caseId": "h-syn-landed-not-installed",
@@ -1752,20 +1755,20 @@
         "choice": "contradicted",
         "probabilities": {
           "supported": 0,
-          "contradicted": 0.85,
-          "insufficient": 0.15
+          "contradicted": 0.87,
+          "insufficient": 0.13
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "96257a09c381f8803a2d2196ee7af41ed72ee93c03e2112032dfabf923a8ffed",
-      "latencyMs": 193,
+      "latencyMs": 142,
       "inputTokens": 603,
       "outputTokens": 47,
       "costUsd": 0.000025326,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:29.250Z"
+      "startedAt": "2026-11-08T17:30:31.289Z"
     },
     {
       "caseId": "h-syn-landed-not-installed",
@@ -1784,12 +1787,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "704db1b74faf7f6f97e7054fc73af81c4600bfb94ed848deaff67b6d70bceed9",
-      "latencyMs": 145,
+      "latencyMs": 281,
       "inputTokens": 384,
       "outputTokens": 0,
       "costUsd": 0.000038400000000000005,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:31.444Z"
+      "startedAt": "2026-11-08T17:30:33.430Z"
     },
     {
       "caseId": "h-syn-rename-complete",
@@ -1799,21 +1802,21 @@
         "kind": "answered",
         "choice": "supported",
         "probabilities": {
-          "supported": 0.54,
-          "contradicted": 0.04,
-          "insufficient": 0.42
+          "supported": 0.49,
+          "contradicted": 0.06,
+          "insufficient": 0.45
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "7cfdf635f97919f2c23cda9d807805dc0111b1548adc64698fd35bf3af8da3e2",
-      "latencyMs": 182,
+      "latencyMs": 181,
       "inputTokens": 633,
       "outputTokens": 44,
       "costUsd": 0.000026586000000000003,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:33.590Z"
+      "startedAt": "2026-11-08T17:30:35.713Z"
     },
     {
       "caseId": "h-syn-rename-complete",
@@ -1832,12 +1835,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "db761a39bd1f7b2a30d2111a31b2f974d1252283ac4a95a10d00965e67ddf431",
-      "latencyMs": 383,
+      "latencyMs": 394,
       "inputTokens": 411,
       "outputTokens": 0,
       "costUsd": 0.0000411,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:35.772Z"
+      "startedAt": "2026-11-08T17:30:37.894Z"
     },
     {
       "caseId": "h-syn-additive-migration",
@@ -1848,20 +1851,20 @@
         "choice": "contradicted",
         "probabilities": {
           "supported": 0,
-          "contradicted": 0.85,
-          "insufficient": 0.15
+          "contradicted": 0.84,
+          "insufficient": 0.16
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "7ea930a199df40eec4e81c86991cc473e027091e81d3e563d9645798ee77cea5",
-      "latencyMs": 210,
+      "latencyMs": 144,
       "inputTokens": 561,
       "outputTokens": 47,
       "costUsd": 0.000023562000000000002,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:38.164Z"
+      "startedAt": "2026-11-08T17:30:40.290Z"
     },
     {
       "caseId": "h-syn-additive-migration",
@@ -1880,12 +1883,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "a5ceb6d0e23a4c9837ec0f73b7e59fb9c681dcfe561efc0d1d521af45018caed",
-      "latencyMs": 417,
+      "latencyMs": 138,
       "inputTokens": 341,
       "outputTokens": 0,
       "costUsd": 0.0000341,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:40.377Z"
+      "startedAt": "2026-11-08T17:30:42.434Z"
     },
     {
       "caseId": "h-syn-injected-evidence",
@@ -1896,20 +1899,20 @@
         "choice": "contradicted",
         "probabilities": {
           "supported": 0,
-          "contradicted": 0.98,
-          "insufficient": 0.02
+          "contradicted": 0.99,
+          "insufficient": 0.01
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "fcbd5b2ea312ce576cd4a29364a9d4e6127615ec6927446f54a770d6f19fe838",
-      "latencyMs": 149,
+      "latencyMs": 170,
       "inputTokens": 572,
       "outputTokens": 47,
       "costUsd": 0.000024024000000000002,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:42.795Z"
+      "startedAt": "2026-11-08T17:30:44.572Z"
     },
     {
       "caseId": "h-syn-injected-evidence",
@@ -1928,12 +1931,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "ea1f4f2ae046e5293359fbfbe8d529337f561412e58afed2bdba476874f57b3c",
-      "latencyMs": 276,
+      "latencyMs": 240,
       "inputTokens": 354,
       "outputTokens": 0,
       "costUsd": 0.0000354,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:44.945Z"
+      "startedAt": "2026-11-08T17:30:46.742Z"
     },
     {
       "caseId": "h-d-syn-near-existing",
@@ -1943,9 +1946,9 @@
         "kind": "answered",
         "choice": "settled-consequential",
         "probabilities": {
-          "settled-consequential": 0.84,
+          "settled-consequential": 0.83,
           "tentative": 0.01,
-          "routine": 0.14,
+          "routine": 0.15,
           "duplicate": 0.01
         }
       },
@@ -1953,12 +1956,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "9039c5fa9b2ed2ef557988c741ef58ba89fd47f174a6e5cb1d434aca50d6dea6",
-      "latencyMs": 193,
+      "latencyMs": 151,
       "inputTokens": 658,
       "outputTokens": 56,
       "costUsd": 0.000027636000000000004,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:47.222Z"
+      "startedAt": "2026-11-08T17:30:48.984Z"
     },
     {
       "caseId": "h-d-syn-near-existing",
@@ -1978,12 +1981,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "3ea9586575079ace94bc423e1ef6bc87068fc8f59801ea057443a9266b0f9d42",
-      "latencyMs": 281,
+      "latencyMs": 143,
       "inputTokens": 424,
       "outputTokens": 0,
       "costUsd": 0.00004240000000000001,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:49.416Z"
+      "startedAt": "2026-11-08T17:30:51.136Z"
     },
     {
       "caseId": "h-d-syn-tentative",
@@ -2003,12 +2006,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "b42bbcbd029645cd47f4a8ab89f23cd8d1c13eb3c65e1843d641a2e7e3e84bfc",
-      "latencyMs": 166,
+      "latencyMs": 135,
       "inputTokens": 567,
       "outputTokens": 52,
       "costUsd": 0.000023814,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:51.698Z"
+      "startedAt": "2026-11-08T17:30:53.280Z"
     },
     {
       "caseId": "h-d-syn-tentative",
@@ -2028,12 +2031,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "9617b5e4e1687495db26f89754b2bdd202efd8d6740a1901f1ddd9fade82f2d8",
-      "latencyMs": 385,
+      "latencyMs": 165,
       "inputTokens": 336,
       "outputTokens": 0,
       "costUsd": 0.000033600000000000004,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:53.865Z"
+      "startedAt": "2026-11-08T17:30:55.415Z"
     },
     {
       "caseId": "h-d-syn-exports",
@@ -2053,12 +2056,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "f2c4c9cb46e2cf6af559be70bb80d6be4bc2ba95293b12fb4bbb5f39bcc28ed4",
-      "latencyMs": 204,
+      "latencyMs": 132,
       "inputTokens": 572,
       "outputTokens": 56,
       "costUsd": 0.000024024000000000002,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:56.250Z"
+      "startedAt": "2026-11-08T17:30:57.580Z"
     },
     {
       "caseId": "h-d-syn-exports",
@@ -2078,12 +2081,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "b6e6c8f6048bef9fac80c2a2f209f4d853a54e236056a28f76cae9e619bd4fa7",
-      "latencyMs": 660,
+      "latencyMs": 153,
       "inputTokens": 340,
       "outputTokens": 0,
       "costUsd": 0.000034,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:07:58.455Z"
+      "startedAt": "2026-11-08T17:30:59.712Z"
     },
     {
       "caseId": "h-d-syn-agreed",
@@ -2103,12 +2106,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "153331f8b9b4d8af25c2ba0f0ce7ef6575a30837c60fcf7e5fc1c93b9d5ae36c",
-      "latencyMs": 207,
+      "latencyMs": 185,
       "inputTokens": 554,
       "outputTokens": 56,
       "costUsd": 0.000023268,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:08:01.116Z"
+      "startedAt": "2026-11-08T17:31:01.866Z"
     },
     {
       "caseId": "h-d-syn-agreed",
@@ -2128,12 +2131,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "4e9ece18c3a1419b79b46f809a4d8eb82a633eeda788e2070a6683c3ff3ca783",
-      "latencyMs": 307,
+      "latencyMs": 313,
       "inputTokens": 325,
       "outputTokens": 0,
       "costUsd": 0.0000325,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:08:03.323Z"
+      "startedAt": "2026-11-08T17:31:04.052Z"
     },
     {
       "caseId": "h-d-syn-suggested",
@@ -2153,12 +2156,12 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "45c4bc2f165e88edf2079ad0c6361ade3f74127842790da287542830b1e94a78",
-      "latencyMs": 174,
+      "latencyMs": 169,
       "inputTokens": 553,
       "outputTokens": 52,
       "costUsd": 0.000023226000000000004,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:08:05.632Z"
+      "startedAt": "2026-11-08T17:31:06.366Z"
     },
     {
       "caseId": "h-d-syn-suggested",
@@ -2178,12 +2181,12 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "1e6b86a1edda24bda93d030223aeaea1a6e87e409165c9a4b1ec310e3c520ee2",
-      "latencyMs": 333,
+      "latencyMs": 218,
       "inputTokens": 324,
       "outputTokens": 0,
       "costUsd": 0.0000324,
       "costStatus": "estimated",
-      "startedAt": "2026-11-05T13:08:07.806Z"
+      "startedAt": "2026-11-08T17:31:08.536Z"
     }
   ],
   "summary": {
@@ -2200,7 +2203,10 @@
             "low": 0.040093073737921175,
             "high": 0.39941907763863693
           },
-          "cases": ["h-t357-stale-digest", "h-syn-stale-revision"]
+          "cases": [
+            "h-t357-stale-digest",
+            "h-syn-stale-revision"
+          ]
         },
         "reviewRecall": {
           "numerator": 12,
@@ -2252,7 +2258,9 @@
             "low": 0.0614903152761605,
             "high": 0.7923450448735121
           },
-          "cases": ["h-t356-accuracy"]
+          "cases": [
+            "h-t356-accuracy"
+          ]
         },
         "flagged": 13,
         "abstentions": 0,
@@ -2315,7 +2323,12 @@
             "low": 0.21521252682444186,
             "high": 0.7847874731755582
           },
-          "cases": ["h-d-compaction", "h-d-processes", "h-d-origins", "h-d-syn-exports"]
+          "cases": [
+            "h-d-compaction",
+            "h-d-processes",
+            "h-d-origins",
+            "h-d-syn-exports"
+          ]
         },
         "missedCandidates": {
           "numerator": 4,
@@ -2325,7 +2338,12 @@
             "low": 0.21521252682444186,
             "high": 0.7847874731755582
           },
-          "cases": ["h-d-chat-tables", "h-d-highlights", "h-d-invariant", "h-d-syn-agreed"]
+          "cases": [
+            "h-d-chat-tables",
+            "h-d-highlights",
+            "h-d-invariant",
+            "h-d-syn-agreed"
+          ]
         },
         "falseEscalations": {
           "numerator": 1,
@@ -2335,7 +2353,9 @@
             "low": 0.02567895594897479,
             "high": 0.51313450331903
           },
-          "cases": ["h-d-restated-origins"]
+          "cases": [
+            "h-d-restated-origins"
+          ]
         },
         "falseEscalationsByReference": {
           "duplicate": 1
@@ -2448,7 +2468,10 @@
             "low": 0.2076549551264879,
             "high": 0.9385096847238394
           },
-          "cases": ["h-t356-cost", "h-syn-rename-complete"]
+          "cases": [
+            "h-t356-cost",
+            "h-syn-rename-complete"
+          ]
         },
         "flagged": 16,
         "abstentions": 0,
@@ -2572,17 +2595,18 @@
           ]
         },
         "exact": {
-          "numerator": 14,
+          "numerator": 15,
           "denominator": 15,
           "interval": {
-            "value": 0.9333333333333333,
-            "low": 0.7018292244757601,
-            "high": 0.9881334113938051
+            "value": 1,
+            "low": 0.7961107336956521,
+            "high": 1
           },
           "cases": [
             "h-d-compaction",
             "h-d-processes",
             "h-d-origins",
+            "h-d-chat-tables",
             "h-d-highlights",
             "h-d-usage-padding",
             "h-d-next-step",
@@ -2667,7 +2691,11 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": ["h-t356-accuracy", "h-t356-cost", "h-syn-rename-complete"]
+          "cases": [
+            "h-t356-accuracy",
+            "h-t356-cost",
+            "h-syn-rename-complete"
+          ]
         },
         "flagged": 17,
         "abstentions": 0,
@@ -2767,7 +2795,9 @@
             "low": 0.02567895594897479,
             "high": 0.51313450331903
           },
-          "cases": ["h-d-restated-origins"]
+          "cases": [
+            "h-d-restated-origins"
+          ]
         },
         "falseEscalationsByReference": {
           "duplicate": 1
@@ -2795,17 +2825,18 @@
           ]
         },
         "exact": {
-          "numerator": 14,
+          "numerator": 15,
           "denominator": 15,
           "interval": {
-            "value": 0.9333333333333333,
-            "low": 0.7018292244757601,
-            "high": 0.9881334113938051
+            "value": 1,
+            "low": 0.7961107336956521,
+            "high": 1
           },
           "cases": [
             "h-d-compaction",
             "h-d-processes",
             "h-d-origins",
+            "h-d-chat-tables",
             "h-d-highlights",
             "h-d-usage-padding",
             "h-d-next-step",
@@ -2951,17 +2982,18 @@
         "uncertainReference": 1,
         "candidates": 8,
         "candidateRecall": {
-          "numerator": 7,
+          "numerator": 8,
           "denominator": 8,
           "interval": {
-            "value": 0.875,
-            "low": 0.5291051942301386,
-            "high": 0.9775830911367038
+            "value": 1,
+            "low": 0.6755843804891231,
+            "high": 1
           },
           "cases": [
             "h-d-compaction",
             "h-d-processes",
             "h-d-origins",
+            "h-d-chat-tables",
             "h-d-highlights",
             "h-d-invariant",
             "h-d-syn-exports",
@@ -2969,14 +3001,14 @@
           ]
         },
         "missedCandidates": {
-          "numerator": 1,
+          "numerator": 0,
           "denominator": 8,
           "interval": {
-            "value": 0.125,
-            "low": 0.02241690886329617,
-            "high": 0.4708948057698615
+            "value": 0,
+            "low": 0,
+            "high": 0.3244156195108769
           },
-          "cases": ["h-d-chat-tables"]
+          "cases": []
         },
         "falseEscalations": {
           "numerator": 0,
@@ -2989,20 +3021,21 @@
           "cases": []
         },
         "falseEscalationsByReference": {},
-        "escalated": 7,
+        "escalated": 8,
         "abstentions": 0,
         "adjudicationLoad": {
-          "numerator": 7,
+          "numerator": 8,
           "denominator": 15,
           "interval": {
-            "value": 0.4666666666666667,
-            "low": 0.24809225259746442,
-            "high": 0.6988336984894921
+            "value": 0.5333333333333333,
+            "low": 0.3011663015105079,
+            "high": 0.7519077474025355
           },
           "cases": [
             "h-d-compaction",
             "h-d-processes",
             "h-d-origins",
+            "h-d-chat-tables",
             "h-d-highlights",
             "h-d-invariant",
             "h-d-syn-exports",
@@ -3010,17 +3043,18 @@
           ]
         },
         "exact": {
-          "numerator": 14,
+          "numerator": 15,
           "denominator": 15,
           "interval": {
-            "value": 0.9333333333333333,
-            "low": 0.7018292244757601,
-            "high": 0.9881334113938051
+            "value": 1,
+            "low": 0.7961107336956521,
+            "high": 1
           },
           "cases": [
             "h-d-compaction",
             "h-d-processes",
             "h-d-origins",
+            "h-d-chat-tables",
             "h-d-highlights",
             "h-d-usage-padding",
             "h-d-next-step",
@@ -3105,7 +3139,10 @@
             "low": 0.2076549551264879,
             "high": 0.9385096847238394
           },
-          "cases": ["h-t356-accuracy", "h-syn-rename-complete"]
+          "cases": [
+            "h-t356-accuracy",
+            "h-syn-rename-complete"
+          ]
         },
         "flagged": 16,
         "abstentions": 0,
@@ -3191,7 +3228,9 @@
             "low": 0.02241690886329617,
             "high": 0.4708948057698615
           },
-          "cases": ["h-d-invariant"]
+          "cases": [
+            "h-d-invariant"
+          ]
         },
         "falseEscalations": {
           "numerator": 0,
@@ -3320,7 +3359,10 @@
             "low": 0.2076549551264879,
             "high": 0.9385096847238394
           },
-          "cases": ["h-t356-accuracy", "h-syn-rename-complete"]
+          "cases": [
+            "h-t356-accuracy",
+            "h-syn-rename-complete"
+          ]
         },
         "flagged": 16,
         "abstentions": 0,
@@ -3406,7 +3448,9 @@
             "low": 0.02241690886329617,
             "high": 0.4708948057698615
           },
-          "cases": ["h-d-invariant"]
+          "cases": [
+            "h-d-invariant"
+          ]
         },
         "falseEscalations": {
           "numerator": 1,
@@ -3416,7 +3460,9 @@
             "low": 0.02567895594897479,
             "high": 0.51313450331903
           },
-          "cases": ["h-d-restated-origins"]
+          "cases": [
+            "h-d-restated-origins"
+          ]
         },
         "falseEscalationsByReference": {
           "duplicate": 1
@@ -3482,7 +3528,9 @@
             "low": 0.012721886112291636,
             "high": 0.3146926955395781
           },
-          "cases": ["h-t359-reliability"]
+          "cases": [
+            "h-t359-reliability"
+          ]
         },
         "reviewRecall": {
           "numerator": 13,
@@ -3537,7 +3585,10 @@
             "low": 0.2076549551264879,
             "high": 0.9385096847238394
           },
-          "cases": ["h-t356-accuracy", "h-syn-rename-complete"]
+          "cases": [
+            "h-t356-accuracy",
+            "h-syn-rename-complete"
+          ]
         },
         "flagged": 15,
         "abstentions": 0,
@@ -3622,7 +3673,9 @@
             "low": 0.02241690886329617,
             "high": 0.4708948057698615
           },
-          "cases": ["h-d-invariant"]
+          "cases": [
+            "h-d-invariant"
+          ]
         },
         "falseEscalations": {
           "numerator": 0,
@@ -3751,7 +3804,11 @@
             "low": 0.43849391955098227,
             "high": 1
           },
-          "cases": ["h-t356-accuracy", "h-t356-cost", "h-syn-rename-complete"]
+          "cases": [
+            "h-t356-accuracy",
+            "h-t356-cost",
+            "h-syn-rename-complete"
+          ]
         },
         "flagged": 17,
         "abstentions": 0,
@@ -4046,9 +4103,9 @@
     "jev": {
       "calls": 37,
       "latencyMs": {
-        "mean": 183.02702702702703,
-        "p50": 182,
-        "max": 269
+        "mean": 156.0810810810811,
+        "p50": 152,
+        "max": 229
       },
       "unobservedAttempts": 0,
       "inputTokens": 27296,
@@ -4056,21 +4113,27 @@
       "costUsd": 0.0011464320000000002,
       "knownCostUsd": 0.0011464320000000002,
       "costKnownCalls": 37,
-      "costStatuses": ["estimated"],
+      "costStatuses": [
+        "estimated"
+      ],
       "attempts": 37,
       "failedAttempts": 0,
       "failureCodes": [],
       "unanswered": [],
-      "outputTokensKnown": 1826,
-      "requestedModels": ["jev-1.14.0"],
-      "resolvedModels": ["jev-1.14.0"]
+      "outputTokensKnown": 1831,
+      "requestedModels": [
+        "jev-1.14.0"
+      ],
+      "resolvedModels": [
+        "jev-1.14.0"
+      ]
     },
     "luna": {
       "calls": 37,
       "latencyMs": {
-        "mean": 312.2162162162162,
-        "p50": 281,
-        "max": 660
+        "mean": 254.67567567567568,
+        "p50": 218,
+        "max": 1303
       },
       "unobservedAttempts": 0,
       "inputTokens": 17944,
@@ -4078,14 +4141,20 @@
       "costUsd": 0.0017944,
       "knownCostUsd": 0.0017944,
       "costKnownCalls": 37,
-      "costStatuses": ["estimated"],
+      "costStatuses": [
+        "estimated"
+      ],
       "attempts": 37,
       "failedAttempts": 0,
       "failureCodes": [],
       "unanswered": [],
       "outputTokensKnown": 0,
-      "requestedModels": ["gpt-6-luna"],
-      "resolvedModels": ["gpt-6-luna"]
+      "requestedModels": [
+        "gpt-6-luna"
+      ],
+      "resolvedModels": [
+        "gpt-6-luna"
+      ]
     }
   },
   "verdicts": {
@@ -4858,17 +4927,17 @@
         "abstained": false
       },
       "jev": {
-        "label": "routine",
+        "label": "settled-consequential",
         "flagged": true,
         "abstained": false
       },
       "jev-argmax": {
-        "label": "routine",
-        "flagged": false,
+        "label": "settled-consequential",
+        "flagged": true,
         "abstained": false
       },
       "jev+baseline": {
-        "label": "routine",
+        "label": "settled-consequential",
         "flagged": true,
         "abstained": false
       },
@@ -5282,7 +5351,7 @@
       },
       "jev": {
         "label": "supported",
-        "flagged": false,
+        "flagged": true,
         "abstained": false
       },
       "jev-argmax": {
@@ -5844,7 +5913,10 @@
               "low": 0.040093073737921175,
               "high": 0.39941907763863693
             },
-            "cases": ["h-t357-stale-digest", "h-syn-stale-revision"]
+            "cases": [
+              "h-t357-stale-digest",
+              "h-syn-stale-revision"
+            ]
           },
           "reviewRecall": {
             "numerator": 12,
@@ -5896,7 +5968,10 @@
               "low": 0.0822171657090155,
               "high": 0.6410709098517873
             },
-            "cases": ["h-t356-accuracy", "h-syn-flaky-retried"]
+            "cases": [
+              "h-t356-accuracy",
+              "h-syn-flaky-retried"
+            ]
           },
           "flagged": 14,
           "abstentions": 0,
@@ -5963,7 +6038,12 @@
               "low": 0.188775429471914,
               "high": 0.7333526542559703
             },
-            "cases": ["h-d-compaction", "h-d-processes", "h-d-origins", "h-d-syn-exports"]
+            "cases": [
+              "h-d-compaction",
+              "h-d-processes",
+              "h-d-origins",
+              "h-d-syn-exports"
+            ]
           },
           "missedCandidates": {
             "numerator": 5,
@@ -5989,7 +6069,9 @@
               "low": 0.02567895594897479,
               "high": 0.51313450331903
             },
-            "cases": ["h-d-restated-origins"]
+            "cases": [
+              "h-d-restated-origins"
+            ]
           },
           "falseEscalationsByReference": {
             "duplicate": 1
@@ -6095,30 +6177,31 @@
             ]
           },
           "falseAlarms": {
-            "numerator": 5,
+            "numerator": 6,
             "denominator": 7,
             "interval": {
-              "value": 0.7142857142857143,
-              "low": 0.35892909014821267,
-              "high": 0.9177828342909844
+              "value": 0.8571428571428571,
+              "low": 0.48686549668097007,
+              "high": 0.9743210440510253
             },
             "cases": [
               "h-t359-scope",
               "h-t357-checks",
               "h-t357-recall",
               "h-t356-cost",
+              "h-syn-flaky-retried",
               "h-syn-rename-complete"
             ]
           },
-          "flagged": 19,
+          "flagged": 20,
           "abstentions": 0,
           "reviewLoad": {
-            "numerator": 19,
+            "numerator": 20,
             "denominator": 21,
             "interval": {
-              "value": 0.9047619047619048,
-              "low": 0.7108541613925933,
-              "high": 0.9734817912030528
+              "value": 0.9523809523809523,
+              "low": 0.7733018341376452,
+              "high": 0.9915442305280766
             },
             "cases": [
               "h-t359-checks",
@@ -6134,6 +6217,7 @@
               "h-audit-oct29-count",
               "h-audit-nov4-not-regression",
               "h-syn-tests-skipped",
+              "h-syn-flaky-retried",
               "h-syn-typecheck-truncated",
               "h-syn-stale-revision",
               "h-syn-landed-not-installed",
@@ -6241,17 +6325,18 @@
             ]
           },
           "exact": {
-            "numerator": 15,
+            "numerator": 16,
             "denominator": 16,
             "interval": {
-              "value": 0.9375,
-              "low": 0.7167073163197013,
-              "high": 0.9888809426916687
+              "value": 1,
+              "low": 0.8063865817272802,
+              "high": 1
             },
             "cases": [
               "h-d-compaction",
               "h-d-processes",
               "h-d-origins",
+              "h-d-chat-tables",
               "h-d-highlights",
               "h-d-usage-padding",
               "h-d-next-step",
@@ -6454,7 +6539,9 @@
               "low": 0.02567895594897479,
               "high": 0.51313450331903
             },
-            "cases": ["h-d-restated-origins"]
+            "cases": [
+              "h-d-restated-origins"
+            ]
           },
           "falseEscalationsByReference": {
             "duplicate": 1
@@ -6483,17 +6570,18 @@
             ]
           },
           "exact": {
-            "numerator": 15,
+            "numerator": 16,
             "denominator": 16,
             "interval": {
-              "value": 0.9375,
-              "low": 0.7167073163197013,
-              "high": 0.9888809426916687
+              "value": 1,
+              "low": 0.8063865817272802,
+              "high": 1
             },
             "cases": [
               "h-d-compaction",
               "h-d-processes",
               "h-d-origins",
+              "h-d-chat-tables",
               "h-d-highlights",
               "h-d-usage-padding",
               "h-d-next-step",
@@ -6644,17 +6732,18 @@
           "uncertainReference": 0,
           "candidates": 9,
           "candidateRecall": {
-            "numerator": 8,
+            "numerator": 9,
             "denominator": 9,
             "interval": {
-              "value": 0.8888888888888888,
-              "low": 0.5649937852319399,
-              "high": 0.9801096286728695
+              "value": 1,
+              "low": 0.7008472464490407,
+              "high": 1
             },
             "cases": [
               "h-d-compaction",
               "h-d-processes",
               "h-d-origins",
+              "h-d-chat-tables",
               "h-d-highlights",
               "h-d-invariant",
               "h-d-syn-near-existing",
@@ -6663,14 +6752,14 @@
             ]
           },
           "missedCandidates": {
-            "numerator": 1,
+            "numerator": 0,
             "denominator": 9,
             "interval": {
-              "value": 0.1111111111111111,
-              "low": 0.019890371327130535,
-              "high": 0.4350062147680601
+              "value": 0,
+              "low": 0,
+              "high": 0.2991527535509594
             },
-            "cases": ["h-d-chat-tables"]
+            "cases": []
           },
           "falseEscalations": {
             "numerator": 0,
@@ -6683,20 +6772,21 @@
             "cases": []
           },
           "falseEscalationsByReference": {},
-          "escalated": 8,
+          "escalated": 9,
           "abstentions": 0,
           "adjudicationLoad": {
-            "numerator": 8,
+            "numerator": 9,
             "denominator": 16,
             "interval": {
-              "value": 0.5,
-              "low": 0.2799923761135083,
-              "high": 0.7200076238864916
+              "value": 0.5625,
+              "low": 0.33178195606776517,
+              "high": 0.7690163666481448
             },
             "cases": [
               "h-d-compaction",
               "h-d-processes",
               "h-d-origins",
+              "h-d-chat-tables",
               "h-d-highlights",
               "h-d-invariant",
               "h-d-syn-near-existing",
@@ -6705,17 +6795,18 @@
             ]
           },
           "exact": {
-            "numerator": 15,
+            "numerator": 16,
             "denominator": 16,
             "interval": {
-              "value": 0.9375,
-              "low": 0.7167073163197013,
-              "high": 0.9888809426916687
+              "value": 1,
+              "low": 0.8063865817272802,
+              "high": 1
             },
             "cases": [
               "h-d-compaction",
               "h-d-processes",
               "h-d-origins",
+              "h-d-chat-tables",
               "h-d-highlights",
               "h-d-usage-padding",
               "h-d-next-step",
@@ -6900,7 +6991,9 @@
               "low": 0.019890371327130535,
               "high": 0.4350062147680601
             },
-            "cases": ["h-d-invariant"]
+            "cases": [
+              "h-d-invariant"
+            ]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -7130,7 +7223,9 @@
               "low": 0.019890371327130535,
               "high": 0.4350062147680601
             },
-            "cases": ["h-d-invariant"]
+            "cases": [
+              "h-d-invariant"
+            ]
           },
           "falseEscalations": {
             "numerator": 1,
@@ -7140,7 +7235,9 @@
               "low": 0.02567895594897479,
               "high": 0.51313450331903
             },
-            "cases": ["h-d-restated-origins"]
+            "cases": [
+              "h-d-restated-origins"
+            ]
           },
           "falseEscalationsByReference": {
             "duplicate": 1
@@ -7208,7 +7305,9 @@
               "low": 0.012721886112291636,
               "high": 0.3146926955395781
             },
-            "cases": ["h-t359-reliability"]
+            "cases": [
+              "h-t359-reliability"
+            ]
           },
           "reviewRecall": {
             "numerator": 13,
@@ -7359,7 +7458,9 @@
               "low": 0.019890371327130535,
               "high": 0.4350062147680601
             },
-            "cases": ["h-d-invariant"]
+            "cases": [
+              "h-d-invariant"
+            ]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -7868,7 +7969,9 @@
               "low": 0.0614903152761605,
               "high": 0.7923450448735121
             },
-            "cases": ["h-t356-accuracy"]
+            "cases": [
+              "h-t356-accuracy"
+            ]
           },
           "flagged": 13,
           "abstentions": 0,
@@ -7931,7 +8034,12 @@
               "low": 0.21521252682444186,
               "high": 0.7847874731755582
             },
-            "cases": ["h-d-compaction", "h-d-processes", "h-d-origins", "h-d-syn-exports"]
+            "cases": [
+              "h-d-compaction",
+              "h-d-processes",
+              "h-d-origins",
+              "h-d-syn-exports"
+            ]
           },
           "missedCandidates": {
             "numerator": 4,
@@ -7941,7 +8049,12 @@
               "low": 0.21521252682444186,
               "high": 0.7847874731755582
             },
-            "cases": ["h-d-chat-tables", "h-d-highlights", "h-d-invariant", "h-d-syn-agreed"]
+            "cases": [
+              "h-d-chat-tables",
+              "h-d-highlights",
+              "h-d-invariant",
+              "h-d-syn-agreed"
+            ]
           },
           "falseEscalations": {
             "numerator": 1,
@@ -7951,7 +8064,9 @@
               "low": 0.02567895594897479,
               "high": 0.51313450331903
             },
-            "cases": ["h-d-restated-origins"]
+            "cases": [
+              "h-d-restated-origins"
+            ]
           },
           "falseEscalationsByReference": {
             "duplicate": 1
@@ -8067,7 +8182,10 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": ["h-t356-cost", "h-syn-rename-complete"]
+            "cases": [
+              "h-t356-cost",
+              "h-syn-rename-complete"
+            ]
           },
           "flagged": 19,
           "abstentions": 0,
@@ -8194,17 +8312,18 @@
             ]
           },
           "exact": {
-            "numerator": 14,
+            "numerator": 15,
             "denominator": 15,
             "interval": {
-              "value": 0.9333333333333333,
-              "low": 0.7018292244757601,
-              "high": 0.9881334113938051
+              "value": 1,
+              "low": 0.7961107336956521,
+              "high": 1
             },
             "cases": [
               "h-d-compaction",
               "h-d-processes",
               "h-d-origins",
+              "h-d-chat-tables",
               "h-d-highlights",
               "h-d-usage-padding",
               "h-d-next-step",
@@ -8292,7 +8411,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["h-t356-accuracy", "h-t356-cost", "h-syn-rename-complete"]
+            "cases": [
+              "h-t356-accuracy",
+              "h-t356-cost",
+              "h-syn-rename-complete"
+            ]
           },
           "flagged": 20,
           "abstentions": 0,
@@ -8395,7 +8518,9 @@
               "low": 0.02567895594897479,
               "high": 0.51313450331903
             },
-            "cases": ["h-d-restated-origins"]
+            "cases": [
+              "h-d-restated-origins"
+            ]
           },
           "falseEscalationsByReference": {
             "duplicate": 1
@@ -8423,17 +8548,18 @@
             ]
           },
           "exact": {
-            "numerator": 14,
+            "numerator": 15,
             "denominator": 15,
             "interval": {
-              "value": 0.9333333333333333,
-              "low": 0.7018292244757601,
-              "high": 0.9881334113938051
+              "value": 1,
+              "low": 0.7961107336956521,
+              "high": 1
             },
             "cases": [
               "h-d-compaction",
               "h-d-processes",
               "h-d-origins",
+              "h-d-chat-tables",
               "h-d-highlights",
               "h-d-usage-padding",
               "h-d-next-step",
@@ -8462,7 +8588,11 @@
               "low": 0.0619101371254899,
               "high": 0.41029929017375777
             },
-            "cases": ["h-t359-scope", "h-t357-checks", "h-t357-recall"]
+            "cases": [
+              "h-t359-scope",
+              "h-t357-checks",
+              "h-t357-recall"
+            ]
           },
           "reviewRecall": {
             "numerator": 14,
@@ -8579,17 +8709,18 @@
           "uncertainReference": 1,
           "candidates": 8,
           "candidateRecall": {
-            "numerator": 7,
+            "numerator": 8,
             "denominator": 8,
             "interval": {
-              "value": 0.875,
-              "low": 0.5291051942301386,
-              "high": 0.9775830911367038
+              "value": 1,
+              "low": 0.6755843804891231,
+              "high": 1
             },
             "cases": [
               "h-d-compaction",
               "h-d-processes",
               "h-d-origins",
+              "h-d-chat-tables",
               "h-d-highlights",
               "h-d-invariant",
               "h-d-syn-exports",
@@ -8597,14 +8728,14 @@
             ]
           },
           "missedCandidates": {
-            "numerator": 1,
+            "numerator": 0,
             "denominator": 8,
             "interval": {
-              "value": 0.125,
-              "low": 0.02241690886329617,
-              "high": 0.4708948057698615
+              "value": 0,
+              "low": 0,
+              "high": 0.3244156195108769
             },
-            "cases": ["h-d-chat-tables"]
+            "cases": []
           },
           "falseEscalations": {
             "numerator": 0,
@@ -8617,20 +8748,21 @@
             "cases": []
           },
           "falseEscalationsByReference": {},
-          "escalated": 7,
+          "escalated": 8,
           "abstentions": 0,
           "adjudicationLoad": {
-            "numerator": 7,
+            "numerator": 8,
             "denominator": 15,
             "interval": {
-              "value": 0.4666666666666667,
-              "low": 0.24809225259746442,
-              "high": 0.6988336984894921
+              "value": 0.5333333333333333,
+              "low": 0.3011663015105079,
+              "high": 0.7519077474025355
             },
             "cases": [
               "h-d-compaction",
               "h-d-processes",
               "h-d-origins",
+              "h-d-chat-tables",
               "h-d-highlights",
               "h-d-invariant",
               "h-d-syn-exports",
@@ -8638,17 +8770,18 @@
             ]
           },
           "exact": {
-            "numerator": 14,
+            "numerator": 15,
             "denominator": 15,
             "interval": {
-              "value": 0.9333333333333333,
-              "low": 0.7018292244757601,
-              "high": 0.9881334113938051
+              "value": 1,
+              "low": 0.7961107336956521,
+              "high": 1
             },
             "cases": [
               "h-d-compaction",
               "h-d-processes",
               "h-d-origins",
+              "h-d-chat-tables",
               "h-d-highlights",
               "h-d-usage-padding",
               "h-d-next-step",
@@ -8736,7 +8869,10 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": ["h-t356-accuracy", "h-syn-rename-complete"]
+            "cases": [
+              "h-t356-accuracy",
+              "h-syn-rename-complete"
+            ]
           },
           "flagged": 19,
           "abstentions": 0,
@@ -8828,7 +8964,9 @@
               "low": 0.02241690886329617,
               "high": 0.4708948057698615
             },
-            "cases": ["h-d-invariant"]
+            "cases": [
+              "h-d-invariant"
+            ]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -8960,7 +9098,10 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": ["h-t356-accuracy", "h-syn-rename-complete"]
+            "cases": [
+              "h-t356-accuracy",
+              "h-syn-rename-complete"
+            ]
           },
           "flagged": 19,
           "abstentions": 0,
@@ -9052,7 +9193,9 @@
               "low": 0.02241690886329617,
               "high": 0.4708948057698615
             },
-            "cases": ["h-d-invariant"]
+            "cases": [
+              "h-d-invariant"
+            ]
           },
           "falseEscalations": {
             "numerator": 1,
@@ -9062,7 +9205,9 @@
               "low": 0.02567895594897479,
               "high": 0.51313450331903
             },
-            "cases": ["h-d-restated-origins"]
+            "cases": [
+              "h-d-restated-origins"
+            ]
           },
           "falseEscalationsByReference": {
             "duplicate": 1
@@ -9128,7 +9273,9 @@
               "low": 0.01046013064516424,
               "high": 0.269825452035628
             },
-            "cases": ["h-t359-reliability"]
+            "cases": [
+              "h-t359-reliability"
+            ]
           },
           "reviewRecall": {
             "numerator": 16,
@@ -9186,7 +9333,10 @@
               "low": 0.2076549551264879,
               "high": 0.9385096847238394
             },
-            "cases": ["h-t356-accuracy", "h-syn-rename-complete"]
+            "cases": [
+              "h-t356-accuracy",
+              "h-syn-rename-complete"
+            ]
           },
           "flagged": 18,
           "abstentions": 0,
@@ -9277,7 +9427,9 @@
               "low": 0.02241690886329617,
               "high": 0.4708948057698615
             },
-            "cases": ["h-d-invariant"]
+            "cases": [
+              "h-d-invariant"
+            ]
           },
           "falseEscalations": {
             "numerator": 0,
@@ -9409,7 +9561,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["h-t356-accuracy", "h-t356-cost", "h-syn-rename-complete"]
+            "cases": [
+              "h-t356-accuracy",
+              "h-t356-cost",
+              "h-syn-rename-complete"
+            ]
           },
           "flagged": 20,
           "abstentions": 0,
