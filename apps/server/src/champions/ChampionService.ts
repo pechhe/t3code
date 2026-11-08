@@ -1162,7 +1162,10 @@ const make = Effect.gen(function* () {
               }
               return outstanding;
             }
-            if (kind === "check" && doc.metrics.length === 0)
+            // A journey check's evidence is what the server records; a paused one only measures.
+            const journeysWhilePaused =
+              doc.champion.journeys !== undefined && doc.champion.lifecycle !== "active";
+            if (kind === "check" && doc.metrics.length === 0 && !journeysWhilePaused)
               return yield* new ChampionError({ reason: "invalid" });
             const checkId = yield* uuid;
             const setupThreadId = doc.champion.setupThreadId ?? ThreadId.make(yield* uuid);

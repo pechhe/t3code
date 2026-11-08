@@ -4395,6 +4395,33 @@ describe("a journey check", () => {
     ),
   );
 
+  it.effect(
+    "lets a paused journey Champion with no accepted metrics measure, and nothing more",
+    () =>
+      withFixture((f, service) =>
+        withTarget([manifest("aaaaaaaa", "commit-1")], (directory) =>
+          Effect.gen(function* () {
+            yield* service.upsert(journeysConfig(directory));
+            yield* service.runCheck({ id: config.id });
+            const plan = yield* service.journeysStart(f.caller());
+            const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
+            yield* walk(policy, f.caller().threadId, "tab-one", "/tasks");
+            yield* service.report(f.caller(), {
+              samples: [],
+              findings: [],
+              summary: "One journey.",
+              journeys: { started: 1, passed: 1, failed: 0, stopped: 0 },
+            });
+            const { record } = yield* service.journeyRecord({ checkId: plan.checkId });
+            assert.equal(record.status, "complete");
+            const detail = yield* service.get({ id: config.id });
+            assert.equal(detail.champion.lifecycle, "paused");
+            yield* refusedWith(service.setLifecycle({ id: config.id, lifecycle: "active" }), "");
+          }).pipe(withPolicy),
+        ),
+      ),
+  );
+
   it.effect("gives a replay no task but its brief, and no follow-up", () =>
     withFixture((f, service) =>
       withTarget(
