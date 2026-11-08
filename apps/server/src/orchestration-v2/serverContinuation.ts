@@ -4,11 +4,12 @@ import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { neverStarted } from "./RestartBackgroundNote.ts";
 
 export const UNATTENDED_CONTINUATION_MESSAGE_PREFIX = "message:unattended-continuation:";
+export const ARC_RUN_WAKE_MESSAGE_PREFIX = "message:arc-run-wake:";
 
 /** Server continuations in a row without the owner; past this, T3 stops continuing on its own. */
 export const MAX_CONTINUATION_CHAIN = 3;
 
-/** A run T3 started on its own to keep a thread going, after a restart or while unattended. */
+/** A run T3 started on its own to keep a thread going, after a restart or while Away. */
 export function isServerContinuationRun(
   run: Pick<OrchestrationV2Run, "restartContinuationOfRunId" | "userMessageId">,
 ): boolean {

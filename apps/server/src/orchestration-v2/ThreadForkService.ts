@@ -110,6 +110,8 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
         // to the moved thread.
         workspaceAttachments: _sourceWorkspaceAttachments,
         projectMove: _sourceProjectMove,
+        // One thread owns an Arc's run.
+        arcRun: _sourceArcRun,
         ...sourceThread
       } = input.sourceProjection.thread;
       const targetThread: OrchestrationV2AppThread = {

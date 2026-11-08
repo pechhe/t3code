@@ -13,6 +13,7 @@ import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import { ARC_RUN_UNREADABLE_WATCH_MS } from "./arcRun.ts";
 import { decideBuildWatch, threadWatchRefusal } from "./threadWatch.ts";
 
 export class ForgeWatchReactor extends Context.Service<
@@ -30,6 +31,8 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const crypto = yield* SecureRandom.SecureRandom;
   const serial = yield* Semaphore.make(1);
+  // In memory on purpose: a restart starts the clock again rather than blaming Forge for downtime.
+  const unreadableSince = new Map<string, number>();
 
   // Rebuild from durable watches every pass, including the first pass after a restart.
   // ForgeWorkItems shares its summary cache across all watchers and client reads.
@@ -60,7 +63,31 @@ const make = Effect.gen(function* () {
             if (watch.target.kind !== "build_item") continue;
             const number = watch.target.number;
             const cached = result.items.find((item) => item.number === number);
-            if (cached === undefined || cached.unavailable || cached.item === null) continue;
+            if (cached === undefined || cached.unavailable || cached.item === null) {
+              const since = unreadableSince.get(watch.id) ?? passStartedAt;
+              unreadableSince.set(watch.id, since);
+              // An Arc run counts this watch as its next trigger, and it may never fire.
+              if (
+                thread.arcRun?.state === "active" &&
+                passStartedAt - since > ARC_RUN_UNREADABLE_WATCH_MS
+              ) {
+                unreadableSince.delete(watch.id);
+                yield* engine.dispatch({
+                  type: "thread.thread-watch.fire",
+                  commandId: CommandId.make(`server:build-watch-fire:${yield* crypto.uuidV4()}`),
+                  threadId: thread.id,
+                  watchId: watch.id,
+                  build: {
+                    number,
+                    title: watch.title,
+                    url: `#${number}`,
+                    condition: "unreadable",
+                  },
+                });
+              }
+              continue;
+            }
+            unreadableSince.delete(watch.id);
             if (decideBuildWatch(watch.target, cached.item) === undefined) continue;
             // A cached answer can predate a hold or wait opened outside T3's own connection: wake only
             // on an answer read in this pass.

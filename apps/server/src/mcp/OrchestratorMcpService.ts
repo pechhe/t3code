@@ -103,6 +103,7 @@ import {
   type AgentReviewRequest,
   type OrchestrationV2WatchTarget,
   isLeafAgentTask,
+  isOrchestrationV2WorkActive,
   resolveProjectProviderInstanceEnabled,
   SECRET_REQUEST_UNSAVED_NOTE,
 } from "@t3tools/contracts";
@@ -3125,6 +3126,31 @@ const make = Effect.gen(function* () {
             "capability_denied",
             "A Spec lead runs one Spec; only an Arc lead starts another `lead`.",
           );
+        // A lead re-reading its Arc after a restart cannot tell a Spec lead it started from one it
+        // only planned, so a second start of the same Spec answers with the one already open.
+        if (specLead && input.agentTask !== undefined && input.followup === undefined) {
+          const { subagents } = yield* threadManagement
+            .getThreadRecords(scope.thread.threadId, ["subagents"])
+            .pipe(Effect.mapError(threadManagementFailure));
+          for (const task of subagents) {
+            if (
+              task.origin !== "app_owned" ||
+              task.childThreadId === null ||
+              !isOrchestrationV2WorkActive(task.status)
+            ) {
+              continue;
+            }
+            const { thread: child } = yield* threadManagement
+              .getThreadRecords(task.childThreadId, [])
+              .pipe(Effect.mapError(threadManagementFailure));
+            if (
+              child.agentTask?.role === "lead" &&
+              child.agentTask.workId === input.agentTask.workId
+            ) {
+              return yield* readTask(scope, task.id, false, false);
+            }
+          }
+        }
         // A Spec lead starts in its parent's own mode, as a thread it launched would.
         const childRuntimeDefault = specLead
           ? Effect.succeed<OrchestratorMcpRuntimeMode>("inherit")

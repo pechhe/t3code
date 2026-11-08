@@ -8,7 +8,11 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { OrchestrationV2ThreadWorkflow, OrchestrationV2ThreadWorkItem } from "./orchestrationV2.ts";
+import {
+  OrchestrationV2ThreadArcRun,
+  OrchestrationV2ThreadWorkflow,
+  OrchestrationV2ThreadWorkItem,
+} from "./orchestrationV2.ts";
 import { ThreadLinkedPullRequest } from "./threadPullRequest.ts";
 import { ThreadTitleRegeneration } from "./threadTitle.ts";
 
@@ -67,6 +71,7 @@ export const ThreadMetadataMcpAction = Schema.Literals([
   "set_workflow",
   "link_work_item",
   "unlink_work_item",
+  "arc_run",
 ]).annotate({
   description: "Metadata mutation. Each action takes only its own fields.",
 });
@@ -99,9 +104,40 @@ export const ThreadMetadataMcpUpdateInput = Schema.Struct({
     description:
       "The Weave Build Spec or Ticket to link: Build URL, #<number> or number. Required only for link_work_item, which replaces any earlier item.",
   }),
+  arcRun: Schema.optional(
+    Schema.Struct({
+      op: Schema.Literals(["start", "checkpoint", "pause", "end"]),
+      arc: Schema.optional(PositiveInt),
+      ref: Schema.optional(TrimmedNonEmptyString),
+      phase: Schema.optional(TrimmedNonEmptyString),
+      note: Schema.optional(TrimmedNonEmptyString),
+    }),
+  ).annotate({
+    description:
+      "Required only for arc_run, on your own thread. start names arc (its Forge number) and ref; checkpoint names phase (a new phase counts as progress) and note; only end finishes the run.",
+  }),
   clientRequestId: Schema.optional(ThreadMetadataClientRequestId),
 }).check(
   Schema.makeFilter((input) => {
+    if (input.action === "arc_run") {
+      if (
+        input.arcRun === undefined ||
+        input.title !== undefined ||
+        input.pullRequest !== undefined ||
+        input.workflow !== undefined ||
+        input.workItem !== undefined
+      ) {
+        return "arc_run requires arcRun and accepts no title, pullRequest, workflow or workItem.";
+      }
+      if (input.arcRun.op === "start" && input.arcRun.arc === undefined) {
+        return "arc_run start requires arc.";
+      }
+      if (input.arcRun.op === "checkpoint" && input.arcRun.phase === undefined) {
+        return "arc_run checkpoint requires phase.";
+      }
+      return true;
+    }
+    if (input.arcRun !== undefined) return `${input.action} does not accept arcRun.`;
     if (input.action === "link_work_item") {
       return input.workItem !== undefined &&
         input.title === undefined &&
@@ -149,6 +185,7 @@ export const ThreadMetadataMcpUpdateResult = Schema.Struct({
   linkedPullRequest: Schema.NullOr(ThreadLinkedPullRequest),
   workflow: Schema.NullOr(OrchestrationV2ThreadWorkflow),
   workItem: Schema.NullOr(OrchestrationV2ThreadWorkItem),
+  arcRun: Schema.optional(OrchestrationV2ThreadArcRun),
   updatedAt: IsoDateTime,
 });
 export type ThreadMetadataMcpUpdateResult = typeof ThreadMetadataMcpUpdateResult.Type;

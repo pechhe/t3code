@@ -156,6 +156,19 @@ While Away is on, T3 Code keeps your threads working without you:
 Pressing stop ends the current turn as usual, and no continuation follows. Turning Away off
 takes effect when each current turn ends.
 
+### Running an Arc
+
+Tell an agent to run an Arc and that one thread takes responsibility for the Arc's whole
+outcome, whether or not Away is on. It moves between Specs and makes its own decisions without
+waiting for you to say continue, and T3 Code brings it back whenever a turn ends with nothing
+else due to wake it. Your other threads behave as usual.
+
+Press Stop, or tell it to stop, to pause the run; send it a message to resume. If it stops making
+progress, T3 Code gives it one last turn to tell you what is stuck, then leaves it until you reply.
+Settling or archiving the thread ends the run. What it still waits for you on stays the same:
+acceptance, releases, spending and permissions. Look-and-feel changes are the exception: during
+an Arc it decides those itself and lists them for you to review together afterwards.
+
 ### Fold working threads (beta)
 
 Threads that are working or waiting on work they will resume from move into a collapsed

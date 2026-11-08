@@ -27,6 +27,7 @@ import { ServerSettingsService } from "../serverSettings.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import { cancelledBeforeStart, neverStarted } from "./RestartBackgroundNote.ts";
+import { ARC_RUN_ANSWER, arcLeadThreadId, needsOwnerAnswer } from "./arcRun.ts";
 import {
   isServerContinuationRun,
   MAX_CONTINUATION_CHAIN,
@@ -95,6 +96,14 @@ const make = Effect.gen(function* () {
   const covered = Effect.fnUntraced(function* (thread: OrchestrationV2AppThread) {
     return (yield* Ref.get(away)) && isCovered(thread, yield* DateTime.now);
   });
+  // A Spec lead under a running Arc reports to its Arc lead: its question and its turn-end both go
+  // there, so nothing here may answer or continue it first.
+  const reportsToArcLead = Effect.fnUntraced(function* (thread: OrchestrationV2AppThread) {
+    const parentId = arcLeadThreadId(thread);
+    if (parentId === undefined) return false;
+    const parent = yield* projections.getThread(parentId);
+    return parent.arcRun !== undefined;
+  });
 
   // A provider may record the request before the item holding its questions, so either event
   // can be the one that finds both.
@@ -107,19 +116,25 @@ const make = Effect.gen(function* () {
     const records = yield* projections.getThreadRecords(threadId, ["turnItems"], {
       turnItemTypes: ["user_input_request"],
     });
-    if (!(yield* covered(records.thread))) return;
+    const arcRun = records.thread.arcRun;
+    if (
+      arcRun !== undefined ? arcRun.state !== "active" : yield* reportsToArcLead(records.thread)
+    ) {
+      return;
+    }
+    if (arcRun === undefined && !(yield* covered(records.thread))) return;
+    const answer = arcRun === undefined ? AWAY_ANSWER : ARC_RUN_ANSWER;
     const item = records.turnItems.find(
       (candidate) => candidate.type === "user_input_request" && candidate.requestId === requestId,
     );
     if (item?.type !== "user_input_request" || item.questions.length === 0) return;
-    // Fixed-choice dialogs, such as Claude's resume prompt, stay with the owner.
-    if (item.questions.some((question) => question.allowCustomAnswer === false)) return;
+    if (needsOwnerAnswer(item.questions)) return;
     yield* engine.dispatch({
       type: "runtime-request.respond",
       commandId: CommandId.make(`server:unattended-answer:${requestId}`),
       threadId,
       requestId,
-      answers: Object.fromEntries(item.questions.map((question) => [question.id, AWAY_ANSWER])),
+      answers: Object.fromEntries(item.questions.map((question) => [question.id, answer])),
     });
   });
 
@@ -135,6 +150,8 @@ const make = Effect.gen(function* () {
       },
     );
     const { thread, runs } = records;
+    // An Arc run has its own reactor, whose wake also carries this thread's role.
+    if (thread.arcRun !== undefined || (yield* reportsToArcLead(thread))) return;
     if (!(yield* covered(thread))) return;
     if (records.messages.some((message) => message.id === messageId)) return;
     const source = runs.find((run) => run.id === sourceRunId);
@@ -252,7 +269,10 @@ const make = Effect.gen(function* () {
     const rows = yield* sql<{ thread_id: string }>`
       SELECT thread_id FROM orchestration_v2_projection_threads AS thread
       WHERE deleted_at IS NULL AND archived_at IS NULL
-      AND json_extract(payload_json, '$.lineage.parentThreadId') IS NULL
+      AND (
+        json_extract(payload_json, '$.lineage.parentThreadId') IS NULL
+        OR json_extract(payload_json, '$.agentTask.role') = 'lead'
+      )
       AND COALESCE(json_extract(payload_json, '$.workflow.kind'), '') <> 'chat'
       AND (
         EXISTS (

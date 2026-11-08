@@ -560,6 +560,11 @@ export interface ProjectionStoreV2Shape {
   readonly getThread: (
     threadId: ThreadId,
   ) => Effect.Effect<OrchestrationV2AppThread, ProjectionStoreV2Error>;
+  /** Every live thread holding an Arc run, whatever its state. */
+  readonly listArcRunThreads: () => Effect.Effect<
+    ReadonlyArray<OrchestrationV2AppThread>,
+    ProjectionStoreV2Error
+  >;
   readonly getLimitRecoveryCandidates: (options: {
     readonly now: DateTime.Utc;
     readonly autoResume: boolean;
@@ -4112,6 +4117,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             LIMIT 1
           )
           WHERE t.deleted_at IS NULL
+            -- A held Arc stays held until its owner replies, whatever the limit window does.
+            AND COALESCE(json_extract(t.payload_json, '$.arcRun.state'), '') NOT IN ('paused', 'attention')
             -- The sweep runs every scheduler tick. Without this list the latest-run
             -- lookup above sorts every run of every thread, tens of milliseconds
             -- for one long thread; only threads with a usage-limit failure qualify.
@@ -5036,6 +5043,20 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             ),
           ),
       );
+
+    const listArcRunThreads: ProjectionStoreV2Shape["listArcRunThreads"] = Effect.fn(
+      "ProjectionStore.listArcRunThreads",
+    )(
+      function* () {
+        const rows = yield* sql<PayloadRow>`
+          SELECT payload_json FROM orchestration_v2_projection_threads
+            INDEXED BY orchestration_v2_projection_threads_arc_run_idx
+          WHERE deleted_at IS NULL AND json_extract(payload_json, '$.arcRun') IS NOT NULL
+        `;
+        return yield* Effect.forEach(rows, (row) => decodeThreadPayload(row.payload_json));
+      },
+      (effect) => effect.pipe(Effect.mapError((cause) => new ProjectionStoreSetupError({ cause }))),
+    );
 
     const getThread: ProjectionStoreV2Shape["getThread"] = Effect.fn("ProjectionStore.getThread")(
       function* (threadId) {
@@ -6769,6 +6790,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               AND json_extract(t.payload_json, '$.settledOverride') IS NULL
               AND json_extract(t.payload_json, '$.pinnedAt') IS NULL
               AND json_extract(t.payload_json, '$.autoSettleDisabledAt') IS NULL
+              AND json_extract(t.payload_json, '$.arcRun') IS NULL
               AND NOT EXISTS (
                 SELECT 1 FROM orchestration_v2_projection_runs active
                 WHERE active.thread_id = t.thread_id
@@ -7635,6 +7657,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getThreadShell: readOnReader(getThreadShell),
       findGuestShareThreadId: readOnReader(findGuestShareThreadId),
       getThread: readOnReader(getThread),
+      listArcRunThreads: readOnReader(listArcRunThreads),
       getSettlementCandidates: readOnReader(getSettlementCandidates),
       getThreadsWithPullRequests: readOnReader(getThreadsWithPullRequests),
       getThreadTitles: readOnReader(getThreadTitles),

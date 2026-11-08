@@ -65,7 +65,10 @@ function metadataCommand(input: {
   readonly threadId: ThreadId;
   readonly projectId: OrchestrationV2AppThread["projectId"];
   readonly update: ThreadMetadataMcpUpdateInput & {
-    readonly action: Exclude<ThreadMetadataMcpAction, "link_work_item" | "unlink_work_item">;
+    readonly action: Exclude<
+      ThreadMetadataMcpAction,
+      "link_work_item" | "unlink_work_item" | "arc_run"
+    >;
   };
 }): Extract<OrchestrationV2Command, { readonly type: "thread.metadata.update" }> {
   switch (input.update.action) {
@@ -125,6 +128,7 @@ function resultFromThread(input: {
     | "linkedPullRequest"
     | "workflow"
     | "workItem"
+    | "arcRun"
     | "updatedAt"
   >;
 }): ThreadMetadataMcpUpdateResult {
@@ -144,6 +148,7 @@ function resultFromThread(input: {
     linkedPullRequest: input.thread.linkedPullRequest ?? null,
     workflow: input.thread.workflow ?? null,
     workItem: input.thread.workItem ?? null,
+    ...(input.thread.arcRun === undefined ? {} : { arcRun: input.thread.arcRun }),
     updatedAt: DateTime.formatIso(input.thread.updatedAt),
   };
 }
@@ -192,44 +197,77 @@ const make = Effect.gen(function* () {
       action: input.action,
       requestKey,
     });
+    if (input.action === "arc_run" && threadId !== scope.thread?.threadId) {
+      return yield* failure(
+        "capability_denied",
+        "An Arc run belongs to the thread that runs it: call this from that thread.",
+      );
+    }
+    const arcRunInput = input.arcRun;
     const dispatched =
-      input.action === "link_work_item" || input.action === "unlink_work_item"
-        ? yield* forgeWorkItems
-            .link({
-              threadId,
-              reference: input.action === "link_work_item" ? input.workItem! : null,
+      input.action === "arc_run"
+        ? yield* threadManagement
+            .dispatch({
+              type: "thread.arc-run",
               commandId: updateCommandId,
+              threadId,
+              op: arcRunInput!.op,
+              ...(arcRunInput!.arc === undefined
+                ? {}
+                : {
+                    arc: {
+                      number: arcRunInput!.arc,
+                      ...(arcRunInput!.ref === undefined ? {} : { ref: arcRunInput!.ref }),
+                    },
+                  }),
+              ...(arcRunInput!.phase === undefined ? {} : { phase: arcRunInput!.phase }),
+              ...(arcRunInput!.note === undefined ? {} : { note: arcRunInput!.note }),
             })
-            .pipe(
-              Effect.map(({ dispatch }) => dispatch),
-              Effect.mapError((error) =>
-                failure(
-                  error.reason === "dispatch_failed" || error.reason === "unavailable"
-                    ? "orchestration_error"
-                    : error.reason === "thread_not_found"
-                      ? "thread_not_found"
-                      : "invalid_request",
-                  error.message,
-                ),
-              ),
-            )
-        : yield* threadManagement
-            .dispatch(
-              metadataCommand({
-                commandId: updateCommandId,
-                threadId,
-                projectId: shell.projectId,
-                update: { ...input, action: input.action },
-              }),
-            )
             .pipe(
               Effect.mapError((error) =>
                 failure(
                   "orchestration_error",
-                  `Unable to ${input.action} for thread ${threadId}: ${errorMessage(error)}`,
+                  `Unable to update the Arc run for thread ${threadId}: ${errorMessage(error)}`,
                 ),
               ),
-            );
+            )
+        : input.action === "link_work_item" || input.action === "unlink_work_item"
+          ? yield* forgeWorkItems
+              .link({
+                threadId,
+                reference: input.action === "link_work_item" ? input.workItem! : null,
+                commandId: updateCommandId,
+              })
+              .pipe(
+                Effect.map(({ dispatch }) => dispatch),
+                Effect.mapError((error) =>
+                  failure(
+                    error.reason === "dispatch_failed" || error.reason === "unavailable"
+                      ? "orchestration_error"
+                      : error.reason === "thread_not_found"
+                        ? "thread_not_found"
+                        : "invalid_request",
+                    error.message,
+                  ),
+                ),
+              )
+          : yield* threadManagement
+              .dispatch(
+                metadataCommand({
+                  commandId: updateCommandId,
+                  threadId,
+                  projectId: shell.projectId,
+                  update: { ...input, action: input.action },
+                }),
+              )
+              .pipe(
+                Effect.mapError((error) =>
+                  failure(
+                    "orchestration_error",
+                    `Unable to ${input.action} for thread ${threadId}: ${errorMessage(error)}`,
+                  ),
+                ),
+              );
     const metadataEvent = dispatched.storedEvents.find(
       (stored) => stored.event.type === "thread.metadata-updated",
     );

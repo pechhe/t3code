@@ -78,12 +78,15 @@ export const UnansweredMoveRecheck = Context.Reference<Duration.Duration>(
 export const moveBlocker = (
   thread: Pick<
     OrchestrationV2AppThread,
-    "agentTask" | "lineage" | "threadWatches" | "pullRequests"
+    "agentTask" | "lineage" | "threadWatches" | "pullRequests" | "arcRun"
   >,
   shell: Pick<OrchestrationV2ThreadShell, "pendingBackgroundTasks"> | null,
 ): string | null => {
   if (isDelegatedTaskThread(thread)) {
     return "A delegated task's thread stays with the thread waiting on it.";
+  }
+  if (thread.arcRun !== undefined && thread.arcRun.state !== "paused") {
+    return "This thread is running an Arc, which T3 wakes here. Stop it first, then move the thread.";
   }
   const waking = [
     ...(shell?.pendingBackgroundTasks ?? []).map((task) =>

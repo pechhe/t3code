@@ -1,4 +1,4 @@
-import { isLeafSubagentThread, isSideChatThread } from "@t3tools/contracts";
+import { isDelegatedTaskThread, isLeafSubagentThread, isSideChatThread } from "@t3tools/contracts";
 import type {
   GuestShareId,
   OrchestrationV2SearchThreadInput,
@@ -36,6 +36,7 @@ import {
   type OrchestrationV2LimitRecoveryUpdate,
   type OrchestrationV2ServerCommand,
   type ThreadPullRequestLink,
+  type OrchestrationV2ThreadArcRun,
   type OrchestrationV2ThreadWatch,
   type OrchestrationV2WorkspaceAttachment,
   type ThreadPullRequestWatch,
@@ -104,6 +105,7 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
 import * as ProjectStore from "./ProjectStore.ts";
@@ -135,6 +137,15 @@ import {
   isRestartContinuationSource,
   runOutcome,
 } from "./RestartBackgroundNote.ts";
+import {
+  arcRunAttentionMessage,
+  isArcRunHeld,
+  arcRunStallMessage,
+  arcRunWakeMessage,
+  decideArcRunWake,
+  latestArcRunTurn,
+} from "./arcRun.ts";
+import { ARC_RUN_WAKE_MESSAGE_PREFIX } from "./serverContinuation.ts";
 import {
   isBufferedProviderNotification,
   isUndeliveredMailboxSteer,
@@ -630,6 +641,8 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pull-request-watch.sync":
     case "thread.thread-watch":
     case "thread.thread-watch.fire":
+    case "thread.arc-run":
+    case "thread.arc-run.wake":
     case "thread.workspace-attachment.update":
     case "thread.project-move.record":
     case "thread.project.move":
@@ -795,6 +808,12 @@ const ENDED_THREAD_WATCH_LIMIT = 50;
 // A watch that ends for any reason (unwatched, fired, the watcher settled or archived) leaves its
 // watched thread behind in `endedThreadWatches`, so Lineage keeps it findable. Watching a thread
 // again takes it back out of the history.
+// Settling or archiving ends a run for good: unsettling a thread must not quietly restart an Arc.
+function withoutArcRun(thread: OrchestrationV2AppThread): OrchestrationV2AppThread {
+  const { arcRun: _arcRun, ...rest } = thread;
+  return rest;
+}
+
 function withThreadWatches(
   thread: OrchestrationV2AppThread,
   remaining: ReadonlyArray<OrchestrationV2ThreadWatch>,
@@ -1236,6 +1255,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const providerAdapters = yield* ProviderAdapterRegistryV2;
+  const arcRunStarts = yield* Semaphore.make(1);
   const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
   const providerSessions = yield* ProviderSessionManagerV2;
   const providerSwitchService = yield* ProviderSwitchServiceV2;
@@ -3372,6 +3392,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: "The thread watch has ended.",
       });
     }
+    // The watch stays, so its next check after the owner resumes the run still fires it.
+    if (isArcRunHeld(thread.arcRun)) return;
     if (watch.target.kind === "landing") {
       const landing = command.landing;
       if (landing === undefined || landing.operationId !== watch.target.operationId) return;
@@ -3423,7 +3445,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (
         build === undefined ||
         build.number !== watch.target.number ||
-        (build.condition !== "dropped" && build.condition !== watch.target.until)
+        (build.condition !== "dropped" &&
+          build.condition !== "unreadable" &&
+          build.condition !== watch.target.until)
       )
         return;
       yield* emitThreadWatches(
@@ -3524,6 +3548,230 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       },
       events,
       effects,
+    );
+  });
+
+  const dispatchArcRun = Effect.fn("orchestrationV2.dispatch.arcRun")(function* (
+    command: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.arc-run" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const refuse = (cause: string) =>
+      new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause,
+      });
+    const { thread, runs } = yield* getProjectionWithPendingEvents(command.threadId, events);
+    if (thread.deletedAt !== null) return yield* refuse(`Thread ${command.threadId} is deleted.`);
+    const now = yield* DateTime.now;
+    const nowIso = DateTime.formatIso(now);
+    const current = thread.arcRun;
+    let next: OrchestrationV2ThreadArcRun | undefined;
+    switch (command.op) {
+      case "start": {
+        if (isDelegatedTaskThread(thread)) {
+          return yield* refuse("A delegated task cannot run an Arc: its parent owns the outcome.");
+        }
+        if (thread.archivedAt !== null || thread.settledOverride === "settled") {
+          return yield* refuse(
+            "A settled or archived thread cannot run an Arc. Unsettle it first.",
+          );
+        }
+        if (command.arc === undefined) return yield* refuse("Starting an Arc run names the Arc.");
+        if (current !== undefined && current.arc.number !== command.arc.number) {
+          return yield* refuse(
+            `This thread already runs Arc ${current.arc.ref ?? `#${current.arc.number}`}. End it first.`,
+          );
+        }
+        const others = yield* projectionStore
+          .listArcRunThreads()
+          .pipe(
+            Effect.mapError(
+              (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+            ),
+          );
+        const owner = others.find(
+          (candidate) =>
+            candidate.id !== thread.id && candidate.arcRun?.arc.number === command.arc?.number,
+        );
+        if (owner !== undefined) {
+          return yield* refuse(
+            `Arc #${command.arc.number} is already being run by thread ${owner.id}. Coordinate with it, or end its run first.`,
+          );
+        }
+        next = {
+          ...current,
+          arc: command.arc,
+          state: "active",
+          startedAt: current?.startedAt ?? nowIso,
+          progressAt: nowIso,
+          ceilingSince: current?.ceilingSince ?? nowIso,
+        };
+        break;
+      }
+      case "checkpoint": {
+        if (current === undefined) return yield* refuse("This thread has no Arc run.");
+        if (command.phase === undefined) return yield* refuse("A checkpoint names its phase.");
+        next = {
+          ...current,
+          progressAt: current.checkpoint?.phase === command.phase ? current.progressAt : nowIso,
+          checkpoint: {
+            phase: command.phase,
+            ...(command.note === undefined ? {} : { note: command.note }),
+            at: nowIso,
+          },
+        };
+        break;
+      }
+      case "pause": {
+        if (current === undefined) return yield* refuse("This thread has no Arc run.");
+        const { resumed: _resumed, ...rest } = current;
+        next = { ...rest, state: "paused" };
+        yield* cancelQueuedArcRunWakes(command, events, runs);
+        break;
+      }
+      case "end": {
+        if (current === undefined) return;
+        next = undefined;
+        yield* cancelQueuedArcRunWakes(command, events, runs);
+        break;
+      }
+    }
+    const { arcRun: _previous, ...rest } = thread;
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId: thread.id,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: now,
+      payload: { ...rest, ...(next === undefined ? {} : { arcRun: next }), updatedAt: now },
+    });
+  });
+
+  const cancelQueuedArcRunWakes = Effect.fn("Orchestrator.cancelQueuedArcRunWakes")(function* (
+    command: { readonly commandId: CommandId; readonly threadId: ThreadId },
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    runs: ReadonlyArray<OrchestrationV2Run>,
+  ) {
+    for (const run of runs) {
+      if (run.status !== "queued" || !run.userMessageId.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX)) {
+        continue;
+      }
+      yield* dispatchQueuedRunCancel(
+        {
+          type: "queued-run.cancel",
+          commandId: command.commandId,
+          threadId: command.threadId,
+          runId: run.id,
+        },
+        events,
+      );
+    }
+  });
+
+  // The reactor only says when to look. Deciding here, under the thread's lock, is what keeps a
+  // wake from racing a restart continuation, a Stop or the owner's own message.
+  const dispatchArcRunWake = Effect.fn("orchestrationV2.dispatch.arcRunWake")(function* (
+    command: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.arc-run.wake" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+  ) {
+    const read = <K extends ProjectionRecordField>(
+      keys: ReadonlyArray<K>,
+      filter: ProjectionRecordFilter,
+    ) =>
+      projectionStore
+        .getThreadRecords(command.threadId, keys, filter)
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+          ),
+        );
+    const state = yield* read(["runs", "subagents", "providerThreads", "turnItems"], {
+      turnItemTypes: ["command_execution", "dynamic_tool", "subagent"],
+      turnItemStatuses: ["pending", "running", "waiting"],
+    });
+    const { thread } = state;
+    const arcRun = thread.arcRun;
+    if (arcRun === undefined || arcRun.state !== "active" || thread.deletedAt !== null) return;
+    const now = yield* DateTime.now;
+    if (
+      command.trigger !== "event" &&
+      thread.snoozedUntil != null &&
+      DateTime.isGreaterThan(thread.snoozedUntil, now)
+    ) {
+      return;
+    }
+    const queueWake = (messageId: MessageId, wake: ReturnType<typeof arcRunWakeMessage>) =>
+      dispatchMessage(
+        {
+          type: "message.dispatch",
+          commandId: command.commandId,
+          threadId: command.threadId,
+          messageId,
+          text: wake.text,
+          notification: wake.notification,
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "agent",
+          creationSource: "server",
+        },
+        events,
+        effects,
+      );
+    const alreadySent = (messageId: MessageId) =>
+      read(["messages"], { messageIds: [messageId] }).pipe(
+        Effect.map(({ messages }) => messages.some((message) => message.id === messageId)),
+      );
+    if (command.stall !== undefined) {
+      const messageId = MessageId.make(
+        `${ARC_RUN_WAKE_MESSAGE_PREFIX}stall:${command.stall.childThreadId}:${command.stall.lastEventSequence}`,
+      );
+      if (yield* alreadySent(messageId)) return;
+      yield* queueWake(messageId, arcRunStallMessage({ arcRun, stall: command.stall }));
+      return;
+    }
+    const decision = decideArcRunWake(state, command.trigger);
+    if (decision === undefined) return;
+    const latest = latestArcRunTurn(state.runs);
+    if (latest === undefined) return;
+    if (
+      yield* childAwaitsRestartContinuation(state.runs, latest).pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      )
+    ) {
+      return;
+    }
+    const messageId = MessageId.make(`${ARC_RUN_WAKE_MESSAGE_PREFIX}${decision.kind}:${latest.id}`);
+    if (yield* alreadySent(messageId)) return;
+    const { resumed: _resumed, ...settled } = arcRun;
+    const updated: OrchestrationV2ThreadArcRun =
+      decision.kind === "attention" ? { ...settled, state: "attention" } : settled;
+    if (updated.state !== arcRun.state || arcRun.resumed === true) {
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: thread.id,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: now,
+        payload: { ...thread, arcRun: updated, updatedAt: now },
+      });
+    }
+    yield* queueWake(
+      messageId,
+      decision.kind === "attention"
+        ? arcRunAttentionMessage({ arcRun, reason: decision.reason })
+        : arcRunWakeMessage({
+            arcRun,
+            decision,
+            answersQuestion: command.answersQuestion === true,
+          }),
     );
   });
 
@@ -4368,7 +4616,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             return projectMoveThread!;
           case "thread.archive":
             return {
-              ...withThreadWatches(thread, [], now),
+              ...withoutArcRun(withThreadWatches(thread, [], now)),
               archivedAt: now,
               titleRegeneration: null,
               guestShare: null,
@@ -4384,7 +4632,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             const alreadySettled =
               thread.settledOverride === "settled" && thread.settledAt !== null && !wasPinned;
             return {
-              ...withThreadWatches(thread, [], now),
+              ...withoutArcRun(withThreadWatches(thread, [], now)),
               settledOverride: "settled",
               settledAt: alreadySettled ? thread.settledAt : (command.settledAt ?? now),
               pullRequests: thread.pullRequests?.map((link) =>
@@ -6909,7 +7157,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       projection.thread.worktreePath === null
         ? latestRun
         : undefined;
-    const queueBehindRun = activeRun ?? worktreeMissingRun;
+    const sentByUserFromClient =
+      command.createdBy === "user" &&
+      (command.creationSource === "web" || command.creationSource === "mobile") &&
+      command.scheduledTaskId === undefined;
+    // Whatever a held Arc run is sent waits for its owner's message, which releases the queue, so a
+    // question or a delegated result is neither a new turn nor lost. Compaction is not a turn.
+    const arcRunHoldsMessage =
+      isArcRunHeld(projection.thread.arcRun) &&
+      !sentByUserFromClient &&
+      command.idleCompaction === undefined &&
+      !command.messageId.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX);
+    const queueBehindRun =
+      activeRun ??
+      worktreeMissingRun ??
+      (arcRunHoldsMessage ? (latestRun ?? undefined) : undefined);
     const pendingMergeBackTransfers = pendingMergeBackTransfersForThread(projection);
     const startsOrQueuesRun =
       dispatchMode.type === "defer_start" ||
@@ -6919,10 +7181,40 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     // Client messages resume held queues; server continuations and scheduled tasks do not.
     // Provider failure or usage limits re-hold the queue.
     const worktreeSetupUnresolved = worktreeSetupPending(projection);
-    const sentByUserFromClient =
-      command.createdBy === "user" &&
-      (command.creationSource === "web" || command.creationSource === "mobile") &&
-      command.scheduledTaskId === undefined;
+    const ownerArcRun =
+      sentByUserFromClient && startsOrQueuesRun ? projection.thread.arcRun : undefined;
+    if (ownerArcRun !== undefined) {
+      yield* cancelQueuedArcRunWakes(command, events, projection.runs);
+      const nowIso = DateTime.formatIso(yield* DateTime.now);
+      const thread: OrchestrationV2AppThread = {
+        ...projection.thread,
+        arcRun: {
+          ...ownerArcRun,
+          state: "active",
+          progressAt: nowIso,
+          ceilingSince: nowIso,
+          ...(ownerArcRun.state === "paused" ? { resumed: true as const } : {}),
+        },
+      };
+      projection = {
+        ...projection,
+        thread,
+        runs: projection.runs.filter(
+          (run) =>
+            run.status !== "queued" || !run.userMessageId.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX),
+        ),
+      };
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: yield* DateTime.now,
+        payload: thread,
+      });
+    }
     const heldRunsToRelease =
       sentByUserFromClient && startsOrQueuesRun && !worktreeSetupUnresolved
         ? projection.runs.filter((run) => run.status === "queued" && run.queueHeld === true)
@@ -7060,6 +7352,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         activeAttemptId: attemptId,
         status: "queued",
         ...(worktreeMissingRun !== undefined ||
+        arcRunHoldsMessage ||
         (heldRunsToRelease.length === 0 && queueIsHeld && !wakeSkipsHold)
           ? { queueHeld: true }
           : {}),
@@ -12191,8 +12484,25 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly now: DateTime.Utc;
   }) {
     const emitEvent = emit(input.events, input.command);
-    const { runs, subagents } = input.projection;
-    let { thread } = input.projection;
+    const { subagents } = input.projection;
+    let { thread, runs } = input.projection;
+    if (thread.arcRun !== undefined) {
+      // Any stop of the lead pauses its Arc: a pause that should not have happened costs one
+      // message, and a run that kept going after Stop could not be trusted.
+      yield* cancelQueuedArcRunWakes(input.command, input.events, runs);
+      runs = runs.filter(
+        (run) =>
+          run.status !== "queued" || !run.userMessageId.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX),
+      );
+      const { resumed: _resumed, ...arcRun } = thread.arcRun;
+      thread = { ...thread, arcRun: { ...arcRun, state: "paused" }, updatedAt: input.now };
+      yield* emitEvent({
+        type: "thread.metadata-updated",
+        threadId: thread.id,
+        occurredAt: input.now,
+        payload: thread,
+      });
+    }
     let recovery = thread.limitRecovery;
     const latest = latestExecutedRun(runs);
     if (latest?.status === "failed") {
@@ -14805,6 +15115,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.thread-watch.fire":
         yield* mapDispatchError(command)(dispatchThreadWatchFire(command, events, effects));
         break;
+      case "thread.arc-run":
+        yield* mapDispatchError(command)(dispatchArcRun(command, events));
+        break;
+      case "thread.arc-run.wake":
+        yield* mapDispatchError(command)(dispatchArcRunWake(command, events, effects));
+        break;
       case "thread.guest-share.open":
       case "thread.guest-share.redeem":
       case "thread.guest-share.close":
@@ -15213,6 +15529,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           command.type === "advisor.idle.close" ||
           command.type === "thread.thread-watch" ||
           command.type === "thread.thread-watch.fire" ||
+          command.type === "thread.arc-run" ||
+          command.type === "thread.arc-run.wake" ||
           command.type === "thread.background-work.settle" ||
           command.type === "thread.interrupt.unresponsive" ||
           command.type === "thread.stop" ||
@@ -15409,6 +15727,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       commandThreadId(command),
       dispatchWithReceiptEffect(command),
     );
+    // One thread owns an Arc, and the check for another owner reads across threads.
+    if (command.type === "thread.arc-run" && command.op === "start") {
+      return yield* arcRunStarts.withPermits(1)(dispatch);
+    }
     // A parent's lock comes before its side chats' locks, so a delete cascade and a side chat
     // fork or command never interleave. A fork from a side chat or onto an existing thread would
     // invert that order; dispatch rejects both, so they skip the source lock.

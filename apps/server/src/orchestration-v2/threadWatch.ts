@@ -282,16 +282,18 @@ export function buildWatchWake(input: {
   readonly ref?: string | undefined;
   readonly title: string;
   readonly url: string;
-  readonly condition: "unblocked" | "closed" | "dropped";
+  readonly condition: "unblocked" | "closed" | "dropped" | "unreadable";
 }): { readonly text: string; readonly notification: OrchestrationV2Notification } {
   const { target, condition } = input;
   const label = input.ref ?? `#${target.number}`;
   const met =
     condition === "dropped"
       ? "was Dropped"
-      : condition === "unblocked"
-        ? "is unblocked: all waits and holds are clear"
-        : "is closed (Landed or Accepted)";
+      : condition === "unreadable"
+        ? "could not be read for over an hour, so T3 cannot tell when it changes"
+        : condition === "unblocked"
+          ? "is unblocked: all waits and holds are clear"
+          : "is closed (Landed or Accepted)";
   return {
     text: `Build ${label} ${workName(input.title)} ${met}. ${input.url}\n\nT3 Code has stopped watching it. Call watch again to be woken again.`,
     notification: {

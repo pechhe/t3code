@@ -319,7 +319,7 @@ const ThreadReadTool = Tool.make("t3_thread_read", {
 
 const ThreadUpdateTool = Tool.make("t3_thread_update", {
   description:
-    "Rename a thread (`action:'rename'` with `title`), regenerate its title, link or unlink a PR, `set_workflow`, or `link_work_item`/`unlink_work_item` for its Forge item. Omit `threadId` for this thread. Workspace and branch cannot change here.",
+    "Rename a thread (`action:'rename'` with `title`), regenerate its title, link or unlink a PR, `set_workflow`, `link_work_item`/`unlink_work_item` for its Forge item, or `arc_run` for an Arc this thread runs. Omit `threadId` for this thread. Workspace and branch cannot change here.",
   // Keeps the input's action/field check, which rebuilding the struct would drop.
   parameters: ThreadMetadataMcpUpdateInput.mapFields(
     Struct.assign({ environmentId: OrchestratorMcpEnvironmentTarget }),

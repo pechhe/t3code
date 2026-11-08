@@ -21,6 +21,7 @@ import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReact
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
 import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQuestionReactor.ts";
 import * as UnattendedReactor from "./orchestration-v2/UnattendedReactor.ts";
+import * as ArcRunReactor from "./orchestration-v2/ArcRunReactor.ts";
 import * as ForgeWatchReactor from "./orchestration-v2/ForgeWatchReactor.ts";
 import * as LandingWatchReactor from "./orchestration-v2/LandingWatchReactor.ts";
 import * as ThreadWatchReactor from "./orchestration-v2/ThreadWatchReactor.ts";
@@ -747,6 +748,11 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     }),
     // Merged out: the Away RPC and MCP tool set Away through this same reactor.
   ).pipe(Layer.provideMerge(UnattendedReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      yield* (yield* ArcRunReactor.ArcRunReactor).start();
+    }),
+  ).pipe(Layer.provide(ArcRunReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   Layer.effectDiscard(
     Effect.gen(function* () {
       yield* (yield* ForgeWatchReactor.ForgeWatchReactor).start();

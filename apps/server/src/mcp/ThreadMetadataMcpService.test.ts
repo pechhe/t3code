@@ -77,6 +77,55 @@ it.effect("link_work_item hands a friendly ref to Build as written, and reports 
   }),
 );
 
+it.effect("arc_run dispatches for the caller's own thread and refuses any other", () =>
+  Effect.gen(function* () {
+    const sent: Array<{ readonly type: string; readonly op?: string; readonly arc?: unknown }> = [];
+    const layer = ThreadMetadataMcp.layer.pipe(
+      Layer.provide(
+        Layer.merge(
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            getThreadShell: () =>
+              Effect.succeed({ projectId: "project", deletedAt: null } as never),
+            getProjectThreadRecords: () =>
+              Effect.succeed({ thread: { projectId: "project" } } as never),
+            dispatch: (command) =>
+              Effect.sync(() => sent.push(command as never)).pipe(
+                Effect.flatMap(() => Effect.die("stop after capturing the command")),
+              ),
+          } satisfies Partial<ThreadManagement.ThreadManagementService["Service"]>),
+          NodeCrypto.layer,
+        ).pipe(Layer.merge(Layer.mock(ForgeWorkItems.ForgeWorkItems)({}))),
+      ),
+    );
+    const update = (
+      input: Parameters<ThreadMetadataMcp.ThreadMetadataMcpService["Service"]["update"]>[1],
+    ) =>
+      Effect.gen(function* () {
+        const service = yield* ThreadMetadataMcp.ThreadMetadataMcpService;
+        return yield* service.update(scope, input);
+      }).pipe(Effect.provide(layer));
+
+    yield* update({
+      action: "arc_run",
+      arcRun: { op: "start", arc: 12, ref: "YS-ARC-12" },
+    }).pipe(Effect.exit);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      type: "thread.arc-run",
+      op: "start",
+      arc: { number: 12, ref: "YS-ARC-12" },
+    });
+
+    const refused = yield* update({
+      action: "arc_run",
+      threadId: ThreadId.make("thread:someone-else"),
+      arcRun: { op: "pause" },
+    }).pipe(Effect.flip);
+    expect(refused.code).toBe("capability_denied");
+    expect(sent).toHaveLength(1);
+  }),
+);
+
 it.effect("set_workflow records no per-thread stance, even when an agent passes one", () =>
   Effect.gen(function* () {
     const sent: Array<unknown> = [];

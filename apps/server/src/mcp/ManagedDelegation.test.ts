@@ -727,6 +727,25 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           };
         },
         scope,
+        addOpenSpecLead: (workId: string) => {
+          const id = ThreadId.make(`open-spec-lead:${workId}`);
+          childRecords.set(id, {
+            thread: { id, agentTask: { role: "lead", workId } },
+          } as never);
+          parent = {
+            ...parent,
+            subagents: [
+              ...parent.subagents,
+              {
+                id: NodeId.make(`node:open-spec-lead:${workId}`),
+                origin: "app_owned",
+                childThreadId: id,
+                status: "running",
+                result: null,
+              } as (typeof parent.subagents)[number],
+            ],
+          };
+        },
         addChild: (finding: ChampionFinding, role: string) => {
           const id = ThreadId.make(`champion-child:${role}`);
           children.set(id, {
@@ -1211,6 +1230,29 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         expect(lead.agentTask.role).toBe("lead");
         expect(lead.workspaceStrategy).toEqual({ type: "worktree", baseRef: "HEAD", forgeItem: 9 });
       }).pipe(Effect.provide(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+  );
+
+  it.effect("answers a second start of the same Spec with the Spec lead already open", () =>
+    Effect.gen(function* () {
+      const h = yield* harness();
+      h.addOpenSpecLead("T3-9");
+      const again = (workId: string) =>
+        h.delegate({
+          task: "Run T3-9",
+          clientRequestId: `again-${workId}`,
+          forgeItem: 9,
+          agentTask: request({
+            role: "lead",
+            taskClass: "mixed",
+            workspacePath: h.lead,
+            workId,
+          }),
+        });
+      yield* again("T3-9");
+      expect(h.dispatched).toHaveLength(0);
+      yield* again("T3-10");
+      expect(h.dispatched).toHaveLength(1);
+    }).pipe(Effect.provide(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
   );
 
   it.effect("starts a Spec lead in its Forge item's workspace, and lets it delegate leaves", () =>

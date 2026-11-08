@@ -6195,6 +6195,22 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         yield* sql`UPDATE orchestration_v2_projection_threads
           SET payload_json = ${originalRow!.payload_json} WHERE thread_id = ${threadId}`;
       }
+      // A held Arc stays held until its owner replies, whatever the limit window does.
+      for (const state of ["paused", "attention"]) {
+        yield* sql`UPDATE orchestration_v2_projection_threads
+          SET payload_json = json_set(payload_json, '$.arcRun', json_object('state', ${state}))
+          WHERE thread_id = ${threadId}`;
+        assert.isUndefined(
+          (yield* store.getLimitRecoveryCandidates({
+            now,
+            autoResume: true,
+            snooze: false,
+            poolSwitch: false,
+          })).find((row) => row.id === threadId),
+        );
+      }
+      yield* sql`UPDATE orchestration_v2_projection_threads
+        SET payload_json = ${originalRow!.payload_json} WHERE thread_id = ${threadId}`;
       yield* sql`UPDATE orchestration_v2_projection_threads SET deleted_at = ${DateTime.formatIso(now)} WHERE thread_id = ${threadId}`;
       assert.isUndefined(
         (yield* store.getLimitRecoveryCandidates({

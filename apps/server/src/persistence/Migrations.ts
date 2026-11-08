@@ -115,6 +115,7 @@ import Migration0109 from "./Migrations/109_ChampionInvestigations.ts";
 import Migration0110 from "./Migrations/110_ExperimentAssignmentThreads.ts";
 import Migration0111 from "./Migrations/111_ScheduledTaskThreadMode.ts";
 import Migration0112 from "./Migrations/112_ChampionLearningAnnotations.ts";
+import Migration0113 from "./Migrations/113_ArcRunIndex.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -230,6 +231,7 @@ const migrationEntries = [
   [110, "ExperimentAssignmentThreads", Migration0110],
   [111, "ScheduledTaskThreadMode", Migration0111],
   [112, "ChampionLearningAnnotations", Migration0112],
+  [113, "ArcRunIndex", Migration0113],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
