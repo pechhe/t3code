@@ -6,7 +6,6 @@ import { type AppModelOption } from "../../modelSelection";
 import { CircleAlertIcon } from "lucide-react";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerControl } from "./ComposerControl";
-import { ComposerFastSwitch } from "./ComposerFastSwitch";
 import { ComposerPoolAccount, type useComposerPoolAccount } from "./ComposerPoolAccount";
 import { DeviceModelSlider, type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
 import { DeviceReasoningDial, type DeviceReasoningDialHandle } from "./device/DeviceReasoningDial";
@@ -26,7 +25,7 @@ import {
 } from "@t3tools/contracts";
 import type { EffortDisplay } from "@t3tools/contracts/settings";
 import { cn } from "~/lib/utils";
-import { resolveComposerTraitsInput } from "./composerProviderState";
+import { getComposerFastSwitch, resolveComposerTraitsInput } from "./composerProviderState";
 import {
   ComposerEffortColumn,
   ComposerPickerFooter,
@@ -210,16 +209,14 @@ export function ComposerControlsBar(props: {
     : [];
   // Its own element, so typing (which rebuilds the controls around it) leaves it cached.
   const providerTraitsPickerInput = traitsInput;
-  const composerFastSwitchInput = {
-    provider: selectedProvider,
-    instanceId: selectedInstanceId,
-    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
-    ...(routeKind === "draft" && draftId ? { draftId } : {}),
-    model: selectedModel,
-    models: selectedProviderModels,
-    modelOptions: composerModelOptions?.[selectedInstanceId],
-    planModeEnabled,
-  };
+  const fastActive =
+    getComposerFastSwitch({
+      provider: selectedProvider,
+      model: selectedModel,
+      models: selectedProviderModels,
+      modelOptions: composerModelOptions?.[selectedInstanceId],
+      planModeEnabled,
+    })?.active ?? false;
   const composerModelPicker = (
     <ComposerModelPicker
       environmentId={environmentId}
@@ -325,12 +322,12 @@ export function ComposerControlsBar(props: {
         }}
         renderOverflow={(trigger) => cloneElement(composerModelPicker, { trigger })}
         lightColor={poolAccount?.next.color}
+        fast={fastActive}
       />
       {poolAccount ? <ComposerPoolAccount state={poolAccount} isNew={isNewThread} device /> : null}
       {providerTraitsPickerInput ? (
         <DeviceReasoningDial ref={reasoningDialRef} {...providerTraitsPickerInput} />
       ) : null}
-      <ComposerFastSwitch {...composerFastSwitchInput} device />
     </>
   ) : (
     <>

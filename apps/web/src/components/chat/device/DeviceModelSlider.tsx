@@ -40,6 +40,10 @@ const PROVIDER_LIGHTS: Readonly<Record<string, string>> = {
   pi: "oklch(0.45 0.17 264)",
 };
 
+function FastTag() {
+  return <span className="device-slider__fast">Fast</span>;
+}
+
 const selectModelSlotLabels = (settings: ClientSettings) => settings.modelSlotLabels;
 
 export interface DeviceModelSliderHandle {
@@ -78,6 +82,8 @@ export function DeviceModelSlider(props: {
   renderOverflow: (trigger: ReactElement) => ReactNode;
   /** Overrides the provider's light, as an account pool does with the account it will use. */
   lightColor?: string | undefined;
+  /** Fast mode is on for the chosen model; it is set from the full picker. */
+  fast?: boolean;
   ref?: Ref<DeviceModelSliderHandle>;
 }) {
   const { favorites } = useEnvironmentModelPreferences(props.environmentId);
@@ -91,6 +97,7 @@ export function DeviceModelSlider(props: {
     lockedContinuationGroupKey,
     getModelDisabledReason,
     lightColor,
+    fast = false,
     disabled,
     renderOverflow,
     ref,
@@ -215,6 +222,7 @@ export function DeviceModelSlider(props: {
               }
             >
               {slot.label}
+              {index === activeIndex && fast ? <FastTag /> : null}
             </TooltipTrigger>
             <TooltipPopup side="top">
               {slot.disabledReason ??
@@ -235,6 +243,7 @@ export function DeviceModelSlider(props: {
           aria-pressed={overflowLabel !== null}
         >
           <span className="device-slider__menu-tag">{overflowLabel ?? "More"} ▾</span>
+          {overflowLabel !== null && fast ? <FastTag /> : null}
         </button>,
       )}
     </div>
