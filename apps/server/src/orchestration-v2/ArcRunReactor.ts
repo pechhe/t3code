@@ -206,9 +206,14 @@ const make = Effect.gen(function* () {
         Effect.forEach(
           threads.filter((thread) => thread.arcRun?.state === "active"),
           (thread) =>
-            Effect.all([evaluate(thread.id, trigger), checkStalledChildren(thread)], {
-              discard: true,
-            }).pipe(
+            // Right after a restart every child looks silent, and recovery has not reached it yet.
+            Effect.all(
+              [
+                evaluate(thread.id, trigger),
+                trigger === "watchdog" ? checkStalledChildren(thread) : Effect.void,
+              ],
+              { discard: true },
+            ).pipe(
               Effect.catchCause((cause) =>
                 Effect.logWarning("Arc run watchdog check failed", { threadId: thread.id, cause }),
               ),

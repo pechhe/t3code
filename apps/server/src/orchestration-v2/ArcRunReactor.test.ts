@@ -884,6 +884,8 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
       assert.equal((yield* stalls).length, 0);
 
       yield* TestClock.adjust("2 hours");
+      yield* reactor.sweep("startup");
+      assert.equal((yield* stalls).length, 0);
       yield* reactor.sweep("watchdog");
       const reported = yield* stalls;
       assert.equal(reported.length, 1);
@@ -1275,6 +1277,44 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
       const plain = yield* setup("no-run", { arc: false });
       const ended = yield* Effect.exit(arcRunCommand(plain.threadId, "end", { op: "end" }));
       assert.isTrue(ended._tag === "Success");
+    }),
+  );
+
+  it.effect("starting again cannot re-arm a held run, or reset an active run's progress", () =>
+    Effect.gen(function* () {
+      const { threadId, number } = yield* setup("restart-held");
+      const arc = { number };
+      const before = (yield* arcRunOf(threadId))!;
+      yield* TestClock.adjust("1 minute");
+      yield* arcRunCommand(threadId, "again", { op: "start", arc });
+      assert.equal((yield* arcRunOf(threadId))?.progressAt, before.progressAt);
+      for (const held of ["paused", "attention"] as const) {
+        yield* writeArcRunState(threadId, held);
+        const refused = yield* Effect.exit(
+          arcRunCommand(threadId, `re-arm-${held}`, { op: "start", arc }),
+        );
+        assert.isTrue(refused._tag === "Failure");
+        assert.equal((yield* arcRunOf(threadId))?.state, held);
+      }
+    }),
+  );
+
+  it.effect("wakes from different turns run strictly one at a time, in order", () =>
+    Effect.gen(function* () {
+      const { threadId } = yield* setup("one-at-a-time");
+      yield* send(threadId, "result-of-turn-1", "server");
+      yield* send(threadId, "result-of-turn-2", "server");
+      const { runs } = yield* records(threadId);
+      const queued = runs.filter((run) => run.status === "queued");
+      assert.equal(runs.length - queued.length, 1);
+      const order = queued
+        .toSorted((a, b) => (a.queuePosition ?? a.ordinal) - (b.queuePosition ?? b.ordinal))
+        .map((run) => run.userMessageId)
+        .filter((id) => id.includes("result-of-turn"));
+      assert.deepEqual(
+        order.map((id) => id.split(":").at(-1)),
+        ["result-of-turn-1", "result-of-turn-2"],
+      );
     }),
   );
 

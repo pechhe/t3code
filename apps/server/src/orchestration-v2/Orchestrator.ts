@@ -3583,6 +3583,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             `This thread already runs Arc ${current.arc.ref ?? `#${current.arc.number}`}. End it first.`,
           );
         }
+        if (isArcRunHeld(current)) {
+          return yield* refuse(
+            "This Arc run is stopped until the owner replies: only his message resumes it.",
+          );
+        }
         const others = yield* projectionStore
           .listArcRunThreads()
           .pipe(
@@ -3604,7 +3609,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           arc: command.arc,
           state: "active",
           startedAt: current?.startedAt ?? nowIso,
-          progressAt: nowIso,
+          progressAt: current?.progressAt ?? nowIso,
           ceilingSince: current?.ceilingSince ?? nowIso,
         };
         break;
