@@ -3,32 +3,32 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.8-nightly.20261107.4327",
-      "sha": "e455200077ce60806a01c8f28435b58860dcfc74"
-    },
-    "target": {
       "tag": "v0.1.8-nightly.20261107.4340",
       "sha": "a9e709f15f825cacac1b6d665fa1920c328d68b7"
+    },
+    "target": {
+      "tag": "v0.1.8-nightly.20261108.4353",
+      "sha": "3cd97a1ee230437b1bfd8441dffe65eac55be1e5"
     }
   },
   "fork": {
-    "base": "44cf7c186ca1c98455f4a013e58e6cff0baf2eea"
+    "base": "f1bea6732bdb466ac22c496b2cd5fdb35735a977"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "afb73b029aaa07526fcbf0c7df343f6a8989e04d"
+    "blob": "a89302f01a6b92808b227687b27537acf0881e6e"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.8-nightly.20261107.4340@1794099415",
-  "reviewedAt": "2026-11-08T01:04:00Z",
+  "attempt": "v0.1.8-nightly.20261108.4353@1794139517",
+  "reviewedAt": "2026-11-08T12:25:00Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:76fc54ed-c16e-4980-b51d-bc72d61da4bb",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:08d43120-7a55-4bea-8c0f-ec8829f5db90",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 5,
+    "upstreamCommits": 11,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
@@ -105,36 +105,101 @@
       "unhandled-rejection-keeps-server"
     ],
     "areas": [
-      "mobile: Android AppBar confirmation centring, shorter model-picker save action, Choose project empty-state centring, and the PR continue menu grouping settled threads",
-      "native: Android terminal module sends hardware-keyboard arrows, Tab and Escape to the PTY",
-      "server/contracts: linked pull-request threads carry an additive optional `settled` flag read from the thread payload",
-      "no structural changes: no migrations, no dependency or catalog changes, no platform service split"
+      "server/mcp + preview: a saved preview screenshot keeps the page's own resolution while the agent's image stays capped (#28255) - the only area that collides with a recorded entry",
+      "mobile: the Android attachment viewer shares PDFs (#32266)",
+      "server/providers: Antigravity takes the agy CLI as a custom binaryPath (#32503), Muse reports a declined /compact's reason and no longer wedges the thread (#28454), and handoff selection skips a message too large for the remaining budget (#23821)",
+      "server/storage: the storage report lists project worktrees nested inside plain folders (#25883)",
+      "web: lineage phase headers truncate instead of overflowing (#27582), the mobile sidebar keeps its width (#27541), device tool update buttons fit their popovers (#27030), and rendered Markdown keeps its bold weight (#25694)",
+      "scripts: report:renders starts on Windows without a vp shim (#32777)",
+      "no structural changes: no migrations, no dependency, catalog or lockfile changes, no contract unification and no platform service split"
     ],
     "exclusions": [
       {
-        "what": "upstream's own mobile fixes and their tests",
-        "why": "upstream reviewed them; the reconciliation reviews only its own conflict resolutions, the record and the receipt per fork/README.md"
+        "what": "upstream's own changes and their tests",
+        "why": "upstream reviewed them; the reconciliation reviews only its own conflict resolutions, the record and this receipt per fork/README.md"
       },
       {
-        "what": "the Android Kotlin key-listener test (apps/mobile/modules/t3-terminal/android)",
-        "why": "it needs an Android Gradle test run, which this host does not carry; upstream's own module suite covers it"
+        "what": "upstream's mobile PDF-share change (apps/mobile FilePreview, FilePreviewModal, ThreadFilesRouteScreen)",
+        "why": "no test accompanies it upstream and none of the three files carries a fork edit, so the reconciliation has nothing to weigh"
+      },
+      {
+        "what": "the win32 branch of AntigravityInstallation's agy resolution",
+        "why": "upstream's own code and test, untouched by the fork; see the failing check below"
+      },
+      {
+        "what": "dependency and catalog comparison",
+        "why": "this tag changes no manifest, catalog entry, override, patch or lockfile entry on either side"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "mobile-fork-screens",
-      "upstream": "mobile batch: Android header confirmation buttons centred, shorter model-picker save action, Choose project empty state centred, Android hardware-key navigation in the terminal, and settled PR threads grouped in the continue menu (#32239, #32551, #32666, #27450, #27941)",
-      "decision": "adopt",
+      "entry": "managed-browser-roles",
+      "upstream": "#28255: the preview snapshot carries `fullScreenshot`, the uncapped capture beside the capped one, requested through the snapshot input; `save` writes the uncapped file.",
+      "decision": "adapt",
       "requirements": [
-        "the fork's Forge item header and sheet, workflow badge, release approval card, Jujutsu labels and settings entries stay where the last update put them",
-        "navigator, header and route structure remain upstream's",
-        "the additive optional `settled` key on PullRequestLinkedThreadsResult needs no shipped-client gate; shipped clients ignore unknown optional fields"
+        "`preview_snapshot` turns `save` into the `fullScreenshot` request, so the saved file keeps the page's resolution while the agent's image stays capped",
+        "the request rides the existing `PreviewAutomationSnapshotInput` but is left out of the listed tool parameters, so the single `preview_interact`/`preview_snapshot` surface and its character budget are unchanged",
+        "the fork's secret-visible refusal still wins: a refused snapshot carries no image, so no saved file and no `fullScreenshot`, and the capture is skipped outright when the value was already visible",
+        "`fullScreenshot` stays out of the snapshot metadata the agent receives"
       ],
       "evidence": [
-        "none of the changed mobile files carries a fork edit since the previous merge; the only fork delta in this area is `buildHomeProjectScopes` renamed to `forgeHomeProjectScopes` in PullRequestListFilters.tsx, which upstream did not touch in this tag",
-        "apps/server/src/pullRequest/linkedThreads.test.ts and apps/mobile/src/features/pull-requests/pullRequestAgentTasks.test.ts pass (2 files, 4 tests)",
-        "the merge is clean: no conflicts and no reconciliation edit outside the record and this receipt"
+        "apps/server/src/mcp/McpHttpServer.test.ts ('saves the uncapped screenshot while the agent sees the capped one') passes, including its assertion that the metadata has no `fullScreenshot` and the tool result carries the capped image",
+        "apps/server/src/preview/ServerBrowserPage.test.ts passes (31 tests), including the full capture beside the shrunk image and the saved-login refusal",
+        "apps/server/src/preview/ServerBrowser.test.ts passes"
+      ]
+    },
+    {
+      "entry": "phi-browser-backend",
+      "upstream": "#28255 reshapes the server-browser snapshot; #27030 widens the device tools' update buttons in Integrations.",
+      "decision": "retain",
+      "requirements": [
+        "Phi routing, custody and lanes unchanged",
+        "a Phi snapshot is the extension's own capture beside the capped server-browser one, so no `fullScreenshot` is set there and its saved file already keeps the page's resolution",
+        "the integration decision stands ahead of the browser role check"
+      ],
+      "evidence": [
+        "apps/server/src/preview/PhiBrowser.test.ts, PhiBrowserRunner.test.ts and PhiBrowserProtocol.test.ts pass",
+        "the merged `PhiBrowserProtocol.decodeSnapshotInput` accepts the extended snapshot input and reads only the locator from it"
+      ]
+    },
+    {
+      "entry": "preview-browser-lifetime",
+      "upstream": "#28255 reshapes the capture in `ServerBrowserPage` (a `{data, full}` promise instead of a base64 string).",
+      "decision": "retain",
+      "requirements": [
+        "the fork's profile and context lifetime is unchanged",
+        "the secret-visible refusal still keeps the image out, so a refused snapshot drops the uncapped capture with it; the capture is skipped outright when the value was already visible"
+      ],
+      "evidence": [
+        "apps/server/src/preview/ServerBrowserContexts.test.ts passes",
+        "apps/server/src/preview/ServerBrowser.test.ts passes"
+      ]
+    },
+    {
+      "entry": "slipjay-workspace-archive",
+      "upstream": "#25883: the storage report also lists linked worktrees nested inside a plain folder, asking the projects' Git for them instead of walking the tree.",
+      "decision": "adopt",
+      "requirements": [
+        "a nested worktree feeds the orphan report rather than a release, so it is only listed and never removed; the fork's settled-days release rule applies to worktrees a thread uses and is untouched, and these paths never reach it because the report skips referenced worktrees and folders inside a project root",
+        "SlipJay release, refusal and restore behaviour is unchanged"
+      ],
+      "evidence": [
+        "apps/server/src/storageCleanup.test.ts passes, including 'a SlipJay workspace is released through SlipJay, never git' and 'when a checkout may go'",
+        "upstream's nested-listing hunk sits outside the fork's eligibility and release code: the merged tree routes a nested worktree to the orphan report, which lists it as kept and never releases it",
+        "neither upstream's hunk nor the merge names the fork's release rule or `worktreeEligibility`, so no fork behaviour changed"
+      ]
+    },
+    {
+      "entry": "web-client-customisation",
+      "upstream": "#25694 restores the bold weight of rendered Markdown in `index.css`.",
+      "decision": "adopt",
+      "requirements": [
+        "the fork's response font stack and its copy-bounce rule on inline code are unchanged"
+      ],
+      "evidence": [
+        "the merged `index.css` keeps both the fork's `--font-response` stack and its `code[data-copy-bounce]` rule beside upstream's `font-weight: 700`",
+        "the landing gate selects the web campaign for `index.css`"
       ]
     }
   ],
@@ -143,32 +208,47 @@
     {
       "command": "vp i",
       "result": "passed",
-      "note": "lockfile up to date, supply-chain policy verified, 4 packages linked"
+      "note": "lockfile up to date, supply-chain policy verified; this tag changes no manifest or lockfile entry"
     },
     {
-      "command": "vp test run apps/server/src/pullRequest/linkedThreads.test.ts apps/mobile/src/features/pull-requests/pullRequestAgentTasks.test.ts",
+      "command": "vp test (apps/web) pnpm exec playwright install chromium-headless-shell",
       "result": "passed",
-      "note": "2 files, 4 tests"
+      "note": "the server's browser suites need the headless shell; it was absent on this host"
+    },
+    {
+      "command": "vp test -- McpHttpServer.test.ts ServerBrowser.test.ts ServerBrowserContexts.test.ts storageCleanup.test.ts antigravityAuthSupport.test.ts AntigravityInstallation.test.ts (apps/server)",
+      "result": "failed",
+      "note": "6 files, 367 tests: 366 pass and AntigravityInstallation.test.ts fails one case ('agy.cmd' resolves as 'agy.CMD') because macOS's case-insensitive filesystem accepts upstream's win32 PATHEXT probe; the test and the code it drives are upstream's, with no fork edit and no hunk in this merge, so it fails on the bare tag too"
+    },
+    {
+      "command": "vp test -- ServerBrowserPage.test.ts (apps/server)",
+      "result": "passed",
+      "note": "31 tests, after fixing the auto-merge that left the fork's non-null narrowing wrapping upstream's new `fullScreenshot` field in the test helper"
+    },
+    {
+      "command": "vp test (packages/provider-muse)",
+      "result": "passed",
+      "note": "10 files, 106 tests"
+    },
+    {
+      "command": "vp test -- preview (packages/contracts)",
+      "result": "passed",
+      "note": "2 files, 9 tests"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
       "result": "passed",
-      "note": "exit 0; the planner cannot narrow a two-parent merge candidate, so it selects the complete plan, and the runner assembles the single landed merge"
+      "note": "exit 0; the planner cannot narrow a two-parent merge candidate, so it selects the complete plan and the runner assembles the single landed merge"
+    },
+    {
+      "command": "independent review (ticket-reviewer, non-ui change)",
+      "result": "passed",
+      "note": "0 blocking, 3 should-fix on record and receipt accuracy; all three corrected in the same commit (Decision lines moved above each entry's Owner line, the secret-visible refusal wording narrowed to what the code does, and the nested-worktree decision corrected to the orphan report it feeds), with no code or behaviour affected"
     },
     {
       "command": "node scripts/fork-upstream-receipt.ts verify",
       "result": "passed",
       "note": "candidate's last commit carries the receipt; coverage, dispositions, record blob and policy hash agree"
-    },
-    {
-      "command": "independent review (ticket-reviewer, non-ui change)",
-      "result": "passed",
-      "note": "0 blocking, 2 should-fix on record and receipt accuracy; both corrected, no code or behaviour affected"
-    },
-    {
-      "command": "Android Kotlin key-listener test",
-      "result": "not-run",
-      "note": "needs a Gradle/device run this host does not carry; upstream's own module suite covers it"
     },
     {
       "command": "landing gate on the SlipJay runner",

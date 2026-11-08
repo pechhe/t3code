@@ -142,13 +142,17 @@ const PreviewSetAppearanceTool = safeBrowserTool(
     .annotate(Tool.Idempotent, true),
 );
 
+// `fullScreenshot` is the server's own request to keep the saved file uncapped, not a parameter.
+const { fullScreenshot: _fullScreenshot, ...snapshotToolFields } =
+  PreviewAutomationSnapshotInput.fields;
+
 // Not read-only: save=true writes the screenshot to disk.
 export const PreviewSnapshotTool = safeBrowserTool(
   Tool.make("preview_snapshot", {
     description:
       "Use it only when the current request asks for browser work, including checking an edit in the browser. Never use it unasked to verify your own edit, or to repeat a snapshot from an earlier turn. Works on a tab the user is driving, even while they control it. Returns page state, semantic elements, diagnostics, action history and screenshot size. Each element is listed once with a `ref`, in `accessibilityTree` for the server browser and in `visibleText` for Phi, whose ARIA state (pressed, selected, expanded, checked, current) leads that text and which refuses page evaluation. Target one element with `locator='aria-ref=<ref>'` from `accessibilityTree`, even inside frames, and pass `locator` here to snapshot only one region, such as a card or dialog. Hidden and zero-size elements are left out, very long names are cut, and refs die on navigation, a new snapshot or human takeover. Text caps near 20 KB and lists what it omitted; `preview_evaluate` reads more on the server browser. To show a user a screenshot, `save=true` and embed ![alt](screenshotPath) in your reply: the image in a tool result is saved nowhere, and `includeImage=true` is only for you to see the page.",
     parameters: Schema.Struct({
-      ...PreviewAutomationSnapshotInput.fields,
+      ...snapshotToolFields,
       includeImage: Schema.optional(
         Schema.Boolean.annotate({
           description: "Default false. True only to see the page.",

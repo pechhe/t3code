@@ -2229,7 +2229,7 @@ code {
 }
 
 .chat-markdown strong {
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* Inline-block so the copy bounce can scale it; the negative margins cancel the

@@ -540,6 +540,8 @@ export const PreviewAutomationSnapshotInput = Schema.Struct({
     description:
       "Snapshot only the subtree of this element, for example aria-ref=<ref> of a card or dialog from an earlier snapshot, or role=dialog. Omit for the whole page.",
   }),
+  /** Requests the uncapped capture for `save`; the tool sets it, so it is not a listed parameter. */
+  fullScreenshot: Schema.optional(Schema.Boolean),
 });
 export type PreviewAutomationSnapshotInput = typeof PreviewAutomationSnapshotInput.Type;
 
@@ -614,6 +616,10 @@ export const PreviewAutomationSnapshot = Schema.Struct({
   ),
   /** A saved login's value may show on the page, so no image was taken. */
   screenshotRefused: Schema.optional(Schema.Literal("secret-visible")),
+  /** The capture before `screenshot` was capped for the agent, when requested and larger. */
+  fullScreenshot: Schema.optional(
+    Schema.Struct({ data: Schema.String, width: Schema.Int, height: Schema.Int }),
+  ),
 });
 export type PreviewAutomationSnapshot = typeof PreviewAutomationSnapshot.Type;
 

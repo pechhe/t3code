@@ -236,8 +236,12 @@ const handlers = {
     invokeTargeted<PreviewAutomationSetColorSchemeResult>("setColorScheme", input),
   ),
   preview_snapshot: McpToolAccess.readsAsPreviewCaller((input) => {
-    const { includeImage: _includeImage, save: _save, ...operationInput } = input ?? {};
-    return invokeTargeted<PreviewAutomationSnapshot>("snapshot", operationInput);
+    const { includeImage: _includeImage, save, ...operationInput } = input ?? {};
+    // The saved file is for people, so it keeps the resolution the agent's image is capped below.
+    return invokeTargeted<PreviewAutomationSnapshot>("snapshot", {
+      ...operationInput,
+      ...(save === true ? { fullScreenshot: true } : {}),
+    });
   }),
   preview_interact: McpToolAccess.actsAsPreviewCaller(({ action, ...input }) =>
     decodeActInput[action](input).pipe(

@@ -2538,6 +2538,7 @@ const make = Effect.gen(function* () {
               ? {}
               : { textLength: ServerBrowserPage.TASK_SNAPSHOT_TEXT_LENGTH }),
             renderScale: tab.desktop ? "display" : RENDER_SCALE,
+            fullScreenshot: (input as PreviewAutomationSnapshotInput | undefined)?.fullScreenshot,
           }),
         );
       }

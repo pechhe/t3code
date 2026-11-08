@@ -591,6 +591,7 @@ type SnapshotInput = {
   readonly cdp: CDPSession;
   /** Headless pages render at the scale the server set; a desktop page at its display's. */
   readonly renderScale: number | "display";
+  readonly fullScreenshot?: boolean | undefined;
   readonly consoleEntries: ReadonlyArray<PreviewAutomationConsoleEntry>;
   readonly networkEntries: ReadonlyArray<PreviewAutomationNetworkEntry>;
   readonly actionTimeline: PreviewAutomationSnapshot["actionTimeline"];
@@ -642,8 +643,13 @@ const capture = async (
     >,
     shownBefore
       ? Promise.resolve(undefined)
-      : captureViewport(input.cdp, { format: "png" }).then((png) =>
-          scale < 1 ? shrinkPng(input.cdp, png, scale) : png,
+      : captureViewport(input.cdp, { format: "png" }).then(async (full) =>
+          scale < 1
+            ? {
+                data: await shrinkPng(input.cdp, full, scale),
+                full: input.fullScreenshot ? full : undefined,
+              }
+            : { data: full, full: undefined },
         ),
   ]);
   void pageAndScreenshot.catch(constVoid);
@@ -668,7 +674,9 @@ const capture = async (
     void iframe.dispose().catch(constVoid);
     if (frame && unread.includes(frame)) throw tooBusy();
   }
-  const [page, data] = await pageAndScreenshot;
+  const [page, image] = await pageAndScreenshot;
+  const data = image?.data;
+  const full = image?.full;
   const shown = shownBefore || (await secretShown(input.page, input.cdp, secrets));
   const visibleText =
     scope === null
@@ -724,6 +732,7 @@ const capture = async (
     ...(shown || data === undefined
       ? { screenshotRefused: "secret-visible" as const }
       : { screenshot: { mimeType: "image/png" as const, data, ...pngSize(data) } }),
+    ...(shown || full === undefined ? {} : { fullScreenshot: { data: full, ...pngSize(full) } }),
   };
 };
 

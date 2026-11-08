@@ -597,15 +597,21 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
                   readonly width: number;
                   readonly height: number;
                 };
+                readonly fullScreenshot?: { readonly data: string };
               };
-              const { screenshot, ...page } = snapshot;
+              const { screenshot, fullScreenshot, ...page } = snapshot;
               const png =
                 screenshot === undefined
                   ? undefined
                   : new Uint8Array(Buffer.from(screenshot.data, "base64"));
               const screenshotPath =
                 payload?.save === true && png !== undefined
-                  ? yield* saveBrowserScreenshot(snapshot.url, png)
+                  ? yield* saveBrowserScreenshot(
+                      snapshot.url,
+                      fullScreenshot
+                        ? new Uint8Array(Buffer.from(fullScreenshot.data, "base64"))
+                        : png,
+                    )
                   : undefined;
               // Providers replay images on later requests, and some reject them; include images only when requested.
               const includeImage = payload?.includeImage === true && png !== undefined;
