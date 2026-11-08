@@ -3,32 +3,32 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.8-nightly.20261107.4314",
-      "sha": "83a3674ffd84ffb33de768210c806cb1ac53fd80"
-    },
-    "target": {
       "tag": "v0.1.8-nightly.20261107.4327",
       "sha": "e455200077ce60806a01c8f28435b58860dcfc74"
+    },
+    "target": {
+      "tag": "v0.1.8-nightly.20261107.4340",
+      "sha": "a9e709f15f825cacac1b6d665fa1920c328d68b7"
     }
   },
   "fork": {
-    "base": "753240ff2a8ddf5ffed53417b87bf4aeb020a124"
+    "base": "44cf7c186ca1c98455f4a013e58e6cff0baf2eea"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "7eaa37d5b16d99af28712b0272ca1fe90fa5c584"
+    "blob": "afb73b029aaa07526fcbf0c7df343f6a8989e04d"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.8-nightly.20261107.4327@1794069772",
-  "reviewedAt": "2026-11-07T18:35:00Z",
+  "attempt": "v0.1.8-nightly.20261107.4340@1794099415",
+  "reviewedAt": "2026-11-08T01:04:00Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:74007d81-97a2-4a4b-b958-77d18dd53548",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:76fc54ed-c16e-4980-b51d-bc72d61da4bb",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 23,
+    "upstreamCommits": 5,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
@@ -105,226 +105,36 @@
       "unhandled-rejection-keeps-server"
     ],
     "areas": [
-      "web: side-chat settings from the parent composer, Pi thinking controls, ACP settings recovery, agent sign-in default, archive-page delete, settings search, environment theme boot",
-      "mobile: side-chat start, pooled usage screens, provider-account removal, thread composer state",
-      "desktop: published themes through the local-environment IPC, theme BOM handling on the server",
-      "server: ProviderInstallation as a layer, providerAuthRemoveMethod auth scope and instrumentation, ACP adapters, antigravity refresh, port scanner, environment theme BOM, ws.ts handler layers",
-      "contracts: WsMcpAppsRpcGroup, provider.uploadFeedback in the server-operations group, providerAuthRemoveMethod, client guard scopes, usage/provider settings",
-      "providers: cursor SDK account reader and keychain removal, pi thinking selection, provider-acp forms and terminals, grok titles, acp registry child output",
-      "shared/client-runtime: markdownLinks `.cc` file chips, usage formatting, model traits, pending user input and thread requests",
-      "source control: forgejo and gitlab shell-merge aliases, github required reviewers, azure-devops default branch",
-      "dependencies: the only manifest change is provider-cursor dropping @napi-rs/keyring with CursorKeychain",
-      "tests: the deleted CursorKeychain.test.ts removed from tests/durations.json"
+      "mobile: Android AppBar confirmation centring, shorter model-picker save action, Choose project empty-state centring, and the PR continue menu grouping settled threads",
+      "native: Android terminal module sends hardware-keyboard arrows, Tab and Escape to the PTY",
+      "server/contracts: linked pull-request threads carry an additive optional `settled` flag read from the thread payload",
+      "no structural changes: no migrations, no dependency or catalog changes, no platform service split"
     ],
     "exclusions": [
       {
-        "what": "upstream's own feature implementations and their tests",
+        "what": "upstream's own mobile fixes and their tests",
         "why": "upstream reviewed them; the reconciliation reviews only its own conflict resolutions, the record and the receipt per fork/README.md"
       },
       {
-        "what": "docs/user and docs/internals text",
-        "why": "they describe the owning entries and were adopted as upstream's, with no fork guidance changed"
-      },
-      {
-        "what": "the 20 additive commits (forgejo/gitlab/github/azure-devops/grok source-control and provider fixes, ACP form, terminal, child-output and notification bounds, port-scanner lsof, provider-acp UTF-8)",
-        "why": "they meet no recorded entry: no fork file, requirement or seam they touch is a documented difference, so each needs only a line in coverage"
+        "what": "the Android Kotlin key-listener test (apps/mobile/modules/t3-terminal/android)",
+        "why": "it needs an Android Gradle test run, which this host does not carry; upstream's own module suite covers it"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "account-pools",
-      "upstream": "Cursor usage is read through the SDK's account reader; the CLI-resume and macOS-Keychain credential fallbacks and CursorKeychain are retired (#32448)",
-      "decision": "adopt",
-      "requirements": [
-        "the chosen pool member's usage is still refreshed before routing",
-        "pool routing, the pool snapshot and the usage card are unchanged",
-        "@napi-rs/keyring remains installed for the desktop browser import and the CLI's external packages"
-      ],
-      "evidence": [
-        "packages/provider-cursor/src/server/CursorKeychain.ts, its export and its dependency are gone; no import of it remains",
-        "provider-cursor accountCache, accountUsage, usageLimits, driver and CursorAgentSdk suites pass (136 tests with the contracts provider/usage suites)",
-        "apps/server/src/server.ts composes CursorAccountReader without the keychain layer"
-      ]
-    },
-    {
-      "entry": "side-chat",
-      "upstream": "a side chat starts with the parent composer's permission mode and reasoning level (#32315)",
-      "decision": "adapt",
-      "requirements": [
-        "a side chat inherits its parent's later turns on web and mobile",
-        "the fork keeps its own guard: ProviderTurnStartService still resolves a side chat's first turn at approval-required",
-        "Use in main stays the fork's one affordance on upstream's pane"
-      ],
-      "evidence": [
-        "apps/web/src/components/chat/useSideChat.ts takes readSettings and sets the thread's runtime mode before its first send; ChatView passes it",
-        "ProviderTurnStartService.ts still overrides a side chat's opening turn with approval-required, so the inheritance never carries a bypass into the turn that opens it",
-        "ProviderTurnStartService.test.ts passes (235 tests with the ACP adapter suites)"
-      ]
-    },
-    {
       "entry": "mobile-fork-screens",
-      "upstream": "mobile batch: side-chat start settings, one pooled usage section, provider-account removal",
+      "upstream": "mobile batch: Android header confirmation buttons centred, shorter model-picker save action, Choose project empty state centred, Android hardware-key navigation in the terminal, and settled PR threads grouped in the continue menu (#32239, #32551, #32666, #27450, #27941)",
       "decision": "adopt",
       "requirements": [
-        "the fork's Forge item header and sheet, workflow badge, release approval card, Jujutsu labels and settings entries stay",
-        "navigator, header and route structure remain upstream's"
+        "the fork's Forge item header and sheet, workflow badge, release approval card, Jujutsu labels and settings entries stay where the last update put them",
+        "navigator, header and route structure remain upstream's",
+        "the additive optional `settled` key on PullRequestLinkedThreadsResult needs no shipped-client gate; shipped clients ignore unknown optional fields"
       ],
       "evidence": [
-        "apps/mobile/src/features/threads/useStartSideChat.ts and features/usage follow upstream's shape",
-        "threadOutboxDelivery and thread-task-permissions suites pass (40 tests with the sign-in logic test)"
-      ]
-    },
-    {
-      "entry": "device-composer",
-      "upstream": "mobile composer state feeds a side chat the parent's settings (#32315)",
-      "decision": "retain",
-      "requirements": [
-        "the device composer, machine switch, Fast switch, reasoning dial and resting-layout rule are unchanged",
-        "the fork's acknowledged-row pruning and handoff clock keep their place in the same file"
-      ],
-      "evidence": [
-        "apps/mobile/src/state/use-thread-composer-state.ts keeps both seams",
-        "threadOutboxDelivery.test.ts passes"
-      ]
-    },
-    {
-      "entry": "project-themes",
-      "upstream": "published themes reach the desktop app from this machine's service (#26324) and a theme file saved with a UTF-8 BOM is published (#32405)",
-      "decision": "adapt",
-      "requirements": [
-        "per-project themes, the rotation override, the gallery and the theme character layers are unchanged",
-        "a theme is resolved through the same palette and boot path as before"
-      ],
-      "evidence": [
-        "apps/desktop/src/ipc/methods/localEnvironment.ts, apps/web/src/state/primaryEnvironment.ts and hooks/useDefaultTheme.ts carry upstream's delivery; themePalette.ts keeps the fork's characters",
-        "themePalette.test.ts, useEnvironmentTheme.test.ts, primaryEnvironment.test.ts, localEnvironment.test.ts and environmentTheme.test.ts pass (321 tests with the server suites)"
-      ]
-    },
-    {
-      "entry": "web-client-customisation",
-      "upstream": "web batch: Pi thinking controls, ACP settings recovery, agent sign-in to Auto access, archive-page delete, inline-code file chips, ChatView side-chat settings",
-      "decision": "adopt",
-      "requirements": [
-        "raised-card sidebar rows, the per-row machine icon, the settings search entries and the inline-chip copy stay",
-        "the fork's unmounted composer context strip stays off"
-      ],
-      "evidence": [
-        "packages/shared/src/markdownLinks.ts moves `.cc` to the country list; the fork's inline-chip copy path is untouched",
-        "settingsSearch.test.ts, useThreadActions.permissions.test.ts, ConnectAgentSurface.logic.test.ts and modelTraits.test.ts pass"
-      ]
-    },
-    {
-      "entry": "thread-watches",
-      "upstream": "an archived thread can be deleted from the archive page (#22160)",
-      "decision": "adopt",
-      "requirements": [
-        "settling or deleting a thread still ends its watches and tells its watchers Finished"
-      ],
-      "evidence": [
-        "apps/web/src/components/settings/ArchivedThreadsPanel.tsx and hooks/useThreadActions.ts run the same thread delete every other entry point runs",
-        "useThreadActions.permissions.test.ts passes"
-      ]
-    },
-    {
-      "entry": "provider-overload-failover",
-      "upstream": "Pi keeps an explicitly chosen thinking level when the model changes (#32389)",
-      "decision": "adopt",
-      "requirements": [
-        "overload marking, candidate ordering, Champion retry and the no-retry rule for a failed delegated task are unchanged"
-      ],
-      "evidence": [
-        "packages/provider-pi/src/server/adapter.ts keeps piModelFailure and the overloaded regex beside upstream's thinking selection",
-        "the pi adapter suite passes"
-      ]
-    },
-    {
-      "entry": "agent-policy-roles",
-      "upstream": "antigravity explains a missing SOCKS dependency (#19660) and checks account access after installation through the new ProviderInstallation service (#32446)",
-      "decision": "adopt",
-      "requirements": [
-        "Antigravity still launches a managed read-only task in its ask mode and denies edit, execute and fs/write_text_file through the same disposition"
-      ],
-      "evidence": [
-        "apps/server/src/provider/acp/AntigravityAcpSupport.ts keeps the disposition and its header comment",
-        "AntigravityAcpSupport, AntigravityDriver and providerInstallation suites pass"
-      ]
-    },
-    {
-      "entry": "t3-agent-cli",
-      "upstream": "an outside agent signs in with Auto access by default (#32186) and ACP unread raw notifications are bounded (#19585)",
-      "decision": "adopt",
-      "requirements": [
-        "t3 agent commands, AgentCliClient and the read-only inspection toolkit are unchanged"
-      ],
-      "evidence": [
-        "apps/web/src/components/auth/ConnectAgentSurface.tsx and docs/user/outside-agents.md are upstream's",
-        "ConnectAgentSurface.logic.test.ts passes"
-      ]
-    },
-    {
-      "entry": "managed-delegation",
-      "upstream": "ACP children keep streamed tool output (#32411) and native question titles with typed answers (#19659)",
-      "decision": "adopt",
-      "requirements": [
-        "the family table, child endpoints, tool profiles and character budgets are unchanged; a new tool still takes a family"
-      ],
-      "evidence": [
-        "apps/server/src/orchestration-v2/Adapters/AcpRegistryAdapterV2.test.ts and AcpAdapterV2.test.ts pass",
-        "packages/provider-acp/src/server/adapter.ts keeps the AgentMcpServers translation the family table rides on"
-      ]
-    },
-    {
-      "entry": "build-items-hq",
-      "upstream": "shared elicitation forms in the ACP schema and both adapters (#19659), retained child tool output (#32411)",
-      "decision": "adopt",
-      "requirements": [
-        "every adapter's AgentMcpServers translation, the pi bridge and the MCP catalogue character budgets are unchanged"
-      ],
-      "evidence": [
-        "packages/provider-acp/src/server/adapter.ts and elicitationForm.ts carry upstream's forms with the fork's AgentMcpServers reader",
-        "provider-acp adapter and elicitation-form tests and the pi adapter and mcpInjection suites pass (321 tests)"
-      ]
-    },
-    {
-      "entry": "slipjay-command-guard",
-      "upstream": "the ACP adapter's command seam is rewritten for forms, child output and terminal UTF-8",
-      "decision": "adopt",
-      "requirements": [
-        "every driver still asks CommandGuard before a command tool call runs",
-        "a new ACP form path asks the user a question and runs no command, so it needs no guard"
-      ],
-      "evidence": [
-        "packages/provider-acp/src/server/adapter.ts still calls CommandGuard.guardCommand at its command seam",
-        "the AcpAdapterV2 suite and the provider-acp adapter and terminal suites pass"
-      ]
-    },
-    {
-      "entry": "ws-rpc-group-split",
-      "upstream": "one new RPC (provider.auth.removeMethod) and changed handlers in ws.ts",
-      "decision": "adapt",
-      "requirements": [
-        "every WebSocket RPC is served through the feature group that owns it, each with its own handler layer",
-        "the core group stays below the instantiation limit the entry exists for"
-      ],
-      "evidence": [
-        "packages/contracts/src/rpc.ts: mcpApps.callTool/toolInfo/readResource/updateModelContext moved to a new WsMcpAppsRpcGroup; provider.uploadFeedback moved to WsServerOperationsRpcGroup; provider.auth.removeMethod arrived in WsServerOperationsRpcGroup",
-        "apps/server/src/ws.ts registers ServerWsMcpAppsRpcGroup.toLayer with its own handler layer and keeps the core object at its previous size",
-        "ws.test.ts (23), RpcAuthorization.test.ts (its scope map equals WsRpcGroup.requests) and both typechecks pass"
-      ]
-    },
-    {
-      "entry": "validation-tooling",
-      "upstream": "the only manifest change is provider-cursor dropping @napi-rs/keyring with CursorKeychain",
-      "decision": "retain",
-      "requirements": [
-        "each catalog entry, override, patch, install permission and release-age exception follows the newer side",
-        "docs/dependencies.md's groups stay accurate"
-      ],
-      "evidence": [
-        "pnpm-workspace.yaml and every other package.json keep the fork's newer versions; upstream moved nothing else in this tag",
-        "vp i reports the merged lockfile up to date and its supply-chain policy passing",
-        "docs/dependencies.md is unchanged because no group moved"
+        "none of the changed mobile files carries a fork edit since the previous merge; the only fork delta in this area is `buildHomeProjectScopes` renamed to `forgeHomeProjectScopes` in PullRequestListFilters.tsx, which upstream did not touch in this tag",
+        "apps/server/src/pullRequest/linkedThreads.test.ts and apps/mobile/src/features/pull-requests/pullRequestAgentTasks.test.ts pass (2 files, 4 tests)",
+        "the merge is clean: no conflicts and no reconciliation edit outside the record and this receipt"
       ]
     }
   ],
@@ -336,54 +146,14 @@
       "note": "lockfile up to date, supply-chain policy verified, 4 packages linked"
     },
     {
-      "command": "vp run --filter t3 typecheck",
+      "command": "vp test run apps/server/src/pullRequest/linkedThreads.test.ts apps/mobile/src/features/pull-requests/pullRequestAgentTasks.test.ts",
       "result": "passed",
-      "note": "exit 0, no errors"
-    },
-    {
-      "command": "vp run --filter @t3tools/web typecheck",
-      "result": "passed",
-      "note": "exit 0, no errors"
-    },
-    {
-      "command": "vp test run packages/contracts/src/rpc.test.ts apps/server/src/auth/RpcAuthorization.test.ts",
-      "result": "passed",
-      "note": "2 files, 27 tests"
-    },
-    {
-      "command": "vp test run apps/server/src/ws.test.ts",
-      "result": "passed",
-      "note": "1 file, 23 tests"
-    },
-    {
-      "command": "vp test run packages/contracts/src/provider.test.ts packages/contracts/src/settings.test.ts packages/contracts/src/usage.test.ts packages/contracts/src/orchestrationV2.test.ts packages/provider-cursor/src/server/{accountCache,accountUsage,usageLimits,driver,CursorAgentSdk,CursorSdkCatalog,status,textGeneration}.test.ts",
-      "result": "passed",
-      "note": "11 files, 136 tests"
-    },
-    {
-      "command": "vp test run packages/shared/src/markdownLinks.test.ts packages/shared/src/markdownBlocks.test.ts packages/shared/src/usageFormat.test.ts packages/client-runtime/src/state/pendingUserInput.test.ts packages/client-runtime/src/state/threadRequests.test.ts packages/client-runtime/src/state/usage.test.ts packages/client-runtime/src/modelTraits.test.ts packages/client-runtime/src/state/commandPermissions.test.ts packages/provider-acp/src/server/elicitationForm.test.ts packages/provider-acp/src/server/clientTerminals.test.ts packages/provider-acp/src/server/adapter.test.ts packages/provider-pi/src/server/adapter.test.ts packages/provider-pi/src/server/mcpInjection.test.ts",
-      "result": "passed",
-      "note": "13 files, 321 tests"
-    },
-    {
-      "command": "vp test run apps/server/src/usage/UsageService.test.ts apps/server/src/provider/Drivers/AntigravityDriver.test.ts apps/server/src/provider/acp/AntigravityAcpSupport.test.ts apps/server/src/provider/providerInstallation.test.ts apps/server/src/environmentTheme.test.ts apps/server/src/preview/PortScanner.test.ts apps/server/src/provider/CodexChatGptAuth.test.ts packages/provider-core/src/server/providerAuthFlow.test.ts apps/desktop/src/ipc/methods/localEnvironment.test.ts apps/web/src/components/settings/settingsSearch.test.ts apps/web/src/hooks/useEnvironmentTheme.test.ts apps/web/src/themePalette.test.ts apps/web/src/state/primaryEnvironment.test.ts apps/web/src/hooks/useThreadActions.permissions.test.ts",
-      "result": "passed",
-      "note": "14 files, 321 tests"
-    },
-    {
-      "command": "vp test run apps/server/src/orchestration-v2/Adapters/AcpAdapterV2.test.ts apps/server/src/orchestration-v2/Adapters/AcpRegistryAdapterV2.test.ts apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts",
-      "result": "passed",
-      "note": "3 files, 235 tests"
-    },
-    {
-      "command": "vp test run apps/web/src/components/auth/ConnectAgentSurface.logic.test.ts apps/mobile/src/state/threadOutboxDelivery.test.ts apps/mobile/src/state/thread-task-permissions.test.ts",
-      "result": "passed",
-      "note": "3 files, 40 tests"
+      "note": "2 files, 4 tests"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
       "result": "passed",
-      "note": "the merged config lists and selects the affected test plans"
+      "note": "exit 0; the planner cannot narrow a two-parent merge candidate, so it selects the complete plan, and the runner assembles the single landed merge"
     },
     {
       "command": "node scripts/fork-upstream-receipt.ts verify",
@@ -391,14 +161,19 @@
       "note": "candidate's last commit carries the receipt; coverage, dispositions, record blob and policy hash agree"
     },
     {
-      "command": "pre-commit vp fmt/lint/knip hook",
-      "result": "not-run",
-      "note": "left to the landing gate on the SlipJay runner; the previous update recorded knip failing on pre-existing unused eval-harness files independent of the merge"
+      "command": "independent review (ticket-reviewer, non-ui change)",
+      "result": "passed",
+      "note": "0 blocking, 2 should-fix on record and receipt accuracy; both corrected, no code or behaviour affected"
     },
     {
-      "command": "browser suites",
+      "command": "Android Kotlin key-listener test",
       "result": "not-run",
-      "note": "left to the landing gate on the SlipJay runner"
+      "note": "needs a Gradle/device run this host does not carry; upstream's own module suite covers it"
+    },
+    {
+      "command": "landing gate on the SlipJay runner",
+      "result": "not-run",
+      "note": "runs at slipjay land"
     }
   ],
   "result": "reconciled"
