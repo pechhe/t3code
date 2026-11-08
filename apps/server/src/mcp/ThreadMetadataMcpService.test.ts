@@ -1,6 +1,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
 import {
+  CommandId,
   ForgeWorkItemError,
   EnvironmentId,
   ProviderInstanceId,
@@ -11,6 +12,7 @@ import * as Layer from "effect/Layer";
 
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 
+import { OrchestratorDispatchError } from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import type * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as ThreadMetadataMcp from "./ThreadMetadataMcpService.ts";
@@ -123,6 +125,43 @@ it.effect("arc_run dispatches for the caller's own thread and refuses any other"
     }).pipe(Effect.flip);
     expect(refused.code).toBe("capability_denied");
     expect(sent).toHaveLength(1);
+  }),
+);
+
+it.effect("arc_run tells the agent why T3 refused, not only that dispatch failed", () =>
+  Effect.gen(function* () {
+    const reason = "Thread thread:other answers for Specs #102 of Arc #7.";
+    const failed = yield* Effect.gen(function* () {
+      const service = yield* ThreadMetadataMcp.ThreadMetadataMcpService;
+      return yield* service
+        .update(scope, { action: "arc_run", arcRun: { op: "start", arc: 7, specs: [102] } })
+        .pipe(Effect.flip);
+    }).pipe(
+      Effect.provide(
+        ThreadMetadataMcp.layer.pipe(
+          Layer.provide(
+            Layer.merge(
+              Layer.mock(ThreadManagement.ThreadManagementService)({
+                getThreadShell: () =>
+                  Effect.succeed({ projectId: "project", deletedAt: null } as never),
+                getProjectThreadRecords: () =>
+                  Effect.succeed({ thread: { projectId: "project" } } as never),
+                dispatch: () =>
+                  Effect.fail(
+                    new OrchestratorDispatchError({
+                      commandId: CommandId.make("command:refused"),
+                      commandType: "thread.arc-run",
+                      cause: reason,
+                    }),
+                  ),
+              } satisfies Partial<ThreadManagement.ThreadManagementService["Service"]>),
+              NodeCrypto.layer,
+            ).pipe(Layer.merge(Layer.mock(ForgeWorkItems.ForgeWorkItems)({}))),
+          ),
+        ),
+      ),
+    );
+    expect(failed.message).toContain(reason);
   }),
 );
 

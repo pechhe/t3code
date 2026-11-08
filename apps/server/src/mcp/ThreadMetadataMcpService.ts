@@ -16,6 +16,7 @@ import * as Layer from "effect/Layer";
 
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import { threadNotFound } from "./threadAccess.ts";
 
@@ -34,7 +35,10 @@ function failure(code: OrchestratorMcpFailure["code"], message: string): Orchest
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return (
+    userFacingDispatchErrorMessage(error) ??
+    (error instanceof Error ? error.message : String(error))
+  );
 }
 
 function stablePart(value: string): string {
