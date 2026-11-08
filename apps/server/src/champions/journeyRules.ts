@@ -209,6 +209,15 @@ export const describeSteps = (steps: ReadonlyArray<ChampionJourneyStep>) => {
     .join("\n");
 };
 
+const pageOf = (url: string | null) => {
+  if (url === null) return null;
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+};
+
 /** One bug's journeys end the same way: the same last step on the same page, reaching the same page. */
 export const sameFailure = (
   a: { readonly steps: ReadonlyArray<ChampionJourneyStep>; readonly finalUrl: string | null },
@@ -219,8 +228,8 @@ export const sameFailure = (
   return (
     last !== undefined &&
     other !== undefined &&
-    pathOf(a.finalUrl) === pathOf(b.finalUrl) &&
-    pathOf(last.url) === pathOf(other.url) &&
+    pageOf(a.finalUrl) === pageOf(b.finalUrl) &&
+    pageOf(last.url) === pageOf(other.url) &&
     last.operation === other.operation &&
     last.target?.role === other.target?.role &&
     last.target?.name === other.target?.name
@@ -290,7 +299,7 @@ Observed: ${input.observed}
 Sign in by opening ${input.origin}${input.signInPath}, then follow these recorded steps in order. Paths are relative to ${input.origin}. Where a name differs slightly because this database is fresh, use the closest match and say so.
 ${describeSteps(input.steps)}
 ${input.finalUrl === null ? "" : `The journey ended on ${pathOf(input.finalUrl)}.\n`}
-Say "reproduced" only if you saw the observed failure yourself and the expected behaviour did not happen. Say "not-reproduced" only if you carried out every step and the expected behaviour happened. Say "blocked" if any step could no longer be carried out, for instance because the page has changed, and why; that proves nothing either way. Take a screenshot of the final page either way.
+Say "reproduced" only if you saw the observed failure yourself and a real person would call it broken: an error, a dead end, or work lost. The report's expectation may itself be wrong: an empty state on a fresh database, or a nicety the page does not offer, is not a bug, so say "not-reproduced" for those, as you do when you carried out every step and the expected behaviour happened. Say "blocked" if any step could no longer be carried out, for instance because the page has changed, and why; that proves nothing either way. Take a screenshot of the final page either way.
 
 ${VERDICT_FORMAT}`;
 

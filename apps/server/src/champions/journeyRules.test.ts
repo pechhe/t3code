@@ -258,6 +258,15 @@ describe("sameFailure", () => {
     ).toBe(true);
   });
 
+  it("joins them whatever the search typed", () => {
+    expect(
+      Rules.sameFailure(
+        ending("http://localhost:3301/notes", "Search", "http://localhost:3301/notes?q=x"),
+        ending("http://localhost:3301/notes", "Search", "http://localhost:3301/notes?q="),
+      ),
+    ).toBe(true);
+  });
+
   it("keeps apart bugs that read alike but end elsewhere", () => {
     const search = ending(
       "http://localhost:3301/notes",
