@@ -9,6 +9,7 @@ import {
   OrchestratorMcpFailure,
   type PreviewAutomationSnapshot,
   PreviewTabId,
+  type ChampionJourneyStep,
   type PreviewTaskRequest,
   type PreviewTaskResult,
   type PreviewTaskTarget,
@@ -1048,6 +1049,28 @@ describe("BrowserTaskService journeys", () => {
       assert.strictEqual(result.reason, "page-broken");
       assert.include(result.detail, "Error 500");
       assert.strictEqual(task.decisions[0]!.rule.id, "bounded-browser-task-journey");
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
+  it.effect("records what a journey typed and where, so its steps can be replayed", () =>
+    Effect.gen(function* () {
+      const recorded: Array<ReadonlyArray<ChampionJourneyStep>> = [];
+      const task = yield* harness({
+        choices: ["save", "DONE"],
+        journeys: {
+          ...journeys,
+          recordTask: ({ steps }) => Effect.sync(() => recorded.push(steps)),
+        },
+      });
+      const fiber = yield* task.service
+        .run({ scope, request: FORM_REQUEST, authorize: allow })
+        .pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      yield* passGrace;
+      yield* Fiber.join(fiber);
+      const typed = recorded[0]!.find((step) => step.operation === "type")!;
+      assert.strictEqual(typed.value, "a@b.c");
+      assert.deepStrictEqual(typed.target, { role: "textbox", name: "Email" });
     }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
   );
 

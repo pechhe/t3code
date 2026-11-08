@@ -606,8 +606,8 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         target: entry.target ?? null,
         description: entry.chosen ?? entry.matchedName ?? null,
         option: entry.option ?? null,
-        // A saved login's value never reaches a dispatch payload as `value` the record could keep.
-        value: operation === "type" && typeof payload.value === "string" ? payload.value : null,
+        // A saved login's value never reaches a dispatch payload as `text` the record could keep.
+        value: operation === "type" && typeof payload.text === "string" ? payload.text : null,
         url: actedOn,
         state: outcome._tag === "ok" ? "completed" : "uncertain",
         at: DateTime.formatIso(DateTime.makeUnsafe(actedAt)) as ChampionJourneyStep["at"],
@@ -1406,16 +1406,35 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     const { binding } = step;
     switch (binding.control) {
       case "text":
-        return yield* dispatch({ id, kind: "binding", matchedName: matched }, "type", {
-          locator,
-          text: binding.text,
-          clear: true,
-        });
+        return yield* dispatch(
+          {
+            id,
+            kind: "binding",
+            matchedName: matched,
+            target: { role: node.role, name: node.name },
+          },
+          "type",
+          {
+            locator,
+            text: binding.text,
+            clear: true,
+          },
+        );
       case "select":
-        return yield* dispatch({ id, kind: "binding", matchedName: matched }, "select", {
-          locator,
-          values: [binding.option],
-        });
+        return yield* dispatch(
+          {
+            id,
+            kind: "binding",
+            matchedName: matched,
+            target: { role: node.role, name: node.name },
+            option: binding.option,
+          },
+          "select",
+          {
+            locator,
+            values: [binding.option],
+          },
+        );
       case "checkbox":
         return bindingSatisfied(fresh, binding, node)
           ? true
