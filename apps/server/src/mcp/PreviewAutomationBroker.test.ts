@@ -1253,6 +1253,51 @@ it.effect("keeps each thread's current tab when threads share a provider session
   ),
 );
 
+it.effect("waits longer for a journey's browser and keeps the host other agents share", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker.pipe(
+        Effect.provideService(JourneyBrowserPolicy.JourneyBrowserPolicy, {
+          forThread: () =>
+            Effect.succeed({
+              checkId: "check-1",
+              allow: ["localhost:3300"],
+              tabLimit: 32,
+              decisionCap: 4,
+              journeyLimit: 32,
+            }),
+        } as unknown as JourneyBrowserPolicy.JourneyBrowserPolicy["Service"]),
+      );
+      const managed = {
+        ...scope,
+        managedBrowser: true as const,
+        managedProjectId: ProjectId.make("managed-project"),
+      };
+      const delivered = yield* Deferred.make<RoutedRequest>();
+      const requests = requestsFrom(
+        yield* broker.connect(makeHost({ clientId: SERVER_BROWSER_AUTOMATION_CLIENT_ID }), {
+          preferred: true,
+        }),
+      );
+      yield* Stream.runForEach(requests, (request) =>
+        Deferred.succeed(delivered, request).pipe(Effect.asVoid),
+      ).pipe(Effect.forkScoped);
+      const pending = yield* broker
+        .invoke<object>({ scope: managed, operation: "open", input: {} })
+        .pipe(Effect.flip, Effect.forkScoped);
+      const request = yield* Deferred.await(delivered);
+      expect(request.timeoutMs).toBe(JourneyBrowserPolicy.JOURNEY_OPEN_TIMEOUT_MS);
+      yield* TestClock.adjust("70 seconds");
+      expect((yield* Fiber.join(pending))._tag).toBe("PreviewAutomationTimeoutError");
+      const again = yield* broker
+        .invoke<object>({ scope: managed, operation: "open", input: {} })
+        .pipe(Effect.forkScoped);
+      yield* TestClock.adjust("1 second");
+      expect(again.pollUnsafe()).toBeUndefined();
+    }),
+  ),
+);
+
 it.effect("bounds managed headless startup and refuses a missing or disconnected host", () =>
   Effect.scoped(
     Effect.gen(function* () {

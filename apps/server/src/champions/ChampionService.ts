@@ -1092,7 +1092,19 @@ const make = Effect.gen(function* () {
               kind === "setup"
                 ? (doc.champion.outstandingSetupId ?? null)
                 : doc.champion.outstandingCheckId;
-            if (outstandingId !== null) {
+            // A journey record is one run of one target; a second would blend into its counts.
+            const spentJourneyCheck =
+              kind === "check" && outstandingId !== null && doc.champion.journeys !== undefined
+                ? yield* journeys.readRecord(outstandingId).pipe(
+                    Effect.mapError(failure),
+                    Effect.map(
+                      (stored) => stored !== undefined && stored.record.status !== "running",
+                    ),
+                  )
+                : false;
+            if (spentJourneyCheck)
+              yield* saveCheck({ ...(yield* readCheck(outstandingId!)), cancelled: true });
+            if (outstandingId !== null && !spentJourneyCheck) {
               const outstanding = yield* readCheck(outstandingId);
               if (outstanding.kind !== kind)
                 return yield* new ChampionError({ reason: "conflict" });

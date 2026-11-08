@@ -79,7 +79,7 @@ export class PreviewAutomationBroker extends Context.Service<
     readonly focusHost: (host: PreviewAutomationHostFocus) => Effect.Effect<void>;
     readonly respond: (
       response: PreviewAutomationResponse,
-    ) => Effect.Effect<void, PreviewAutomationError>;
+    ) => Effect.Effect<boolean, PreviewAutomationError>;
     readonly invoke: <A = unknown>(
       request: PreviewAutomationInvokeInput,
     ) => Effect.Effect<A, PreviewAutomationError>;
@@ -529,7 +529,7 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       next.delete(response.requestId);
       return [entry, { ...current, pending: next }] as const;
     });
-    if (!pending) return;
+    if (!pending) return false;
     if (response.ok) {
       yield* Deferred.succeed(pending.deferred, response.result);
     } else {
@@ -540,12 +540,21 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
           : new PreviewAutomationMalformedResponseError(pending.context),
       );
     }
+    return true;
   });
 
   const invoke = Effect.fn("PreviewAutomationBroker.invoke")(function* <A = unknown>(
     input: Parameters<PreviewAutomationBroker["Service"]["invoke"]>[0],
   ): Effect.fn.Return<A, PreviewAutomationError> {
     const deferred = yield* Deferred.make<unknown, PreviewAutomationError>();
+    const journeyGrant =
+      input.scope.managedBrowser === true && Option.isSome(journeyPolicy)
+        ? yield* journeyPolicy.value.forThread(input.scope.thread.threadId)
+        : undefined;
+    const managedWait =
+      journeyGrant !== undefined && input.operation === "open"
+        ? JourneyBrowserPolicy.JOURNEY_OPEN_TIMEOUT_MS
+        : 15_000;
     const route = yield* SynchronizedRef.modify(state, (current) => {
       const assignments = new Map(
         Array.from(current.assignments).filter(([, assignment]) => {
@@ -599,8 +608,8 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       const timeoutMs =
         input.scope.managedBrowser === true
           ? Math.min(
-              input.timeoutMs ?? 15_000,
-              input.operation === "recordingStop" ? 120_000 : 15_000,
+              input.timeoutMs ?? managedWait,
+              input.operation === "recordingStop" ? 120_000 : managedWait,
             )
           : (input.timeoutMs ??
             (input.operation === "open" && connection.preferred ? 660_000 : 15_000));
@@ -654,10 +663,6 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
     const { connection, requestId, requestContext, requestSequence } = route;
     const { timeoutMs } = requestContext;
     input.onTargetTab?.(requestContext.tabId);
-    const journeyGrant =
-      input.scope.managedBrowser === true && Option.isSome(journeyPolicy)
-        ? yield* journeyPolicy.value.forThread(input.scope.thread.threadId)
-        : undefined;
     const journey =
       journeyGrant === undefined
         ? undefined
@@ -719,8 +724,9 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       return yield* Option.match(result, {
         // The enclosing operation owns the span for this inline handler.
         onNone: Effect.fnUntraced(function* () {
-          // Never replay possibly applied actions; slow metadata reads must not evict the host.
-          if (input.updateCurrentTab !== false) {
+          // Never replay possibly applied actions; slow metadata reads must not evict the host,
+          // and nor may a journey's wait, since other agents share it.
+          if (input.updateCurrentTab !== false && journey === undefined) {
             yield* disconnect(connection.clientId, connection.queue, true);
           }
           return yield* new PreviewAutomationTimeoutError(requestContext);

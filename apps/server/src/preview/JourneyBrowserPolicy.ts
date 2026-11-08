@@ -19,6 +19,9 @@ export interface JourneyNetworkDecision {
   readonly allowed: boolean;
 }
 
+/** Idle-priority browsers starting together on a busy machine outlast an ordinary open's wait. */
+export const JOURNEY_OPEN_TIMEOUT_MS = 60_000;
+
 /** The argument that finds a check's Chrome processes in `/proc`, which is how its priority is read back. */
 export const journeyBrowserMarker = (checkId: string) => `--t3-journey-check=${checkId}`;
 

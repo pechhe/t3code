@@ -990,8 +990,7 @@ const make = Effect.gen(function* () {
       snapshot.automationOwner === undefined
         ? undefined
         : journeySessions.get(snapshot.automationOwner);
-    if (journey === undefined)
-      return { serverPort, policy: async () => managedPolicy(projectId) };
+    if (journey === undefined) return { serverPort, policy: async () => managedPolicy(projectId) };
     return {
       serverPort,
       policy: async () => (managedPolicy(projectId) === null ? null : journey.allow),
@@ -1244,7 +1243,11 @@ const make = Effect.gen(function* () {
       snapshot.navStatus._tag === "Loading" &&
       ((!adopted && !desktop) || isPdfAssetUrl(snapshot.navStatus.url))
     ) {
-      const options = { waitUntil: "commit", timeout: NAVIGATION_TIMEOUT_MS } as const;
+      const commitTimeout =
+        snapshot.automationOwner !== undefined && journeySessions.has(snapshot.automationOwner)
+          ? JourneyBrowserPolicy.JOURNEY_OPEN_TIMEOUT_MS
+          : NAVIGATION_TIMEOUT_MS;
+      const options = { waitUntil: "commit", timeout: commitTimeout } as const;
       tab.initialNavigation = (
         (desktop || adopted) && page.url() === snapshot.navStatus.url
           ? page.reload(options)
@@ -1254,7 +1257,7 @@ const make = Effect.gen(function* () {
           if (managedProject !== undefined) assertAllowedNavigation(response);
         },
         (cause: unknown) => {
-          throw ServerBrowserPage.toOperationError(cause, NAVIGATION_TIMEOUT_MS);
+          throw ServerBrowserPage.toOperationError(cause, commitTimeout);
         },
       );
 
@@ -1760,6 +1763,30 @@ const make = Effect.gen(function* () {
   const closeIdleAgentTabs = () => {
     for (const tab of idleAgentTabs()) if (tab.desktop === null) dropTab(tab, true);
   };
+
+  // No caller ever learns this tab's id, so nothing else could close it or free its slot.
+  const dropUnclaimedOpen = (
+    request: { threadId: string; operation: string; managedBrowser?: unknown },
+    result: unknown,
+  ) => {
+    if (request.operation !== "open" || request.managedBrowser === undefined) return;
+    if (typeof result !== "object" || result === null || !("tabId" in result)) return;
+    const tab = tabs.get(tabKey(request.threadId, String(result.tabId)));
+    if (tab) dropTab(tab, true);
+  };
+
+  // A check's browsers must not outlive it: it may have stopped without closing a tab.
+  const closeEndedJourneyTabs = Effect.gen(function* () {
+    if (Option.isNone(journeyNetwork)) return;
+    for (const [session, journey] of [...journeySessions]) {
+      const held = [...tabs.values()].filter((tab) => tab.control.agentId === session);
+      const threadId = held[0]?.threadId;
+      if (threadId === undefined) continue;
+      const grant = yield* journeyNetwork.value.forThread(ThreadId.make(threadId));
+      if (grant === undefined || grant.checkId !== journey.checkId || grant.allow.length === 0)
+        for (const tab of held) dropTab(tab, true);
+    }
+  });
 
   const latestThreadTab = (threadId: string, agentSessionId?: string) => {
     const threadTabs = [...tabs.values()].filter((tab) => tab.threadId === threadId);
@@ -2360,7 +2387,10 @@ const make = Effect.gen(function* () {
           found && (request.tabIdExplicit || found.control.agentId === request.agentSessionId)
             ? found
             : undefined;
-        const navigationTimeout = Math.min(request.timeoutMs, NAVIGATION_TIMEOUT_MS);
+        const navigationTimeout =
+          request.managedBrowser?.journey === undefined
+            ? Math.min(request.timeoutMs, NAVIGATION_TIMEOUT_MS)
+            : request.timeoutMs;
         const profileId =
           existing || request.managedBrowser !== undefined
             ? undefined
@@ -2710,12 +2740,20 @@ const make = Effect.gen(function* () {
         }),
       }),
       Effect.flatMap((outcome) =>
-        broker.respond({
-          clientId: SERVER_HOST_CLIENT_ID,
-          connectionId,
-          requestId: request.requestId,
-          ...outcome,
-        }),
+        broker
+          .respond({
+            clientId: SERVER_HOST_CLIENT_ID,
+            connectionId,
+            requestId: request.requestId,
+            ...outcome,
+          })
+          .pipe(
+            Effect.tap((delivered) =>
+              delivered || !outcome.ok
+                ? Effect.void
+                : Effect.sync(() => dropUnclaimedOpen(request, outcome.result)),
+            ),
+          ),
       ),
       Effect.ignore,
     );
@@ -3223,6 +3261,7 @@ const make = Effect.gen(function* () {
     Effect.forkScoped,
   );
   yield* Effect.sync(closeIdleAgentTabs).pipe(
+    Effect.andThen(closeEndedJourneyTabs),
     Effect.repeat(Schedule.spaced(IDLE_SWEEP_INTERVAL)),
     Effect.forkScoped,
   );

@@ -4474,6 +4474,28 @@ describe("a journey check", () => {
     ),
   );
 
+  it.effect("starts a new check rather than blending a retry into a finished record", () =>
+    withFixture((f, service) =>
+      withTarget(
+        [manifest("aaaaaaaa", "commit-1"), manifest("bbbbbbbb", "commit-1")],
+        (directory) =>
+          Effect.gen(function* () {
+            yield* activate(service, journeysConfig(directory));
+            yield* service.runCheck({ id: config.id });
+            const first = yield* service.journeysStart(f.caller());
+            f.endRun();
+            yield* TestClock.adjust("6 minutes");
+            yield* service.runDue;
+            f.wakeOwner();
+            f.endRun();
+            yield* service.runCheck({ id: config.id });
+            const second = yield* service.journeysStart(f.caller());
+            assert.notEqual(second.checkId, first.checkId);
+          }),
+      ),
+    ),
+  );
+
   it.effect("closes a check whose owner stopped without reporting", () =>
     withFixture((f, service) =>
       withTarget([manifest("aaaaaaaa", "commit-1")], (directory) =>
