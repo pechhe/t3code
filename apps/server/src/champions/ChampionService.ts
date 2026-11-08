@@ -1,9 +1,19 @@
 import * as ChampionEvidence from "./ChampionEvidence.ts";
+import * as ChampionJourneys from "./ChampionJourneys.ts";
+import {
+  CANDIDATE_WORK_PREFIX,
+  describeSteps,
+  isCandidateWorkId,
+  parseVerdict,
+  replayBrief,
+} from "./journeyRules.ts";
+import { engines as decisionEngines } from "../decisions/adapters.ts";
 import * as ChampionLearnings from "./ChampionLearnings.ts";
 import * as ManagedTaskControl from "../agents/ManagedTaskControl.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { forgeItemNumberFromUrl } from "@t3tools/shared/forgeLinks";
+import * as ProcessRunner from "../processRunner.ts";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
 import { isProviderUsageExhausted } from "@t3tools/shared/providerPools";
@@ -48,6 +58,12 @@ import {
   type ChampionLearningContributeInput,
   type ChampionLearningConfirmInput,
   type ChampionLearningNoteInput,
+  type ChampionCandidateReplay,
+  type ChampionCandidateReplayInput,
+  type ChampionCandidateSettled,
+  type ChampionJourneyCandidateInput,
+  type ChampionJourneyPlan,
+  type ChampionJourneyRecordResult,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -178,6 +194,9 @@ export interface ChampionRelay {
   readonly threadId: ThreadId | undefined;
   readonly quote: string | undefined;
 }
+const JOURNEY_DEFER_MINUTES = 30;
+const encodeClicks = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+
 type Evidence = Effect.Success<typeof ChampionEvidence.make>;
 type Learnings = Effect.Success<typeof ChampionLearnings.make>;
 type DetailOperation<I> = (input: I) => Effect.Effect<ChampionDetail, ChampionError>;
@@ -276,6 +295,23 @@ export class ChampionService extends Context.Service<
       caller: Caller,
       input: ChampionReportInput,
     ) => Effect.Effect<ChampionDetail, ChampionError>;
+    readonly journeysStart: (caller: Caller) => Effect.Effect<ChampionJourneyPlan, ChampionError>;
+    readonly journeyCandidate: (
+      caller: Caller,
+      input: ChampionJourneyCandidateInput,
+    ) => Effect.Effect<{ readonly candidateId: string }, ChampionError>;
+    readonly candidateReplay: (
+      caller: Caller,
+      input: ChampionCandidateReplayInput,
+    ) => Effect.Effect<ChampionCandidateReplay, ChampionError>;
+    readonly candidateSettle: (
+      caller: Caller,
+      input: { readonly candidateId: string },
+    ) => Effect.Effect<ChampionCandidateSettled, ChampionError>;
+    readonly journeyRecord: (input: {
+      readonly checkId: string;
+      readonly includeJourneys?: boolean | undefined;
+    }) => Effect.Effect<ChampionJourneyRecordResult, ChampionError>;
     readonly updateDelivery: (
       caller: Caller,
       input: typeof ChampionFindingDeliveryInput.Type,
@@ -285,6 +321,7 @@ export class ChampionService extends Context.Service<
       request: AgentTaskRequest | undefined;
       clientRequestId: string | undefined;
       followup?: boolean | undefined;
+      task?: string | undefined;
       remote?: boolean | undefined;
       childThreadId?: ThreadId | undefined;
       forgeItem?: number | string | undefined;
@@ -392,6 +429,7 @@ const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
   const evidence = yield* ChampionEvidence.make;
   const learnings = yield* ChampionLearnings.make;
+  const journeys = yield* ChampionJourneys.make;
   const lock = yield* Semaphore.make(1);
   const changes = yield* PubSub.sliding<void>(1);
   const shellChanges = yield* PubSub.unbounded<ThreadId>();
@@ -833,7 +871,20 @@ const make = Effect.gen(function* () {
     if (!rows[0]) return yield* new ChampionError({ reason: "not-found" });
     return yield* decodeCheck(rows[0].document_json).pipe(Effect.mapError(failure));
   });
-  const prompt = (doc: Document, check: Check) =>
+  const journeyPrompt = (doc: Document, check: Check) =>
+    [
+      `You own champion ${doc.champion.name} in this project. Your goal: ${doc.champion.purpose}`,
+      `Check claim: ${check.id}. YOU FIND AND REPORT BUGS. YOU DO NOT REPAIR. This overrides any other instruction: no repairs, no worktrees, no source edits and no reading the target's source, even if a bug looks easy to fix.`,
+      "1. Call t3_champions_check_context, then t3_champions_learning_search with this champion's id for what past checks covered. Then call t3_champions_journeys_start: it starts the target and returns its shards, the most journeys this check may run, the paths earlier checks already walked, the source files changed since, and bugs to re-test. If it says the check is deferred or refused, report that no journey ran; do not work around it.",
+      "2. Choose journeys a real person might take and break: dead ends, unusual input, going back or away mid-task and losing work, double submits, empty and very long values. Prefer areas no earlier check covered and areas that recently changed; do not repeat a covered path unless it is a re-test. Never name or assume a bug you have not seen.",
+      "3. Run them all at once, spread evenly across the shards. In ONE message issue one t3_browser_open per journey with url = the shard's origin + its signInPath (add next=<path> for where it starts). Then in ONE message issue one t3_browser_task per tab, each with a goal, pageReach: {} and bindings for any unusual input. Repeat in parallel batches of whole messages, never one at a time; one tab is one journey, and more tasks in the same tab continue it. The server records every journey, its clicks and its timing. Your browsers can reach only the shards. Close each tab when its journey ends.",
+      "4. A journey that shows an error page, a dead end, lost work or anything a person would call broken is a candidate: call t3_champions_journey_candidate with its tabId, what should have happened and what did. That tells nobody. Do not judge whether it is real; a stronger model decides. If a journey only stalled on a limit or a slow page, it is not a candidate.",
+      "5. For every candidate, and for every re-test the plan names, call t3_champions_candidate_replay. It starts a fresh database and returns workId, attemptId and a brief. Call delegate_task with agentTask {role: browser, taskClass: non-ui, readOnly: true, demanding: true, browser: {backend: integrated}, workId, attemptId, workspacePath: your workspace} and task = the brief, unchanged; any other task is refused, and so is a follow-up. At most four replays run at once: when a call says so, settle one and go on. When each finishes call t3_champions_candidate_settle: the server reads that agent's verdict itself; what you say about it does not count. Only a confirmed candidate becomes a finding.",
+      "6. Retain what you covered and under which build with t3_champions_record_learning, plainSummary first.",
+      "7. Call t3_champions_report with samples for each frozen metric, findings: [] (the server raises findings from confirmed candidates; never file one yourself), journeys: {started, passed, failed, stopped} counted honestly from your results, and a summary. The server compares your counts with its own and marks the check incomplete if they differ or if a shard stopped. Report plainly a check that could not finish, or that found nothing, with the paths it covered.",
+      `Known findings: ${encodeFindings(doc.findings.filter((f) => f.status !== "verified" && f.status !== "dismissed"))}. Charter: ${encodeCharter(doc.champion.charter)}`,
+    ].join("\n\n");
+  const routinePrompt = (doc: Document, check: Check) =>
     [
       `You own champion ${doc.champion.name} in this project. Your goal: ${doc.champion.purpose}`,
       "Work towards the goal, not the metrics. Metrics are your instruments for seeing progress; when they cannot show it (blank, insufficient, or measuring the wrong thing), say so and propose a better metric with t3_champions_propose_metrics for the user to accept.",
@@ -856,6 +907,10 @@ const make = Effect.gen(function* () {
     ]
       .filter((line) => line !== null)
       .join("\n\n");
+  const prompt = (doc: Document, check: Check) =>
+    doc.champion.journeys !== undefined && check.kind === "check"
+      ? journeyPrompt(doc, check)
+      : routinePrompt(doc, check);
   const resolveAttempt = Effect.fn("ChampionService.resolveAttempt")(function* (
     doc: Document,
     check: Pick<Check, "id" | "kind" | "threadId" | "messageId" | "commandId">,
@@ -994,6 +1049,33 @@ const make = Effect.gen(function* () {
     scheduled = false,
     automatic = false,
   ) {
+    if (kind === "check") {
+      const champion = (yield* read(id)).champion;
+      if (champion.journeys !== undefined) {
+        const reason = journeys.overLoadLimit(champion.journeys);
+        if (reason !== null) {
+          if (scheduled)
+            yield* mutate(
+              Effect.gen(function* () {
+                const doc = yield* read(id);
+                yield* write({
+                  ...doc,
+                  champion: {
+                    ...doc.champion,
+                    nextCheckAt: DateTime.formatIso(
+                      DateTime.add(yield* DateTime.now, { minutes: JOURNEY_DEFER_MINUTES }),
+                    ) as typeof doc.champion.nextCheckAt,
+                  },
+                });
+              }),
+            );
+          return yield* new ChampionError({
+            reason: "conflict",
+            detail: `Check deferred: ${reason}`,
+          });
+        }
+      }
+    }
     const claim = yield* mutate(
       sql
         .withTransaction(
@@ -1564,6 +1646,28 @@ const make = Effect.gen(function* () {
   };
   const report: ChampionService["Service"]["report"] = Effect.fn("ChampionService.report")(
     function* (caller, input) {
+      const journeyCheck = yield* authenticate(caller).pipe(
+        Effect.flatMap(({ check, doc }) => {
+          const config = doc.champion.journeys;
+          if (config === undefined || check.kind !== "check" || check.reported)
+            return Effect.undefined;
+          if (input.findings.length > 0)
+            return Effect.fail(
+              new ChampionError({
+                reason: "invalid",
+                detail:
+                  "A journey check raises findings only from confirmed candidates. Send findings: [] and file candidates instead.",
+              }),
+            );
+          return journeys.finish({
+            checkId: check.id,
+            championId: doc.champion.id,
+            threadId: check.threadId,
+            config,
+            owner: input.journeys,
+          });
+        }),
+      );
       return yield* mutate(
         sql
           .withTransaction(
@@ -1705,6 +1809,9 @@ const make = Effect.gen(function* () {
               }
               yield* saveCheck({ ...check, reported: true, samples });
               const attention = [
+                ...(journeyCheck?.status === "incomplete"
+                  ? [`The last journey check did not finish: ${journeyCheck.reason}`]
+                  : []),
                 ...(findingsLimited
                   ? ["Open finding limit reached. Reconcile existing findings before opening more."]
                   : []),
@@ -2316,6 +2423,7 @@ const make = Effect.gen(function* () {
     "ChampionService.admitDelegation",
   )(function* (proof) {
     const doc = yield* byThread(proof.ownerThreadId);
+    if (isCandidateWorkId(proof.binding.workId)) return;
     if (
       doc !== undefined &&
       ["verification", "review"].includes(phaseForRole(proof.binding.role) ?? "")
@@ -2339,6 +2447,364 @@ const make = Effect.gen(function* () {
     yield* evidence.admit(proof);
     yield* PubSub.publish(changes, undefined);
   });
+  /** Everyone a journey's confirmation must not be: the model that ran it and the one that drove it. */
+  const journeyModels = (doc: Document) =>
+    new Set([
+      doc.champion.routineModelSelection.model,
+      decisionEngines.jev.model,
+      decisionEngines.luna.model,
+    ]);
+  const guardConfirmation = Effect.fn("ChampionService.guardConfirmation")(function* (
+    ownerThreadId: ThreadId,
+    request: AgentTaskRequest,
+    task: string | undefined,
+    followup: boolean,
+  ) {
+    const refuse = (detail: string) => new ChampionError({ reason: "unauthorized", detail });
+    const doc = yield* byThread(ownerThreadId);
+    if (doc === undefined || doc.champion.ownerThreadId !== ownerThreadId)
+      return yield* refuse("Only the champion's owner thread starts a replay.");
+    const candidate = yield* journeys
+      .readCandidate(request.workId.slice(CANDIDATE_WORK_PREFIX.length))
+      .pipe(Effect.mapError(failure));
+    if (
+      candidate === undefined ||
+      candidate.championId !== doc.champion.id ||
+      candidate.replay?.attemptId !== request.attemptId
+    )
+      return yield* refuse(
+        "Start a replay with the workId and attemptId t3_champions_candidate_replay returned.",
+      );
+    if (followup)
+      return yield* refuse("A replay judges alone, so it takes no follow-up. Start a new replay.");
+    if (task?.trim() !== candidate.replay?.brief?.trim())
+      return yield* refuse("A replay's task is its brief, unchanged.");
+    if (
+      request.role !== "browser" ||
+      request.readOnly !== true ||
+      request.demanding !== true ||
+      (request.browser !== undefined && request.browser.backend !== "integrated")
+    )
+      return yield* refuse(
+        "A replay runs as role browser with readOnly true, demanding true and the integrated browser.",
+      );
+    if (Option.isNone(managedAgents)) return yield* new ChampionError({ reason: "unavailable" });
+    const enabled = yield* Effect.filter(yield* providers.getProviders, (provider) =>
+      threads.isProviderInstanceEnabledForProject({
+        projectId: doc.champion.projectId,
+        instanceId: provider.instanceId,
+      }),
+    );
+    const excluded = journeyModels(doc);
+    const result = yield* managedAgents.value
+      .roles({
+        projectId: doc.champion.projectId,
+        providers: enabled,
+        ceiling: "full-access",
+        request,
+      })
+      .pipe(Effect.mapError(failure));
+    const selected = result.roles.find((role) => role.role === "browser");
+    if (selected?.selection == null || selected.refusal !== null)
+      return yield* new ChampionError({
+        reason: "unavailable",
+        detail: `No model can confirm this candidate: ${selected?.refusal ?? "the browser role has no choice"}.`,
+      });
+    if (excluded.has(selected.selection.model))
+      return yield* new ChampionError({
+        reason: "unavailable",
+        detail: `A confirmation must differ from this check's own model and from Jev, and the browser role's demanding model is ${selected.selection.model}.`,
+      });
+    return selected.selection;
+  });
+  const journeysStart: ChampionService["Service"]["journeysStart"] = Effect.fn(
+    "ChampionService.journeysStart",
+  )(function* (caller) {
+    const { check, doc } = yield* authenticate(caller);
+    const config = doc.champion.journeys;
+    if (config === undefined || check.kind !== "check")
+      return yield* new ChampionError({
+        reason: "conflict",
+        detail: "This champion runs no journeys.",
+      });
+    const project = yield* projects.getById(doc.champion.projectId).pipe(Effect.mapError(failure));
+    return yield* journeys.start({
+      championId: doc.champion.id,
+      threadId: check.threadId,
+      checkId: check.id,
+      config,
+      openFindings: doc.findings
+        .filter(
+          (f) => f.id.includes(":qualitative:") && !["verified", "dismissed"].includes(f.status),
+        )
+        .map((f) => ({ id: f.id, title: f.title })),
+      checkoutRoot: Option.isSome(project) ? project.value.workspaceRoot : null,
+    });
+  });
+  const journeyCandidate: ChampionService["Service"]["journeyCandidate"] = Effect.fn(
+    "ChampionService.journeyCandidate",
+  )(function* (caller, input) {
+    const { check, doc } = yield* authenticate(caller);
+    const running = yield* journeys.readRecord(check.id).pipe(Effect.mapError(failure));
+    if (doc.champion.journeys === undefined || running?.record.status !== "running")
+      return yield* new ChampionError({
+        reason: "conflict",
+        detail: "No journey check is running.",
+      });
+    const journey = yield* journeys
+      .markFailed(check.id, input.tabId)
+      .pipe(Effect.mapError(failure));
+    if (journey === undefined)
+      return yield* new ChampionError({
+        reason: "invalid",
+        detail: `The server recorded no journey in tab ${input.tabId}.`,
+      });
+    const candidate: ChampionJourneys.JourneyCandidate = {
+      id: yield* uuid,
+      championId: doc.champion.id,
+      checkId: check.id,
+      kind: "candidate",
+      status: "pending",
+      reason: null,
+      title: input.title,
+      expected: input.expected,
+      observed: input.observed,
+      tabId: input.tabId,
+      commit: running.record.commit,
+      steps: journey.steps,
+      finalUrl: journey.finalUrl,
+      screenshots: journey.screenshots,
+      findingId: null,
+      replay: null,
+    };
+    yield* journeys.saveCandidate(candidate).pipe(Effect.mapError(failure));
+    return { candidateId: candidate.id };
+  });
+  const candidateReplay: ChampionService["Service"]["candidateReplay"] = Effect.fn(
+    "ChampionService.candidateReplay",
+  )(function* (caller, input) {
+    const { check, doc } = yield* authenticate(caller);
+    const config = doc.champion.journeys;
+    const running = yield* journeys.readRecord(check.id).pipe(Effect.mapError(failure));
+    if (
+      config === undefined ||
+      running?.record.status !== "running" ||
+      running.record.build === null
+    )
+      return yield* new ChampionError({
+        reason: "conflict",
+        detail: "No journey check is running.",
+      });
+    let candidate: ChampionJourneys.JourneyCandidate | undefined;
+    if (input.findingId !== undefined) {
+      const original = yield* journeys.confirmedFor(input.findingId).pipe(Effect.mapError(failure));
+      if (original === undefined)
+        return yield* new ChampionError({
+          reason: "not-found",
+          detail: "That finding has no recorded journey.",
+        });
+      candidate = {
+        ...original,
+        id: yield* uuid,
+        checkId: check.id,
+        kind: "retest",
+        status: "pending",
+        reason: null,
+        replay: null,
+      };
+    } else if (input.candidateId !== undefined) {
+      candidate = yield* journeys.readCandidate(input.candidateId).pipe(Effect.mapError(failure));
+    }
+    if (candidate === undefined || candidate.checkId !== check.id)
+      return yield* new ChampionError({
+        reason: "not-found",
+        detail: "Name a candidate of this check, or a finding.",
+      });
+    if (candidate.status !== "pending" && candidate.status !== "inconclusive")
+      return yield* new ChampionError({
+        reason: "conflict",
+        detail: `That candidate is already ${candidate.status}.`,
+      });
+    const workId = `${CANDIDATE_WORK_PREFIX}${candidate.id}`;
+    const manifest = yield* journeys.provisionReplay({
+      checkId: check.id,
+      config,
+      workId,
+      build: running.record.build,
+    });
+    const shard = manifest.shards[0]!;
+    const attemptId = `${candidate.id}:${manifest.id}`;
+    const brief = replayBrief({
+      title: candidate.title,
+      expected: candidate.expected,
+      observed: candidate.observed,
+      origin: shard.origin,
+      signInPath: shard.signInPath,
+      steps: candidate.steps,
+      finalUrl: candidate.finalUrl,
+    });
+    yield* journeys
+      .saveCandidate({
+        ...candidate,
+        status: "pending",
+        replay: { brief, targetId: manifest.id, workId, attemptId, commit: manifest.commit },
+      })
+      .pipe(Effect.mapError(failure));
+    return { candidateId: candidate.id, workId, attemptId, brief };
+  });
+  const candidateSettle: ChampionService["Service"]["candidateSettle"] = Effect.fn(
+    "ChampionService.candidateSettle",
+  )(function* (caller, input) {
+    const { check, doc } = yield* authenticate(caller);
+    const config = doc.champion.journeys;
+    const candidate = yield* journeys
+      .readCandidate(input.candidateId)
+      .pipe(Effect.mapError(failure));
+    if (config === undefined || candidate === undefined || candidate.checkId !== check.id)
+      return yield* new ChampionError({ reason: "not-found" });
+    const { replay } = candidate;
+    if (replay === null)
+      return yield* new ChampionError({ reason: "conflict", detail: "Start its replay first." });
+    if (candidate.status !== "pending")
+      return {
+        candidateId: candidate.id,
+        status: candidate.status,
+        reason: candidate.reason ?? "",
+        findingId: candidate.findingId,
+      };
+    const records = yield* threads
+      .getThreadRecords(doc.champion.ownerThreadId, ["subagents"])
+      .pipe(Effect.mapError(failure));
+    let found: { task: (typeof records.subagents)[number]; model: string } | undefined;
+    for (const task of records.subagents) {
+      if (task.childThreadId === null) continue;
+      const shell = yield* threads
+        .getThreadShell(task.childThreadId)
+        .pipe(Effect.mapError(failure));
+      if (
+        shell?.agentTask?.workId === replay.workId &&
+        shell.agentTask.attemptId === replay.attemptId
+      )
+        found = { task, model: shell.modelSelection.model };
+    }
+    const unsettled = (reason: string) => ({
+      candidateId: candidate.id,
+      status: "pending" as const,
+      reason,
+      findingId: null,
+    });
+    if (found === undefined) return unsettled("Its replay has not started: delegate it first.");
+    if (!["completed", "failed", "cancelled", "interrupted"].includes(found.task.status))
+      return unsettled("Its replay is still running.");
+    const finished = found;
+    const close = Effect.fn("ChampionService.closeCandidate")(function* (
+      status: ChampionJourneys.JourneyCandidate["status"],
+      reason: string,
+      findingId: string | null,
+    ) {
+      yield* journeys
+        .saveCandidate({
+          ...candidate,
+          status,
+          reason,
+          findingId: findingId ?? candidate.findingId,
+        })
+        .pipe(Effect.mapError(failure));
+      yield* journeys.endReplay({
+        checkId: check.id,
+        config,
+        workId: replay.workId,
+        targetId: replay.targetId,
+      });
+      return {
+        candidateId: candidate.id,
+        status,
+        reason,
+        findingId: findingId ?? candidate.findingId,
+      };
+    });
+    if (journeyModels(doc).has(finished.model))
+      return yield* close(
+        "inconclusive",
+        `The replay ran on ${finished.model}, which may not judge this check's own work.`,
+        null,
+      );
+    const verdict = parseVerdict(finished.task.result);
+    if (verdict === null || verdict.verdict === "blocked")
+      return yield* close(
+        "inconclusive",
+        verdict?.reason ?? "The replay ended without a verdict.",
+        null,
+      );
+    if (candidate.kind === "retest") {
+      if (verdict.verdict === "reproduced")
+        return yield* close("still-failing", verdict.reason, candidate.findingId);
+      if (replay.commit === candidate.commit)
+        return yield* close(
+          "inconclusive",
+          "It passed, but on the same build it failed on, so this proves no fix.",
+          candidate.findingId,
+        );
+      yield* mutate(
+        Effect.gen(function* () {
+          const current = yield* read(doc.champion.id);
+          const finding = current.findings.find((f) => f.id === candidate.findingId);
+          if (finding === undefined) return;
+          const closed: ChampionFinding = {
+            ...finding,
+            status: "verified",
+            revision: replay.commit,
+            updatedAt: yield* now,
+          };
+          yield* write({
+            ...current,
+            findings: current.findings.map((f) => (f.id === finding.id ? closed : f)),
+          });
+          yield* activity(
+            doc.champion.id,
+            "finding-verified",
+            `Its replay passed on build ${replay.commit}: ${verdict.reason}`,
+            closed,
+          );
+        }),
+      );
+      return yield* close("fixed", verdict.reason, candidate.findingId);
+    }
+    if (verdict.verdict === "not-reproduced") return yield* close("rejected", verdict.reason, null);
+    const findingId = yield* mutate(
+      Effect.gen(function* () {
+        // Two settles of one replay raise one finding.
+        const latest = yield* journeys.readCandidate(candidate.id).pipe(Effect.mapError(failure));
+        if (latest?.findingId != null) return latest.findingId;
+        const current = yield* read(doc.champion.id);
+        const clicks = yield* encodeClicks(
+          candidate.steps.map((step) => ({
+            url: step.url,
+            target: step.target,
+            option: step.option,
+          })),
+        ).pipe(Effect.mapError(failure));
+        const evidenceText = [
+          `${candidate.observed} Expected: ${candidate.expected}`,
+          `Steps to reproduce, on a fresh copy of the seeded data (build ${replay.commit}):\n${describeSteps(candidate.steps)}`,
+          `Recorded clicks: ${clicks}`,
+          `Confirmed in isolation by ${finished.model}: ${verdict.reason}`,
+          `Screenshot: ${verdict.screenshot ?? candidate.screenshots.at(-1) ?? "none recorded"}`,
+        ].join("\n\n");
+        // One finding per replayed bug, never merged by title: two bugs can read alike.
+        const finding = yield* makeFinding(doc.champion.id, candidate.title, evidenceText);
+        yield* write({ ...current, findings: [...current.findings, finding] });
+        yield* journeys
+          .saveCandidate({ ...candidate, findingId: finding.id })
+          .pipe(Effect.mapError(failure));
+        yield* activity(doc.champion.id, "finding-opened", finding.evidence, finding);
+        return finding.id;
+      }),
+    );
+    return yield* close("confirmed", verdict.reason, findingId);
+  });
+  const journeyRecord: ChampionService["Service"]["journeyRecord"] = (input) =>
+    journeys.recordOf(input.checkId, input.includeJourneys === true);
   const guardDelegation: ChampionService["Service"]["guardDelegation"] = Effect.fn(
     "ChampionService.guardDelegation",
   )(function* ({
@@ -2346,11 +2812,19 @@ const make = Effect.gen(function* () {
     request,
     clientRequestId,
     followup,
+    task,
     childThreadId,
     forgeItem,
     remote,
   }) {
     if ((yield* byThread(ownerThreadId)) === undefined) return;
+    if (isCandidateWorkId(request?.workId))
+      return yield* guardConfirmation(ownerThreadId, request!, task, followup === true);
+    if (yield* journeys.ownerBusy(ownerThreadId).pipe(Effect.mapError(failure)))
+      return yield* new ChampionError({
+        reason: "unauthorized",
+        detail: "During a journey check the only delegation is a replay.",
+      });
     if (yield* evidence.guard(ownerThreadId, request, clientRequestId, remote)) {
       const prior = yield* evidence.recordedBinding(ownerThreadId, clientRequestId);
       if (prior !== undefined) return prior.effective;
@@ -3021,6 +3495,21 @@ const make = Effect.gen(function* () {
           );
         }
       }
+      if (doc.champion.journeys !== undefined)
+        for (const checkId of yield* journeys
+          .orphanedChecks(doc.champion.id)
+          .pipe(Effect.orElseSucceed(() => [] as string[])))
+          yield* journeys
+            .finish({
+              checkId,
+              championId: doc.champion.id,
+              threadId: doc.champion.ownerThreadId,
+              config: doc.champion.journeys,
+              owner: undefined,
+              forcedReason:
+                "The server restarted during the check, so nothing watched it to its end.",
+            })
+            .pipe(Effect.ignore);
       if (
         doc.champion.outstandingCheckId === null &&
         doc.champion.lifecycle === "active" &&
@@ -3202,6 +3691,11 @@ const make = Effect.gen(function* () {
     checkContext,
     proposeFromSetup,
     report,
+    journeysStart,
+    journeyCandidate,
+    candidateReplay,
+    candidateSettle,
+    journeyRecord,
     updateDelivery,
     guardDelegation,
     delegationOutcome,
@@ -3222,4 +3716,5 @@ const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(ChampionService, make).pipe(
   Layer.provide(ManagedTaskControl.layer),
+  Layer.provide(ProcessRunner.layer),
 );

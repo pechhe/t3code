@@ -6,8 +6,11 @@ export const DECISION_LIMITS = {
   choices: 64,
   responseBytes: 1024 * 1024,
   deadlineMs: 20_000,
-  concurrent: 4,
-  perMinute: 60,
+  /** About half of what the provider answered without refusal on 8 Nov 2026 (T3-465): 256 at once, 36,000 a minute. */
+  concurrent: 128,
+  perMinute: 18_000,
+  /** How long a call over either limit waits for room before it fails. */
+  admissionWaitMs: 5_000,
 } as const;
 const text = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(8192));
 const id = Schema.String.check(Schema.isPattern(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/));

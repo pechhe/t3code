@@ -683,7 +683,19 @@ export const PreviewAutomationRequest = Schema.Struct({
   tabIdExplicit: Schema.optional(Schema.Boolean),
   /** Supplied by the broker from authenticated scope, never from tool input. */
   agentSessionId: Schema.optional(Schema.String),
-  managedBrowser: Schema.optional(Schema.Struct({ projectId: ProjectId })),
+  managedBrowser: Schema.optional(
+    Schema.Struct({
+      projectId: ProjectId,
+      /** A Champion check's journey: only these addresses, at the machine's lowest priority. */
+      journey: Schema.optional(
+        Schema.Struct({
+          checkId: Schema.String,
+          allow: Schema.Array(Schema.String),
+          tabLimit: Schema.Int,
+        }),
+      ),
+    }),
+  ),
   /** Set only by the bounded task service, for the tab lease it holds; never from tool input. */
   taskLease: Schema.optional(Schema.String),
   operation: PreviewAutomationOperation,

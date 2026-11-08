@@ -38,6 +38,7 @@ interface Options {
    */
   readonly launcher?: (
     executable: string,
+    options?: { readonly lowestPriority?: boolean },
   ) => Promise<{ readonly path: string; readonly release: () => Promise<void> } | undefined>;
   readonly diagnose?: (executable: string, cause: unknown) => Promise<unknown>;
   readonly env?: NodeJS.ProcessEnv;
@@ -140,10 +141,14 @@ export class ServerBrowserContexts {
     };
   }
 
-  private async launch<A>(executable: string, start: (executablePath: string) => Promise<A>) {
+  private async launch<A>(
+    executable: string,
+    start: (executablePath: string) => Promise<A>,
+    options?: { readonly lowestPriority?: boolean },
+  ) {
     let release: (() => Promise<void>) | undefined;
     try {
-      const launcher = await this.options.launcher?.(executable);
+      const launcher = await this.options.launcher?.(executable, options);
       release = launcher?.release;
       return await start(launcher?.path ?? executable);
     } catch (cause) {
@@ -301,6 +306,14 @@ export class ServerBrowserContexts {
   async managedContext(options: {
     readonly serverPort: number;
     readonly policy: () => Promise<ReadonlyArray<string> | null>;
+    readonly allowlistOnly?: boolean;
+    readonly onDecision?: (decision: {
+      readonly host: string;
+      readonly port: number;
+      readonly allowed: boolean;
+    }) => void;
+    /** Runs Chrome at the machine's lowest priority, carrying this argument so its processes can be found. */
+    readonly journey?: { readonly marker: string };
   }) {
     if (this.closing) throw new Error("The preview browser is closed.");
     const initial = await options.policy();
@@ -325,8 +338,10 @@ export class ServerBrowserContexts {
             "--proxy-bypass-list=<-loopback>",
             "--disable-quic",
             "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+            ...(options.journey === undefined ? [] : [options.journey.marker]),
           ],
         }),
+        { lowestPriority: options.journey !== undefined },
       );
       const context = await managedStart(
         browser.newContext({

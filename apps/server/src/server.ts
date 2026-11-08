@@ -126,6 +126,7 @@ import * as DeviceService from "./device/DeviceService.ts";
 import * as DeviceHubProxy from "./device/DeviceHubProxy.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
+import * as ChampionJourneys from "./champions/ChampionJourneys.ts";
 import * as ServerBrowser from "./preview/ServerBrowser.ts";
 import * as PreviewAgentActivity from "./preview/PreviewAgentActivity.ts";
 import * as DesktopBrowserChannel from "./preview/DesktopBrowserChannel.ts";
@@ -976,6 +977,7 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(
     ServerBrowser.layer.pipe(
       Layer.provide(Layer.merge(DesktopBrowserChannel.layer, PreviewAgentActivity.layer)),
+      Layer.provide(ChampionJourneys.layerBrowserPolicy),
     ),
   ),
   Layer.provide(PreviewBrowser.layer),
@@ -994,7 +996,9 @@ const layerMakeRoutes = Layer.mergeAll(
   ),
   Layer.provide(CloudSpeech.layer.pipe(Layer.provide(SecretResolver.layer))),
   Layer.provide(layerServerSettings),
-  Layer.provide(PreviewAutomationBroker.layer),
+  Layer.provide(
+    PreviewAutomationBroker.layer.pipe(Layer.provide(ChampionJourneys.layerBrowserPolicy)),
+  ),
   Layer.provide(ServerSelfUpdate.layer.pipe(Layer.provide(layerDesktopAppUpdate))),
   Layer.provide(layerCommandReadiness),
   Layer.provide(ServerHttp.layerBrowserApiCors),

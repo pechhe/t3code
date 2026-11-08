@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - reads pool bodies through git at the retained run's commit
+import { amendedManifest } from "../retainedRunIdentity.ts";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -292,8 +293,9 @@ it("keeps retained results tied to the code, labels and corpus that produced the
     expect(retained.corpusDigest).toBe(corpusDigest(cases));
     expect(retained.corpusDigestAll).toBe(corpusDigest(ALL_CASES));
     const now = runDigests();
-    const drifted = Object.keys({ ...retained.run.files, ...now }).filter(
-      (f) => (retained.run.files as Record<string, string>)[f] !== now[f as keyof typeof now],
+    const recorded = amendedManifest(retained.run.files);
+    const drifted = Object.keys({ ...recorded, ...now }).filter(
+      (f) => recorded[f] !== now[f as keyof typeof now],
     );
     expect(drifted.sort()).toEqual(KNOWN_FOUNDATION_DRIFT);
     expect(retained.scorer.files).toEqual(scorerDigests());

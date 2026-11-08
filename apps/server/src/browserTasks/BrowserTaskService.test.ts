@@ -1,3 +1,4 @@
+import { PREVIEW_TASK_LIMITS } from "@t3tools/contracts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -818,7 +819,8 @@ describe("BrowserTaskService", () => {
             authorize: allow,
           }),
         );
-      for (let index = 0; index < 64; index += 1) yield* run(`request-${index}`);
+      for (let index = 0; index < PREVIEW_TASK_LIMITS.sessionRequests; index += 1)
+        yield* run(`request-${index}`);
       const full = yield* task.service
         .run({ scope, request: { ...FORM_REQUEST, requestId: "one-more" }, authorize: allow })
         .pipe(Effect.flip);

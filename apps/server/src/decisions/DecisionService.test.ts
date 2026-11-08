@@ -1,3 +1,4 @@
+import { DECISION_LIMITS } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
@@ -184,32 +185,40 @@ it.effect("cancellation interrupts transport without a fallback", () =>
     expect(calls).toHaveLength(1);
   }),
 );
-it.effect("bounds active work without queuing and frees permits after cancellation", () =>
+it.effect("a call over the limit waits a bounded time for room, then fails busy", () =>
   Effect.gen(function* () {
     const { service, calls, entered } = yield* setup({ never: true });
     const fibers = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < DECISION_LIMITS.concurrent; i++) {
       fibers.push(yield* service.decide(request()).pipe(Effect.forkChild));
       yield* Queue.take(entered);
     }
-    expect((yield* Effect.flip(service.decide(request()))).code).toBe("busy");
-    expect(calls).toHaveLength(4);
-    for (const fiber of fibers) yield* Fiber.interrupt(fiber);
-    const next = yield* service.decide(request()).pipe(Effect.forkChild);
+    const waiting = yield* service.decide(request()).pipe(Effect.flip, Effect.forkChild);
+    yield* TestClock.adjust(DECISION_LIMITS.admissionWaitMs);
+    expect((yield* Fiber.join(waiting)).code).toBe("busy");
+    expect(calls).toHaveLength(DECISION_LIMITS.concurrent);
+    // Room that opens while a call waits admits it, rather than stopping its journey.
+    const admitted = yield* service.decide(request()).pipe(Effect.forkChild);
+    yield* TestClock.adjust(50);
+    yield* Fiber.interrupt(fibers[0]!);
+    yield* TestClock.adjust(50);
     yield* Queue.take(entered);
-    expect(calls).toHaveLength(5);
-    yield* Fiber.interrupt(next);
+    expect(calls).toHaveLength(DECISION_LIMITS.concurrent + 1);
+    yield* Fiber.interrupt(admitted);
+    for (const fiber of fibers) yield* Fiber.interrupt(fiber);
   }),
 );
 it.effect("bounds the environment admission rate and expires its window", () =>
   Effect.gen(function* () {
     const { service, calls } = yield* setup();
-    for (let i = 0; i < 60; i++) yield* service.decide(request());
-    expect((yield* Effect.flip(service.decide(request("luna")))).code).toBe("rate-limited");
-    expect(calls).toHaveLength(60);
+    for (let i = 0; i < DECISION_LIMITS.perMinute; i++) yield* service.decide(request());
+    const limited = yield* service.decide(request("luna")).pipe(Effect.flip, Effect.forkChild);
+    yield* TestClock.adjust(DECISION_LIMITS.admissionWaitMs);
+    expect((yield* Fiber.join(limited)).code).toBe("rate-limited");
+    expect(calls).toHaveLength(DECISION_LIMITS.perMinute);
     yield* TestClock.adjust("1 minute");
     yield* service.decide(request("luna"));
-    expect(calls).toHaveLength(61);
+    expect(calls).toHaveLength(DECISION_LIMITS.perMinute + 1);
   }),
 );
 

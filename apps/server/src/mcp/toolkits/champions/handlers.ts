@@ -298,6 +298,39 @@ export const handlers = {
       return yield* service.report(scope.thread, input);
     }).pipe(Effect.mapError(failure)),
   ),
+  t3_champions_journeys_start: McpToolAccess.actsAsCaller(() =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* Champions.ChampionService;
+      return yield* service.journeysStart(scope.thread);
+    }).pipe(Effect.mapError(failure)),
+  ),
+  t3_champions_journey_candidate: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* Champions.ChampionService;
+      return yield* service.journeyCandidate(scope.thread, input);
+    }).pipe(Effect.mapError(failure)),
+  ),
+  t3_champions_candidate_replay: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* Champions.ChampionService;
+      return yield* service.candidateReplay(scope.thread, input);
+    }).pipe(Effect.mapError(failure)),
+  ),
+  t3_champions_candidate_settle: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* Champions.ChampionService;
+      return yield* service.candidateSettle(scope.thread, input);
+    }).pipe(Effect.mapError(failure)),
+  ),
+  t3_champions_journey_record: McpToolAccess.reads((input) =>
+    Effect.flatMap(Champions.ChampionService, (service) => service.journeyRecord(input)).pipe(
+      Effect.mapError(failure),
+    ),
+  ),
   t3_champions_update_finding: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;

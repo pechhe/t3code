@@ -8,6 +8,7 @@ import {
 import * as Clock from "effect/Clock";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -66,6 +67,8 @@ const validate = (raw: unknown) =>
     },
     catch: () => new DecisionError({ code: "invalid-input" }),
   });
+
+const ADMISSION_POLL_MS = 25;
 
 const make = Effect.gen(function* () {
   const digestService = yield* Digest.Digest;
@@ -145,19 +148,27 @@ const make = Effect.gen(function* () {
       )
       .pipe(Effect.mapError(() => new DecisionError({ code: "unavailable" })));
     const digest = Buffer.from(digestBytes).toString("hex");
-    // Admission and release are synchronous; no semaphore waiters or unbounded queue.
-    const admission = Effect.sync(() => {
-      admitted = admitted.filter((t) => started - t < 60_000);
-      if (active >= DECISION_LIMITS.concurrent) return "busy" as const;
-      if (admitted.length >= DECISION_LIMITS.perMinute) return "rate-limited" as const;
-      active++;
-      admitted.push(started);
-      return undefined;
-    }).pipe(
-      Effect.flatMap((code) =>
-        code === undefined ? Effect.void : Effect.fail(new DecisionError({ code })),
-      ),
-    );
+    // Each try is synchronous. A call over a limit waits a bounded time for room, so nothing queues
+    // without end, and a burst of journeys slows down rather than stopping.
+    const tryAdmission = (at: number) =>
+      Effect.sync(() => {
+        admitted = admitted.filter((t) => at - t < 60_000);
+        if (active >= DECISION_LIMITS.concurrent) return "busy" as const;
+        if (admitted.length >= DECISION_LIMITS.perMinute) return "rate-limited" as const;
+        active++;
+        admitted.push(at);
+        return undefined;
+      });
+    const admission = Effect.gen(function* () {
+      const waitUntil = started + DECISION_LIMITS.admissionWaitMs;
+      while (true) {
+        const at = yield* Clock.currentTimeMillis;
+        const code = yield* tryAdmission(at);
+        if (code === undefined) return;
+        if (at >= waitUntil) return yield* new DecisionError({ code });
+        yield* Effect.sleep(Duration.millis(Math.min(ADMISSION_POLL_MS, waitUntil - at)));
+      }
+    });
     const signal = options?.signal;
     if (signal?.aborted) return yield* new DecisionError({ code: "cancelled" });
     const operation =

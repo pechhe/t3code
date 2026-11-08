@@ -9,6 +9,7 @@ import {
   type PreviewTaskResult,
   type PreviewTaskTarget,
 } from "@t3tools/contracts";
+import type { ChampionJourneyStep } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Digest from "effect/crypto/Digest";
@@ -18,6 +19,7 @@ import * as Effect from "effect/Effect";
 import * as FiberSet from "effect/FiberSet";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import * as ServerConfig from "../config.ts";
@@ -26,6 +28,7 @@ import type { McpThreadInvocationScope } from "../mcp/McpInvocationContext.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as Broker from "../mcp/PreviewAutomationBroker.ts";
 import { saveBrowserScreenshot } from "../preview/browserArtifacts.ts";
+import * as JourneyBrowserPolicy from "../preview/JourneyBrowserPolicy.ts";
 import * as ServerBrowser from "../preview/ServerBrowser.ts";
 import {
   type BrowserTaskPort,
@@ -260,6 +263,7 @@ export interface TaskBackend {
     options: { readonly leased: boolean; readonly inspectFirst: boolean },
   ) => Effect.Effect<"released" | "tab-lost">;
   readonly credentialState: McpSessionRegistry.McpSessionRegistryShape["credentialState"];
+  readonly journeys?: JourneyBrowserPolicy.JourneyBrowserPolicy["Service"];
   /** Read afresh for each admitted run; refused before any browser effect. */
   readonly readLogin: (
     key: string,
@@ -374,7 +378,20 @@ export const makeService = Effect.fn("BrowserTaskService.make")(function* (backe
       )
       .pipe(Effect.orDie);
     const digest = Buffer.from(digestBytes).toString("hex");
-    const key = Broker.hostAssignmentKey(scope);
+    const journeyPolicy = backend.journeys;
+    const grant =
+      journeyPolicy === undefined
+        ? undefined
+        : yield* journeyPolicy.forThread(scope.thread.threadId);
+    // A check's journal ends with the check, so its allowance is never spent by an earlier one.
+    const key =
+      grant === undefined
+        ? Broker.hostAssignmentKey(scope)
+        : `${Broker.hostAssignmentKey(scope)}\0${grant.checkId}`;
+    const requestLimit =
+      grant === undefined
+        ? PREVIEW_TASK_LIMITS.sessionRequests
+        : PREVIEW_TASK_LIMITS.journeyCheckRequests;
 
     const existing = journals.get(key)?.runs.get(request.requestId);
     if (existing !== undefined) {
@@ -387,6 +404,14 @@ export const makeService = Effect.fn("BrowserTaskService.make")(function* (backe
 
     yield* backend.assertOwnedTab(scope, request.tabId);
     yield* sweepRevoked;
+    let limits = resolveLimits(request.limits);
+    if (grant !== undefined && journeyPolicy !== undefined) {
+      const admission = yield* journeyPolicy.admitTask({ grant, tabId: request.tabId });
+      if (admission._tag === "refused") return yield* denied(admission.message);
+      limits = { ...limits, maxDecisions: Math.min(limits.maxDecisions, admission.decisions) };
+    }
+    const taskStartedAt = DateTime.formatIso(yield* DateTime.now);
+    const journeySteps: ChampionJourneyStep[] = [];
     const loginKeys = new Set(
       (request.bindings ?? []).flatMap((binding) =>
         binding.control === "login" ? [binding.login] : [],
@@ -418,8 +443,7 @@ export const makeService = Effect.fn("BrowserTaskService.make")(function* (backe
           };
           const raced = journal.runs.get(request.requestId);
           if (raced !== undefined) return { _tag: "raced", entry: raced } as const;
-          if (journal.runs.size >= PREVIEW_TASK_LIMITS.sessionRequests)
-            return { _tag: "full" } as const;
+          if (journal.runs.size >= requestLimit) return { _tag: "full" } as const;
           const entry: RunEntry = { digest, record: emptyRecord(request), cancelled, reported };
           journal.runs.set(request.requestId, entry);
           journals.set(key, journal);
@@ -427,7 +451,7 @@ export const makeService = Effect.fn("BrowserTaskService.make")(function* (backe
         });
         if (admitted._tag === "full")
           return yield* invalid(
-            `This session has used its ${PREVIEW_TASK_LIMITS.sessionRequests} task requests; replay protection is never evicted. ${lane(scope) === "bounded" ? "No further bounded tasks run in this session." : "Use normal preview tools."}`,
+            `This session has used its ${requestLimit} task requests; replay protection is never evicted. ${lane(scope) === "bounded" ? "No further bounded tasks run in this session." : "Use normal preview tools."}`,
           );
         if (admitted._tag === "raced") {
           if (admitted.entry.digest !== digest)
@@ -463,8 +487,9 @@ export const makeService = Effect.fn("BrowserTaskService.make")(function* (backe
             request,
             record: entry.record,
             port,
-            limits: resolveLimits(request.limits),
+            limits,
             cancelled,
+            ...(grant === undefined ? {} : { onStep: (step) => journeySteps.push(step) }),
           });
           // The lease outlives the report when in-flight work has not quiesced.
           const released = yield* Deferred.make<void>();
@@ -491,6 +516,16 @@ export const makeService = Effect.fn("BrowserTaskService.make")(function* (backe
           yield* Deferred.await(released).pipe(
             Effect.timeoutOrElse({ duration: RELEASE_GRACE_MS, orElse: () => Effect.void }),
           );
+          if (grant !== undefined && journeyPolicy !== undefined)
+            yield* journeyPolicy.recordTask({
+              grant,
+              tabId: request.tabId,
+              goal: request.goal ?? null,
+              startedAt: taskStartedAt,
+              endedAt: DateTime.formatIso(yield* DateTime.now),
+              result: toResult(entry.record, false),
+              steps: journeySteps,
+            });
           yield* Deferred.succeed(reported, undefined);
         }).pipe(
           Effect.catchCause((cause) =>
@@ -566,8 +601,10 @@ export const layer = Layer.effect(
       ServerConfig.ServerConfig | FileSystem.FileSystem | Path.Path | SecureRandom.SecureRandom
     >();
 
+    const journeys = yield* Effect.serviceOption(JourneyBrowserPolicy.JourneyBrowserPolicy);
     const backend: TaskBackend = {
       credentialState: registry.credentialState,
+      ...(Option.isSome(journeys) ? { journeys: journeys.value } : {}),
       readLogin: logins.read,
       holdLogin: (scope, tabId, login) =>
         browser

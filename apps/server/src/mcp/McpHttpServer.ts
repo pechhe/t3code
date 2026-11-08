@@ -85,6 +85,7 @@ import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import { saveBrowserScreenshot } from "../preview/browserArtifacts.ts";
 import * as BrowserTaskService from "../browserTasks/BrowserTaskService.ts";
+import * as ChampionJourneys from "../champions/ChampionJourneys.ts";
 import * as ThreadDirectory from "../peers/ThreadDirectory.ts";
 import * as OrchestratorHandlers from "./toolkits/orchestrator/handlers.ts";
 import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
@@ -1539,7 +1540,7 @@ export const layer = Layer.mergeAll(
   layerManagedBrowserToolkit,
   ...sessionEndpointLayers,
 ).pipe(
-  Layer.provide(BrowserTaskService.layer),
+  Layer.provide(BrowserTaskService.layer.pipe(Layer.provide(ChampionJourneys.layerBrowserPolicy))),
   Layer.provideMerge(BrowserLogins.layer),
   Layer.provide(DecisionService.layer.pipe(Layer.provide(DecisionKeys.layerSecretStore))),
   Layer.provide(BitwardenSecrets.layer.pipe(Layer.provide(ProcessRunner.layer))),

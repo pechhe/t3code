@@ -4,6 +4,8 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
+import amendments from "./retainedRunAmendments.json" with { type: "json" };
+
 export const LOCK_FILE = "pnpm-lock.yaml";
 
 /** Packages whose locked version changes what a decision call sends or how its answer is read. */
@@ -13,6 +15,56 @@ export const CALL_PATH_PACKAGES = [
   "@effect/platform-node-shared",
   "undici",
 ] as const;
+
+/**
+ * A change a person has certified leaves what a decision call sends and how its answer is read
+ * as the run measured it, so re-running every evaluation would measure nothing new. One entry
+ * covers exactly one digest or version step; a later change needs its own entry or a new run.
+ */
+export interface RetainedRunAmendments {
+  readonly files: ReadonlyArray<{
+    readonly path: string;
+    readonly from: string;
+    readonly to: string;
+    readonly why: string;
+  }>;
+  readonly packages: ReadonlyArray<{
+    readonly name: string;
+    readonly from: string;
+    readonly to: string;
+    readonly why: string;
+  }>;
+}
+
+export const RETAINED_RUN_AMENDMENTS: RetainedRunAmendments = amendments;
+
+/** Where a recorded value ends after following every certified step from it. */
+const certified = (
+  steps: ReadonlyArray<{ readonly from: string; readonly to: string }>,
+  start: string,
+) => {
+  let at = start;
+  for (let hops = 0; hops <= steps.length; hops++) {
+    const step = steps.find((candidate) => candidate.from === at);
+    if (step === undefined) return at;
+    at = step.to;
+  }
+  return at;
+};
+
+/** A run's manifest as it stands after every certified step. */
+export const amendedManifest = (
+  files: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> =>
+  Object.fromEntries(
+    Object.entries(files).map(([path, digest]) => [
+      path,
+      certified(
+        RETAINED_RUN_AMENDMENTS.files.filter((step) => step.path === path),
+        digest,
+      ),
+    ]),
+  );
 
 /** A retained run's manifest and the commit it measured. */
 export interface RetainedRun {
@@ -82,6 +134,7 @@ export function retainedRunProblems(
   run: RetainedRun,
   current: Readonly<Record<string, string>>,
   read: ReadFileAt,
+  certifiedSteps: RetainedRunAmendments = RETAINED_RUN_AMENDMENTS,
 ): ReadonlyArray<string> {
   const problems: string[] = [];
   const recordedLock = run.files[LOCK_FILE];
@@ -109,7 +162,13 @@ export function retainedRunProblems(
     if (path === LOCK_FILE) continue;
     if (!(path in current)) {
       problems.push(`${path} is missing from the current manifest`);
-    } else if (current[path] !== run.files[path]) {
+    } else if (
+      current[path] !==
+      certified(
+        certifiedSteps.files.filter((step) => step.path === path),
+        run.files[path]!,
+      )
+    ) {
       problems.push(`${path} changed since the run`);
     }
   }
@@ -132,7 +191,13 @@ export function retainedRunProblems(
       problems.push(`${name} is not in ${LOCK_FILE} at ${run.head}`);
     } else if (after.length === 0) {
       problems.push(`${name} is not in the current ${LOCK_FILE}`);
-    } else if (before.join(",") !== after.join(",")) {
+    } else if (
+      after.join(",") !==
+      certified(
+        certifiedSteps.packages.filter((step) => step.name === name),
+        before.join(","),
+      )
+    ) {
       problems.push(
         `${name} moved from ${before.join(", ")} at ${run.head} to ${after.join(", ")} now`,
       );

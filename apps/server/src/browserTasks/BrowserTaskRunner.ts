@@ -25,6 +25,7 @@ import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import type { ChampionJourneyStep } from "@t3tools/contracts";
 import { EngineRefusal } from "../browserDecisionEval/decisionEngine.ts";
 import { SECRET_VISIBLE_TAG } from "../preview/ServerBrowserPage.ts";
 import { originOf } from "../preview/taskFence.ts";
@@ -382,8 +383,10 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
   readonly port: BrowserTaskPort;
   readonly limits: RunLimits;
   readonly cancelled: Deferred.Deferred<void>;
+  /** Hears every step that reached the page, with what a later replay needs. */
+  readonly onStep?: ((step: ChampionJourneyStep) => void) | undefined;
 }) {
-  const { request, record, port, limits, cancelled } = input;
+  const { request, record, port, limits, cancelled, onStep } = input;
   const timings = record.timings as Mutable<RunRecord["timings"]>;
   const usage = record.usage as Mutable<RunRecord["usage"]>;
   const started = yield* Clock.currentTimeMillis;
@@ -552,6 +555,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
       readonly matchedName?: string | undefined;
       readonly chosen?: string | undefined;
       readonly option?: string | undefined;
+      readonly target?: { readonly role: string; readonly name: string } | undefined;
     },
     operation: "click" | "type" | "select" | "scroll" | "navigate" | "press" | "login",
     payload: Record<string, unknown>,
@@ -572,10 +576,29 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     if (!(yield* gate)) return false;
     actionsUsed += 1;
     action.state = "dispatched";
+    const actedAt = yield* Clock.currentTimeMillis;
+    const actedOn = record.evidence.url;
     const outcome = yield* timed(
       "browserMs",
       attempt((timeoutMs) => port.act(operation, { ...payload, timeoutMs }, timeoutMs)),
     );
+    if (onStep !== undefined) {
+      const finishedAt = yield* Clock.currentTimeMillis;
+      onStep({
+        id: entry.id,
+        kind: entry.kind,
+        operation,
+        target: entry.target ?? null,
+        description: entry.chosen ?? entry.matchedName ?? null,
+        option: entry.option ?? null,
+        // A saved login's value never reaches a dispatch payload as `value` the record could keep.
+        value: operation === "type" && typeof payload.value === "string" ? payload.value : null,
+        url: actedOn,
+        state: outcome._tag === "ok" ? "completed" : "uncertain",
+        at: DateTime.formatIso(DateTime.makeUnsafe(actedAt)) as ChampionJourneyStep["at"],
+        ms: finishedAt - actedAt,
+      });
+    }
     if (outcome._tag === "ok") {
       action.state = "completed";
       if (entry.kind !== "scroll") previousStep = entry.id;
@@ -1101,10 +1124,21 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     candidate: Candidate,
     observed: PageModel,
   ) {
-    const entry = { id: candidate.label, kind: "page" as const, chosen: candidate.description };
+    const entry = {
+      id: candidate.label,
+      kind: "page" as const,
+      chosen: candidate.description,
+      target: { role: candidate.node.role, name: candidate.node.name },
+    };
     const skipped = (refusal: string) =>
       Effect.sync(() => {
-        record.actions.push({ ...entry, state: "planned", refusal });
+        record.actions.push({
+          id: entry.id,
+          kind: entry.kind,
+          chosen: entry.chosen,
+          state: "planned",
+          refusal,
+        });
         return true;
       });
     const fresh = yield* observe;
@@ -1117,7 +1151,13 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         fence === "avoided-target"
           ? "it now matches avoid"
           : "it now matches submit, which runs only as submit";
-      record.actions.push({ ...entry, state: "planned", refusal: `Refused: ${why}.` });
+      record.actions.push({
+        id: entry.id,
+        kind: entry.kind,
+        chosen: entry.chosen,
+        state: "planned",
+        refusal: `Refused: ${why}.`,
+      });
       yield* stop(
         "blocked",
         fence,

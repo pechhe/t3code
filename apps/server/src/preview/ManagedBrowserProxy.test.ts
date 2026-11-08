@@ -363,3 +363,29 @@ it("ends a waiting request's upstream connection when the page abandons it or it
     await close(destination);
   }
 });
+
+it("in allowlist-only mode blocks a public destination and records every decision", async () => {
+  const decisions: Array<{ host: string; port: number; allowed: boolean }> = [];
+  const upstream = NodeHttp.createServer((_request, response) => response.end("ok"));
+  const allowedPort = await listen(upstream);
+  const proxy = await ManagedBrowserProxy.start({
+    serverPort: 9999,
+    policy: async () => [`127.0.0.1:${allowedPort}`],
+    resolve: async (host) => [
+      { address: host === "127.0.0.1" ? host : "93.184.216.34", family: 4 },
+    ],
+    allowlistOnly: true,
+    onDecision: (decision) => decisions.push(decision),
+  });
+  try {
+    expect((await proxyRequest(proxy, `http://127.0.0.1:${allowedPort}/`)).status).toBe(200);
+    expect((await proxyRequest(proxy, "http://public.test/")).status).toBe(403);
+    expect(decisions).toEqual([
+      { host: "127.0.0.1", port: allowedPort, allowed: true },
+      { host: "public.test", port: 80, allowed: false },
+    ]);
+  } finally {
+    await proxy.close();
+    await close(upstream);
+  }
+});

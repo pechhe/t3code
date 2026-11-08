@@ -93,6 +93,7 @@ describe("V2 preview upgrade", () => {
         [111, "ScheduledTaskThreadMode"],
         [112, "ChampionLearningAnnotations"],
         [113, "ArcRunIndex"],
+        [114, "ChampionJourneys"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -229,6 +230,7 @@ describe("V2 preview upgrade", () => {
         [111, "ScheduledTaskThreadMode"],
         [112, "ChampionLearningAnnotations"],
         [113, "ArcRunIndex"],
+        [114, "ChampionJourneys"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

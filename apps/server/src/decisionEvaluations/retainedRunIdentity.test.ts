@@ -128,6 +128,25 @@ describe("a retained run's identity", () => {
     expect(problemsOf({ run, current })).toEqual([`${CODE} changed since the run`]);
   });
 
+  it("lets a certified step stand, and only that exact step", () => {
+    const { run, current } = clean();
+    const changed = sha("export const DecisionService = 2;\n");
+    current[CODE] = changed;
+    const amendments = (to: string) => ({
+      files: [{ path: CODE, from: run.files[CODE]!, to, why: "Admission only." }],
+      packages: [],
+    });
+    const check = (to: string) =>
+      retainedRunProblems(
+        run,
+        current,
+        reader({ [LOCK_FILE]: runLock }, { [LOCK_FILE]: currentLock }),
+        amendments(to),
+      );
+    expect(check(changed)).toEqual([]);
+    expect(check(sha("something else"))).toEqual([`${CODE} changed since the run`]);
+  });
+
   it("catches a manifest key that is missing and one that is extra", () => {
     const { run, current } = clean();
     delete (current as Record<string, string>)[CORPUS];

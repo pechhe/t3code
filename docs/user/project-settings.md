@@ -124,6 +124,14 @@ read-only research options and bring you a recommendation with its trade-offs.
 Answer on the finding to authorize the stated scope. If the recommendation changes
 while you type, your draft is kept for you to reconsider.
 
+A champion can also attack a UI through many browser journeys at once, against a
+disposable copy of the app that holds only made-up data. A failing journey tells
+nobody. It becomes a finding only when a stronger agent reproduces it alone on a
+fresh copy, and it closes when that replay passes on a later build. These checks
+never repair anything, wait while the machine is busy and say so when they ran
+reduced or could not finish. Set one up through its project's agent, which supplies
+the commands that start and stop the copy.
+
 Agents you work with can do anything on the Champion page for you, such as pausing a
 champion, running **Check now** or starting **Fix with a lead**. Accepting metrics and
 answering a decision stay yours: an agent either leaves the request waiting for you on

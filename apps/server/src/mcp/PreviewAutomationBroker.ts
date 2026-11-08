@@ -1,4 +1,5 @@
 import * as PhiBrowser from "../preview/PhiBrowser.ts";
+import * as JourneyBrowserPolicy from "../preview/JourneyBrowserPolicy.ts";
 import * as PreviewManager from "../preview/Manager.ts";
 import * as Ref from "effect/Ref";
 import {
@@ -386,6 +387,7 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
   const random = yield* SecureRandom.SecureRandom;
   const phiBrowser = yield* Effect.serviceOption(PhiBrowser.PhiBrowser);
   const previewManager = yield* Effect.serviceOption(PreviewManager.PreviewManager);
+  const journeyPolicy = yield* Effect.serviceOption(JourneyBrowserPolicy.JourneyBrowserPolicy);
   const currentBackends = yield* Ref.make<ReadonlyMap<string, BrowserBackend>>(new Map());
   const state = yield* SynchronizedRef.make<BrokerState>({
     clients: new Map(),
@@ -652,6 +654,18 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
     const { connection, requestId, requestContext, requestSequence } = route;
     const { timeoutMs } = requestContext;
     input.onTargetTab?.(requestContext.tabId);
+    const journeyGrant =
+      input.scope.managedBrowser === true && Option.isSome(journeyPolicy)
+        ? yield* journeyPolicy.value.forThread(input.scope.thread.threadId)
+        : undefined;
+    const journey =
+      journeyGrant === undefined
+        ? undefined
+        : {
+            checkId: journeyGrant.checkId,
+            allow: journeyGrant.allow,
+            tabLimit: journeyGrant.tabLimit,
+          };
     const removePending = SynchronizedRef.update(state, (next) => {
       if (!next.pending.has(requestId)) return next;
       const pending = new Map(next.pending);
@@ -677,7 +691,12 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
             tabIdExplicit: input.tabId !== undefined,
             agentSessionId: hostAssignmentKey(input.scope),
             ...(input.scope.managedBrowser === true && input.scope.managedProjectId !== undefined
-              ? { managedBrowser: { projectId: input.scope.managedProjectId } }
+              ? {
+                  managedBrowser: {
+                    projectId: input.scope.managedProjectId,
+                    ...(journey === undefined ? {} : { journey }),
+                  },
+                }
               : {}),
             ...(input.taskLease === undefined ? {} : { taskLease: input.taskLease }),
             operation: input.operation,
@@ -768,6 +787,16 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
         reason: "conflicting-binding",
       });
     }
+    // A journey check's owner browses only through bounded tasks, whose proxy keeps the target contained.
+    if (
+      input.scope.managedBrowser !== true &&
+      Option.isSome(journeyPolicy) &&
+      (yield* journeyPolicy.value.forThread(input.scope.thread.threadId)) !== undefined
+    )
+      return yield* new PreviewAutomationBackendError({
+        backend: boundBackend ?? (explicitBackend === "phi" ? "phi" : "integrated"),
+        reason: "unsupported",
+      });
     const previous = (yield* Ref.get(currentBackends)).get(hostAssignmentKey(input.scope));
     const backend =
       boundBackend ??

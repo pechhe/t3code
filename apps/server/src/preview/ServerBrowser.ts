@@ -89,6 +89,7 @@ import * as PreviewAgentActivity from "./PreviewAgentActivity.ts";
 import * as PreviewManager from "./Manager.ts";
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
 import * as PreviewBrowser from "./PreviewBrowser.ts";
+import * as JourneyBrowserPolicy from "./JourneyBrowserPolicy.ts";
 import * as PreviewBrowserHost from "./PreviewBrowserHost.ts";
 import { MANAGED_BROWSER_DENIAL_HEADER } from "./ManagedBrowserProxy.ts";
 import { presentAsChrome, ServerBrowserContexts } from "./ServerBrowserContexts.ts";
@@ -468,8 +469,10 @@ const READ_OPERATIONS: ReadonlySet<PreviewAutomationRequest["operation"]> = new 
   "waitFor",
 ]);
 
-const AGENT_TAB_LIMIT = 8;
-const SERVER_TAB_LIMIT = 32;
+export const AGENT_TAB_LIMIT = 16;
+export const SERVER_TAB_LIMIT = 128;
+/** Slots a Champion check's journeys may never take, so other agents and people can always open a tab. */
+const SERVER_TABS_KEPT_FROM_JOURNEYS = 32;
 const AGENT_TAB_IDLE_MS = 30 * 60 * 1000;
 const IDLE_SWEEP_INTERVAL = "1 minute";
 
@@ -595,6 +598,7 @@ const make = Effect.gen(function* () {
   const agentScope = yield* AgentScope;
   const launchersDir = NodePath.join(config.stateDir, "server-browser", "launchers");
 
+  const journeyNetwork = yield* Effect.serviceOption(JourneyBrowserPolicy.JourneyBrowserPolicy);
   const httpServer = yield* Effect.serviceOption(HttpServer.HttpServer);
   const serverPort =
     Option.isSome(httpServer) && NetAddress.isInetAddress(httpServer.value.address)
@@ -608,6 +612,11 @@ const make = Effect.gen(function* () {
     ? yield* settingsService.value.getSettings.pipe(Effect.orElseSucceed(() => undefined))
     : undefined;
   const managedSessions = new Map<string, ProjectId>();
+  /** A Champion check's journey sessions, by agent session; the broker sets them from the server's own record. */
+  const journeySessions = new Map<
+    string,
+    { readonly checkId: string; readonly allow: ReadonlyArray<string>; readonly tabLimit: number }
+  >();
   const managedPolicy = (projectId: ProjectId) => {
     if (managedSettings === undefined) return null;
     const settings = resolveProjectSettings(managedSettings, projectId).settings;
@@ -645,11 +654,20 @@ const make = Effect.gen(function* () {
     idleBrowserMs: 5 * 60_000,
     executable: () => runPromise(previewBrowser.executable),
     // An agent scope keeps Chrome out of the server's memory protection and OOM score.
-    launcher: async (executable) => {
-      const launch = await runPromise(
+    launcher: async (executable, options) => {
+      const wrapped = await runPromise(
         agentScope.wrap({ command: executable, args: [], name: "preview-browser" }),
       );
-      if (launch.command === executable) return undefined;
+      if (wrapped.command === executable && options?.lowestPriority !== true) return undefined;
+      // The kernel, not a model's judgement, gives everything else on the machine first call.
+      const launch =
+        options?.lowestPriority === true && process.platform === "linux"
+          ? {
+              ...wrapped,
+              command: "chrt",
+              args: ["--idle", "0", "nice", "-n", "19", wrapped.command, ...wrapped.args],
+            }
+          : wrapped;
       await NodeFSP.mkdir(launchersDir, { recursive: true });
       const launcher = NodePath.join(launchersDir, NodeCrypto.randomUUID());
       await NodeFSP.writeFile(launcher, agentScopeLauncherScript(launch), { mode: 0o700 });
@@ -967,6 +985,28 @@ const make = Effect.gen(function* () {
     }
   };
 
+  const managedContextOptions = (snapshot: PreviewSessionSnapshot, projectId: ProjectId) => {
+    const journey =
+      snapshot.automationOwner === undefined
+        ? undefined
+        : journeySessions.get(snapshot.automationOwner);
+    if (journey === undefined)
+      return { serverPort, policy: async () => managedPolicy(projectId) };
+    return {
+      serverPort,
+      policy: async () => (managedPolicy(projectId) === null ? null : journey.allow),
+      allowlistOnly: true,
+      journey: { marker: JourneyBrowserPolicy.journeyBrowserMarker(journey.checkId) },
+      onDecision: (decision: {
+        readonly host: string;
+        readonly port: number;
+        readonly allowed: boolean;
+      }) => {
+        if (Option.isSome(journeyNetwork)) journeyNetwork.value.record(journey.checkId, decision);
+      },
+    };
+  };
+
   const setUpTab = async (
     snapshot: PreviewSessionSnapshot,
     opened: Array<() => Promise<void>>,
@@ -1004,10 +1044,7 @@ const make = Effect.gen(function* () {
             snapshot.profileId ?? "default",
             isolatedContext ? key : undefined,
           )
-        : await contexts.managedContext({
-            serverPort,
-            policy: async () => managedPolicy(managedProject),
-          }));
+        : await contexts.managedContext(managedContextOptions(snapshot, managedProject)));
     // Ownership starts before any setup await, so a sibling tab closing cannot
     // end this tab's context while it is still being prepared.
     if (desktop === null) {
@@ -1623,10 +1660,16 @@ const make = Effect.gen(function* () {
   const openingReservations = () =>
     [...pendingTabs.entries()].filter(([key]) => !tabs.has(key)).map(([, pending]) => pending);
   const serverAtTabLimit = () => tabs.size + openingReservations().length >= SERVER_TAB_LIMIT;
-  const agentAtTabLimit = (agentSessionId: string) =>
+  const agentTabCount = (agentSessionId: string) =>
     [...tabs.values()].filter((tab) => tab.control.agentId === agentSessionId).length +
-      openingReservations().filter((pending) => pending.agentId === agentSessionId).length >=
-    AGENT_TAB_LIMIT;
+    openingReservations().filter((pending) => pending.agentId === agentSessionId).length;
+  const agentAtTabLimit = (agentSessionId: string) => {
+    const journey = journeySessions.get(agentSessionId);
+    return journey === undefined
+      ? agentTabCount(agentSessionId) >= AGENT_TAB_LIMIT
+      : agentTabCount(agentSessionId) >=
+          Math.min(journey.tabLimit, SERVER_TAB_LIMIT - SERVER_TABS_KEPT_FROM_JOURNEYS);
+  };
   const atTabLimit = (agentSessionId: string) =>
     serverAtTabLimit() || agentAtTabLimit(agentSessionId);
 
@@ -2227,6 +2270,9 @@ const make = Effect.gen(function* () {
       if (!request.agentSessionId)
         throw new BrowserControlInterrupted({ message: "The managed agent session is missing." });
       managedSessions.set(request.agentSessionId, request.managedBrowser.projectId);
+      if (request.managedBrowser.journey !== undefined)
+        journeySessions.set(request.agentSessionId, request.managedBrowser.journey);
+      else journeySessions.delete(request.agentSessionId);
       if (request.operation !== "open" && request.tabId !== undefined) await requireTab(request);
       if (request.operation === "status" && request.tabId === undefined) {
         const own = [...tabs.values()].find(

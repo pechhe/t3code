@@ -1,4 +1,5 @@
 import { DecisionError, type DecisionResult } from "@t3tools/contracts";
+import { amendedManifest } from "../retainedRunIdentity.ts";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -203,7 +204,7 @@ it("keeps retained results tied to the code and corpus that produced them and re
     [tuneResults, TUNE_CASES],
   ] as const) {
     expect(retained.corpusDigest).toBe(corpusDigest(cases));
-    expect(retained.run.files).toEqual(runDigests());
+    expect(amendedManifest(retained.run.files)).toEqual(runDigests());
     expect(retained.scorer.files).toEqual(scorerDigests());
     const again = evaluate(cases, retained.records as never, supportedLabel);
     expect(JSON.parse(JSON.stringify(again.systems))).toEqual(retained.systems);

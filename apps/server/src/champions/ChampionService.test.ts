@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off processEnvInEffect:off - a real `docker` shim on PATH stands in for the target
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as FileSystem from "effect/FileSystem";
@@ -21,7 +22,7 @@ import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as Scope from "effect/Scope";
 import { type CommandReceiptV2 } from "../orchestration-v2/CommandReceiptStore.ts";
-import { assert, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   AgentTaskBinding,
@@ -51,6 +52,7 @@ import {
   type OrchestrationV2Subagent,
   type OrchestrationV2ConversationMessage,
   type ChampionFinding,
+  type PreviewTaskResult,
   type ServerProvider,
   type Project,
   isToolListedForSession,
@@ -62,6 +64,13 @@ import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 import * as DateTime from "effect/DateTime";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as NodeFS from "node:fs";
+import * as NodeHttp from "node:http";
+import type * as NodeNet from "node:net";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+import * as ChampionJourneys from "./ChampionJourneys.ts";
+import * as JourneyBrowserPolicy from "../preview/JourneyBrowserPolicy.ts";
 import * as Champions from "./ChampionService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
@@ -347,6 +356,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
         readDetail: () => landingLookup.pipe(Effect.andThen(Effect.sync(() => landing))),
       }),
       NodeCrypto.layer,
+      NodeServices.layer,
       Layer.succeed(McpProviderSessions.McpProviderSessions, sessions),
     );
     return {
@@ -566,6 +576,22 @@ const fixture = Effect.fn("test.championFixture")(() =>
           finishedAt,
           checks: [],
         };
+      },
+      /** A delegated replay that has finished and left this as its last message. */
+      installReplay: (workId: string, attemptId: string, result: string, model: string) => {
+        const childThreadId = ThreadId.make(`replay:${attemptId}`);
+        children.set(childThreadId, {
+          id: childThreadId,
+          projectId,
+          modelSelection: { instanceId, model },
+          agentTask: { workId, attemptId, role: "browser" },
+        } as unknown as OrchestrationV2ThreadShell);
+        childTasks.push({
+          childThreadId,
+          origin: "app_owned",
+          status: "completed",
+          result,
+        } as OrchestrationV2Subagent);
       },
       installChild: (
         finding: ChampionFinding,
@@ -4109,3 +4135,583 @@ it.effect(
       }),
     ),
 );
+
+describe("a journey check", () => {
+  const journeysConfig = (
+    directory: string,
+    overrides: Partial<NonNullable<ChampionConfig["journeys"]>> = {},
+  ): ChampionConfig => ({
+    ...config,
+    charter: { ...config.charter, maxConcurrentRepairs: 0, maxRepairsPerDay: 0 },
+    journeys: {
+      provision: ["sh", NodePath.join(directory, "provision.sh"), "{shards}"],
+      teardown: ["sh", "-c", `echo '{"id":"{id}","status":"down"}'`],
+      capture: [
+        "sh",
+        "-c",
+        `echo '{"packets":10,"peers":2,"subnet":"172.20.0.0/16","outside":[]}'`,
+      ],
+      shards: 1,
+      journeysPerShard: 8,
+      decisionCap: 4,
+      loadLimit: 1_000_000,
+      ...overrides,
+    },
+  });
+  let shardPort = 0;
+  const manifest = (id: string, commit: string, overrides: Record<string, unknown> = {}) => ({
+    schema: 1,
+    id,
+    app: "weave",
+    commit,
+    build: "0123456789abcdef",
+    patched: false,
+    synthetic: true,
+    network: `ys-attack-${id}`,
+    capture: "/tmp/capture",
+    startedAt: "2026-11-08T00:00:00.000Z",
+    expiresAt: "2026-11-08T04:00:00.000Z",
+    startSeconds: 1,
+    shards: [
+      {
+        id: "s1",
+        origin: "http://localhost:1",
+        signInPath: "/dev/agent-login?as=admin&next=/",
+        database: "scratch_0123abcd",
+        container: "shard",
+      },
+    ],
+    ...overrides,
+  });
+  /** `docker` as a target's shard answers it, and a provision command that prints each manifest in turn. */
+  const withTarget = (
+    manifests: ReadonlyArray<unknown>,
+    body: (
+      directory: string,
+    ) => Effect.Effect<void, ChampionError, SqlClient.SqlClient | Scope.Scope>,
+    container: Record<string, unknown> = {},
+  ) =>
+    Effect.acquireUseRelease(
+      Effect.promise(async () => {
+        const shard = NodeHttp.createServer((_request, response) => response.end("ok"));
+        await new Promise<void>((resolve) => shard.listen(0, "127.0.0.1", resolve));
+        shardPort = (shard.address() as NodeNet.AddressInfo).port;
+        const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "journey-target-"));
+        const inspect = JSON.stringify([
+          {
+            Config: {
+              Env: ["NODE_ENV=production", "DATABASE_URL=postgres://r:p@db:5432/scratch_0123abcd"],
+            },
+            State: { Running: true },
+            NetworkSettings: { Networks: { "ys-attack": {} } },
+            ...container,
+          },
+        ]);
+        NodeFS.writeFileSync(
+          NodePath.join(directory, "docker"),
+          `#!/bin/sh\nif [ "$1" = network ]; then echo true; else cat <<'JSON'\n${inspect}\nJSON\nfi\n`,
+          { mode: 0o755 },
+        );
+        manifests.forEach((entry, index) =>
+          NodeFS.writeFileSync(
+            NodePath.join(directory, `m${index}`),
+            JSON.stringify(entry).replaceAll("localhost:1", `localhost:${shardPort}`),
+          ),
+        );
+        NodeFS.writeFileSync(
+          NodePath.join(directory, "provision.sh"),
+          `n=$(cat "${directory}/count" 2>/dev/null || echo 0); echo $((n+1)) > "${directory}/count"; cat "${directory}/m$n"\n`,
+        );
+        const path = process.env.PATH;
+        process.env.PATH = `${directory}:${path}`;
+        return { directory, path, shard };
+      }),
+      ({ directory }) => body(directory),
+      ({ directory, path, shard }) =>
+        Effect.sync(() => {
+          shard.closeAllConnections();
+          shard.close();
+          process.env.PATH = path;
+          NodeFS.rmSync(directory, { recursive: true, force: true });
+        }),
+    );
+  const quietSample = { ...sample, value: 1 };
+  const activate = Effect.fn("test.activateJourneys")(function* (
+    service: Champions.ChampionService["Service"],
+    draft: ChampionConfig,
+  ) {
+    yield* service.upsert(draft);
+    yield* service.propose({ id: config.id, metrics: [metric], reason: "Measure errors" });
+    yield* service.accept({ id: config.id });
+  });
+  const walk = Effect.fn("test.walkJourney")(function* (
+    policy: JourneyBrowserPolicy.JourneyBrowserPolicy["Service"],
+    threadId: ThreadId,
+    tabId: string,
+    url: string,
+  ) {
+    const grant = (yield* policy.forThread(threadId))!;
+    const admitted = yield* policy.admitTask({ grant, tabId });
+    assert.equal(admitted._tag, "admitted");
+    yield* policy.recordTask({
+      grant,
+      tabId,
+      goal: "Try to break it",
+      startedAt: "2026-11-08T00:00:00.000Z",
+      endedAt: "2026-11-08T00:00:01.000Z",
+      result: {
+        status: "passed",
+        decisions: 2,
+        usage: { usd: 0.01, unreportedCalls: 1 },
+        evidence: { url: `http://localhost:${shardPort}${url}` },
+      } as unknown as PreviewTaskResult,
+      steps: [
+        {
+          id: "P1",
+          kind: "page",
+          operation: "click",
+          target: { role: "button", name: "Save" },
+          description: 'button "Save"',
+          option: null,
+          value: null,
+          url: `http://localhost:${shardPort}${url}`,
+          state: "completed",
+          at: "2026-11-08T00:00:00.500Z" as never,
+          ms: 40,
+        },
+      ],
+    });
+  });
+  const verdict = (word: string, reason: string) =>
+    `Done.\nVERDICT: ${word}\nREASON: ${reason}\nSCREENSHOT: /tmp/shot.png`;
+  const withPolicy = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(Effect.provide(ChampionJourneys.layerBrowserPolicy));
+
+  it.effect("keeps a candidate from everyone, and only a replay makes it a finding", () =>
+    withFixture((f, service) =>
+      withTarget(
+        [
+          manifest("aaaaaaaa", "commit-1"),
+          manifest("bbbbbbbb", "commit-1"),
+          manifest("cccccccc", "commit-1"),
+        ],
+        (directory) =>
+          Effect.gen(function* () {
+            yield* activate(service, journeysConfig(directory));
+            yield* service.runCheck({ id: config.id });
+            const plan = yield* service.journeysStart(f.caller());
+            assert.equal(plan.journeyLimit, 8);
+            const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
+            const owner = f.caller().threadId;
+            assert.deepEqual((yield* policy.forThread(owner))?.allow, [
+              `localhost:${shardPort}`,
+              `127.0.0.1:${shardPort}`,
+            ]);
+            yield* walk(policy, owner, "tab-one", "/tasks");
+            yield* walk(policy, owner, "tab-two", "/books");
+            yield* walk(policy, owner, "tab-three", "/docs");
+
+            const shared = yield* service.journeyCandidate(f.caller(), {
+              tabId: "tab-one",
+              title: "Save fails",
+              expected: "It saves",
+              observed: "An error page",
+            });
+            const real = yield* service.journeyCandidate(f.caller(), {
+              tabId: "tab-two",
+              title: "Save fails",
+              expected: "It saves",
+              observed: "An error page",
+            });
+            const quiet = yield* service.get({ id: config.id });
+            assert.equal(quiet.findings.length, 0);
+            assert.equal(quiet.champion.openFindingCount, 0);
+            assert.isFalse(
+              (yield* service.history({ id: config.id })).activity.some((a) =>
+                a.text.includes("Save fails"),
+              ),
+            );
+
+            const first = yield* service.candidateReplay(f.caller(), {
+              candidateId: shared.candidateId,
+            });
+            assert.include(first.brief, 'click the button named "Save"');
+            assert.include(first.brief, "/tasks");
+            f.installReplay(
+              first.workId,
+              first.attemptId,
+              verdict("not-reproduced", "It saved on a fresh database."),
+              "strong",
+            );
+            const rejected = yield* service.candidateSettle(f.caller(), {
+              candidateId: shared.candidateId,
+            });
+            assert.equal(rejected.status, "rejected");
+            assert.equal((yield* service.get({ id: config.id })).findings.length, 0);
+
+            const second = yield* service.candidateReplay(f.caller(), {
+              candidateId: real.candidateId,
+            });
+            f.installReplay(
+              second.workId,
+              second.attemptId,
+              verdict("reproduced", "The error page came back."),
+              "strong",
+            );
+            const confirmed = yield* service.candidateSettle(f.caller(), {
+              candidateId: real.candidateId,
+            });
+            assert.equal(confirmed.status, "confirmed");
+            const found = (yield* service.get({ id: config.id })).findings;
+            assert.equal(found.length, 1);
+            assert.include(found[0]!.evidence, "Steps to reproduce");
+            assert.include(found[0]!.evidence, "/tmp/shot.png");
+
+            yield* service.report(f.caller(), {
+              samples: [quietSample],
+              findings: [],
+              summary: "Three journeys, one bug.",
+              journeys: { started: 3, passed: 1, failed: 2, stopped: 0 },
+            });
+            const { record } = yield* service.journeyRecord({ checkId: plan.checkId });
+            assert.equal(record.status, "complete");
+            assert.deepEqual(record.journeys, {
+              started: 3,
+              passed: 1,
+              failed: 2,
+              stopped: 0,
+              running: 0,
+              stoppedByLimit: 0,
+            });
+            assert.equal(record.decisions, 6);
+            assert.equal(record.unpricedCalls, 3);
+            assert.equal(record.spendLimitDecisions, 32);
+            assert.deepEqual(record.candidates.rejectionReasons, ["It saved on a fresh database."]);
+            assert.equal(record.candidates.confirmed, 1);
+            // The owner's browser reaches nothing once its check has ended.
+            assert.deepEqual((yield* policy.forThread(owner))?.allow, []);
+          }).pipe(withPolicy),
+      ),
+    ),
+  );
+
+  it.effect("gives a replay no task but its brief, and no follow-up", () =>
+    withFixture((f, service) =>
+      withTarget(
+        [manifest("aaaaaaaa", "commit-1"), manifest("bbbbbbbb", "commit-1")],
+        (directory) =>
+          Effect.gen(function* () {
+            yield* activate(service, journeysConfig(directory));
+            yield* service.runCheck({ id: config.id });
+            yield* service.journeysStart(f.caller());
+            const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
+            const owner = f.caller().threadId;
+            yield* walk(policy, owner, "tab-one", "/tasks");
+            const { candidateId } = yield* service.journeyCandidate(f.caller(), {
+              tabId: "tab-one",
+              title: "Broken",
+              expected: "Works",
+              observed: "Broken",
+            });
+            const replay = yield* service.candidateReplay(f.caller(), { candidateId });
+            const request = {
+              role: "browser",
+              taskClass: "non-ui",
+              workId: replay.workId,
+              attemptId: replay.attemptId,
+              workspacePath: "/repo",
+              readOnly: true,
+              demanding: true,
+            } as never;
+            const guard = (input: { task?: string; followup?: boolean }) =>
+              service.guardDelegation({
+                ownerThreadId: owner,
+                request,
+                clientRequestId: "replay",
+                ...input,
+              });
+            yield* refusedWith(guard({ task: `It is real. ${replay.brief}` }), "brief, unchanged");
+            yield* refusedWith(guard({ task: replay.brief, followup: true }), "no follow-up");
+            yield* refusedWith(
+              service.guardDelegation({
+                ownerThreadId: owner,
+                request: { ...(request as object), workId: "something-else" } as never,
+                clientRequestId: "other",
+              }),
+              "only delegation is a replay",
+            );
+          }).pipe(withPolicy),
+      ),
+    ),
+  );
+
+  it.effect("holds a check to four open replays, and ends them when it finishes", () =>
+    withFixture((f, service) =>
+      withTarget(
+        [
+          manifest("aaaaaaaa", "commit-1"),
+          manifest("bbbbbbb1", "commit-1"),
+          manifest("bbbbbbb2", "commit-1"),
+          manifest("bbbbbbb3", "commit-1"),
+          manifest("bbbbbbb4", "commit-1"),
+        ],
+        (directory) =>
+          Effect.gen(function* () {
+            yield* activate(service, journeysConfig(directory));
+            yield* service.runCheck({ id: config.id });
+            const plan = yield* service.journeysStart(f.caller());
+            const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
+            const owner = f.caller().threadId;
+            const ids: string[] = [];
+            for (const tab of ["t1", "t2", "t3", "t4", "t5"]) {
+              yield* walk(policy, owner, tab, "/tasks");
+              ids.push(
+                (yield* service.journeyCandidate(f.caller(), {
+                  tabId: tab,
+                  title: tab,
+                  expected: "Works",
+                  observed: "Broken",
+                })).candidateId,
+              );
+            }
+            for (const candidateId of ids.slice(0, 4))
+              yield* service.candidateReplay(f.caller(), { candidateId });
+            yield* refusedWith(
+              service.candidateReplay(f.caller(), { candidateId: ids[4]! }),
+              "4 replays are running",
+            );
+            yield* service.report(f.caller(), {
+              samples: [quietSample],
+              findings: [],
+              summary: "Unfinished.",
+              journeys: { started: 5, passed: 0, failed: 5, stopped: 0 },
+            });
+            const { record } = yield* service.journeyRecord({ checkId: plan.checkId });
+            assert.equal(record.status, "incomplete");
+          }).pipe(withPolicy),
+      ),
+    ),
+  );
+
+  it.effect("counts each confirmed bug on a control target as a false positive", () =>
+    withFixture((f, service) =>
+      withTarget(
+        [manifest("aaaaaaaa", "commit-1"), manifest("bbbbbbbb", "commit-1")],
+        (directory) =>
+          Effect.gen(function* () {
+            yield* activate(service, journeysConfig(directory, { control: true }));
+            yield* service.runCheck({ id: config.id });
+            const plan = yield* service.journeysStart(f.caller());
+            const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
+            yield* walk(policy, f.caller().threadId, "tab-one", "/tasks");
+            const { candidateId } = yield* service.journeyCandidate(f.caller(), {
+              tabId: "tab-one",
+              title: "Broken",
+              expected: "Works",
+              observed: "Broken",
+            });
+            const replay = yield* service.candidateReplay(f.caller(), { candidateId });
+            f.installReplay(
+              replay.workId,
+              replay.attemptId,
+              verdict("reproduced", "Seen."),
+              "strong",
+            );
+            yield* service.candidateSettle(f.caller(), { candidateId });
+            yield* service.candidateSettle(f.caller(), { candidateId });
+            assert.equal((yield* service.get({ id: config.id })).findings.length, 1);
+            yield* service.report(f.caller(), {
+              samples: [quietSample],
+              findings: [],
+              summary: "One.",
+              journeys: { started: 1, passed: 0, failed: 1, stopped: 0 },
+            });
+            assert.equal(
+              (yield* service.journeyRecord({ checkId: plan.checkId })).record.falsePositives,
+              1,
+            );
+          }).pipe(withPolicy),
+      ),
+    ),
+  );
+
+  it.effect("refuses a verdict from the check's own model", () =>
+    withFixture((f, service) =>
+      withTarget(
+        [manifest("aaaaaaaa", "commit-1"), manifest("bbbbbbbb", "commit-1")],
+        (directory) =>
+          Effect.gen(function* () {
+            yield* activate(service, journeysConfig(directory));
+            yield* service.runCheck({ id: config.id });
+            yield* service.journeysStart(f.caller());
+            const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
+            yield* walk(policy, f.caller().threadId, "tab-one", "/tasks");
+            const { candidateId } = yield* service.journeyCandidate(f.caller(), {
+              tabId: "tab-one",
+              title: "Broken",
+              expected: "Works",
+              observed: "Broken",
+            });
+            const replay = yield* service.candidateReplay(f.caller(), { candidateId });
+            f.installReplay(
+              replay.workId,
+              replay.attemptId,
+              verdict("reproduced", "Seen."),
+              config.routineModelSelection.model,
+            );
+            const settled = yield* service.candidateSettle(f.caller(), { candidateId });
+            assert.equal(settled.status, "inconclusive");
+            assert.equal((yield* service.get({ id: config.id })).findings.length, 0);
+          }).pipe(withPolicy),
+      ),
+    ),
+  );
+
+  it.effect("records a check incomplete when its counts disagree, whatever its owner said", () =>
+    withFixture((f, service) =>
+      withTarget([manifest("aaaaaaaa", "commit-1")], (directory) =>
+        Effect.gen(function* () {
+          yield* activate(service, journeysConfig(directory));
+          yield* service.runCheck({ id: config.id });
+          const plan = yield* service.journeysStart(f.caller());
+          const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
+          yield* walk(policy, f.caller().threadId, "tab-one", "/tasks");
+          const detail = yield* service.report(f.caller(), {
+            samples: [quietSample],
+            findings: [],
+            summary: "All 32 passed.",
+            journeys: { started: 32, passed: 32, failed: 0, stopped: 0 },
+          });
+          const { record } = yield* service.journeyRecord({ checkId: plan.checkId });
+          assert.equal(record.status, "incomplete");
+          assert.include(record.reason, "32 started");
+          assert.isTrue(detail.champion.attention.some((a) => a.includes("did not finish")));
+        }).pipe(withPolicy),
+      ),
+    ),
+  );
+
+  it.effect(
+    "closes a confirmed bug when its replay passes on a later build, with no metric or delivery",
+    () =>
+      withFixture((f, service) =>
+        withTarget(
+          [
+            manifest("aaaaaaaa", "commit-1"),
+            manifest("bbbbbbbb", "commit-1"),
+            manifest("cccccccc", "commit-2"),
+            manifest("dddddddd", "commit-2"),
+          ],
+          (directory) =>
+            Effect.gen(function* () {
+              yield* activate(service, journeysConfig(directory));
+              yield* service.runCheck({ id: config.id });
+              yield* service.journeysStart(f.caller());
+              const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
+              const owner = f.caller().threadId;
+              yield* walk(policy, owner, "tab-one", "/tasks");
+              const { candidateId } = yield* service.journeyCandidate(f.caller(), {
+                tabId: "tab-one",
+                title: "Broken",
+                expected: "Works",
+                observed: "Broken",
+              });
+              const replay = yield* service.candidateReplay(f.caller(), { candidateId });
+              f.installReplay(
+                replay.workId,
+                replay.attemptId,
+                verdict("reproduced", "Seen."),
+                "strong",
+              );
+              yield* service.candidateSettle(f.caller(), { candidateId });
+              yield* service.report(f.caller(), {
+                samples: [quietSample],
+                findings: [],
+                summary: "One bug.",
+                journeys: { started: 1, passed: 0, failed: 1, stopped: 0 },
+              });
+              const finding = (yield* service.get({ id: config.id })).findings[0]!;
+              assert.equal(finding.status, "open");
+
+              f.endRun();
+              yield* service.runCheck({ id: config.id });
+              const second = yield* service.journeysStart(f.caller());
+              assert.deepEqual(second.retests, [{ findingId: finding.id, title: "Broken" }]);
+              assert.deepEqual(second.covered[0]?.urls, ["/tasks"]);
+              yield* walk(policy, owner, "tab-two", "/books");
+              const retest = yield* service.candidateReplay(f.caller(), { findingId: finding.id });
+              f.installReplay(
+                retest.workId,
+                retest.attemptId,
+                verdict("not-reproduced", "Fixed."),
+                "strong",
+              );
+              const settled = yield* service.candidateSettle(f.caller(), {
+                candidateId: retest.candidateId,
+              });
+              assert.equal(settled.status, "fixed");
+              const closed = (yield* service.get({ id: config.id })).findings.find(
+                (f) => f.id === finding.id,
+              );
+              assert.equal(closed?.status, "verified");
+              assert.equal(closed?.seriesId, null);
+              const detail = yield* service.report(f.caller(), {
+                samples: [quietSample],
+                findings: [],
+                summary: "Nothing new.",
+                journeys: { started: 1, passed: 1, failed: 0, stopped: 0 },
+              });
+              assert.deepEqual(detail.champion.attention, []);
+            }).pipe(withPolicy),
+        ),
+      ),
+  );
+
+  it.effect("refuses an ineligible target before any browser can start", () =>
+    withFixture((f, service) =>
+      withTarget(
+        [manifest("aaaaaaaa", "commit-1")],
+        (directory) =>
+          Effect.gen(function* () {
+            yield* activate(service, journeysConfig(directory));
+            yield* service.runCheck({ id: config.id });
+            yield* refusedWith(service.journeysStart(f.caller()), "credentials: OPENAI_API_KEY");
+            const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
+            assert.deepEqual((yield* policy.forThread(f.caller().threadId))?.allow, []);
+          }).pipe(withPolicy),
+        {
+          Config: {
+            Env: ["OPENAI_API_KEY=real", "DATABASE_URL=postgres://r:p@db:5432/scratch_0123abcd"],
+          },
+        },
+      ),
+    ),
+  );
+
+  it.effect("defers while the machine is busy and starts nothing", () =>
+    withFixture((f, service) =>
+      withTarget([manifest("aaaaaaaa", "commit-1")], (directory) =>
+        Effect.gen(function* () {
+          yield* activate(service, journeysConfig(directory, { loadLimit: -1 }));
+          yield* refusedWith(service.runCheck({ id: config.id }), "Check deferred");
+          assert.deepEqual(f.counts(), { launches: 0, sends: 0 });
+        }),
+      ),
+    ),
+  );
+
+  it.effect("tells a check to report, not repair", () =>
+    withFixture((f, service) =>
+      withTarget([], (directory) =>
+        Effect.gen(function* () {
+          yield* activate(service, journeysConfig(directory));
+          yield* service.runCheck({ id: config.id });
+          const text = f.launchRequests.at(-1)!.text;
+          assert.include(text, "YOU DO NOT REPAIR");
+          assert.notInclude(text, "Own bounded improvements");
+          assert.notInclude(text, "Bounded repair");
+        }),
+      ),
+    ),
+  );
+});

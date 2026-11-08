@@ -93,6 +93,27 @@ export const ChampionClassChoicesResult = Schema.Struct({
   ).check(Schema.isMaxLength(12)),
 });
 export type ChampionClassChoicesResult = typeof ChampionClassChoicesResult.Type;
+/**
+ * A Champion that hunts bugs through browser journeys (T3-465). The target is configuration: commands that start and
+ * end it print its manifest, and the server decides whether it is eligible before any browser starts.
+ */
+export const ChampionJourneyConfig = Schema.Struct({
+  /** Prints the manifest. `{shards}` is replaced by the number of shards; a replay appends `--build <key>`. */
+  provision: Schema.Array(ChampionLabel).check(Schema.isMinLength(1), Schema.isMaxLength(32)),
+  /** `{id}` is the manifest's id. */
+  teardown: Schema.Array(ChampionLabel).check(Schema.isMinLength(1), Schema.isMaxLength(32)),
+  /** Prints what the target's network carried, as `{packets, peers, subnet, outside}`. `{id}` is the manifest's id. */
+  capture: Schema.Array(ChampionLabel).check(Schema.isMinLength(1), Schema.isMaxLength(32)),
+  shards: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 16 })),
+  journeysPerShard: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 32 })),
+  /** Decisions one journey may spend; a check's limit is its journeys times this. */
+  decisionCap: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 256 })),
+  /** A check does not start while the machine's 5-minute load is above this. */
+  loadLimit: Schema.Finite,
+  /** The target is known to carry no bugs, so every bug a check confirms counts as a false positive. */
+  control: Schema.optional(Schema.Boolean),
+});
+export type ChampionJourneyConfig = typeof ChampionJourneyConfig.Type;
 export const ChampionConfig = Schema.Struct({
   id: ChampionId,
   projectId: ProjectId,
@@ -106,6 +127,7 @@ export const ChampionConfig = Schema.Struct({
   setupModelSelection: ModelSelection,
   routineModelSelection: ModelSelection,
   charter: ChampionCharter,
+  journeys: Schema.optional(ChampionJourneyConfig),
 });
 export type ChampionConfig = typeof ChampionConfig.Type;
 const ChampionSampleStatus = Schema.Literals(["measured", "unknown", "insufficient", "error"]);
@@ -340,8 +362,237 @@ export const ChampionReportInput = Schema.Struct({
     }),
   ).check(Schema.isMaxLength(20)),
   summary: ChampionText,
+  /** A journey check's own account of its journeys; the server compares it with what it recorded. */
+  journeys: Schema.optional(
+    Schema.Struct({
+      started: Schema.Int,
+      passed: Schema.Int,
+      failed: Schema.Int,
+      stopped: Schema.Int,
+    }),
+  ),
 });
 export type ChampionReportInput = typeof ChampionReportInput.Type;
+
+export const ChampionJourneyStep = Schema.Struct({
+  /** The action's page-reach label or caller id. */
+  id: Schema.String,
+  kind: Schema.String,
+  operation: Schema.String,
+  /** The element as the page named it. */
+  target: Schema.NullOr(Schema.Struct({ role: Schema.String, name: Schema.String })),
+  description: Schema.NullOr(Schema.String),
+  option: Schema.NullOr(Schema.String),
+  /** The value typed, never a saved login's. */
+  value: Schema.NullOr(Schema.String),
+  /** The page this step acted on. */
+  url: Schema.NullOr(Schema.String),
+  state: Schema.String,
+  at: IsoDateTime,
+  ms: Schema.Finite,
+});
+export type ChampionJourneyStep = typeof ChampionJourneyStep.Type;
+
+export const ChampionJourney = Schema.Struct({
+  id: Schema.String,
+  checkId: Schema.String,
+  tabId: Schema.String,
+  shard: Schema.NullOr(Schema.String),
+  goals: Schema.Array(Schema.String),
+  startedAt: IsoDateTime,
+  endedAt: Schema.NullOr(IsoDateTime),
+  outcome: Schema.Literals(["running", "passed", "failed", "stopped"]),
+  reason: Schema.NullOr(Schema.String),
+  stoppedByLimit: Schema.Boolean,
+  decisions: Schema.Int,
+  usd: Schema.Finite,
+  unreportedCalls: Schema.Int,
+  finalUrl: Schema.NullOr(Schema.String),
+  screenshots: Schema.Array(Schema.String),
+  steps: Schema.Array(ChampionJourneyStep),
+});
+export type ChampionJourney = typeof ChampionJourney.Type;
+
+export const ChampionJourneyShard = Schema.Struct({
+  id: Schema.String,
+  origin: Schema.String,
+  signInPath: Schema.String,
+  database: Schema.String,
+  container: Schema.String,
+});
+export type ChampionJourneyShard = typeof ChampionJourneyShard.Type;
+
+export const ChampionJourneyManifest = Schema.Struct({
+  schema: Schema.Literal(1),
+  id: Schema.String,
+  app: Schema.String,
+  commit: Schema.String,
+  build: Schema.String,
+  patched: Schema.Boolean,
+  synthetic: Schema.Boolean,
+  network: Schema.String,
+  capture: Schema.String,
+  startedAt: Schema.String,
+  expiresAt: Schema.String,
+  startSeconds: Schema.Finite,
+  shards: Schema.Array(ChampionJourneyShard).check(Schema.isMinLength(1)),
+});
+export type ChampionJourneyManifest = typeof ChampionJourneyManifest.Type;
+
+/** What the server recorded about one journey check; none of it comes from the owner's model. */
+export const ChampionJourneyCheckRecord = Schema.Struct({
+  checkId: Schema.String,
+  championId: ChampionId,
+  status: Schema.Literals(["running", "complete", "incomplete", "deferred", "refused"]),
+  reason: Schema.NullOr(Schema.String),
+  /** Set when the check ran smaller than configured, and why. */
+  reduced: Schema.NullOr(Schema.String),
+  startedAt: IsoDateTime,
+  endedAt: Schema.NullOr(IsoDateTime),
+  build: Schema.NullOr(Schema.String),
+  commit: Schema.NullOr(Schema.String),
+  manifest: Schema.NullOr(ChampionJourneyManifest),
+  journeyLimit: Schema.Int,
+  decisionCap: Schema.Int,
+  spendLimitDecisions: Schema.Int,
+  journeys: Schema.Struct({
+    started: Schema.Int,
+    passed: Schema.Int,
+    failed: Schema.Int,
+    stopped: Schema.Int,
+    running: Schema.Int,
+    stoppedByLimit: Schema.Int,
+  }),
+  ownerCounts: Schema.NullOr(
+    Schema.Struct({
+      started: Schema.Int,
+      passed: Schema.Int,
+      failed: Schema.Int,
+      stopped: Schema.Int,
+    }),
+  ),
+  concurrencyReached: Schema.Int,
+  /** The most journeys at once this machine has been shown to carry with none stopped by a limit. */
+  ceilingMeasured: Schema.Int,
+  /** Confirmed bugs on a control target; null when the target is not one. */
+  falsePositives: Schema.NullOr(Schema.Int),
+  elapsedSeconds: Schema.NullOr(Schema.Finite),
+  decisions: Schema.Int,
+  usd: Schema.Finite,
+  unpricedCalls: Schema.Int,
+  candidates: Schema.Struct({
+    filed: Schema.Int,
+    confirmed: Schema.Int,
+    rejected: Schema.Int,
+    pending: Schema.Int,
+    rejectionReasons: Schema.Array(Schema.String),
+  }),
+  perShard: Schema.Array(
+    Schema.Struct({
+      shard: Schema.String,
+      journeys: Schema.Int,
+      stepMsP50: Schema.NullOr(Schema.Finite),
+      stepMsP95: Schema.NullOr(Schema.Finite),
+      pageMsP50: Schema.NullOr(Schema.Finite),
+      pageMsP95: Schema.NullOr(Schema.Finite),
+      probeFailures: Schema.Int,
+    }),
+  ),
+  machine: Schema.Struct({
+    load5AtStart: Schema.Finite,
+    peakCpuPercent: Schema.NullOr(Schema.Finite),
+    peakMemoryGb: Schema.NullOr(Schema.Finite),
+    /** Journey browser processes as the kernel reports them, at the sample with the most. */
+    browserProcesses: Schema.Int,
+    browserNice: Schema.NullOr(Schema.Int),
+    browserPolicy: Schema.NullOr(Schema.String),
+  }),
+  network: Schema.Struct({
+    allowed: Schema.Array(Schema.Struct({ destination: Schema.String, requests: Schema.Int })),
+    blocked: Schema.Array(Schema.Struct({ destination: Schema.String, requests: Schema.Int })),
+    capture: Schema.NullOr(
+      Schema.Struct({
+        packets: Schema.Int,
+        peers: Schema.Int,
+        subnet: Schema.String,
+        outside: Schema.Array(Schema.String),
+      }),
+    ),
+  }),
+});
+export type ChampionJourneyCheckRecord = typeof ChampionJourneyCheckRecord.Type;
+
+/** An object with nothing required: MCP parameters must be an object, and the server knows which check this is. */
+export const ChampionJourneysStartInput = Schema.Struct({ reason: Schema.optional(Schema.String) });
+export const ChampionJourneyPlan = Schema.Struct({
+  checkId: Schema.String,
+  commit: Schema.String,
+  shards: Schema.Array(ChampionJourneyShard),
+  journeyLimit: Schema.Int,
+  journeysPerShard: Schema.Int,
+  decisionCap: Schema.Int,
+  reduced: Schema.NullOr(Schema.String),
+  /** Every path earlier checks walked, newest build first. */
+  covered: Schema.Array(
+    Schema.Struct({ commit: Schema.NullOr(Schema.String), urls: Schema.Array(Schema.String) }),
+  ).check(Schema.isMaxLength(64)),
+  /** Source files changed since the last check's build, when the project's checkout can say. */
+  changedSinceLastCheck: Schema.Array(Schema.String).check(Schema.isMaxLength(200)),
+  /** Confirmed bugs a later build may have fixed: replay each one. */
+  retests: Schema.Array(Schema.Struct({ findingId: Schema.String, title: Schema.String })),
+});
+export type ChampionJourneyPlan = typeof ChampionJourneyPlan.Type;
+
+export const ChampionJourneyCandidateInput = Schema.Struct({
+  tabId: Schema.String,
+  /** What this particular failure is, in one line; it does not decide whether two failures are the same bug. */
+  title: ChampionLabel,
+  expected: ChampionText,
+  observed: ChampionText,
+});
+export type ChampionJourneyCandidateInput = typeof ChampionJourneyCandidateInput.Type;
+
+export const ChampionCandidateReplayInput = Schema.Struct({
+  /** Give one: a candidate to confirm, or a confirmed finding to re-test on this build. */
+  candidateId: Schema.optional(Schema.String),
+  findingId: Schema.optional(Schema.String),
+});
+export type ChampionCandidateReplayInput = typeof ChampionCandidateReplayInput.Type;
+
+export const ChampionCandidateReplay = Schema.Struct({
+  candidateId: Schema.String,
+  /** Use these in delegate_task, with role browser, readOnly true and the integrated browser. */
+  workId: Schema.String,
+  attemptId: Schema.String,
+  /** The whole task for the delegated browser agent; pass it unchanged. */
+  brief: ChampionText,
+});
+export type ChampionCandidateReplay = typeof ChampionCandidateReplay.Type;
+
+export const ChampionCandidateSettleInput = Schema.Struct({ candidateId: Schema.String });
+export const ChampionCandidateSettled = Schema.Struct({
+  candidateId: Schema.String,
+  status: Schema.Literals([
+    "pending",
+    "confirmed",
+    "rejected",
+    "inconclusive",
+    "fixed",
+    "still-failing",
+  ]),
+  reason: Schema.String,
+  findingId: Schema.NullOr(Schema.String),
+});
+export type ChampionCandidateSettled = typeof ChampionCandidateSettled.Type;
+export const ChampionJourneyRecordInput = Schema.Struct({
+  checkId: Schema.String,
+  includeJourneys: Schema.optional(Schema.Boolean),
+});
+export const ChampionJourneyRecordResult = Schema.Struct({
+  record: ChampionJourneyCheckRecord,
+  journeys: Schema.optional(Schema.Array(ChampionJourney)),
+});
+export type ChampionJourneyRecordResult = typeof ChampionJourneyRecordResult.Type;
 export const ChampionFindingDeliveryInput = Schema.Struct({
   findingId: ChampionText,
   action: Schema.Literals(["handed_back", "delivered", "verify", "inconclusive", "spec"]),

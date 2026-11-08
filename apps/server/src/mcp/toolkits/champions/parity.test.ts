@@ -51,7 +51,14 @@ const RUN_ONLY_TOOLS = new Set([
 ]);
 
 /** Agent writes with no screen command: people read learnings, agents record them (T3-444). */
-const AGENT_ONLY_TOOLS = new Set(["t3_champions_contribute_learning"]);
+const AGENT_ONLY_TOOLS = new Set([
+  "t3_champions_contribute_learning",
+  // A journey check's own steps: a person has no check to run them in, and a candidate has no screen.
+  "t3_champions_journeys_start",
+  "t3_champions_journey_candidate",
+  "t3_champions_candidate_replay",
+  "t3_champions_candidate_settle",
+]);
 
 const championMethods = Object.values(WS_METHODS).filter((method) =>
   method.startsWith("champions."),

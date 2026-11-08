@@ -14,7 +14,16 @@ import {
   ChampionRecommendationInput,
   ChampionAgentAcceptInput,
   ChampionAgentFindingActionInput,
+  ChampionCandidateReplay,
+  ChampionCandidateReplayInput,
+  ChampionCandidateSettled,
+  ChampionCandidateSettleInput,
   ChampionCheckContext,
+  ChampionJourneyCandidateInput,
+  ChampionJourneyPlan,
+  ChampionJourneysStartInput,
+  ChampionJourneyRecordInput,
+  ChampionJourneyRecordResult,
   ChampionDetail,
   ChampionMetricsLeadResult,
   ChampionFindingDeliveryInput,
@@ -332,6 +341,51 @@ const report = Tool.make("t3_champions_report", {
 })
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false);
+const journeys_start = Tool.make("t3_champions_journeys_start", {
+  ...shared,
+  description:
+    "Start this journey check's target. The server defers a check on a busy machine and refuses an ineligible target before any browser starts, then returns the shards, the journey limit, the paths earlier checks walked, recently changed files and bugs to re-test. Your browser reaches only the shards.",
+  parameters: ChampionJourneysStartInput,
+  success: ChampionJourneyPlan,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const journey_candidate = Tool.make("t3_champions_journey_candidate", {
+  ...shared,
+  description:
+    "File a failing journey as a candidate, with the tab it ran in. A candidate notifies nobody and is not a finding; only an independent replay can make it one.",
+  parameters: ChampionJourneyCandidateInput,
+  success: Schema.Struct({ candidateId: Schema.String }),
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const candidate_replay = Tool.make("t3_champions_candidate_replay", {
+  ...shared,
+  description:
+    "Start a fresh isolated target to replay a candidate, or to re-test a confirmed finding on this build, and return the identities and brief for a delegated browser agent.",
+  parameters: ChampionCandidateReplayInput,
+  success: ChampionCandidateReplay,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const candidate_settle = Tool.make("t3_champions_candidate_settle", {
+  ...shared,
+  description:
+    "Have the server read a finished replay's verdict from its agent and settle the candidate: a confirmed bug becomes a finding, a rejected one is counted with its reason, and a re-test that passes on a later build closes its finding.",
+  parameters: ChampionCandidateSettleInput,
+  success: ChampionCandidateSettled,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const journey_record = Tool.make("t3_champions_journey_record", {
+  ...shared,
+  description:
+    "Read what the server recorded about one journey check: concurrency, timing, latency per shard, machine peaks, spend, candidates, and every network destination allowed or blocked. includeJourneys adds each journey's recorded steps.",
+  parameters: ChampionJourneyRecordInput,
+  success: ChampionJourneyRecordResult,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
 const update_finding = Tool.make("t3_champions_update_finding", {
   ...shared,
   description:
@@ -400,5 +454,10 @@ export const ChampionsToolkit = Toolkit.make(
   check_context,
   propose_metrics,
   report,
+  journeys_start,
+  journey_candidate,
+  candidate_replay,
+  candidate_settle,
+  journey_record,
   update_finding,
 );

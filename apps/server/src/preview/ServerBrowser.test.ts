@@ -41,6 +41,8 @@ import * as PreviewAgentActivity from "./PreviewAgentActivity.ts";
 import * as ServerBrowser from "./ServerBrowser.ts";
 import * as PreviewBrowser from "./PreviewBrowser.ts";
 
+const { AGENT_TAB_LIMIT, SERVER_TAB_LIMIT } = ServerBrowser;
+
 vi.mock("./ServerBrowserContexts.ts", () => ({
   presentAsChrome: async () => {},
   ServerBrowserContexts: class {
@@ -2268,8 +2270,8 @@ it.live("profiles reported by one client survive another client's report", () =>
 );
 
 it.live.each([
-  { budget: "agent", limit: 8 },
-  { budget: "server", limit: 32 },
+  { budget: "agent", limit: AGENT_TAB_LIMIT },
+  { budget: "server", limit: SERVER_TAB_LIMIT },
 ])("opens and popups reserve the $budget budget before session creation", ({ budget, limit }) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -2282,7 +2284,7 @@ it.live.each([
           input: { reuseExistingTab: false, show: false },
         });
       for (let index = 1; index < limit - 3; index++) {
-        yield* open(budget === "agent" ? scope : asSession(`other-${Math.floor(index / 8)}`));
+        yield* open(budget === "agent" ? scope : asSession(`other-${Math.floor(index / AGENT_TAB_LIMIT)}`));
       }
 
       const sessionGate = Promise.withResolvers<void>();
@@ -2385,7 +2387,7 @@ it.live("failed session and browser launches release capacity, as does closing a
         operation: "open",
         input: { reuseExistingTab: false, show: false },
       });
-      for (let count = 1; count < 7; count++) yield* open;
+      for (let count = 1; count < AGENT_TAB_LIMIT - 1; count++) yield* open;
       const failSession = vi
         .spyOn(manager, "open")
         .mockImplementationOnce(() => Effect.die(new Error("session creation failed")));
@@ -2398,7 +2400,7 @@ it.live("failed session and browser launches release capacity, as does closing a
       let failedSession = yield* PubSub.take(events);
       while (failedSession.type !== "opened") failedSession = yield* PubSub.take(events);
       // A failed launch must not leave a session a viewer can relaunch past the budget.
-      expect((yield* manager.list({ threadId: scope.thread.threadId })).sessions).toHaveLength(7);
+      expect((yield* manager.list({ threadId: scope.thread.threadId })).sessions).toHaveLength(AGENT_TAB_LIMIT - 1);
       contextFailure = null;
       pageSetupFailure = new Error("Target page, context or browser has been closed");
       expect(yield* open.pipe(Effect.result)).toMatchObject({ _tag: "Failure" });
@@ -2406,7 +2408,7 @@ it.live("failed session and browser launches release capacity, as does closing a
       // Setup that fails after the page exists must not leave the page or its context open.
       expect(contexts.at(-1)!.close).toHaveBeenCalled();
       expect(contexts.at(-1)!.page.isClosed()).toBe(true);
-      expect((yield* manager.list({ threadId: scope.thread.threadId })).sessions).toHaveLength(7);
+      expect((yield* manager.list({ threadId: scope.thread.threadId })).sessions).toHaveLength(AGENT_TAB_LIMIT - 1);
       expect((yield* open).available).toBe(true);
       expect(yield* open.pipe(Effect.flip)).toMatchObject({ reason: "tabLimit" });
       expect(
@@ -2430,7 +2432,7 @@ it.live("failed session and browser launches release capacity, as does closing a
         operation: "status",
         input: {},
       });
-      expect(status.tabs).toHaveLength(8);
+      expect(status.tabs).toHaveLength(AGENT_TAB_LIMIT);
     }),
   ).pipe(Effect.provide(layer)),
 );
@@ -2452,9 +2454,9 @@ it.live("a full server leaves an idle tab alone while a bounded task leases it",
         });
       };
       const opened: Array<string> = [];
-      for (let index = 0; index < 32; index++) {
+      for (let index = 0; index < SERVER_TAB_LIMIT; index++) {
         now.mockReturnValue(index);
-        opened.push((yield* open(`agent-${Math.floor(index / 8)}`)).tabId!);
+        opened.push((yield* open(`agent-${Math.floor(index / AGENT_TAB_LIMIT)}`)).tabId!);
       }
       yield* browser.acquireTaskLease({
         threadId: scope.thread.threadId,
@@ -2487,9 +2489,9 @@ it.live("a full server takes back the slot of the longest idle agent tab nobody 
         });
       };
       const opened: Array<string> = [];
-      for (let index = 0; index < 32; index++) {
+      for (let index = 0; index < SERVER_TAB_LIMIT; index++) {
         now.mockReturnValue(index);
-        opened.push((yield* open(`agent-${Math.floor(index / 8)}`)).tabId!);
+        opened.push((yield* open(`agent-${Math.floor(index / AGENT_TAB_LIMIT)}`)).tabId!);
       }
 
       now.mockReturnValue(100);
@@ -2507,7 +2509,7 @@ it.live("a full server takes back the slot of the longest idle agent tab nobody 
 
       now.mockReturnValue(31 * 60 * 1000);
       // A session at its own limit couldn't use a freed slot, so nothing closes for it.
-      expect(yield* open("agent-3").pipe(Effect.flip)).toMatchObject({ reason: "tabLimit" });
+      expect(yield* open(`agent-${Math.floor((SERVER_TAB_LIMIT - 1) / AGENT_TAB_LIMIT)}`).pipe(Effect.flip)).toMatchObject({ reason: "tabLimit" });
       expect(releasedDesktopTabs).toEqual([]);
       // Tabs a desktop window shows keep their slots however long they sit idle.
       for (const tabId of opened) shownDesktopTabs.add(tabId);

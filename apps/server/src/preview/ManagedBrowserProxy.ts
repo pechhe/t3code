@@ -61,6 +61,13 @@ interface Options {
   readonly policy: () => Promise<ReadonlyArray<string> | null>;
   readonly resolve?: (host: string) => Promise<ReadonlyArray<{ address: string; family: number }>>;
   readonly upstreamIdleMs?: number;
+  /** Refuse every destination the policy does not list, public ones too, and report each decision. */
+  readonly allowlistOnly?: boolean;
+  readonly onDecision?: (decision: {
+    readonly host: string;
+    readonly port: number;
+    readonly allowed: boolean;
+  }) => void;
 }
 
 /** Each context owns its listener, credentials and sockets; validated IPs are used without a second DNS lookup. */
@@ -134,6 +141,7 @@ export class ManagedBrowserProxy {
     const port = Number(url.port || (url.protocol === "https:" ? 443 : 80));
     const deny = () => {
       const message = `Managed browser blocked address ${host}:${port}.`;
+      this.options.onDecision?.({ host, port, allowed: false });
       this.refusalCount += 1;
       this.refusals.push(message);
       if (this.refusals.length > 100) this.refusals.shift();
@@ -146,6 +154,7 @@ export class ManagedBrowserProxy {
     }
     if (port === this.port || port === this.options.serverPort) return deny();
     const allowed = allowedAddress(host, port, entries);
+    if (!allowed && this.options.allowlistOnly === true) return deny();
     if (!allowed && (host === "localhost" || host.endsWith(".localhost"))) return deny();
     const addresses = NodeNet.isIP(host)
       ? [{ address: host, family: NodeNet.isIP(host) }]
@@ -164,6 +173,7 @@ export class ManagedBrowserProxy {
       (!allowed && addresses.some(({ address }) => isPrivate(address)))
     )
       return deny();
+    this.options.onDecision?.({ host, port, allowed: true });
     return { host, addresses, port };
   }
 

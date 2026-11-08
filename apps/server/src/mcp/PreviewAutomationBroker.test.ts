@@ -24,6 +24,7 @@ import * as Fiber from "effect/Fiber";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 
+import * as JourneyBrowserPolicy from "../preview/JourneyBrowserPolicy.ts";
 import { PreviewBrowserRootError } from "../preview/PreviewBrowserHost.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 
@@ -91,6 +92,34 @@ it.effect("atomically registers a connected host and correlates its response", (
       });
 
       expect(result).toEqual({ available: true });
+    }),
+  ),
+);
+
+it.effect("refuses ordinary browser tools to a journey check's owner, whatever the backend", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* makeBroker.pipe(
+        Effect.provideService(JourneyBrowserPolicy.JourneyBrowserPolicy, {
+          forThread: () =>
+            Effect.succeed({
+              checkId: "check-1",
+              allow: ["localhost:3300"],
+              tabLimit: 8,
+              decisionCap: 4,
+              journeyLimit: 8,
+            }),
+        } as unknown as JourneyBrowserPolicy.JourneyBrowserPolicy["Service"]),
+      );
+      for (const input of [{}, { backend: "phi" as const }]) {
+        const result = yield* broker
+          .invoke({ scope, operation: "open", input })
+          .pipe(Effect.result);
+        expect(Result.isFailure(result)).toBe(true);
+        expect(Result.isFailure(result) && (result.failure as { reason?: string }).reason).toBe(
+          "unsupported",
+        );
+      }
     }),
   ),
 );

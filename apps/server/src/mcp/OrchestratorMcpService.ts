@@ -3075,6 +3075,7 @@ const make = Effect.gen(function* () {
               request,
               clientRequestId: input.clientRequestId,
               followup: input.followup !== undefined,
+              task: input.task,
               forgeItem: input.forgeItem,
               remote:
                 input.target?.environmentId !== undefined &&

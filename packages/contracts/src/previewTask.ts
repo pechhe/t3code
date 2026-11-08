@@ -24,7 +24,9 @@ export const PREVIEW_TASK_LIMITS = {
   origins: 16,
   avoid: 16,
   /** Replay protection is never evicted, so a session past this many requests is refused. */
-  sessionRequests: 64,
+  sessionRequests: 256,
+  /** A Champion check's own allowance: its journal ends with the check, so checks never share it. */
+  journeyCheckRequests: 1_024,
 } as const;
 
 const Id = Schema.String.check(Schema.isPattern(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/));
