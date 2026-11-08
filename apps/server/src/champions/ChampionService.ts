@@ -3,6 +3,7 @@ import * as ChampionJourneys from "./ChampionJourneys.ts";
 import {
   CANDIDATE_WORK_PREFIX,
   describeSteps,
+  findingEvidence,
   isCandidateWorkId,
   parseVerdict,
   replayBrief,
@@ -2810,13 +2811,16 @@ const make = Effect.gen(function* () {
             option: step.option,
           })),
         ).pipe(Effect.mapError(failure));
-        const evidenceText = [
-          `${candidate.observed} Expected: ${candidate.expected}`,
-          `Steps to reproduce, on a fresh copy of the seeded data (build ${replay.commit}):\n${describeSteps(candidate.steps)}`,
-          `Recorded clicks: ${clicks}`,
-          `Confirmed in isolation by ${finished.model}: ${verdict.reason}`,
-          `Screenshot: ${verdict.screenshot ?? candidate.screenshots.at(-1) ?? "none recorded"}`,
-        ].join("\n\n");
+        const evidenceText = findingEvidence({
+          observed: candidate.observed,
+          expected: candidate.expected,
+          commit: replay.commit,
+          steps: describeSteps(candidate.steps),
+          clicks,
+          model: finished.model,
+          reason: verdict.reason,
+          screenshot: verdict.screenshot ?? candidate.screenshots.at(-1) ?? "none recorded",
+        });
         // One finding per replayed bug, never merged by title: two bugs can read alike.
         const finding = yield* makeFinding(doc.champion.id, candidate.title, evidenceText);
         yield* write({ ...current, findings: [...current.findings, finding] });

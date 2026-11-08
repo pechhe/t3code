@@ -201,6 +201,40 @@ export const urlsOf = (steps: ReadonlyArray<ChampionJourneyStep>) => [
   ...new Set(steps.flatMap((step) => pathOf(step.url) ?? [])),
 ];
 
+const FINDING_EVIDENCE_LIMIT = 8000;
+const cut = (text: string, limit: number) =>
+  text.length <= limit ? text : `${text.slice(0, Math.max(0, limit - 7))}\n[cut]`;
+
+/** A finding's stored evidence has a limit; what was seen and who confirmed it are kept whole first. */
+export const findingEvidence = (input: {
+  readonly observed: string;
+  readonly expected: string;
+  readonly commit: string;
+  readonly steps: string;
+  readonly clicks: string;
+  readonly model: string;
+  readonly reason: string;
+  readonly screenshot: string;
+}) => {
+  const seen = cut(`${input.observed} Expected: ${input.expected}`, 2000);
+  const confirmed = cut(`Confirmed in isolation by ${input.model}: ${input.reason}`, 1500);
+  const shot = `Screenshot: ${input.screenshot}`;
+  const stepsLabel = `Steps to reproduce, on a fresh copy of the seeded data (build ${input.commit}):\n`;
+  const clicksLabel = "Recorded clicks: ";
+  const room =
+    FINDING_EVIDENCE_LIMIT -
+    [seen, confirmed, shot, stepsLabel, clicksLabel].join("").length -
+    4 * 2;
+  const steps = cut(input.steps, Math.floor(room / 2));
+  return [
+    seen,
+    `${stepsLabel}${steps}`,
+    `${clicksLabel}${cut(input.clicks, room - steps.length)}`,
+    confirmed,
+    shot,
+  ].join("\n\n");
+};
+
 export const VERDICT_FORMAT = `End your final message with exactly these lines:
 VERDICT: reproduced | not-reproduced | blocked
 REASON: <one sentence: what you saw>

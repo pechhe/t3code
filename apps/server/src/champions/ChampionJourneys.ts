@@ -123,6 +123,8 @@ const PROBES_TO_DOWN = 3;
 export const MAX_OPEN_REPLAYS = 4;
 /** One per process however many services this module serves: a check absent here outlived a restart. */
 const monitors = new Map<string, Fiber.Fiber<void, never>>();
+/** Checks being finished: no monitor, not yet closed, and not a server restart's orphan. */
+const finishing = new Set<string>();
 const downShards = new Map<string, string[]>();
 const NETWORK_FLUSH_EVERY = Duration.seconds(2);
 
@@ -734,7 +736,7 @@ export const make = Effect.gen(function* () {
     } satisfies ChampionJourneyCheckRecord;
   });
 
-  const finish = Effect.fn("ChampionJourneys.finish")(
+  const closeCheck = Effect.fn("ChampionJourneys.closeCheck")(
     function* (input: {
       readonly checkId: string;
       readonly championId: string;
@@ -802,6 +804,21 @@ export const make = Effect.gen(function* () {
     Effect.mapError((cause) => (isChampionError(cause) ? cause : failure(cause))),
   );
 
+  type FinishInput = Parameters<typeof closeCheck>[0];
+  /** The owner's report and the sweep can both end a check; one does, and the other sees it open. */
+  const finish = (input: FinishInput) =>
+    Effect.suspend(() => {
+      if (finishing.has(input.checkId))
+        return readRecord(input.checkId).pipe(
+          Effect.mapError(failure),
+          Effect.map((stored) => stored?.record),
+        );
+      finishing.add(input.checkId);
+      return closeCheck(input).pipe(
+        Effect.ensuring(Effect.sync(() => finishing.delete(input.checkId))),
+      );
+    });
+
   /** A journey the owner saw fail, whatever its task's status said. */
   const markFailed = Effect.fn("ChampionJourneys.markFailed")(function* (
     checkId: string,
@@ -858,7 +875,9 @@ export const make = Effect.gen(function* () {
     const rows = yield* sql<{
       check_id: string;
     }>`SELECT check_id FROM champion_journey_checks WHERE champion_id = ${championId} AND status = 'running'`;
-    return rows.map((row) => row.check_id).filter((checkId) => !monitors.has(checkId));
+    return rows
+      .map((row) => row.check_id)
+      .filter((checkId) => !monitors.has(checkId) && !finishing.has(checkId));
   }, Effect.mapError(failure));
 
   const start = Effect.fn("ChampionJourneys.start")(
@@ -1044,8 +1063,6 @@ export const make = Effect.gen(function* () {
           reason: "conflict",
           detail: `${MAX_OPEN_REPLAYS} replays are running. Settle one before starting another.`,
         });
-      const tooBusy = overLoadLimit(input.config);
-      if (tooBusy !== null) return yield* refuse(`Replay not started: ${tooBusy}`);
       const command = [...argv(input.config.provision, { shards: "1" }), "--build", input.build];
       const manifest = yield* runJson(command, 20).pipe(
         Effect.flatMap((line) => decodeManifest(line).pipe(Effect.mapError(failure))),

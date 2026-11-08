@@ -209,3 +209,22 @@ describe("isCapacityStop", () => {
     expect(Rules.isCapacityStop(null)).toBe(false);
   });
 });
+
+describe("findingEvidence", () => {
+  it("stays within a finding's limit and keeps what confirms the bug", () => {
+    const evidence = Rules.findingEvidence({
+      observed: "No detail appears.",
+      expected: "The agreement opens.",
+      commit: "abc",
+      steps: "step\n".repeat(4000),
+      clicks: "click".repeat(4000),
+      model: "strong",
+      reason: "Seen on a fresh database.",
+      screenshot: "/shots/one.png",
+    });
+    expect(evidence.length).toBeLessThanOrEqual(8000);
+    expect(evidence).toContain("No detail appears.");
+    expect(evidence).toContain("Confirmed in isolation by strong");
+    expect(evidence).toContain("Screenshot: /shots/one.png");
+  });
+});
