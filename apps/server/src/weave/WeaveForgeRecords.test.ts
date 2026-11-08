@@ -1353,7 +1353,7 @@ it.effect(
         (yield* after.outstanding()).map((record) => [record.recordKey.slice(-5), record.status]),
         [
           ["run-1", "pending"],
-          ["run-2", "pending"],
+          ["run-2", "parked"],
           ["run-3", "parked"],
         ],
       );

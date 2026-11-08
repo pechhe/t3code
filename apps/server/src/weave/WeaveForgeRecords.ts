@@ -1000,15 +1000,14 @@ const make = Effect.gen(function* () {
       );
       // What an earlier server parked for a session it could not adopt, or for a Spec that was not
       // bindable yet, is deliverable now: the session itself, and the helper and usage rows its
-      // refusal parked with it. So is a row a Weave error that passes parked, or that an earlier
-      // build sent in a shape Weave refuses.
+      // refusal parked with it. So is a row a Weave error that passes parked. A row Weave refused
+      // for its shape stays parked: sent again unchanged it is only refused again, on every start.
       yield* sql`UPDATE weave_forge_records
       SET status = 'pending', attempts = 0, last_error = NULL
       WHERE status = 'parked' AND (
         (kind = 'session' AND last_error IN (
           'session_reference_conflict', 'session_active', 'bind_status_invalid'))
-        OR last_error IN (
-          'lead_session_parked', 'session_parked', 'action_execution_failed', 'invalid_action_input'))`.pipe(
+        OR last_error IN ('lead_session_parked', 'session_parked', 'action_execution_failed'))`.pipe(
         Effect.catchCause((cause) => Effect.logWarning("Could not reopen parked records", cause)),
       );
       // A restart inherits rows whose backoff was timed for an outage this process knows nothing
