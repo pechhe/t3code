@@ -667,6 +667,19 @@ it.live("an agent's own move waits for its turn to end, and a message before the
       yield* idle(a.orchestrator, threadId);
       expect(yield* handoffState).toBe(null);
 
+      // Every run that ends settles its thread: with no move, that reads none of its records.
+      const readRecords = a.threads.getThreadRecords;
+      let recordReads = 0;
+      Object.assign(a.threads, {
+        getThreadRecords: (...args: Parameters<typeof readRecords>) => {
+          recordReads++;
+          return readRecords(...args);
+        },
+      });
+      yield* a.handoff.settle(threadId);
+      Object.assign(a.threads, { getThreadRecords: readRecords });
+      expect(recordReads).toBe(0);
+
       // Asked again, with nothing after it: it moves once the turn ends.
       yield* send("turn-3", "Now move it.");
       yield* awaitOrchestratorState(

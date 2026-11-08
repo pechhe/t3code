@@ -732,6 +732,12 @@ const make = Effect.gen(function* () {
   /** A pending move whose turn ended departs; one a restart cut short is settled. */
   const settle = Effect.fn("ThreadHandoff.settle")(
     function* (threadId: ThreadId) {
+      // Every run that ends comes here, and a thread's records can be gigabytes across a long
+      // thread: its shell says whether it has a move at all. The sweep retries one it could not read.
+      const moving = yield* threads
+        .getThreadShell(threadId)
+        .pipe(Effect.orElseSucceed(() => null));
+      if (moving?.handoff === undefined) return;
       const records = yield* threads.getThreadRecords(threadId, ["runs", "messages"], {
         messageRoles: ["user"],
       });
