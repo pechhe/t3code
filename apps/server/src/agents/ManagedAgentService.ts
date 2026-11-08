@@ -153,6 +153,13 @@ export class ManagedAgentService extends Context.Service<
         readonly selection?: Resolver.RequestedModel;
       },
     ) => Effect.Effect<Omit<AgentRolesResult, "environmentId">, ManagedAgentError>;
+    /**
+     * The chore worker's models in the order its role would try them, for work that only needs
+     * text written (a compaction summary), so no workspace, sandbox or browser rule applies.
+     */
+    readonly rankedTextModels: (input: {
+      readonly providers: ReadonlyArray<ServerProvider>;
+    }) => Effect.Effect<ReadonlyArray<ModelSelection>, ManagedAgentError>;
     readonly prepare: (
       input: Authority & {
         readonly request: AgentTaskRequest;
@@ -715,6 +722,30 @@ const make = Effect.gen(function* () {
         }),
       );
       return { policyHash: snapshot.hash, policyRevision: snapshot.sourceRevision, roles };
+    }),
+    rankedTextModels: Effect.fn("ManagedAgentService.rankedTextModels")(function* (input) {
+      const snapshot = yield* currentPolicy;
+      const role = snapshot.manifest.roles["chore-worker"];
+      const taskClass = role?.taskClasses[0];
+      if (taskClass === undefined) return [];
+      return yield* resolver
+        .rank({
+          snapshot,
+          overloads: yield* currentOverloads,
+          providers: input.providers,
+          ceiling: "full-access",
+          runtimeMode: "full-access",
+          allowTrustedClaudeWriters: true,
+          request: {
+            role: "chore-worker",
+            taskClass,
+            workId: "text-generation",
+            attemptId: "text-generation",
+            workspacePath: "/text-generation",
+            executionRequirement: "trusted-host-allowed",
+          },
+        })
+        .pipe(Effect.catchTags({ AgentRoleError: () => Effect.succeed([]) }));
     }),
     prepare: Effect.fn("ManagedAgentService.prepare")(function* (input) {
       if (

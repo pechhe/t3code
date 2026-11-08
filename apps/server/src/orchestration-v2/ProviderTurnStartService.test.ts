@@ -56,6 +56,7 @@ import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { layerRealGit } from "./ProviderTurnStartService.testkit.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -367,6 +368,12 @@ function makeLocalCommandHarness(input: {
     readonly summary?: string;
     readonly failure?: unknown;
     readonly contextWindowTokens?: number;
+  };
+  /** The chore worker's next model, which writes the summary when `summariser` fails. */
+  readonly fallbackSummariser?: {
+    readonly instanceId: ProviderInstanceId;
+    readonly model: string;
+    readonly summary: string;
   };
   readonly previousTurn?: {
     readonly runStatus: "failed" | "completed";
@@ -1118,6 +1125,39 @@ function makeLocalCommandHarness(input: {
         })
       : Effect.fail(input.summariser.failure),
   );
+  const summariserInstances = new Map(
+    [input.summariser, input.fallbackSummariser].flatMap((account) =>
+      account === undefined
+        ? []
+        : [
+            [
+              account.instanceId,
+              {
+                instanceId: account.instanceId,
+                snapshot: {
+                  getSnapshot: Effect.succeed({
+                    models: [
+                      {
+                        slug: account.model,
+                        ...(!("contextWindowTokens" in account) ||
+                        account.contextWindowTokens === undefined
+                          ? {}
+                          : { contextWindowTokens: account.contextWindowTokens }),
+                      },
+                    ],
+                  }),
+                },
+                textGeneration: {
+                  generateCompactionSummary:
+                    account === input.summariser
+                      ? generateCompactionSummary
+                      : () => Effect.succeed({ summary: account.summary ?? "Summarised." }),
+                },
+              } as never,
+            ] as const,
+          ],
+    ),
+  );
   const getTurnStartContext = vi.fn(() =>
     Effect.succeed({
       ...projection,
@@ -1243,26 +1283,20 @@ function makeLocalCommandHarness(input: {
           resolve: resolveRuntimePolicy,
         }),
         Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
-          getInstance: (requested) =>
+          getInstance: (requested) => Effect.succeed(summariserInstances.get(requested)),
+          listInstances: Effect.succeed([...summariserInstances.values()]),
+        }),
+        Layer.mock(ManagedAgent.ManagedAgentService)({
+          rankedTextModels: () =>
             Effect.succeed(
-              input.summariser === undefined || requested !== input.summariser.instanceId
-                ? undefined
-                : ({
-                    instanceId: input.summariser.instanceId,
-                    snapshot: {
-                      getSnapshot: Effect.succeed({
-                        models: [
-                          {
-                            slug: input.summariser.model,
-                            ...(input.summariser.contextWindowTokens === undefined
-                              ? {}
-                              : { contextWindowTokens: input.summariser.contextWindowTokens }),
-                          },
-                        ],
-                      }),
+              input.fallbackSummariser === undefined
+                ? []
+                : [
+                    {
+                      instanceId: input.fallbackSummariser.instanceId,
+                      model: input.fallbackSummariser.model,
                     },
-                    textGeneration: { generateCompactionSummary },
-                  } as never),
+                  ],
             ),
         }),
       ),
@@ -2783,6 +2817,45 @@ describe("Claude compaction on another account", () => {
       expect(harness.projection().contextHandoffs).toEqual([]);
       expect(harness.projection().providerThreads[0]?.nativeThreadRef).not.toBeNull();
     }),
+  );
+
+  effectIt.effect(
+    "the chore worker's next model writes the summary when the chosen one fails",
+    () =>
+      Effect.gen(function* () {
+        yield* setClaudeClock;
+        const FALLBACK_INSTANCE = ProviderInstanceId.make("pi-spare");
+        const harness = makeLocalCommandHarness({
+          text: "/compact",
+          previousMessages: ["Fix the login redirect"],
+          nativeSession: true,
+          history: threadHistory,
+          claude: otherAccountSettings(
+            {
+              compactModel: "deepseek-v4.1-flash",
+              compactModelInstanceId: SUMMARISER_INSTANCE,
+            },
+            CACHE_EXPIRED,
+          ),
+          summariser: {
+            instanceId: SUMMARISER_INSTANCE,
+            model: "deepseek-v4.1-flash",
+            failure: new Error("out of allowance"),
+          },
+          fallbackSummariser: {
+            instanceId: FALLBACK_INSTANCE,
+            model: "gpt-5.5-mini",
+            summary: "Fallback summary.",
+          },
+        });
+
+        yield* harness.start;
+
+        expect(harness.projection().runs.at(-1)?.status).toBe("completed");
+        expect(harness.projection().turnItems).toMatchObject([
+          { type: "compaction", model: "gpt-5.5-mini", summary: "Fallback summary." },
+        ]);
+      }),
   );
 
   effectIt.effect(

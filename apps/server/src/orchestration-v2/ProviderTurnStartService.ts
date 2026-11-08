@@ -22,6 +22,9 @@ import {
   type ProjectId,
   isSideChatThread,
   isCompactionCommandMessage,
+  isProviderTextGenerationCapable,
+  type ModelSelection,
+  type ServerProvider,
   parseGoalCommand,
   RunId,
   TextGenerationError,
@@ -48,6 +51,7 @@ import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ServerConfig from "../config.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
@@ -331,6 +335,8 @@ export const layer: Layer.Layer<
     const projects = yield* ProjectService.ProjectService;
     const providerAuth = yield* ProviderAuthService.ProviderAuthService;
     const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
+    // Optional: a layer without managed agents has no chore worker to fall back on.
+    const managedAgents = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
@@ -1138,9 +1144,10 @@ export const layer: Layer.Layer<
           });
           return;
         }
-        const summaryResult = yield* Effect.result(
-          Effect.gen(function* () {
-            const summariserInstance = yield* providerInstances.getInstance(summariser.instanceId);
+        const writeSummary = Effect.fn("ProviderTurnStartService.writeCompactionSummary")(
+          function* (candidate: ModelSelection) {
+            const modelName = candidate.model;
+            const summariserInstance = yield* providerInstances.getInstance(candidate.instanceId);
             if (summariserInstance === undefined) {
               return yield* new ProviderTurnStartError({
                 runId,
@@ -1151,7 +1158,7 @@ export const layer: Layer.Layer<
               Effect.orElseSucceed(() => undefined),
             );
             const windowTokens =
-              summariserSnapshot?.models.find((model) => model.slug === summariser.model)
+              summariserSnapshot?.models.find((model) => model.slug === candidate.model)
                 ?.contextWindowTokens ?? DEFAULT_COMPACTION_WINDOW_TOKENS;
             // The turn-start projection holds only this run's items, so read the whole thread.
             const history = yield* projectionStore.getTurnStartHistory(
@@ -1174,17 +1181,54 @@ export const layer: Layer.Layer<
               cwd: resolvedRuntimePolicy.cwd ?? "",
               transcript: transcript.text,
               ...(threadTitle === "" ? {} : { threadTitle }),
-              modelSelection: summariser,
+              modelSelection: candidate,
             });
-            const summary = clampCompactionSummary(generated.summary, COMPACTION_SUMMARY_MAX_BYTES);
-            if (summary === "") {
+            const text = clampCompactionSummary(generated.summary, COMPACTION_SUMMARY_MAX_BYTES);
+            if (text === "") {
               return yield* new ProviderTurnStartError({
                 runId,
                 cause: `${modelName} returned no summary.`,
               });
             }
-            return summary;
-          }),
+            return { summary: text, model: candidate.model };
+          },
+        );
+        // The chosen model first; when it fails (out of allowance, overloaded, gone), the chore
+        // worker's models in the order its role would try them.
+        const fallbacks = yield* Effect.gen(function* () {
+          if (Option.isNone(managedAgents)) return [];
+          const providers = yield* Effect.forEach(
+            yield* providerInstances.listInstances,
+            (instance) => instance.snapshot.getSnapshot.pipe(Effect.orElseSucceed(() => undefined)),
+          );
+          return yield* managedAgents.value.rankedTextModels({
+            providers: providers.filter(
+              (provider): provider is ServerProvider =>
+                provider !== undefined && isProviderTextGenerationCapable(provider),
+            ),
+          });
+        }).pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<ModelSelection>));
+        const summariserCandidates = [
+          summariser,
+          ...fallbacks.filter(
+            (candidate) =>
+              candidate.instanceId !== summariser.instanceId ||
+              candidate.model !== summariser.model,
+          ),
+        ];
+        // A failed run reports the chosen model's error, not a fallback's.
+        const summaryResult = yield* Effect.result(
+          summariserCandidates
+            .slice(1)
+            .reduce(
+              (previous, candidate) =>
+                previous.pipe(
+                  Effect.catch((firstError) =>
+                    writeSummary(candidate).pipe(Effect.mapError(() => firstError)),
+                  ),
+                ),
+              writeSummary(summariserCandidates[0]!),
+            ),
         );
         if (summaryResult._tag === "Failure") {
           if (input.willRetry === true) return yield* summaryResult.failure;
@@ -1210,7 +1254,8 @@ export const layer: Layer.Layer<
           });
           return;
         }
-        const summary = summaryResult.success;
+        const summary = summaryResult.success.summary;
+        const summarisedBy = summaryResult.success.model;
         // Dropping the session is decided on state read before a minutes-long model call, so
         // re-read it: a turn that started meanwhile owns work this write must not strand.
         const reread = yield* projectionStore
@@ -1239,12 +1284,12 @@ export const layer: Layer.Layer<
             itemProviderThreadId: providerThread.id,
             item: {
               type: "error",
-              title: `Cannot compact with ${modelName} while this thread's work is running`,
+              title: `Cannot compact with ${summarisedBy} while this thread's work is running`,
               failure: makeProviderFailure({
                 class: "validation_error",
                 message: threadMoved
-                  ? `This conversation's session changed while ${modelName} wrote the summary. Compact again.`
-                  : `Stop this thread's background work, then compact again. A compaction on ${modelName} replaces the conversation's session, which the running work is using.`,
+                  ? `This conversation's session changed while ${summarisedBy} wrote the summary. Compact again.`
+                  : `Stop this thread's background work, then compact again. A compaction on ${summarisedBy} replaces the conversation's session, which the running work is using.`,
               }),
             },
           });
@@ -1276,9 +1321,9 @@ export const layer: Layer.Layer<
           item: {
             type: "compaction",
             driver: providerThread.driver,
-            title: `Context compacted with ${modelName}`,
+            title: `Context compacted with ${summarisedBy}`,
             summary,
-            model: modelName,
+            model: summarisedBy,
             ...(compactionUsages.length === 0
               ? {}
               : {

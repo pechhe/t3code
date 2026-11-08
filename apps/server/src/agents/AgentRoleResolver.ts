@@ -108,6 +108,10 @@ export class AgentRoleResolver extends Context.Service<
   {
     readonly resolve: (input: ResolutionInput) => Effect.Effect<ModelSelection, AgentRoleError>;
     readonly preview: (input: ResolutionInput) => Effect.Effect<AgentPolicyPreview>;
+    /** Every eligible selection in the order `resolve` would try them. */
+    readonly rank: (
+      input: ResolutionInput,
+    ) => Effect.Effect<ReadonlyArray<ModelSelection>, AgentRoleError>;
   }
 >()("t3/agents/AgentRoleResolver") {}
 
@@ -458,6 +462,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     });
   return {
     selection: chosen.selection,
+    ranked: candidates.map((candidate) => candidate.selection),
     executionRequirement: admission.executionRequirement,
     executionBoundary: admission.executionBoundary,
     refusal: null,
@@ -489,6 +494,9 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
 export const layer = Layer.succeed(AgentRoleResolver, {
   resolve: Effect.fn("AgentRoleResolver.resolve")((input) =>
     inspect(input).pipe(Effect.map((result) => result.selection)),
+  ),
+  rank: Effect.fn("AgentRoleResolver.rank")((input) =>
+    inspect(input).pipe(Effect.map((result) => result.ranked)),
   ),
   preview: Effect.fn("AgentRoleResolver.preview")((input) =>
     inspect(input).pipe(

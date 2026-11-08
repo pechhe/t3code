@@ -145,7 +145,10 @@ a fresh pass on any model. The thread's model, the model picker and the message
 you send afterwards never change. Turn off **Only when the prompt cache has
 expired** to use the chosen model every time. If the chosen model's context
 window is smaller than the thread, the conversation's model compacts and the
-compaction row says so. The **Compact** chip and the compaction row name the
+compaction row says so. If the chosen model is on another account and fails
+(out of allowance, overloaded or gone), the summary is written by the next model
+in your **Chore worker** role's list instead, and the compaction row names the
+model that wrote it. The **Compact** chip and the compaction row name the
 model that summarizes. It applies to compactions T3 Code runs, including a
 `/compact` you type, not to Claude's own automatic compaction.
 
