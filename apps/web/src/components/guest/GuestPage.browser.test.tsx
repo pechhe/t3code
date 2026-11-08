@@ -309,11 +309,16 @@ describe("GuestPage", () => {
     await expect.element(screen.getByText("Reply 11")).toBeInTheDocument();
     const scroller = () =>
       screen.container.querySelector<HTMLElement>(".messages-timeline-scroll")!;
+    // The follow eases to the end over animation frames; a loaded runner delivers few of them,
+    // so allow longer than vi.waitFor's 1 s default for the ease to settle.
     const expectAtEnd = () =>
-      vi.waitFor(() => {
-        const node = scroller();
-        expect(node.scrollHeight - node.scrollTop - node.clientHeight).toBeLessThan(2);
-      });
+      vi.waitFor(
+        () => {
+          const node = scroller();
+          expect(node.scrollHeight - node.scrollTop - node.clientHeight).toBeLessThan(2);
+        },
+        { timeout: 10_000 },
+      );
     await expectAtEnd();
 
     // A new reply streams in at the end.
