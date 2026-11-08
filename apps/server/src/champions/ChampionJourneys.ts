@@ -37,6 +37,7 @@ import {
   allowlistOf,
   incompleteReason,
   isCandidateWorkId,
+  isCapacityStop,
   isLimitStop,
   journeyOutcome,
   peakConcurrency,
@@ -538,8 +539,7 @@ export const make = Effect.gen(function* () {
     let ceiling = 0;
     for (const row of rows) {
       const record = yield* decodeRecord(row.document_json);
-      if (record.journeys.stoppedByLimit === 0)
-        ceiling = Math.max(ceiling, record.concurrencyReached);
+      ceiling = Math.max(ceiling, record.ceilingMeasured);
     }
     return ceiling;
   });
@@ -788,8 +788,11 @@ export const make = Effect.gen(function* () {
         ownerCounts: input.owner ?? null,
         network: { ...record.network, capture },
       };
+      const ranShort = (yield* journeysOf(input.checkId)).some((journey) =>
+        isCapacityStop(journey.reason),
+      );
       const ceiling = Math.max(
-        final.journeys.stoppedByLimit === 0 ? final.concurrencyReached : 0,
+        ranShort ? 0 : final.concurrencyReached,
         yield* peakOfCheck(input.championId),
       );
       const saved = { ...final, ceilingMeasured: ceiling };

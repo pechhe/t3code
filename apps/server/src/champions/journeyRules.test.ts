@@ -198,3 +198,14 @@ describe("parseStat", () => {
     });
   });
 });
+
+describe("isCapacityStop", () => {
+  it("tells a machine running short from a journey spending its own budget", () => {
+    expect(Rules.isCapacityStop("deadline")).toBe(true);
+    expect(Rules.isCapacityStop("decision-rate-limited")).toBe(true);
+    expect(Rules.isCapacityStop("decision-busy")).toBe(true);
+    expect(Rules.isCapacityStop("decision-limit")).toBe(false);
+    expect(Rules.isCapacityStop("action-limit")).toBe(false);
+    expect(Rules.isCapacityStop(null)).toBe(false);
+  });
+});

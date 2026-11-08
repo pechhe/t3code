@@ -48,6 +48,11 @@ const LIMIT_REASONS = new Set([
 export const isLimitStop = (reason: string | null | undefined) =>
   reason !== null && reason !== undefined && LIMIT_REASONS.has(reason);
 
+/** The machine or a shared allowance ran short. A journey spending its own budget says nothing of capacity. */
+const CAPACITY_REASONS = new Set(["deadline", "decision-busy", "decision-rate-limited"]);
+export const isCapacityStop = (reason: string | null | undefined) =>
+  reason !== null && reason !== undefined && CAPACITY_REASONS.has(reason);
+
 /** A task's status, as a journey's outcome: a page that failed its checks is a failure, a run cut short is not. */
 export const journeyOutcome = (
   status: "running" | "passed" | "failed" | "blocked" | "cancelled",
