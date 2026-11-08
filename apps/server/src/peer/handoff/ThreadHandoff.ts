@@ -809,15 +809,17 @@ const make = Effect.gen(function* () {
         Effect.gen(function* () {
           // Moves a restart cut short, or that were waiting for a turn that ended meanwhile.
           yield* sweep;
-          yield* threads.streamStoredEvents.pipe(
+          // Live events only: the sweep above covers what ended before now, and replaying the log
+          // would hold millions of events in memory on a long-lived server.
+          yield* threads.streamDomainEvents.pipe(
             Stream.filter(
-              (stored) =>
-                stored.event.type === "run.updated" &&
+              (event) =>
+                event.type === "run.updated" &&
                 ["completed", "failed", "cancelled", "interrupted", "rolled_back"].includes(
-                  stored.event.payload.status,
+                  event.payload.status,
                 ),
             ),
-            Stream.runForEach((stored) => settle(stored.event.threadId)),
+            Stream.runForEach((event) => settle(event.threadId)),
           );
         }).pipe(Effect.ignoreCause({ log: true })),
       );
