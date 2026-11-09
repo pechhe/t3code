@@ -252,6 +252,14 @@ export function scheduledTaskThreadMode(
   return task.threadMode ?? (task.threadId === null ? "new_thread" : "continue");
 }
 
+/** Why a task exists, separate from where its runs post. Older rows and servers have no label. */
+export const ScheduledTaskPurpose = Schema.Literals(["check_back", "long_running"]);
+export type ScheduledTaskPurpose = typeof ScheduledTaskPurpose.Type;
+
+export function scheduledTaskPurpose(task: Pick<ScheduledTask, "purpose">): ScheduledTaskPurpose {
+  return task.purpose ?? "long_running";
+}
+
 export const ScheduledTask = Schema.Struct({
   id: ScheduledTaskId,
   title: TrimmedNonEmptyString,
@@ -261,6 +269,7 @@ export const ScheduledTask = Schema.Struct({
   projectId: ProjectId,
   threadId: Schema.NullOr(ThreadId),
   threadMode: Schema.optional(ScheduledTaskThreadMode),
+  purpose: Schema.optional(ScheduledTaskPurpose),
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
   modelSelection: ModelSelection.annotate({
     description:
@@ -309,6 +318,8 @@ export const ScheduledTaskUpsertInput = Schema.Struct({
   threadId: Schema.optional(Schema.NullOr(ThreadId)),
   /** Omitted: keep the stored mode, or derive it from `threadId` for a new or rebound task. */
   threadMode: Schema.optional(ScheduledTaskThreadMode),
+  /** Omitted: keep the stored label; a new task counts as long-running. */
+  purpose: Schema.optional(ScheduledTaskPurpose),
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
   modelSelection: Schema.optional(ModelSelection).annotate({
     description:

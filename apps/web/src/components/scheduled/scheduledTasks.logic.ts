@@ -12,13 +12,14 @@ import {
   isWebhookDedupeTemplate,
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
   ScheduledTaskId,
-  scheduledTaskThreadMode,
+  scheduledTaskPurpose,
   type AgentPolicyManifest,
   type AgentRole,
   type OrchestrationV2ThreadLaunchWorkspaceStrategy,
   type ProjectId,
   type ProviderDriverKind,
   type ScheduledTask,
+  type ScheduledTaskPurpose,
   type ScheduledTaskThreadMode,
   type ScheduledTaskUpsertInput,
   type ScheduledTaskUpsertSchedule,
@@ -82,12 +83,10 @@ export function groupScheduledTasks(
     .toSorted((a, b) => a.lead.title.localeCompare(b.lead.title) || a.key.localeCompare(b.key));
 }
 
-export type TaskScope = "all" | "thread" | "global";
+export type TaskPurposeFilter = "all" | ScheduledTaskPurpose;
 
-/** By thread mode, not binding: a one-thread task has no thread until its first run. */
-export const matchesTaskScope = (group: ScheduledTaskGroup, scope: TaskScope) =>
-  scope === "all" ||
-  (scheduledTaskThreadMode(group.lead) !== "new_thread") === (scope === "thread");
+export const matchesTaskPurpose = (group: ScheduledTaskGroup, filter: TaskPurposeFilter) =>
+  filter === "all" || scheduledTaskPurpose(group.lead) === filter;
 
 export type GroupStatus = "running" | "failed" | "paused" | "ready";
 
@@ -226,6 +225,7 @@ export interface GroupDraftFields {
   readonly agentRole: AgentRole;
   /** One thread each run continues or opens a fresh session in; "new_thread" starts one per run. */
   readonly threadMode: ScheduledTaskThreadMode;
+  readonly purpose: ScheduledTaskPurpose;
   /**
    * The thread the person picked for the machine and project it belongs to. Absent or null
    * keeps each stored task's own thread. A pair it does not belong to ignores it, so
@@ -358,6 +358,7 @@ export function planGroupSave(input: {
                   projectId,
                 }),
           threadMode: draft.threadMode,
+          purpose: draft.purpose,
           workspaceStrategy: workspaceStrategyFor(
             draft.workspace,
             previous?.workspaceStrategy ?? null,

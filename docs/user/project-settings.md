@@ -189,6 +189,10 @@ the editor says so.
   delegation policy on each machine at every run, so a policy change reaches the
   task without editing it. The editor shows the model the role prefers.
 
+Filter the list to **Check-backs**, reminders that end once they have their answer, or
+**Long-running** work with no end. Agents label a task when they create it; if one is
+wrong, change it at the start of the editor. The label does not affect where runs post.
+
 The Scheduled icon shows a dot while a task runs and a count of failed runs you
 have not opened yet; its tooltip gives the next run time.
 

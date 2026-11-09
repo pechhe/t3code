@@ -84,18 +84,29 @@ describe("scheduled task MCP contracts", () => {
     const created = decodeScheduleTaskInput({
       prompt: "Check for issues.",
       schedule,
+      purpose: "long_running",
       agentRole: "chore-worker",
     });
     expect(created.agentRole).toBe("chore-worker");
     // Omitted leaves the choice to the server, which names its default role.
-    expect(decodeScheduleTaskInput({ prompt: "Check.", schedule }).agentRole).toBeUndefined();
+    expect(
+      decodeScheduleTaskInput({ prompt: "Check.", schedule, purpose: "check_back" }).agentRole,
+    ).toBeUndefined();
     expect(() =>
       decodeScheduleTaskInputLoose({
         prompt: "Check.",
         schedule,
+        purpose: "check_back",
         agentRole: "not-a-role",
       }),
     ).toThrow();
+  });
+
+  it("makes a new task say why it exists, and an update leave that alone", () => {
+    expect(() => decodeScheduleTaskInputLoose({ prompt: "Check.", schedule })).toThrow();
+    expect(
+      decodeUpdateScheduledTaskInput({ scheduledTaskId: "scheduled-task:1" }).purpose,
+    ).toBeUndefined();
   });
 
   it("moves an existing task to another role and reports it back", () => {
@@ -113,6 +124,7 @@ describe("scheduled task MCP contracts", () => {
       boundThreadId: null,
       agentRole: "reviewer",
       freshSession: false,
+      purpose: "check_back",
       schedule,
       nextRunAt: null,
       lastRunStatus: "never",
@@ -129,6 +141,7 @@ describe("scheduled task MCP contracts", () => {
         boundThreadId: null,
         agentRole: null,
         freshSession: false,
+        purpose: "long_running",
         schedule,
         nextRunAt: null,
         lastRunStatus: "never",

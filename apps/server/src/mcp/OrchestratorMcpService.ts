@@ -91,6 +91,7 @@ import {
   type RuntimeMode,
   type ScheduledTask,
   type ScheduledTaskUpsertInput,
+  scheduledTaskPurpose,
   scheduledTaskThreadMode,
   type ServerProvider,
   type ServerProviderModel,
@@ -392,6 +393,7 @@ function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): Orchestrato
     boundThreadId: task.threadId,
     agentRole: task.agentRole ?? null,
     freshSession: scheduledTaskThreadMode(task) === "fresh_session",
+    purpose: scheduledTaskPurpose(task),
     schedule: task.schedule,
     nextRunAt: task.nextRunAt,
     lastRunStatus: task.lastRunStatus,
@@ -2393,6 +2395,7 @@ const make = Effect.gen(function* () {
           : bindToCurrentThread
             ? "continue"
             : "new_thread",
+        purpose: input.purpose,
         workspaceStrategy: yield* scheduledTaskWorkspaceStrategy(bindToCurrentThread, projectId),
         modelSelection,
         ...(input.agentRole === undefined ? {} : { agentRole: input.agentRole }),
@@ -2499,6 +2502,7 @@ const make = Effect.gen(function* () {
                       scheduledTaskThreadMode(existing) === "new_thread")
                   ? "new_thread"
                   : "continue",
+          ...(input.purpose === undefined ? {} : { purpose: input.purpose }),
           workspaceStrategy,
           modelSelection: existing.modelSelection,
           ...(input.agentRole === undefined ? {} : { agentRole: input.agentRole }),

@@ -651,6 +651,7 @@ it("readThread and sendToThread reach threads in other projects", async () => {
       .scheduleTask(makeScope(), {
         projectId: foreignProjectId,
         prompt: "check in later",
+        purpose: "check_back",
         schedule: { type: "interval", everyMs: 3_600_000 },
       })
       .pipe(Effect.flip);

@@ -130,12 +130,12 @@ export const handlers = {
     (input) => input.scheduledTaskId === undefined,
     McpToolAccess.startsThreads(
       () => ({}),
-      ({ prompt, schedule, ...input }) =>
+      ({ prompt, schedule, purpose, ...input }) =>
         Effect.gen(function* () {
-          if (prompt === undefined || schedule === undefined) {
+          if (prompt === undefined || schedule === undefined || purpose === undefined) {
             return yield* new OrchestratorMcpFailure({
               code: "invalid_request",
-              message: "A new scheduled task needs `prompt` and `schedule`.",
+              message: "A new scheduled task needs `prompt`, `schedule` and `purpose`.",
             });
           }
           const scope = yield* McpInvocationContext.McpInvocationContext;
@@ -143,6 +143,7 @@ export const handlers = {
           return yield* service.scheduleTask(scope, {
             ...input,
             prompt,
+            purpose,
             schedule: yield* decodeScheduledTaskSchedule(schedule).pipe(
               Effect.mapError(
                 () =>

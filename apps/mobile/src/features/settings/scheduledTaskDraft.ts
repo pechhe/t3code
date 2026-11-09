@@ -1,4 +1,8 @@
-import { isWebhookDedupeTemplate, scheduledTaskThreadMode } from "@t3tools/contracts";
+import {
+  isWebhookDedupeTemplate,
+  scheduledTaskPurpose,
+  scheduledTaskThreadMode,
+} from "@t3tools/contracts";
 import type {
   AgentRole,
   ModelSelection,
@@ -6,6 +10,7 @@ import type {
   ProjectId,
   RuntimeMode,
   ScheduledTask,
+  ScheduledTaskPurpose,
   ScheduledTaskThreadMode,
   ScheduledTaskUpsertSchedule,
   ScheduledTaskWebhookSignature,
@@ -215,6 +220,7 @@ export type ScheduledTaskDraft = {
   readonly modelSelectionIsExplicit: boolean;
   readonly schedule: ScheduleDraft;
   readonly threadMode: ScheduledTaskThreadMode;
+  readonly purpose: ScheduledTaskPurpose;
   readonly workspace: Workspace;
   readonly baseRef: string;
   readonly checkoutPath: string;
@@ -246,6 +252,7 @@ function draftSignature(draft: ScheduledTaskDraft): string {
     draft.schedule.coalesceWindowSeconds,
     draft.schedule.filters.map(({ path, op, value }) => [path, op, value]),
     draft.threadMode,
+    draft.purpose,
     draft.workspace,
     draft.baseRef,
     draft.checkoutPath,
@@ -309,6 +316,7 @@ export function createDraft(
     modelSelectionIsExplicit: false,
     schedule: DEFAULT_SCHEDULE,
     threadMode: "new_thread",
+    purpose: "long_running",
     workspace: "worktree",
     baseRef: "main",
     checkoutPath: "",
@@ -330,6 +338,7 @@ export function editDraft(task: ScheduledTask): ScheduledTaskDraft {
     modelSelectionIsExplicit: true,
     schedule: scheduleDraftForTask(task),
     threadMode: scheduledTaskThreadMode(task),
+    purpose: scheduledTaskPurpose(task),
     workspace: task.workspaceStrategy.type,
     baseRef: task.workspaceStrategy.type === "worktree" ? task.workspaceStrategy.baseRef : "main",
     checkoutPath:

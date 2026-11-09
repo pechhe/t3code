@@ -4402,7 +4402,12 @@ describe("OrchestratorMcpService provider resolution", () => {
           const mcp = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
             Effect.provide(service(masterRepository, saved)),
           );
-          yield* mcp.scheduleTask(client, { projectId, prompt: "Check the build", schedule });
+          yield* mcp.scheduleTask(client, {
+            projectId,
+            prompt: "Check the build",
+            schedule,
+            purpose: "long_running",
+          });
           assert.deepEqual(yield* Ref.get(saved), [{ type: "root", rootIsDefault: true }]);
         }).pipe(
           Effect.provide(

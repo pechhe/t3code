@@ -13,7 +13,7 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import {
   chosenThreadId,
   groupScheduledTasks,
-  matchesTaskScope,
+  matchesTaskPurpose,
   markGroupFailuresSeen,
   moveDraftToThread,
   planGroupSave,
@@ -29,6 +29,7 @@ import {
   workspaceChoiceOf,
   workspaceStrategyFor,
   type GroupDraftFields,
+  type TaskPurposeFilter,
   type ProjectChoice,
 } from "./scheduledTasks.logic";
 
@@ -83,6 +84,7 @@ const draft = (overrides: Partial<GroupDraftFields> = {}): GroupDraftFields => (
   workspace: "fresh",
   agentRole: "chore-worker",
   threadMode: "continue",
+  purpose: "long_running",
   ...overrides,
 });
 
@@ -104,22 +106,27 @@ describe("groupScheduledTasks", () => {
     ]);
   });
 
-  it("filters by thread mode, so a task never changes filter on its first run", () => {
+  it("filters by why a task exists, whichever thread it runs in", () => {
     const groups = groupScheduledTasks([
       {
         environmentId: mac,
         tasks: [
-          task({ id: "a", title: "Bound", threadId: ThreadId.make("thread-1") }),
-          task({ id: "b", title: "Global", threadId: null }),
-          task({ id: "c", title: "Unbound", threadId: null, threadMode: "fresh_session" }),
+          task({
+            id: "a",
+            title: "Look again",
+            threadId: ThreadId.make("t"),
+            purpose: "check_back",
+          }),
+          task({ id: "b", title: "Weekly", threadId: ThreadId.make("t"), purpose: "long_running" }),
+          task({ id: "c", title: "Unlabelled", threadId: null }),
         ],
       },
     ]);
-    const titles = (scope: "all" | "thread" | "global") =>
-      groups.filter((group) => matchesTaskScope(group, scope)).map((group) => group.lead.title);
-    expect(titles("all")).toEqual(["Bound", "Global", "Unbound"]);
-    expect(titles("thread")).toEqual(["Bound", "Unbound"]);
-    expect(titles("global")).toEqual(["Global"]);
+    const titles = (filter: TaskPurposeFilter) =>
+      groups.filter((group) => matchesTaskPurpose(group, filter)).map((group) => group.lead.title);
+    expect(titles("all")).toEqual(["Look again", "Unlabelled", "Weekly"]);
+    expect(titles("check_back")).toEqual(["Look again"]);
+    expect(titles("long_running")).toEqual(["Unlabelled", "Weekly"]);
   });
 });
 

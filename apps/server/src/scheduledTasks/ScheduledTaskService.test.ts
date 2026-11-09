@@ -9,6 +9,7 @@ import {
   ProviderInstanceId,
   ScheduledTaskError,
   ScheduledTaskId,
+  type ScheduledTaskPurpose,
   type ScheduledTaskUpsertInput,
   SecretRef,
   ThreadId,
@@ -462,6 +463,41 @@ it.effect("saving a plain root over a default root keeps the default unless it i
       rootIsDefault: false,
     });
     assert.deepEqual(yield* save({ type: "root" }), { type: "root" });
+  }).pipe(
+    Effect.provide(
+      layerWithoutLaunch.pipe(
+        Layer.provide(SqlitePersistence.layerMemory),
+        Layer.provideMerge(Layer.mergeAll(ManagedPolicy.layerTest())),
+      ),
+    ),
+  ),
+);
+
+it.effect("a task keeps its label until one is given, and a new task counts as long-running", () =>
+  Effect.gen(function* () {
+    const service = yield* ScheduledTaskService.ScheduledTaskService;
+    const save = (purpose?: ScheduledTaskPurpose) =>
+      service
+        .upsert({
+          id: ScheduledTaskId.make("task:purpose"),
+          title: "Look again",
+          prompt: "Look again",
+          enabled: true,
+          schedule: { type: "interval", everyMs: 60_000 },
+          projectId: ProjectId.make("project:test"),
+          workspaceStrategy: { type: "root" },
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          ...(purpose === undefined ? {} : { purpose }),
+        })
+        .pipe(Effect.map(({ task }) => task.purpose));
+    assert.equal(yield* save(), "long_running");
+    assert.equal(yield* save("check_back"), "check_back");
+    // A client that does not know the label (mobile) saves without one.
+    assert.equal(yield* save(), "check_back");
+    const { tasks } = yield* service.list();
+    assert.equal(tasks[0]?.purpose, "check_back");
   }).pipe(
     Effect.provide(
       layerWithoutLaunch.pipe(

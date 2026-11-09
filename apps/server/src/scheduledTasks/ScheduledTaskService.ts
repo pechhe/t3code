@@ -27,6 +27,7 @@ import {
   type AgentRole,
   type RuntimeMode,
   managedPolicyDeniedMessage,
+  scheduledTaskPurpose,
   scheduledTaskThreadMode,
   managedRuntimeModeDenial,
 } from "@t3tools/contracts";
@@ -222,6 +223,7 @@ interface ScheduledTaskRow {
   readonly project_id: string;
   readonly thread_id: string | null;
   readonly thread_mode: string;
+  readonly purpose: string;
   readonly workspace_strategy_json: string;
   readonly model_selection_json: string;
   readonly runtime_mode: string;
@@ -418,6 +420,7 @@ const decodeRow = Effect.fnUntraced(
       projectId: row.project_id,
       threadId: row.thread_id,
       threadMode: row.thread_mode,
+      purpose: row.purpose,
       workspaceStrategy,
       modelSelection,
       runtimeMode: row.runtime_mode,
@@ -605,6 +608,7 @@ export const layer = Layer.effect(
         project_id,
         thread_id,
         thread_mode,
+        purpose,
         workspace_strategy_json,
         model_selection_json,
         runtime_mode,
@@ -650,6 +654,7 @@ export const layer = Layer.effect(
         project_id,
         thread_id,
         thread_mode,
+        purpose,
         workspace_strategy_json,
         model_selection_json,
         runtime_mode,
@@ -731,6 +736,7 @@ export const layer = Layer.effect(
           project_id,
           thread_id,
           thread_mode,
+          purpose,
           workspace_strategy_json,
           model_selection_json,
           runtime_mode,
@@ -758,6 +764,7 @@ export const layer = Layer.effect(
           ${task.projectId},
           ${task.threadId},
           ${scheduledTaskThreadMode(task)},
+          ${scheduledTaskPurpose(task)},
           ${JSON.stringify(task.workspaceStrategy)},
           ${JSON.stringify(task.modelSelection)},
           ${task.runtimeMode},
@@ -792,6 +799,7 @@ export const layer = Layer.effect(
             ELSE COALESCE(excluded.thread_id, scheduled_tasks.thread_id)
           END,
           thread_mode = excluded.thread_mode,
+          purpose = excluded.purpose,
           workspace_strategy_json = excluded.workspace_strategy_json,
           model_selection_json = excluded.model_selection_json,
           runtime_mode = excluded.runtime_mode,
@@ -1562,6 +1570,8 @@ export const layer = Layer.effect(
         projectId: input.projectId,
         threadId,
         threadMode,
+        purpose:
+          input.purpose ?? (existingTask ? scheduledTaskPurpose(existingTask) : "long_running"),
         workspaceStrategy,
         modelSelection,
         runtimeMode: input.runtimeMode,

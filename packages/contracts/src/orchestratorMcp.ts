@@ -38,6 +38,7 @@ import {
   ScheduledTaskRunStatus,
   ScheduledTaskSchedule,
   ScheduledTaskUpsertSchedule,
+  ScheduledTaskPurpose,
 } from "./scheduledTask.ts";
 import { ForgeItemReferenceInput } from "./forgeWorkItem.ts";
 import { PeerEnvironmentStatus } from "./peers.ts";
@@ -930,6 +931,11 @@ export const OrchestratorMcpCapabilitiesResult = Schema.Struct({
 });
 export type OrchestratorMcpCapabilitiesResult = typeof OrchestratorMcpCapabilitiesResult.Type;
 
+const OrchestratorMcpScheduledTaskPurpose = ScheduledTaskPurpose.annotate({
+  description:
+    "check_back: a reminder that ends once it has its answer, even if it repeats until then, such as looking again when evidence has built up. long_running: ongoing work with no end, such as a weekly routine. Independent of where runs post.",
+});
+
 export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
   environmentId: OrchestratorMcpEnvironmentTarget,
   projectId: OrchestratorMcpProjectTarget,
@@ -952,6 +958,7 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
         "Runs share one thread but each starts a fresh session without earlier runs' context. Unbound: the first run makes the thread.",
     }),
   ),
+  purpose: OrchestratorMcpScheduledTaskPurpose,
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
 });
 export type OrchestratorMcpScheduleTaskInput = typeof OrchestratorMcpScheduleTaskInput.Type;
@@ -974,6 +981,7 @@ export const OrchestratorMcpSaveScheduledTaskInput = Schema.Struct({
   scheduledTaskId: Schema.optional(ScheduledTaskId),
   prompt: Schema.optional(OrchestratorMcpPrompt),
   schedule: Schema.optional(OrchestratorMcpSchedule),
+  purpose: Schema.optional(OrchestratorMcpScheduledTaskPurpose),
 });
 export type OrchestratorMcpSaveScheduledTaskInput =
   typeof OrchestratorMcpSaveScheduledTaskInput.Type;
@@ -990,6 +998,7 @@ export const OrchestratorMcpScheduledTask = Schema.Struct({
       "Subagent role this task runs as; its policy picks the model. Null only for a legacy task saved before roles.",
   }),
   freshSession: Schema.Boolean,
+  purpose: ScheduledTaskPurpose,
   schedule: ScheduledTaskSchedule,
   nextRunAt: Schema.NullOr(IsoDateTime),
   lastRunStatus: ScheduledTaskRunStatus,
@@ -1036,6 +1045,7 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
     description: "Move the task to another subagent role; a bound task follows its thread's model.",
   }),
   freshSession: Schema.optional(Schema.Boolean),
+  purpose: Schema.optional(ScheduledTaskPurpose),
 });
 export type OrchestratorMcpUpdateScheduledTaskInput =
   typeof OrchestratorMcpUpdateScheduledTaskInput.Type;

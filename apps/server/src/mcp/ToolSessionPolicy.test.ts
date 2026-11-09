@@ -95,15 +95,17 @@ const session = (
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
   // Upstream's schemas and guidance, bounded decisions, a lead's trial tools, the `landing`
   // watch, `whyNotDelegated`, `arc_run`, the html tools' path guidance and the secret card's
-  // sign-in link measure 51,027 characters; the 22 Champion tools bring them to 74,919.
-  ["ordinary", undefined, 75_000],
+  // sign-in link measure 51,027 characters; the 22 Champion tools bring them to 74,919, and
+  // `schedule_task`'s `purpose` to 75,295.
+  ["ordinary", undefined, 75_400],
   // The preview endpoint is a browser session's listing, so it carries no control plane.
   // Bounded decisions adds the same 2,061 characters to the browser catalogue.
   ["browser/preview", session("phi", "browser"), 34_900],
   // The same set with the web family and t3_thread_handoff, so the thread can move itself,
-  // measures 113,757 characters, and 99,501 for the scout without web.
-  ["researcher", session("web-research", "researcher"), 113_800],
-  ["scout", session("source-reader", "scout"), 99_600],
+  // measures 113,757 characters, and 99,501 for the scout without web; `schedule_task`'s
+  // `purpose` brings them to 114,133 and 99,877.
+  ["researcher", session("web-research", "researcher"), 114_200],
+  ["scout", session("source-reader", "scout"), 99_950],
   ["delegated browser", session("phi", "browser", true), 40_000],
   [
     "delegated implementation-worker",

@@ -20,9 +20,11 @@ import {
   MAX_WEBHOOK_FILTERS,
   type ModelSelection,
   type ProjectId,
+  type ScheduledTaskPurpose,
   type ScheduledTaskThreadMode,
   type ScheduledTaskUpsertSchedule,
   resolveEnvironmentMachineKind,
+  scheduledTaskPurpose,
   scheduledTaskThreadMode,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -76,6 +78,9 @@ import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Toggle } from "../ui/toggle";
 import { ToggleGroup } from "../ui/toggle-group";
+import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
+import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import { isElectron } from "../../env";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { AgentRoleChip } from "../AgentRoleChip";
 import { ModelLabel } from "../ModelLabel";
@@ -105,14 +110,14 @@ import {
   roleModelSummary,
   scheduleDraftOf,
   scheduledTaskDestinationThreads,
-  matchesTaskScope,
+  matchesTaskPurpose,
   soonestRunAt,
   timedScheduleOf,
   unbindDraftFromThread,
   webhookDraftErrors,
   webhookDraftOf,
   webhookScheduleOf,
-  type TaskScope,
+  type TaskPurposeFilter,
   type WebhookDraft,
   workspaceChoiceOf,
 } from "./scheduledTasks.logic";
@@ -131,6 +136,17 @@ const WORKSPACE_LABELS: Record<WorkspaceChoice, string> = {
   fresh: "a fresh workspace",
   checkout: "the project checkout",
 };
+const PURPOSE_LABELS: Record<ScheduledTaskPurpose, string> = {
+  check_back: "Check-back",
+  long_running: "Long-running",
+};
+
+const PURPOSE_FILTERS = [
+  { value: "all", label: "All" },
+  { value: "check_back", label: "Check-backs" },
+  { value: "long_running", label: "Long-running" },
+] as const satisfies readonly { value: TaskPurposeFilter; label: string }[];
+
 const THREAD_MODE_LABELS: Record<ScheduledTaskThreadMode, string> = {
   new_thread: "a new thread each run",
   continue: "one thread, carrying on",
@@ -174,6 +190,7 @@ interface EditorDraft extends ScheduleDraft, WebhookDraft {
   readonly workspace: WorkspaceChoice;
   readonly agentRole: AgentRole;
   readonly threadMode: ScheduledTaskThreadMode;
+  readonly purpose: ScheduledTaskPurpose;
   /** The thread picked in this editor; null keeps the one the task is stored with. */
   readonly destination: ScheduledTaskDestination | null;
 }
@@ -257,13 +274,13 @@ export function ScheduledTasksPage(props: {
   readonly taskId?: string | undefined;
 }) {
   const sources = useAllScheduledTasks();
-  const [scope, setScope] = useState<TaskScope>("all");
+  const [purposeFilter, setPurposeFilter] = useState<TaskPurposeFilter>("all");
   const allGroups = groupScheduledTasks(
     sources.flatMap((source) =>
       source.tasks === null ? [] : [{ environmentId: source.environmentId, tasks: source.tasks }],
     ),
   );
-  const groups = allGroups.filter((group) => matchesTaskScope(group, scope));
+  const groups = allGroups.filter((group) => matchesTaskPurpose(group, purposeFilter));
   const linkedKey = allGroups.find((group) =>
     group.members.some(
       (member) =>
@@ -302,81 +319,95 @@ export function ScheduledTasksPage(props: {
   const errors = sources.filter((source) => source.error !== null);
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="flex w-72 shrink-0 flex-col border-e">
-        <div className="flex items-center justify-between px-3 py-2">
-          <span className="text-muted-foreground text-xs">
-            {groups.length === 1 ? "1 task" : `${groups.length} tasks`}
-          </span>
-          <Button
-            size="xs"
-            variant="ghost-muted"
-            disabled={creationEnvironment === null}
-            onClick={() => setSelected("new")}
-          >
-            <PlusIcon className="size-3" />
-            New task
-          </Button>
-        </div>
-        <ToggleGroup
-          aria-label="Filter tasks"
-          className="mx-3 mb-2"
-          value={[scope]}
-          onValueChange={(next) => {
-            const value = next[0];
-            if (value === "all" || value === "thread" || value === "global") setScope(value);
-          }}
+    <>
+      <WorkspacePageHeader electron={isElectron}>
+        <WorkspaceBreadcrumb ariaLabel="Scheduled breadcrumb" className="min-w-0 py-2">
+          <WorkspaceBreadcrumbItem>
+            <h1>Scheduled</h1>
+          </WorkspaceBreadcrumbItem>
+        </WorkspaceBreadcrumb>
+        <Button
+          className="ms-auto"
+          size="xs"
+          variant="ghost-muted"
+          disabled={creationEnvironment === null}
+          onClick={() => setSelected("new")}
         >
-          <Toggle value="all">All</Toggle>
-          <Toggle value="thread">In a thread</Toggle>
-          <Toggle value="global">Global</Toggle>
-        </ToggleGroup>
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-          {errors.map((source) => (
-            <p key={source.environmentId} className="px-2 py-1 text-destructive text-xs">
-              {source.error}
-            </p>
-          ))}
-          {loading ? <p className="px-2 py-1 text-muted-foreground text-xs">Loading…</p> : null}
-          {!loading && groups.length === 0 && allGroups.length > 0 ? (
-            <p className="px-2 py-1 text-muted-foreground text-xs">
-              No {scope === "thread" ? "thread" : "global"} tasks.
-            </p>
+          <PlusIcon className="size-3" />
+          New task
+        </Button>
+      </WorkspacePageHeader>
+      <div className="flex min-h-0 flex-1">
+        <div className="flex w-84 shrink-0 flex-col border-e">
+          <ToggleGroup
+            aria-label="Filter tasks"
+            className="mx-3 mt-3 mb-2"
+            value={[purposeFilter]}
+            onValueChange={(next) => {
+              const value = next[0];
+              if (value === "all" || value === "check_back" || value === "long_running") {
+                setPurposeFilter(value);
+              }
+            }}
+          >
+            {PURPOSE_FILTERS.map((filter) => (
+              <Toggle key={filter.value} value={filter.value}>
+                {filter.label}
+                {loading ? null : (
+                  <span className="text-muted-foreground text-xs tabular-nums">
+                    {allGroups.filter((group) => matchesTaskPurpose(group, filter.value)).length}
+                  </span>
+                )}
+              </Toggle>
+            ))}
+          </ToggleGroup>
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+            {errors.map((source) => (
+              <p key={source.environmentId} className="px-2 py-1 text-destructive text-xs">
+                {source.error}
+              </p>
+            ))}
+            {loading ? <p className="px-2 py-1 text-muted-foreground text-xs">Loading…</p> : null}
+            {!loading && groups.length === 0 && allGroups.length > 0 ? (
+              <p className="px-2 py-1 text-muted-foreground text-xs">
+                {purposeFilter === "check_back" ? "No check-backs." : "No long-running tasks."}
+              </p>
+            ) : null}
+            {groups.map((group) => (
+              <TaskListItem
+                key={group.key}
+                group={group}
+                active={group.key === activeKey}
+                onSelect={() => setSelected(group.key)}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="min-w-0 flex-1 overflow-y-auto">
+          <TaskDetail
+            key={activeKey}
+            group={activeGroup}
+            defaultMachine={creationEnvironment}
+            onSaved={(key) => setSelected(key)}
+            onDeleted={() => {
+              setSelected(null);
+              setShown(null);
+            }}
+          />
+          {!loading && groups.length === 0 && activeKey === "new" && sources.length === 0 ? (
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <CalendarClockIcon />
+                </EmptyMedia>
+                <EmptyTitle>No machines connected</EmptyTitle>
+                <EmptyDescription>Connect a machine to schedule tasks on it.</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           ) : null}
-          {groups.map((group) => (
-            <TaskListItem
-              key={group.key}
-              group={group}
-              active={group.key === activeKey}
-              onSelect={() => setSelected(group.key)}
-            />
-          ))}
         </div>
       </div>
-      <div className="min-w-0 flex-1 overflow-y-auto">
-        <TaskDetail
-          key={activeKey}
-          group={activeGroup}
-          defaultMachine={creationEnvironment}
-          onSaved={(key) => setSelected(key)}
-          onDeleted={() => {
-            setSelected(null);
-            setShown(null);
-          }}
-        />
-        {!loading && groups.length === 0 && activeKey === "new" && sources.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <CalendarClockIcon />
-              </EmptyMedia>
-              <EmptyTitle>No machines connected</EmptyTitle>
-              <EmptyDescription>Connect a machine to schedule tasks on it.</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : null}
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -444,6 +475,7 @@ function draftOf(
     workspace: lead ? workspaceChoiceOf(lead.workspaceStrategy) : "fresh",
     agentRole: lead?.agentRole ?? DEFAULT_ROLE,
     threadMode: lead ? scheduledTaskThreadMode(lead) : "new_thread",
+    purpose: lead ? scheduledTaskPurpose(lead) : "long_running",
     destination: null,
   };
 }
@@ -554,6 +586,7 @@ function TaskDetail(props: {
       workspace: draft.workspace,
       agentRole: draft.agentRole,
       threadMode: draft.threadMode,
+      purpose: draft.purpose,
       destination: draft.destination,
     },
     groupId: "",
@@ -711,6 +744,18 @@ function TaskDetail(props: {
       </div>
 
       <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+        <Select value={draft.purpose} onValueChange={(purpose) => purpose && update({ purpose })}>
+          <SelectTrigger size="xs" variant="ghost" aria-label="What this task is">
+            <SelectValue>{PURPOSE_LABELS[draft.purpose]}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup>
+            {(Object.keys(PURPOSE_LABELS) as ScheduledTaskPurpose[]).map((purpose) => (
+              <SelectItem key={purpose} value={purpose}>
+                {PURPOSE_LABELS[purpose]}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
         <Select
           value={draft.kind}
           onValueChange={(kind) => {

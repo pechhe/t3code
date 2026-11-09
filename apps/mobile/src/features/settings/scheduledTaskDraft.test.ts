@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   DEFAULT_SERVER_SETTINGS,
+  type ScheduledTask,
   type ServerConfig,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -9,6 +10,8 @@ import {
 import {
   scheduledTaskDefaultModel,
   DEFAULT_SCHEDULE,
+  editDraft,
+  hasScheduledTaskDraftChanges,
   scheduleDraftForTask,
   scheduleFromDraft,
 } from "./scheduledTaskDraft";
@@ -79,6 +82,22 @@ describe("scheduleDraftForTask", () => {
     expect(
       scheduleFromDraft({ ...draft, filters: [{ id: "f1", path: "", op: "exists", value: "" }] }),
     ).toBeNull();
+  });
+});
+
+describe("editDraft", () => {
+  it("reads a task's label, and relabelling counts as a change to save", () => {
+    const task = {
+      projectId: ProjectId.make("project"),
+      schedule: { type: "fixed_time", timeOfDay: "09:00" },
+      workspaceStrategy: { type: "root" },
+      purpose: "check_back",
+    } as ScheduledTask;
+    const draft = editDraft(task);
+    expect(draft.purpose).toBe("check_back");
+    expect(editDraft({ ...task, purpose: undefined }).purpose).toBe("long_running");
+    expect(hasScheduledTaskDraftChanges(draft, draft)).toBe(false);
+    expect(hasScheduledTaskDraftChanges(draft, { ...draft, purpose: "long_running" })).toBe(true);
   });
 });
 

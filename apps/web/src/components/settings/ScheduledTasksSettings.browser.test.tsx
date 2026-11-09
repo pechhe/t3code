@@ -181,7 +181,8 @@ describe("ScheduledTasksSettings", () => {
   it("lists the tasks on connected machines and opens the linked one", async () => {
     setup();
     await using _screen = await render(<ScheduledTasksSettings taskId={task.id} />);
-    await expect.element(page.getByText("1 task")).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "All 1" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Check-backs 0" })).toBeVisible();
     await expect
       .element(page.getByRole("textbox", { name: "Task name" }))
       .toHaveValue("Review issues");
