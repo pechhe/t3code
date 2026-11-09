@@ -898,6 +898,20 @@ const make = Effect.gen(function* () {
       );
       if (root !== null && !isFilesystemRoot(root, path)) roots.push(root);
     }
+    const worktreePathReason = Effect.fn("StorageCleanup.worktreePathReason")(function* (
+      worktreePath: string,
+    ) {
+      // Allow symlinked parents, never a symlinked worktree directory.
+      const realPath = yield* fs.realPath(worktreePath);
+      const realParent = yield* fs.realPath(path.dirname(worktreePath));
+      if (realPath !== path.join(realParent, path.basename(worktreePath)))
+        return "worktree is a symbolic link";
+      if (!roots.some((root) => inside(root, realPath)))
+        return "outside the managed worktree folder";
+      if ((yield* fs.stat(path.join(worktreePath, ".git"))).type !== "File")
+        return "not a linked worktree";
+      return null;
+    });
     const deletedRows = yield* sql<{ payload_json: string; workspaceRoot: string }>`
           SELECT t.payload_json, p.workspace_root AS "workspaceRoot"
           FROM orchestration_v2_projection_threads t
@@ -995,21 +1009,6 @@ const make = Effect.gen(function* () {
         if (group.some((member) => member.branch !== thread.branch))
           return keep("a subagent thread's branch differs from this worktree's branch");
         if (hasTerminal(worktreePath)) return keep(waitForStop("open terminal"));
-        // Compare canonical roots while allowing symlinked parents, never symlinked worktree directories.
-        const realPath = yield* fs.realPath(worktreePath);
-        const realParent = yield* fs.realPath(path.dirname(worktreePath));
-        if (realPath !== path.join(realParent, path.basename(worktreePath)))
-          return keep("worktree is a symbolic link");
-        if (!slipJay && !roots.some((root) => inside(root, realPath)))
-          return keep("outside the managed worktree folder");
-        if (yield* containsProjectRoot(worktreePath, [project, ...snapshot.projects]))
-          return keep("contains a project checkout");
-        if (!slipJay && (yield* fs.stat(path.join(worktreePath, ".git"))).type !== "File")
-          return keep("not a linked worktree");
-        if (!slipJay && (yield* branchChanged(worktreePath, thread.branch)))
-          return keep("repository or branch changed");
-        const changes = yield* localChangesReason(worktreePath, settings);
-        if (changes !== null) return keep(changes);
         if (
           [...group, ...settlementChain.slice(1)].some(
             (member) =>
@@ -1042,6 +1041,34 @@ const make = Effect.gen(function* () {
         let eligible = policy.eligible;
         let removalReason =
           policy.reason ?? (deleted ? "thread was deleted" : `settled for ${settledDays} days`);
+        const notDueReason =
+          !deleted && settings.worktreeAfterDays !== null
+            ? `inactive for ${Math.floor((now - activityAt) / DAY_MS)} of ${settings.worktreeAfterDays} days`
+            : settings.worktreeSettledAfterDays !== null
+              ? settledFor === null
+                ? "not settled"
+                : `settled for ${settledDays} of ${settings.worktreeSettledAfterDays} days`
+              : settings.worktreeOnMerge
+                ? "not merged"
+                : "has commits beyond the default branch";
+        // Only Git-based rules can make a not-yet-due worktree eligible, so skip Git otherwise.
+        if (!eligible && !settings.worktreeUnchanged && !settings.worktreeOnMerge)
+          return keep(notDueReason);
+        // Compare canonical roots while allowing symlinked parents, never symlinked worktree directories.
+        const realPath = yield* fs.realPath(worktreePath);
+        const realParent = yield* fs.realPath(path.dirname(worktreePath));
+        if (realPath !== path.join(realParent, path.basename(worktreePath)))
+          return keep("worktree is a symbolic link");
+        if (!slipJay && !roots.some((root) => inside(root, realPath)))
+          return keep("outside the managed worktree folder");
+        if (yield* containsProjectRoot(worktreePath, [project, ...snapshot.projects]))
+          return keep("contains a project checkout");
+        if (!slipJay && (yield* fs.stat(path.join(worktreePath, ".git"))).type !== "File")
+          return keep("not a linked worktree");
+        if (!slipJay && (yield* branchChanged(worktreePath, thread.branch)))
+          return keep("repository or branch changed");
+        const changes = yield* localChangesReason(worktreePath, settings);
+        if (changes !== null) return keep(changes);
         if (!eligible && (settings.worktreeUnchanged || settings.worktreeOnMerge)) {
           const repositoryCwd = path.resolve(project.workspaceRoot);
           const remotes = yield* git.execute({
@@ -1137,18 +1164,7 @@ const make = Effect.gen(function* () {
           }
           if (!eligible && remote === null) return keep("has commits beyond the project branch");
         }
-        if (!eligible)
-          return keep(
-            !deleted && settings.worktreeAfterDays !== null
-              ? `inactive for ${Math.floor((now - activityAt) / DAY_MS)} of ${settings.worktreeAfterDays} days`
-              : settings.worktreeSettledAfterDays !== null
-                ? settledFor === null
-                  ? "not settled"
-                  : `settled for ${settledDays} of ${settings.worktreeSettledAfterDays} days`
-                : settings.worktreeOnMerge
-                  ? "not merged"
-                  : "has commits beyond the default branch",
-          );
+        if (!eligible) return keep(notDueReason);
         // Re-read this path's threads and sessions so new activity cancels removal; full per-worktree snapshots take seconds.
         const blockedSinceCheck = Effect.fnUntraced(function* () {
           const latestProjects = yield* projectStore.listShells();
@@ -1239,88 +1255,97 @@ const make = Effect.gen(function* () {
         });
         const blocked = yield* blockedSinceCheck();
         if (blocked !== null) return keep(blocked);
+        // Size is an estimate; provider startup must not wait for directory traversal.
         const bytes = yield* measureWorktree(worktreePath);
-        const blockedWhileMeasuring = yield* blockedSinceCheck();
-        if (blockedWhileMeasuring !== null) return keep(blockedWhileMeasuring);
-        if (!slipJay && (yield* branchChanged(worktreePath, thread.branch)))
-          return keep("repository or branch changed since check");
-        if (
-          (yield* git.resolveCommit({ cwd: worktreePath, revision: "HEAD" })).commitSha !==
-          head.commitSha
-        )
-          return keep("commit changed since check");
-        const finalChanges = yield* localChangesReason(worktreePath, settings);
-        if (finalChanges !== null) return keep(finalChanges);
-        const currentSettings = yield* settingsService.getSettings;
-        const current = resolveWorktreeCleanup(currentSettings, thread.projectId);
-        if (
-          currentSettings.autoResumeLimitedThreads !== serverSettings.autoResumeLimitedThreads ||
-          currentSettings.snoozeLimitedThreads !== serverSettings.snoozeLimitedThreads ||
-          Object.keys(settings).some(
-            (key) =>
-              current[key as keyof typeof settings] !== settings[key as keyof typeof settings],
-          )
-        )
-          return keep("settings changed since check");
-        // Clean only untracked files. Ordinary worktrees retain Git's final tracked-edit check.
-        // `git clean` would delete the ignored and untracked bytes before SlipJay archives
-        // them, so it is a git-worktree step only; SlipJay's own freshness check covers them.
-        if (settings.worktreeKeepWhen === "tracked-changes" && !slipJay)
-          yield* cleanupGit(worktreePath, ["clean", "-ffdx"], "git clean");
-        const submodules = slipJay
-          ? { reason: null, force: false }
-          : yield* submoduleRemoval(worktreePath, settings);
-        if (submodules.reason !== null) return keep(submodules.reason);
-        if (submodules.force) {
-          const changes = yield* localChangesReason(worktreePath, settings);
-          if (changes !== null) return keep(changes);
-        }
-        if (slipJay) {
-          // Every gate has agreed; SlipJay archives the checkout before it retires it, and
-          // anything it declines keeps the checkout here. Nothing falls back to git.
-          const released = yield* Effect.promise(() =>
-            releaseSlipJayWorkspace({
-              workspacePath: path.resolve(worktreePath),
-              threadId: thread.id,
-              settledAt: thread.settledAt === null ? null : DateTime.formatIso(thread.settledAt),
-              run: hostReleaseRunner,
-            }),
-          );
-          if (released.kind !== "retired") {
-            return keep(
-              released.kind === "unavailable"
-                ? `kept: ${released.reason}`
-                : released.kind === "uncertain"
-                  ? `kept: SlipJay could not confirm the release (${released.reason}); reconcile before using it`
-                  : `kept: SlipJay would not release it (${released.reason})`,
-            );
-          }
-          entries.push({
-            ...entry,
-            outcome: "removed",
-            reason: sentence(`${removalReason}, released through SlipJay`),
-            bytes,
-          });
-          yield* gitManager.invalidateStatus(project.workspaceRoot).pipe(Effect.asVoid);
-          return yield* Effect.logInfo("storage cleanup released a SlipJay workspace", {
-            threadId: thread.id,
-          });
-        }
-        yield* removeLinkedWorktree({
-          operation: "StorageCleanup.cleanupGit",
-          cwd: project.workspaceRoot,
+        yield* withWorkspaceLease(
           worktreePath,
-          // Git requires force for submodules; recursive checks above cannot make removal atomic.
-          force: submodules.force,
-          execute: git.execute,
-          run: (args) => cleanupGit(project.workspaceRoot, [...args], "git worktree remove"),
-        });
-        entries.push({ ...entry, outcome: "removed", reason: sentence(removalReason), bytes });
-        yield* gitManager.invalidateStatus(project.workspaceRoot);
-        // Preserve branch/path so ProviderTurnStartService can recreate the checkout on resume.
-        yield* Effect.logInfo("storage cleanup removed worktree", { threadId: thread.id });
+          Effect.gen(function* () {
+            const pathReason = yield* worktreePathReason(worktreePath);
+            if (pathReason !== null) return keep(pathReason);
+            const blockedWhileMeasuring = yield* blockedSinceCheck();
+            if (blockedWhileMeasuring !== null) return keep(blockedWhileMeasuring);
+            if (!slipJay && (yield* branchChanged(worktreePath, thread.branch)))
+              return keep("repository or branch changed since check");
+            if (
+              (yield* git.resolveCommit({ cwd: worktreePath, revision: "HEAD" })).commitSha !==
+              head.commitSha
+            )
+              return keep("commit changed since check");
+            const finalChanges = yield* localChangesReason(worktreePath, settings);
+            if (finalChanges !== null) return keep(finalChanges);
+            const currentSettings = yield* settingsService.getSettings;
+            const current = resolveWorktreeCleanup(currentSettings, thread.projectId);
+            if (
+              currentSettings.autoResumeLimitedThreads !==
+                serverSettings.autoResumeLimitedThreads ||
+              currentSettings.snoozeLimitedThreads !== serverSettings.snoozeLimitedThreads ||
+              Object.keys(settings).some(
+                (key) =>
+                  current[key as keyof typeof settings] !== settings[key as keyof typeof settings],
+              )
+            )
+              return keep("settings changed since check");
+            // Clean only untracked files. Ordinary worktrees retain Git's final tracked-edit check.
+            // `git clean` would delete the ignored and untracked bytes before SlipJay archives
+            // them, so it is a git-worktree step only; SlipJay's own freshness check covers them.
+            if (settings.worktreeKeepWhen === "tracked-changes" && !slipJay)
+              yield* cleanupGit(worktreePath, ["clean", "-ffdx"], "git clean");
+            const submodules = slipJay
+              ? { reason: null, force: false }
+              : yield* submoduleRemoval(worktreePath, settings);
+            if (submodules.reason !== null) return keep(submodules.reason);
+            if (submodules.force) {
+              const changes = yield* localChangesReason(worktreePath, settings);
+              if (changes !== null) return keep(changes);
+            }
+            if (slipJay) {
+              // Every gate has agreed; SlipJay archives the checkout before it retires it, and
+              // anything it declines keeps the checkout here. Nothing falls back to git.
+              const released = yield* Effect.promise(() =>
+                releaseSlipJayWorkspace({
+                  workspacePath: path.resolve(worktreePath),
+                  threadId: thread.id,
+                  settledAt:
+                    thread.settledAt === null ? null : DateTime.formatIso(thread.settledAt),
+                  run: hostReleaseRunner,
+                }),
+              );
+              if (released.kind !== "retired") {
+                return keep(
+                  released.kind === "unavailable"
+                    ? `kept: ${released.reason}`
+                    : released.kind === "uncertain"
+                      ? `kept: SlipJay could not confirm the release (${released.reason}); reconcile before using it`
+                      : `kept: SlipJay would not release it (${released.reason})`,
+                );
+              }
+              entries.push({
+                ...entry,
+                outcome: "removed",
+                reason: sentence(`${removalReason}, released through SlipJay`),
+                bytes,
+              });
+              yield* gitManager.invalidateStatus(project.workspaceRoot).pipe(Effect.asVoid);
+              return yield* Effect.logInfo("storage cleanup released a SlipJay workspace", {
+                threadId: thread.id,
+              });
+            }
+            yield* removeLinkedWorktree({
+              operation: "StorageCleanup.cleanupGit",
+              cwd: project.workspaceRoot,
+              worktreePath,
+              // Git requires force for submodules; recursive checks above cannot make removal atomic.
+              force: submodules.force,
+              execute: git.execute,
+              run: (args) => cleanupGit(project.workspaceRoot, [...args], "git worktree remove"),
+            });
+            entries.push({ ...entry, outcome: "removed", reason: sentence(removalReason), bytes });
+            yield* gitManager.invalidateStatus(project.workspaceRoot).pipe(Effect.asVoid);
+            // Preserve branch/path so ProviderTurnStartService can recreate the checkout on resume.
+            yield* Effect.logInfo("storage cleanup removed worktree", { threadId: thread.id });
+          }),
+        );
       }).pipe(
-        (effect) => withWorkspaceLease(worktreePath, effect),
         Effect.catch((error) =>
           Effect.gen(function* () {
             entries.push({

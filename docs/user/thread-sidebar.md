@@ -12,6 +12,12 @@ question. With a chip focused, type a project's name to jump to it. To start in
 your current project instead, press `mod+shift+n`. A machine that cannot run
 threads without a project starts in your current project.
 
+On mobile, **New thread** starts in the current thread's project, or else in the
+last project you opened or chose on that device. If neither is available, the
+project picker opens. Turn off **Settings → General → Use last project** to
+choose a project every time. When you pick a project that is on more than one
+machine, the thread starts on a connected one if any is connected.
+
 A new thread carries your model and mode selections, unless the destination
 project has its own model default. Its branch and workspace mode come from your
 configured defaults. To continue in an existing worktree, use **New thread in
@@ -196,7 +202,8 @@ project's folder comes last and shows only while it has active threads. Click a 
 close it. A closed folder shows how many threads it holds, and a dot when one of them
 needs you. Use the pen button on a folder, or right-click it, to start a thread in that project.
 Pinned threads stay above the folders, and Snoozed and Settled stay below them. In this mode you
-cannot drag threads, and the Working section is off. Each device keeps its own choice.
+can drag a thread onto the composer to mention it, but not within the sidebar, and the Working
+section is off. Each device keeps its own choice.
 
 ## Settle finished work
 

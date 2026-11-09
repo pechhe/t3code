@@ -116,7 +116,6 @@ function ChampionModelField(props: {
             model={selection.model}
             modelOptions={selection.options ?? []}
             allowPromptInjectedEffort={false}
-            planModeEnabled={settings.planModeEnabled}
             disabled={props.disabled}
             onModelOptionsChange={(options) =>
               props.onChange(createModelSelection(selection.instanceId, selection.model, options))

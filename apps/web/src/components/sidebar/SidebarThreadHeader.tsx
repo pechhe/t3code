@@ -19,7 +19,8 @@ export interface SidebarThreadHeaderProps {
   onNewThread: (event: ReactMouseEvent) => void;
   newThreadDisabled: boolean;
   newThreadShortcutLabel: string | null | undefined;
-  /** Shift+click only matters once there is more than one project to pick. */
+  newThreadInProjectShortcutLabel: string | null | undefined;
+  showNewThreadInProjectHint: boolean;
   searchInputRef: RefObject<HTMLInputElement | null>;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
@@ -37,6 +38,8 @@ export function SidebarThreadHeader({
   onNewThread,
   newThreadDisabled,
   newThreadShortcutLabel,
+  newThreadInProjectShortcutLabel,
+  showNewThreadInProjectHint,
   searchInputRef,
   searchQuery,
   onSearchQueryChange,
@@ -104,7 +107,19 @@ export function SidebarThreadHeader({
         ) : null}
         <SidebarHeaderIconButton
           label="New thread"
-          tooltip={newThreadLabel}
+          tooltip={
+            showNewThreadInProjectHint ? (
+              <span className="flex flex-col gap-0.5">
+                <span>{newThreadLabel}</span>
+                <span className="text-muted-foreground">
+                  New thread in current project: Shift+click
+                  {newThreadInProjectShortcutLabel ? ` (${newThreadInProjectShortcutLabel})` : ""}
+                </span>
+              </span>
+            ) : (
+              newThreadLabel
+            )
+          }
           disabled={newThreadDisabled}
           onClick={onNewThread}
         >

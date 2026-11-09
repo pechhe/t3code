@@ -71,7 +71,6 @@ export function TrialModelPicker({
           model={selection.model}
           modelOptions={selection.options ?? []}
           allowPromptInjectedEffort={false}
-          planModeEnabled={settings.planModeEnabled}
           onModelOptionsChange={(next) =>
             onChange(createModelSelection(selection.instanceId, selection.model, next))
           }

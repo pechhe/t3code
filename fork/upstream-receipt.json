@@ -3,32 +3,32 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.8-nightly.20261108.4367",
-      "sha": "6417151c093e54dbba0e6c824c69d03983793b9a"
-    },
-    "target": {
       "tag": "v0.1.8-nightly.20261108.4380",
       "sha": "ade473018d32003658b7d38693e083ee2e314bd8"
+    },
+    "target": {
+      "tag": "v0.1.8-nightly.20261109.4399",
+      "sha": "357fb754fa9dae4111f0945fb8a13d30b012a62a"
     }
   },
   "fork": {
-    "base": "64a47a45e4e332de75d13f0eabecf97cb31ddfd6"
+    "base": "54c5a266f72786b974455fe64f96bb75cc560df8"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "e9e3dd287154a91197aeb5eb317711a65033fde0"
+    "blob": "533d568c51d9e8b59b71677bb0fc5ed7e909d977"
   },
   "policy": {
-    "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
+    "requiredLandingVerificationSha256": "093dbe88be4984118fc342b378aeb30872edcdbd7ec0cdd88e02a4753412814e"
   },
-  "attempt": "v0.1.8-nightly.20261108.4380@1794166121",
-  "reviewedAt": "2026-11-08T19:35:00Z",
+  "attempt": "v0.1.8-nightly.20261109.4399@1794215022",
+  "reviewedAt": "2026-11-09T09:34:54Z",
   "reviewer": {
-    "thread": "thread:delegated-task:command%3Amcp%3Athread%253Athread%253Aproject%253Amcp%25253A2839a4ae-3ff8-46cd-8c81-2763c53b5b42%253A336830cf-9076-4c33-b295-16131c738d81%3Adelegate-task%3Afork-4380-review-1",
-    "model": "claude-sonnet-5-5"
+    "thread": "thread:delegated-task:command%3Amcp%3Athread%253Athread%253Aproject%253Amcp%25253A2839a4ae-3ff8-46cd-8c81-2763c53b5b42%253A592a1f6a-307b-4ab1-b123-0fdb51b1ae0c%3Adelegate-task%3Afork-4399-review-1",
+    "model": "opencode-go/crouton-alpha-free"
   },
   "coverage": {
-    "upstreamCommits": 1,
+    "upstreamCommits": 49,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
@@ -107,47 +107,228 @@
       "champion-journey-checks"
     ],
     "areas": [
-      "provider maintenance (mise): upstream #21524 makes mise-installed providers requested as latest update through `mise upgrade <tool>` instead of their own updater \u2014 each driver (Claude, Codex, Grok, Muse, OpenCode, Pi) names its fixed mise tool, maintenanceResolver checks mise first, requires mise to resolve the binary with an active latest-requested install, and keeps pinned/versioned/wrapper paths manual-only; docs updated in providers.md and install.md. No fork code in any touched file except an unrelated generateCompactionSummary addition in the OpenCode driver, which merged cleanly; no fork entry covers provider maintenance, so this is aside/adopt with no record change",
-      "no structural changes: no contracts, migrations, dependencies, catalog, override or lockfile change, and no platform service split"
+      "Sidebar/VCS branch status without full git status (#32947) and its new subscribeVcsBranch/vcsRefreshBranch RPCs",
+      "Worktree speed-ups: cached local clone for macOS worktrees (#32927), skipped cleanup scans (#32933), batched branch allocation (#32934)",
+      "Secret cards: sign-in link as button (#33157), sudo via secret card (#27748), duplicate variable row fix (#31337), Simlock token list on provider removal (#31754)",
+      "Prompt suggestions in Labs (#28047) plus Labs cleanup removing plan mode (#33131)",
+      "Database-space reclaim in one click (#32941) via serverReclaimDatabaseSpace",
+      "Thread links: angle-bracketed destinations (#30709) and unloaded-thread title/icon metadata (#32830)",
+      "Antigravity agy CLI full-access/auto-accept session mode (#33143) and slow browser preflights (#25211)",
+      "ContextWindowMeter renamed to compaction.logic; ContextWindowMeter.tsx deleted",
+      "Mobile: Enriched Markdown t3.18 sync with the fork-carried patch deleted, Mermaid/math fences, image save, side-chat readability, socket compression, thread-list cache",
+      "Desktop/install: Linux ARM64 server bytecode, cached desktop downloads, Windows signing retries, install-the-t3-command and npx t3 offer",
+      "Delegated results wake idle parents (#32573)",
+      "Dependencies: pnpm-workspace/pnpm-lock resolutions keep the fork's newer catalog entries (clerk, electron-webauthn, jose, noble) where the fork is ahead, upstream's where upstream is ahead (react-native-enriched-markdown t3.18)"
     ],
     "exclusions": [
       {
-        "what": "upstream's own changes and their tests",
-        "why": "upstream reviewed them; this reconciliation reviews only its own conflict resolutions (none \u2014 clean merge), the record and this receipt per fork/README.md"
+        "what": "Upstream's own code changes (345 files, 49 commits)",
+        "why": "upstream reviewed them; the reconciliation reviews only the merge's conflict resolutions and the record/receipt"
       },
       {
-        "what": "dependency and catalog comparison",
-        "why": "this tag changes no manifest, catalog entry, override, patch or lockfile entry on either side"
+        "what": "pnpm-lock.yaml per-entry audit beyond vp i consistency",
+        "why": "the lockfile was regenerated from upstream's side and the fork's kept catalog entries; vp i verifies it is up to date"
       }
     ]
   },
-  "dispositions": [],
+  "dispositions": [
+    {
+      "entry": "ws-rpc-group-split",
+      "upstream": "#32947, #32941, #32830, #28047 RPC additions to packages/contracts/src/rpc.ts and apps/server/src/ws.ts",
+      "decision": "adapt",
+      "requirements": [
+        "Every WebSocket RPC is served through the feature group that owns its area; a new RPC joins a feature group rather than the core group; layer requirement, error and output types stay typed"
+      ],
+      "evidence": [
+        "packages/contracts/src/rpc.ts (WsVcsRpcGroup; subscribePromptSuggestion and getThreadLinkMetadata in WsThreadStructureRpcGroup; serverReclaimDatabaseSpace in WsServerOperationsRpcGroup)",
+        "apps/server/src/ws.ts (layerWsVcsRpc, thread-structure prompt-suggestion handler; each group's toLayer registers its handlers)",
+        "vp run --filter t3 typecheck and --filter @t3tools/web typecheck pass; review F1 addressed: no new RPC in the core group"
+      ]
+    },
+    {
+      "entry": "compact-line",
+      "upstream": "upstream rename of ContextWindowMeter.logic.ts to compaction.logic.ts",
+      "decision": "adopt",
+      "requirements": [
+        "The context bar's auto-compact marker, per-thread point and model point are unchanged"
+      ],
+      "evidence": [
+        "apps/web/src/components/chat/compaction.logic.ts",
+        "compaction.logic.test.ts passes"
+      ]
+    },
+    {
+      "entry": "compact-model",
+      "upstream": "upstream rename of ContextWindowMeter.logic.test.ts to compaction.logic.test.ts",
+      "decision": "adopt",
+      "requirements": [
+        "The summarising model, cross-account summary path and compaction item's model are unchanged"
+      ],
+      "evidence": [
+        "fork/differences.md proof path updated to compaction.logic.test.ts"
+      ]
+    },
+    {
+      "entry": "slipjay-workspaces",
+      "upstream": "#32927, #32933, #32934 worktree speed-ups",
+      "decision": "adopt",
+      "requirements": [
+        "SlipJay allocation, settlement and the sweep are unchanged; upstream's changes touch git worktree paths only"
+      ],
+      "evidence": [
+        "apps/server/src/vcs",
+        "storageCleanup.ts"
+      ]
+    },
+    {
+      "entry": "slipjay-workspace-archive",
+      "upstream": "#32933 cleanup-scan skip, #32941 database reclaim",
+      "decision": "adopt",
+      "requirements": [
+        "A SlipJay workspace is still released through SlipJay (slipjay retire), never git"
+      ],
+      "evidence": [
+        "apps/server/src/storageCleanup.ts",
+        "persistence/DatabaseMaintenance.ts"
+      ]
+    },
+    {
+      "entry": "mobile-fork-screens",
+      "upstream": "Enriched Markdown t3.18 sync (patch deleted), Mermaid/math fences, image save, side-chat readability, socket compression, thread-list cache",
+      "decision": "adapt",
+      "requirements": [
+        "Fork screens, Forge item header/sheet, workflow badge, release approval card, Jujutsu labels and settings entries stay; the fork-carried enriched-markdown patch is retired because upstream's t3.18 tarball carries the behaviour"
+      ],
+      "evidence": [
+        "apps/mobile/deps/react-native-enriched-markdown-1.2.0-t3.18-4287c5d3.tgz",
+        "patches/ (patch deleted)",
+        "apps/mobile/src/lib/enrichedLinkPresentation.test.ts passes"
+      ]
+    },
+    {
+      "entry": "desktop-fork-build",
+      "upstream": "Linux ARM64 server bytecode, cached desktop downloads, Windows signing retries, install t3 command",
+      "decision": "adopt",
+      "requirements": [
+        "no update feed, local signing, screen-picker staging and T3 Peach name are unchanged; never push or open a PR"
+      ],
+      "evidence": [
+        "scripts/lib/server-compile-cache.ts",
+        "scripts/install.sh",
+        "scripts/install.ps1",
+        ".github/workflows/release-desktop.yml"
+      ]
+    },
+    {
+      "entry": "managed-delegation",
+      "upstream": "#32573 wake idle parents for late delegated results",
+      "decision": "adopt",
+      "requirements": [
+        "The fork's completion hold (any pending background work holds a thread's completion) and managed follow-up are unchanged"
+      ],
+      "evidence": [
+        "apps/server/src/orchestration-v2/Orchestrator.ts"
+      ]
+    },
+    {
+      "entry": "t3-agent-cli",
+      "upstream": "#33150 npx t3 install offer, #33153 fresh-install t3 command setup",
+      "decision": "adopt",
+      "requirements": [
+        "t3 agent commands, AgentCliClient and the workspace_* read-only inspection toolkit are unchanged"
+      ],
+      "evidence": [
+        "scripts/install.sh",
+        "packaging/cli"
+      ]
+    },
+    {
+      "entry": "experiments",
+      "upstream": "#28047 Labs prompt suggestions, #33131 Labs cleanup (plan mode removed)",
+      "decision": "adopt",
+      "requirements": [
+        "Experiment enrolment, setup records, cut points and levers are untouched"
+      ],
+      "evidence": [
+        "packages/contracts/src/orchestrationV2.ts (subscribePromptSuggestion)",
+        "apps/web/src/components/chat/usePromptSuggestion.ts",
+        "CodexAdapterV2.test.ts prompt-suggestion cases pass"
+      ]
+    },
+    {
+      "entry": "perf-secret-reads",
+      "upstream": "#33157, #27748, #31337, #31754 secret card fixes",
+      "decision": "adopt",
+      "requirements": [
+        "ServerSecretStore.get still answers repeated reads from memory; writes/creates/removals forget the cache"
+      ],
+      "evidence": [
+        "apps/web/src/components/chat/SecretRequestCard.tsx",
+        "packages/contracts/src/secretRequest.ts"
+      ]
+    },
+    {
+      "entry": "perf-markdown-blocks",
+      "upstream": "markdownPipeline extension, #30709 angle-bracket thread links, #32830 link metadata",
+      "decision": "adopt",
+      "requirements": [
+        "A message renders as memoised top-level blocks; an update re-renders only the block it changed"
+      ],
+      "evidence": [
+        "packages/shared/src/markdownPipeline.ts",
+        "packages/shared/src/threadLinks.ts",
+        "packages/shared/src/threadLinks.test.ts passes"
+      ]
+    },
+    {
+      "entry": "thread-handoff",
+      "upstream": "#32830 getThreadLinkMetadata RPC",
+      "decision": "adopt",
+      "requirements": [
+        "The handoff port and its extensions (departing until import id shows, released only on answered refusal or unlink, full-access link carries a move) are unchanged"
+      ],
+      "evidence": [
+        "packages/contracts/src/orchestrationV2.ts",
+        "packages/contracts/src/rpc.ts (WsThreadStructureRpcGroup)"
+      ]
+    }
+  ],
   "unresolved": [],
   "checks": [
     {
       "command": "vp i",
       "result": "passed",
-      "note": "lockfile up to date; this tag changes no manifest or lockfile entry"
+      "note": "lockfile up to date; +70 -71 packages (enriched-markdown t3.18, catalog resolutions)"
     },
     {
-      "command": "vp test run src/server/maintenanceResolver.test.ts (packages/provider-core)",
+      "command": "vp test run apps/mobile/src/lib/enrichedLinkPresentation.test.ts apps/server/src/provider/antigravityAuthSupport.test.ts packages/shared/src/threadLinks.test.ts",
       "result": "passed",
-      "note": "100 tests passed, including the new mise resolution cases"
+      "note": "56 tests passed"
     },
     {
-      "command": "vp test run src/provider/Drivers/ClaudeMaintenance.test.ts (apps/server)",
+      "command": "vp test run apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts -t 'never samples a suggestion' and -t 'delivers labeled video'",
       "result": "passed",
-      "note": "14 tests passed"
+      "note": "4 tests passed; upstream prompt-suggestion and video-frame cases hold on the merged tree"
+    },
+    {
+      "command": "vp run --filter t3 typecheck; vp run --filter @t3tools/web typecheck; vp run --filter @t3tools/mobile typecheck",
+      "result": "passed",
+      "note": "exit 0, no error TS lines in any package"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
       "result": "passed",
-      "note": "exit 0"
+      "note": "exit 0; gate test selection generated against the merged config"
+    },
+    {
+      "command": "node scripts/fork-upstream-receipt.ts verify",
+      "result": "passed",
+      "note": "receipt ok: v0.1.8-nightly.20261109.4399 (357fb754fa9d) onto 54c5a266f727 (re-verified after the F1 fix and round-2 review)"
     },
     {
       "command": "independent review (reviewer, change scope)",
       "result": "passed",
-      "note": "0 blocking, 2 should-fix, 2 notes: both should-fix were receipt checks-note placeholders (fixed with actual outcomes) and reviewer identity (now the review that ran); reviewer verified baseline/target, all 75 coverage entries and that no Retire-when was met"
+      "note": "reviewer follow-up round 2 (change scope): verdict clean, score 9/10; F1 fix (RPC group move) verified; 1 non-blocking note (stale cite, fixed here)"
     },
     {
       "command": "landing gate on the SlipJay runner",

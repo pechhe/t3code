@@ -229,6 +229,7 @@ import {
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
   VcsStatusInput,
+  VcsBranchStatus,
   VcsStatusSubscriptionInput,
   VcsStatusResult,
   VcsStatusStreamEvent,
@@ -467,6 +468,7 @@ import {
 import { UsagePricing, UsageReadError, UsageSummary, UsageSummaryInput } from "./usage.ts";
 import {
   StorageCleanupReport,
+  DatabaseReclaimError,
   DatabaseStorageStatus,
   ServerSettings,
   ServerSettingsError,
@@ -646,6 +648,7 @@ export const WS_METHODS = {
   agentPolicyRead: "agentPolicy.read",
   agentPolicySave: "agentPolicy.save",
   agentPolicyCompactionModel: "agentPolicy.compactionModel",
+  serverReclaimDatabaseSpace: "server.reclaimDatabaseSpace",
   peerLinksList: "peerLinks.list",
   threadHandoffOptions: "threadHandoff.options",
   threadHandoffStart: "threadHandoff.start",
@@ -797,6 +800,8 @@ export const WS_METHODS = {
   subscribeProjectClones: "subscribeProjectClones",
 
   subscribeVcsStatus: "subscribeVcsStatus",
+  subscribeVcsBranch: "subscribeVcsBranch",
+  vcsRefreshBranch: "vcs.refreshBranch",
   subscribeWorktreeSetup: "subscribeWorktreeSetup",
   worktreeSetupCancel: "worktreeSetup.cancel",
   subscribeTerminalMetadata: "subscribeTerminalMetadata",
@@ -1035,6 +1040,10 @@ const WsPeerLinksListRpc = Rpc.make(WS_METHODS.peerLinksList, {
   payload: Schema.Struct({}),
   success: Schema.Struct({ links: Schema.Array(PeerLinkSummary) }),
   error: Schema.Union([PeerLinkError, EnvironmentAuthorizationError]),
+});
+const WsServerReclaimDatabaseSpaceRpc = Rpc.make(WS_METHODS.serverReclaimDatabaseSpace, {
+  payload: Schema.Struct({}),
+  error: Schema.Union([DatabaseReclaimError, EnvironmentAuthorizationError]),
 });
 
 const WsPeerLinksLinkRpc = Rpc.make(WS_METHODS.peerLinksLink, {
@@ -1746,6 +1755,19 @@ const WsProviderUploadFeedbackRpc = Rpc.make(WS_METHODS.providerUploadFeedback, 
   error: Schema.Union([ProviderUploadFeedbackError, EnvironmentAuthorizationError]),
 });
 
+const WsSubscribeVcsBranchRpc = Rpc.make(WS_METHODS.subscribeVcsBranch, {
+  payload: VcsStatusInput,
+  success: VcsBranchStatus,
+  error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+const WsVcsRefreshBranchRpc = Rpc.make(WS_METHODS.vcsRefreshBranch, {
+  payload: VcsStatusInput,
+  success: Schema.Void,
+  error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+});
+
 const WsSubscribeVcsStatusRpc = Rpc.make(WS_METHODS.subscribeVcsStatus, {
   payload: VcsStatusSubscriptionInput,
   success: VcsStatusStreamEvent,
@@ -2166,6 +2188,15 @@ const WsOrchestrationV2GetThreadTitlesRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS
   error: Schema.Union([OrchestrationV2GetShellSnapshotError, EnvironmentAuthorizationError]),
 });
 
+const WsOrchestrationV2GetThreadLinkMetadataRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.getThreadLinkMetadata,
+  {
+    payload: OrchestrationV2RpcSchemas.getThreadLinkMetadata.input,
+    success: OrchestrationV2RpcSchemas.getThreadLinkMetadata.output,
+    error: Schema.Union([OrchestrationV2GetShellSnapshotError, EnvironmentAuthorizationError]),
+  },
+);
+
 const WsOrchestrationV2GetWorktreeThreadIdsRpc = Rpc.make(
   ORCHESTRATION_V2_WS_METHODS.getWorktreeThreadIds,
   {
@@ -2261,6 +2292,16 @@ const WsOrchestrationV2SubscribeCommandOutputRpc = Rpc.make(
     payload: OrchestrationV2RpcSchemas.subscribeCommandOutput.input,
     success: OrchestrationV2RpcSchemas.subscribeCommandOutput.output,
     error: Schema.Union([OrchestrationV2CommandOutputError, EnvironmentAuthorizationError]),
+    stream: true,
+  },
+);
+
+const WsOrchestrationV2SubscribePromptSuggestionRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.subscribePromptSuggestion,
+  {
+    payload: OrchestrationV2RpcSchemas.subscribePromptSuggestion.input,
+    success: OrchestrationV2RpcSchemas.subscribePromptSuggestion.output,
+    error: EnvironmentAuthorizationError,
     stream: true,
   },
 );
@@ -2611,6 +2652,11 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
 // The server implements these in their own handler layer, apart from the core
 // group: inferring one handler object for every RPC exceeds TypeScript's
 // instantiation limit and silently widens the server's layer types to `any`.
+export const WsVcsRpcGroup = RpcGroup.make(
+  WsSubscribeVcsBranchRpc,
+  WsVcsRefreshBranchRpc,
+).middleware(RpcScopeAuthorization);
+
 export const WsPullRequestRpcGroup = RpcGroup.make(
   WsPullRequestsListRpc,
   WsPullRequestsListStatsRpc,
@@ -2794,8 +2840,10 @@ export const WsMcpAppsRpcGroup = RpcGroup.make(
 
 // The thread-structure reads the shell and Lineage call; they stay out of the core group too.
 export const WsThreadStructureRpcGroup = RpcGroup.make(
+  WsOrchestrationV2SubscribePromptSuggestionRpc,
   WsOrchestrationV2GetThreadFamilyRpc,
   WsOrchestrationV2GetThreadTitlesRpc,
+  WsOrchestrationV2GetThreadLinkMetadataRpc,
   WsOrchestrationV2GetWorktreeThreadIdsRpc,
   WsOrchestrationV2GetOlderSettledThreadsRpc,
 ).middleware(RpcScopeAuthorization);
@@ -2838,6 +2886,7 @@ export const WsServerOperationsRpcGroup = RpcGroup.make(
   WsServerRunStorageCleanupRpc,
   WsServerGetStorageCleanupReportRpc,
   WsServerGetDatabaseStorageRpc,
+  WsServerReclaimDatabaseSpaceRpc,
   WsServerGetSettingsRpc,
   WsAgentPolicyReadRpc,
   WsAgentPolicyCompactionModelRpc,
@@ -2928,7 +2977,8 @@ export const WsChampionsRpcGroup = RpcGroup.make(
   WsChampionsFindingActionRpc,
 ).middleware(RpcScopeAuthorization);
 /** Every RPC the WebSocket serves. */
-export const WsRpcGroup = WsCoreRpcGroup.merge(WsPullRequestRpcGroup)
+export const WsRpcGroup = WsCoreRpcGroup.merge(WsVcsRpcGroup)
+  .merge(WsPullRequestRpcGroup)
   .merge(WsPeersRpcGroup)
   .merge(WsWeaveRpcGroup)
   .merge(WsGuestShareRpcGroup)

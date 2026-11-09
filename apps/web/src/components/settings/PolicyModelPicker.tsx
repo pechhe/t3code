@@ -100,7 +100,6 @@ export function PolicyEffortPicker(props: {
         ...Object.entries(binding.options ?? {}).map(([id, value]) => ({ id, value })),
       ]}
       allowPromptInjectedEffort={false}
-      planModeEnabled={settings.planModeEnabled}
       disabled={props.disabled ?? false}
       onModelOptionsChange={(options) => {
         const value = options?.find((option) => option.id === effortOption)?.value;

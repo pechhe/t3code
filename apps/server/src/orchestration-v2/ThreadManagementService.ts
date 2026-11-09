@@ -433,6 +433,7 @@ export interface ThreadManagementServiceShape {
   >;
   readonly getThreadShell: Orchestrator.OrchestratorV2["Service"]["getThreadShell"];
   readonly listAppOwnedChildThreadIds: Orchestrator.OrchestratorV2["Service"]["listAppOwnedChildThreadIds"];
+  readonly getThreadLinkMetadata: Orchestrator.OrchestratorV2["Service"]["getThreadLinkMetadata"];
   readonly getThreadTitles: Orchestrator.OrchestratorV2["Service"]["getThreadTitles"];
   /** Omit `projectId` to list every project's threads. Side chats are never listed. */
   readonly listProjectThreads: (input: {
@@ -1286,14 +1287,12 @@ const make = Effect.gen(function* () {
     });
     yield* Stream.fromEffect(trySettle).pipe(
       Stream.concat(
-        orchestrator
-          .streamStoredEventsFrom({ threadId: input.threadId, afterSequence })
-          .pipe(
-            // Settling stops the background work the turn left running, so the refused dispatch
-            // waits for that work and the turn it wakes to end too.
-            Stream.filter(({ event }) => event.type === "run.updated" || canEndThreadWork(event)),
-            Stream.mapEffect(() => trySettle),
-          ),
+        orchestrator.streamStoredEventsFrom({ threadId: input.threadId, afterSequence }).pipe(
+          // Settling stops the background work the turn left running, so the refused dispatch
+          // waits for that work and the turn it wakes to end too.
+          Stream.filter(({ event }) => event.type === "run.updated" || canEndThreadWork(event)),
+          Stream.mapEffect(() => trySettle),
+        ),
       ),
       Stream.filter((done) => done),
       Stream.runHead,
@@ -1810,6 +1809,7 @@ const make = Effect.gen(function* () {
       },
     ),
     getThreadTitles: orchestrator.getThreadTitles,
+    getThreadLinkMetadata: orchestrator.getThreadLinkMetadata,
     listProjectThreads,
     sendToThread,
     assertProviderInstanceEnabled,

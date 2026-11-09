@@ -43,42 +43,45 @@ describe("sidebar header new thread", () => {
     { mode: "boring", count: 2, shift: true, inProject: true },
     { mode: "boring", count: 1, shift: false, inProject: true },
     { mode: "legacy", count: 2, shift: false, inProject: true },
-  ] as const)("$mode sidebar, $count projects, shift=$shift: inProject=$inProject", async (scenario) => {
-    using stack = new DisposableStack();
-    const previousSettings = getClientSettings();
-    stack.defer(() => __setClientSettingsForTests(previousSettings));
-    __setClientSettingsForTests({
-      ...DEFAULT_CLIENT_SETTINGS,
-      boringSidebarEnabled: scenario.mode === "boring",
-      legacySidebarEnabled: scenario.mode === "legacy",
-    });
-    const projects = [project("active"), project("idle")].slice(0, scenario.count);
-    const currentProjectRef = {
-      environmentId: projects[0]!.environmentId,
-      projectId: projects[0]!.id,
-    };
-    const startThread = vi.fn().mockResolvedValue(null);
-    vi.mocked(useProjects).mockReturnValue(projects);
-    vi.mocked(useHandleNewThread).mockReturnValue({
-      activeDraftThread: null,
-      activeThread: null,
-      defaultProjectRef: currentProjectRef,
-      handleNewThread: startThread,
-      routeDraftId: null,
-      routeThreadRef: null,
-    });
-    vi.mocked(openCommandPalette).mockClear();
-    await using screen = await render(
-      <SidebarProvider>
-        <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
-      </SidebarProvider>,
-    );
+  ] as const)(
+    "$mode sidebar, $count projects, shift=$shift: inProject=$inProject",
+    async (scenario) => {
+      using stack = new DisposableStack();
+      const previousSettings = getClientSettings();
+      stack.defer(() => __setClientSettingsForTests(previousSettings));
+      __setClientSettingsForTests({
+        ...DEFAULT_CLIENT_SETTINGS,
+        boringSidebarEnabled: scenario.mode === "boring",
+      });
+      const projects = [project("active"), project("idle")].slice(0, scenario.count);
+      const currentProjectRef = {
+        environmentId: projects[0]!.environmentId,
+        projectId: projects[0]!.id,
+      };
+      const startThread = vi.fn().mockResolvedValue(null);
+      vi.mocked(useProjects).mockReturnValue(projects);
+      vi.mocked(useHandleNewThread).mockReturnValue({
+        activeDraftThread: null,
+        activeThread: null,
+        defaultProjectRef: currentProjectRef,
+        handleNewThread: startThread,
+        routeDraftId: null,
+        routeThreadRef: null,
+      });
+      vi.mocked(openCommandPalette).mockClear();
+      await using screen = await render(
+        <SidebarProvider>
+          <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+        </SidebarProvider>,
+      );
 
-    await userEvent.click(screen.getByRole("button", { name: "New thread", exact: true }), {
-      modifiers: scenario.shift ? ["Shift"] : [],
-    });
+      await userEvent.click(screen.getByRole("button", { name: "New thread", exact: true }), {
+        modifiers: scenario.shift ? ["Shift"] : [],
+      });
 
-    expect(openCommandPalette).not.toHaveBeenCalled();
-    if (scenario.inProject) expect(startThread).toHaveBeenCalledExactlyOnceWith(currentProjectRef);
-  });
+      expect(openCommandPalette).not.toHaveBeenCalled();
+      if (scenario.inProject)
+        expect(startThread).toHaveBeenCalledExactlyOnceWith(currentProjectRef);
+    },
+  );
 });
