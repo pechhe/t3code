@@ -2683,6 +2683,7 @@ const make = Effect.gen(function* () {
       steps: candidate.steps,
       finalUrl: candidate.finalUrl,
       retest: candidate.kind === "retest",
+      reproduction: candidate.reproduction ?? null,
     });
     yield* journeys
       .saveCandidate({
@@ -2742,6 +2743,7 @@ const make = Effect.gen(function* () {
       status: ChampionJourneys.JourneyCandidate["status"],
       reason: string,
       findingId: string | null,
+      reproduction: string | null = null,
     ) {
       yield* journeys
         .saveCandidate({
@@ -2749,6 +2751,7 @@ const make = Effect.gen(function* () {
           status,
           reason,
           findingId: findingId ?? candidate.findingId,
+          ...(reproduction === null ? {} : { reproduction }),
         })
         .pipe(Effect.mapError(failure));
       yield* journeys.endReplay({
@@ -2844,6 +2847,7 @@ const make = Effect.gen(function* () {
           clicks,
           model: finished.model,
           reason: verdict.reason,
+          reproduction: verdict.steps,
           screenshot: verdict.screenshot ?? candidate.screenshots.at(-1) ?? "none recorded",
         });
         // One finding per replayed bug, never merged by title: two bugs can read alike.
@@ -2856,7 +2860,7 @@ const make = Effect.gen(function* () {
         return finding.id;
       }),
     );
-    return yield* close("confirmed", verdict.reason, findingId);
+    return yield* close("confirmed", verdict.reason, findingId, verdict.steps);
   });
   const journeyRecord: ChampionService["Service"]["journeyRecord"] = (input) =>
     journeys.recordOf(input.checkId, input.includeJourneys === true);

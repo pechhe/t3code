@@ -86,6 +86,8 @@ export const JourneyCandidate = Schema.Struct({
   finalUrl: Schema.NullOr(Schema.String),
   screenshots: Schema.Array(Schema.String),
   findingId: Schema.NullOr(Schema.String),
+  /** What the confirming replay did, which a re-test repeats. */
+  reproduction: Schema.optional(Schema.String),
   replay: Schema.NullOr(
     Schema.Struct({
       /** The only task a replay may be given: the owner must not steer its judge. */

@@ -181,7 +181,15 @@ describe("parseVerdict", () => {
   it("reads the replay's final message", () => {
     expect(
       Rules.parseVerdict("I tried.\nVERDICT: reproduced\nREASON: Error page.\nSCREENSHOT: /a.png"),
-    ).toEqual({ verdict: "reproduced", reason: "Error page.", screenshot: "/a.png" });
+    ).toEqual({ verdict: "reproduced", reason: "Error page.", steps: null, screenshot: "/a.png" });
+  });
+
+  it("keeps what the replay did, with the text it typed", () => {
+    expect(
+      Rules.parseVerdict(
+        'VERDICT: reproduced\nREASON: Lost.\nSTEPS: Typed "draft 55" in Home, clicked Inbox, returned.\nSCREENSHOT: /a.png',
+      )?.steps,
+    ).toBe('Typed "draft 55" in Home, clicked Inbox, returned.');
   });
 
   it("gives no verdict for a message without a recognised one", () => {
@@ -226,9 +234,11 @@ describe("findingEvidence", () => {
       clicks: "click".repeat(4000),
       model: "strong",
       reason: "Seen on a fresh database.",
+      reproduction: `Typed "draft 55". ${"more ".repeat(1000)}`,
       screenshot: "/shots/one.png",
     });
     expect(evidence.length).toBeLessThanOrEqual(8000);
+    expect(evidence).toContain('Steps the replay followed: Typed "draft 55".');
     expect(evidence).toContain("No detail appears.");
     expect(evidence).toContain("Confirmed in isolation by strong");
     expect(evidence).toContain("Screenshot: /shots/one.png");

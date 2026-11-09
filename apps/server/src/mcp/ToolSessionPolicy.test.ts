@@ -95,8 +95,9 @@ const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> =
   // and upstream's fresh-session and worktree-base guidance measure 48,607 characters; the
   // `landing` watch target and `whyNotDelegated` on both launchers, with the sentence naming
   // it in each description, bring them to 49,813; `t3_thread_update`'s `arc_run`, with its
-  // `specs`, to 50,773; the html tools' file-path guidance (#32833) to 50,882.
-  ["ordinary", undefined, 50_950],
+  // `specs`, to 50,773; the html tools' file-path guidance (#32833) to 50,882; the secret
+  // card's sign-in link (#33157) to 51,027.
+  ["ordinary", undefined, 51_100],
   // The preview endpoint is a browser session's listing, so it carries no control plane.
   // Bounded decisions adds the same 2,061 characters to the browser catalogue.
   ["browser/preview", session("phi", "browser"), 34_900],
@@ -104,8 +105,9 @@ const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> =
   // worktree-base guidance, and t3_thread_handoff, so the thread can move itself,
   // measure 87,483 characters on this endpoint, 88,116 with the `landing` watch target
   // 88,651 with `whyNotDelegated` and 89,611 with `t3_thread_update`'s `arc_run` and its
-  // `specs`; the html tools' file-path guidance (#32833) brings them to 89,720.
-  ["researcher", session("web-research", "researcher"), 89_800],
+  // `specs`; the html tools' file-path guidance (#32833) brings them to 89,720, and the
+  // secret card's sign-in link (#33157) to 89,865.
+  ["researcher", session("web-research", "researcher"), 89_950],
   ["scout", session("source-reader", "scout"), 90_000],
   ["delegated browser", session("phi", "browser", true), 40_000],
   [

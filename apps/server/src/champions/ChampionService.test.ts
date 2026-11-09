@@ -4742,7 +4742,7 @@ describe("a journey check", () => {
               f.installReplay(
                 replay.workId,
                 replay.attemptId,
-                verdict("reproduced", "Seen."),
+                `${verdict("reproduced", "Seen.")}\nSTEPS: Typed "draft 55", left and came back.`,
                 "strong",
               );
               yield* service.candidateSettle(f.caller(), { candidateId });
@@ -4754,6 +4754,10 @@ describe("a journey check", () => {
               });
               const finding = (yield* service.get({ id: config.id })).findings[0]!;
               assert.equal(finding.status, "open");
+              assert.include(
+                finding.evidence,
+                'Steps the replay followed: Typed "draft 55", left and came back.',
+              );
 
               f.endRun();
               yield* service.runCheck({ id: config.id });
@@ -4769,6 +4773,10 @@ describe("a journey check", () => {
               assert.include(
                 retest.brief,
                 'could not run, which does not show the confirmed bug is fixed: say "blocked"',
+              );
+              assert.include(
+                retest.brief,
+                'The replay that confirmed this bug did: Typed "draft 55", left and came back.',
               );
               f.installReplay(
                 retest.workId,

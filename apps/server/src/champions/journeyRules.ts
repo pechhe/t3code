@@ -265,20 +265,27 @@ export const findingEvidence = (input: {
   readonly clicks: string;
   readonly model: string;
   readonly reason: string;
+  /** What the replay did: a journey can be judged broken before it takes the step that shows the bug. */
+  readonly reproduction: string | null;
   readonly screenshot: string;
 }) => {
   const seen = cut(`${input.observed} Expected: ${input.expected}`, 2000);
   const confirmed = cut(`Confirmed in isolation by ${input.model}: ${input.reason}`, 1500);
   const shot = `Screenshot: ${input.screenshot}`;
-  const stepsLabel = `Steps to reproduce, on a fresh copy of the seeded data (build ${input.commit}):\n`;
+  const followed =
+    input.reproduction === null
+      ? ""
+      : `Steps the replay followed: ${cut(input.reproduction, 1500)}`;
+  const stepsLabel = `${followed === "" ? "Steps to reproduce" : "Steps the journey recorded"}, on a fresh copy of the seeded data (build ${input.commit}):\n`;
   const clicksLabel = "Recorded clicks: ";
   const room =
     FINDING_EVIDENCE_LIMIT -
-    [seen, confirmed, shot, stepsLabel, clicksLabel].join("").length -
-    4 * 2;
+    [seen, confirmed, followed, shot, stepsLabel, clicksLabel].join("").length -
+    5 * 2;
   const steps = cut(input.steps, Math.floor(room / 2));
   return [
     seen,
+    ...(followed === "" ? [] : [followed]),
     `${stepsLabel}${steps}`,
     `${clicksLabel}${cut(input.clicks, room - steps.length)}`,
     confirmed,
@@ -289,6 +296,7 @@ export const findingEvidence = (input: {
 export const VERDICT_FORMAT = `End your final message with exactly these lines:
 VERDICT: reproduced | not-reproduced | blocked
 REASON: <one sentence: what you saw>
+STEPS: <on this one line, everything you did in order after signing in, with any text you typed>
 SCREENSHOT: <the screenshotPath of the page that shows it>`;
 
 export const replayBrief = (input: {
@@ -300,6 +308,7 @@ export const replayBrief = (input: {
   readonly steps: ReadonlyArray<ChampionJourneyStep>;
   readonly finalUrl: string | null;
   readonly retest: boolean;
+  readonly reproduction: string | null;
 }) => `An earlier browser journey may have found a bug. Decide whether it reproduces. You are the only judge: the journey's own model never judges correctness.
 
 You are on a freshly seeded database that no other journey has touched, so anything that depended on shared data will not recur. Do not read source. Use only the integrated browser, and only ${input.origin}.
@@ -310,7 +319,7 @@ Observed: ${input.observed}
 
 Sign in by opening ${input.origin}${input.signInPath}, then follow these recorded steps in order. Paths are relative to ${input.origin}. Where a name differs slightly because this database is fresh, use the closest match and say so.
 ${describeSteps(input.steps)}
-${input.finalUrl === null ? "" : `The journey ended on ${pathOf(input.finalUrl)}.\n`}
+${input.finalUrl === null ? "" : `The journey ended on ${pathOf(input.finalUrl)}.\n`}${input.reproduction === null ? "" : `The recorded steps can stop short of the failure. The replay that confirmed this bug did: ${input.reproduction}\nDo the same before you judge it.\n`}
 Say "reproduced" only if you saw the observed failure yourself and a real person would call it broken: an error, a dead end, or work lost. The report's expectation may itself be wrong: an empty state on a fresh database, a nicety the page does not offer, or a feature failing because this contained copy has no real model, voice or outbound service, is not a bug, so say "not-reproduced" for those, as you do when you carried out every step and the expected behaviour happened. If a step's target does not exist on this fresh database, ${input.retest ? 'this re-test could not run, which does not show the confirmed bug is fixed: say "blocked"' : 'the failure needed data only the journey had: say "not-reproduced" too'}. Otherwise say "blocked" only when the browser or the preview stopped you, and why; that proves nothing either way. Take a screenshot of the final page either way.
 
 ${VERDICT_FORMAT}`;
@@ -325,6 +334,7 @@ export const parseVerdict = (text: string | null | undefined) => {
   return {
     verdict: verdict as "reproduced" | "not-reproduced" | "blocked",
     reason: line("REASON") ?? "The replay gave no reason.",
+    steps: line("STEPS") ?? null,
     screenshot: line("SCREENSHOT") ?? null,
   };
 };
