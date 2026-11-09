@@ -33,7 +33,7 @@
         "exec",
         "playwright",
         "install",
-        "chromium-headless-shell"
+        "chromium"
       ],
       "cwd": "apps/web"
     },
