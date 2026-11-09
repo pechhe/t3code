@@ -3629,6 +3629,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onOpenThread={onOpenRelatedThread}
                   />
                 ) : null}
+                {pendingRequestPanel}
               </ComposerBanner.Root>
             </ComposerBanner.Attachment>
           ) : null}
