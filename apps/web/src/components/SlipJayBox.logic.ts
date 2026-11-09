@@ -270,7 +270,8 @@ export function resolveReleasesInFlight(
 export interface SlipJayReleaseOutcome {
   repo: string;
   commitId: string;
-  result: "released" | "failed" | "rolled_back";
+  /** `release_failed` is a release SlipJay refused or ended before any deploy began. */
+  result: "released" | "failed" | "rolled_back" | "release_failed";
   reason: string | null;
 }
 
@@ -327,7 +328,11 @@ export function resolveReleaseOutcomes(
 export function createReleaseAnnouncementGate(windowMs = 60_000) {
   const lastSeen = new Map<string, number>();
   return (outcome: SlipJayReleaseOutcome, now: number = Date.now()): boolean => {
-    const key = `${outcome.repo}@${outcome.commitId}:${outcome.result}`;
+    // A refused release and the failed deploy under it are one failure of the repository.
+    const key =
+      outcome.result === "released"
+        ? `${outcome.repo}@${outcome.commitId}:released`
+        : `${outcome.repo}:failure`;
     const last = lastSeen.get(key);
     lastSeen.set(key, now);
     return last === undefined || now - last >= windowMs;
@@ -360,4 +365,44 @@ export function resolveProductionAges(overview: SlipJayRunnerOverview): SlipJayP
       },
     ];
   });
+}
+
+/** The releases this environment started that newly failed since the earlier snapshot. */
+export function resolvePromotionFailures(
+  previous: ReadonlyArray<VcsSlipJayPromotion>,
+  next: ReadonlyArray<VcsSlipJayPromotion>,
+): SlipJayReleaseOutcome[] {
+  return next
+    .filter(
+      (promotion) =>
+        promotion.status === "failed" &&
+        !previous.some(
+          (earlier) =>
+            earlier.repo === promotion.repo &&
+            earlier.status === "failed" &&
+            earlier.candidate === promotion.candidate &&
+            earlier.reason === promotion.reason,
+        ),
+    )
+    .map((promotion) => ({
+      repo: promotion.repo,
+      commitId: promotion.candidate ?? "",
+      result: "release_failed" as const,
+      reason: promotion.reason,
+    }));
+}
+
+/** The brief a new thread opens with to find out why a release failed. */
+export function resolveReleaseFixPrompt(release: {
+  name: string;
+  candidate: string | null;
+  reason: string | null;
+}): string {
+  return [
+    `Releasing ${release.name} to production failed.`,
+    ...(release.candidate === null ? [] : [`Candidate: ${sha7(release.candidate)}`]),
+    `SlipJay's reason: ${release.reason ?? "none given"}`,
+    "",
+    "Find the cause and fix it, or tell me what only I can do, and say when it is ready for another release. Do not start a release yourself unless I ask.",
+  ].join("\n");
 }

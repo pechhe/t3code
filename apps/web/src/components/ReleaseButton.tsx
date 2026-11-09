@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { formatSlipJayDuration } from "@t3tools/client-runtime/slipjay-checkout";
 import {
   isAtomCommandInterrupted,
@@ -15,6 +16,8 @@ import { useState } from "react";
 import { Button } from "~/components/ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Spinner } from "~/components/ui/spinner";
+import { toastManager } from "~/components/ui/toast";
+import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { cn } from "~/lib/utils";
 import { useProjects } from "~/state/entities";
 import { useEnvironmentQuery } from "~/state/query";
@@ -26,6 +29,7 @@ import {
   resolveProductionAges,
   resolveReleasesInFlight,
   resolveProductionLine,
+  resolveReleaseFixPrompt,
   resolveReleaseRow,
 } from "./SlipJayBox.logic";
 import { TONE_TEXT } from "./SlipJayRunnerControl";
@@ -123,6 +127,7 @@ export function ReleaseButton({ environmentId }: { environmentId: EnvironmentId 
                 promotions?.find((promotion) => promotion.repo === repository.repo) ?? null
               }
               open={open}
+              onClose={() => setOpen(false)}
             />
           ))}
         </div>
@@ -140,16 +145,19 @@ function ReleaseRow({
   repository,
   promotion,
   open,
+  onClose,
 }: {
   environmentId: EnvironmentId;
   repository: SlipJayRunnerRepository;
   promotion: VcsSlipJayPromotion | null;
   open: boolean;
+  onClose: () => void;
 }) {
   const now = useNow(open);
   const canRelease = useAtomValue(vcsEnvironment.slipJayPromote.permissionAtom(environmentId));
   const promote = useAtomCommand(vcsEnvironment.slipJayPromote, { reportFailure: false });
   const dismiss = useAtomCommand(vcsEnvironment.slipJayDismissPromotion, { reportFailure: false });
+  const handleNewThread = useNewThreadHandler();
   const [requestError, setRequestError] = useState<string | null>(null);
   // A repository's apps ship together, so the row names every local project in it.
   const projects = useProjects().filter(
@@ -179,12 +187,37 @@ function ReleaseRow({
     const error = squashAtomCommandFailure(result);
     setRequestError(error instanceof Error ? error.message : "The release could not be started.");
   };
+  const fixWithAgent = async () => {
+    const project = projects[0];
+    if (project === undefined) return;
+    onClose();
+    try {
+      await handleNewThread(scopeProjectRef(environmentId, project.id), {
+        prompt: resolveReleaseFixPrompt({
+          name,
+          candidate: promotion?.candidate ?? null,
+          reason: promotion?.reason ?? null,
+        }),
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Could not create thread",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+    }
+  };
   const detail = requestError ?? row.detail;
   return (
     <div className="flex flex-col gap-0.5 px-1 text-xs">
       <div className="flex min-h-6 min-w-0 items-center gap-2">
         <span className="min-w-0 truncate font-medium text-sm">{name}</span>
         <span className="ms-auto flex shrink-0 items-center gap-1">
+          {row.action === "retry" && projects.length > 0 ? (
+            <Button size="xs" variant="ghost" onClick={() => void fixWithAgent()}>
+              Fix with agent
+            </Button>
+          ) : null}
           {row.action === "retry" ? (
             <Button
               size="xs"

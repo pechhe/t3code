@@ -1,4 +1,4 @@
-import type { EnvironmentId, SlipJayRunnerOverview } from "@t3tools/contracts";
+import type { EnvironmentId, SlipJayRunnerOverview, VcsSlipJayPromotion } from "@t3tools/contracts";
 import { AsyncResult, type AtomRegistry } from "effect/reactivity";
 import { CircleAlertIcon, CircleCheckIcon } from "lucide-react";
 
@@ -12,6 +12,7 @@ import {
 } from "../threadNotifications";
 import {
   createReleaseAnnouncementGate,
+  resolvePromotionFailures,
   resolveReleaseOutcomes,
   type SlipJayReleaseOutcome,
 } from "./SlipJayBox.logic";
@@ -27,10 +28,13 @@ function announce(outcome: SlipJayReleaseOutcome) {
   const released = outcome.result === "released";
   const title = released
     ? "Released to production"
-    : outcome.result === "failed"
-      ? "Production deploy failed"
-      : "Production deploy rolled back";
-  const body = `${repositoryName(outcome.repo)} ${outcome.commitId.slice(0, 7)}${
+    : outcome.result === "release_failed"
+      ? "Release failed"
+      : outcome.result === "failed"
+        ? "Production deploy failed"
+        : "Production deploy rolled back";
+  const commit = outcome.commitId === "" ? "" : ` ${outcome.commitId.slice(0, 7)}`;
+  const body = `${repositoryName(outcome.repo)}${commit}${
     outcome.reason === null ? "" : `: ${outcome.reason}`
   }`;
   const { notificationMode: mode, inAppNotificationsEnabled } = getClientSettings();
@@ -87,7 +91,8 @@ export function startSlipJayReleaseNotifications(registry: AtomRegistry.AtomRegi
   const watched = new Map<EnvironmentId, () => void>();
   const watch = (environmentId: EnvironmentId) => {
     let previous: SlipJayRunnerOverview | null = null;
-    return registry.subscribe(
+    let previousPromotions: ReadonlyArray<VcsSlipJayPromotion> | null = null;
+    const stopRunner = registry.subscribe(
       vcsEnvironment.slipJayRunner({ environmentId, input: {} }),
       (result) => {
         const overview = AsyncResult.getOrElse(result, () => null);
@@ -98,6 +103,23 @@ export function startSlipJayReleaseNotifications(registry: AtomRegistry.AtomRegi
       },
       { immediate: true },
     );
+    // A release SlipJay refuses before any deploy begins leaves no attempt for the runner to report.
+    const stopPromotions = registry.subscribe(
+      vcsEnvironment.slipJayPromotions({ environmentId, input: {} }),
+      (result) => {
+        const promotions = AsyncResult.getOrElse(result, () => null);
+        if (promotions === null) return;
+        if (previousPromotions !== null)
+          for (const outcome of resolvePromotionFailures(previousPromotions, promotions))
+            announce(outcome);
+        previousPromotions = promotions;
+      },
+      { immediate: true },
+    );
+    return () => {
+      stopRunner();
+      stopPromotions();
+    };
   };
   const sync = () => {
     const { notificationMode, inAppNotificationsEnabled } = getClientSettings();

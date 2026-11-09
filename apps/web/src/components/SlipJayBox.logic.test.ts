@@ -11,6 +11,8 @@ import {
   createReleaseAnnouncementGate,
   resolveFailedPromotions,
   resolveProductionAges,
+  resolvePromotionFailures,
+  resolveReleaseFixPrompt,
   resolveReleasesInFlight,
   resolveProductionLine,
   resolveReleaseOutcomes,
@@ -434,5 +436,52 @@ describe("production ages", () => {
       withRelease(release({ production: { live, latestAttempt: attempt("running") } })),
     );
     expect([failed[0]?.failed, running[0]?.failed]).toEqual([true, false]);
+  });
+});
+
+describe("failed releases", () => {
+  const failed = (over: Partial<VcsSlipJayPromotion> = {}): VcsSlipJayPromotion => ({
+    repo: "o/r",
+    status: "failed",
+    candidate: "5f0843d149aa",
+    reason: "No pre-verification passed",
+    ...over,
+  });
+
+  it("reports a release that newly failed, once, and not one already failed", () => {
+    expect(resolvePromotionFailures([], [failed()])).toEqual([
+      {
+        repo: "o/r",
+        commitId: "5f0843d149aa",
+        result: "release_failed",
+        reason: "No pre-verification passed",
+      },
+    ]);
+    expect(resolvePromotionFailures([failed()], [failed()])).toEqual([]);
+    expect(
+      resolvePromotionFailures([failed()], [failed({ reason: "Another reason" })]),
+    ).toHaveLength(1);
+    expect(resolvePromotionFailures([], [failed({ status: "releasing" })])).toEqual([]);
+  });
+
+  it("announces one failure for a refused release and the failed deploy under it", () => {
+    const shouldAnnounce = createReleaseAnnouncementGate(60_000);
+    const [refused] = resolvePromotionFailures([], [failed()]);
+    expect(shouldAnnounce(refused!, 0)).toBe(true);
+    expect(
+      shouldAnnounce({ repo: "o/r", commitId: "x", result: "failed", reason: null }, 1_000),
+    ).toBe(false);
+  });
+
+  it("briefs a thread with the candidate and SlipJay's reason, without starting a release", () => {
+    const prompt = resolveReleaseFixPrompt({
+      name: "YardSmith + PropSmith + Weave",
+      candidate: "5f0843d149aa",
+      reason: "No pre-verification passed",
+    });
+    expect(prompt).toContain("YardSmith + PropSmith + Weave");
+    expect(prompt).toContain("5f0843d");
+    expect(prompt).toContain("No pre-verification passed");
+    expect(prompt).toContain("Do not start a release yourself");
   });
 });
