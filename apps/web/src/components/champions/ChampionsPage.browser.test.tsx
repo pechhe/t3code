@@ -420,6 +420,27 @@ describe("answering a recommendation", () => {
     });
   });
 
+  it("shows the whole of a long question and recommendation before you answer", async () => {
+    reset();
+    const question = `${"Phi refused for browser, ui-verifier and ui-worker. ".repeat(6)}Recommend B.`;
+    const advice = `${"Keep the trial reversible and the methods unchanged. ".repeat(8)}Report back.`;
+    await using _screen = await render(
+      <List
+        finding={finding({ ...decision("d1", "r1"), question })}
+        state={runtime({
+          recommendations: [recommendation("r1", advice, "2026-11-05T09:00:00.000Z")],
+        })}
+      />,
+    );
+    await page.viewport(620, 700);
+    for (const text of [question, advice]) {
+      const shown = page.getByText(text, { exact: true });
+      await expect.element(shown).toBeVisible();
+      const element = shown.element();
+      expect(element.scrollHeight).toBeLessThanOrEqual(element.clientHeight);
+    }
+  });
+
   it("approves a proposal in one click and opens a box only to answer differently", async () => {
     reset();
     const proposed = {

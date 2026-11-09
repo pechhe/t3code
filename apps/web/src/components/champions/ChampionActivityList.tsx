@@ -56,7 +56,6 @@ import {
   sameChampionModel,
 } from "./champions.logic";
 import { FINDING_VARIANTS } from "./championsPresentation";
-import { ClampedText } from "./ClampedText";
 import { useChampionCommandAllowed } from "./useChampionAction";
 
 const QUIET_SHOWN = 5;
@@ -778,17 +777,16 @@ function FindingEntry(props: {
     return (
       <div className="flex flex-col gap-2.5 p-3 text-sm">
         <div className="flex items-start justify-between gap-3">
-          <ClampedText className="line-clamp-3 font-medium" text={pending.question} />
+          <p className="min-w-0 wrap-break-word whitespace-pre-wrap font-medium">
+            {pending.question}
+          </p>
           <span className="shrink-0 text-muted-foreground text-xs">
             <ScheduledRelativeLabel value={pending.requestedAt} />
           </span>
         </div>
         {recommendation ? (
           <div className="flex flex-col gap-0.5">
-            <ClampedText
-              className="line-clamp-4 whitespace-pre-wrap"
-              text={recommendation.recommendation}
-            />
+            <p className="wrap-break-word whitespace-pre-wrap">{recommendation.recommendation}</p>
             <p className="text-muted-foreground text-xs">
               {changedRecommendation ? "Changed" : "Recommended"}{" "}
               <ScheduledRelativeLabel value={recommendation.recordedAt} />
