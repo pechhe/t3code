@@ -8,8 +8,11 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   resolveBoxFooter,
+  createReleaseAnnouncementGate,
   resolveFailedPromotions,
+  resolveProductionDeploys,
   resolveProductionLine,
+  resolveReleaseOutcomes,
   resolveReleaseRow,
   resolveReleaseWaiting,
   resolveScreeningLanes,
@@ -252,5 +255,105 @@ describe("the SlipJay box", () => {
     );
     expect(footer).toEqual({ today: "Today 12 landed · 8 failed screens", queue: "2 held" });
     expect(resolveBoxFooter(overview()).queue).toBe("no queue");
+  });
+});
+
+describe("production deploys and release outcomes", () => {
+  const withRelease = (rel: SlipJayRunnerRelease) =>
+    overview({
+      repositories: [
+        { repo: "o/r", screeningLanes: 0, today: { landed: 0, failedScreens: 0 }, release: rel },
+      ],
+    });
+  const live = (commitId: string) => ({
+    commitId,
+    deployedAt: "2026-11-09T10:00:00Z",
+    healthy: true,
+  });
+  const attempt = (status: "running" | "failed" | "rolled_back", commitId = "bbbbbbb1") => ({
+    commitId,
+    status,
+    at: "2026-11-09T11:00:00Z",
+    reason: null,
+  });
+
+  it("lists a running production deploy but not a staging or queued one", () => {
+    const deploy = (over: Partial<SlipJayRunnerOperation>) =>
+      landing({ kind: "deploy", environment: "production", commitId: "25fb068aaaa", ...over });
+    const result = resolveProductionDeploys(
+      overview({
+        deploy: [
+          deploy({ startedAt: "2026-11-09T11:00:00Z" }),
+          deploy({ environment: "staging" }),
+          deploy({ status: "queued" }),
+        ],
+      }),
+    );
+    expect(result).toEqual([
+      { repo: "o/r", commitId: "25fb068aaaa", startedAt: "2026-11-09T11:00:00Z" },
+    ]);
+  });
+
+  it("falls back to a running production attempt when no operation names it", () => {
+    const result = resolveProductionDeploys(
+      withRelease(
+        release({ production: { live: live("aaaaaaa1"), latestAttempt: attempt("running") } }),
+      ),
+    );
+    expect(result).toEqual([
+      { repo: "o/r", commitId: "bbbbbbb1", startedAt: "2026-11-09T11:00:00Z" },
+    ]);
+  });
+
+  it("reports a release when production's live commit changes", () => {
+    const before = withRelease(
+      release({ production: { live: live("aaaaaaa1"), latestAttempt: attempt("running") } }),
+    );
+    const after = withRelease(
+      release({ production: { live: live("bbbbbbb1"), latestAttempt: null } }),
+    );
+    expect(resolveReleaseOutcomes(before, after)).toEqual([
+      { repo: "o/r", commitId: "bbbbbbb1", result: "released", reason: null },
+    ]);
+  });
+
+  it("reports a new failed attempt once, not again on an unchanged snapshot", () => {
+    const before = withRelease(
+      release({ production: { live: live("aaaaaaa1"), latestAttempt: attempt("running") } }),
+    );
+    const failed = withRelease(
+      release({ production: { live: live("aaaaaaa1"), latestAttempt: attempt("failed") } }),
+    );
+    expect(resolveReleaseOutcomes(before, failed)).toEqual([
+      { repo: "o/r", commitId: "bbbbbbb1", result: "failed", reason: null },
+    ]);
+    expect(resolveReleaseOutcomes(failed, failed)).toEqual([]);
+  });
+
+  it("reports nothing while a deploy runs or for a repository first seen", () => {
+    const idle = withRelease(
+      release({ production: { live: live("aaaaaaa1"), latestAttempt: null } }),
+    );
+    const running = withRelease(
+      release({ production: { live: live("aaaaaaa1"), latestAttempt: attempt("running") } }),
+    );
+    expect(resolveReleaseOutcomes(idle, running)).toEqual([]);
+    expect(resolveReleaseOutcomes(overview(), idle)).toEqual([]);
+  });
+});
+
+describe("the release announcement gate", () => {
+  const released = { repo: "o/r", commitId: "bbbbbbb1", result: "released", reason: null } as const;
+
+  it("announces an outcome once however many environments report it", () => {
+    const shouldAnnounce = createReleaseAnnouncementGate(60_000);
+    expect(shouldAnnounce(released, 0)).toBe(true);
+    expect(shouldAnnounce(released, 2_000)).toBe(false);
+  });
+
+  it("announces the same commit released again after the window", () => {
+    const shouldAnnounce = createReleaseAnnouncementGate(60_000);
+    expect(shouldAnnounce(released, 0)).toBe(true);
+    expect(shouldAnnounce(released, 3_600_000)).toBe(true);
   });
 });

@@ -221,3 +221,105 @@ export function resolveBoxFooter(overview: SlipJayRunnerOverview): {
     queue: waiting === 0 ? "no queue" : overview.paused ? `${waiting} held` : `${waiting} queued`,
   };
 }
+
+export interface SlipJayProductionDeploy {
+  repo: string;
+  commitId: string;
+  /** When the deploy started; null when the runner does not say. */
+  startedAt: string | null;
+}
+
+/**
+ * The production deploys in flight: the runner's running production deploy operations, plus a
+ * repository's running production attempt that no operation names (an older runner).
+ */
+export function resolveProductionDeploys(
+  overview: SlipJayRunnerOverview,
+): SlipJayProductionDeploy[] {
+  const deploys: SlipJayProductionDeploy[] = overview.deploy
+    .filter(
+      (operation) =>
+        operation.kind === "deploy" &&
+        operation.status === "running" &&
+        operation.environment === "production",
+    )
+    .map((operation) => ({
+      repo: operation.repo,
+      commitId: operation.commitId ?? "",
+      startedAt: operation.startedAt ?? null,
+    }));
+  for (const repository of overview.repositories) {
+    const attempt = repository.release?.production.latestAttempt;
+    if (attempt?.status !== "running" || deploys.some((deploy) => deploy.repo === repository.repo))
+      continue;
+    deploys.push({ repo: repository.repo, commitId: attempt.commitId, startedAt: attempt.at });
+  }
+  return deploys;
+}
+
+export interface SlipJayReleaseOutcome {
+  repo: string;
+  commitId: string;
+  result: "released" | "failed" | "rolled_back";
+  reason: string | null;
+}
+
+/**
+ * What finished in production between two runner snapshots: a repository whose live commit
+ * changed was released, and one whose newest attempt is a new failure or rollback was not. A
+ * repository the earlier snapshot did not know is a first sighting and reports nothing.
+ */
+export function resolveReleaseOutcomes(
+  previous: SlipJayRunnerOverview,
+  next: SlipJayRunnerOverview,
+): SlipJayReleaseOutcome[] {
+  const outcomes: SlipJayReleaseOutcome[] = [];
+  for (const repository of next.repositories) {
+    const before = previous.repositories.find((entry) => entry.repo === repository.repo)?.release;
+    const production = repository.release?.production;
+    if (before === undefined || before === null || production === undefined) continue;
+    const live = production.live;
+    if (live !== null && live.commitId !== before.production.live?.commitId) {
+      outcomes.push({
+        repo: repository.repo,
+        commitId: live.commitId,
+        result: "released",
+        reason: null,
+      });
+      continue;
+    }
+    const attempt = production.latestAttempt;
+    const earlier = before.production.latestAttempt;
+    if (
+      attempt === null ||
+      attempt.status === "running" ||
+      (earlier !== null &&
+        earlier.commitId === attempt.commitId &&
+        earlier.status === attempt.status &&
+        earlier.at === attempt.at)
+    )
+      continue;
+    outcomes.push({
+      repo: repository.repo,
+      commitId: attempt.commitId,
+      result: attempt.status,
+      reason: attempt.reason,
+    });
+  }
+  return outcomes;
+}
+
+/**
+ * The runner reports one release however many environments follow it, so the same outcome
+ * seen again within the window is one announcement; the same commit released again later,
+ * such as after a rollback, is a new one.
+ */
+export function createReleaseAnnouncementGate(windowMs = 60_000) {
+  const lastSeen = new Map<string, number>();
+  return (outcome: SlipJayReleaseOutcome, now: number = Date.now()): boolean => {
+    const key = `${outcome.repo}@${outcome.commitId}:${outcome.result}`;
+    const last = lastSeen.get(key);
+    lastSeen.set(key, now);
+    return last === undefined || now - last >= windowMs;
+  };
+}

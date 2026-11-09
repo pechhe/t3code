@@ -18,6 +18,7 @@ import { startPermissionUpdateNotices } from "./components/PermissionUpdateNotic
 import { startAgentOpenedPreviews } from "./components/preview/agentOpenedPreviews";
 import { startMainAppLocationTracking } from "./components/sidebar/mainAppLocation";
 import { startDesktopUpdateLaunchNotice } from "./components/sidebar/updateEverythingRun";
+import { startSlipJayReleaseNotifications } from "./components/SlipJayReleaseNotifications";
 import { startSlowRpcRequestToasts } from "./components/SlowRpcRequestToastCoordinator";
 import { startThreadNotifications } from "./components/ThreadNotificationCoordinator";
 import { startGuideRunNotifications } from "./components/pullRequest/guide/PullRequestGuideRunCoordinator";
@@ -225,6 +226,7 @@ export function startAppServices(): AppRouter {
   startPermissionUpdateNotices(router);
   startThreadNotifications(appAtomRegistry, router);
   startGuideRunNotifications(appAtomRegistry, router);
+  startSlipJayReleaseNotifications(appAtomRegistry);
   if (isElectron) startDesktopUpdateLaunchNotice();
 
   return router;
