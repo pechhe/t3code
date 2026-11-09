@@ -75,25 +75,27 @@ const nameProblem = (spec: NameSpec) => {
 /** Where a target sits decides which of its forms it may take. */
 type TargetUse =
   | "click"
+  | "drag"
   | "press"
   | "submit"
   | "binding"
   | "check"
+  | "focus"
   | "capture"
   | "screenshot"
   | "avoid";
 
 const targetProblem = (target: PreviewTaskTarget, use: TargetUse) => {
   if (target.text !== undefined) {
-    if (use !== "click" && use !== "submit" && use !== "check" && use !== "avoid")
-      return "a text target is only for clicks, submit, checks and avoid.";
+    if (use !== "click" && use !== "drag" && use !== "submit" && use !== "check" && use !== "avoid")
+      return "a text target is only for clicks, drags, submit, checks and avoid.";
     if (target.role !== undefined || target.name !== undefined || target.nameIncludes !== undefined)
       return "give text instead of role and name, not with them.";
     if (target.text.trim().length === 0) return "text needs words, not only spaces.";
   } else if (target.role === undefined) return "give a role, or text.";
   if (target.hint !== undefined) {
-    if (use !== "click" && use !== "press" && use !== "submit")
-      return "a hint is only for clicks, key presses and submit.";
+    if (use !== "click" && use !== "drag" && use !== "press" && use !== "submit")
+      return "a hint is only for clicks, drags, key presses and submit.";
     if (target.hint.trim().length === 0) return "a hint needs words, not only spaces.";
   }
   if (target.scope?.hint !== undefined) return "a scope takes no hint.";
@@ -158,16 +160,23 @@ export const requestProblem = (request: PreviewTaskRequest): string | undefined 
   const targets: Array<readonly [string, PreviewTaskTarget, TargetUse]> = [];
   for (const binding of bindings) targets.push([binding.id, binding.target, "binding"]);
   for (const action of actions) {
-    if ("press" in action) targets.push([action.id, action.press.target, "press"]);
-    else if ("target" in action) targets.push([action.id, action.target, "click"]);
+    if ("press" in action) {
+      if (action.press.target !== undefined)
+        targets.push([action.id, action.press.target, "press"]);
+    } else if ("drag" in action) {
+      targets.push([action.id, action.drag.from, "drag"]);
+      targets.push([action.id, action.drag.to, "drag"]);
+    } else if ("target" in action) targets.push([action.id, action.target, "click"]);
   }
   if (request.submit !== undefined)
     targets.push([request.submit.id, request.submit.target, "submit"]);
   if (request.capture !== undefined) targets.push(["capture", request.capture.target, "capture"]);
   for (const shot of shots)
     if (shot.target !== undefined) targets.push([shot.id, shot.target, "screenshot"]);
-  for (const check of request.checks)
+  for (const check of request.checks) {
     if (check.kind === "target") targets.push([check.id, check.target, "check"]);
+    if (check.kind === "focus") targets.push([check.id, check.target, "focus"]);
+  }
   for (const [index, target] of (request.pageReach?.avoid ?? []).entries())
     targets.push([`avoid[${index}]`, target, "avoid"]);
   for (const [id, target, use] of targets) {
@@ -198,7 +207,9 @@ export const requestProblem = (request: PreviewTaskRequest): string | undefined 
       ...bindings.map((binding) => binding.id),
       ...(request.submit === undefined ? [] : [request.submit.id]),
       ...actions.flatMap((action) =>
-        "url" in action || ("press" in action && !RECOVERY_KEYS.has(action.press.key))
+        "url" in action ||
+        "drag" in action ||
+        ("press" in action && !RECOVERY_KEYS.has(action.press.key))
           ? [action.id]
           : [],
       ),
@@ -701,11 +712,30 @@ export const layer = Layer.effect(
                           ),
                     ),
                   )
-              : operation === "press"
+              : operation === "drag"
+                ? browser
+                    .dragTaskTarget({
+                      ...lessee,
+                      fromLocator: String(input.locator),
+                      toLocator: String(input.toLocator),
+                      timeoutMs,
+                    })
+                    .pipe(
+                      Effect.mapError(failureMessage),
+                      Effect.flatMap((outcome) =>
+                        outcome === "dragged"
+                          ? Effect.void
+                          : Effect.fail({
+                              _tag: "PreviewAutomationInvalidSelectorError",
+                              message: "A drag target is gone or ambiguous, so it was not dragged.",
+                            }),
+                      ),
+                    )
+                : operation === "press"
                 ? browser
                     .pressTaskTarget({
                       ...lessee,
-                      locator: String(input.locator),
+                      ...(input.locator === undefined ? {} : { locator: String(input.locator) }),
                       key: String(input.key),
                       timeoutMs,
                     })

@@ -323,11 +323,18 @@ export class ServerBrowser extends Context.Service<
     >;
     readonly pressTaskTarget: (
       input: TaskLeaseInput & {
-        readonly locator: string;
+        readonly locator?: string | undefined;
         readonly key: string;
         readonly timeoutMs: number;
       },
     ) => Effect.Effect<"pressed" | "not-focusable" | "stale", ServerBrowserTaskError>;
+    readonly dragTaskTarget: (
+      input: TaskLeaseInput & {
+        readonly fromLocator: string;
+        readonly toLocator: string;
+        readonly timeoutMs: number;
+      },
+    ) => Effect.Effect<"dragged" | "stale", ServerBrowserTaskError>;
     /** Holds a saved login for the tab's later task steps; owned tabs only. */
     readonly holdTaskLogin: (
       input: Omit<TaskLeaseInput, "lease"> & {
@@ -2422,6 +2429,7 @@ const make = Effect.gen(function* () {
                 threadId: request.threadId,
                 ...(url ? { url } : {}),
                 ...(profileId === undefined ? {} : { profileId }),
+                ...(open.viewport === undefined ? {} : { viewport: open.viewport }),
                 runtime: "server",
                 reveal: false,
                 automationOwner: request.agentSessionId,
@@ -2429,6 +2437,13 @@ const make = Effect.gen(function* () {
               { reclaimIdleSlot: true },
             ),
           ));
+        // A reused tab keeps the size it was opened with unless this open fixes a new one.
+        if (existing && open.viewport !== undefined && !viewportSettingsEqual(open.viewport, existing.setting)) {
+          await runPromise(
+            manager.resize({ threadId: tab.threadId, tabId: tab.tabId, viewport: open.viewport }),
+          );
+          await applySetting(tab, open.viewport);
+        }
         if (existing?.dialog)
           throw new BrowserControlInterrupted({
             message:
@@ -3482,7 +3497,7 @@ const make = Effect.gen(function* () {
     );
   const pressTaskTarget = (
     input: TaskLeaseInput & {
-      readonly locator: string;
+      readonly locator?: string | undefined;
       readonly key: string;
       readonly timeoutMs: number;
     },
@@ -3510,6 +3525,36 @@ const make = Effect.gen(function* () {
         }).catch((cause: unknown) => {
           if (isOperationError(cause) && cause.tag === UNPRESSED_KEY)
             return cause.detail as "not-focusable" | "stale";
+          throw cause;
+        }),
+      false,
+    );
+  const dragTaskTarget = (
+    input: TaskLeaseInput & {
+      readonly fromLocator: string;
+      readonly toLocator: string;
+      readonly timeoutMs: number;
+    },
+  ) =>
+    onLeasedPage(
+      input,
+      (tab) =>
+        recordAction(tab, "drag", async () => {
+          const outcome = await ServerBrowserPage.dragTask({
+            page: tab.page,
+            fromLocator: input.fromLocator,
+            toLocator: input.toLocator,
+            timeoutMs: input.timeoutMs,
+          });
+          if (outcome !== "dragged")
+            throw new ServerBrowserPage.ServerBrowserOperationError({
+              tag: UNPRESSED_KEY,
+              message: "A drag target is gone or ambiguous, so it was not dragged.",
+              detail: outcome,
+            });
+          return outcome;
+        }).catch((cause: unknown): "stale" => {
+          if (isOperationError(cause) && cause.tag === UNPRESSED_KEY) return "stale";
           throw cause;
         }),
       false,
@@ -3629,6 +3674,7 @@ const make = Effect.gen(function* () {
     taskFenceBreach,
     taskPageFacts,
     pressTaskTarget,
+    dragTaskTarget,
     captureTaskScreenshot,
     holdTaskLogin,
     fillTaskLogin,

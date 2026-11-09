@@ -948,6 +948,37 @@ describe("BrowserTaskService", () => {
     assert.include(problem({ limits: { timeoutMs: 120_001 } }), "timeoutMs");
     assert.include(problem({ checks: [{ id: "u", kind: "url" }] }), "equals or includes");
   });
+
+  it("accepts a drag, a target-less press and a focus check, and refuses a drag with one target", () => {
+    const base = FORM_REQUEST;
+    const drag = {
+      id: "move",
+      drag: {
+        from: { role: "button", name: "Save" },
+        to: { role: "button", name: "Other" },
+      },
+    } as const;
+    assert.isUndefined(
+      requestProblem({
+        ...base,
+        actions: [drag],
+        checks: [{ id: "f", kind: "focus", target: { role: "textbox", name: "Email" } }],
+      }),
+    );
+    assert.isUndefined(
+      requestProblem({
+        ...base,
+        actions: [{ id: "tab", press: { key: "Tab" as const } }],
+      }),
+    );
+    // A drag in ordered mode must be run by a step, like a click.
+    const unrun = requestProblem({
+      ...base,
+      actions: [drag],
+      steps: [{ kind: "run", id: "email" }],
+    });
+    assert.include(unrun ?? "", "needs a step");
+  });
 });
 
 const OVERLAY_TREE = [
@@ -2030,7 +2061,7 @@ describe("BrowserTaskService name fragments", () => {
           ...DESK_REQUEST,
           bindings: [{ id: "b", control: "text", target: { text: "Email" }, text: "a@b.c" }],
         }),
-        "b: a text target is only for clicks, submit, checks and avoid.",
+        "b: a text target is only for clicks, drags, submit, checks and avoid.",
       );
       assert.strictEqual(
         requestProblem({
@@ -2044,7 +2075,7 @@ describe("BrowserTaskService name fragments", () => {
             },
           ],
         }),
-        "c: a hint is only for clicks, key presses and submit.",
+        "c: a hint is only for clicks, drags, key presses and submit.",
       );
       assert.strictEqual(
         requestProblem({

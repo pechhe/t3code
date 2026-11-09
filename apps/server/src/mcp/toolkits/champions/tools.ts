@@ -319,7 +319,7 @@ const check_context = Tool.make("t3_champions_check_context", {
 const journeys_start = Tool.make("t3_champions_journeys_start", {
   ...shared,
   description:
-    "Start this journey check's target. The server defers a check on a busy machine and refuses an ineligible target before any browser starts, then returns the shards, the journey limit, the paths earlier checks walked, recently changed files and bugs to re-test. Your browser reaches only the shards.",
+    "Start this journey check's target. The server defers a check on a busy machine and refuses an ineligible target before any browser starts, then returns the shards (with each shard's locale and workPaths), the services the target declares missing, the journey limit, the paths earlier checks walked, recently changed files and bugs to re-test. Your browser reaches only the shards.",
   parameters: ChampionJourneysStartInput,
   success: ChampionJourneyPlan,
 })

@@ -37,6 +37,7 @@ const unusedTaskLease = {
   taskFenceBreach: () => Effect.die("unused"),
   taskPageFacts: () => Effect.die("unused"),
   pressTaskTarget: () => Effect.die("unused"),
+  dragTaskTarget: () => Effect.die("unused"),
   captureTaskScreenshot: () => Effect.die("unused"),
   holdTaskLogin: () => Effect.die("unused"),
   fillTaskLogin: () => Effect.die("unused"),

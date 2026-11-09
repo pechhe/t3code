@@ -129,9 +129,22 @@ export type PreviewTaskKey = (typeof PREVIEW_TASK_KEYS)[number];
 export const PreviewTaskAction = Schema.Union([
   Schema.Struct({
     id: Id,
-    press: Schema.Struct({ key: Schema.Literals(PREVIEW_TASK_KEYS), target: PreviewTaskTarget }),
+    press: Schema.Struct({
+      key: Schema.Literals(PREVIEW_TASK_KEYS),
+      target: Schema.optional(PreviewTaskTarget),
+    }),
     screenshot: ScreenshotAfter,
-  }).annotate({ description: "Pressed only while the target itself holds focus." }),
+  }).annotate({
+    description:
+      "Pressed only while the target itself holds focus; with no target, pressed on whatever holds focus.",
+  }),
+  Schema.Struct({
+    id: Id,
+    drag: Schema.Struct({ from: PreviewTaskTarget, to: PreviewTaskTarget }),
+    screenshot: ScreenshotAfter,
+  }).annotate({
+    description: "Drags with real mouse input from the centre of `from` to the centre of `to`.",
+  }),
   Schema.Struct({ id: Id, target: PreviewTaskTarget, screenshot: ScreenshotAfter }),
   Schema.Struct({ id: Id, url: Text, screenshot: ScreenshotAfter }),
 ]);
@@ -158,6 +171,7 @@ export const PreviewTaskCheck = Schema.Union([
     value: Schema.optional(Schema.String),
     checked: Schema.optional(Schema.Boolean),
   }),
+  Schema.Struct({ id: Id, kind: Schema.Literal("focus"), target: PreviewTaskTarget }),
   Schema.Struct({ id: Id, kind: Schema.Literal("artifact") }),
 ]);
 export type PreviewTaskCheck = typeof PreviewTaskCheck.Type;
@@ -349,6 +363,14 @@ export const PreviewTaskResult = Schema.Struct({
     ageMs: Schema.NullOr(Schema.Number),
     truncated: Schema.Boolean,
   }),
+  /** The element holding focus at the last observation: its role and accessible name, or null. */
+  focusedElement: Schema.optional(
+    Schema.NullOr(Schema.Struct({ role: Schema.String, name: Schema.String })),
+  ),
+  /** The viewport this run observed, when the backend reports one. */
+  viewport: Schema.optional(
+    Schema.NullOr(Schema.Struct({ width: Schema.Number, height: Schema.Number })),
+  ),
   decisions: Schema.Int,
   usage: Schema.Struct({
     inputTokens: Schema.Int,

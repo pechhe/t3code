@@ -1462,14 +1462,19 @@ export const taskPageFacts = async (input: {
 
 /**
  * Focuses the target and presses the key only if the target itself then holds focus, through
- * shadow roots and, inside a frame, only while that frame's document has focus.
+ * shadow roots and, inside a frame, only while that frame's document has focus. With no
+ * locator the key goes to whatever holds focus, as a person's Tab-spelled key would.
  */
 export const pressTaskTarget = async (input: {
   readonly page: Page;
-  readonly locator: string;
+  readonly locator?: string | undefined;
   readonly key: string;
   readonly timeoutMs: number;
 }): Promise<"pressed" | "not-focusable" | "stale"> => {
+  if (input.locator === undefined) {
+    await input.page.keyboard.press(input.key);
+    return "pressed";
+  }
   const target = targetLocator(input.page, { locator: input.locator })!;
   if ((await target.count()) !== 1) return "stale";
   // Page-side code: the server compiles without DOM types.
@@ -1495,6 +1500,42 @@ export const pressTaskTarget = async (input: {
   if (!focused) return "not-focusable";
   await input.page.keyboard.press(input.key);
   return "pressed";
+};
+
+/**
+ * A bounded task's drag: real mouse input, centre to centre, with intermediate moves so
+ * pointer-event handlers with a movement threshold see them. Rejects rather than faking it
+ * where the page cannot produce a mouse.
+ */
+export const dragTask = async (input: {
+  readonly page: Page;
+  readonly fromLocator: string;
+  readonly toLocator: string;
+  readonly timeoutMs: number;
+}): Promise<"dragged" | "stale"> => {
+  if (typeof input.page.mouse?.move !== "function")
+    throw new ServerBrowserOperationError({
+      tag: "PreviewAutomationExecutionError",
+      message: "This backend cannot drag: it has no mouse to move.",
+    });
+  const from = targetLocator(input.page, { locator: input.fromLocator })!;
+  const to = targetLocator(input.page, { locator: input.toLocator })!;
+  if ((await from.count()) !== 1 || (await to.count()) !== 1) return "stale";
+  const start = await targetPoint(input.page, from, {}, input.timeoutMs);
+  const end = await targetPoint(input.page, to, {}, input.timeoutMs);
+  const mouse = input.page.mouse;
+  await mouse.move(start.x, start.y);
+  await mouse.down();
+  const steps = 24;
+  for (let step = 1; step <= steps; step += 1) {
+    const fraction = step / steps;
+    await mouse.move(
+      start.x + (end.x - start.x) * fraction,
+      start.y + (end.y - start.y) * fraction,
+    );
+  }
+  await mouse.up();
+  return "dragged";
 };
 
 /** A full page is cut at this many viewport heights. */

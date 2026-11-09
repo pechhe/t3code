@@ -148,6 +148,35 @@ const KEYS = `<!doctype html><title>Keys</title><main>
   </script>
 </main>`;
 
+/** A Vehicles-style board: plain pointer events, a 2 px threshold, native drag suppressed. */
+const BOARD = `<!doctype html><title>Board</title><main>
+  <div id="lane-a" aria-label="To do" style="width:200px;height:120px;background:#eee">
+    <button id="card">Job 1</button>
+  </div>
+  <section id="lane-b" aria-label="Done" style="width:200px;height:120px;background:#dfd;margin-top:20px"></section>
+  <output id="moved"></output>
+  <script>
+    const card = document.getElementById("card");
+    card.addEventListener("dragstart", (event) => event.preventDefault());
+    let start = null;
+    card.addEventListener("pointerdown", (event) => { start = { x: event.clientX, y: event.clientY }; });
+    document.addEventListener("pointermove", (event) => {
+      if (!start) return;
+      if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < 2) return;
+      card.dataset.dragging = "1";
+    });
+    document.addEventListener("pointerup", (event) => {
+      if (!card.dataset.dragging) return;
+      const laneB = document.getElementById("lane-b").getBoundingClientRect();
+      if (event.clientX >= laneB.left && event.clientX <= laneB.right && event.clientY >= laneB.top && event.clientY <= laneB.bottom) {
+        document.getElementById("lane-b").append(card);
+        document.getElementById("moved").textContent = "Moved";
+      }
+      start = null;
+    });
+  </script>
+</main>`;
+
 /** Support-desk rows: each a button named by its whole card, its age included. */
 const DESK = `<!doctype html><title>Desk</title><main>
   <button onclick="document.querySelectorAll('time').forEach((t) => { t.textContent = '1m'; })">All cases</button>
@@ -340,6 +369,10 @@ const withFixture = <A, E, R>(
                           : undefined;
       if (extra !== undefined) {
         response.end(extra);
+        return;
+      }
+      if (path === "/board") {
+        response.end(BOARD);
         return;
       }
       response.end(
@@ -1185,6 +1218,123 @@ it.live("presses Tab in a named textbox, in goal mode and in ordered mode", () =
       expect(byStep).toMatchObject({ status: "passed", decisions: 0 });
       expect(byStep.actions).toEqual([{ id: "accept", kind: "action", state: "completed" }]);
       expect(yield* pageText(ordered.tabId)).toContain("Keys: Tab");
+    }),
+  ),
+);
+
+it.live("drags with real mouse input a pointer-based handler accepts, in ordered and goal mode", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      const moved = [{ id: "moved", kind: "text", includes: "Moved", expect: "present" }] as const;
+      const drag = {
+        id: "move",
+        drag: {
+          from: { role: "button", name: "Job 1" },
+          to: { role: "region", name: "Done" },
+        },
+      } as const;
+      const orderedTab = yield* openTab(`${fixture.origin}/board`);
+      const byStep = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "drag-ordered",
+          tabId: orderedTab.tabId,
+          actions: [drag],
+          steps: [{ kind: "run", id: "move" }],
+          checks: moved,
+        }),
+      });
+      expect(byStep).toMatchObject({ status: "passed", decisions: 0 });
+      expect(yield* pageText(orderedTab.tabId)).toContain("Moved");
+
+      const goalTab = yield* openTab(`${fixture.origin}/board`);
+      fixture.script.push("move");
+      const byGoal = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "drag-goal",
+          tabId: goalTab.tabId,
+          goal: "Move the job to Done",
+          actions: [drag],
+          checks: moved,
+        }),
+      });
+      expect(byGoal).toMatchObject({ status: "passed" });
+      expect(yield* pageText(goalTab.tabId)).toContain("Moved");
+    }),
+  ),
+);
+
+it.live("presses a key with no target on whatever holds focus, and reports focus", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      const { tabId } = yield* openTab(`${fixture.origin}/keys`);
+      const result = yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "press-unfocused",
+          tabId,
+          actions: [{ id: "tab", press: { key: "Tab" } }],
+          steps: [{ kind: "run", id: "tab" }],
+          checks: [{ id: "focused", kind: "focus", target: MESSAGE }],
+        }),
+      });
+      expect(result).toMatchObject({ status: "passed", decisions: 0 });
+      expect(result.focusedElement).toEqual({ role: "textbox", name: "Message" });
+    }),
+  ),
+);
+
+it.live("holds a fixed width through a navigation", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      yield* ServerBrowser.ServerBrowser;
+      const broker = yield* Broker.PreviewAutomationBroker;
+      yield* Effect.yieldNow;
+      const opened = yield* broker.invoke<PreviewAutomationStatus>({
+        scope,
+        operation: "open",
+        input: {
+          url: `${fixture.origin}/board`,
+          viewport: { _tag: "freeform", width: 390, height: 844 },
+          reuseExistingTab: false,
+          open: false,
+        },
+      });
+      const tabId = PreviewTabId.make(opened.tabId!);
+      const tasks = yield* BrowserTaskService.BrowserTaskService;
+      yield* tasks.run({
+        scope,
+        authorize: Effect.void,
+        request: request({
+          requestId: "narrow-nav",
+          tabId,
+          actions: [{ id: "go", url: `${fixture.origin}/keys` }],
+          steps: [{ kind: "run", id: "go" }],
+          checks: [{ id: "loaded", kind: "text", includes: "Message", expect: "present" }],
+        }),
+      });
+      const snapshot = yield* broker.invoke<PreviewAutomationSnapshot>({
+        scope,
+        tabId,
+        operation: "snapshot",
+        input: {},
+        updateCurrentTab: false,
+      });
+      expect(snapshot.viewport).toEqual({ width: 390, height: 844 });
+      const status = yield* broker.invoke<PreviewAutomationStatus>({
+        scope,
+        tabId,
+        operation: "status",
+        input: {},
+        updateCurrentTab: false,
+      });
+      expect(status.viewportSetting).toEqual({ _tag: "freeform", width: 390, height: 844 });
     }),
   ),
 );

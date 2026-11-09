@@ -179,6 +179,9 @@ export const PreviewAutomationOpenInput = Schema.Struct({
   profileId: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(64))).annotate({
     description: PROFILE_GUIDANCE,
   }),
+  viewport: Schema.optional(PreviewViewportSetting).annotate({
+    description: "Fixes the tab's size for its life. Only the integrated backend honours it.",
+  }),
 }).check(
   Schema.makeFilter(
     (input) =>

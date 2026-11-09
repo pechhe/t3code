@@ -9,6 +9,7 @@ import {
   PreviewTaskCancelInput,
   PreviewTaskRequest,
   PreviewTaskResult,
+  PreviewViewportSize,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { McpSchema, Tool, Toolkit } from "effect/ai";
@@ -34,8 +35,13 @@ const bounded = <T extends Tool.Any>(tool: T): T =>
 const OpenTool = bounded(
   Tool.make("t3_browser_open", {
     description:
-      "Open a fresh tab for bounded browser work: integrated browser, new isolated storage, no cookies from elsewhere, in the background. Returns its `tabId`; pass it to every other t3_browser_* call, and `logins`, the saved login keys a task may type on this origin. Each call opens another tab, and only this session can use it. Use it for a page you need to check or a form you were given values for; close the tab when done.",
-    parameters: Schema.Struct({ url: PreviewAutomationOpenInput.fields.url }),
+      "Open a fresh tab for bounded browser work: integrated browser, new isolated storage, no cookies from elsewhere, in the background. Returns its `tabId`; pass it to every other t3_browser_* call, and `logins`, the saved login keys a task may type on this origin. Each call opens another tab, and only this session can use it. Use it for a page you need to check or a form you were given values for; close the tab when done. `viewport` fixes the tab's size for its life, for a whole journey at one width such as a phone's; only the integrated backend honours it.",
+    parameters: Schema.Struct({
+      url: PreviewAutomationOpenInput.fields.url,
+      viewport: Schema.optional(PreviewViewportSize).annotate({
+        description: "Fixes the tab's size for its life.",
+      }),
+    }),
     success: PreviewAutomationStatus,
     failure,
     dependencies,
@@ -86,7 +92,7 @@ export const BoundedBrowserSnapshotTool = bounded(
 const TaskTool = bounded(
   Tool.make("t3_browser_task", {
     description:
-      "Run a bounded browser job on your own tab from t3_browser_open. Take t3_browser_snapshot first and name targets as the page shows them now: an exact `name`; `nameIncludes` with a part shown once for changing text (an age, a count); a `role` alone for the page's only element with that role; or, for a click or check, `text`, the element's whole visible line. Names over 900 characters cannot match. A click, key press or submit target matching several elements takes a `hint` (\"in the header\"): Jev picks one and the result names it. Give the exact fields with supplied values, the only clicks, key presses (such as Tab to accept a suggestion) or URLs allowed, an explicit submit (dispatched at most once) and the checks that define success; every check must pass on the final page. For a password, bind a saved login from t3_browser_open's `logins` (`control: login`): the server types it, and you never see it; after a blocked login, run it again as a task. With `steps`, it runs your ordered list (run an id, or screenshot) with no model call except for a hint, and Jev only uncovers a covered or late target using offered actions no step names; without `steps`, Jev picks among your offers towards `goal`, or with `pageReach` from any visible control too (exploring, unscripted paths): set `origins` and `avoid` (such as Delete or Send) on real data. A target the page plainly lacks stops it as `target-not-found` with the nearest matches. Screenshots return paths with step, URL and framing; set `includeImages` to see the last three yourself. Repeat a `requestId` to read the run's state; other inputs under it conflict. After `blocked`, snapshot and send a new request under a new `requestId`. On `inspect-first` an uncertain mutation may have happened: snapshot before anything else and do not repeat it blindly. Limits default to 12 actions, 16 decisions, 60 s, with ceilings 24, 32, 120 s. No typed passwords, no generated text.",
+      "Run a bounded browser job on your own tab from t3_browser_open. Take t3_browser_snapshot first and name targets as the page shows them now: an exact `name`; `nameIncludes` with a part shown once for changing text (an age, a count); a `role` alone for the page's only element with that role; or, for a click or check, `text`, the element's whole visible line. Names over 900 characters cannot match. A click, key press or submit target matching several elements takes a `hint` (\"in the header\"): Jev picks one and the result names it. Give the exact fields with supplied values, the only clicks, drags (`drag: { from, to }`, with real mouse input), key presses (such as Tab to accept a suggestion; leave `press.target` out to press on whatever holds focus, as a person tabs through a page) or URLs allowed, an explicit submit (dispatched at most once) and the checks that define success; every check must pass on the final page. A `focus` check passes when its target holds focus; the result also reports the focused element's role and name, or that nothing holds focus. For a password, bind a saved login from t3_browser_open's `logins` (`control: login`): the server types it, and you never see it; after a blocked login, run it again as a task. With `steps`, it runs your ordered list (run an id, or screenshot) with no model call except for a hint, and Jev only uncovers a covered or late target using offered actions no step names; without `steps`, Jev picks among your offers towards `goal`, or with `pageReach` from any visible control too (exploring, unscripted paths): set `origins` and `avoid` (such as Delete or Send) on real data. A target the page plainly lacks stops it as `target-not-found` with the nearest matches. Screenshots return paths with step, URL and framing; set `includeImages` to see the last three yourself. Repeat a `requestId` to read the run's state; other inputs under it conflict. After `blocked`, snapshot and send a new request under a new `requestId`. On `inspect-first` an uncertain mutation may have happened: snapshot before anything else and do not repeat it blindly. Limits default to 12 actions, 16 decisions, 60 s, with ceilings 24, 32, 120 s. No typed passwords, no generated text.",
     parameters: PreviewTaskRequest,
     success: PreviewTaskResult,
     failure: OrchestratorMcpFailure,

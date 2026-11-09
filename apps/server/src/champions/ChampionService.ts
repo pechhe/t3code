@@ -8,6 +8,7 @@ import {
   parseVerdict,
   sameFailure,
   replayBrief,
+  shardOfOrigin,
 } from "./journeyRules.ts";
 import { engines as decisionEngines } from "../decisions/adapters.ts";
 import * as ChampionLearnings from "./ChampionLearnings.ts";
@@ -880,8 +881,8 @@ const make = Effect.gen(function* () {
       `You own champion ${doc.champion.name} in this project. Your goal: ${doc.champion.purpose}`,
       `Check claim: ${check.id}. YOU FIND AND REPORT BUGS. YOU DO NOT REPAIR. This overrides any other instruction: no repairs, no worktrees, no source edits and no reading the target's source, even if a bug looks easy to fix.`,
       "1. Call t3_champions_check_context, then t3_champions_learning_search with this champion's id for what past checks covered. Then call t3_champions_journeys_start: it starts the target and returns its shards, the most journeys this check may run, the paths earlier checks already walked, the source files changed since, and bugs to re-test, which you replay first, by findingId, under step 5. If it says the check is deferred or refused, report that no journey ran; do not work around it.",
-      "2. Survey before you choose: open your tabs, one per area in the sidebar first, and call t3_browser_snapshot on each. Read the links and buttons inside each page's main content, not the sidebar, then open and snapshot the pages those links lead to as well, so you have seen two levels. Name in each goal the links it should follow, as the snapshot shows them, and spend no journey on a feature that needs a real model, voice or outbound service, since this contained copy has none. Then choose journeys a real person might take and break. At least half must start on, or pass through, a page or control you found only this way, and a page reached only from inside another page gets at least two journeys, since nobody else will go there. No two journeys may share a start and a goal, on any shard: a shard is capacity, not a reason to repeat a path. Prefer areas no earlier check covered and areas that recently changed; past coverage is a list to avoid, so never reuse a goal from a learning unless it is a re-test. Every goal is an attack of at least three steps, never a visit, and across the check cover each kind of break: searches and filters given unusual input such as ( [ % or a very long value; a draft started, then a link followed away and back, checking the draft survived; a multi-step flow taken to its very last button, checking that button can be used; empty submits and double submits. Never ask a goal to report: the task's model reads each page for you. Never name or assume a bug you have not seen.",
-      "3. Run them all at once, spread evenly across the shards, never one shard at a time: the check is measured on how many overlap. In ONE message issue one t3_browser_open per journey with url = the shard's origin + its signInPath (add next=<path> for where it starts). Then in ONE message issue one t3_browser_task per tab, each with a goal, pageReach: {}, a limit of decisions from the plan, a binding for every value it must type, since a goal cannot type without one, and checks that can pass only at the journey's end, such as text the finished task must show. A task that takes no action counts as testing nothing, so give each goal something to do, never use a bare url check, and do not fall back to scripted steps. Put the plan's full journeyLimit, every shard's journeys together, in those two messages: a check that started fewer, or started them in smaller batches, has not done its job. One tab is one journey, and more tasks in the same tab continue it. The server records every journey, its clicks and its timing. Your browsers can reach only the shards. Close each tab when its journey ends.",
+      "2. Survey before you choose: open your tabs, one per area in the sidebar first, and call t3_browser_snapshot on each. Read the links and buttons inside each page's main content, not the sidebar, then open and snapshot the pages those links lead to as well, so you have seen two levels. Name in each goal the links it should follow, as the snapshot shows them, and spend no journey on a feature that needs a real model, voice or outbound service, since this contained copy has none. Then choose journeys a real person might take and break. At least half must start on, or pass through, a page or control you found only this way, and a page reached only from inside another page gets at least two journeys, since nobody else will go there. No two journeys may share a start and a goal, on any shard: a shard is capacity, not a reason to repeat a path. A shard may carry a locale and workPaths: give each journey that changes data its own workPath, and never run two journeys on the same workPath at once; give a journey on a shard with a locale, such as pt-BR, the goal of reading its screens for English left behind, judged from what the screen shows. Include journeys a real person takes that goal-driven clicking misses: dragging an element between lanes, a phone-width journey opened with a narrow viewport, and a keyboard-only journey of key presses with no clicks, checking which element holds focus. Prefer areas no earlier check covered and areas that recently changed; past coverage is a list to avoid, so never reuse a goal from a learning unless it is a re-test. Every goal is an attack of at least three steps, never a visit, and across the check cover each kind of break: searches and filters given unusual input such as ( [ % or a very long value; a draft started, then a link followed away and back, checking the draft survived; a multi-step flow taken to its very last button, checking that button can be used; empty submits and double submits. Never ask a goal to report: the task's model reads each page for you. Never name or assume a bug you have not seen.",
+      "3. Run them all at once, spread evenly across the shards, never one shard at a time: the check is measured on how many overlap. In ONE message issue one t3_browser_open per journey with url = the shard's origin + its signInPath (add next=<path> for where it starts). Then in ONE message issue one t3_browser_task per tab, each with a goal, pageReach: {}, a limit of decisions from the plan, a binding for every value it must type, since a goal cannot type without one, and checks that can pass only at the journey's end, such as text the finished task must show. A task that takes no action counts as testing nothing, so give each goal something to do, never use a bare url check, and do not fall back to scripted steps. A journey that must run at one width opens with t3_browser_open viewport { width, height } and stays at it; its replay will repeat that width. Put the plan's full journeyLimit, every shard's journeys together, in those two messages: a check that started fewer, or started them in smaller batches, has not done its job. One tab is one journey, and more tasks in the same tab continue it. The server records every journey, its clicks and its timing. Your browsers can reach only the shards. Close each tab when its journey ends.",
       "4. A journey that shows an error page, a dead end, lost work or anything a person would call broken is a candidate: call t3_champions_journey_candidate with its tabId, what should have happened and what did. A task that ends with reason page-broken always is: what should have happened comes from its goal, and what did from its detail. That tells nobody. Do not judge whether it is real; a stronger model decides. If a journey only stalled on a limit or a slow page, it is not a candidate.",
       "5. For every candidate, and for every re-test the plan names, call t3_champions_candidate_replay, and once more for one that settles inconclusive. It starts a fresh database and returns workId, attemptId and a brief. Call delegate_task with agentTask {role: browser, taskClass: non-ui, readOnly: true, demanding: true, browser: {backend: integrated}, workId, attemptId, workspacePath: your workspace} and mode wait, and task = the brief, unchanged; any other task is refused, and so is a follow-up. At most four replays run at once: when a call says so, settle one and go on. When each finishes call t3_champions_candidate_settle: the server reads that agent's verdict itself; what you say about it does not count. Only a confirmed candidate becomes a finding.",
       "6. Retain what you covered and under which build with t3_champions_record_learning, plainSummary first.",
@@ -2603,6 +2604,7 @@ const make = Effect.gen(function* () {
       finalUrl: journey.finalUrl,
       screenshots: journey.screenshots,
       findingId: null,
+      viewport: journey.viewport ?? null,
       replay: null,
     };
     yield* journeys.saveCandidate(candidate).pipe(Effect.mapError(failure));
@@ -2666,11 +2668,20 @@ const make = Effect.gen(function* () {
         detail: `That candidate is already ${candidate.status}.`,
       });
     const workId = `${CANDIDATE_WORK_PREFIX}${candidate.id}`;
+    // The candidate's shard, by the origin it ran on: its locale must be replayed in.
+    const candidateShard =
+      running.record.manifest === null
+        ? undefined
+        : shardOfOrigin(running.record.manifest, candidate.finalUrl) ??
+          candidate.steps
+            .map((step) => shardOfOrigin(running.record!.manifest!, step.url))
+            .find((entry) => entry !== undefined);
     const manifest = yield* journeys.provisionReplay({
       checkId: check.id,
       config,
       workId,
       build: running.record.build,
+      ...(candidateShard?.locale === undefined ? {} : { locale: candidateShard.locale }),
     });
     const shard = manifest.shards[0]!;
     const attemptId = `${candidate.id}:${manifest.id}`;
@@ -2684,6 +2695,12 @@ const make = Effect.gen(function* () {
       finalUrl: candidate.finalUrl,
       retest: candidate.kind === "retest",
       reproduction: candidate.reproduction ?? null,
+      viewport: candidate.viewport ?? null,
+      ...(candidateShard?.locale === undefined ? {} : { locale: candidateShard.locale }),
+      ...(running.record.manifest?.missingServices === undefined
+        ? {}
+        : { missingServices: running.record.manifest.missingServices }),
+      workPaths: shard.workPaths,
     });
     yield* journeys
       .saveCandidate({
@@ -2780,6 +2797,20 @@ const make = Effect.gen(function* () {
         verdict?.reason ?? "The replay ended without a verdict.",
         null,
       );
+    // A failure a declared missing service causes reproduces every time, and is still not a bug.
+    if (candidate.kind === "candidate" && verdict.missingService !== null) {
+      const stored = yield* journeys.readRecord(check.id).pipe(Effect.mapError(failure));
+      const named = verdict.missingService.toLowerCase();
+      const service = stored?.record.manifest?.missingServices?.find(
+        (declared) => declared.name.toLowerCase() === named,
+      );
+      if (service !== undefined)
+        return yield* close(
+          "rejected",
+          `Missing service: ${service.name}. ${service.what} ${verdict.reason}`,
+          null,
+        );
+    }
     if (candidate.kind === "retest") {
       if (verdict.verdict === "reproduced")
         return yield* close("still-failing", verdict.reason, candidate.findingId);

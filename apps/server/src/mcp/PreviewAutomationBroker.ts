@@ -848,6 +848,13 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       };
     }
     let result: A;
+    if (
+      backend !== "integrated" &&
+      openInput &&
+      "viewport" in openInput &&
+      openInput.viewport !== undefined
+    )
+      return yield* new PreviewAutomationBackendError({ backend, reason: "unsupported" });
     if (backend === "phi") {
       if (Option.isNone(phiBrowser))
         return yield* new PreviewAutomationBackendError({ backend, reason: "unavailable" });

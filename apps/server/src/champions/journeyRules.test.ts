@@ -181,7 +181,7 @@ describe("parseVerdict", () => {
   it("reads the replay's final message", () => {
     expect(
       Rules.parseVerdict("I tried.\nVERDICT: reproduced\nREASON: Error page.\nSCREENSHOT: /a.png"),
-    ).toEqual({ verdict: "reproduced", reason: "Error page.", steps: null, screenshot: "/a.png" });
+    ).toEqual({ verdict: "reproduced", reason: "Error page.", steps: null, screenshot: "/a.png", missingService: null });
   });
 
   it("keeps what the replay did, with the text it typed", () => {
@@ -315,6 +315,106 @@ describe("sameFailure", () => {
     expect(Rules.sameFailure({ finalUrl: null, steps: [] }, { finalUrl: null, steps: [] })).toBe(
       false,
     );
+  });
+});
+
+describe("describeStep drag and press", () => {
+  const base = {
+    id: "move",
+    kind: "action",
+    target: { role: "button", name: "Job 1" },
+    description: null,
+    option: null,
+    value: null,
+    url: "http://localhost:3300/board",
+    state: "completed",
+    at: "2026-11-08T00:00:00.000Z",
+    ms: 1,
+  } as const;
+  it("names both ends of a drag", () => {
+    expect(
+      Rules.describeStep({
+        ...base,
+        operation: "drag",
+        from: { role: "button", name: "Job 1" },
+        to: { role: "region", name: "Done" },
+      }),
+    ).toBe('On /board: drag the button named "Job 1" to the region named "Done"');
+  });
+  it("says a target-less press acts on the focused element", () => {
+    expect(
+      Rules.describeStep({
+        ...base,
+        id: "tab",
+        operation: "press",
+        target: null,
+        key: "Tab",
+      }),
+    ).toBe("On /board: press Tab on the focused element");
+  });
+});
+
+describe("replayBrief", () => {
+  const brief = Rules.replayBrief({
+    title: "Drag does not move",
+    expected: "It moves",
+    observed: "It stayed",
+    origin: "http://localhost:3300",
+    signInPath: "/login",
+    steps: [],
+    finalUrl: null,
+    retest: false,
+    reproduction: null,
+    viewport: { width: 390, height: 844 },
+    locale: "pt-BR",
+    missingServices: [{ name: "optimiser", what: "plan generation cannot run" }],
+  });
+  it("carries the viewport, the language and the missing-service rule", () => {
+    expect(brief).toContain("390x844");
+    expect(brief).toContain("viewport { width: 390, height: 844 }");
+    expect(brief).toContain("pt-BR");
+    expect(brief).toContain("optimiser");
+    expect(brief).toContain("not-reproduced");
+  });
+});
+
+describe("a replay's brief on a target with its own work pages", () => {
+  const brief = Rules.replayBrief({
+    title: "Dropped job vanished",
+    expected: "The job stays on the lorry",
+    observed: "It went back to Unplanned",
+    origin: "http://localhost:3300",
+    signInPath: "/login",
+    steps: [],
+    finalUrl: null,
+    retest: true,
+    reproduction: null,
+    workPaths: ["/customers/yardsmith-demo/review/2026-11-16?view=vehicles"],
+  });
+
+  it("repeats on this target's page, and can't close a bug by failing to set it up", () => {
+    expect(brief).toContain("review/2026-11-16");
+    expect(brief).toContain('say "blocked"');
+  });
+});
+
+describe("a replay's verdict", () => {
+  it("can name a missing service", () => {
+    expect(
+      Rules.parseVerdict("VERDICT: reproduced\nREASON: It failed.\nMISSING: optimiser")
+        ?.missingService,
+    ).toBe("optimiser");
+    expect(Rules.parseVerdict("VERDICT: reproduced\nREASON: It failed.")?.missingService).toBeNull();
+  });
+});
+
+describe("shardOfOrigin", () => {
+  it("matches a shard by its origin's port", () => {
+    expect(
+      Rules.shardOfOrigin(manifest(), "http://localhost:3300/board")?.id,
+    ).toBe("s1");
+    expect(Rules.shardOfOrigin(manifest(), "http://localhost:9999/board")).toBeUndefined();
+    expect(Rules.shardOfOrigin(manifest(), null)).toBeUndefined();
   });
 });
 

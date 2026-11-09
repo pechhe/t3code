@@ -23,6 +23,8 @@ export interface PageNode {
   readonly disabled: boolean;
   /** The page gives it a pointer cursor: clickable, whatever its role. */
   readonly pointer: boolean;
+  /** It holds focus. */
+  readonly active: boolean;
   /** Its box in the viewport, in CSS pixels, when the snapshot measured one. */
   readonly box: Box | undefined;
 }
@@ -44,6 +46,8 @@ export interface PageModel {
   /** A loading page may still render what it lacks now. */
   readonly loading: boolean;
   readonly viewport: { readonly width: number; readonly height: number } | undefined;
+  /** The element holding focus, or null for none; undefined with no tree to read it from. */
+  readonly focused: PageNode | null | undefined;
 }
 
 const KEY = /^([a-z]+)(?: ("(?:[^"\\]|\\.)*"))?((?: \[[^\]]*\])*)$/;
@@ -124,6 +128,7 @@ export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): Page
       selected: /\[selected\]/.test(parsed[3] ?? ""),
       disabled: /\[disabled\]/.test(parsed[3] ?? ""),
       pointer: /\[cursor=pointer\]/.test(parsed[3] ?? ""),
+      active: /\[active\]/.test(parsed[3] ?? ""),
       value,
       box: boxOf(parsed[3] ?? ""),
     });
@@ -147,6 +152,7 @@ export const pageModelFromSnapshot = (snapshot: PreviewAutomationSnapshot): Page
     nodes,
     loading: snapshot.loading === true,
     viewport: snapshot.viewport,
+    focused: nodes.length === 0 ? undefined : (nodes.find((node) => node.active) ?? null),
     truncated:
       tree.length >= TASK_SNAPSHOT_TEXT_LENGTH ||
       snapshot.visibleText.length >= TASK_SNAPSHOT_TEXT_LENGTH,
@@ -375,6 +381,32 @@ const evaluateUnique = (
   return { status: "passed" };
 };
 
+const evaluateFocus = (
+  model: PageModel,
+  check: Extract<PreviewTaskCheck, { kind: "focus" }>,
+): Omit<PreviewTaskCheckResult, "id"> => {
+  if (model.focused === undefined)
+    return { status: "unsupported", detail: "This backend does not report which element holds focus." };
+  if (model.focused === null)
+    return { status: "failed", detail: "Nothing holds focus." };
+  const resolved = resolveTarget(model, check.target);
+  if (resolved._tag !== "unique")
+    return { status: "failed", detail: "The target is not rendered as one element." };
+  const { node } = resolved;
+  const holds = model.focused === node;
+  const shown = matchedName(check.target, node);
+  const base = {
+    ...(shown === undefined ? {} : { matchedName: shown }),
+  };
+  return holds
+    ? { status: "passed", ...base }
+    : {
+        status: "failed",
+        detail: `Focus is on ${model.focused.role} "${normalized(model.focused.name)}".`,
+        ...base,
+      };
+};
+
 const evaluateCheck = (
   model: PageModel,
   check: PreviewTaskCheck,
@@ -402,6 +434,8 @@ const evaluateCheck = (
     }
     case "target":
       return evaluateTarget(model, check);
+    case "focus":
+      return evaluateFocus(model, check);
     case "artifact":
       return { status: "not-evaluated", detail: "Captured only after the other checks pass." };
   }

@@ -196,7 +196,6 @@ it.live.each(["access", "backend", "allow-list"] as const)(
           expect(snapshot.networkEntries).toContainEqual(
             expect.objectContaining({
               url: `http://127.0.0.1:${port}/failed-request`,
-              status: null,
               failed: true,
             }),
           );

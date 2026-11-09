@@ -381,6 +381,12 @@ export const ChampionJourneyStep = Schema.Struct({
   operation: Schema.String,
   /** The element as the page named it. */
   target: Schema.NullOr(Schema.Struct({ role: Schema.String, name: Schema.String })),
+  /** A drag's source: the same element as `target`, named for the replay. */
+  from: Schema.optional(Schema.NullOr(Schema.Struct({ role: Schema.String, name: Schema.String }))),
+  /** A drag's destination. */
+  to: Schema.optional(Schema.NullOr(Schema.Struct({ role: Schema.String, name: Schema.String }))),
+  /** A key press's key. */
+  key: Schema.optional(Schema.NullOr(Schema.String)),
   description: Schema.NullOr(Schema.String),
   option: Schema.NullOr(Schema.String),
   /** The value typed, never a saved login's. */
@@ -408,6 +414,10 @@ export const ChampionJourney = Schema.Struct({
   usd: Schema.Finite,
   unreportedCalls: Schema.Int,
   finalUrl: Schema.NullOr(Schema.String),
+  /** The viewport this journey ran at, when the backend reported one. */
+  viewport: Schema.optional(
+    Schema.NullOr(Schema.Struct({ width: Schema.Number, height: Schema.Number })),
+  ),
   screenshots: Schema.Array(Schema.String),
   steps: Schema.Array(ChampionJourneyStep),
 });
@@ -419,6 +429,10 @@ export const ChampionJourneyShard = Schema.Struct({
   signInPath: Schema.String,
   database: Schema.String,
   container: Schema.String,
+  /** The language this shard's people use, for example pt-BR. */
+  locale: Schema.optional(Schema.String),
+  /** Pages a journey may change, with at most one running journey on each. */
+  workPaths: Schema.optional(Schema.Array(Schema.String)),
 });
 export type ChampionJourneyShard = typeof ChampionJourneyShard.Type;
 
@@ -436,6 +450,20 @@ export const ChampionJourneyManifest = Schema.Struct({
   expiresAt: Schema.String,
   startSeconds: Schema.Finite,
   shards: Schema.Array(ChampionJourneyShard).check(Schema.isMinLength(1)),
+  /** Services this contained target lacks, and what cannot work without each. */
+  missingServices: Schema.optional(
+    Schema.Array(
+      Schema.Struct({ name: Schema.String, what: Schema.String }),
+    ),
+  ),
+  /** What this kind of target was measured to carry, which sets a check's journeys per shard. */
+  capacity: Schema.optional(
+    Schema.Struct({
+      measuredAt: Schema.String,
+      browsersPerShard: Schema.Number,
+      note: Schema.String,
+    }),
+  ),
 });
 export type ChampionJourneyManifest = typeof ChampionJourneyManifest.Type;
 
@@ -540,6 +568,10 @@ export const ChampionJourneyPlan = Schema.Struct({
   changedSinceLastCheck: Schema.Array(Schema.String).check(Schema.isMaxLength(200)),
   /** Confirmed bugs a later build may have fixed: replay each one. */
   retests: Schema.Array(Schema.Struct({ findingId: Schema.String, title: Schema.String })),
+  /** Services the target lacks, and what cannot work without each. */
+  missingServices: Schema.optional(
+    Schema.Array(Schema.Struct({ name: Schema.String, what: Schema.String })),
+  ),
 });
 export type ChampionJourneyPlan = typeof ChampionJourneyPlan.Type;
 

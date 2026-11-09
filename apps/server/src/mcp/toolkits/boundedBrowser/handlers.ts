@@ -30,9 +30,12 @@ export const layer = McpToolAccess.toLayer(
   Effect.gen(function* () {
     const logins = yield* BrowserLogins.BrowserLogins;
     return {
-      t3_browser_open: McpToolAccess.asBoundedBrowser(({ url }) =>
+      t3_browser_open: McpToolAccess.asBoundedBrowser(({ url, viewport }) =>
         invokeTargeted<PreviewAutomationStatus>("open", {
           ...(url === undefined ? {} : { url }),
+          ...(viewport === undefined
+            ? {}
+            : { viewport: { _tag: "freeform" as const, ...viewport } }),
           open: false,
           show: false,
           reuseExistingTab: false,

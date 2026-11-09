@@ -103,9 +103,9 @@ const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> =
   ["browser/preview", session("phi", "browser"), 34_900],
   // The same set with the web family and t3_thread_handoff, so the thread can move itself,
   // measures 113,757 characters, and 99,501 for the scout without web; `schedule_task`'s
-  // `purpose` brings them to 114,133 and 99,877.
-  ["researcher", session("web-research", "researcher"), 114_200],
-  ["scout", session("source-reader", "scout"), 99_950],
+  // `purpose` brings them to 114,133 and 99,877, and YS-1211's journey inputs to 114,216 and 99,960.
+  ["researcher", session("web-research", "researcher"), 114_300],
+  ["scout", session("source-reader", "scout"), 100_050],
   ["delegated browser", session("phi", "browser", true), 40_000],
   [
     "delegated implementation-worker",

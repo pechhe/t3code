@@ -86,6 +86,10 @@ export const JourneyCandidate = Schema.Struct({
   finalUrl: Schema.NullOr(Schema.String),
   screenshots: Schema.Array(Schema.String),
   findingId: Schema.NullOr(Schema.String),
+  /** The viewport the journey ran at, which its replay must repeat. */
+  viewport: Schema.optional(
+    Schema.NullOr(Schema.Struct({ width: Schema.Number, height: Schema.Number })),
+  ),
   /** What the confirming replay did, which a re-test repeats. */
   reproduction: Schema.optional(Schema.String),
   replay: Schema.NullOr(
@@ -288,6 +292,7 @@ export const layerBrowserPolicy = Layer.effect(
               usd: 0,
               unreportedCalls: 0,
               finalUrl: null,
+              viewport: null,
               screenshots: [],
               steps: [],
             };
@@ -322,6 +327,7 @@ export const layerBrowserPolicy = Layer.effect(
             usd: existing.usd + result.usage.usd,
             unreportedCalls: existing.unreportedCalls + result.usage.unreportedCalls,
             finalUrl: url ?? existing.finalUrl,
+            viewport: existing.viewport ?? result.viewport ?? null,
             screenshots: [
               ...existing.screenshots,
               ...(result.screenshots ?? []).map((screenshot) => screenshot.path),
@@ -1037,6 +1043,9 @@ export const make = Effect.gen(function* () {
       covered: covered.slice(0, 64),
       changedSinceLastCheck: changed.slice(0, 200),
       retests,
+      ...(manifest.missingServices === undefined
+        ? {}
+        : { missingServices: manifest.missingServices }),
     };
     return result;
   });
@@ -1061,6 +1070,7 @@ export const make = Effect.gen(function* () {
       readonly config: ChampionJourneyConfig;
       readonly workId: string;
       readonly build: string;
+      readonly locale?: string | undefined;
     }) {
       const open = (yield* candidatesOf(input.checkId)).filter(
         (candidate) => candidate.status === "pending" && candidate.replay !== null,
@@ -1070,7 +1080,12 @@ export const make = Effect.gen(function* () {
           reason: "conflict",
           detail: `${MAX_OPEN_REPLAYS} replays are running. Settle one before starting another.`,
         });
-      const command = [...argv(input.config.provision, { shards: "1" }), "--build", input.build];
+      const command = [
+        ...argv(input.config.provision, { shards: "1" }),
+        "--build",
+        input.build,
+        ...(input.locale === undefined ? [] : ["--locale", input.locale]),
+      ];
       const manifest = yield* runJson(command, 20).pipe(
         Effect.flatMap((line) => decodeManifest(line).pipe(Effect.mapError(failure))),
       );
