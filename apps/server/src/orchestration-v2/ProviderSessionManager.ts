@@ -397,6 +397,22 @@ export const layerWithOptions = (
           );
       const agentAccessSettings = Effect.fn("ProviderSessionManagerV2.agentAccessSettings")(
         function* (threadId: ThreadId) {
+          // The class rests on the thread alone, so an unreadable setting never widens a
+          // read-only task, and an unreadable thread is treated as read-only.
+          const readThread = yield* Effect.option(projectionStore.getThread(threadId));
+          const leafTask = Option.isSome(readThread)
+            ? isLeafAgentTask(readThread.value.agentTask)
+              ? readThread.value.agentTask
+              : undefined
+            : undefined;
+          const taskClass = {
+            // A leaf task gets the child instructions. Its class decides its tools, and a Spec
+            // lead keeps a top-level thread's instructions.
+            toolProfile: leafTask?.toolProfile,
+            agentRole: leafTask?.role,
+            readOnly: Option.isNone(readThread) || isReadOnlyTask(readThread.value.agentTask),
+            delegated: leafTask !== undefined,
+          };
           if (Option.isNone(serverSettings))
             return {
               browser: true,
@@ -405,14 +421,21 @@ export const layerWithOptions = (
               phiBrowserSkillDirectory: undefined,
               managedBrowser: false,
               boundedBrowser: false,
-              toolProfile: undefined,
-              agentRole: undefined,
-              readOnly: false,
-              delegated: false,
+              ...taskClass,
             };
+          const withheld = {
+            browser: false,
+            device: false,
+            browserBackends: DEFAULT_AGENT_BROWSER_BACKENDS,
+            phiBrowserSkillDirectory: undefined,
+            managedBrowser: false,
+            boundedBrowser: false,
+            ...taskClass,
+          };
+          if (Option.isNone(readThread)) return withheld;
+          const thread = readThread.value;
           return yield* Effect.gen(function* () {
             const settings = yield* serverSettings.value.getSettings;
-            const thread = yield* projectionStore.getThread(threadId);
             // Browser roles use the narrow endpoint, pinned to their task's backend.
             const managedBrowser =
               usesPhi(thread.agentTask?.toolProfile) &&
@@ -423,13 +446,6 @@ export const layerWithOptions = (
               default: selectedBrowser.backend,
             };
             const boundedEligible = boundedBrowserEligible(thread);
-            // A leaf task gets the child instructions. Its class decides its tools, and a Spec
-            // lead keeps a top-level thread's instructions.
-            const leafTask = isLeafAgentTask(thread.agentTask) ? thread.agentTask : undefined;
-            const delegated = leafTask !== undefined;
-            const toolProfile = leafTask?.toolProfile;
-            const agentRole = leafTask?.role;
-            const readOnly = isReadOnlyTask(thread.agentTask);
             const entries = Object.values(settings.projectSettingsOverrides);
             const browserOverridden = entries.some(
               (entry) => entry.enableAgentBrowserAccess !== undefined,
@@ -455,10 +471,7 @@ export const layerWithOptions = (
                   managedBrowser,
                   boundedBrowser:
                     boundedEligible && !browserOverridden && projectAllowsBoundedBrowser(settings),
-                  toolProfile,
-                  agentRole,
-                  readOnly,
-                  delegated,
+                  ...taskClass,
                 };
             }
             const effective = resolveProjectSettings(settings, thread.projectId).settings;
@@ -473,30 +486,14 @@ export const layerWithOptions = (
               device: effective.enableAgentDeviceAccess,
               managedBrowser,
               boundedBrowser: boundedEligible && projectAllowsBoundedBrowser(effective),
-              toolProfile,
-              agentRole,
-              readOnly,
-              delegated,
+              ...taskClass,
             };
           }).pipe(
             Effect.catch((cause) =>
               Effect.logWarning(
                 "Could not resolve agent access; withholding browser and device tools.",
                 { threadId, cause },
-              ).pipe(
-                Effect.as({
-                  browser: false,
-                  device: false,
-                  browserBackends: DEFAULT_AGENT_BROWSER_BACKENDS,
-                  phiBrowserSkillDirectory: undefined,
-                  managedBrowser: false,
-                  boundedBrowser: false,
-                  toolProfile: undefined,
-                  agentRole: undefined,
-                  readOnly: false,
-                  delegated: false,
-                }),
-              ),
+              ).pipe(Effect.as(withheld)),
             ),
           );
         },

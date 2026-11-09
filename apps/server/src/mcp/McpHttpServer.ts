@@ -1198,11 +1198,6 @@ const provideRegistrationServices = <Services>() =>
   );
 
 /**
- * Tools declare their handler services as request-level dependencies. Those
- * built with the server are provided here; `McpInvocationContext` is left to
- * the transport, whose auth middleware resolves it per request.
- */
-/**
  * Keeps a tool off a read-only agent's list unless the closed read-only list names it. The server
  * checks this on every call too, before the routing that sends a call to a linked environment.
  */
@@ -1224,6 +1219,11 @@ const listedForReadOnly = <Tools extends Record<string, Tool.Any>>(
     }),
   ) as unknown as Toolkit.Toolkit<Tools>;
 
+/**
+ * Tools declare their handler services as request-level dependencies. Those
+ * built with the server are provided here; `McpInvocationContext` is left to
+ * the transport, whose auth middleware resolves it per request.
+ */
 export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, RX>(
   toolkit: Toolkit.Toolkit<Tools>,
   handlers: McpToolAccess.HandlersLayer<Tools, EX, RX>,

@@ -788,6 +788,7 @@ function runBrowserAccessScenario(input: {
   readonly managedBrowser?: boolean;
   readonly createThread?: boolean;
   readonly projectExists?: boolean;
+  readonly projectReadFails?: boolean;
   readonly delegatedBy?: ThreadId;
   readonly agentTask?: Partial<NonNullable<OrchestrationV2AppThread["agentTask"]>>;
 }) {
@@ -800,11 +801,19 @@ function runBrowserAccessScenario(input: {
     const threadId = ThreadId.make("thread-provider-session-manager-browser-access");
     const layerProjectService = Layer.mock(ProjectService.ProjectService)({
       getById: (requestedProjectId) =>
-        Effect.succeed(
-          input.projectExists === false
-            ? Option.none()
-            : Option.some(makeBrowserAccessProject(requestedProjectId)),
-        ),
+        input.projectReadFails === true
+          ? Effect.fail(
+              new ProjectService.ProjectOperationError({
+                operation: "read-project",
+                projectId: requestedProjectId,
+                cause: "project store unavailable",
+              }),
+            )
+          : Effect.succeed(
+              input.projectExists === false
+                ? Option.none()
+                : Option.some(makeBrowserAccessProject(requestedProjectId)),
+            ),
     });
 
     const resolved = yield* Effect.gen(function* () {
@@ -874,6 +883,7 @@ function runBrowserAccessScenario(input: {
           browserBackends: resolved?.browserBackends,
           resolvedManagedBrowser: resolved?.managedBrowser,
           resolvedBoundedBrowser: resolved?.boundedBrowser,
+          resolvedEndpointKey: resolved?.endpointKey,
         };
   });
 }
@@ -2339,6 +2349,19 @@ it.effect("ProviderSessionManagerV2 fails browser access closed for a missing pr
     });
     assert.isDefined(captured);
     assert.equal(captured?.browserToolsAvailable, false);
+  }),
+);
+
+it.effect("keeps a read-only task on the reader endpoint when its project can't be read", () =>
+  Effect.gen(function* () {
+    const captured = yield* runBrowserAccessScenario({
+      enableAgentBrowserAccess: true,
+      projectOverride: true,
+      projectReadFails: true,
+      agentTask: { role: "reviewer", sourceAccess: "read-only", toolProfile: "source-reader" },
+    });
+    assert.equal(captured?.browserToolsAvailable, false);
+    assert.equal(captured?.resolvedEndpointKey, "reader");
   }),
 );
 
