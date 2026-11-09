@@ -119,6 +119,28 @@ describe("usageCornerRows", () => {
     });
   });
 
+  it("shows a spent monthly window as out, back when it resets", () => {
+    const monthly = {
+      id: "monthly",
+      kind: "monthly",
+      label: "Monthly",
+      usedPercent: 100,
+      windowDurationMins: 30 * 24 * 60,
+      resetsAt: "2026-09-17T15:00:00.000Z",
+    } as const;
+    const [go] = rows([
+      account(
+        "go",
+        [session(0), weekly(0, "2026-09-10T00:00:00.000Z", "weekly"), monthly],
+        "opencode",
+      ),
+    ]);
+    expect(go).toMatchObject({
+      remainingPercent: 0,
+      backAt: Date.parse("2026-09-17T15:00:00.000Z"),
+    });
+  });
+
   it("gives each provider its own row", () => {
     const result = rows([account("c", [weekly(30)], "codex"), account("a", [session(10)])]);
     expect(result.map((row) => [row.pool.driver, row.remainingPercent])).toEqual(

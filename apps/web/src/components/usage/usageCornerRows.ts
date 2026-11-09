@@ -26,13 +26,13 @@ export interface UsageCornerRow {
 }
 
 /**
- * The session and weekly windows of each provider pool. Claude also reports weekly buckets
+ * The session, weekly and monthly windows of each provider pool. Claude also reports weekly buckets
  * for single models (`seven_day_fable`), which the corner leaves to the Usage page.
  */
 function cornerWindows(pool: LimitPool): LimitPoolWindow[] {
   return pool.windows.filter(
     (window) =>
-      (window.kind === "session" || window.kind === "weekly") &&
+      (window.kind === "session" || window.kind === "weekly" || window.kind === "monthly") &&
       !(pool.driver === "claudeAgent" && window.kind === "weekly" && window.id !== "seven_day"),
   );
 }
