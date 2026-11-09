@@ -111,7 +111,6 @@ import {
   SettingsScheduledTaskEditRouteScreen,
 } from "./features/settings/SettingsScheduledTasksRouteScreen";
 import {
-import {
   SettingsChampionDetailRouteScreen,
   SettingsChampionsRouteScreen,
 } from "./features/settings/SettingsChampionsRouteScreen";
