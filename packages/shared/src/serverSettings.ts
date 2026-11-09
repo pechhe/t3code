@@ -1,5 +1,6 @@
 import type { ModelPreferences } from "@t3tools/contracts/settings";
 import {
+  currentProviderInstanceId,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_TEXT_GENERATION_MODEL,
   DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
@@ -47,12 +48,13 @@ export function isModelSelectionProviderEnabled(
   settings: ServerSettings,
   selection: ModelSelection,
 ): boolean {
-  const instanceConfig = settings.providerInstances[selection.instanceId];
+  const instanceId = currentProviderInstanceId(settings, selection.instanceId);
+  const instanceConfig = settings.providerInstances[instanceId];
   if (instanceConfig !== undefined) {
     return resolveProviderInstanceEnabled(instanceConfig);
   }
 
-  return isUnconfiguredDefaultInstanceEnabled(selection.instanceId);
+  return isUnconfiguredDefaultInstanceEnabled(instanceId);
 }
 
 const TEXT_GENERATION_FALLBACK_DRIVERS = [

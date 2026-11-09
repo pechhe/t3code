@@ -22,6 +22,7 @@ import {
   legacyThreadPullRequestKey,
 } from "../sourceControl/threadPullRequests.ts";
 import {
+  currentProviderInstanceId,
   ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE,
   type ChatAttachment,
   CommandId,
@@ -1953,15 +1954,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         failedRun?.workspacePreparation?.type === "worktree" &&
         projection.thread.worktreePath === null;
       const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
+      const queuedInstanceId = currentProviderInstanceId(settings, queuedRun.providerInstanceId);
       const projectOverride =
         settings.projectSettingsOverrides[projection.thread.projectId]?.providerInstances?.[
-          queuedRun.providerInstanceId
+          queuedInstanceId
         ]?.enabled;
-      const machineInstance = Object.hasOwn(
-        settings.providerInstances,
-        queuedRun.providerInstanceId,
-      )
-        ? settings.providerInstances[queuedRun.providerInstanceId]
+      const machineInstance = Object.hasOwn(settings.providerInstances, queuedInstanceId)
+        ? settings.providerInstances[queuedInstanceId]
         : undefined;
       const instanceDisabledForProject =
         projectOverride !== undefined
@@ -4371,7 +4370,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       if (command.type === "thread.compact-at.set" && command.compactAt !== null) {
         const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
-        const instanceId = thread.modelSelection.instanceId;
+        const instanceId = currentProviderInstanceId(settings, thread.modelSelection.instanceId);
         // A legacy instance id is its driver's name.
         const driver = settings.providerInstances[instanceId]?.driver ?? instanceId;
         // Only Claude and Codex take their point per thread. Pi compacts natively too, but its

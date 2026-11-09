@@ -529,6 +529,30 @@ describe("resolveProjectProviderInstanceEnabled", () => {
     };
     expect(resolveProjectProviderInstanceEnabled(settings, projectId, instanceId)).toBe(false);
   });
+
+  it("answers a former instance id as the instance a shared setup renamed it to", () => {
+    const former = ProviderInstanceId.make("claudeAgent_pool1");
+    const settings: ServerSettings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances: {
+        [instanceId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+      },
+      providerInstanceAliases: { [former]: instanceId },
+    };
+    expect(resolveProjectProviderInstanceEnabled(settings, projectId, former)).toBe(true);
+    expect(
+      resolveProjectProviderInstanceEnabled(
+        {
+          ...settings,
+          projectSettingsOverrides: {
+            [projectId]: { providerInstances: { [instanceId]: { enabled: false } } },
+          },
+        },
+        projectId,
+        former,
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("requiredScopesForProjectMutation", () => {

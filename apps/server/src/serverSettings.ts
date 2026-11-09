@@ -2,6 +2,7 @@
 import * as NodeUtil from "node:util";
 
 import {
+  currentProviderInstanceId,
   DEFAULT_SERVER_SETTINGS,
   ModelSelection,
   ProjectId,
@@ -652,7 +653,10 @@ function selectionSupportsTextGeneration(
   settings: ServerSettings,
   selection: ModelSelection,
 ): boolean {
-  return settings.providerInstances[selection.instanceId]?.driver !== ACP_REGISTRY_DRIVER;
+  return (
+    settings.providerInstances[currentProviderInstanceId(settings, selection.instanceId)]
+      ?.driver !== ACP_REGISTRY_DRIVER
+  );
 }
 
 type DriverAllowed = (driver: ProviderDriverKind) => boolean;
@@ -666,8 +670,8 @@ function resolveTextGenerationProvider(
   return isModelSelectionProviderEnabled(settings, selection) &&
     selectionSupportsTextGeneration(settings, selection) &&
     isDriverAllowed(
-      settings.providerInstances[selection.instanceId]?.driver ??
-        ProviderDriverKind.make(selection.instanceId),
+      settings.providerInstances[currentProviderInstanceId(settings, selection.instanceId)]
+        ?.driver ?? ProviderDriverKind.make(selection.instanceId),
     )
     ? settings
     : fallbackTextGenerationProvider(settings, isDriverAllowed);

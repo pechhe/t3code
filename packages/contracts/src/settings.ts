@@ -1737,15 +1737,28 @@ export const resolveProviderInstanceEnabled = (
   return instance.enabled ?? configEnabled ?? defaultEnabledForDriver(instance.driver);
 };
 
-export const resolveProjectProviderInstanceEnabled = (
-  settings: Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides">,
-  projectId: ProjectId | null,
+/** A thread on an id that joining a shared setup renamed runs as the instance it was renamed to. */
+export const currentProviderInstanceId = (
+  settings: Pick<ServerSettings, "providerInstances"> &
+    Partial<Pick<ServerSettings, "providerInstanceAliases">>,
   instanceId: ProviderInstanceId,
+): ProviderInstanceId =>
+  Object.hasOwn(settings.providerInstances, instanceId)
+    ? instanceId
+    : (settings.providerInstanceAliases?.[instanceId] ?? instanceId);
+
+export const resolveProjectProviderInstanceEnabled = (
+  settings: Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides"> &
+    Partial<Pick<ServerSettings, "providerInstanceAliases">>,
+  projectId: ProjectId | null,
+  requestedInstanceId: ProviderInstanceId,
 ): boolean => {
-  const override =
+  const instanceId = currentProviderInstanceId(settings, requestedInstanceId);
+  const overrides =
     projectId === null
       ? undefined
-      : settings.projectSettingsOverrides[projectId]?.providerInstances?.[instanceId]?.enabled;
+      : settings.projectSettingsOverrides[projectId]?.providerInstances;
+  const override = overrides?.[instanceId]?.enabled ?? overrides?.[requestedInstanceId]?.enabled;
   if (override !== undefined) return override;
   const instanceConfig = Object.hasOwn(settings.providerInstances, instanceId)
     ? settings.providerInstances[instanceId]

@@ -1,5 +1,6 @@
 import {
   CommandId,
+  currentProviderInstanceId,
   IDLE_COMPACTION_TEXT,
   MessageId,
   resolveIdleCompaction,
@@ -37,12 +38,13 @@ export const make = Effect.gen(function* () {
       while (true) {
         const current = yield* settings.getSettings;
         const thread = yield* projections.getThread(threadId);
-        const claudeInstance = Object.hasOwn(current.providerInstances, thread.providerInstanceId)
-          ? current.providerInstances[thread.providerInstanceId]?.driver === "claudeAgent"
-          : thread.providerInstanceId === "claudeAgent";
+        const instanceId = currentProviderInstanceId(current, thread.providerInstanceId);
+        const claudeInstance = Object.hasOwn(current.providerInstances, instanceId)
+          ? current.providerInstances[instanceId]?.driver === "claudeAgent"
+          : instanceId === "claudeAgent";
         if (
           !claudeInstance ||
-          resolveIdleCompaction(current, thread.providerInstanceId) !== "beforeCacheExpires" ||
+          resolveIdleCompaction(current, instanceId) !== "beforeCacheExpires" ||
           !resolveProjectProviderInstanceEnabled(
             current,
             thread.projectId,
@@ -79,8 +81,10 @@ export const make = Effect.gen(function* () {
           },
         );
         if (
-          resolveIdleCompaction(current, records.thread.providerInstanceId) !==
-            "beforeCacheExpires" ||
+          resolveIdleCompaction(
+            current,
+            currentProviderInstanceId(current, records.thread.providerInstanceId),
+          ) !== "beforeCacheExpires" ||
           !resolveProjectProviderInstanceEnabled(
             current,
             records.thread.projectId,

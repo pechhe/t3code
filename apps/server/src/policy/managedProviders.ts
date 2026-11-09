@@ -1,4 +1,5 @@
 import {
+  currentProviderInstanceId,
   AntigravitySettings,
   ClaudeSettings,
   CodexSettings,
@@ -362,8 +363,8 @@ export function makeManagedProviders(
   ) =>
     selection == null ||
     isDriverAllowed(
-      settings.providerInstances[selection.instanceId]?.driver ??
-        ProviderDriverKind.make(selection.instanceId),
+      settings.providerInstances[currentProviderInstanceId(settings, selection.instanceId)]
+        ?.driver ?? ProviderDriverKind.make(selection.instanceId),
     );
 
   const cache = new WeakMap<ServerSettings, ServerSettings>();
