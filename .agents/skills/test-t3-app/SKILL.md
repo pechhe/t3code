@@ -52,9 +52,6 @@ because that often means only that no tab exists yet. Stop only if `preview_open
 4. Capture every state with `t3_browser_task` `steps`, and embed each returned `path` in
    your reply as a Markdown image.
 
-Your reply carries the screenshots, so give no preview link unless the change is judged by
-motion or the user asks for one.
-
 ## Verify and retain
 
 Exercise the affected flow and capture the state that proves it works. Keep
