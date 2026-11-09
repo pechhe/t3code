@@ -55,12 +55,7 @@ import { useReportMainComposerFrame } from "./snapShot/useReportMainComposerFram
 import { UsageCorner } from "./usage/UsageCorner";
 import { resolveDraftHeroState } from "./ChatView.logic";
 import { useQueuedRunEdit } from "./chat/useQueuedRunEdit";
-import {
-  recallCheckoutIsRepo,
-  recallSlipJayProject,
-  rememberCheckoutIsRepo,
-  rememberSlipJayProject,
-} from "./ChatView.logic";
+import { recallCheckoutIsRepo, rememberCheckoutIsRepo } from "./ChatView.logic";
 import {
   environmentOption,
   useLogicalProjectEnvironments,
@@ -1787,13 +1782,6 @@ export default function ChatView(props: ChatViewProps) {
     gitStatusQuery.data == null || selectedWorkspace?.attachment
       ? undefined
       : gitStatusQuery.data.slipJay !== undefined;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- remembers project checkout status for pending Git queries
-  useEffect(() => {
-    if (activeProjectId !== null && liveIsSlipJay !== undefined) {
-      rememberSlipJayProject(environmentId, activeProjectId, liveIsSlipJay);
-    }
-  }, [activeProjectId, environmentId, liveIsSlipJay]);
-  const isSlipJayProject = liveIsSlipJay ?? recallSlipJayProject(environmentId, activeProjectId);
   // Only a status that says the checkout is not SlipJay warns, so a loading thread never flashes it.
   const gitProjectBannerItem: ComposerBannerStackItem | null =
     liveIsGitRepo === true && liveIsSlipJay === false
@@ -3673,14 +3661,6 @@ export default function ChatView(props: ChatViewProps) {
                       threadRef={scopeThreadRef(activeThread.environmentId, activeThread.id)}
                       slipJayStatus={slipJayStatus}
                       onComposerFocusRequest={focusComposerStable}
-                      releaseProject={
-                        isSlipJayProject && activeProject
-                          ? {
-                              cwd: activeProject.workspaceRoot,
-                              name: activeProject.title,
-                            }
-                          : null
-                      }
                       onOpenThread={onOpenRelatedThreadStable}
                     />
                   </>

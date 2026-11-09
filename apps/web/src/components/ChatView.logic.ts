@@ -70,7 +70,6 @@ import {
   type DraftThreadState,
 } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
-import { getLocalStorageItem, setLocalStorageItem } from "../hooks/useLocalStorage";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadDetails } from "../state/threads";
 import {
@@ -805,49 +804,6 @@ export function recallCheckoutIsRepo(
   return cwd === null
     ? undefined
     : sessionCheckoutIsRepo.get(checkoutIsRepoKey(environmentId, cwd));
-}
-
-// Remember SlipJay projects so their workspace strip reserves space before live status arrives.
-const SLIPJAY_PROJECTS_STORAGE_KEY = "t3code:slipjay-projects:v1";
-const SlipJayProjectKeys = Schema.Array(Schema.String);
-let slipJayProjectKeys: Set<string> | null = null;
-
-function loadSlipJayProjectKeys(): Set<string> {
-  if (slipJayProjectKeys !== null) return slipJayProjectKeys;
-  try {
-    slipJayProjectKeys = new Set(
-      getLocalStorageItem(SLIPJAY_PROJECTS_STORAGE_KEY, SlipJayProjectKeys) ?? [],
-    );
-  } catch {
-    slipJayProjectKeys = new Set();
-  }
-  return slipJayProjectKeys;
-}
-
-export function rememberSlipJayProject(
-  environmentId: EnvironmentId,
-  projectId: ProjectId,
-  isSlipJay: boolean,
-): void {
-  const keys = loadSlipJayProjectKeys();
-  const key = JSON.stringify([environmentId, projectId]);
-  if (keys.has(key) === isSlipJay) return;
-  if (isSlipJay) keys.add(key);
-  else keys.delete(key);
-  try {
-    setLocalStorageItem(SLIPJAY_PROJECTS_STORAGE_KEY, [...keys], SlipJayProjectKeys);
-  } catch {
-    // Storage is a speed-up only; the live status still decides.
-  }
-}
-
-export function recallSlipJayProject(
-  environmentId: EnvironmentId,
-  projectId: ProjectId | null | undefined,
-): boolean {
-  return (
-    projectId != null && loadSlipJayProjectKeys().has(JSON.stringify([environmentId, projectId]))
-  );
 }
 
 function threadHasStarted(thread: Thread | null | undefined): boolean {

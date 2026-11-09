@@ -480,8 +480,8 @@ const layerGitWorkflow = GitWorkflowService.layer.pipe(
   // Settings follow a runner change through the landing watch below.
   Layer.provideMerge(SlipJaySettings.layer),
   // One landing watch per server, shared by status and the landing log RPC.
-  Layer.provideMerge(SlipJayLandings.layer),
   Layer.provideMerge(SlipJayReleases.layer),
+  Layer.provideMerge(SlipJayLandings.layer),
   Layer.provideMerge(layerVcsDriverRegistry),
   Layer.provideMerge(layerGit),
 );

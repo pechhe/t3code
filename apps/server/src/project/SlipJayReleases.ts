@@ -1,75 +1,67 @@
 import * as Context from "effect/Context";
-import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import {
-  SlipJayCommandError,
+  type VcsSlipJayDismissPromotionInput,
   type VcsSlipJayPromoteInput,
-  type VcsSlipJayPromoteResult,
-  type VcsSlipJayPromotionPlan,
-  type VcsSlipJayPromotionPlanInput,
+  type VcsSlipJayPromotion,
 } from "@t3tools/contracts";
 import * as ProcessRunner from "../processRunner.ts";
 import { findSlipJayProject } from "../vcs/SlipJayProject.ts";
+import { SlipJayLandings } from "./SlipJayLandings.ts";
 
-const Strings = Schema.optional(Schema.Array(Schema.String));
-
-// `slipjay promote` prints one JSON document; only what the approval needs is read.
+// `slipjay promote` prints one JSON document; only what deciding to confirm needs is read.
 const decodePlan = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Struct({
       status: Schema.String,
       reason: Schema.optional(Schema.String),
-      integrationBranch: Schema.optional(Schema.String),
-      releaseBranch: Schema.optional(Schema.String),
       candidate: Schema.optional(Schema.String),
-      base: Schema.optional(Schema.String),
-      subjects: Strings,
-      checks: Strings,
-      migrationArtifacts: Strings,
-      nonAdditiveMigrations: Strings,
-      halfBuiltSpecs: Schema.optional(
-        Schema.Struct({
-          specs: Schema.optional(
-            Schema.Array(
-              Schema.Struct({
-                number: Schema.Number,
-                title: Schema.String,
-                url: Schema.String,
-                closedTickets: Schema.Number,
-                totalTickets: Schema.Number,
-              }),
-            ),
-          ),
-        }),
+      verification: Schema.optional(
+        Schema.Struct({ status: Schema.String, failedCommand: Schema.optional(Schema.String) }),
       ),
     }),
   ),
 );
 
-/** `slipjay promote`'s plan, or none when it printed no plan. */
-export function promotionPlan(stdout: string): VcsSlipJayPromotionPlan | undefined {
+/**
+ * What `slipjay promote`'s plan lets a release do next. A failed verification is fixed by a
+ * landing, never confirmed around; an unfinished one is the confirm's to run or refuse.
+ */
+export function promotionNextStep(
+  stdout: string,
+):
+  | { readonly next: "confirm"; readonly candidate: string }
+  | { readonly next: "nothing" }
+  | { readonly next: "stop"; readonly reason: string } {
   const plan = Option.getOrUndefined(decodePlan(stdout.trim()));
-  if (plan === undefined) return undefined;
-  return {
-    status: plan.status,
-    ...(plan.reason === undefined ? {} : { reason: plan.reason }),
-    ...(plan.integrationBranch === undefined ? {} : { integrationBranch: plan.integrationBranch }),
-    ...(plan.releaseBranch === undefined ? {} : { releaseBranch: plan.releaseBranch }),
-    ...(plan.candidate === undefined ? {} : { candidate: plan.candidate }),
-    ...(plan.base === undefined ? {} : { base: plan.base }),
-    subjects: plan.subjects ?? [],
-    checks: plan.checks ?? [],
-    migrationArtifacts: plan.migrationArtifacts ?? [],
-    nonAdditiveMigrations: plan.nonAdditiveMigrations ?? [],
-    halfBuiltSpecs: plan.halfBuiltSpecs?.specs ?? [],
-  };
+  // SlipJay's stderr can carry runner URLs and paths, so it stays on the server.
+  if (plan === undefined) {
+    return {
+      next: "stop",
+      reason: "SlipJay could not plan a release. Run `slipjay promote` in the project for details.",
+    };
+  }
+  if (plan.status === "up_to_date") return { next: "nothing" };
+  if (plan.status !== "planned" || plan.candidate === undefined) {
+    return { next: "stop", reason: plan.reason ?? `SlipJay will not release (${plan.status}).` };
+  }
+  if (plan.verification?.status === "failed") {
+    const command = plan.verification.failedCommand;
+    return {
+      next: "stop",
+      reason: `${plan.candidate.slice(0, 7)} failed verification${command === undefined ? "" : ` at ${command}`}. A fix that lands and passes becomes the next candidate.`,
+    };
+  }
+  return { next: "confirm", candidate: plan.candidate };
 }
 
 const decodeConfirm = Schema.decodeUnknownOption(
@@ -90,10 +82,11 @@ const decodeConfirm = Schema.decodeUnknownOption(
  * deployed the candidate; without a printed result, SlipJay refused before submitting and
  * its last stderr line says why.
  */
-export function promoteResult(output: {
-  readonly stdout: string;
-  readonly stderr: string;
-}): VcsSlipJayPromoteResult {
+export function promoteResult(output: { readonly stdout: string; readonly stderr: string }): {
+  readonly released: boolean;
+  readonly status: string;
+  readonly messages: ReadonlyArray<string>;
+} {
   const result = Option.getOrUndefined(decodeConfirm(output.stdout.trim()));
   if (result === undefined) {
     const lines = output.stderr
@@ -119,168 +112,143 @@ export function promoteResult(output: {
 const PROMOTE_OUTPUT_MAX_BYTES = 1024 * 1024;
 
 /**
- * Promotions of a SlipJay project's staging candidate to its release branch and
- * production, through `slipjay promote`. Planning publishes nothing; confirming is the
- * owner's approval of one candidate, so only a person's request reaches it.
+ * Releases of a repository through `slipjay promote`: its plan, then the confirm of exactly
+ * the planned candidate, the route agents use. Only a person's request reaches it.
  */
 export class SlipJayReleases extends Context.Service<
   SlipJayReleases,
   {
-    readonly plan: (
-      input: VcsSlipJayPromotionPlanInput,
-    ) => Effect.Effect<VcsSlipJayPromotionPlan, SlipJayCommandError>;
     /**
-     * Confirms the candidate and follows it through production. The promotion outlives
-     * the request: an interrupted caller stops waiting, and a second request for the same
-     * candidate joins the running one. A different candidate is refused while one runs,
-     * since each approval names exactly one commit.
+     * Starts a release and returns: it outlives the request, and what becomes of it is in
+     * `promotions`. A request for a repository already releasing joins the running one.
      */
-    readonly promote: (
-      input: VcsSlipJayPromoteInput,
-    ) => Effect.Effect<VcsSlipJayPromoteResult, SlipJayCommandError>;
+    readonly promote: (input: VcsSlipJayPromoteInput) => Effect.Effect<void>;
+    /** Forgets a failed release, whose failure otherwise stays until the next attempt. */
+    readonly dismiss: (input: VcsSlipJayDismissPromotionInput) => Effect.Effect<void>;
+    /** The releases running or failed, current value first. A successful one leaves the list. */
+    readonly promotions: Stream.Stream<ReadonlyArray<VcsSlipJayPromotion>>;
   }
 >()("t3/project/SlipJayReleases") {}
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const processes = yield* ProcessRunner.ProcessRunner;
+  const landings = yield* SlipJayLandings;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const scope = yield* Effect.scope;
+  const promotions = yield* SubscriptionRef.make<ReadonlyArray<VcsSlipJayPromotion>>([]);
 
-  // Only a SlipJay project's own checkout, so a client cannot run SlipJay anywhere else.
-  const projectRoot = (cwd: string, operation: string, command: string) =>
-    findSlipJayProject(cwd).pipe(
-      Effect.provideService(FileSystem.FileSystem, fs),
-      Effect.provideService(Path.Path, path),
-      Effect.provideService(ProcessRunner.ProcessRunner, processes),
-      Effect.orElseSucceed(() => null),
-      Effect.flatMap((project) =>
-        project === null
-          ? Effect.fail(
-              new SlipJayCommandError({
-                operation,
-                command,
-                cwd,
-                detail: "This is not a SlipJay project.",
-              }),
-            )
-          : Effect.succeed(project.root),
-      ),
-    );
+  const replace = (
+    repo: string,
+    next: (current: VcsSlipJayPromotion | undefined) => VcsSlipJayPromotion | null,
+  ) =>
+    SubscriptionRef.update(promotions, (all) => {
+      const updated = next(all.find((promotion) => promotion.repo === repo));
+      return [
+        ...all.filter((promotion) => promotion.repo !== repo),
+        ...(updated === null ? [] : [updated]),
+      ];
+    });
 
-  const plan: SlipJayReleases["Service"]["plan"] = Effect.fn("SlipJayReleases.plan")(function* ({
-    cwd,
-  }) {
-    const failure = (detail: string, extra: { readonly cause?: unknown } = {}) =>
-      new SlipJayCommandError({
-        operation: "SlipJayReleases.plan",
-        command: "slipjay promote",
-        cwd,
-        detail,
-        ...extra,
-      });
-    const root = yield* projectRoot(cwd, "SlipJayReleases.plan", "slipjay promote");
-    const output = yield* processes
-      .run({
+  /** Runs the release to its end: null when nothing is left to report, else why it failed. */
+  const release = Effect.fn("SlipJayReleases.release")(
+    function* (cwd: string, repo: string) {
+      // Only a SlipJay project's own checkout, so a client cannot run SlipJay anywhere else.
+      const project = yield* findSlipJayProject(cwd).pipe(
+        Effect.provideService(FileSystem.FileSystem, fs),
+        Effect.provideService(Path.Path, path),
+        Effect.provideService(ProcessRunner.ProcessRunner, processes),
+        Effect.orElseSucceed(() => null),
+      );
+      if (project === null) return "This is not a SlipJay project.";
+      // A promotion is filed under `repo`, so it must be what this checkout would ship.
+      const repository = yield* landings.repositoryOf(project.root);
+      if (repository?.toLowerCase() !== repo.toLowerCase()) {
+        return `This checkout does not publish ${repo}.`;
+      }
+      const planned = yield* processes.run({
         command: "slipjay",
         args: ["promote"],
-        cwd: root,
+        cwd: project.root,
         // Planning fetches and asks GitHub about open Specs.
         timeout: "3 minutes",
         maxOutputBytes: PROMOTE_OUTPUT_MAX_BYTES,
         outputMode: "truncate",
-      })
-      .pipe(
-        Effect.mapError((cause) =>
-          failure("SlipJay could not be run to plan a promotion.", { cause }),
-        ),
-      );
-    const planned = promotionPlan(output.stdout);
-    // SlipJay's stderr can carry runner URLs and paths, so it stays on the server.
-    if (planned === undefined)
-      return yield* failure(
-        "SlipJay could not plan a promotion. Run `slipjay promote` in the project for details.",
-      );
-    return planned;
-  });
-
-  const promotions = yield* Ref.make(
-    new Map<
-      string,
-      {
-        readonly candidate: string;
-        readonly result: Deferred.Deferred<VcsSlipJayPromoteResult, SlipJayCommandError>;
-      }
-    >(),
-  );
-  const runPromote = (root: string, candidate: string) =>
-    processes
-      .run({
+      });
+      const step = promotionNextStep(planned.stdout);
+      if (step.next === "nothing") return null;
+      if (step.next === "stop") return step.reason;
+      yield* replace(repo, () => ({
+        repo,
+        status: "releasing",
+        candidate: step.candidate,
+        reason: null,
+      }));
+      const confirmed = yield* processes.run({
         command: "slipjay",
-        args: ["promote", "--confirm", candidate],
-        cwd: root,
+        args: ["promote", "--confirm", step.candidate],
+        cwd: project.root,
         // Release checks and the production deploy take minutes; the runner bounds them.
         timeout: "3 hours",
         maxOutputBytes: PROMOTE_OUTPUT_MAX_BYTES,
         outputMode: "truncate",
-      })
-      .pipe(
-        Effect.map(promoteResult),
-        Effect.mapError(
-          (cause) =>
-            new SlipJayCommandError({
-              operation: "SlipJayReleases.promote",
-              command: "slipjay promote --confirm",
-              cwd: root,
-              detail: "SlipJay could not be run to promote.",
-              cause,
-            }),
-        ),
-      );
+      });
+      const { released, status, messages } = promoteResult(confirmed);
+      if (released) return null;
+      return messages.length === 0 ? `Release ${status}.` : messages.join("\n");
+    },
+    Effect.catch((cause) =>
+      Effect.logWarning("SlipJay could not be run to release", { cause }).pipe(
+        Effect.as("SlipJay could not be run."),
+      ),
+    ),
+  );
 
   const promote: SlipJayReleases["Service"]["promote"] = Effect.fn("SlipJayReleases.promote")(
-    function* ({ cwd, candidate }) {
-      const root = yield* projectRoot(cwd, "SlipJayReleases.promote", "slipjay promote --confirm");
-      // Registering and starting are one step, so an interrupted caller cannot leave a
-      // registration that no promotion will ever settle.
-      const promotion = yield* Effect.uninterruptible(
+    function* ({ cwd, repo }) {
+      // Claiming and starting are one step, so an interrupted caller cannot leave a claim
+      // that no release will ever settle.
+      yield* Effect.uninterruptible(
         Effect.gen(function* () {
-          const started = yield* Deferred.make<VcsSlipJayPromoteResult, SlipJayCommandError>();
-          const running = yield* Ref.modify(promotions, (current) => {
-            const existing = current.get(root);
-            return existing === undefined
-              ? [undefined, new Map(current).set(root, { candidate, result: started })]
-              : [existing, current];
-          });
-          if (running !== undefined) {
-            if (running.candidate === candidate) return running.result;
-            return yield* new SlipJayCommandError({
-              operation: "SlipJayReleases.promote",
-              command: "slipjay promote --confirm",
-              cwd: root,
-              detail: `A promotion of ${running.candidate.slice(0, 8)} is still running for this project.`,
-            });
-          }
-          yield* runPromote(root, candidate).pipe(
-            Effect.onExit((exit) => Deferred.done(started, exit)),
-            Effect.ensuring(
-              Ref.update(promotions, (current) => {
-                const next = new Map(current);
-                next.delete(root);
-                return next;
+          const claimed = yield* SubscriptionRef.modify(
+            promotions,
+            (all): readonly [boolean, ReadonlyArray<VcsSlipJayPromotion>] =>
+              all.some((promotion) => promotion.repo === repo && promotion.status === "releasing")
+                ? [false, all]
+                : [
+                    true,
+                    [
+                      ...all.filter((promotion) => promotion.repo !== repo),
+                      { repo, status: "releasing", candidate: null, reason: null },
+                    ],
+                  ],
+          );
+          if (!claimed) return;
+          yield* release(cwd, repo).pipe(
+            Effect.onExit((exit) =>
+              replace(repo, (current) => {
+                const reason = Exit.isSuccess(exit) ? exit.value : "The release stopped early.";
+                return reason === null
+                  ? null
+                  : { repo, status: "failed", candidate: current?.candidate ?? null, reason };
               }),
             ),
             Effect.forkIn(scope),
           );
-          return started;
         }),
       );
-      return yield* Deferred.await(promotion);
     },
   );
 
-  return SlipJayReleases.of({ plan, promote });
+  const dismiss: SlipJayReleases["Service"]["dismiss"] = ({ repo }) =>
+    replace(repo, (current) => (current?.status === "releasing" ? current : null));
+
+  return SlipJayReleases.of({
+    promote,
+    dismiss,
+    promotions: SubscriptionRef.changes(promotions),
+  });
 });
 
 export const layer = Layer.effect(SlipJayReleases, make).pipe(Layer.provide(ProcessRunner.layer));

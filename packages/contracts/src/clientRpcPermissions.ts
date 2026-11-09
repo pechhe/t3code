@@ -63,6 +63,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.vcsSlipJayLand]: AuthSourceControlWriteScope,
   [WS_METHODS.vcsSlipJayCancel]: AuthSourceControlWriteScope,
   [WS_METHODS.vcsSlipJayPromote]: AuthSourceControlWriteScope,
+  [WS_METHODS.vcsSlipJayDismissPromotion]: AuthSourceControlWriteScope,
   [WS_METHODS.vcsSlipJaySetPolicy]: AuthSourceControlWriteScope,
   [WS_METHODS.vcsSlipJaySetSpareLimit]: AuthSourceControlWriteScope,
   [WS_METHODS.vcsSlipJaySetRunner]: AuthSourceControlWriteScope,

@@ -1,15 +1,16 @@
 import type {
   SlipJayRunnerOperation,
   SlipJayRunnerOverview,
-  SlipJayRunnerDeploy,
   SlipJayRunnerRelease,
+  VcsSlipJayPromotion,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   resolveBoxFooter,
-  resolveEnvironmentRows,
-  resolveReleaseSteps,
+  resolveFailedPromotions,
+  resolveProductionLine,
+  resolveReleaseRow,
   resolveReleaseWaiting,
   resolveScreeningLanes,
   resolveSlipJayPublishLane,
@@ -94,6 +95,67 @@ describe("the SlipJay box", () => {
     expect(resolveSlipJayPublishLane(overview({ paused: true })).kind).toBe("idle");
   });
 
+  it("offers a press until production is current or deploying, and shows a release in flight", () => {
+    const waiting = (kind: SlipJayRunnerRelease["waitingOn"]["kind"]) =>
+      release({ waitingOn: { kind, detail: null } });
+    expect(resolveReleaseRow(waiting("verification"), null)).toMatchObject({
+      text: "Waiting on verification · b42c421",
+      action: "release",
+    });
+    expect(resolveReleaseRow(waiting("up_to_date"), null).action).toBeNull();
+    expect(resolveReleaseRow(waiting("deploy"), null).action).toBeNull();
+    const promotion = (over: Partial<VcsSlipJayPromotion>): VcsSlipJayPromotion => ({
+      repo: "o/r",
+      status: "releasing",
+      candidate: "b42c4213aaaa",
+      reason: null,
+      ...over,
+    });
+    expect(
+      resolveReleaseRow(waiting("verification"), promotion({ candidate: null })),
+    ).toMatchObject({ text: "Starting the release", action: "releasing" });
+    expect(resolveReleaseRow(waiting("verification"), promotion({}))).toMatchObject({
+      text: "Verifying b42c421, then releasing it",
+      action: "releasing",
+    });
+    expect(resolveReleaseRow(waiting("deploy"), promotion({})).text).toBe(
+      "Releasing b42c421 to production",
+    );
+    const failed = promotion({ status: "failed", reason: "2 tests failed" });
+    expect(resolveReleaseRow(waiting("verification"), failed)).toEqual({
+      tone: "bad",
+      text: "Release failed",
+      detail: "2 tests failed",
+      action: "retry",
+    });
+    // Production caught up without it, so the failure no longer matters.
+    expect(resolveReleaseRow(waiting("up_to_date"), failed).action).toBeNull();
+  });
+
+  it("calls attention only to failed releases production still needs", () => {
+    const failed: VcsSlipJayPromotion = {
+      repo: "o/r",
+      status: "failed",
+      candidate: null,
+      reason: "no",
+    };
+    const running: VcsSlipJayPromotion = { ...failed, repo: "o/s", status: "releasing" };
+    const withRelease = (kind: SlipJayRunnerRelease["waitingOn"]["kind"]) =>
+      overview({
+        repositories: [
+          {
+            repo: "o/r",
+            screeningLanes: 0,
+            today: { landed: 0, failedScreens: 0 },
+            release: release({ waitingOn: { kind, detail: null } }),
+          },
+        ],
+      });
+    expect(resolveFailedPromotions(withRelease("approval"), [failed, running])).toEqual([failed]);
+    expect(resolveFailedPromotions(withRelease("up_to_date"), [failed])).toEqual([]);
+    expect(resolveFailedPromotions(overview(), null)).toEqual([]);
+  });
+
   it("says in a sentence what the candidate waits on", () => {
     expect(resolveReleaseWaiting(release()).text).toMatch(
       /^Waiting on the nightly audit · runs \d\d:\d\d$/,
@@ -144,77 +206,32 @@ describe("the SlipJay box", () => {
     expect(resolveReleaseWaiting(failed("failed", "timed out")).detail).toBe("timed out");
   });
 
-  it("colours the release steps by state, and shows none once production is current", () => {
-    const steps = resolveReleaseSteps(
-      release({
-        audit: {
-          latest: { status: "failed", commitId: null, finishedAt: "2026-10-30T02:35:00Z" },
-          nextRunAt: null,
-        },
-        production: {
-          live: null,
-          latestAttempt: {
-            commitId: "413ae31",
-            status: "rolled_back",
-            at: "2026-10-30T03:00:00Z",
-            reason: null,
-          },
-        },
-      }),
-    );
-    expect(steps.map((step) => [step.key, step.tone])).toEqual([
-      ["images", "ok"],
-      ["audit", "bad"],
-      ["deploy", "bad"],
-    ]);
-    expect(
-      resolveReleaseSteps(release({ waitingOn: { kind: "up_to_date", detail: null } })),
-    ).toEqual([]);
-    expect(resolveReleaseSteps(release({ images: null, audit: null })).map((s) => s.key)).toEqual([
-      "deploy",
-    ]);
-  });
-
-  it("keeps the latest attempt a note under production, never its state", () => {
-    const now = Date.parse("2026-10-30T13:00:00Z");
-    const rows = resolveEnvironmentRows(
+  it("reads production in a line, keeping the latest attempt a note and flagging ill health", () => {
+    const now = Date.parse("2026-10-30T20:00:00Z");
+    expect(resolveProductionLine(release(), now)).toEqual({
+      tone: "ok",
+      text: "Production 32bf841 · healthy · 1d",
+      note: null,
+    });
+    const attempted = resolveProductionLine(
       release({
         production: {
-          live: { commitId: "32bf841eaaaa", deployedAt: "2026-10-29T22:00:00Z", healthy: true },
+          live: { commitId: "32bf841eaaaa", deployedAt: "2026-10-29T20:00:00Z", healthy: false },
           latestAttempt: {
-            commitId: "413ae31aaaa",
+            commitId: "aaaaaaa1111",
             status: "rolled_back",
-            at: "2026-10-30T03:00:00Z",
-            reason: "images not built in time",
+            at: "2026-10-30T19:00:00Z",
+            reason: "health check",
           },
         },
       }),
       now,
     );
-    expect(rows.map((row) => row.key)).toEqual(["production", "images", "staging"]);
-    expect(rows[0]).toMatchObject({
-      sha: "32bf841",
-      tone: "ok",
-      status: "live · healthy · 15h",
-      note: "Last attempt 413ae31 rolled back 10h ago (images not built in time)",
-    });
-    expect(rows[2]).toMatchObject({ status: "skipped (development mode)", tone: "dim" });
-  });
-
-  it("marks an unhealthy production and shows staging as skipped or from its deploys", () => {
-    const rows = resolveEnvironmentRows(
-      release({
-        stagingSkipped: false,
-        images: null,
-        production: {
-          live: { commitId: "32bf841eaaaa", deployedAt: "2026-10-30T12:00:00Z", healthy: false },
-          latestAttempt: null,
-        },
-      }),
-      Date.parse("2026-10-30T13:00:00Z"),
-    );
-    expect(rows.map((row) => row.key)).toEqual(["production", "staging"]);
-    expect(rows[0]).toMatchObject({ tone: "bad", status: "live · unhealthy · 1h" });
+    expect(attempted.tone).toBe("bad");
+    expect(attempted.note).toBe("Last attempt aaaaaaa rolled back 1h ago (health check)");
+    expect(
+      resolveProductionLine(release({ production: { live: null, latestAttempt: null } }), now).text,
+    ).toBe("Production has nothing deployed");
   });
 
   it("totals today across repositories and reports the queue", () => {
@@ -235,101 +252,5 @@ describe("the SlipJay box", () => {
     );
     expect(footer).toEqual({ today: "Today 12 landed · 8 failed screens", queue: "2 held" });
     expect(resolveBoxFooter(overview()).queue).toBe("no queue");
-  });
-
-  it("falls back to the latest deploys when the runner does not report release.staging", () => {
-    const now = Date.parse("2026-10-30T13:00:00Z");
-    const deploy = (
-      status: string,
-      commitId: string,
-      finishedAt: string,
-      environment = "staging",
-    ): SlipJayRunnerDeploy => ({
-      operationId: `${commitId}-${environment}`,
-      repo: "o/r",
-      environment,
-      commitId,
-      status,
-      finishedAt,
-    });
-    const live = release({ stagingSkipped: false });
-    const staging = (deploys: SlipJayRunnerDeploy[]) =>
-      resolveEnvironmentRows(live, now, deploys).find((row) => row.key === "staging");
-    expect(staging([deploy("deployed", "aaaaaaaa1", "2026-10-30T12:00:00Z")])).toMatchObject({
-      sha: "aaaaaaa",
-      tone: "ok",
-      status: "deployed · 1h",
-      note: null,
-    });
-    // A failed latest deploy is a note when an earlier one succeeded, else the row's state.
-    expect(
-      staging([
-        deploy("failed", "bbbbbbb2", "2026-10-30T12:30:00Z"),
-        deploy("deployed", "aaaaaaaa1", "2026-10-30T10:00:00Z"),
-      ]),
-    ).toMatchObject({ sha: "aaaaaaa", tone: "ok", note: "Last attempt bbbbbbb failed 30m ago" });
-    expect(staging([deploy("failed", "bbbbbbb2", "2026-10-30T12:30:00Z")])).toMatchObject({
-      sha: "bbbbbbb",
-      tone: "bad",
-      status: "failed · 30m",
-    });
-    expect(
-      staging([deploy("deployed", "ccccccc3", "2026-10-30T12:00:00Z", "production")]),
-    ).toMatchObject({
-      tone: "dim",
-      status: "nothing deployed",
-    });
-  });
-
-  it("builds staging from release.staging like production: live A stays the state beside a failed B", () => {
-    const now = Date.parse("2026-10-30T13:00:00Z");
-    const staging = (value: NonNullable<SlipJayRunnerRelease["staging"]> | null) =>
-      resolveEnvironmentRows(release({ stagingSkipped: false, staging: value }), now, []).find(
-        (row) => row.key === "staging",
-      );
-    expect(
-      staging({
-        live: { commitId: "aaaaaaa1", deployedAt: "2026-10-30T10:00:00Z", healthy: true },
-        latestAttempt: {
-          commitId: "bbbbbbb2",
-          status: "failed",
-          at: "2026-10-30T12:30:00Z",
-          reason: "health check",
-        },
-      }),
-    ).toMatchObject({
-      sha: "aaaaaaa",
-      tone: "ok",
-      status: "live · healthy · 3h",
-      note: "Last attempt bbbbbbb failed 30m ago (health check)",
-    });
-    expect(
-      staging({
-        live: { commitId: "aaaaaaa1", deployedAt: "2026-10-30T10:00:00Z", healthy: null },
-        latestAttempt: null,
-      }),
-    ).toMatchObject({ sha: "aaaaaaa", tone: "ok", status: "live · 3h", note: null });
-    expect(
-      staging({
-        live: null,
-        latestAttempt: {
-          commitId: "bbbbbbb2",
-          status: "running",
-          at: "2026-10-30T12:50:00Z",
-          reason: null,
-        },
-      }),
-    ).toMatchObject({
-      sha: "none",
-      tone: "dim",
-      status: "nothing deployed",
-      note: "Deploying bbbbbbb · 10m",
-    });
-    expect(staging(null)).toMatchObject({ tone: "dim", status: "nothing deployed" });
-  });
-
-  it("keeps the skipped row even when release.staging is reported", () => {
-    const rows = resolveEnvironmentRows(release({ staging: { live: null, latestAttempt: null } }));
-    expect(rows.at(-1)).toMatchObject({ status: "skipped (development mode)", tone: "dim" });
   });
 });

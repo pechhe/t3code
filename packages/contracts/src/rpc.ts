@@ -201,10 +201,9 @@ import {
   VcsListRefsResult,
   SlipJayRunnerOverview,
   VcsSlipJayCancelInput,
+  VcsSlipJayDismissPromotionInput,
   VcsSlipJayPromoteInput,
-  VcsSlipJayPromoteResult,
-  VcsSlipJayPromotionPlan,
-  VcsSlipJayPromotionPlanInput,
+  VcsSlipJayPromotion,
   VcsSlipJayCancelResult,
   VcsSlipJayLandInput,
   VcsSlipJayMachineSettings,
@@ -584,8 +583,9 @@ export const WS_METHODS = {
   vcsSlipJayLandingDetail: "vcs.slipJayLandingDetail",
   vcsSlipJayLand: "vcs.slipJayLand",
   vcsSlipJayCancel: "vcs.slipJayCancel",
-  vcsSlipJayPromotionPlan: "vcs.slipJayPromotionPlan",
   vcsSlipJayPromote: "vcs.slipJayPromote",
+  vcsSlipJayDismissPromotion: "vcs.slipJayDismissPromotion",
+  subscribeSlipJayPromotions: "subscribeSlipJayPromotions",
   vcsSlipJayProjectSettings: "vcs.slipJayProjectSettings",
   vcsSlipJaySetPolicy: "vcs.slipJaySetPolicy",
   vcsSlipJaySetSpareLimit: "vcs.slipJaySetSpareLimit",
@@ -1843,16 +1843,23 @@ const WsVcsSlipJayCancelRpc = Rpc.make(WS_METHODS.vcsSlipJayCancel, {
   error: Schema.Union([SlipJayCommandError, EnvironmentAuthorizationError]),
 });
 
-const WsVcsSlipJayPromotionPlanRpc = Rpc.make(WS_METHODS.vcsSlipJayPromotionPlan, {
-  payload: VcsSlipJayPromotionPlanInput,
-  success: VcsSlipJayPromotionPlan,
-  error: Schema.Union([SlipJayCommandError, EnvironmentAuthorizationError]),
-});
-
 const WsVcsSlipJayPromoteRpc = Rpc.make(WS_METHODS.vcsSlipJayPromote, {
   payload: VcsSlipJayPromoteInput,
-  success: VcsSlipJayPromoteResult,
-  error: Schema.Union([SlipJayCommandError, EnvironmentAuthorizationError]),
+  success: Schema.Struct({}),
+  error: EnvironmentAuthorizationError,
+});
+
+const WsVcsSlipJayDismissPromotionRpc = Rpc.make(WS_METHODS.vcsSlipJayDismissPromotion, {
+  payload: VcsSlipJayDismissPromotionInput,
+  success: Schema.Struct({}),
+  error: EnvironmentAuthorizationError,
+});
+
+const WsSubscribeSlipJayPromotionsRpc = Rpc.make(WS_METHODS.subscribeSlipJayPromotions, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(VcsSlipJayPromotion),
+  error: EnvironmentAuthorizationError,
+  stream: true,
 });
 
 const WsVcsSlipJayProjectSettingsRpc = Rpc.make(WS_METHODS.vcsSlipJayProjectSettings, {
@@ -2745,8 +2752,9 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsVcsSlipJayLandingDetailRpc,
   WsVcsSlipJayLandRpc,
   WsVcsSlipJayCancelRpc,
-  WsVcsSlipJayPromotionPlanRpc,
   WsVcsSlipJayPromoteRpc,
+  WsVcsSlipJayDismissPromotionRpc,
+  WsSubscribeSlipJayPromotionsRpc,
   WsVcsSlipJayProjectSettingsRpc,
   WsVcsSlipJaySetPolicyRpc,
   WsVcsSlipJaySetSpareLimitRpc,

@@ -7,12 +7,7 @@ import {
   withMessageContext,
   deriveAvailableRevertTurnCounts,
 } from "./ChatView.logic";
-import {
-  recallCheckoutIsRepo,
-  rememberCheckoutIsRepo,
-  recallSlipJayProject,
-  rememberSlipJayProject,
-} from "./ChatView.logic";
+import { recallCheckoutIsRepo, rememberCheckoutIsRepo } from "./ChatView.logic";
 import { ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
 import { deriveProviderInstanceEntries } from "../providerInstances";
 import { ensureInlineContextReferences } from "../lib/composerContextReferences";
@@ -671,21 +666,6 @@ describe("resolveComposerProviderSelection", () => {
     });
 
     expect(selection.selectedProviderEntry).toBeUndefined();
-  });
-});
-
-describe("SlipJay project memory", () => {
-  it("answers from the last status seen for the project", () => {
-    const projectId = ProjectId.make("project-slipjay-memory");
-    expect(recallSlipJayProject(environmentId, projectId)).toBe(false);
-    rememberSlipJayProject(environmentId, projectId, true);
-    expect(recallSlipJayProject(environmentId, projectId)).toBe(true);
-    rememberSlipJayProject(environmentId, projectId, false);
-    expect(recallSlipJayProject(environmentId, projectId)).toBe(false);
-  });
-
-  it("does not answer without a project", () => {
-    expect(recallSlipJayProject(environmentId, null)).toBe(false);
   });
 });
 

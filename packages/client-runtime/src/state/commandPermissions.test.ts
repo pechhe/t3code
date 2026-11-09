@@ -217,6 +217,7 @@ describe("command permissions", () => {
     WS_METHODS.vcsSlipJayLand,
     WS_METHODS.vcsSlipJayCancel,
     WS_METHODS.vcsSlipJayPromote,
+    WS_METHODS.vcsSlipJayDismissPromotion,
     WS_METHODS.vcsSlipJaySetPolicy,
     WS_METHODS.vcsSlipJaySetSpareLimit,
     WS_METHODS.vcsSlipJaySetRunner,

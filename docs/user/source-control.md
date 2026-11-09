@@ -308,11 +308,14 @@ operation to open the thread whose workspace submitted it. **Pause** holds the r
 for every machine that lands through it, and **Resume** releases it; a running operation
 finishes either way. Both are also in **Settings → Source control → SlipJay runner**.
 
-In a SlipJay project, **Release <project>…** in that menu shows what promoting would release,
-or SlipJay's reason it will not: the commit staging deployed, its changes, the production
-migrations (flagging ones that are not additive and so are not rolled back automatically), and
-open Specs it only partly delivers. **Promote** approves exactly that commit, the same as
-`slipjay promote --confirm`; its progress shows in the menu's lanes.
+The menu covers every repository the runner serves, whichever thread you opened it from. Under
+**Releases**, each repository shows what its next release is waiting on and what production runs.
+**Release** starts one straight away, the same as `slipjay promote --confirm`, and it carries on
+if you close the menu or switch thread. Apps in one repository ship together, so they share a
+row. A commit that failed verification cannot be released. One still being verified is checked
+on the spot if the repository batches its checks; otherwise the release is refused until it
+passes. If a release fails, **Release failed** appears beside the SlipJay button, with the reason
+in the menu, **Try again** and **Dismiss**.
 
 ## Troubleshooting
 

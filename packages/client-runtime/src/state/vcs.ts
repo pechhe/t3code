@@ -346,16 +346,19 @@ export function createVcsEnvironmentAtoms<R, E>(
       label: "environment-data:vcs:slipjay-cancel",
       tag: WS_METHODS.vcsSlipJayCancel,
     }),
-    // `slipjay promote`'s plan for a SlipJay project, read when the owner reviews a release.
-    slipJayPromotionPlan: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:vcs:slipjay-promotion-plan",
-      tag: WS_METHODS.vcsSlipJayPromotionPlan,
-      staleTimeMs: 0,
-    }),
-    // The owner's approval of one candidate: `slipjay promote --confirm`.
+    // Starts a release through `slipjay promote`; `slipJayPromotions` says what becomes of it.
     slipJayPromote: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:slipjay-promote",
       tag: WS_METHODS.vcsSlipJayPromote,
+    }),
+    slipJayDismissPromotion: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:slipjay-dismiss-promotion",
+      tag: WS_METHODS.vcsSlipJayDismissPromotion,
+    }),
+    slipJayPromotions: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:vcs:slipjay-promotions",
+      tag: WS_METHODS.subscribeSlipJayPromotions,
+      idleTtlMs: VCS_STATUS_IDLE_TTL_MS,
     }),
     // A SlipJay project's shared policy and this machine's spares for it.
     slipJayProjectSettings: createEnvironmentRpcQueryAtomFamily(runtime, {

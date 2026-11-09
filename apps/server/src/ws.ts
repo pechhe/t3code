@@ -2739,8 +2739,11 @@ export const layerWsRpc = (
             Effect.tap(() => workspaceAttachments.markReleasedAt(input.cwd)),
           ),
         [WS_METHODS.vcsSlipJayCancel]: (input) => slipJayLandings.cancel(input),
-        [WS_METHODS.vcsSlipJayPromotionPlan]: (input) => slipJayReleases.plan(input),
-        [WS_METHODS.vcsSlipJayPromote]: (input) => slipJayReleases.promote(input),
+        [WS_METHODS.vcsSlipJayPromote]: (input) =>
+          slipJayReleases.promote(input).pipe(Effect.as({})),
+        [WS_METHODS.vcsSlipJayDismissPromotion]: (input) =>
+          slipJayReleases.dismiss(input).pipe(Effect.as({})),
+        [WS_METHODS.subscribeSlipJayPromotions]: (_input) => slipJayReleases.promotions,
         [WS_METHODS.vcsSlipJayProjectSettings]: (input) => slipJaySettings.project(input),
         [WS_METHODS.vcsSlipJaySetPolicy]: (input) => slipJaySettings.setPolicy(input),
         [WS_METHODS.vcsSlipJaySetSpareLimit]: (input) => slipJaySettings.setSpareLimit(input),

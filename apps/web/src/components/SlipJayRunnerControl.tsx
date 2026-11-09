@@ -13,7 +13,10 @@ import {
   type SlipJayCheckoutStatus,
   slipJayWorkspaceName,
 } from "@t3tools/client-runtime/slipjay-checkout";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import type {
   EnvironmentId,
   ScopedThreadRef,
@@ -22,6 +25,7 @@ import type {
   SlipJayRunnerOverview,
   SlipJayRunnerRepository,
   ThreadId,
+  VcsSlipJayPromotion,
 } from "@t3tools/contracts";
 import { XIcon } from "lucide-react";
 import { useState, useSyncExternalStore, type ReactNode } from "react";
@@ -30,25 +34,25 @@ import { useComposerDraftStore } from "~/composerDraftStore";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
+import { Spinner } from "~/components/ui/spinner";
 import { toastManager } from "~/components/ui/toast";
 import { cn } from "~/lib/utils";
-import { useThreadShells } from "~/state/entities";
+import { useProjects, useThreadShells } from "~/state/entities";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { vcsEnvironment } from "~/state/vcs";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import {
   resolveBoxFooter,
-  resolveEnvironmentRows,
-  resolveReleaseSteps,
-  resolveReleaseWaiting,
+  resolveFailedPromotions,
+  resolveProductionLine,
+  resolveReleaseRow,
   resolveScreeningLanes,
   resolveSlipJayPublishLane,
   type SlipJayTone,
 } from "./SlipJayBox.logic";
 import { SlipJayLandingDetails } from "./SlipJayLandingDetails";
 import { SlipJayLandingLogDialog } from "./SlipJayLandingLogDialog";
-import { SlipJayReleaseDialog } from "./SlipJayReleaseDialog";
 import {
   SlipJayMark,
   SlipJaySpecLink,
@@ -111,34 +115,23 @@ export function SlipJayRunnerControl({
   environmentId,
   threadRef,
   slipJayStatus,
-  releaseProject,
   onOpenThread,
   onComposerFocusRequest,
 }: {
   environmentId: EnvironmentId;
   threadRef: ScopedThreadRef;
   slipJayStatus: SlipJayCheckoutStatus | null;
-  /** The active thread's SlipJay project, which the popover offers to release. */
-  releaseProject: { cwd: string; name: string } | null;
   onOpenThread: (threadId: ThreadId) => void;
   onComposerFocusRequest?: () => void;
 }) {
-  const [releaseOpen, setReleaseOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
-  const canRelease = useAtomValue(vcsEnvironment.slipJayPromote.permissionAtom(environmentId));
-  const release = canRelease ? releaseProject : null;
   const { data: overview } = useEnvironmentQuery(
     vcsEnvironment.slipJayRunner({ environmentId, input: {} }),
   );
-  const [open, setOpen] = useState(false);
-  // Whether a release is possible belongs to the project, not the thread's checkout,
-  // which SlipJay removes once it lands. Asked only while the popover is open.
-  const { data: releaseStatus } = useEnvironmentQuery(
-    open && release !== null
-      ? vcsEnvironment.status({ environmentId, input: { cwd: release.cwd } })
-      : null,
+  const { data: promotions } = useEnvironmentQuery(
+    vcsEnvironment.slipJayPromotions({ environmentId, input: {} }),
   );
-  const hasRelease = releaseStatus?.slipJay?.hasReleaseBranch !== false;
+  const [open, setOpen] = useState(false);
   const threadShells = useThreadShells(open);
   const threadsByWorkspace = new Map<string, { id: ThreadId; title: string }>();
   for (const thread of threadShells) {
@@ -154,6 +147,7 @@ export function SlipJayRunnerControl({
   }
   const landing = useShownLanding(environmentId, slipJayStatus);
   const summary = resolveSlipJayRunnerSummary(overview, landing?.operationId);
+  const failedPromotions = resolveFailedPromotions(overview, promotions);
   if (slipJayStatus === null || landing === null) {
     if (overview == null || summary === null) return null;
   }
@@ -187,6 +181,14 @@ export function SlipJayRunnerControl({
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
+        {/* Not a trigger: the popover anchors to what opened it, and this leaves on a retry. */}
+        {failedPromotions.length === 0 ? null : (
+          <span className="shrink-0 [-webkit-app-region:no-drag]">
+            <Badge variant="error" render={<button type="button" onClick={() => setOpen(true)} />}>
+              Release failed
+            </Badge>
+          </span>
+        )}
         {slipJayStatus !== null && landing !== null ? (
           <ThreadLandingTag
             key={landing.operationId}
@@ -231,6 +233,21 @@ export function SlipJayRunnerControl({
                 <SlipJayPauseButton environmentId={environmentId} paused={overview.paused} />
               </div>
             )}
+            {releasing.length === 0 ? null : (
+              <RunnerSection title="Releases">
+                {releasing.map((repository) => (
+                  <ReleaseRow
+                    key={repository.repo}
+                    environmentId={environmentId}
+                    repository={repository}
+                    promotion={
+                      promotions?.find((promotion) => promotion.repo === repository.repo) ?? null
+                    }
+                    open={open}
+                  />
+                ))}
+              </RunnerSection>
+            )}
             {slipJayStatus !== null && landing !== null ? (
               <RunnerSection title="This thread">
                 <ThreadLandingSection
@@ -268,15 +285,6 @@ export function SlipJayRunnerControl({
                     onOpenThread={openThread}
                   />
                 )}
-                {releasing.map((repository) => (
-                  <ReleaseBlock
-                    key={repository.repo}
-                    repository={repository}
-                    deploys={overview.deploys}
-                    label={releasing.length > 1 ? repositoryName(repository.repo) : null}
-                    open={open}
-                  />
-                ))}
                 {overview.repositories.length === 0 && overview.deploys.length > 0 ? (
                   <RunnerSection title="Environments">
                     {latestDeploys(overview.deploys).map((deploy) => (
@@ -312,20 +320,6 @@ export function SlipJayRunnerControl({
                     ))}
                   </RunnerSection>
                 ) : null}
-                {release !== null ? (
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    className="mx-1 self-start"
-                    disabled={releaseStatus == null || !hasRelease}
-                    onClick={() => {
-                      setOpen(false);
-                      setReleaseOpen(true);
-                    }}
-                  >
-                    {hasRelease ? `Release ${release.name}…` : "Nothing to release"}
-                  </Button>
-                ) : null}
                 <BoxFooter overview={overview} />
               </>
             )}
@@ -339,14 +333,6 @@ export function SlipJayRunnerControl({
           landing={landing}
           open={logOpen}
           onOpenChange={setLogOpen}
-        />
-      ) : null}
-      {release !== null ? (
-        <SlipJayReleaseDialog
-          environmentId={environmentId}
-          project={release}
-          open={releaseOpen}
-          onOpenChange={setReleaseOpen}
         />
       ) : null}
     </>
@@ -654,14 +640,6 @@ const TONE_TEXT: Record<SlipJayTone, string> = {
   dim: "text-muted-foreground",
 };
 
-const TONE_CHIP: Record<SlipJayTone, string> = {
-  ok: "bg-success/8 text-success-foreground dark:bg-success/16",
-  warn: "bg-warning/8 text-warning-foreground dark:bg-warning/16",
-  bad: "bg-destructive/8 text-destructive-foreground dark:bg-destructive/16",
-  run: "bg-slipjay/12 text-slipjay dark:bg-slipjay/24 dark:text-slipjay-light",
-  dim: "bg-muted text-muted-foreground",
-};
-
 /** Screening lanes as bars, the landings in flight as tickets, then the publish lane. */
 function LandingsSection({
   environmentId,
@@ -753,83 +731,105 @@ function PublishingRef({
   return <span>{operation.title ?? "a chore"}</span>;
 }
 
-/** One repository's release: what is next for production, what it waits on, and the environments. */
-function ReleaseBlock({
+/**
+ * One repository's release, in two lines: what is happening and what production runs. A press
+ * starts it; the server carries it through and reports back here, so there is nothing to wait on.
+ */
+function ReleaseRow({
+  environmentId,
   repository,
-  deploys,
-  label,
+  promotion,
   open,
 }: {
+  environmentId: EnvironmentId;
   repository: SlipJayRunnerRepository;
-  deploys: ReadonlyArray<SlipJayRunnerDeploy>;
-  label: string | null;
+  promotion: VcsSlipJayPromotion | null;
   open: boolean;
 }) {
-  const release = repository.release;
   const now = useNow(open);
-  if (release === null) return null;
-  const waiting = resolveReleaseWaiting(release);
-  const steps = resolveReleaseSteps(release);
-  const rows = resolveEnvironmentRows(
-    release,
-    now,
-    deploys.filter((deploy) => deploy.repo === repository.repo),
+  const canRelease = useAtomValue(vcsEnvironment.slipJayPromote.permissionAtom(environmentId));
+  const promote = useAtomCommand(vcsEnvironment.slipJayPromote, { reportFailure: false });
+  const dismiss = useAtomCommand(vcsEnvironment.slipJayDismissPromotion, { reportFailure: false });
+  const [requestError, setRequestError] = useState<string | null>(null);
+  // A repository's apps ship together, so the row names every local project in it.
+  const projects = useProjects().filter(
+    (project) =>
+      project.environmentId === environmentId &&
+      project.repositoryIdentity != null &&
+      `${project.repositoryIdentity.owner}/${project.repositoryIdentity.name}`.toLowerCase() ===
+        repository.repo.toLowerCase(),
   );
+  const checkout = projects[0]?.workspaceRoot;
+  const release = repository.release;
+  if (release === null) return null;
+  const row = resolveReleaseRow(release, promotion);
+  const production = resolveProductionLine(release, now);
+  const name =
+    projects.length === 0
+      ? repositoryName(repository.repo)
+      : projects.map((project) => project.title).join(" + ");
+  const start = async () => {
+    if (checkout === undefined) return;
+    setRequestError(null);
+    const result = await promote({
+      environmentId,
+      input: { cwd: checkout, repo: repository.repo },
+    });
+    if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+    const error = squashAtomCommandFailure(result);
+    setRequestError(error instanceof Error ? error.message : "The release could not be started.");
+  };
+  const detail = requestError ?? row.detail;
   return (
-    <>
-      <RunnerSection title={label === null ? "Release" : `Release · ${label}`}>
-        <div className="flex flex-col gap-1.5 rounded-lg border p-2.5 text-xs">
-          <div className="flex items-baseline gap-1.5">
-            <span className="font-mono">{release.integrationBranch}</span>
-            {release.candidate === null ? null : (
-              <span className="font-mono text-muted-foreground">
-                {release.candidate.commitId.slice(0, 7)}
-              </span>
-            )}
-            <span className="text-muted-foreground">→ Production</span>
-          </div>
-          <div className={TONE_TEXT[waiting.tone]}>{waiting.text}</div>
-          {steps.length === 0 ? null : (
-            <div className="flex flex-wrap gap-1.5">
-              {steps.map((step) => (
-                <span
-                  key={step.key}
-                  className={cn("rounded-sm px-1.5 py-0.5 text-2xs", TONE_CHIP[step.tone])}
-                >
-                  {step.label}
-                </span>
-              ))}
-            </div>
-          )}
-          {waiting.detail ? (
-            <p className="m-0 text-2xs text-muted-foreground">{waiting.detail}</p>
+    <div className="flex flex-col gap-0.5 px-1 text-xs">
+      <div className="flex min-h-6 min-w-0 items-center gap-2">
+        <span className="min-w-0 truncate font-medium text-sm">{name}</span>
+        <span className="ms-auto flex shrink-0 items-center gap-1">
+          {row.action === "retry" ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() =>
+                void dismiss({ environmentId, input: { repo: repository.repo } }).then(() =>
+                  setRequestError(null),
+                )
+              }
+            >
+              Dismiss
+            </Button>
           ) : null}
-        </div>
-      </RunnerSection>
-      <RunnerSection title={label === null ? "Environments" : `Environments · ${label}`}>
-        {rows.map((row) => (
-          <div key={row.key} className="flex flex-col px-1 text-xs">
-            <div className="flex min-w-0 items-baseline gap-2">
-              <span
-                className={cn(
-                  "w-24 shrink-0 text-sm",
-                  row.tone === "dim" && "text-muted-foreground",
-                )}
-              >
-                {row.name}
-              </span>
-              <span className="font-mono text-muted-foreground">{row.sha}</span>
-              <span className={cn("ms-auto min-w-0 truncate text-end", TONE_TEXT[row.tone])}>
-                {row.status}
-              </span>
-            </div>
-            {row.note === null ? null : (
-              <span className="ms-26 text-2xs text-muted-foreground">{row.note}</span>
-            )}
-          </div>
-        ))}
-      </RunnerSection>
-    </>
+          {row.action === "releasing" ? (
+            <Button size="xs" variant="outline" disabled>
+              <Spinner />
+              Releasing
+            </Button>
+          ) : (row.action === "release" || row.action === "retry") &&
+            canRelease &&
+            checkout !== undefined ? (
+            <Button size="xs" variant="outline" onClick={() => void start()}>
+              {row.action === "retry" ? "Try again" : "Release"}
+            </Button>
+          ) : null}
+        </span>
+      </div>
+      <span className={TONE_TEXT[requestError === null ? row.tone : "bad"]}>{row.text}</span>
+      {detail === null ? null : (
+        <p
+          className={cn(
+            "m-0 whitespace-pre-wrap break-words text-2xs",
+            requestError !== null || row.tone === "bad"
+              ? "text-destructive"
+              : "text-muted-foreground",
+          )}
+        >
+          {detail}
+        </p>
+      )}
+      <span className="text-muted-foreground">{production.text}</span>
+      {production.note === null ? null : (
+        <span className="text-2xs text-muted-foreground">{production.note}</span>
+      )}
+    </div>
   );
 }
 

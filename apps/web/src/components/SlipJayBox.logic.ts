@@ -1,9 +1,8 @@
 import type {
-  SlipJayRunnerDeploy,
-  SlipJayRunnerEnvironment,
   SlipJayRunnerOperation,
   SlipJayRunnerOverview,
   SlipJayRunnerRelease,
+  VcsSlipJayPromotion,
 } from "@t3tools/contracts";
 import { formatElapsedDurationLabel } from "~/timestampFormat";
 
@@ -123,123 +122,90 @@ function releaseSentence(release: SlipJayRunnerRelease): { tone: SlipJayTone; te
   }
 }
 
-export interface SlipJayReleaseStep {
-  key: "images" | "audit" | "deploy";
-  tone: SlipJayTone;
-  label: string;
-}
-
-/** The Images / Audit / Deploy chips; none once production is up to date. */
-export function resolveReleaseSteps(release: SlipJayRunnerRelease): SlipJayReleaseStep[] {
-  if (release.waitingOn.kind === "up_to_date") return [];
-  const steps: SlipJayReleaseStep[] = [];
-  const { images, audit, production } = release;
-  if (images !== null) {
-    const at = images.at === null ? "" : ` ${formatClock(images.at)}`;
-    steps.push(
-      images.status === "built"
-        ? { key: "images", tone: "ok", label: `Images built${at}` }
-        : images.status === "building"
-          ? { key: "images", tone: "run", label: "Images building" }
-          : images.status === "failed"
-            ? { key: "images", tone: "bad", label: `Images failed${at}` }
-            : { key: "images", tone: "dim", label: "Images" },
-    );
-  }
-  if (audit !== null) {
-    const latest = audit.latest;
-    steps.push(
-      latest === null
-        ? { key: "audit", tone: "dim", label: "Audit" }
-        : latest.status === "green"
-          ? { key: "audit", tone: "ok", label: `Audit green ${formatClock(latest.finishedAt)}` }
-          : { key: "audit", tone: "bad", label: `Audit failed ${formatClock(latest.finishedAt)}` },
-    );
-  }
-  const attempt = production.latestAttempt;
-  steps.push(
-    attempt === null
-      ? { key: "deploy", tone: "dim", label: "Deploy" }
-      : attempt.status === "running"
-        ? { key: "deploy", tone: "run", label: "Deploying" }
-        : {
-            key: "deploy",
-            tone: "bad",
-            label: attempt.status === "failed" ? "Deploy failed" : "Rolled back",
-          },
-  );
-  return steps;
-}
-
-export interface SlipJayEnvironmentRow {
-  key: "production" | "images" | "staging";
-  name: string;
-  sha: string;
-  tone: SlipJayTone;
-  status: string;
-  /** A quieter line under the row, such as the last production attempt. */
-  note: string | null;
-}
-
-/** Production, the release images and, when skipped, staging. The latest attempt is only ever a note. */
-export function resolveEnvironmentRows(
+/**
+ * One repository's release row: what is happening in a sentence, and what a press can do. A
+ * failure stays until it is dismissed, retried or production no longer needs that release.
+ */
+export function resolveReleaseRow(
   release: SlipJayRunnerRelease,
+  promotion: VcsSlipJayPromotion | null,
+): {
+  tone: SlipJayTone;
+  text: string;
+  detail: string | null;
+  action: "release" | "retry" | "releasing" | null;
+} {
+  if (promotion?.status === "releasing") {
+    const sha = promotion.candidate === null ? "" : sha7(promotion.candidate);
+    return {
+      tone: "run",
+      text:
+        sha === ""
+          ? "Starting the release"
+          : release.waitingOn.kind === "verification"
+            ? `Verifying ${sha}, then releasing it`
+            : `Releasing ${sha} to production`,
+      detail: null,
+      action: "releasing",
+    };
+  }
+  if (promotion?.status === "failed" && release.waitingOn.kind !== "up_to_date") {
+    return { tone: "bad", text: "Release failed", detail: promotion.reason, action: "retry" };
+  }
+  const { tone, text, detail } = resolveReleaseWaiting(release);
+  const candidate =
+    release.waitingOn.kind === "up_to_date" ||
+    release.waitingOn.kind === "deploy" ||
+    release.candidate === null
+      ? ""
+      : ` · ${sha7(release.candidate.commitId)}`;
+  return {
+    tone,
+    text: `${text}${candidate}`,
+    detail,
+    action:
+      release.waitingOn.kind === "up_to_date" || release.waitingOn.kind === "deploy"
+        ? null
+        : "release",
+  };
+}
+
+/** The releases that failed and still matter, which the box's tag calls attention to. */
+export function resolveFailedPromotions(
+  overview: SlipJayRunnerOverview | null | undefined,
+  promotions: ReadonlyArray<VcsSlipJayPromotion> | null | undefined,
+): ReadonlyArray<VcsSlipJayPromotion> {
+  return (promotions ?? []).filter(
+    (promotion) =>
+      promotion.status === "failed" &&
+      overview?.repositories.find((repository) => repository.repo === promotion.repo)?.release
+        ?.waitingOn.kind !== "up_to_date",
+  );
+}
+
+/** What production runs, in one line; a newer failed or running attempt is only ever a note. */
+export function resolveProductionLine(
+  { production: { live, latestAttempt } }: SlipJayRunnerRelease,
   now: number = Date.now(),
-  /** This repository's deploys, newest first, of which the staging ones fill the Staging row. */
-  deploys: ReadonlyArray<SlipJayRunnerDeploy> = [],
-): SlipJayEnvironmentRow[] {
+): { tone: SlipJayTone; text: string; note: string | null } {
   const age = (iso: string) => formatElapsedDurationLabel(iso, now);
-  const rows: SlipJayEnvironmentRow[] = [
-    environmentRow("production", "Production", release.production, age),
-  ];
-  const { images } = release;
-  if (images !== null) {
-    const when = images.at === null ? "" : ` · ${formatClock(images.at)}`;
-    rows.push({
-      key: "images",
-      name: "Images",
-      sha: sha7(images.commitId),
-      tone:
-        images.status === "built"
-          ? "ok"
-          : images.status === "failed"
-            ? "bad"
-            : images.status === "building"
-              ? "run"
-              : "dim",
-      status:
-        images.status === "built"
-          ? `built${when}`
-          : images.status === "building"
-            ? "building"
-            : images.status === "failed"
-              ? `failed${images.reason ? ` · ${images.reason}` : ""}`
-              : "not built",
-      note: null,
-    });
-  }
-  if (release.stagingSkipped) {
-    rows.push({
-      key: "staging",
-      name: "Staging",
-      sha: "none",
-      tone: "dim",
-      status: "skipped (development mode)",
-      note: null,
-    });
-  } else {
-    rows.push(
-      release.staging === undefined
-        ? stagingRowFromDeploys(deploys, age)
-        : environmentRow(
-            "staging",
-            "Staging",
-            release.staging ?? { live: null, latestAttempt: null },
-            age,
-          ),
-    );
-  }
-  return rows;
+  const note =
+    latestAttempt === null
+      ? null
+      : `${
+          latestAttempt.status === "running"
+            ? `Deploying ${sha7(latestAttempt.commitId)} · ${age(latestAttempt.at)}`
+            : `Last attempt ${sha7(latestAttempt.commitId)} ${
+                latestAttempt.status === "failed" ? "failed" : "rolled back"
+              } ${age(latestAttempt.at)} ago`
+        }${latestAttempt.reason ? ` (${latestAttempt.reason})` : ""}`;
+  if (live === null) return { tone: "dim", text: "Production has nothing deployed", note };
+  const health = live.healthy === null ? "" : live.healthy ? "healthy · " : "unhealthy · ";
+  return {
+    tone: live.healthy === false ? "bad" : "ok",
+    text: `Production ${sha7(live.commitId)} · ${health}${age(live.deployedAt)}`,
+    note,
+  };
 }
 
 /** The footer: what landed and failed screening today, and the queue's state. */
@@ -253,79 +219,5 @@ export function resolveBoxFooter(overview: SlipJayRunnerOverview): {
   return {
     today: `Today ${landed} landed · ${failed} failed ${failed === 1 ? "screen" : "screens"}`,
     queue: waiting === 0 ? "no queue" : overview.paused ? `${waiting} held` : `${waiting} queued`,
-  };
-}
-
-/** An environment as what is live there; a newer attempt is only ever the note under it. */
-function environmentRow(
-  key: "production" | "staging",
-  name: string,
-  { live, latestAttempt }: SlipJayRunnerEnvironment,
-  age: (iso: string) => string,
-): SlipJayEnvironmentRow {
-  const attemptNote =
-    latestAttempt === null
-      ? null
-      : `${
-          latestAttempt.status === "running"
-            ? `Deploying ${sha7(latestAttempt.commitId)} · ${age(latestAttempt.at)}`
-            : `Last attempt ${sha7(latestAttempt.commitId)} ${
-                latestAttempt.status === "failed" ? "failed" : "rolled back"
-              } ${age(latestAttempt.at)} ago`
-        }${latestAttempt.reason ? ` (${latestAttempt.reason})` : ""}`;
-  return live === null
-    ? { key, name, sha: "none", tone: "dim", status: "nothing deployed", note: attemptNote }
-    : {
-        key,
-        name,
-        sha: sha7(live.commitId),
-        tone: live.healthy === false ? "bad" : "ok",
-        status: `live · ${live.healthy === null ? "" : live.healthy ? "healthy · " : "unhealthy · "}${age(live.deployedAt)}`,
-        note: attemptNote,
-      };
-}
-
-/** Staging from the latest staging deploy, for a runner that does not report `release.staging`. A failed one is the row's state only when no deploy succeeded before it. */
-function stagingRowFromDeploys(
-  deploys: ReadonlyArray<SlipJayRunnerDeploy>,
-  age: (iso: string) => string,
-): SlipJayEnvironmentRow {
-  const staging = deploys.filter((deploy) => deploy.environment === "staging");
-  const latest = staging[0];
-  const when = (deploy: SlipJayRunnerDeploy) =>
-    deploy.finishedAt === undefined ? "" : ` · ${age(deploy.finishedAt)}`;
-  if (latest === undefined) {
-    return {
-      key: "staging",
-      name: "Staging",
-      sha: "none",
-      tone: "dim",
-      status: "nothing deployed",
-      note: null,
-    };
-  }
-  const live = staging.find((deploy) => deploy.status === "deployed");
-  if (live === undefined) {
-    return {
-      key: "staging",
-      name: "Staging",
-      sha: sha7(latest.commitId),
-      tone: "bad",
-      status: `${latest.status}${when(latest)}`,
-      note: null,
-    };
-  }
-  return {
-    key: "staging",
-    name: "Staging",
-    sha: sha7(live.commitId),
-    tone: "ok",
-    status: `deployed${when(live)}`,
-    note:
-      latest === live
-        ? null
-        : `Last attempt ${sha7(latest.commitId)} ${latest.status}${
-            latest.finishedAt === undefined ? "" : ` ${age(latest.finishedAt)} ago`
-          }`,
   };
 }
