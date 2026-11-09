@@ -10,7 +10,7 @@ const enabled = () => {
   const fiber = Fiber.getCurrent();
   const scope =
     fiber && Context.getOrUndefined(fiber.context, McpInvocationContext.McpInvocationContext);
-  return scope?.toolProfile === "web-research" && scope.webResearchTools === true;
+  return scope?.webResearchTools === true;
 };
 const shared = {
   failure: OrchestratorMcpFailure,

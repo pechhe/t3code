@@ -551,7 +551,7 @@ const watchesOf = (threadId: ThreadId) =>
     return (yield* orchestrator.getThreadShell(threadId))?.threadWatches ?? [];
   });
 
-it("refuses a watch from a subagent, which its parent owns, but not from a Spec lead", () => {
+it("lets any live thread watch, a subagent or a Spec lead alike", () => {
   const thread = {
     id: ThreadId.make("thread:child"),
     lineage: {
@@ -564,7 +564,7 @@ it("refuses a watch from a subagent, which its parent owns, but not from a Spec 
     settledAt: null,
     deletedAt: null,
   };
-  assert.include(threadWatchRefusal(thread, "thread:other"), "subagent");
+  assert.isUndefined(threadWatchRefusal(thread, "thread:other"));
   assert.isUndefined(
     threadWatchRefusal(
       { ...thread, lineage: { ...thread.lineage, relationshipToParent: "fork" } },
@@ -572,7 +572,7 @@ it("refuses a watch from a subagent, which its parent owns, but not from a Spec 
     ),
   );
   const task = (role: AgentRole) => ({ role }) as AgentTaskBinding;
-  assert.include(threadWatchRefusal({ ...thread, agentTask: task("scout") }), "subagent");
+  assert.isUndefined(threadWatchRefusal({ ...thread, agentTask: task("scout") }, "thread:other"));
   assert.isUndefined(threadWatchRefusal({ ...thread, agentTask: task("lead") }, "thread:other"));
 });
 

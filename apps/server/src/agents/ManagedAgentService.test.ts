@@ -654,7 +654,10 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         `${f.policyRoot}/roles/implementation-worker.md`,
         "Changed after accepted dispatch\n",
       );
-      const retry = yield* f.prepare({ recordedBinding: original.binding });
+      // The binding as persisted, decoded by today's schema, still resumes (T3-532 kept its shape).
+      const stored = JSON.parse(JSON.stringify(yield* encodeBinding(original.binding)));
+      const recordedBinding = yield* decodeBinding(stored);
+      const retry = yield* f.prepare({ recordedBinding });
       expect(retry.binding).toEqual(original.binding);
       expect(retry.brief).toBe(original.brief);
       const current = yield* f.prepare();
@@ -1250,6 +1253,9 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       expect((yield* reviewer()).selection?.model).toBe(claudeModel);
       expect((yield* reviewer("change")).selection?.model).toBe(claudeModel);
       expect((yield* reviewer("spec")).selection?.model).toBe("claude-fable-test");
+      // Discovery names the permission class, and a tool profile only for the narrow web readers.
+      expect((yield* reviewer()).permissionClass).toBe("read-only");
+      expect((yield* reviewer()).toolProfile).toBeUndefined();
     }),
   );
 

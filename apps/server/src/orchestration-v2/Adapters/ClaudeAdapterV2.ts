@@ -554,7 +554,20 @@ export interface ClaudeAgentSdkQueryPresetTools {
 export type ClaudeAgentSdkQueryTools = ClaudeAgentSdkQueryToolList | ClaudeAgentSdkQueryPresetTools;
 
 export const CLAUDE_READ_ONLY_ALLOWED_TOOLS = ["Read", "Glob", "Grep"] as const;
+export const CLAUDE_MANAGED_WRITER_TOOLS = [
+  ...CLAUDE_READ_ONLY_ALLOWED_TOOLS,
+  "Write",
+  "Edit",
+  "Bash",
+] as const;
 const CLAUDE_WEB_RESEARCH_TOOLS = ["WebSearch", "WebFetch"] as const;
+/** Off for every editor: T3's `delegate_task` and `web_search` replace them, and T3 can count the former. */
+export const CLAUDE_HARNESS_EXTRA_TOOLS = [
+  "Agent",
+  "ListAgents",
+  "Task",
+  ...CLAUDE_WEB_RESEARCH_TOOLS,
+] as const;
 // Claude Code defers MCP tool schemas only when ToolSearch is available. A restricted tool list
 // without it sends every schema up front: Weave alone added 50k+ tokens to each delegated session.
 const CLAUDE_TOOL_SEARCH_TOOL = "ToolSearch";
@@ -2152,12 +2165,7 @@ export function claudeMcpQueryOverrides(input: {
    */
   readonly agentServers?: ReadonlyArray<AgentMcpServers.AgentMcpServer>;
   readonly readOnlySandbox: boolean;
-  /**
-   * A managed task is a leaf with no T3 tools, so an independent reviewer cannot read the author's
-   * thread. The narrow exceptions are a managed browser task's own session, a browser child's
-   * preview endpoint and a leaf's bounded browser endpoint, none of which can reach the
-   * delegating thread.
-   */
+  /** A managed task's credential reaches one endpoint, whose registry decides what it serves. */
   readonly managedAgent?: boolean;
   readonly allowedTools?: ReadonlyArray<string>;
 }): {
@@ -2166,11 +2174,7 @@ export function claudeMcpQueryOverrides(input: {
 } {
   const managedBrowser = input.mcpSession?.managedBrowser === true;
   const boundedBrowser = input.mcpSession?.boundedBrowser === true;
-  const keepsNarrowEndpoint =
-    managedBrowser ||
-    (input.managedAgent === true && (input.mcpSession?.listsPreview === true || boundedBrowser));
-  const session =
-    input.managedAgent === true && !keepsNarrowEndpoint ? undefined : input.mcpSession;
+  const session = input.mcpSession;
   const agentServers = input.agentServers ?? [];
   if (session === undefined && agentServers.length === 0) {
     return input.allowedTools === undefined ? {} : { allowedTools: input.allowedTools };
@@ -2183,15 +2187,9 @@ export function claudeMcpQueryOverrides(input: {
             ...CLAUDE_MANAGED_BROWSER_MCP_ALLOWED_TOOLS,
             ...(boundedBrowser ? CLAUDE_BOUNDED_BROWSER_MCP_ALLOWED_TOOLS : []),
           ]
-        : input.managedAgent === true && boundedBrowser && input.mcpSession?.listsPreview !== true
-          ? CLAUDE_BOUNDED_BROWSER_MCP_ALLOWED_TOOLS
-          : input.managedAgent === true
-            ? // A delegated child's credential reaches one narrow endpoint, whose registry decides what
-              // it serves, so the wildcard pre-approves that endpoint's own tools and nothing else.
-              [CLAUDE_T3_MCP_TOOL_WILDCARD]
-            : input.readOnlySandbox
-              ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
-              : [CLAUDE_T3_MCP_TOOL_WILDCARD];
+        : input.managedAgent !== true && input.readOnlySandbox
+          ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
+          : [CLAUDE_T3_MCP_TOOL_WILDCARD];
   return {
     allowedTools: Array.from(
       new Set([
@@ -3054,6 +3052,7 @@ function permissionModeForClaudeRuntimePolicy(
 export interface ClaudeRuntimeQueryPolicy {
   readonly permissionMode: PermissionMode;
   readonly tools?: ClaudeAgentSdkQueryTools;
+  readonly disallowedTools?: ReadonlyArray<string>;
   readonly allowedTools?: ReadonlyArray<string>;
   readonly allowDangerouslySkipPermissions?: true;
   readonly installPermissionCallback: boolean;
@@ -3096,12 +3095,16 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
   const readOnly = sandboxPolicyKindForClaudeRuntimePolicy(runtimePolicy) === "readOnly";
   const webTools = readOnly && runtimePolicy.webResearch === true ? CLAUDE_WEB_RESEARCH_TOOLS : [];
   const readOnlyTools = readOnly ? CLAUDE_READ_ONLY_ALLOWED_TOOLS : undefined;
+  // A managed writer keeps the coding set: the preset's other built-ins cost a worker ~20 KB per
+  // first turn and do nothing T3's lazily loaded tools cannot (Henry, T3-532).
   const restrictedTools =
-    (readOnlyTools && [...readOnlyTools, ...webTools]) ??
-    (runtimePolicy.managedAgent === true
-      ? ["Read", "Glob", "Grep", "Write", "Edit", "Bash"]
-      : undefined);
+    readOnlyTools !== undefined
+      ? [...readOnlyTools, ...webTools]
+      : runtimePolicy.managedAgent === true
+        ? CLAUDE_MANAGED_WRITER_TOOLS
+        : undefined;
   const tools = restrictedTools && [...restrictedTools, CLAUDE_TOOL_SEARCH_TOOL];
+  const disallowedTools = restrictedTools === undefined ? CLAUDE_HARNESS_EXTRA_TOOLS : undefined;
   // Web tools need permission, so a web-research agent must pre-approve them.
   const allowedTools =
     readOnlyTools !== undefined && readOnlyPolicyAllowsGlobalReads(runtimePolicy)
@@ -3121,6 +3124,7 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
     return {
       permissionMode,
       ...(tools === undefined ? {} : { tools }),
+      ...(disallowedTools === undefined ? {} : { disallowedTools }),
       ...(allowedTools === undefined ? {} : { allowedTools }),
       // Claude routes Plan-mode writes to the callback even in Auto or Full access.
       installPermissionCallback: true,
@@ -3130,6 +3134,7 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
   return {
     permissionMode,
     ...(tools === undefined ? {} : { tools }),
+    ...(disallowedTools === undefined ? {} : { disallowedTools }),
     ...(allowedTools === undefined ? {} : { allowedTools }),
     ...(permissionMode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
     installPermissionCallback,
@@ -11523,6 +11528,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 : undefined,
             ),
             tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
+            ...(queryPolicy.disallowedTools === undefined
+              ? {}
+              : { disallowedTools: queryPolicy.disallowedTools }),
             ...(mcpOverrides.allowedTools === undefined
               ? {}
               : { allowedTools: mcpOverrides.allowedTools }),

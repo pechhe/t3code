@@ -19,7 +19,8 @@ import {
   type ProviderThreadId,
   usesPhi,
   isLeafAgentTask,
-  isLeafSubagentThread,
+  isReadOnlyTask,
+  sessionEndpointKey,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -94,8 +95,9 @@ const WORKING_RUN_STATUSES: ReadonlySet<string> = new Set([
  */
 export const usesT3WebTools = (
   toolProfile: AgentToolProfile | undefined,
+  readOnly: boolean,
   provider: { readonly nativeWebResearch?: boolean | undefined } | undefined,
-): boolean => toolProfile === "web-research" && provider?.nativeWebResearch !== true;
+): boolean => (toolProfile === "web-research" ? provider?.nativeWebResearch !== true : !readOnly);
 
 export const ProviderSessionReleaseReason = Schema.Literals([
   "idle_timeout",
@@ -405,6 +407,7 @@ export const layerWithOptions = (
               boundedBrowser: false,
               toolProfile: undefined,
               agentRole: undefined,
+              readOnly: false,
               delegated: false,
             };
           return yield* Effect.gen(function* () {
@@ -420,13 +423,13 @@ export const layerWithOptions = (
               default: selectedBrowser.backend,
             };
             const boundedEligible = boundedBrowserEligible(thread);
-            // A leaf task is delegated: it lists only what its own role can use, and is told
-            // so (see sessionEndpointKey and the child instructions). A Spec lead lists what a
-            // top-level thread does.
+            // A leaf task gets the child instructions. Its class decides its tools, and a Spec
+            // lead keeps a top-level thread's instructions.
             const leafTask = isLeafAgentTask(thread.agentTask) ? thread.agentTask : undefined;
             const delegated = leafTask !== undefined;
             const toolProfile = leafTask?.toolProfile;
             const agentRole = leafTask?.role;
+            const readOnly = isReadOnlyTask(thread.agentTask);
             const entries = Object.values(settings.projectSettingsOverrides);
             const browserOverridden = entries.some(
               (entry) => entry.enableAgentBrowserAccess !== undefined,
@@ -454,6 +457,7 @@ export const layerWithOptions = (
                     boundedEligible && !browserOverridden && projectAllowsBoundedBrowser(settings),
                   toolProfile,
                   agentRole,
+                  readOnly,
                   delegated,
                 };
             }
@@ -471,6 +475,7 @@ export const layerWithOptions = (
               boundedBrowser: boundedEligible && projectAllowsBoundedBrowser(effective),
               toolProfile,
               agentRole,
+              readOnly,
               delegated,
             };
           }).pipe(
@@ -488,6 +493,7 @@ export const layerWithOptions = (
                   boundedBrowser: false,
                   toolProfile: undefined,
                   agentRole: undefined,
+                  readOnly: false,
                   delegated: false,
                 }),
               ),
@@ -608,16 +614,12 @@ export const layerWithOptions = (
                   boundedBrowser,
                   toolProfile,
                   agentRole,
+                  readOnly,
                   delegated,
                 } = accessSettings;
                 // A managed browser task whose project revoked its selected backend loses that
-                // endpoint; it keeps bounded tasks on the integrated browser when granted them.
+                // endpoint.
                 const managedBrowser = managedBrowserTask && browserToolsAvailable;
-                const boundedOnly = McpSessionRegistry.boundedBrowserOnly({
-                  boundedBrowser,
-                  managedBrowser,
-                  delegated,
-                });
                 if (managedBrowserTask && !browserToolsAvailable && !boundedBrowser)
                   return yield* mcpSessions.clear(threadId).pipe(
                     Effect.andThen(mcpSessionRegistry.revokeThread(threadId)),
@@ -631,16 +633,12 @@ export const layerWithOptions = (
                 >(["orchestration", "worktree", "pull-requests"]);
                 if (browserToolsAvailable) capabilities.add("preview");
                 if (deviceToolsAvailable) capabilities.add("device");
-                const subagent = yield* projectionStore.getThread(threadId).pipe(
-                  Effect.map(isLeafSubagentThread),
-                  Effect.orElseSucceed(() => false),
-                );
                 const provider = Option.isSome(providerSnapshots)
                   ? (yield* providerSnapshots.value.getProviders).find(
                       (item) => item.instanceId === providerInstanceId,
                     )
                   : undefined;
-                const webResearchTools = usesT3WebTools(toolProfile, provider);
+                const webResearchTools = usesT3WebTools(toolProfile, readOnly, provider);
                 const existing = yield* mcpSessions.read(threadId);
                 if (existing !== undefined) {
                   // Reserve before async validation so release cannot revoke between validation and reservation.
@@ -664,15 +662,14 @@ export const layerWithOptions = (
                     // credential reuse: rotate so the new scope reflects it.
                     (resolved.managedBrowser === true) === managedBrowser &&
                     resolved.capabilities.has("preview") ===
-                      (managedBrowser || boundedOnly || browserToolsAvailable) &&
-                    resolved.capabilities.has("device") ===
-                      (!boundedOnly && deviceToolsAvailable) &&
+                      (managedBrowser || browserToolsAvailable) &&
+                    resolved.capabilities.has("device") === deviceToolsAvailable &&
+                    resolved.endpointKey ===
+                      sessionEndpointKey({ toolProfile, agentRole, readOnly }) &&
                     resolved.webResearchTools === webResearchTools &&
                     (resolved.boundedBrowser === true) === boundedBrowser &&
                     resolved.toolProfile === toolProfile &&
-                    resolved.agentRole === agentRole &&
-                    // A credential issued while the lineage read failed is replaced once it works.
-                    (resolved.thread.subagent === true) === subagent
+                    resolved.agentRole === agentRole
                   ) {
                     // Backend defaults and skill configuration apply to the
                     // next session. Rotating this live session would revoke its
@@ -690,6 +687,7 @@ export const layerWithOptions = (
                   capabilities,
                   ...(toolProfile === undefined ? {} : { toolProfile }),
                   ...(agentRole === undefined ? {} : { agentRole }),
+                  ...(readOnly ? { readOnly: true } : {}),
                   ...(delegated ? { delegated: true } : {}),
                   ...(boundedBrowser ? { boundedBrowser: true } : {}),
                   ...(managedBrowser
@@ -702,7 +700,6 @@ export const layerWithOptions = (
                     : {}),
                   ...(browserBackends === undefined ? {} : { browserBackends }),
                   ...(phiBrowserSkillDirectory === undefined ? {} : { phiBrowserSkillDirectory }),
-                  subagent,
                 });
                 yield* mcpSessions.set(credential.config);
                 reserveMcpCredential(threadId, credential.config.providerSessionId);

@@ -16,6 +16,7 @@ import { modelSelectionCommandType } from "@t3tools/shared/model";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import {
+  assertBelowDelegationLimit,
   dispatchFailure,
   newCommandId,
   readCaller,
@@ -125,8 +126,10 @@ const writesThread = <P extends { readonly threadId?: ThreadId | undefined }, A,
 ) => McpToolAccess.writesThreads((params: P) => [params.threadId], handle);
 
 export const handlers = {
-  run_scheduled_task_now: McpToolAccess.writesEnvironment((input) =>
+  run_scheduled_task_now: McpToolAccess.writesEnvironment((input, check) =>
     Effect.gen(function* () {
+      const { caller, threads } = yield* check;
+      if (caller !== undefined) yield* assertBelowDelegationLimit(threads, caller);
       const scheduler = yield* ScheduledTasks.ScheduledTaskService;
       const { tasks } = yield* scheduler.list().pipe(Effect.mapError(unavailable));
       if (!tasks.some((task) => task.id === input.taskId))

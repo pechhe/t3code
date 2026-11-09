@@ -24,6 +24,7 @@ const box = EnvironmentId.make("peach-box");
 const leadThread = ThreadId.make("thread:lead");
 const workerThread = ThreadId.make("thread:worker");
 const otherThread = ThreadId.make("thread:other");
+const deepThread = ThreadId.make("thread:deep");
 
 const shells = new Map([
   [
@@ -35,7 +36,19 @@ const shells = new Map([
     { ...liveThreadShell(workerThread), agentTask: { role: "implementation-worker" } as never },
   ],
   [otherThread, { ...liveThreadShell(otherThread), title: "Other" }],
+  [
+    deepThread,
+    {
+      ...liveThreadShell(deepThread),
+      agentTask: { role: "implementation-worker" } as never,
+      lineage: { parentThreadId: workerThread, relationshipToParent: "subagent" } as never,
+    },
+  ],
 ]);
+shells.set(workerThread, {
+  ...shells.get(workerThread)!,
+  lineage: { parentThreadId: otherThread, relationshipToParent: "subagent" } as never,
+});
 
 const threadScope = (threadId: ThreadId): McpInvocationContext.McpInvocationScope => ({
   environmentId: here,
@@ -236,19 +249,9 @@ it.effect(
         });
         expect(refusedInclude.text).toContain("capability_denied");
 
-        // A link must name the thread it authenticated, and never a worker.
+        // A link must name the thread it authenticated.
         const bare = yield* call("t3_champions_record_learning", linkScope, learning);
         expect(bare.text).toContain("capability_denied");
-        const fromWorker = yield* call("t3_champions_record_learning", linkScope, {
-          ...learning,
-          forwardedFrom: {
-            environmentId: here,
-            threadId: workerThread,
-            threadTitle: null,
-            role: "implementation-worker",
-          },
-        });
-        expect(fromWorker.text).toContain("capability_denied");
         const fromLead = yield* call("t3_champions_record_learning", linkScope, {
           ...learning,
           forwardedFrom: {
@@ -273,77 +276,75 @@ it.effect(
     }),
 );
 
-it.effect(
-  "a lead forwards its contribution with its own identity, and a delegated worker is refused before anything leaves",
-  () =>
-    Effect.gen(function* () {
-      const h = yield* harness;
-      yield* Effect.gen(function* () {
-        const worker = yield* call("t3_champions_record_learning", threadScope(workerThread), {
-          ...learning,
-          environmentId: box,
-        });
-        expect(worker.text).toContain("capability_denied");
-        expect(h.forwarded).toEqual([]);
+it.effect("a lead and a delegated worker forward a contribution with their own identity", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* Effect.gen(function* () {
+      const worker = yield* call("t3_champions_record_learning", threadScope(workerThread), {
+        ...learning,
+        environmentId: box,
+      });
+      expect(worker.text).not.toContain("capability_denied");
+      expect(h.forwarded).toHaveLength(1);
 
-        // A model cannot claim to be another thread.
-        const spoofed = yield* call("t3_champions_record_learning", threadScope(leadThread), {
-          ...learning,
-          environmentId: box,
-          forwardedFrom: {
-            environmentId: here,
-            threadId: "thread:other",
-            threadTitle: null,
-            role: "lead",
-          },
-        });
-        expect(spoofed.text).toContain("invalid_request");
+      // A model cannot claim to be another thread.
+      const spoofed = yield* call("t3_champions_record_learning", threadScope(leadThread), {
+        ...learning,
+        environmentId: box,
+        forwardedFrom: {
+          environmentId: here,
+          threadId: "thread:other",
+          threadTitle: null,
+          role: "lead",
+        },
+      });
+      expect(spoofed.text).toContain("invalid_request");
 
-        yield* call("t3_champions_record_learning", threadScope(leadThread), {
-          ...learning,
+      yield* call("t3_champions_record_learning", threadScope(leadThread), {
+        ...learning,
+        environmentId: box,
+      });
+      expect(h.forwarded.slice(1)).toEqual([
+        {
           environmentId: box,
-        });
-        expect(h.forwarded).toEqual([
-          {
+          tool: "t3_champions_record_learning",
+          params: expect.objectContaining({
             environmentId: box,
-            tool: "t3_champions_record_learning",
-            params: expect.objectContaining({
-              environmentId: box,
-              forwardedFrom: {
-                environmentId: here,
-                threadId: leadThread,
-                threadTitle: "Spec lead",
-                role: "lead",
-              },
-            }),
-          },
-        ]);
+            forwardedFrom: {
+              environmentId: here,
+              threadId: leadThread,
+              threadTitle: "Spec lead",
+              role: "lead",
+            },
+          }),
+        },
+      ]);
 
-        yield* call("t3_champions_learning_search", threadScope(workerThread), {
-          action: "search",
-          query: "manifest",
-          environmentId: box,
-        });
-        expect(h.forwarded.at(-1)).toMatchObject({
-          environmentId: box,
-          tool: "t3_champions_learning_search",
-        });
-      }).pipe(Effect.provide(h.layer));
-    }),
+      yield* call("t3_champions_learning_search", threadScope(workerThread), {
+        action: "search",
+        query: "manifest",
+        environmentId: box,
+      });
+      expect(h.forwarded.at(-1)).toMatchObject({
+        environmentId: box,
+        tool: "t3_champions_learning_search",
+      });
+    }).pipe(Effect.provide(h.layer));
+  }),
 );
 
 it.effect("the owner records its own learning and any other orchestrating thread contributes", () =>
   Effect.gen(function* () {
     const h = yield* harness;
     yield* Effect.gen(function* () {
-      // A delegated worker searches, but cannot retain the receipt that admits an investigation.
+      // A delegated worker retains the receipt that admits an investigation, as any editor does.
       const workerQuery = yield* call("t3_champions_learning_search", threadScope(workerThread), {
         action: "query",
         id: "champion:gate",
         topic: "latency",
       });
-      expect(workerQuery.text).toContain("capability_denied");
-      expect(h.queried).toEqual([]);
+      expect(workerQuery.text).not.toContain("capability_denied");
+      expect(h.queried).toHaveLength(1);
 
       // A plain search keeps its limit of 50; only the query action is capped at 20.
       const wide = yield* call("t3_champions_learning_search", threadScope(workerThread), {
@@ -357,22 +358,22 @@ it.effect("the owner records its own learning and any other orchestrating thread
         limit: 21,
       });
       expect(wideQuery.text).toContain("invalid_request");
-      expect(h.queried).toEqual([]);
+      expect(h.queried).toHaveLength(1);
 
       // A plain search writes nothing; only the query action retains a receipt.
       yield* call("t3_champions_learning_search", threadScope(leadThread), {
         action: "search",
         query: "manifest",
       });
-      expect(h.queried).toEqual([]);
+      expect(h.queried).toHaveLength(1);
       yield* call("t3_champions_learning_search", threadScope(leadThread), {
         action: "query",
         id: "champion:gate",
         topic: "latency",
       });
-      expect(h.queried).toEqual([
+      expect(h.queried.at(-1)).toEqual(
         expect.objectContaining({ id: "champion:gate", topic: "latency" }),
-      ]);
+      );
 
       // get can fold in runtime state for a local caller.
       const runtime = yield* call("t3_champions_get", threadScope(leadThread), {
@@ -405,17 +406,6 @@ it.effect(
     Effect.gen(function* () {
       const h = yield* harness;
       yield* Effect.gen(function* () {
-        for (const action of ["resolve_decision", "delivered"]) {
-          const refused = yield* call("t3_champions_finding_action", threadScope(workerThread), {
-            action,
-            id: "champion:gate",
-            findingId: "finding:1",
-            reason: "Yes",
-            evidence: "Landed",
-          });
-          expect(refused.text).toContain("capability_denied");
-        }
-        expect(h.findingActions).toEqual([]);
         expect(h.deliveries).toEqual([]);
 
         yield* call("t3_champions_finding_action", threadScope(leadThread), {
@@ -446,4 +436,19 @@ it.effect(
         ]);
       }).pipe(Effect.provide(h.layer));
     }),
+);
+
+it.effect("a Champion check or setup from a thread at the delegation limit is refused", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* Effect.gen(function* () {
+      for (const action of ["run_check", "setup"]) {
+        const refused = yield* call("t3_champions_control", threadScope(deepThread), {
+          action,
+          id: "champion:gate",
+        });
+        expect(refused.text).toContain("delegation limit");
+      }
+    }).pipe(Effect.provide(h.layer));
+  }),
 );

@@ -62,6 +62,29 @@ const declaredFailure = (result: McpSchema.CallToolResult) => {
   return result.isError === true && text?.type === "text" ? JSON.parse(text.text) : undefined;
 };
 
+const deepThreadId = ThreadId.make("thread:two-below-top");
+const middleThreadId = ThreadId.make("thread:one-below-top");
+/** A thread two delegations below a top-level thread, as its lineage records it. */
+const atDepth = (id: ThreadId) => {
+  const shell = McpToolAccessTestkit.liveThreadShell(id);
+  const parent =
+    id === deepThreadId
+      ? middleThreadId
+      : id === middleThreadId
+        ? ThreadId.make("thread:top")
+        : null;
+  return parent === null
+    ? shell
+    : {
+        ...shell,
+        lineage: {
+          ...shell.lineage,
+          parentThreadId: parent,
+          relationshipToParent: "subagent" as const,
+        },
+      };
+};
+
 /** The thread toolkit for one caller thread in `projectId`, recording dispatched commands. */
 const layerFor = (
   projectId: ProjectId,
@@ -119,7 +142,7 @@ const layerFor = (
     ),
     Layer.provide(
       Layer.mock(ThreadManagement.ThreadManagementService)({
-        getThreadShell: (id) => Effect.succeed(McpToolAccessTestkit.liveThreadShell(id)),
+        getThreadShell: (id) => Effect.succeed(atDepth(id)),
         getProjectThreadRecords: () =>
           Effect.succeed({
             thread: {
@@ -141,10 +164,10 @@ const layerFor = (
     ),
   );
 
-const call = (name: string, args: Record<string, unknown>) =>
+const call = (name: string, args: Record<string, unknown>, callerScope = scope) =>
   McpServer.McpServer.pipe(
     Effect.flatMap((server) => server.callTool({ name, arguments: args })),
-    Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+    Effect.provideService(McpInvocationContext.McpInvocationContext, callerScope),
     Effect.provideService(McpSchema.McpServerClient, client),
   );
 
@@ -234,3 +257,15 @@ it.effect("moves the chat in place and queues the continuation as its next turn"
     ]);
   }).pipe(Effect.provide(layerFor(scratchProjectId, [], moves)));
 });
+
+it.effect("a thread at the delegation limit cannot run a scheduled task now", () =>
+  Effect.gen(function* () {
+    const result = yield* call(
+      "run_scheduled_task_now",
+      { taskId: "task:1" },
+      { ...scope, thread: { ...scope.thread!, threadId: deepThreadId } },
+    );
+    const text = result.content[0];
+    expect(text?.type === "text" ? text.text : "").toContain("delegation limit");
+  }).pipe(Effect.provide(layerFor(scratchProjectId, []))),
+);

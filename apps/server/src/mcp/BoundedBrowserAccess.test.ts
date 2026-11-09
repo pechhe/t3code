@@ -1,6 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import {
   type AgentRole,
+  READ_ONLY_ROLES,
   type AgentTaskBinding,
   EnvironmentId,
   type OrchestrationV2ThreadShell,
@@ -25,6 +26,7 @@ const task = (role: AgentRole, extra: Partial<AgentTaskBinding> = {}) =>
   ({
     role,
     toolProfile: role === "reviewer" || role === "scout" ? "source-reader" : "implementation",
+    sourceAccess: READ_ONLY_ROLES.has(role) ? "read-only" : "scoped-write",
     ...extra,
   }) as AgentTaskBinding;
 
@@ -90,7 +92,11 @@ it("grants bounded browsing only from what the server recorded about the thread"
   // Ordinary threads, forks, side chats and scheduled runs carry no task record and no parent.
   expect(boundedBrowserEligible(shell())).toBe(true);
   expect(boundedBrowserEligible(shell({ agentTask: task("lead"), lineage: subagent }))).toBe(true);
-  for (const role of ["chore-worker", "implementation-worker", "ui-worker", "reviewer"] as const) {
+  for (const role of ["chore-worker", "implementation-worker", "ui-worker"] as const)
+    expect(boundedBrowserEligible(shell({ agentTask: task(role), lineage: subagent })), role).toBe(
+      true,
+    );
+  for (const role of ["reviewer"] as const) {
     expect(boundedBrowserEligible(shell({ agentTask: task(role), lineage: subagent })), role).toBe(
       false,
     );

@@ -692,7 +692,10 @@ export function openCodePermissionRules(
     }
   }
 
-  for (const name of agentServerNames) {
+  // T3 refuses what this task's class may not call, so its own server needs no second rule here.
+  for (const name of runtimePolicy.managedAgent === true
+    ? ["t3-code", ...agentServerNames]
+    : agentServerNames) {
     rules.push({ permission: `${name}_*`, pattern: "*", action: "allow" });
   }
 

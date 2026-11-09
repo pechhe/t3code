@@ -964,25 +964,26 @@ it.effect("keeps preview actions inside the calling credential's own authority",
             Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
             Effect.provideService(McpSchema.McpServerClient, client),
           );
-      const leafRefusal = expect.stringContaining("Managed workers are leaf tasks");
+      const webReaderRefusal = expect.stringContaining("Browser agents, researchers");
 
       // An ordinary thread keeps acting as before.
       const parent = yield* call(invocation, "preview_open", { url: "http://example.test/parent" });
       expect(parent.isError).toBe(false);
 
-      // A managed reader lists no preview endpoint, so the capability on its credential is not enough.
-      const reader = yield* call(childInvocation(readerChild), "preview_open", {
-        url: "http://example.test/reader",
-      });
-      expect(reader.isError).toBe(true);
-      expect(textOf(reader)).toEqual(leafRefusal);
+      // A read-only agent's list has no browser action, so the capability on its credential is not enough.
+      const reader = yield* call(
+        { ...childInvocation(readerChild), endpointKey: "reader" },
+        "preview_open",
+        { url: "http://example.test/reader" },
+      ).pipe(Effect.flip);
+      expect(reader.message).toContain("not found");
 
       // Raw page code stays closed to a browser child, as it is on the managed browser endpoint.
       const evaluated = yield* call(childInvocation(browserChild), "preview_evaluate", {
         expression: "document.title",
       });
       expect(evaluated.isError).toBe(true);
-      expect(textOf(evaluated)).toEqual(leafRefusal);
+      expect(textOf(evaluated)).toEqual(webReaderRefusal);
 
       // A client with no thread has no thread's browser to drive.
       const external = yield* call(
@@ -1788,96 +1789,6 @@ it.effect("hides tools for links and refuses another environment while the beta 
         isError: true,
         content: [{ text: expect.stringContaining("cannot reach linked environments") }],
       });
-    }),
-  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
-);
-
-it.effect("lists pull request watch tools only to threads that are not delegated children", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const scopeFor = (
-        token: string,
-        subagent: boolean,
-      ): McpInvocationContext.McpThreadInvocationScope => ({
-        environmentId,
-        requestNamespace: token,
-        thread: {
-          threadId: ThreadId.make(`thread-${token}`),
-          providerSessionId: token,
-          providerInstanceId: ProviderInstanceId.make("codex"),
-          subagent,
-        },
-        client: undefined,
-        capabilities: new Set(["pull-requests"]),
-        issuedAt: 1,
-      });
-      const scopes = new Map([
-        ["parentToken", scopeFor("parentToken", false)],
-        ["childToken", scopeFor("childToken", true)],
-      ]);
-      const serverLayer = McpHttpServer.layerMcpTransport(
-        McpHttpServer.layerPullRequestsToolkit,
-      ).pipe(
-        Layer.provide(ServerSettings.layerTest()),
-        Layer.provide(
-          Layer.mock(McpSessionRegistry.McpSessionRegistry)({
-            resolve: (token) => Effect.succeed(scopes.get(token)),
-          }),
-        ),
-        Layer.provide(
-          Layer.mergeAll(
-            McpToolAccessTestkit.liveThreadsLayer,
-            Layer.mock(ProjectService.ProjectService)({}),
-            Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),
-            Layer.mock(Orchestrator.OrchestratorV2)({}),
-            Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
-            Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
-            NodeCrypto.layer,
-          ),
-        ),
-      );
-      yield* HttpRouter.serve(serverLayer, { disableListenLog: true, disableLogger: true }).pipe(
-        Layer.build,
-      );
-      const httpClient = yield* HttpClient.HttpClient;
-      const listedTools = (token: string) =>
-        Effect.gen(function* () {
-          const headers = {
-            accept: "application/json, text/event-stream",
-            authorization: `Bearer ${token}`,
-          };
-          const initialize = yield* httpClient.post("/mcp", {
-            headers,
-            body: HttpBody.text(
-              `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1.0.0"}}}`,
-              "application/json",
-            ),
-          });
-          const listed = yield* httpClient.post("/mcp", {
-            headers: {
-              ...headers,
-              "mcp-session-id": initialize.headers["mcp-session-id"]!,
-              "mcp-protocol-version": "2025-06-18",
-            },
-            body: HttpBody.text(
-              `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`,
-              "application/json",
-            ),
-          });
-          const body = (yield* listed.json) as {
-            readonly result: { readonly tools: ReadonlyArray<{ readonly name: string }> };
-          };
-          return body.result.tools.map((tool) => tool.name);
-        });
-
-      const parentTools = yield* listedTools("parentToken");
-      const childTools = yield* listedTools("childToken");
-      expect(parentTools).toEqual(
-        expect.arrayContaining(["link_pull_request", "watch_pull_request", "unwatch_pull_request"]),
-      );
-      expect(childTools).toContain("link_pull_request");
-      expect(childTools).not.toContain("watch_pull_request");
-      expect(childTools).not.toContain("unwatch_pull_request");
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

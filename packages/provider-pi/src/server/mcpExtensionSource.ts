@@ -517,9 +517,11 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     typeof pi.getAllTools === "function" &&
     pi.getAllTools().some((tool) => tool.name === "tool_search" && tool.sourceInfo?.path === "builtin:tool-search");
 
-  // T3's annotated reads, and every tool of an agent server, which itself decides
-  // what this thread's role may do there.
+  // T3's annotated reads, every T3 tool for a delegated task (its asking would wait on nobody,
+  // and T3 refuses what its class may not call), and every tool of an agent server, which itself
+  // decides what this thread's role may do there.
   const approvedMcpTools = new Set<string>();
+  const delegatedTask = process.env[INSTRUCTIONS_ENV] !== undefined;
   const isApprovedMcpTool = (name: string) => {
     const extensionPath = env(EXTENSION_PATH_ENV);
     if (extensionPath === undefined || !approvedMcpTools.has(name) || typeof pi.getAllTools !== "function") return false;
@@ -640,7 +642,12 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   // Tool exposure arrived with registerMcpServer in Pi 0.99. Keep the HTTP
   // bridge as the credential owner: mcp.json overrides native registrations.
   const supportsExposure = "registerMcpServer" in pi && typeof pi.registerMcpServer === "function";
-  const directTools = new Set(["orchestrator_capabilities", "delegate_task", "task_status"]);
+  // A delegated task rarely delegates, so its large delegate_task schema loads on demand.
+  const directTools = new Set(
+    delegatedTask
+      ? ["orchestrator_capabilities", "task_status"]
+      : ["orchestrator_capabilities", "delegate_task", "task_status"],
+  );
   let deferOptionalTools = supportsExposure;
 
   const registerTools = () => {
@@ -655,7 +662,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       for (const tool of server.catalog) {
         const name = tool.name;
         for (const prefix of prefixes) {
-          if (server.agent || tool.annotations?.readOnlyHint === true) approvedMcpTools.add(\`\${prefix}\${name}\`);
+          if (server.agent || delegatedTask || tool.annotations?.readOnlyHint === true) approvedMcpTools.add(\`\${prefix}\${name}\`);
           const exposure = prefix !== publicPrefix ? "hidden" :
             deferOptionalTools && (server.agent || !directTools.has(name)) ? "deferred" : "direct";
           pi.registerTool({

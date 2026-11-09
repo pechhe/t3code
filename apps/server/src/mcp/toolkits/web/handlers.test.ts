@@ -11,10 +11,7 @@ import * as WebResearch from "../../WebResearch.ts";
 import * as Handlers from "./handlers.ts";
 import { WebToolkit } from "./tools.ts";
 
-const scope = (
-  webResearchTools = true,
-  endpointKey = "child-research",
-): Context.McpInvocationScope => ({
+const scope = (webResearchTools = true, endpointKey = "research"): Context.McpInvocationScope => ({
   environmentId: EnvironmentId.make("test"),
   capabilities: new Set(),
   issuedAt: 0,
@@ -81,11 +78,7 @@ it.effect("maps an Executor tool error to an MCP tool error", () =>
     });
   }),
 );
-it.effect.each([
-  scope(false),
-  scope(true, "child-reader"),
-  { ...scope(), toolProfile: "source-reader" as const },
-])("refuses callers outside the supplied web family", (invocation) =>
+it.effect.each([scope(false)])("refuses a credential without the web tools", (invocation) =>
   Effect.gen(function* () {
     const result = yield* run(invocation, {}, "web_search");
     expect(result.at(-1)?.result).toMatchObject({ code: "capability_denied" });

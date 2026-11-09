@@ -116,16 +116,12 @@ it("explicitly assigns discovery to decision, excluding source-only and research
     ["implementation", "reviewer"],
   ] as const) {
     expect(canUseDecisions({ toolProfile, agentRole })).toBe(false);
-    expect(isToolListedForSession("t3_decide", { toolProfile, agentRole, delegated: true })).toBe(
-      false,
-    );
+    expect(isToolListedForSession("t3_decide", { toolProfile, agentRole })).toBe(false);
   }
   for (const [toolProfile, agentRole] of [
     ["implementation", "implementation-worker"],
     ["phi", "browser"],
   ] as const) {
-    expect(isToolListedForSession("t3_decide", { toolProfile, agentRole, delegated: true })).toBe(
-      true,
-    );
+    expect(isToolListedForSession("t3_decide", { toolProfile, agentRole })).toBe(true);
   }
 });

@@ -1,4 +1,4 @@
-import { isDelegatedTaskThread, isLeafSubagentThread, isSideChatThread } from "@t3tools/contracts";
+import { isDelegatedTaskThread, isSideChatThread } from "@t3tools/contracts";
 import type {
   OrchestrationV2ThreadLinkMetadata,
   GuestShareId,
@@ -4255,18 +4255,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           commandId: command.commandId,
           commandType: command.type,
           cause: `Thread ${command.threadId} is settled or archived and cannot watch pull requests.`,
-        });
-      }
-      // Child tasks report to their parent, which owns PR monitoring; child watches would cause unrelated wakes.
-      if (
-        command.type === "thread.pull-request.watch" &&
-        command.watching &&
-        isLeafSubagentThread(thread)
-      ) {
-        return yield* new OrchestratorDispatchError({
-          commandId: command.commandId,
-          commandType: command.type,
-          cause: `Thread ${command.threadId} is a subagent; its parent thread watches pull requests.`,
         });
       }
       // Agent watches use the latest executed run to catch calls racing Stop; users can still watch.

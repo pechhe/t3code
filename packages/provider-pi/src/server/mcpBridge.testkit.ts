@@ -47,6 +47,8 @@ export async function loadMcpBridge(
     readonly toolSearchDisabled?: boolean;
     readonly allowsTool?: (name: string) => boolean;
     readonly runtimeMode?: string;
+    /** A delegated task's instructions, as T3 passes them to a child Pi session. */
+    readonly delegatedInstructions?: string;
     readonly inputSchema?: Record<string, unknown>;
     /** Overrides the fixture catalogue's declared result schema. */
     readonly outputSchema?: unknown;
@@ -118,6 +120,9 @@ export async function loadMcpBridge(
             }),
         T3_PI_MCP_EXTENSION_PATH: "/fixture/pi-t3-extension.ts",
         T3_PI_RUNTIME_MODE: options.runtimeMode,
+        ...(options.delegatedInstructions === undefined
+          ? {}
+          : { T3_PI_INSTRUCTIONS: options.delegatedInstructions }),
       },
     },
     AbortSignal,

@@ -1,14 +1,12 @@
 import {
   type AgentBrowserBackends,
-  type AgentRole,
-  type AgentToolProfile,
   BOUNDED_BROWSER_ROLES,
   type OrchestrationV2ThreadShell,
   OrchestratorMcpFailure,
   type ProjectId,
-  sessionToolFamilies,
   usesPhi,
   isLeafAgentTask,
+  isReadOnlyTask,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Effect from "effect/Effect";
@@ -21,28 +19,8 @@ import { assertLiveCaller, type Caller, loadCaller } from "./threadAccess.ts";
 const refuse = (message: string) =>
   new OrchestratorMcpFailure({ code: "capability_denied", message });
 
-/**
- * Whether a role listing carries the preview family (the browser profile's), from the one policy
- * table, so a child is refused exactly when its endpoint lists no browser.
- * Reads use the listing recorded on their credential, because a read must not gain the thread load,
- * liveness check or refusal it never had; actions use the thread's live task binding below.
- */
-export const listsBrowserFamily = ({
-  toolProfile,
-  agentRole,
-}: {
-  readonly toolProfile?: AgentToolProfile | undefined;
-  readonly agentRole?: AgentRole | undefined;
-}) => sessionToolFamilies({ toolProfile, agentRole, delegated: true }).has("preview");
-
-/** Whether this caller's own live task drives a browser of its own. */
-export const drivesOwnBrowser = ({ caller }: Caller) =>
-  caller?.agentTask !== undefined &&
-  isLeafAgentTask(caller.agentTask) &&
-  listsBrowserFamily({
-    toolProfile: caller.agentTask.toolProfile,
-    agentRole: caller.agentTask.role,
-  });
+/** Whether this caller's own live task is a browser agent, pinned to its own backend. */
+export const drivesOwnBrowser = ({ caller }: Caller) => usesPhi(caller?.agentTask?.toolProfile);
 
 /**
  * The calling thread's project still allowing agent browsing and its selected backend. Resolved on
@@ -92,9 +70,9 @@ export const assertManagedBrowserCaller = Effect.fn("mcp.assertManagedBrowserCal
 
 /**
  * Whether a thread may run bounded browser tasks, from what the server recorded about it and
- * never from what a caller says. An ordinary or scheduled thread and a Spec lead may; a managed
- * leaf only when its role policy granted them at binding. A subagent with no task record, work
- * owned by an outside client and work from a linked environment may not.
+ * never from what a caller says. Every editor may; a read-only task only when its role policy
+ * granted them at binding. A subagent with no task record, work owned by an outside client and
+ * work from a linked environment may not.
  */
 export const boundedBrowserEligible = (
   thread: Pick<
@@ -106,7 +84,7 @@ export const boundedBrowserEligible = (
   const task = thread.agentTask;
   if (task === undefined) return thread.lineage.relationshipToParent !== "subagent";
   if (task.externalOwner !== undefined) return false;
-  if (!isLeafAgentTask(task)) return true;
+  if (!isReadOnlyTask(task)) return true;
   return task.browserTasks === true && BOUNDED_BROWSER_ROLES.has(task.role);
 };
 

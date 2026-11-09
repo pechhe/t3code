@@ -116,3 +116,59 @@ it.effect("schedule_task needs a label to create a task and leaves it alone on a
     }).pipe(Effect.provide(layer));
   }),
 );
+
+it.effect("schedule_task and create_threads are refused at the delegation limit", () =>
+  Effect.gen(function* () {
+    const top = ThreadId.make("thread:top");
+    const middle = ThreadId.make("thread:middle");
+    const lineageOf = (id: ThreadId) =>
+      id === threadId
+        ? { rootThreadId: top, parentThreadId: middle, relationshipToParent: "subagent" as const }
+        : id === middle
+          ? { rootThreadId: top, parentThreadId: top, relationshipToParent: "subagent" as const }
+          : { rootThreadId: top, parentThreadId: null, relationshipToParent: null };
+    const layer = McpHttpServer.toolkitRegistration(
+      OrchestratorToolkit,
+      OrchestratorHandlers.layer,
+    ).pipe(
+      Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+      Layer.provideMerge(
+        Layer.mock(ThreadManagement.ThreadManagementService)({
+          getThreadShell: (id) =>
+            Effect.succeed({ ...liveThreadShell(id), lineage: lineageOf(id) }),
+        }),
+      ),
+      Layer.provideMerge(Layer.mock(OrchestratorMcpService.OrchestratorMcpService)({})),
+      Layer.provideMerge(Layer.mock(ThreadDirectory.ThreadDirectory)({})),
+      Layer.provideMerge(Layer.mock(ThreadMetadataMcpService.ThreadMetadataMcpService)({})),
+      Layer.provideMerge(Layer.mock(PeerForwarding.PeerForwarding)({})),
+      Layer.provideMerge(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),
+      Layer.provideMerge(Layer.mock(PeerLinks.PeerLinks)({})),
+      Layer.provideMerge(Layer.mock(ThreadHandoff.ThreadHandoff)({})),
+    );
+    const call = (name: string, args: Record<string, unknown>) =>
+      McpServer.McpServer.pipe(
+        Effect.flatMap((server) => server.callTool({ name, arguments: args })),
+        Effect.map((result) =>
+          result.content.map((part) => (part.type === "text" ? part.text : "")).join(""),
+        ),
+        Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+        Effect.provideService(McpSchema.McpServerClient, mcpClient),
+      );
+
+    yield* Effect.gen(function* () {
+      expect(
+        yield* call("schedule_task", { prompt: "Look again", schedule, purpose: "check_back" }),
+      ).toContain("delegation limit");
+      expect(yield* call("schedule_task", { scheduledTaskId: "task:1", enabled: true })).toContain(
+        "delegation limit",
+      );
+      expect(
+        yield* call("create_threads", {
+          threads: [{ title: "Second bug", message: "Fix it" }],
+          whyNotDelegated: "The user asked for its own thread.",
+        }),
+      ).toContain("delegation limit");
+    }).pipe(Effect.provide(layer));
+  }),
+);

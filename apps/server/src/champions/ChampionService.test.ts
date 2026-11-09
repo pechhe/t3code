@@ -202,6 +202,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
       ({
         id: owner,
         title: "Quality owner",
+        lineage: { rootThreadId: owner, parentThreadId: null, relationshipToParent: null },
         projectId: foreignProject ? ProjectId.make("foreign-project") : projectId,
         providerInstanceId: instanceId,
         runtimeMode: ownerMode,
@@ -3746,7 +3747,7 @@ it.effect(
           isToolListedForSession("device_open", {
             toolProfile: "phi",
             agentRole: "browser",
-            delegated: true,
+            readOnly: true,
           }),
         );
       }),

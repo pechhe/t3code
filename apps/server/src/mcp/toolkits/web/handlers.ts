@@ -7,14 +7,10 @@ import { WebToolkit } from "./tools.ts";
 
 const service = Effect.gen(function* () {
   const scope = yield* McpInvocationContext.McpInvocationContext;
-  if (
-    scope.toolProfile !== "web-research" ||
-    scope.webResearchTools !== true ||
-    (scope.endpointKey !== "research" && scope.endpointKey !== "child-research")
-  ) {
+  if (scope.webResearchTools !== true) {
     return yield* new OrchestratorMcpFailure({
       code: "capability_denied",
-      message: "Web tools require a web-research session without native web tools.",
+      message: "Web tools require an editor or a web-research session without native web tools.",
     });
   }
   return yield* WebResearch.WebResearch;

@@ -289,7 +289,7 @@ it("reports the run that ended last, not the highest ordinal", () => {
   assert.equal(progress.resultRun?.ordinal, 3);
 });
 
-it("holds a Spec lead's result while it watches, but not a leaf's", () => {
+it("holds any delegated task's result while it watches", () => {
   const { projection } = taskFixture();
   const watching = (role: AgentRole) =>
     progressOf({
@@ -301,7 +301,8 @@ it("holds a Spec lead's result while it watches, but not a leaf's", () => {
       },
     }).state;
   assert.equal(watching("lead"), "waiting_for_children");
-  assert.equal(watching("scout"), "result_available");
+  assert.equal(watching("implementation-worker"), "waiting_for_children");
+  assert.equal(watching("scout"), "waiting_for_children");
 });
 
 it("waits for nested work and retains the report across monitor acknowledgements", () => {

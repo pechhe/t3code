@@ -1465,6 +1465,13 @@ export const CODEX_THREAD_CONFIG = {
   // Tool calls stop waiting on the detailed reasoning summary. Codex applies it only to its
   // built-in OpenAI provider and sends each summary section whole, not as token deltas.
   "features.concurrent_reasoning_summaries": true,
+  // Off for every agent: T3's `delegate_task`, browser and `web_search` tools replace them.
+  "features.multi_agent": false,
+  "features.apps": false,
+  "features.plugins": false,
+  "features.browser_use": false,
+  "features.computer_use": false,
+  web_search: "disabled",
 } as const;
 
 // T3 waits can block for an hour; keep Codex's MCP timeout above that.
@@ -1505,24 +1512,8 @@ export function codexThreadRuntimeParams(input: {
 } {
   const { mcpSession } = input;
   const compactLimit = codexCompactLimit(input.runtimePolicy, input.autoCompactWindow);
-  // One `mcp_servers` table: every server a managed leaf must not reach is disabled. The narrow
-  // exceptions are a managed browser task's own endpoint, a browser child's preview
-  // endpoint and a leaf's bounded browser endpoint, so an independent reviewer cannot
-  // read the thread that delegated it.
-  const managedLeaf =
-    input.runtimePolicy?.managedAgent === true &&
-    mcpSession !== undefined &&
-    mcpSession.managedBrowser !== true &&
-    mcpSession.listsPreview !== true &&
-    mcpSession.boundedBrowser !== true;
-  // A leaf kept only for bounded browser tasks enables exactly those tools.
-  const boundedLeaf =
-    input.runtimePolicy?.managedAgent === true &&
-    mcpSession?.boundedBrowser === true &&
-    mcpSession.managedBrowser !== true &&
-    mcpSession.listsPreview !== true;
   const t3Server =
-    mcpSession === undefined || managedLeaf
+    mcpSession === undefined
       ? undefined
       : {
           url: mcpSession.endpoint,
@@ -1539,17 +1530,14 @@ export function codexThreadRuntimeParams(input: {
                   ...(mcpSession.boundedBrowser === true ? BOUNDED_BROWSER_TOOL_NAMES : []),
                 ],
               }
-            : boundedLeaf
-              ? { enabled_tools: [...BOUNDED_BROWSER_TOOL_NAMES] }
-              : {}),
+            : {}),
           http_headers: { Authorization: mcpSession.authorizationHeader },
         };
   const directWait =
     t3Server !== undefined &&
     mcpSession?.delegated !== true &&
     mcpSession?.managedBrowser !== true &&
-    mcpSession?.listsPreview !== true &&
-    !boundedLeaf;
+    mcpSession?.listsPreview !== true;
   const agentServers = input.agentServers ?? [];
   const mcpServers: Record<string, Schema.Json> | undefined =
     input.disabledMcpServers === undefined && t3Server === undefined && agentServers.length === 0
@@ -1605,16 +1593,7 @@ export function codexThreadRuntimeParams(input: {
             // Codex's default scope ignores the carried prompt prefix; the limit is the whole context, as for Claude.
             model_auto_compact_token_limit_scope: "total",
           }),
-      ...(input.runtimePolicy?.managedAgent !== true
-        ? {}
-        : {
-            "features.multi_agent": false,
-            "features.apps": false,
-            "features.plugins": false,
-            "features.browser_use": false,
-            "features.computer_use": false,
-            web_search: input.runtimePolicy?.webResearch === true ? "live" : "disabled",
-          }),
+      ...(input.runtimePolicy?.webResearch === true ? { web_search: "live" } : {}),
       ...(input.runtimePolicy?.sandboxTempRoot === undefined
         ? {}
         : {

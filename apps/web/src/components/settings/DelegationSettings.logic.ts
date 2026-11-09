@@ -45,7 +45,7 @@ export const ROLE_DESCRIPTIONS: Record<AgentRole, string> = {
   "implementation-worker": "Non-UI code changes",
   "ui-worker": "UI changes",
   reviewer: "Reviews a change or a Spec before it lands",
-  advisor: "Read-only second opinion",
+  advisor: "Second opinion",
   "chore-worker": "Mechanical edits",
   browser: "Drives web pages",
   "ui-verifier": "Checks the running app",
@@ -53,6 +53,10 @@ export const ROLE_DESCRIPTIONS: Record<AgentRole, string> = {
   scout: "Maps the codebase",
   lead: "Runs one Spec for an Arc lead",
 };
+
+/** Which of T3's two permission classes a role's tasks are in. */
+export const roleClassLabel = (policy: Pick<RolePolicy, "sourceAccess">) =>
+  policy.sourceAccess === "read-only" ? "Read-only" : "Editor";
 
 export interface RoleGroup {
   readonly list: string;

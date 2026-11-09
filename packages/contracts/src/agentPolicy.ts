@@ -48,12 +48,30 @@ export const agentTaskTopic = (title: string, role: AgentRole): string => {
   return title;
 };
 /**
- * A `lead` task runs one Spec with exactly a top-level thread's privileges; every other role
- * is a leaf that cannot change T3 state, delegate or watch.
+ * A `lead` task runs one Spec under a top-level thread's runtime policy; every other role is a leaf
+ * under its task's policy. This is lifecycle only: what a task may call comes from
+ * `isReadOnlyTask`, and every editor may call the same things.
  */
 export const isLeafAgentTask = (task: { readonly role: AgentRole } | undefined) =>
   task !== undefined && task.role !== "lead";
-/** A subagent thread other than a `lead` task: it reports to its parent, which watches for it. */
+/** Which of the two permission classes a task is in; a thread with no task is an editor. */
+export const isReadOnlyTask = (
+  task: { readonly sourceAccess: "read-only" | "scoped-write" } | undefined,
+) => task?.sourceAccess === "read-only";
+/**
+ * Roles that are read-only whatever the policy says, so a read-only agent may delegate them
+ * without resolving a role. `validManifest` holds the policy to this; a writing role the policy
+ * narrows to read-only is read-only too, which is how a policy revokes its writes.
+ */
+export const READ_ONLY_ROLES: ReadonlySet<AgentRole> = new Set([
+  "browser",
+  "ui-verifier",
+  "advisor",
+  "reviewer",
+  "researcher",
+  "scout",
+]);
+/** A subagent thread other than a `lead` task: it reports its result to its parent. */
 export const isLeafSubagentThread = (thread: {
   readonly lineage: { readonly relationshipToParent: string | null };
   readonly agentTask?: { readonly role: AgentRole } | undefined;
@@ -766,7 +784,10 @@ export const AgentRolesResult = Schema.Struct({
     Schema.Struct({
       role: AgentRole,
       sourceAccess: Schema.Literals(["read-only", "scoped-write"]),
-      toolProfile: AgentToolProfile,
+      /** Which of T3's two permission classes the role's tasks are in. */
+      permissionClass: Schema.optional(Schema.Literals(["editor", "read-only"])),
+      /** Present only for the narrow sets that read untrusted pages (browser and researcher). */
+      toolProfile: Schema.optional(AgentToolProfile),
       briefHash: Sha256,
       executionRequirement: Schema.optional(AgentExecutionRequirement),
       executionBoundary: Schema.optional(AgentExecutionBoundary),

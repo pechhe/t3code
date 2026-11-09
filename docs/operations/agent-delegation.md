@@ -89,12 +89,45 @@ its revision and the role names, or the reason the policy is refused.
   other providers with `read-only-unenforced` and refuses when none qualify,
   including explicit model choices and resumes; that rule only chooses reader
   accounts.
+- T3 has two permission classes, and a task's recorded `sourceAccess` decides which it is in.
+  Editors (an ordinary or scheduled thread, a lead, any writer role) all list and may use the
+  same T3 tools, on `/mcp/editor`, and differ only by brief. A managed Claude writer keeps the
+  coding set of built-in tools (Read, Glob, Grep, Write, Edit, Bash): the rest of the preset cost
+  each worker about 20 KB per first turn for tools T3 already provides. Harness
+  extras are off for every editor: Claude's `Agent` and web tools, and Codex's multi-agent, apps,
+  plugins, browser, computer use and web search. T3's `delegate_task`, `web_search` and
+  `web_fetch` replace them. Read-only tasks use `/mcp/reader`, with the closed
+  `READ_ONLY_TOOLS` list applied to listing and calling, so a new tool starts closed. That list
+  reads threads and Champions, records learnings and delegates read-only roles, and starts or
+  instructs no editor. A reviewer's independence rests on its brief.
+- Delegation goes two levels below a top-level thread, counted from thread lineage on the server.
+  At the limit, `delegate_task`, `t3_thread_launch`, `create_threads`, `schedule_task` and
+  `run_scheduled_task_now` refuse with what to do instead. A level-1 agent may launch a top-level
+  thread, which starts a fresh count and shows in the sidebar, as a delegation to a linked
+  environment does.
+- Lazy loading of T3's tools, and whether harness extras can be turned off, per adapter:
+
+  | Adapter                                         | T3 tools lazily loaded                                                               | Established by                                    | Harness extras off |
+  | ----------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------- | ------------------ |
+  | Claude                                          | Yes, through ToolSearch, unless a setting stops it                                   | Recorded first-turn requests list names only      | Yes                |
+  | Pi                                              | Yes, except two or three direct tools, if search is built in; names are never listed | Pi's tool-search source and the extension's tests | None to turn off   |
+  | Codex                                           | Yes, through tool search, except `t3_thread_wait`                                    | Thread-start request from the replay fixtures     | Yes                |
+  | Cursor, Grok, OpenCode, Antigravity, Kiro, Muse | Not confirmed                                                                        | Not measured                                      | Not turned off     |
+
+  An adapter that loads T3's tools eagerly gives every editor the full catalogue's schemas, about
+  650 KB, on its first turn, so an unconfirmed adapter is a poor choice for delegated work.
+
+  The Codex read-only shell keeps network access, so publishing from it is stopped by its brief,
+  not by T3. Claude and Pi read-only tasks have no shell.
+
+- Browser agents and researchers read untrusted web pages, so they stay on narrow endpoints:
+  no thread reads, no delegation and no T3 writes.
 - The `phi` tool profile, the `browser` role's, gives a reader its own browser
   endpoint serving only browser operations on the task's own tabs, plus the
   device tools for simulators when agent device access is on. It starts only once the project allows the
   selected backend (integrated by default, or Phi when the task selects it).
-  Writers and reviewers check pages with bounded browser tasks (`browserTasks`
-  in the role policy) instead. The retired `implementation-phi` profile and
+  Every editor can run bounded browser tasks while its project allows them, and so can a reviewer
+  with `browserTasks` in its role policy. The retired `implementation-phi` profile and
   `ui-verifier` role still read back from saved policies and tasks:
   `implementation-phi` as `implementation` with bounded browser tasks, and a
   `ui-verifier` task under the `browser` role's authority. Neither can be saved:
@@ -115,10 +148,9 @@ its revision and the role names, or the reason the policy is refused.
   when it gives an `offPolicyReason` or the configured policy is unreadable.
   If no eligible role fits, report the task as blocked. Without a configured
   policy, unmanaged delegation is unchanged.
-- A `lead` task is the one delegated task that is not a leaf: an Arc lead starts
+- A `lead` task is the one delegated task with a top-level thread's lifecycle: any editor starts
   it with the Spec as `forgeItem`, and it runs in that item's SlipJay workspace with
-  exactly a top-level thread's runtime mode, tools and authority, so it can
-  delegate, watch and land. The item's own repository decides the project the
+  exactly a top-level thread's runtime mode and instructions. The item's own repository decides the project the
   child belongs to; when that is another registered project, where the caller
   holds no checkout, the child still belongs to it and runs in the item's own
   workspace, allocated or resumed there, so the caller's `workspacePath` only has

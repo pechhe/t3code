@@ -30,7 +30,6 @@ export interface McpThreadCaller {
   readonly providerSessionId: string;
   readonly providerInstanceId: ProviderInstanceId;
   /** A delegated child task; its parent owns the work it hands back. */
-  readonly subagent?: boolean;
 }
 
 export interface McpClientCaller {
@@ -202,16 +201,6 @@ export const browserOwnerKey = (
   `${scope.environmentId}\u0000${scope.thread.providerSessionId}\u0000${scope.thread.threadId}${
     scope.browserLane === undefined ? "" : `\u0000${scope.browserLane}`
   }`;
-
-/**
- * `McpSchema.EnabledWhen` for tools a delegated child must not see or call.
- * EnabledWhen only receives the MCP client profile, so read the T3 caller from the request fiber.
- */
-export const hiddenFromSubagents = (): boolean => {
-  const fiber = Fiber.getCurrent();
-  const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);
-  return scope?.thread?.subagent !== true;
-};
 
 /**
  * `McpSchema.EnabledWhen` for the device tools. A managed browser task lists them only with the

@@ -32,15 +32,15 @@ responses.
 The orchestration tools use the authenticated HTTP MCP endpoints:
 
 ```text
-http://127.0.0.1:<server-port>/mcp/control
-http://127.0.0.1:<server-port>/mcp/workspace
+http://127.0.0.1:<server-port>/mcp/editor
+http://127.0.0.1:<server-port>/mcp/reader
 http://127.0.0.1:<server-port>/mcp/research
 http://127.0.0.1:<server-port>/mcp/preview
 ```
 
 The provider-visible server key is `t3-code`. Each endpoint serves one session
-tool profile from `packages/contracts/src/mcpToolPolicy.ts`; an ordinary thread
-gets `/mcp/control`, a Phi role gets `/mcp/preview`, and so on. The legacy
+tool profile from `packages/contracts/src/mcpToolPolicy.ts`; every editor gets
+`/mcp/editor`, a read-only task `/mcp/reader`, a Phi role `/mcp/preview`, and so on. The legacy
 `/mcp` endpoint serves external client credentials with the full catalogue, and
 `/mcp/browser` serves a managed browser task.
 
@@ -89,7 +89,7 @@ Claude receives an HTTP MCP server in its query options:
   mcpServers: {
     "t3-code": {
       type: "http",
-      url: "http://127.0.0.1:<port>/mcp/control",
+      url: "http://127.0.0.1:<port>/mcp/editor",
       headers: {
         Authorization: "Bearer <provider-session-token>",
       },
@@ -168,7 +168,7 @@ extension into the server cache and spawns
 `pi --mode rpc --extension <cache>/pi-t3-mcp-extension.ts` with:
 
 ```text
-T3_MCP_URL=http://127.0.0.1:<port>/mcp/control
+T3_MCP_URL=http://127.0.0.1:<port>/mcp/editor
 T3_MCP_BEARER_TOKEN=<provider-session-token>
 ```
 
@@ -548,8 +548,8 @@ thread's result with `t3_thread_read` also ends it, since the wake would only
 repeat that result. A wake that fired while the watcher was busy waits queued
 behind its run, so ending the watch, by `unwatch` or by that read,
 cancels a wake still queued. A thread cannot
-watch itself or a thread in another environment, and a subagent or a settled or
-archived thread cannot start a watch.
+watch itself or a thread in another environment, and a settled or archived thread
+cannot start a watch. A delegated task may watch, and its result waits until its watches end.
 
 ### `t3_thread_interrupt`
 

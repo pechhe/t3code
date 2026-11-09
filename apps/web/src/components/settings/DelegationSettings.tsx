@@ -49,6 +49,7 @@ import {
   runsFast,
   setModelFast,
   setPreferOtherAuthorProvider,
+  roleClassLabel,
   rolePolicy,
   type RolePolicy,
   unavailableReason,
@@ -695,7 +696,12 @@ function JobRow({
               ))}
             </div>
             <p className="text-xs text-muted-foreground">
-              {job.roles.map((role) => ROLE_DESCRIPTIONS[role]).join(" · ")}
+              {job.roles
+                .map(
+                  (role) =>
+                    `${roleClassLabel(rolePolicy(manifest, role))}: ${ROLE_DESCRIPTIONS[role]}`,
+                )
+                .join(" · ")}
             </p>
             {sectioned ? (
               <div className="flex flex-col gap-1">

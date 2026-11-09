@@ -514,16 +514,17 @@ it("rebuilds the template from this checkout and sends a child T3's task prompt"
   const deferred = system[2]?.split("Load them first:\n")[1]?.split("\n\n")[0]?.split("\n") ?? [];
   assert.includeMembers(deferred, ["Monitor", "mcp__t3-code__delegate_task"]);
   assert.notInclude(deferred, "mcp__t3-code__retired_tool");
-  // A delegated child is never offered the tools T3 hides from subagents.
+  // A read-only child is offered only the closed read-only tools; an editor child offers them all.
   assert.include(deferred, "mcp__t3-code__watch_pull_request");
-  const child = buildBase(template, {
+  const reader = buildBase(template, {
     model: "claude-sonnet-5-5",
     keepUserInstructions: false,
     subagent: true,
+    readOnly: true,
   });
-  assert.notInclude(String(child.system[2]?.text), "mcp__t3-code__watch_pull_request");
+  assert.notInclude(String(reader.system[2]?.text), "mcp__t3-code__watch_pull_request");
   assert.notInclude(
-    child.t3.map((tool) => tool.name),
+    reader.t3.map((tool) => tool.name),
     "mcp__t3-code__unwatch_pull_request",
   );
   const reminders = buildMessages(makeSample(childCase, base))[0]?.content.map((b) => b.text);

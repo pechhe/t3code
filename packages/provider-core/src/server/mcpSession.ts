@@ -15,13 +15,13 @@ export interface McpProviderSessionConfig {
    */
   readonly managedBrowser?: boolean;
   /**
-   * The session lists the bounded `t3_browser_*` tools. A delegated leaf with it reaches only
-   * those tools, so a managed task may attach this endpoint as it does a managed browser's.
+   * The session may run bounded `t3_browser_*` tasks: every editor while its project allows them,
+   * and a read-only task whose role policy grants them.
    */
   readonly boundedBrowser?: boolean;
   /**
-   * A delegated child: it lists only its own work family and the leaf tools, and
-   * is told so instead of the parent's orchestration sections.
+   * A delegated child: it gets the short child instructions instead of the parent's
+   * orchestration sections, whatever its permission class lists.
    */
   readonly delegated?: boolean;
   /** The thread's listing carries the preview family. */

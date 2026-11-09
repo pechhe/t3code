@@ -4,7 +4,11 @@ import * as Champions from "../champions/ChampionService.ts";
 import * as Digest from "effect/crypto/Digest";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ExternalWork from "../agents/ExternalAgentWorkService.ts";
-import { assertExternalWorkOwner, canReadExternalWork } from "./threadAccess.ts";
+import {
+  assertBelowDelegationLimit,
+  assertExternalWorkOwner,
+  canReadExternalWork,
+} from "./threadAccess.ts";
 import * as Hex from "effect/encoding/Hex";
 import * as Result from "effect/Result";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
@@ -103,7 +107,7 @@ import {
   type OrchestratorMcpReviewCouncil,
   type AgentReviewRequest,
   type OrchestrationV2WatchTarget,
-  isLeafAgentTask,
+  READ_ONLY_ROLES,
   isOrchestrationV2WorkActive,
   resolveProjectProviderInstanceEnabled,
   SECRET_REQUEST_UNSAVED_NOTE,
@@ -1368,8 +1372,11 @@ const make = Effect.gen(function* () {
       );
     const caller = yield* loadCaller(scope);
     if (caller.parent !== undefined) {
-      if (isLeafAgentTask(caller.parent.thread.agentTask))
-        return yield* failure("capability_denied", "Managed leaves cannot allocate parent work.");
+      if (caller.parent.thread.agentTask?.externalOwner !== undefined)
+        return yield* failure(
+          "capability_denied",
+          "Work an outside client owns cannot allocate parent work.",
+        );
       const run = ThreadManagementService.latestActiveRun(caller.parent);
       if (
         run === undefined ||
@@ -2976,6 +2983,17 @@ const make = Effect.gen(function* () {
             "invalid_request",
             "Follow-ups require a stable clientRequestId and retain their original role, model, workspace and modes.",
           );
+        if (
+          input.followup === undefined &&
+          callerScope.endpointKey === "reader" &&
+          (input.target?.environmentId !== undefined ||
+            input.agentTask === undefined ||
+            (!READ_ONLY_ROLES.has(input.agentTask.role) && input.agentTask.readOnly !== true))
+        )
+          return yield* failure(
+            "capability_denied",
+            "A read-only agent may delegate only read-only roles, in this environment. Say in your result what an editor should do.",
+          );
         // Managed work binds and validates its checkout before launch, so it names one
         // through workspaceAssignment rather than a worktree T3 creates afterwards.
         if (input.agentTask !== undefined && input.isolation === "worktree")
@@ -3124,16 +3142,13 @@ const make = Effect.gen(function* () {
           }
         }
 
-        if (isLeafAgentTask(parent.thread.agentTask))
+        if (parent.thread.agentTask?.externalOwner !== undefined)
           return yield* failure(
             "capability_denied",
-            "Managed child tasks cannot delegate recursively.",
+            "Work owned by an outside client can't delegate. Do the work yourself.",
           );
-        if (parent.thread.agentTask?.role === "lead" && specLead)
-          return yield* failure(
-            "capability_denied",
-            "A Spec lead runs one Spec; only an Arc lead starts another `lead`.",
-          );
+        if (input.followup === undefined)
+          yield* assertBelowDelegationLimit(threadManagement, parent.thread);
         // A lead re-reading its Arc after a restart cannot tell a Spec lead it started from one it
         // only planned, so a second start of the same Spec answers with the one already open.
         if (specLead && input.agentTask !== undefined && input.followup === undefined) {

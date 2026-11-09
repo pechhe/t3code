@@ -375,9 +375,9 @@ the tab's own), where any page change to another site, a redirect included, is s
 sent and a pop-up is refused, and the controls to avoid, which are never offered or clicked. The
 avoid list goes by what the page calls a control, so one the page renames can slip through.
 
-Ordinary threads, scheduled runs and Spec leads can run the same bounded tasks themselves through
-the `t3_browser_*` tools, as can a delegated worker or reviewer whose role policy grants
-`browserTasks`. Each opens fresh tabs on the integrated browser with no cookies from elsewhere,
+Ordinary threads, scheduled runs and every editing agent, delegated workers included, can run the
+same bounded tasks themselves through the `t3_browser_*` tools, as can a reviewer whose role policy
+grants `browserTasks`. Each opens fresh tabs on the integrated browser with no cookies from elsewhere,
 and only the session that opened a tab can use it. They follow **Agent browser access** with the integrated
 browser enabled, checked on every call: turning it off stops further work at once, while closing a
 tab or cancelling a task still works. A reviewer using them stays read-only.

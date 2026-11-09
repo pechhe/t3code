@@ -43,6 +43,7 @@ import {
   EnvironmentId,
   ORCHESTRATOR_MCP_RUNNING_TASK_NEXT,
   PullRequestState,
+  READ_ONLY_TOOLS,
   ThreadId,
 } from "@t3tools/contracts";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
@@ -65,6 +66,8 @@ import {
 import { ThreadToolkit } from "../../apps/server/src/mcp/toolkits/thread/tools.ts";
 import { WorktreeToolkit } from "../../apps/server/src/mcp/toolkits/worktree/tools.ts";
 import {
+  CLAUDE_HARNESS_EXTRA_TOOLS,
+  CLAUDE_MANAGED_WRITER_TOOLS,
   CLAUDE_PROVIDER,
   makeClaudeQueryOptions,
 } from "../../apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts";
@@ -479,15 +482,22 @@ export const savesPastedSecrets = t3Tools.some(
 /** A request_secret call that hands T3 a pasted secret, on a ref that takes one. */
 const pastedSecret = (name: string, input: Readonly<Record<string, unknown>>) =>
   savesPastedSecrets && name === "request_secret" && typeof input.value === "string";
-// T3 does not offer these to a delegated child, so its harness never lists them.
-const hiddenFromSubagents = enabledWhen(McpInvocationContext.hiddenFromSubagents);
+// T3 turns these harness tools off for every thread: its own delegate_task and web tools replace them.
+const HARNESS_EXTRAS: ReadonlySet<string> = new Set(CLAUDE_HARNESS_EXTRA_TOOLS);
+// A managed Claude writer keeps only the coding set of built-ins.
+const WRITER_TOOLS: ReadonlySet<string> = new Set([...CLAUDE_MANAGED_WRITER_TOOLS, "ToolSearch"]);
+const isWriterTool = (name: string) => WRITER_TOOLS.has(name.slice(name.lastIndexOf("_") + 1));
+// Captures may carry a harness prefix on a tool's name, so match on what follows the last `_`.
+const isHarnessExtra = (name: string) => HARNESS_EXTRAS.has(name.slice(name.lastIndexOf("_") + 1));
+// delegate_task roles whose child is a reader. A researcher's narrower web set is not simulated.
+const READ_ONLY_DELEGATE_ROLES: ReadonlySet<string> = new Set(["review"]);
 // The Linked environments beta starts off, and T3 lists its tools only while it is on.
 const hiddenWhileLinksOff = enabledWhen(McpInvocationContext.hiddenWhileLinksOff);
-const visibleT3Tools = (options: { readonly subagent?: boolean; readonly links?: boolean }) =>
+const visibleT3Tools = (options: { readonly readOnly?: boolean; readonly links?: boolean }) =>
   t3Tools.filter(
     (tool) =>
       (options.links === true || !hiddenWhileLinksOff.has(tool.name)) &&
-      !(options.subagent === true && hiddenFromSubagents.has(tool.name)),
+      (options.readOnly !== true || READ_ONLY_TOOLS.has(tool.name)),
   );
 
 /**
@@ -593,6 +603,7 @@ export const buildBase = (
     readonly model: Model;
     readonly keepUserInstructions: boolean;
     readonly subagent?: boolean;
+    readonly readOnly?: boolean;
     readonly links?: boolean;
     /** A native subagent starts from its task: T3 appends nothing to its system prompt. */
     readonly nativeSubagent?: boolean;
@@ -613,7 +624,15 @@ export const buildBase = (
   if (systemTexts.filter((value) => value.includes(RUNTIME_MARKER)).length !== 1 || !deferredList) {
     throw new Error(`The template needs one ${RUNTIME_MARKER} block and a deferred tool list.`);
   }
-  const nativeDeferred = deferredList.split("\n").filter((name) => name && !isT3Name(name));
+  const nativeDeferred = deferredList
+    .split("\n")
+    .filter(
+      (name) =>
+        name &&
+        !isT3Name(name) &&
+        !isHarnessExtra(name) &&
+        (!options.subagent || options.readOnly === true || isWriterTool(name)),
+    );
   const names = [
     ...nativeDeferred,
     ...t3.filter((tool) => !alwaysLoaded.has(tool.name)).map((tool) => tool.name),
@@ -662,7 +681,12 @@ export const buildBase = (
       date: /Today's date is ([\d-]+)/.exec(reminders.join("\n"))?.[1],
     },
     nativeTools: [
-      ...template.tools.filter((tool) => !isT3Name(tool.name)),
+      ...template.tools.filter(
+        (tool) =>
+          !isT3Name(tool.name) &&
+          !isHarnessExtra(tool.name) &&
+          (!options.subagent || options.readOnly === true || isWriterTool(tool.name)),
+      ),
       ...t3.filter((tool) => alwaysLoaded.has(tool.name)),
     ],
     /** Tools ToolSearch loads: T3 tools from source, and native tools the template only names. */
@@ -685,6 +709,7 @@ const buildCodexBase = (
     readonly keepUserInstructions: boolean;
     readonly effort?: string | undefined;
     readonly subagent?: boolean;
+    readonly readOnly?: boolean;
     readonly links?: boolean;
     /** false: the thread has no agent device access, so T3's text leaves devices out. */
     readonly deviceAccess?: boolean;
@@ -719,6 +744,13 @@ const buildCodexBase = (
     // every case.
     if (item.type !== "message" && item.type !== "additional_tools") return [];
     if (item.role === "assistant") return [];
+    // features.multi_agent is off for every thread, so Codex offers no collaboration tools.
+    if (item.type === "additional_tools" && Array.isArray(item.tools)) {
+      const tools = item.tools.filter(
+        (ns: unknown) => !isRecord(ns) || ns.name !== "collaboration",
+      );
+      return [JSON.parse(clean(JSON.stringify({ ...item, tools }))) as Block];
+    }
     return [JSON.parse(clean(JSON.stringify(item))) as Block];
   });
   const context = buildCodexAdditionalContext(
@@ -958,6 +990,9 @@ export const buildMessages = (sample: Sample) => {
   };
   const { role, context, delegateRole, priorTurns = [] } = testCase.setup;
   const sideChat = testCase.setup.sideChat;
+  if (role === "delegated-child" && delegateRole === "research") {
+    throw new Error(`${testCase.id}: a research child's web-only tool set is not simulated.`);
+  }
   if (testCase.prompt === "" && (role !== "top" || sideChat !== undefined)) {
     throw new Error(
       `${testCase.id}: Empty-prompt replay requires a top-level thread without side-chat context.`,
@@ -1362,9 +1397,6 @@ const searchTools = (base: Base, query: string, max: number) => {
   return found.toSorted((a, b) => hits(b).length - hits(a).length).slice(0, max);
 };
 
-const SUBAGENT_WATCH_ERROR =
-  "This thread is a subagent, so it cannot watch pull requests. Its parent thread owns the pull request: finish your task and report back instead.";
-
 /** Result for a native tool the case does not mock, other than shell, file, and web tools. */
 const nativeResult = (name: string, input: Readonly<Record<string, unknown>>) => {
   const skill = valueText(input.skill);
@@ -1601,10 +1633,6 @@ export const answerToolCall = Effect.fn("evaluateMcpToolUse.answerToolCall")(fun
     );
   }
   if (isT3Name(call.name)) {
-    // T3 refuses a watch from a delegated child.
-    if (name === "watch_pull_request" && testCase.setup.role === "delegated-child") {
-      return failed(SUBAGENT_WATCH_ERROR);
-    }
     const value = t3Default(sample, name, input);
     if (name === "request_secret") savedSecretFile(sample, value);
     return toolResult(
@@ -2437,6 +2465,7 @@ const main = Effect.gen(function* () {
     role: McpToolUseCase["setup"]["role"],
     deviceAccess: boolean,
     links: boolean,
+    readOnly: boolean,
   ): Effect.Effect<Base, Schema.SchemaError> =>
     codex
       ? decodeCodexCapture(template).pipe(
@@ -2446,6 +2475,7 @@ const main = Effect.gen(function* () {
               keepUserInstructions,
               effort: flags.effort,
               subagent: role === "delegated-child",
+              readOnly,
               links,
               deviceAccess,
             }),
@@ -2457,6 +2487,7 @@ const main = Effect.gen(function* () {
               model: flags.model,
               keepUserInstructions,
               subagent: role === "delegated-child",
+              readOnly,
               nativeSubagent: role === "native-subagent",
               links,
               deviceAccess,
@@ -2470,18 +2501,19 @@ const main = Effect.gen(function* () {
         );
   // Codex has no native subagents; its cases with that role run as top-level threads.
   const baseKey = ({ setup }: McpToolUseCase) =>
-    `${codex && setup.role === "native-subagent" ? "top" : setup.role}:${setup.world?.deviceAgentAccess !== false}:${setup.linkedEnvironments === true}`;
-  const base = yield* buildFor("top", true, false);
-  const bases = new Map<string, Base>([["top:true:false", base]]);
+    `${codex && setup.role === "native-subagent" ? "top" : setup.role}:${setup.world?.deviceAgentAccess !== false}:${setup.linkedEnvironments === true}:${setup.role === "delegated-child" && READ_ONLY_DELEGATE_ROLES.has(setup.delegateRole ?? "implementation")}`;
+  const base = yield* buildFor("top", true, false, false);
+  const bases = new Map<string, Base>([["top:true:false:false", base]]);
   for (const testCase of selected) {
     const key = baseKey(testCase);
     if (bases.has(key)) continue;
-    const [role = "top", access, links] = key.split(":") as [
+    const [role = "top", access, links, readOnly] = key.split(":") as [
       McpToolUseCase["setup"]["role"],
       string,
       string,
+      string,
     ];
-    bases.set(key, yield* buildFor(role, access === "true", links === "true"));
+    bases.set(key, yield* buildFor(role, access === "true", links === "true", readOnly === "true"));
   }
   const baseFor = (testCase: McpToolUseCase) => bases.get(baseKey(testCase)) ?? base;
   const effort = flags.effort ?? base.codex?.reasoning.effort ?? "high";

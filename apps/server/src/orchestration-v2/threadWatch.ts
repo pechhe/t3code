@@ -1,4 +1,3 @@
-import { isLeafSubagentThread } from "@t3tools/contracts";
 import type {
   OrchestrationV2AppThread,
   OrchestrationV2ConversationMessage,
@@ -49,9 +48,6 @@ export function threadWatchRefusal(
 ): string | undefined {
   if (watcher.deletedAt !== null) return `Thread ${watcher.id} is deleted.`;
   if (watchedThreadId === watcher.id) return "A thread cannot watch itself.";
-  if (isLeafSubagentThread(watcher)) {
-    return `Thread ${watcher.id} is a subagent; its parent thread watches targets.`;
-  }
   if (
     watcher.archivedAt !== null ||
     watcher.settledOverride === "settled" ||

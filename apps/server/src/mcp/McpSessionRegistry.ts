@@ -35,7 +35,9 @@ export interface McpCredentialRequest {
   readonly toolProfile?: AgentToolProfile;
   readonly agentRole?: AgentRole;
   readonly webResearchTools?: boolean;
-  /** A delegated child thread lists only its own work family and the leaf tools. */
+  /** The task's recorded source access is read-only, which decides its listing and its calls. */
+  readonly readOnly?: boolean;
+  /** A delegated child thread gets the child instructions. */
   readonly delegated?: boolean;
   readonly browserBackends?: import("@t3tools/contracts").AgentBrowserBackends;
   readonly phiBrowserSkillDirectory?: string;
@@ -45,13 +47,9 @@ export interface McpCredentialRequest {
    */
   readonly managedBrowser?: boolean;
   readonly taskBrowser?: import("@t3tools/contracts").AgentTaskBrowser;
-  /**
-   * The thread may run bounded browser tasks. A delegated leaf without a browser endpoint of
-   * its own then reaches only `/mcp/bounded-browser`; other sessions list them beside their tools.
-   */
+  /** The thread may run bounded browser tasks, listed beside its other tools. */
   readonly boundedBrowser?: boolean;
   readonly capabilities?: ReadonlySet<McpInvocationContext.McpCapability>;
-  readonly subagent?: boolean;
 }
 
 export interface McpIssuedCredential {
@@ -106,17 +104,6 @@ export interface McpSessionRegistryOptions {
  * refresh the token its subprocess still holds; MCP requests cannot.
  */
 const DEFAULT_LIVENESS_WINDOW_MS = 24 * 60 * 60 * 1_000;
-
-/**
- * A delegated leaf granted bounded tasks and no browser endpoint of its own: its credential
- * reaches only `/mcp/bounded-browser` and carries only the preview capability.
- */
-export const boundedBrowserOnly = (request: {
-  readonly boundedBrowser?: boolean | undefined;
-  readonly managedBrowser?: boolean | undefined;
-  readonly delegated?: boolean | undefined;
-}): boolean =>
-  request.boundedBrowser === true && request.managedBrowser !== true && request.delegated === true;
 
 /** The only endpoint a managed browser task's credential reaches. */
 export const MANAGED_BROWSER_MCP_PATH = "/mcp/browser";
@@ -249,34 +236,18 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       const managedBrowser = request.managedBrowser === true;
       const browserToolsAvailable = managedBrowser || (request.browserToolsAvailable ?? true);
       const boundedBrowser = request.boundedBrowser === true;
-      const boundedOnly = boundedBrowserOnly(request);
-      const endpointKey = managedBrowser
-        ? undefined
-        : boundedOnly
-          ? ("bounded-browser" as const)
-          : request.delegated === true ||
-              request.toolProfile !== undefined ||
-              request.agentRole !== undefined
-            ? sessionEndpointKey({
-                toolProfile: request.toolProfile,
-                agentRole: request.agentRole,
-                delegated: request.delegated,
-              })
-            : "control";
+      const profile = {
+        toolProfile: request.toolProfile,
+        agentRole: request.agentRole,
+        readOnly: request.readOnly,
+      };
+      const endpointKey = managedBrowser ? undefined : sessionEndpointKey(profile);
       // A managed browser task lists the narrow browser operations; every other session
       // reads its families from the one policy table, so an adapter can tell a
       // child what its own listing carries.
-      const families =
-        endpointKey === undefined
-          ? undefined
-          : boundedOnly
-            ? SESSION_TOOL_ENDPOINTS["bounded-browser"].families
-            : sessionToolFamilies({
-                toolProfile: request.toolProfile,
-                agentRole: request.agentRole,
-                delegated: request.delegated,
-              });
-      const listsPreview = managedBrowser || families?.has("preview") === true;
+      const families = endpointKey === undefined ? undefined : sessionToolFamilies(profile);
+      // Whether this session is a browser agent, which alone gets the browser guidance.
+      const listsPreview = managedBrowser || endpointKey === "preview";
       const grantsDevice = request.capabilities?.has("device") === true;
       // A managed browser task drives simulators as well as pages when agent device access is on.
       const listsDevice = managedBrowser ? grantsDevice : families?.has("device") === true;
@@ -285,8 +256,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         !managedBrowser &&
         (families === undefined || families.has(toolFamily("t3_background_wait")));
       const scope: McpInvocationContext.McpThreadInvocationScope = {
-        webResearchTools:
-          request.toolProfile === "web-research" && request.webResearchTools === true,
+        webResearchTools: request.webResearchTools === true,
         environmentId,
         // A retry after a reconnect or server restart arrives on a fresh credential, so request
         // identity follows the thread, which both share.
@@ -295,21 +265,17 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           threadId: ThreadId.make(request.threadId),
           providerSessionId,
           providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
-          subagent: request.subagent === true,
         },
         client: undefined,
         capabilities: new Set<McpInvocationContext.McpCapability>(
           managedBrowser
             ? ["preview", ...(grantsDevice ? (["device"] as const) : [])]
-            : boundedOnly
-              ? ["preview"]
-              : [
-                  "orchestration",
-                  "worktree",
-                  "pull-requests",
-                  ...(request.capabilities ??
-                    (browserToolsAvailable ? (["preview"] as const) : [])),
-                ],
+            : [
+                "orchestration",
+                "worktree",
+                "pull-requests",
+                ...(request.capabilities ?? (browserToolsAvailable ? (["preview"] as const) : [])),
+              ],
         ),
         issuedAt,
         ...(request.toolProfile === undefined ? {} : { toolProfile: request.toolProfile }),

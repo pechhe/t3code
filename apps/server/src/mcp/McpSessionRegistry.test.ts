@@ -50,7 +50,7 @@ it.effect("stores only a token hash, resolves the bearer token, and revokes by t
       providerInstanceId: ProviderInstanceId.make("codex"),
       capabilities: new Set(["preview"]),
     });
-    expect(issued.config.endpoint).toBe("http://127.0.0.1:43123/mcp/control");
+    expect(issued.config.endpoint).toBe("http://127.0.0.1:43123/mcp/editor");
     const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
     expect(token.length).toBeGreaterThan(20);
 
@@ -142,11 +142,11 @@ it.effect("gives a managed browser task the device tools only when agent device 
 it.effect("builds MCP endpoints from the bound server host", () =>
   Effect.gen(function* () {
     const cases = [
-      ["100.64.0.40", "http://100.64.0.40:43123/mcp/control"],
-      ["0.0.0.0", "http://127.0.0.1:43123/mcp/control"],
-      ["::", "http://127.0.0.1:43123/mcp/control"],
-      ["::1", "http://[::1]:43123/mcp/control"],
-      ["127.0.0.1", "http://127.0.0.1:43123/mcp/control"],
+      ["100.64.0.40", "http://100.64.0.40:43123/mcp/editor"],
+      ["0.0.0.0", "http://127.0.0.1:43123/mcp/editor"],
+      ["::", "http://127.0.0.1:43123/mcp/editor"],
+      ["::1", "http://[::1]:43123/mcp/editor"],
+      ["127.0.0.1", "http://127.0.0.1:43123/mcp/editor"],
     ] as const;
 
     for (const [hostname, expectedEndpoint] of cases) {
@@ -445,9 +445,8 @@ it.effect.each(["provider-session", "thread", "all"] as const)(
 it.effect.each([
   { toolProfile: "web-research" as const, webResearchTools: true, expected: true },
   { toolProfile: "web-research" as const, webResearchTools: false, expected: false },
-  { toolProfile: "source-reader" as const, webResearchTools: true, expected: false },
 ])(
-  "binds supplied web tools to the research profile ($toolProfile, $webResearchTools)",
+  "binds supplied web tools to the credential ($toolProfile, $webResearchTools)",
   ({ toolProfile, webResearchTools, expected }) =>
     Effect.gen(function* () {
       const registry = yield* makeRegistry(() => 1000);
@@ -462,9 +461,7 @@ it.effect.each([
         issued.config.authorizationHeader.replace(/^Bearer\s+/, ""),
       );
       expect(invocation?.webResearchTools).toBe(expected);
-      expect(invocation?.endpointKey).toBe(
-        toolProfile === "web-research" ? "child-research" : "child-reader",
-      );
+      expect(invocation?.endpointKey).toBe("research");
     }),
 );
 
@@ -570,41 +567,40 @@ it.effect("releases an integrated task without depending on Phi cleanup", () =>
   ),
 );
 
-it.effect("gives a granted leaf only the bounded endpoint, and lists the grant beside others", () =>
+it.effect("puts each class on its endpoint and lists a bounded grant beside its tools", () =>
   Effect.gen(function* () {
     const registry = yield* makeRegistry(() => 1000);
-    const leaf = yield* registry.issue({
+    const reader = yield* registry.issue({
       threadId: ThreadId.make("bounded-reviewer"),
       providerInstanceId: ProviderInstanceId.make("codex"),
       toolProfile: "source-reader",
       agentRole: "reviewer",
+      readOnly: true,
       delegated: true,
       boundedBrowser: true,
     });
-    expect(leaf.config.endpoint).toBe("http://127.0.0.1:43123/mcp/bounded-browser");
-    expect(leaf.config.boundedBrowser).toBe(true);
-    expect([...(leaf.config.capabilities ?? [])]).toEqual(["preview"]);
-    expect(leaf.config.listsHtml).toBe(false);
-    expect(leaf.config.listsPreview).toBe(false);
-    expect(leaf.config.listsBackgroundWait).toBe(false);
+    expect(reader.config.endpoint).toBe("http://127.0.0.1:43123/mcp/reader");
+    expect(reader.config.boundedBrowser).toBe(true);
+    expect(reader.config.capabilities?.has("orchestration")).toBe(true);
+    expect(reader.config.listsPreview).toBe(false);
 
-    // Without the grant the same leaf keeps its old endpoint, which adapters never attach.
-    const ungranted = yield* registry.issue({
-      threadId: ThreadId.make("plain-reviewer"),
+    const worker = yield* registry.issue({
+      threadId: ThreadId.make("plain-worker"),
       providerInstanceId: ProviderInstanceId.make("codex"),
-      toolProfile: "source-reader",
-      agentRole: "reviewer",
+      toolProfile: "implementation",
+      agentRole: "chore-worker",
       delegated: true,
     });
-    expect(ungranted.config.endpoint).toBe("http://127.0.0.1:43123/mcp/child-reader");
-    expect(ungranted.config.boundedBrowser).toBeUndefined();
+    expect(worker.config.endpoint).toBe("http://127.0.0.1:43123/mcp/editor");
+    expect(worker.config.boundedBrowser).toBeUndefined();
+    expect(worker.config.listsPreview).toBe(false);
 
     const lead = yield* registry.issue({
       threadId: ThreadId.make("bounded-lead"),
       providerInstanceId: ProviderInstanceId.make("codex"),
       boundedBrowser: true,
     });
-    expect(lead.config.endpoint).toBe("http://127.0.0.1:43123/mcp/control");
+    expect(lead.config.endpoint).toBe("http://127.0.0.1:43123/mcp/editor");
     expect(lead.config.boundedBrowser).toBe(true);
     expect(lead.config.capabilities?.has("orchestration")).toBe(true);
   }),

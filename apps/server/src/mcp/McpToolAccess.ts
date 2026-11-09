@@ -1,6 +1,6 @@
 import {
   DEFAULT_AGENT_BROWSER_BACKENDS,
-  isLeafAgentTask,
+  usesPhi,
   type EnvironmentId,
   type OrchestrationV2LinkOrigin,
   OrchestratorMcpEnvironmentTarget,
@@ -30,10 +30,10 @@ import {
   assertManagedBrowserCaller,
   assertProjectBrowserAccess,
   drivesOwnBrowser,
-  listsBrowserFamily,
 } from "./ManagedBrowserAccess.ts";
 import { resolveInteractionMode, resolveRuntimeMode } from "./delegatedTaskModes.ts";
 import {
+  assertBelowDelegationLimit,
   assertFullAccess,
   assertExternalWorkOwner,
   assertLiveCaller,
@@ -115,30 +115,35 @@ const refuseReadOnlyClient = McpInvocationContext.McpInvocationContext.pipe(
 );
 
 /**
- * The caller of a tool that changes something. Tools that act for a
- * capability of their own (preview, device, worktree, pull requests) check it
- * themselves.
+ * Agents that read untrusted web pages stay outside everything that changes T3 state, so a page
+ * can't steer them into it, as does work an outside client owns, which it runs through its own
+ * task tools. A browser agent's browser actions check its own browser instead.
  */
-const refuseManagedChildWrites = ({ caller }: Caller) =>
-  !isLeafAgentTask(caller?.agentTask)
-    ? Effect.void
-    : Effect.fail(
+const refuseConfinedWrites = ({ caller }: Caller) => {
+  const task = caller?.agentTask;
+  return usesPhi(task?.toolProfile) ||
+    task?.toolProfile === "web-research" ||
+    task?.externalOwner !== undefined
+    ? Effect.fail(
         new OrchestratorMcpFailure({
           code: "capability_denied",
-          message: "Managed workers are leaf tasks and cannot change T3 state or delegate.",
+          message:
+            "Browser agents, researchers and work an outside client owns can't change T3 state or delegate. Say in your result what is left to do.",
         }),
-      );
+      )
+    : Effect.void;
+};
 
 const writingCaller = refuseReadOnlyClient.pipe(
   Effect.andThen(loadCaller()),
   Effect.tap(assertLiveCaller),
-  Effect.tap(refuseManagedChildWrites),
+  Effect.tap(refuseConfinedWrites),
 );
 
 const orchestratingCaller = refuseReadOnlyClient.pipe(
   Effect.andThen(readCaller()),
   Effect.tap(assertLiveCaller),
-  Effect.tap(refuseManagedChildWrites),
+  Effect.tap(refuseConfinedWrites),
 );
 
 const requireThreadCaller = McpInvocationContext.McpInvocationContext.pipe(
@@ -152,7 +157,7 @@ export const reads = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>)
   );
 
 /**
- * A browser task uses its pinned backend; children without browser tools remain leaf-restricted.
+ * A browser task uses its pinned backend; every other caller uses its credential's.
  * Closing skips the settings check so cleanup survives revoked access.
  */
 const previewActionScope = Effect.fn("mcp.previewActionScope")(function* (
@@ -160,7 +165,7 @@ const previewActionScope = Effect.fn("mcp.previewActionScope")(function* (
   options: { readonly checkSettings: boolean },
 ) {
   if (!drivesOwnBrowser(caller)) {
-    yield* refuseManagedChildWrites(caller);
+    yield* refuseConfinedWrites(caller);
     return caller.scope;
   }
   if (options.checkSettings) yield* assertProjectBrowserAccess(caller);
@@ -189,7 +194,7 @@ export const readsAsPreviewCaller = <P, A, E, R>(handle: (params: P) => Effect.E
           Effect.provideService(
             handle(params),
             McpInvocationContext.McpInvocationContext,
-            listsBrowserFamily(scope)
+            usesPhi(scope.toolProfile)
               ? {
                   ...scope,
                   browserBackends: scope.browserBackends ?? DEFAULT_AGENT_BROWSER_BACKENDS,
@@ -317,10 +322,7 @@ export const readsTask = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E,
 export const readsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare((params: P) => requireThreadCaller.pipe(Effect.flatMap(() => handle(params))), undefined);
 
-/**
- * Opening or closing a simulator for the caller's own thread. A browser task may, as its device
- * capability allows; other managed leaves stay refused. The handler checks the capability.
- */
+/** Opening or closing a simulator for the caller's own thread. The handler checks the capability. */
 export const actsAsDeviceCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare(
     (params: P) =>
@@ -329,7 +331,7 @@ export const actsAsDeviceCaller = <P, A, E, R>(handle: (params: P) => Effect.Eff
         Effect.andThen(loadCaller()),
         Effect.tap(assertLiveCaller),
         Effect.tap((caller) =>
-          drivesOwnBrowser(caller) ? Effect.void : refuseManagedChildWrites(caller),
+          drivesOwnBrowser(caller) ? Effect.void : refuseConfinedWrites(caller),
         ),
         Effect.flatMap(() => handle(params)),
       ),
@@ -466,10 +468,20 @@ export const startsThreads = <P, A, E, R>(
     (params: P) =>
       Effect.gen(function* () {
         const caller = yield* writingCaller;
+        if (caller.caller !== undefined)
+          yield* assertBelowDelegationLimit(caller.threads, caller.caller);
         if (linked !== "stamped") yield* assertNotLinked(caller, linked.refused);
         return yield* handle(params, yield* started(caller, params));
       }),
-    (params: P) => Effect.flatMap(writingCaller, (caller) => started(caller, params)),
+    (params: P) =>
+      writingCaller.pipe(
+        Effect.tap((caller) =>
+          caller.caller === undefined
+            ? Effect.void
+            : assertBelowDelegationLimit(caller.threads, caller.caller),
+        ),
+        Effect.flatMap((caller) => started(caller, params)),
+      ),
   );
 };
 
@@ -537,10 +549,8 @@ export type Contributor =
   | { readonly kind: "link"; readonly sessionId: string; readonly label: string };
 
 /**
- * A learning contributed to a Champion: by an orchestrating thread here, which
- * may pass it on to a linked environment itself, or by a linked environment
- * passing one on for a thread it authenticated. Managed workers are refused
- * where they run, so no link carries one.
+ * A learning contributed to a Champion: by a thread here, which may pass it on to a linked
+ * environment itself, or by a linked environment passing one on for a thread it authenticated.
  */
 export const contributes = <P, A, E, R>(
   handle: (params: P, from: Contributor) => Effect.Effect<A, E, R>,

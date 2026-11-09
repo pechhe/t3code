@@ -11,6 +11,7 @@ import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as Fiber from "effect/Fiber";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -29,6 +30,7 @@ import {
   PreviewAutomationError,
   ProviderInteractionMode,
   type RunId,
+  READ_ONLY_TOOLS,
   SESSION_TOOL_ENDPOINTS,
   type SessionEndpointKey,
   type ToolFamily,
@@ -1200,6 +1202,28 @@ const provideRegistrationServices = <Services>() =>
  * built with the server are provided here; `McpInvocationContext` is left to
  * the transport, whose auth middleware resolves it per request.
  */
+/**
+ * Keeps a tool off a read-only agent's list unless the closed read-only list names it. The server
+ * checks this on every call too, before the routing that sends a call to a linked environment.
+ */
+const listedForReadOnly = <Tools extends Record<string, Tool.Any>>(
+  toolkit: Toolkit.Toolkit<Tools>,
+): Toolkit.Toolkit<Tools> =>
+  Toolkit.make(
+    ...Object.entries(toolkit.tools).map(([name, tool]) => {
+      const enabled = Context.getOrUndefined(tool.annotations, McpSchema.EnabledWhen);
+      return tool.annotate(McpSchema.EnabledWhen, (client) => {
+        const fiber = Fiber.getCurrent();
+        const scope =
+          fiber && Context.getOrUndefined(fiber.context, McpInvocationContext.McpInvocationContext);
+        return (
+          (scope?.endpointKey !== "reader" || READ_ONLY_TOOLS.has(name)) &&
+          (enabled === undefined || enabled(client))
+        );
+      });
+    }),
+  ) as unknown as Toolkit.Toolkit<Tools>;
+
 export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, RX>(
   toolkit: Toolkit.Toolkit<Tools>,
   handlers: McpToolAccess.HandlersLayer<Tools, EX, RX>,
@@ -1209,7 +1233,7 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
       withToolSpans(
         withAdvertisedSchemas(
           toolkit,
-          withTaskImages(McpServer.registerToolkit(decodeAsAdvertised(toolkit))),
+          withTaskImages(McpServer.registerToolkit(decodeAsAdvertised(listedForReadOnly(toolkit)))),
         ),
       ),
     ),

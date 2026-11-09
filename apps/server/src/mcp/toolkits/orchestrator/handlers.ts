@@ -12,7 +12,7 @@ import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
 import * as PeerLinkRequests from "../../../peer/PeerLinkRequests.ts";
 import * as PeerLinks from "../../../peer/PeerLinks.ts";
 import * as ThreadHandoff from "../../../peer/handoff/ThreadHandoff.ts";
-import { readCaller } from "../../threadAccess.ts";
+import { assertBelowDelegationLimit, loadCaller, readCaller } from "../../threadAccess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
@@ -161,6 +161,9 @@ export const handlers = {
     McpToolAccess.writes(({ scheduledTaskId, schedule, ...rest }) =>
       Effect.gen(function* () {
         if (scheduledTaskId === undefined) return yield* Effect.die("unreachable");
+        // Changing a schedule shapes a run that starts later, so it obeys the delegation limit too.
+        const { threads, caller } = yield* loadCaller();
+        if (caller !== undefined) yield* assertBelowDelegationLimit(threads, caller);
         const scope = yield* McpInvocationContext.McpInvocationContext;
         const service = yield* OrchestratorMcpService.OrchestratorMcpService;
         return yield* service.updateScheduledTask(scope, {
@@ -214,6 +217,8 @@ export const handlers = {
   create_threads: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
+      const { caller, threads } = yield* loadCaller();
+      if (caller !== undefined) yield* assertBelowDelegationLimit(threads, caller);
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
       return yield* service.createThreads(scope, input);
     }),

@@ -5,7 +5,6 @@ import {
   type SourceControlProviderKind,
   type ThreadId,
   type ThreadPullRequestLink,
-  isLeafSubagentThread,
 } from "@t3tools/contracts";
 import { canonicalizeGitCafePullRequestUrl } from "@t3tools/source-control-definitions/registry";
 import * as Cause from "effect/Cause";
@@ -41,7 +40,6 @@ import {
   PullRequestNotOpenError,
   type PullRequestTargetInput,
   PullRequestWatchFailedError,
-  PullRequestWatchFromSubagentError,
   PullRequestThreadRequiredError,
   PullRequestGuideFailedError,
   PullRequestProjectNotFoundError,
@@ -272,9 +270,6 @@ const make = Effect.gen(function* () {
       threadPullRequestsOf(shell).find(
         (link) => link.source !== "stack-dismissed" && threadPullRequestKeysEqual(link, target),
       );
-    if (watching && isLeafSubagentThread(thread)) {
-      return yield* new PullRequestWatchFromSubagentError();
-    }
     const before = watchedLink(thread);
     if (watching && before?.snapshot?.state === "merged") {
       return yield* new PullRequestNotOpenError({ state: "merged" });

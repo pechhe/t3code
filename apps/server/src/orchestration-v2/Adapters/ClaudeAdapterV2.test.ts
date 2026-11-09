@@ -537,6 +537,7 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
 
     assert.deepEqual(queryPolicy, {
       permissionMode: "bypassPermissions",
+      disallowedTools: ClaudeAdapterV2.CLAUDE_HARNESS_EXTRA_TOOLS,
       allowDangerouslySkipPermissions: true,
       installPermissionCallback: false,
     });
@@ -555,14 +556,22 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
         bypassDisabled: true,
         autoDisabled: false,
       }),
-      { permissionMode: "auto", installPermissionCallback: true },
+      {
+        permissionMode: "auto",
+        disallowedTools: ClaudeAdapterV2.CLAUDE_HARNESS_EXTRA_TOOLS,
+        installPermissionCallback: true,
+      },
     );
     assert.deepEqual(
       ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy(runtimePolicy, {
         bypassDisabled: true,
         autoDisabled: true,
       }),
-      { permissionMode: "default", installPermissionCallback: true },
+      {
+        permissionMode: "default",
+        disallowedTools: ClaudeAdapterV2.CLAUDE_HARNESS_EXTRA_TOOLS,
+        installPermissionCallback: true,
+      },
     );
   });
 
@@ -580,6 +589,7 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
 
     assert.deepEqual(queryPolicy, {
       permissionMode: "default",
+      disallowedTools: ClaudeAdapterV2.CLAUDE_HARNESS_EXTRA_TOOLS,
       installPermissionCallback: true,
     });
   });
@@ -610,11 +620,11 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     browserToolsAvailable: true,
   });
 
-  it("attaches no t3-code tools to a managed task whose listing carries no preview tools", () => {
+  it("attaches a managed task's own T3 endpoint, whichever class it is", () => {
     const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
       mcpSession: {
         ...mcpSessionFor(ThreadId.make("thread-claude-mcp-managed")),
-        endpoint: "http://127.0.0.1:43123/mcp/child-reader",
+        endpoint: "http://127.0.0.1:43123/mcp/reader",
         delegated: true,
         listsPreview: false,
       },
@@ -623,7 +633,13 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       allowedTools: ["Read"],
     });
 
-    assert.deepEqual(overrides, { allowedTools: ["Read"] });
+    assert.deepEqual(overrides.allowedTools, ["Read", ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_WILDCARD]);
+    assert.equal(
+      overrides.mcpServers?.["t3-code"]?.type === "http"
+        ? overrides.mcpServers["t3-code"].url
+        : undefined,
+      "http://127.0.0.1:43123/mcp/reader",
+    );
   });
 
   it("keeps a delegated browser child's preview endpoint", () => {
@@ -678,31 +694,7 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     assert.deepEqual(Object.keys(overrides.mcpServers ?? {}), ["t3-code"]);
   });
 
-  it("gives a granted managed leaf its bounded endpoint and only the bounded tools", () => {
-    const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
-      mcpSession: {
-        ...mcpSessionFor(ThreadId.make("thread-claude-mcp-bounded-reviewer")),
-        endpoint: "http://127.0.0.1:43123/mcp/bounded-browser",
-        delegated: true,
-        listsPreview: false,
-        boundedBrowser: true,
-      },
-      readOnlySandbox: true,
-      managedAgent: true,
-      allowedTools: ["Read"],
-    });
-    assert.deepEqual(overrides.allowedTools, [
-      "Read",
-      ...ClaudeAdapterV2.CLAUDE_BOUNDED_BROWSER_MCP_ALLOWED_TOOLS,
-    ]);
-    assert.notInclude(overrides.allowedTools ?? [], ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_WILDCARD);
-    assert.equal(
-      overrides.mcpServers?.["t3-code"]?.type === "http"
-        ? overrides.mcpServers["t3-code"].url
-        : undefined,
-      "http://127.0.0.1:43123/mcp/bounded-browser",
-    );
-
+  it("adds the bounded tools to a managed browser task granted them", () => {
     // A UI worker keeps its browser's tools and adds the bounded ones.
     const uiWorker = ClaudeAdapterV2.claudeMcpQueryOverrides({
       mcpSession: {
@@ -812,6 +804,7 @@ describe("ClaudeAdapterV2 native protocol logging", () => {
         hooks: { SessionStart: [{ hooks: [{ type: "command", command: "unsafe" }] }] },
       } as never,
     });
+    // A managed writer keeps the coding set; T3's own tools reach it through ToolSearch.
     assert.deepEqual(options.tools, [
       "Read",
       "Glob",
@@ -821,6 +814,7 @@ describe("ClaudeAdapterV2 native protocol logging", () => {
       "Bash",
       "ToolSearch",
     ]);
+    assert.notProperty(options, "disallowedTools");
     assert.notProperty(options.settings, "hooks");
     assert.equal(options.permissionMode, "bypassPermissions");
     assert.isTrue(options.allowDangerouslySkipPermissions);
@@ -10539,6 +10533,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
               options: {
                 model: "claude-sonnet-4-6",
                 tools: { type: "preset", preset: "claude_code" },
+                disallowedTools: [...ClaudeAdapterV2.CLAUDE_HARNESS_EXTRA_TOOLS],
                 permissionMode: "bypassPermissions",
                 allowDangerouslySkipPermissions: true,
                 settings: { showThinkingSummaries: true },

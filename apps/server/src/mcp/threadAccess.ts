@@ -113,6 +113,38 @@ export const loadCaller = Effect.fn("mcp.loadCaller")(function* () {
   } satisfies Caller;
 });
 
+const MAX_DELEGATION_DEPTH = 2;
+
+/**
+ * Refuses a thread already two delegations below a top-level thread, by every route that starts
+ * another agent. Counts `subagent` edges from the server's lineage; a fork sits at its source's
+ * depth. A launched thread has no parent, so it starts a fresh count, visible in the sidebar.
+ */
+export const assertBelowDelegationLimit = Effect.fn("mcp.assertBelowDelegationLimit")(function* (
+  threads: Pick<ThreadManagement.ThreadManagementService["Service"], "getThreadShell">,
+  shell: Pick<OrchestrationV2ThreadShell, "id" | "lineage">,
+) {
+  const seen = new Set<ThreadId>([shell.id]);
+  let depth = 0;
+  let lineage = shell.lineage;
+  while (lineage.parentThreadId !== null) {
+    if (lineage.relationshipToParent === "subagent") depth += 1;
+    if (depth >= MAX_DELEGATION_DEPTH || seen.has(lineage.parentThreadId)) break;
+    seen.add(lineage.parentThreadId);
+    const parent = yield* threads
+      .getThreadShell(lineage.parentThreadId)
+      .pipe(Effect.mapError(unavailable));
+    if (parent === null) return yield* unavailable();
+    lineage = parent.lineage;
+  }
+  if (depth >= MAX_DELEGATION_DEPTH)
+    return yield* new OrchestratorMcpFailure({
+      code: "capability_denied",
+      message:
+        "This thread is at the delegation limit, two levels below a top-level thread, so it can't delegate, launch or schedule. Do the work yourself, or say in your result what is left for the thread that delegated you.",
+    });
+});
+
 /**
  * An agent inside a thread must say why a new top-level thread beats a delegated
  * child; an outside client, with no calling thread, needs no reason.

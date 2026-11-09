@@ -1,6 +1,7 @@
 import { DecisionToolkit } from "./toolkits/decisions/tools.ts";
 import {
   isToolListedForSession,
+  READ_ONLY_TOOLS,
   SESSION_TOOL_ENDPOINTS,
   sessionEndpointKey,
   sessionToolFamilies,
@@ -85,37 +86,22 @@ const payloadChars = (session: SessionToolProfile | undefined) =>
 const session = (
   toolProfile: SessionToolProfile["toolProfile"],
   agentRole?: SessionToolProfile["agentRole"],
-  delegated = false,
-) => ({ toolProfile, agentRole, delegated }) satisfies SessionToolProfile;
+) =>
+  ({
+    toolProfile,
+    agentRole,
+    readOnly: toolProfile !== "implementation" && toolProfile !== undefined,
+  }) satisfies SessionToolProfile;
 
-// These ceilings catch the ~190k catalogue coming back, not a tool the thread's own
-// instructions name: the handoff family and the html tools are counted here. A delegated
-// child lists its own work family and the leaf tools only. A change that needs a higher
-// ceiling states the new number and what bought it.
+// These ceilings catch tools growing unnoticed. An editor lists every tool, and providers load
+// them lazily (`docs/operations/agent-delegation.md` records each one). A change that needs a
+// higher ceiling states the new number and what bought it.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
-  // Upstream's schemas and guidance, bounded decisions, a lead's trial tools, the `landing`
-  // watch, `whyNotDelegated`, `arc_run`, the html tools' path guidance and the secret card's
-  // sign-in link measure 51,027 characters; the 22 Champion tools bring them to 74,919, and
-  // `schedule_task`'s `purpose` to 75,295.
-  ["ordinary", undefined, 75_400],
-  // The preview endpoint is a browser session's listing, so it carries no control plane.
-  // Bounded decisions adds the same 2,061 characters to the browser catalogue.
-  ["browser/preview", session("phi", "browser"), 34_900],
-  // The same set with the web family and t3_thread_handoff, so the thread can move itself,
-  // measures 113,757 characters, and 99,501 for the scout without web; `schedule_task`'s
-  // `purpose` brings them to 114,133 and 99,877, and YS-1211's journey inputs to 114,216 and 99,960.
-  ["researcher", session("web-research", "researcher"), 114_300],
-  ["scout", session("source-reader", "scout"), 100_050],
-  ["delegated browser", session("phi", "browser", true), 40_000],
-  [
-    "delegated implementation-worker",
-    session("implementation", "implementation-worker", true),
-    45_000,
-  ],
-  // The updated web tools and leaf listing measure 19,470 characters.
-  ["delegated researcher", session("web-research", "researcher", true), 19_500],
-  ["delegated scout", session("source-reader", "scout", true), 15_000],
-  ["delegated reviewer", session("source-reader", "reviewer", true), 15_000],
+  ["editor", undefined, 140_000],
+  ["editor worker", session("implementation", "implementation-worker"), 140_000],
+  ["reader", session("source-reader", "reviewer"), 40_000],
+  ["browser", session("phi", "browser"), 34_900],
+  ["researcher", session("web-research", "researcher"), 19_500],
 ];
 
 it("keeps every session endpoint under its payload budget", () => {
@@ -132,6 +118,7 @@ it("lists a browser session only the families it uses", () => {
     "decision",
     "device",
     "leaf",
+    "learnings",
     "preview",
     "report",
   ]);
@@ -148,22 +135,17 @@ const toolsNamedIn = (text: string) =>
  */
 const instructionCases: ReadonlyArray<[string, SessionToolProfile | undefined]> = [
   ["ordinary", undefined],
-  // No parent browser session: a thread's profile and role come only from its agentTask,
-  // and the preview endpoint no longer carries the control plane the parent text names.
-  ["researcher", session("web-research", "researcher")],
-  ["scout", session("source-reader", "scout")],
-  ["delegated browser", session("phi", "browser", true)],
-  ["delegated implementation-worker", session("implementation", "implementation-worker", true)],
-  ["delegated researcher", session("web-research", "researcher", true)],
-  ["delegated scout", session("source-reader", "scout", true)],
-  ["delegated reviewer", session("source-reader", "reviewer", true)],
+  ["delegated browser", session("phi", "browser")],
+  ["delegated implementation-worker", session("implementation", "implementation-worker")],
+  ["delegated researcher", session("web-research", "researcher")],
+  ["delegated scout", session("source-reader", "scout")],
+  ["delegated reviewer", session("source-reader", "reviewer")],
 ];
 
 const textFor = (profile: SessionToolProfile | undefined) => {
   const families = sessionToolFamilies(profile);
-  const delegated = profile?.delegated === true;
-  return t3OrchestrationText(delegated, {
-    preview: families.has("preview"),
+  return t3OrchestrationText(profile !== undefined, {
+    preview: sessionEndpointKey(profile) === "preview",
     html: families.has("leaf"),
   });
 };
@@ -190,7 +172,7 @@ it("lists every tool the instructions its threads receive name", () => {
     expect(unlisted, `${label} instructions name listed tools`).toEqual([]);
   }
 
-  // A child text must not send a child at the parent's plane.
+  // The child text covers both classes, so it names no tool only one of them lists.
   const childNamed = new Set(
     toolsNamedIn(t3OrchestrationText(true, { preview: true, html: true })),
   );
@@ -201,7 +183,9 @@ it("lists every tool the instructions its threads receive name", () => {
     "create_threads",
     "t3_worktree_handoff",
   ] as const) {
-    expect(childNamed.has(name), `child text does not name ${name}`).toBe(false);
+    expect(childNamed.has(name), `child text does not name ${name}, which its class may lack`).toBe(
+      false,
+    );
   }
   expect(childNamed.has("html_render")).toBe(true);
 });
@@ -223,78 +207,89 @@ it("tells a managed browser task about preview and devices, and that listing is 
   }
 });
 
-it("lists the preview and device families only for the browser profile", () => {
+it("lists every editor the same tools, whatever its role", () => {
   const ordinary = names(undefined);
-  expect(ordinary.has("preview_interact")).toBe(false);
-  expect(ordinary.has("preview_open")).toBe(false);
-  expect(ordinary.has("device_open")).toBe(false);
-  expect(ordinary.has("t3_experiments_list")).toBe(true);
-  expect(ordinary.has("t3_experiments_record_outcome")).toBe(false);
-  expect(ordinary.has("t3_worktree_status")).toBe(true);
-  expect(ordinary.has("html_render")).toBe(true);
-  expect(ordinary.has("t3_thread_move_to_project")).toBe(true);
-  expect(ordinary.has("create_threads")).toBe(true);
-  expect(ordinary.has("link_pull_request")).toBe(false);
-
-  const browser = names(session("phi", "browser"));
-  expect(browser.has("preview_interact")).toBe(true);
-  expect(browser.has("device_open")).toBe(true);
-  expect(browser.has("delegate_task")).toBe(false);
-  expect(browser.has("t3_worktree_status")).toBe(false);
-  expect(browser.has("agent_task_outcome")).toBe(true);
-
-  // A task bound as the retired ui-verifier lists what a browser task does.
-  expect(names(session("phi", "ui-verifier"))).toEqual(browser);
-
-  const worker = names(session("implementation", "ui-worker"));
-  expect(worker.has("preview_interact")).toBe(false);
-  expect(worker.has("t3_worktree_status")).toBe(true);
-
-  const researcher = names(session("web-research", "researcher"));
-  expect(researcher.has("t3_experiments_list")).toBe(true);
-  expect(researcher.has("preview_interact")).toBe(false);
+  for (const role of ["implementation-worker", "chore-worker", "ui-worker", "lead"] as const)
+    expect(names(session("implementation", role))).toEqual(ordinary);
+  for (const name of [
+    "delegate_task",
+    "t3_thread_launch",
+    "schedule_task",
+    "t3_champions_control",
+    "t3_champions_record_learning",
+    "t3_terminal_read",
+    "link_pull_request",
+    "t3_experiments_record_outcome",
+    "preview_open",
+    "device_open",
+    "web_search",
+    "agent_task_outcome",
+  ])
+    expect(ordinary.has(name), name).toBe(true);
+  expect(ordinary.has("workspace_read_file")).toBe(false);
+  expect(ordinary.has("t3_thread_import")).toBe(false);
 });
 
-it("gives a delegated child its own work family and the leaf tools, never the control plane", () => {
-  const browser = names(session("phi", "browser", true));
-  expect(browser.has("preview_interact")).toBe(true);
-  expect(browser.has("html_render")).toBe(true);
-  expect(browser.has("agent_task_outcome")).toBe(true);
-  expect(browser.has("task_status")).toBe(true);
-  for (const parentOnly of [
-    "delegate_task",
-    "schedule_task",
+it("keeps a read-only agent to the closed list, and every name on it real", () => {
+  const catalogue = tools.map((tool) => tool.name);
+  const reader = session("source-reader", "reviewer");
+  const known = new Set<string>(catalogue);
+  for (const name of READ_ONLY_TOOLS) {
+    expect(known.has(name) || name.startsWith("t3_browser_"), `${name} exists`).toBe(true);
+    expect(
+      SESSION_TOOL_ENDPOINTS.reader.families.has(toolFamily(name)),
+      `${name}'s family is served`,
+    ).toBe(true);
+  }
+  for (const name of catalogue)
+    expect(isToolListedForSession(name, reader), name).toBe(READ_ONLY_TOOLS.has(name));
+  for (const refused of [
+    "t3_thread_send",
     "t3_thread_launch",
     "create_threads",
-    "t3_thread_send",
-    "t3_worktree_handoff",
-    "link_pull_request",
-    "t3_terminal_read",
+    "schedule_task",
+    "run_scheduled_task_now",
+    "t3_champions_control",
+    "t3_pending_request",
+    "t3_thread_configure",
+    "t3_project_delete",
+    "t3_thread_interrupt",
+    "t3_queue_add",
+  ])
+    expect(isToolListedForSession(refused, reader), refused).toBe(false);
+  // The class comes from the task's recorded access, so a narrowed writer lists the same.
+  expect(
+    names({ toolProfile: "source-reader", agentRole: "chore-worker", readOnly: true }),
+  ).toEqual(names(reader));
+});
+
+it("keeps browser agents and researchers off threads and delegation", () => {
+  for (const narrow of [
+    names(session("phi", "browser")),
+    names(session("phi", "ui-verifier")),
+    names(session("web-research", "researcher")),
   ]) {
-    expect(browser.has(parentOnly), `browser child lists ${parentOnly}`).toBe(false);
+    for (const name of [
+      "t3_thread_read",
+      "delegate_task",
+      "schedule_task",
+      "t3_thread_launch",
+      "t3_champions_get",
+    ])
+      expect(narrow.has(name), name).toBe(false);
+    expect(narrow.has("t3_champions_learning_search")).toBe(true);
+    expect(narrow.has("agent_task_outcome")).toBe(true);
   }
-
-  expect(browser.has("device_open")).toBe(true);
-  expect(names(session("phi", "ui-verifier", true))).toEqual(browser);
-
-  const reader = names(session("source-reader", "scout", true));
-  expect(reader.has("preview_interact")).toBe(false);
-  expect(reader.has("agent_task_outcome")).toBe(true);
-
-  const worker = names(session("implementation", "implementation-worker", true));
-  expect(worker.has("t3_worktree_status")).toBe(true);
-  expect(worker.has("preview_interact")).toBe(false);
-
-  // The browser endpoint is a browser session's listing, so it carries no control plane: the
-  // work an ordinary thread does to orchestrate belongs to the control endpoint alone.
-  expect(names(session("phi", "browser")).has("delegate_task")).toBe(false);
+  expect(names(session("phi", "browser")).has("preview_interact")).toBe(true);
+  expect(names(session("phi", "browser")).has("device_open")).toBe(true);
+  expect(names(session("web-research", "researcher")).has("web_search")).toBe(true);
 });
 
 it("hands all three harnesses the same session endpoint", () => {
   for (const profile of [
     undefined,
     session("phi", "browser"),
-    session("implementation", "scout"),
+    session("implementation", "chore-worker"),
   ]) {
     const key = sessionEndpointKey(profile);
     const endpoint = `http://127.0.0.1:43123${SESSION_TOOL_ENDPOINTS[key].path}`;
@@ -387,12 +382,9 @@ it("has Codex describe the listing, not the browser permission", () => {
   expect(reader).not.toContain("preview_open");
   expect(reader).not.toContain("device_open");
   expect(reader).toContain("html_render");
-  expect(reader).not.toContain("delegate_task");
-
   const browser = text({ delegated: true, listsPreview: true, listsHtml: true });
   expect(browser).toContain("preview_open");
   expect(browser).not.toContain("device_open");
-  expect(browser).not.toContain("delegate_task");
 
   // The narrow managed-browser credential: preview only, no html.
   const narrow = text({ delegated: true, listsPreview: true, listsHtml: false });
@@ -428,7 +420,6 @@ it("gives Pi's process the child text its own listing earns", () => {
   const reader = launch({ delegated: true, listsPreview: false, listsHtml: true });
   expect(reader.env.T3_PI_INSTRUCTIONS).toContain("html_render");
   expect(reader.env.T3_PI_INSTRUCTIONS).not.toContain("preview_open");
-  expect(reader.env.T3_PI_INSTRUCTIONS).not.toContain("delegate_task");
 
   // The narrow browser credential: preview without html.
   const narrow = launch({ delegated: true, listsPreview: true, listsHtml: false });
@@ -465,13 +456,10 @@ it("keeps the peer-only thread import off every session endpoint", () => {
     expect(endpoint.families.has("peer")).toBe(false);
 });
 
-it("lists t3_background_wait on control endpoints only, which is where its Claude instruction goes", () => {
+it("lists t3_background_wait to editors and read-only agents, which is where its Claude instruction goes", () => {
   expect(isToolListedForSession("t3_background_wait", undefined)).toBe(true);
-  expect(
-    isToolListedForSession(
-      "t3_background_wait",
-      session("implementation", "implementation-worker", true),
-    ),
-  ).toBe(false);
+  expect(isToolListedForSession("t3_background_wait", session("source-reader", "scout"))).toBe(
+    true,
+  );
   expect(isToolListedForSession("t3_background_wait", session("phi", "browser"))).toBe(false);
 });

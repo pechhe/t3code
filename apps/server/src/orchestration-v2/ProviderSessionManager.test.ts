@@ -2155,7 +2155,7 @@ it.effect(
         assert.isDefined(captured);
         assert.equal(captured?.threadId, threadId);
         assert.equal(captured?.providerInstanceId, modelSelection.instanceId);
-        assert.equal(captured?.endpoint, "http://127.0.0.1:43123/mcp/control");
+        assert.equal(captured?.endpoint, "http://127.0.0.1:43123/mcp/editor");
         const token = captured?.authorizationHeader.replace(/^Bearer\s+/, "");
         assert.isDefined(token);
         const resolved = yield* registry.resolve(token!);
@@ -2179,59 +2179,6 @@ it.effect(
           }),
         ),
       );
-    }),
-);
-
-it.effect.each([
-  { relationshipToParent: null, subagent: false },
-  { relationshipToParent: "subagent", subagent: true },
-] as const)(
-  "ProviderSessionManagerV2 marks MCP credentials of delegated children ($relationshipToParent)",
-  ({ relationshipToParent, subagent }) =>
-    Effect.gen(function* () {
-      const state = yield* Ref.make(emptyState);
-      const mcpConfigs = yield* Ref.make<
-        ReadonlyArray<McpProviderSession.McpProviderSessionConfig | undefined>
-      >([]);
-      const effect = Effect.gen(function* () {
-        const eventSink = yield* EventSink.EventSinkV2;
-        const idAllocator = yield* IdAllocator.IdAllocatorV2;
-        const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
-        const registry = yield* McpSessionRegistry.McpSessionRegistry;
-        const now = yield* DateTime.now;
-        const threadId = ThreadId.make("thread-provider-session-manager-mcp-lineage");
-        const providerSessionId = yield* idAllocator.allocate.providerSession({
-          providerInstanceId: modelSelection.instanceId,
-          threadId,
-        });
-        const created = yield* makeThreadCreatedEvent({ idAllocator, threadId, now });
-        const parentThreadId = ThreadId.make("thread-provider-session-manager-mcp-parent");
-        yield* eventSink.write({
-          events: [
-            {
-              ...created,
-              payload: {
-                ...created.payload,
-                lineage:
-                  relationshipToParent === null
-                    ? created.payload.lineage
-                    : { parentThreadId, relationshipToParent, rootThreadId: parentThreadId },
-              },
-            },
-          ],
-        });
-        yield* manager.open({ threadId, providerSessionId, modelSelection, runtimePolicy });
-
-        const token = (yield* Ref.get(mcpConfigs))[0]?.authorizationHeader.replace(
-          /^Bearer\s+/,
-          "",
-        );
-        assert.isDefined(token);
-        assert.equal((yield* registry.resolve(token!))?.thread.subagent, subagent);
-        yield* manager.close(providerSessionId);
-      });
-
-      yield* effect.pipe(Effect.provide(layerTest({ state, idleTimeoutMs: 1_000, mcpConfigs })));
     }),
 );
 
@@ -2303,13 +2250,11 @@ it.effect("ProviderSessionManagerV2 gives a Spec lead a top-level thread's MCP l
         } = config!;
         listings.push({
           listing,
-          subagent: resolved?.thread.subagent,
           capabilities: resolved?.capabilities,
         });
         yield* manager.close(providerSessionId);
       }
       assert.deepEqual(listings[1], listings[0]);
-      assert.equal(listings[1]?.subagent, false);
     });
 
     yield* effect.pipe(Effect.provide(layerTest({ state, idleTimeoutMs: 1_000, mcpConfigs })));
@@ -2443,7 +2388,7 @@ it.effect("mints no credential for a managed browser task when access or Phi is 
   }),
 );
 
-it.effect("grants bounded browsing to ordinary threads and recorded leaves only", () =>
+it.effect("grants bounded browsing to editors and to readers with a recorded grant", () =>
   Effect.gen(function* () {
     const integrated = { enabled: ["integrated"], default: "integrated" } as const;
     const ordinary = yield* runBrowserAccessScenario({
@@ -2452,7 +2397,7 @@ it.effect("grants bounded browsing to ordinary threads and recorded leaves only"
     });
     assert.isTrue(ordinary?.boundedBrowser);
     assert.isTrue(ordinary?.resolvedBoundedBrowser);
-    assert.match(ordinary?.endpoint ?? "", /\/mcp\/control$/);
+    assert.match(ordinary?.endpoint ?? "", /\/mcp\/editor$/);
 
     const parent = ThreadId.make("thread-bounded-parent");
     const reviewer = {
@@ -2468,8 +2413,7 @@ it.effect("grants bounded browsing to ordinary threads and recorded leaves only"
       agentTask: { ...reviewer, browserTasks: true },
     });
     assert.isTrue(granted?.boundedBrowser);
-    assert.match(granted?.endpoint ?? "", /\/mcp\/bounded-browser$/);
-    assert.isFalse(granted?.capabilities?.has("orchestration"));
+    assert.match(granted?.endpoint ?? "", /\/mcp\/reader$/);
 
     // Old behaviour without the recorded grant, with browsing off, or with integrated off.
     const ungranted = yield* runBrowserAccessScenario({
@@ -2479,7 +2423,7 @@ it.effect("grants bounded browsing to ordinary threads and recorded leaves only"
       agentTask: reviewer,
     });
     assert.isUndefined(ungranted?.boundedBrowser);
-    assert.match(ungranted?.endpoint ?? "", /\/mcp\/child-reader$/);
+    assert.match(ungranted?.endpoint ?? "", /\/mcp\/reader$/);
     for (const settings of [
       { enableAgentBrowserAccess: false, agentBrowserBackends: integrated },
       {
@@ -2496,7 +2440,7 @@ it.effect("grants bounded browsing to ordinary threads and recorded leaves only"
       // Source work keeps its credential; only the bounded endpoint is withheld.
       assert.isDefined(withheld);
       assert.isUndefined(withheld?.boundedBrowser);
-      assert.match(withheld?.endpoint ?? "", /\/mcp\/child-reader$/);
+      assert.match(withheld?.endpoint ?? "", /\/mcp\/reader$/);
     }
 
     // A subagent without a task record is not an ordinary thread.
@@ -2943,7 +2887,7 @@ it.effect(
         });
         assert.isTrue(captured?.boundedBrowser);
         assert.isUndefined(captured?.resolvedManagedBrowser);
-        assert.match(captured?.endpoint ?? "", /\/mcp\/bounded-browser$/);
+        assert.match(captured?.endpoint ?? "", /\/mcp\/editor$/);
       }
     }),
 );
@@ -4861,18 +4805,20 @@ it.effect(
     }),
 );
 
-it("a web-research session gets T3's web family unless its provider researches natively", () => {
+it("T3's web family goes to editors, and to a researcher whose provider has no native search", () => {
   const pi = { nativeWebResearch: false };
   const claude = { nativeWebResearch: true };
   const codex = { nativeWebResearch: true };
-  assert.isTrue(ProviderSessionManager.usesT3WebTools("web-research", pi));
-  assert.isFalse(ProviderSessionManager.usesT3WebTools("web-research", claude));
-  assert.isFalse(ProviderSessionManager.usesT3WebTools("web-research", codex));
+  assert.isTrue(ProviderSessionManager.usesT3WebTools("web-research", true, pi));
+  assert.isFalse(ProviderSessionManager.usesT3WebTools("web-research", true, claude));
+  assert.isFalse(ProviderSessionManager.usesT3WebTools("web-research", true, codex));
   // A provider the registry cannot name declares no native tools, so the role still researches.
-  assert.isTrue(ProviderSessionManager.usesT3WebTools("web-research", undefined));
-  assert.isTrue(ProviderSessionManager.usesT3WebTools("web-research", {}));
-  // Only the web-research profile asks for the family.
-  assert.isFalse(ProviderSessionManager.usesT3WebTools("source-reader", pi));
+  assert.isTrue(ProviderSessionManager.usesT3WebTools("web-research", true, undefined));
+  assert.isTrue(ProviderSessionManager.usesT3WebTools("web-research", true, {}));
+  // Editors always use T3's tools, because their native ones are off; other readers get neither.
+  assert.isTrue(ProviderSessionManager.usesT3WebTools("implementation", false, claude));
+  assert.isTrue(ProviderSessionManager.usesT3WebTools(undefined, false, codex));
+  assert.isFalse(ProviderSessionManager.usesT3WebTools("source-reader", true, pi));
 });
 
 it.effect("exclusive runtimes reopen only when managed registration changes", () =>

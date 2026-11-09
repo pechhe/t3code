@@ -345,26 +345,6 @@ describe("pull request toolkit handlers", () => {
     }),
   );
 
-  it.effect("refuses a watch from a subagent thread, whose parent owns the pull request", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness({
-        thread: {
-          ...makeThread([makeLink(1, { headBranch: "feature" })]),
-          lineage: {
-            rootThreadId: ThreadId.make("parent"),
-            parentThreadId: ThreadId.make("parent"),
-            relationshipToParent: "subagent",
-          },
-        },
-      });
-      const error = yield* harness
-        .call("watch_pull_request", { repository: "t3tools/t3code", number: 1 })
-        .pipe(Effect.flip);
-      expect(error).toMatchObject({ _tag: "PullRequestWatchFromSubagentError" });
-      expect(yield* Ref.get(harness.commands)).toEqual([]);
-    }),
-  );
-
   it.effect("asks a subagent thread to end with its PR report after it links", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({

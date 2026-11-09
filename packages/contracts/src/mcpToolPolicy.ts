@@ -30,11 +30,8 @@ export type ToolFamily =
 export interface SessionToolProfile {
   readonly toolProfile?: AgentToolProfile | undefined;
   readonly agentRole?: AgentRole | undefined;
-  /**
-   * A thread with an `agentTask` is a delegated child: it lists only its own work
-   * family and the leaf tools, never the orchestration control plane.
-   */
-  readonly delegated?: boolean | undefined;
+  /** The task's recorded source access is read-only. Its class, whatever its role. */
+  readonly readOnly?: boolean | undefined;
 }
 
 const LEAD_EXPERIMENT_TOOLS = new Set([
@@ -47,7 +44,6 @@ const LEAD_EXPERIMENT_TOOLS = new Set([
 const SCHEDULING_TOOLS = new Set([
   "schedule_task",
   "list_scheduled_tasks",
-  "update_scheduled_task",
   "delete_scheduled_task",
   "run_scheduled_task_now",
 ]);
@@ -63,11 +59,7 @@ const CONTROL_EXTRA_TOOLS = new Set([
   "t3_thread_suggest_project",
 ]);
 
-/**
- * What a delegated child needs whatever its role: poll or cancel its own task,
- * watch something it started, report its outcome, and show the user a page. Its
- * own role's work family is the other half of every child listing.
- */
+/** What every agent needs: poll or cancel its own task, watch something, and show the user a page. */
 const LEAF_TOOLS = new Set([
   "task_status",
   "task_cancel",
@@ -77,10 +69,7 @@ const LEAF_TOOLS = new Set([
   "html_render",
 ]);
 
-/**
- * The tool a managed agent reports its outcome with. It is separate from the leaf
- * set because an ordinary thread never reports to a parent and never lists it.
- */
+/** The tool a managed agent reports its outcome with. */
 const REPORT_TOOLS = new Set(["agent_task_outcome"]);
 
 /** Thread tools the orchestrator itself offers; the rest of the thread family is workspace administration. */
@@ -118,13 +107,11 @@ export const toolFamily = (name: string): ToolFamily => {
   if (REPORT_TOOLS.has(name)) return "report";
   if (LEAF_TOOLS.has(name)) return "leaf";
   if (SCHEDULING_TOOLS.has(name)) return "scheduling";
-  // Every agent searches Champion learnings before working in an area one covers, children included.
+  // Narrow web readers search Champion learnings too, so these stay apart from Champion writes.
   if (LEARNING_READ_TOOLS.has(name)) return "learnings";
   if (name.startsWith("t3_champions_")) return "scheduling";
-  // A lead reads and drafts trials; recording evidence stays with the research endpoint.
   if (LEAD_EXPERIMENT_TOOLS.has(name)) return "lead-experiments";
   if (name.startsWith("t3_experiments_")) return "experiments";
-  // Work-unit allocation and evidence are an implementer's tools, not a researcher's.
   if (name.startsWith("t3_work_")) return "work";
   // Source inspection is for external OAuth clients; no session endpoint lists it.
   if (name.startsWith("workspace_")) return "inspection";
@@ -150,52 +137,69 @@ export const toolFamily = (name: string): ToolFamily => {
 };
 
 /**
- * Bounded browser tools are listed only to a credential minted with the capability
- * (`McpInvocationScope.boundedBrowser`); the family only says which endpoints may serve them.
+ * What a read-only agent may call, closed so a new tool starts refused: reads, its own task and
+ * watches, showing a page, Champion learnings, a granted bounded browser, and delegating read-only
+ * roles (`delegate_task` checks the role). `McpHttpServer` applies it to listing and calling.
  */
-const CONTROL: ReadonlySet<ToolFamily> = new Set([
-  "learnings",
-  "bounded-browser",
-  "decision",
-  "control",
-  "scheduling",
-  "worktree",
-  "lead-experiments",
-  "leaf",
+export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  "watch_pull_request",
+  "unwatch_pull_request",
+  "agent_roles",
+  "agent_task_outcome",
+  "delegate_task",
+  "html_preview",
+  "html_render",
+  "list_scheduled_tasks",
+  "list_thread_pull_requests",
+  "orchestrator_capabilities",
+  "read_pull_request_guide",
+  "t3_background_wait",
+  "t3_browser_close",
+  "t3_browser_open",
+  "t3_browser_snapshot",
+  "t3_browser_status",
+  "t3_browser_task",
+  "t3_browser_task_cancel",
+  "t3_champions_check_context",
+  "t3_champions_class_choices",
+  "t3_champions_get",
+  "t3_champions_history",
+  "t3_champions_learning_read",
+  "t3_champions_learning_search",
+  "t3_champions_list",
+  "t3_champions_record_learning",
+  "t3_environment_links",
+  "t3_environment_read",
+  "t3_experiments_list",
+  "t3_experiments_read_evidence",
+  "t3_experiments_results",
+  "t3_fleet_summary",
+  "t3_project_list",
+  "t3_project_read",
+  "t3_terminal_read",
+  "t3_thread_list",
+  "t3_thread_read",
+  "t3_thread_search",
+  "t3_thread_wait",
+  "t3_video_frames",
+  "t3_work_read",
+  "t3_worktree_list",
+  "t3_worktree_status",
+  "task_cancel",
+  "task_status",
+  "unwatch",
+  "watch",
 ]);
-const WORKSPACE: ReadonlySet<ToolFamily> = new Set([
-  "learnings",
-  "bounded-browser",
+
+/** Everything an agent session can use; `inspection` and `peer` serve outside clients and links. */
+const EDITOR: ReadonlySet<ToolFamily> = new Set([
   "decision",
   "control",
   "workspace",
   "scheduling",
-  "queue",
-  "worktree",
-  "lead-experiments",
-  "project",
-  "leaf",
-  "report",
-]);
-/**
- * A browser session drives `preview_*` and the device tools for simulators, and needs `leaf`
- * for its own task status, cancel, watch and the html tools that show the user a page, plus
- * `report` for its outcome. It orchestrates nothing, so it lists no control, workspace,
- * scheduling, worktree or project tool; that listing is the child-preview one.
- */
-const PREVIEW: ReadonlySet<ToolFamily> = new Set([
-  "decision",
   "preview",
+  "bounded-browser",
   "device",
-  "leaf",
-  "report",
-]);
-const RESEARCH: ReadonlySet<ToolFamily> = new Set([
-  "learnings",
-  "web",
-  "control",
-  "workspace",
-  "scheduling",
   "queue",
   "worktree",
   "project",
@@ -204,15 +208,30 @@ const RESEARCH: ReadonlySet<ToolFamily> = new Set([
   "work",
   "leaf",
   "report",
+  "learnings",
+  "web",
 ]);
-
+/** The toolkits the read-only list draws from; `READ_ONLY_TOOLS` picks within them. */
+const READER: ReadonlySet<ToolFamily> = new Set([
+  "control",
+  "workspace",
+  "scheduling",
+  "bounded-browser",
+  "worktree",
+  "project",
+  "experiments",
+  "lead-experiments",
+  "work",
+  "leaf",
+  "report",
+  "learnings",
+]);
 /**
- * A delegated child's listing: the leaf tools plus what its own role does, and
- * nothing that belongs to the thread that delegated it.
+ * Agents that read untrusted web pages stay narrow, because a page could otherwise steer them
+ * into reading threads and sending them out.
  */
-const CHILD_READER: ReadonlySet<ToolFamily> = new Set(["learnings", "leaf", "report"]);
-const CHILD_RESEARCH: ReadonlySet<ToolFamily> = new Set(["learnings", "leaf", "report", "web"]);
-const CHILD_PREVIEW: ReadonlySet<ToolFamily> = new Set([
+const RESEARCH: ReadonlySet<ToolFamily> = new Set(["learnings", "leaf", "report", "web"]);
+const PREVIEW: ReadonlySet<ToolFamily> = new Set([
   "learnings",
   "decision",
   "leaf",
@@ -220,80 +239,26 @@ const CHILD_PREVIEW: ReadonlySet<ToolFamily> = new Set([
   "preview",
   "device",
 ]);
-const CHILD_IMPLEMENTATION: ReadonlySet<ToolFamily> = new Set([
-  "learnings",
-  "decision",
-  "leaf",
-  "report",
-  "worktree",
-  "project",
-]);
 
-const BOUNDED_BROWSER: ReadonlySet<ToolFamily> = new Set(["bounded-browser"]);
-
-export type SessionEndpointKey =
-  | "control"
-  | "workspace"
-  | "research"
-  | "preview"
-  | "child-reader"
-  | "child-research"
-  | "child-preview"
-  | "child-implementation"
-  | "bounded-browser";
+export type SessionEndpointKey = "editor" | "reader" | "research" | "preview";
 
 /**
- * The one policy table: each endpoint's path and the families its `tools/list`
- * serves. A thread without a tool profile is an ordinary orchestrator thread.
- * Phi is what grants the preview family; the project setting that permits a
- * browser remains a call-time permission.
+ * The one policy table: each endpoint's path and the families its `tools/list` serves. A thread
+ * with no task, and every task that may write, is an editor.
  */
 export const SESSION_TOOL_ENDPOINTS: Readonly<
   Record<SessionEndpointKey, { readonly path: string; readonly families: ReadonlySet<ToolFamily> }>
 > = {
-  control: { path: "/mcp/control", families: CONTROL },
-  workspace: { path: "/mcp/workspace", families: WORKSPACE },
+  editor: { path: "/mcp/editor", families: EDITOR },
+  reader: { path: "/mcp/reader", families: READER },
   research: { path: "/mcp/research", families: RESEARCH },
   preview: { path: "/mcp/preview", families: PREVIEW },
-  "child-reader": { path: "/mcp/child-reader", families: CHILD_READER },
-  "child-research": { path: "/mcp/child-research", families: CHILD_RESEARCH },
-  "child-preview": { path: "/mcp/child-preview", families: CHILD_PREVIEW },
-  "child-implementation": {
-    path: "/mcp/child-implementation",
-    families: CHILD_IMPLEMENTATION,
-  },
-  /**
-   * A managed leaf granted bounded browser tasks reaches only these tools, so a reviewer gains
-   * no leaf, report or thread tool by it. The registry assigns it; no profile maps here.
-   */
-  "bounded-browser": { path: "/mcp/bounded-browser", families: BOUNDED_BROWSER },
 };
 
 export const sessionEndpointKey = (session: SessionToolProfile | undefined): SessionEndpointKey => {
-  if (session === undefined) return "control";
-  if (session.delegated === true) {
-    switch (session.toolProfile) {
-      case "phi":
-        return "child-preview";
-      case "implementation":
-        return "child-implementation";
-      case "web-research":
-        return "child-research";
-      default:
-        return "child-reader";
-    }
-  }
-  switch (session.toolProfile) {
-    case "phi":
-      return "preview";
-    case "implementation":
-    case "source-reader":
-      return "workspace";
-    case "web-research":
-      return "research";
-    default:
-      return "control";
-  }
+  if (session?.toolProfile === "phi") return "preview";
+  if (session?.toolProfile === "web-research") return "research";
+  return session?.readOnly === true ? "reader" : "editor";
 };
 
 /** The families an endpoint lists. Adapters read it so instructions describe only listed tools. */
@@ -306,7 +271,8 @@ export const isToolListedForSession = (
   session: SessionToolProfile | undefined,
 ): boolean =>
   (toolFamily(name) !== "decision" || canUseDecisions(session)) &&
-  sessionToolFamilies(session).has(toolFamily(name));
+  sessionToolFamilies(session).has(toolFamily(name)) &&
+  (sessionEndpointKey(session) !== "reader" || READ_ONLY_TOOLS.has(name));
 
 export const canUseDecisions = (session: SessionToolProfile | undefined): boolean => {
   if (session?.toolProfile === "source-reader" || session?.toolProfile === "web-research")

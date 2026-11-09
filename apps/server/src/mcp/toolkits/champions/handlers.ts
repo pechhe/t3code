@@ -1,6 +1,5 @@
 import {
   ChampionError,
-  isLeafAgentTask,
   type ChampionLearningContributor,
   OrchestratorMcpFailure,
 } from "@t3tools/contracts";
@@ -75,6 +74,16 @@ export const handlers = {
   ),
   t3_champions_control: McpToolAccess.writesEnvironment((input, check) =>
     check.pipe(
+      // A check or setup starts an agent thread, so it obeys the delegation limit as a launch does.
+      Effect.andThen(
+        input.action === "run_check" || input.action === "setup"
+          ? Effect.flatMap(ThreadAccess.loadCaller(), (caller) =>
+              caller.caller === undefined
+                ? Effect.void
+                : ThreadAccess.assertBelowDelegationLimit(caller.threads, caller.caller),
+            )
+          : Effect.void,
+      ),
       Effect.andThen(
         Effect.flatMap(Champions.ChampionService, (service) => {
           switch (input.action) {
@@ -169,12 +178,7 @@ export const handlers = {
         const scope = yield* McpInvocationContext.McpInvocationContext;
         if (scope.client?.access === "peer-threads")
           return yield* peerRefused("retain a retrieval receipt");
-        const caller = yield* ThreadAccess.readCaller();
-        if (isLeafAgentTask(caller.caller?.agentTask))
-          return yield* new OrchestratorMcpFailure({
-            code: "capability_denied",
-            message: "A delegated worker may search learnings but not retain a retrieval receipt.",
-          });
+        yield* ThreadAccess.readCaller();
         if (input.limit !== undefined && input.limit > 20)
           return yield* new OrchestratorMcpFailure({
             code: "invalid_request",
@@ -203,14 +207,11 @@ export const handlers = {
         const service = yield* Champions.ChampionService;
         if (from.kind === "link") {
           // The link authenticated the thread; a call without one is not a forwarded contribution.
-          if (
-            forwardedFrom === undefined ||
-            isLeafAgentTask(forwardedFrom.role === null ? undefined : { role: forwardedFrom.role })
-          )
+          if (forwardedFrom === undefined)
             return yield* new OrchestratorMcpFailure({
               code: "capability_denied",
               message:
-                "A linked environment passes on contributions only for an orchestrating thread it authenticated.",
+                "A linked environment passes on contributions only for a thread it authenticated.",
             });
           return yield* service
             .contributeLearning(

@@ -701,15 +701,19 @@ const make = Effect.gen(function* () {
             (candidate) => candidate.reason === "usage-limited",
           );
           const overloaded = result.candidates.filter((candidate) => candidate.until !== undefined);
+          const sourceAccess =
+            input.request.readOnly === true ? ("read-only" as const) : policy.sourceAccess;
+          const toolProfile =
+            input.request.readOnly === true
+              ? readOnlyToolProfile(policy.toolProfile)
+              : policy.toolProfile;
           return {
             role,
             briefHash: brief.hash,
-            sourceAccess:
-              input.request.readOnly === true ? ("read-only" as const) : policy.sourceAccess,
-            toolProfile:
-              input.request.readOnly === true
-                ? readOnlyToolProfile(policy.toolProfile)
-                : policy.toolProfile,
+            sourceAccess,
+            permissionClass:
+              sourceAccess === "read-only" ? ("read-only" as const) : ("editor" as const),
+            ...(toolProfile === "phi" || toolProfile === "web-research" ? { toolProfile } : {}),
             executionRequirement: context.request.executionRequirement,
             ...(grantsBrowserTasks(role, policy) ? { browserTasks: true } : {}),
             ...(result.executionBoundary === undefined

@@ -8,7 +8,6 @@ import {
   type PullRequestThreadCommentsResult,
   type ThreadPullRequestLink,
   type ThreadPullRequestWatch,
-  isLeafSubagentThread,
 } from "@t3tools/contracts";
 import {
   normalizeThreadPullRequestKey,
@@ -99,14 +98,7 @@ interface ReadPlan {
 
 const watchKey = ({ thread, watch }: WatchTarget) => `${thread.id} ${watch.startedAt}`;
 
-type WatchEndReason =
-  | "merged"
-  | "closed"
-  | "unreadable"
-  | "comment-limit"
-  | "settled"
-  | "subagent"
-  | "stopped";
+type WatchEndReason = "merged" | "closed" | "unreadable" | "comment-limit" | "settled" | "stopped";
 
 interface WatchLife {
   readonly threadId: string;
@@ -418,9 +410,7 @@ export const make = Effect.gen(function* () {
       ? "merged"
       : thread.settledOverride === "settled" || thread.settledAt !== null
         ? "settled"
-        : isLeafSubagentThread(thread)
-          ? "subagent"
-          : undefined;
+        : undefined;
 
   const eachTarget = <E>(
     group: WatchGroup,

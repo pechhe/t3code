@@ -5,6 +5,7 @@ import {
   type OrchestrationV2AppThread,
   type OrchestrationV2ThreadWatch,
   ThreadId,
+  isLeafSubagentThread,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -96,7 +97,9 @@ const make = Effect.gen(function* () {
     const threads = [];
     for (const row of rows) {
       const thread = yield* projections.getThread(ThreadId.make(row.thread_id));
-      if (threadWatchRefusal(thread) === undefined) threads.push(thread);
+      // A landing a child submitted wakes the thread that owns the child, as it always has.
+      if (threadWatchRefusal(thread) === undefined && !isLeafSubagentThread(thread))
+        threads.push(thread);
     }
     const [thread] = threads;
     if (thread !== undefined && threads.length === 1) {

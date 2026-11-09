@@ -162,54 +162,30 @@ it.effect("registers only the tool families each session endpoint declares", () 
         names.filter((name) => !families.has(toolFamily(name))),
         key,
       ).toEqual([]);
-      expect(names.includes("web_search"), key).toBe(
-        key === "research" || key === "child-research",
+      expect(names.includes("web_search"), key).toBe(key === "editor" || key === "research");
+      expect(names.includes("t3_experiments_record_outcome"), key).toBe(
+        key === "editor" || key === "reader",
       );
-      expect(names.includes("web_fetch"), key).toBe(key === "research" || key === "child-research");
-      expect(names.includes("t3_experiments_create"), key).toBe(
-        key === "control" || key === "workspace" || key === "research",
-      );
-      expect(names.includes("t3_experiments_record_outcome"), key).toBe(key === "research");
-      expect(names.includes("t3_work_enroll"), key).toBe(key === "research");
-      expect(names.includes("t3_browser_task"), key).toBe(
-        key === "control" || key === "workspace" || key === "bounded-browser",
-      );
+      expect(names.includes("t3_browser_task"), key).toBe(key === "editor" || key === "reader");
     }
   }).pipe(Effect.provide(contextServices)),
 );
 
-it.effect("serves a bounded browser leaf exactly the bounded tools", () =>
+it.effect("gives an editor every toolkit, including what used to be workspace-only", () =>
   Effect.gen(function* () {
-    expect(yield* listedToolNames("bounded-browser")).toEqual(
-      [...BOUNDED_BROWSER_TOOL_NAMES].toSorted(),
-    );
-  }).pipe(Effect.provide(contextServices)),
-);
-
-it.effect("gives an ordinary thread the handoff its instructions name", () =>
-  Effect.gen(function* () {
-    const names = yield* listedToolNames("control");
+    const names = yield* listedToolNames("editor");
 
     expect(names).toEqual(
       expect.arrayContaining([
         "t3_worktree_handoff",
-        "t3_worktree_attach",
-        "t3_worktree_detach",
-        "t3_worktree_list",
-        "t3_worktree_status",
         "create_threads",
-        "t3_project_list",
         "t3_thread_move_to_project",
-        "t3_thread_suggest_project",
-      ]),
-    );
-    // The rest of the workspace profile stays off the ordinary endpoint.
-    expect(names).not.toEqual(
-      expect.arrayContaining([
-        "link_pull_request",
+        "list_thread_pull_requests",
         "t3_terminal_read",
-        "t3_attachment_read",
+        "t3_attachment_prepare_upload",
         "preview_open",
+        "device_open",
+        ...BOUNDED_BROWSER_TOOL_NAMES,
       ]),
     );
   }).pipe(Effect.provide(contextServices)),

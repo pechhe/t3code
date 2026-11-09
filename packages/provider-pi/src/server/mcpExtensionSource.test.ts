@@ -327,6 +327,30 @@ describe("Pi MCP tool exposure", () => {
     assert.equal(bridge.requests.at(-1)?.method, "tools/call");
   });
 
+  it("defers delegate_task for a delegated task, which rarely delegates", async () => {
+    const bridge = await loadMcpBridge({
+      modern: true,
+      toolSearchAvailable: true,
+      delegatedInstructions: "child",
+    });
+    await bridge.handlers.get("session_start")!({ systemPrompt: "" }, discoveryContext);
+    await bridge.handlers.get("before_agent_start")!(
+      { systemPrompt: "Pi system prompt" },
+      discoveryContext,
+    );
+    assert.deepEqual(
+      bridge.tools
+        .filter((tool) => tool.exposure !== "hidden")
+        .map((tool) => [tool.name, tool.exposure]),
+      [
+        ["mcp__t3-code__orchestrator_capabilities", "direct"],
+        ["mcp__t3-code__delegate_task", "deferred"],
+        ["mcp__t3-code__task_status", "direct"],
+        ["mcp__t3-code__preview_snapshot", "deferred"],
+      ],
+    );
+  });
+
   it("does not eagerly declare the catalogue for a completions gateway", async () => {
     const bridge = await loadMcpBridge({
       modern: true,

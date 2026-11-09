@@ -289,9 +289,10 @@ it.effect("rejects unavailable agent access before booting or opening a device",
 
 it.effect.each([
   { role: "browser", toolProfile: "phi", admitted: true },
-  { role: "implementation-worker", toolProfile: "implementation", admitted: false },
+  { role: "implementation-worker", toolProfile: "implementation", admitted: true },
+  { role: "researcher", toolProfile: "web-research", admitted: false },
 ] as const)(
-  "opens and closes a device for a managed $role task only when it drives its own browser",
+  "opens and closes a device for a managed $role task unless it only reads the web",
   ({ role, toolProfile, admitted }) =>
     Effect.gen(function* () {
       const server = yield* McpServer.McpServer;
@@ -313,7 +314,7 @@ it.effect.each([
         expect(opened.content).toEqual([
           {
             type: "text",
-            text: "Managed workers are leaf tasks and cannot change T3 state or delegate.",
+            text: "Browser agents, researchers and work an outside client owns can't change T3 state or delegate. Say in your result what is left to do.",
           },
         ]);
     }).pipe(

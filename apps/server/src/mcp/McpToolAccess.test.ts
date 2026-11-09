@@ -42,6 +42,9 @@ const browserChildThreadId = ThreadId.make("thread:browser-child");
 const verifierChildThreadId = ThreadId.make("thread:ui-verifier-child");
 const reviewerChildThreadId = ThreadId.make("thread:reviewer-child");
 const scoutChildThreadId = ThreadId.make("thread:scout-child");
+const workerChildThreadId = ThreadId.make("thread:worker-child");
+const deepWorkerThreadId = ThreadId.make("thread:deep-worker");
+const midWorkerThreadId = ThreadId.make("thread:mid-worker");
 const endedBrowserChildThreadId = ThreadId.make("thread:ended-browser-child");
 
 const taskBinding = (
@@ -111,6 +114,29 @@ const shells = new Map([
   [verifierChildThreadId, childShell(verifierChildThreadId, "ui-verifier", "phi")],
   [reviewerChildThreadId, childShell(reviewerChildThreadId, "reviewer", "source-reader")],
   [scoutChildThreadId, childShell(scoutChildThreadId, "scout", "source-reader")],
+  [workerChildThreadId, childShell(workerChildThreadId, "chore-worker", "implementation")],
+  [
+    midWorkerThreadId,
+    {
+      ...childShell(midWorkerThreadId, "lead", "implementation"),
+      lineage: {
+        rootThreadId: supervisedThreadId,
+        parentThreadId: supervisedThreadId,
+        relationshipToParent: "subagent" as const,
+      },
+    },
+  ],
+  [
+    deepWorkerThreadId,
+    {
+      ...childShell(deepWorkerThreadId, "chore-worker", "implementation"),
+      lineage: {
+        rootThreadId: supervisedThreadId,
+        parentThreadId: midWorkerThreadId,
+        relationshipToParent: "subagent" as const,
+      },
+    },
+  ],
   [
     endedBrowserChildThreadId,
     {
@@ -158,6 +184,7 @@ const childCaller = (
   ...threadCaller(threadId),
   capabilities: new Set(["orchestration", "preview"] as const),
   toolProfile,
+  ...(toolProfile === "source-reader" ? { endpointKey: "reader" } : {}),
   ...(role === "browser" || role === "ui-verifier"
     ? {
         taskBrowser: { backend: "phi" as const },
@@ -331,6 +358,8 @@ const call = (
       decodeOutcome(content.map((part) => (part.type === "text" ? part.text : "")).join("")),
     ),
     Effect.map((outcome) => ("code" in outcome ? outcome.code : outcome.ran)),
+    // A tool off a read-only agent's list doesn't exist for it.
+    Effect.catchTags({ InvalidParams: () => Effect.succeed("not_listed") }),
     Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
     Effect.provideService(McpSchema.McpServerClient, mcpClient),
   );
@@ -372,6 +401,8 @@ const browserChild = childCaller(browserChildThreadId, "browser", "phi");
 const verifierChild = childCaller(verifierChildThreadId, "ui-verifier", "phi");
 const reviewerChild = childCaller(reviewerChildThreadId, "reviewer", "source-reader");
 const scoutChild = childCaller(scoutChildThreadId, "scout", "source-reader");
+const workerChild = childCaller(workerChildThreadId, "chore-worker", "implementation");
+const deepWorker = childCaller(deepWorkerThreadId, "chore-worker", "implementation");
 const endedBrowserChild = childCaller(endedBrowserChildThreadId, "browser", "phi");
 
 it.effect.each([
@@ -396,7 +427,7 @@ it.effect.each([
   ["reads_preview_backend", ended, {}, "none"],
   ["reads_preview_backend", browserChild, {}, "phi"],
   ["reads_preview_backend", verifierChild, {}, "phi"],
-  ["reads_preview_backend", reviewerChild, {}, "none"],
+  ["reads_preview_backend", reviewerChild, {}, "not_listed"],
   ["reads_preview_backend", readOnlyClient, {}, "thread_credential_required"],
   ["acts_as_caller", supervised, {}, "ran"],
   ["acts_as_caller", ended, {}, "parent_not_active"],
@@ -407,20 +438,30 @@ it.effect.each([
   ["acts_as_caller", unknownOwnerBackground, {}, "parent_not_active"],
   ["acts_as_caller", fullAccessClient, {}, "thread_credential_required"],
 
-  // A browser child acts on its own browser and nothing else. The policy table that decides its
-  // listing decides this too, so a child whose endpoint lists no browser stays a leaf.
+  // A browser child acts on its own browser and nothing else. A read-only agent's closed list has
+  // no browser action, and an editor keeps acting as a top-level thread does.
+  ["acts_as_preview_caller", workerChild, {}, "ran"],
+  ["acts_as_caller", workerChild, {}, "ran"],
+  ["writes", workerChild, {}, "ran"],
+  ["writes_threads", workerChild, { threadId: supervisedThreadId }, "ran"],
+  ["starts_threads", workerChild, {}, "full-access/default"],
+  // Two delegations below a top-level thread: t3_thread_launch and schedule_task are refused.
+  ["starts_threads", deepWorker, {}, "capability_denied"],
+  ["writes", reviewerChild, {}, "not_listed"],
+  ["starts_threads", reviewerChild, {}, "not_listed"],
+  ["writes_environment", reviewerChild, {}, "not_listed"],
   ["acts_as_preview_caller", supervised, {}, "ran"],
   ["acts_as_preview_caller", browserChild, {}, "ran"],
   ["acts_as_preview_caller", verifierChild, {}, "ran"],
-  ["acts_as_preview_caller", reviewerChild, {}, "capability_denied"],
-  ["acts_as_preview_caller", scoutChild, {}, "capability_denied"],
+  ["acts_as_preview_caller", reviewerChild, {}, "not_listed"],
+  ["acts_as_preview_caller", scoutChild, {}, "not_listed"],
   ["acts_as_preview_caller", endedBrowserChild, {}, "parent_not_active"],
   ["acts_as_preview_caller", readOnlyClient, {}, "thread_credential_required"],
   // Closing the tab its own session owns is the one action that survives revoked browser access.
   ["cleans_up_as_preview_caller", supervised, {}, "ran"],
   ["cleans_up_as_preview_caller", browserChild, {}, "ran"],
   ["cleans_up_as_preview_caller", verifierChild, {}, "ran"],
-  ["cleans_up_as_preview_caller", reviewerChild, {}, "capability_denied"],
+  ["cleans_up_as_preview_caller", reviewerChild, {}, "not_listed"],
   ["cleans_up_as_preview_caller", endedBrowserChild, {}, "parent_not_active"],
   ["cleans_up_as_preview_caller", readOnlyClient, {}, "thread_credential_required"],
   // Driving its own browser does not open any part of the control plane to it.

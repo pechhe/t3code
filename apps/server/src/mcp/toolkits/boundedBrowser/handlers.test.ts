@@ -36,7 +36,6 @@ const reviewerScope: Context.McpInvocationScope = {
     threadId,
     providerSessionId: "session",
     providerInstanceId: ProviderInstanceId.make("codex"),
-    subagent: true,
   },
   client: undefined,
   requestNamespace: "test",

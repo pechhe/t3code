@@ -306,7 +306,7 @@ export function delegatedTaskRunHold(
       })
     : { indefinite: backgroundWork.length > 0, until: null };
   const held =
-    (projection.thread.agentTask?.role === "lead" &&
+    (projection.thread.agentTask !== undefined &&
       (projection.thread.threadWatches?.length ?? 0) > 0) ||
     projection.subagents.some(
       (task) =>

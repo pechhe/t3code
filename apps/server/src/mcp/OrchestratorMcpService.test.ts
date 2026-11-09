@@ -441,7 +441,10 @@ describe("OrchestratorMcpService", () => {
       const acknowledgementCommandIds = yield* Ref.make<ReadonlyArray<string>>([]);
       const acknowledgementAttempts = yield* Ref.make(0);
       const parentProjection = {
-        thread: { id: parentThreadId },
+        thread: {
+          id: parentThreadId,
+          lineage: { parentThreadId: null, relationshipToParent: null },
+        },
         runs: [],
         contextTransfers: [
           {
@@ -971,7 +974,10 @@ describe("OrchestratorMcpService", () => {
       let awaitsRestart = true;
       let readFails = true;
       const parentProjection = {
-        thread: { id: parentThreadId },
+        thread: {
+          id: parentThreadId,
+          lineage: { parentThreadId: null, relationshipToParent: null },
+        },
         runs: [],
         contextTransfers: [],
         subagents: [
@@ -1077,7 +1083,10 @@ describe("OrchestratorMcpService", () => {
       let pendingRequest = false;
       const parentProjection = () =>
         ({
-          thread: { id: parentThreadId },
+          thread: {
+            id: parentThreadId,
+            lineage: { parentThreadId: null, relationshipToParent: null },
+          },
           runs: [],
           contextTransfers: [],
           subagents: [
@@ -1190,7 +1199,10 @@ describe("OrchestratorMcpService", () => {
       const taskId = NodeId.make("node:mcp-cancel-task");
       const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
       const parentProjection = {
-        thread: { id: parentThreadId },
+        thread: {
+          id: parentThreadId,
+          lineage: { parentThreadId: null, relationshipToParent: null },
+        },
         runs: [],
         contextTransfers: [],
         subagents: [
@@ -1282,7 +1294,10 @@ describe("OrchestratorMcpService", () => {
         const status = yield* Ref.make("running");
         const parentProjection = (taskStatus: string) =>
           ({
-            thread: { id: parentThreadId },
+            thread: {
+              id: parentThreadId,
+              lineage: { parentThreadId: null, relationshipToParent: null },
+            },
             runs: [],
             contextTransfers: [],
             subagents: [
@@ -1397,7 +1412,10 @@ describe("OrchestratorMcpService", () => {
       const taskId = NodeId.make("node:mcp-cancel-failed-task");
       const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
       const parentProjection = {
-        thread: { id: parentThreadId },
+        thread: {
+          id: parentThreadId,
+          lineage: { parentThreadId: null, relationshipToParent: null },
+        },
         runs: [],
         contextTransfers: [],
         subagents: [
@@ -1488,7 +1506,10 @@ describe("OrchestratorMcpService", () => {
       const taskId = NodeId.make("node:mcp-cancel-dispose-failed-task");
       const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
       const parentProjection = {
-        thread: { id: parentThreadId },
+        thread: {
+          id: parentThreadId,
+          lineage: { parentThreadId: null, relationshipToParent: null },
+        },
         runs: [],
         contextTransfers: [],
         subagents: [
@@ -1588,7 +1609,10 @@ describe("OrchestratorMcpService", () => {
         const taskId = NodeId.make("node:mcp-cancel-release-session-task");
         const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
         const parentProjection = {
-          thread: { id: parentThreadId },
+          thread: {
+            id: parentThreadId,
+            lineage: { parentThreadId: null, relationshipToParent: null },
+          },
           runs: [],
           contextTransfers: [],
           subagents: [
@@ -1686,7 +1710,12 @@ describe("OrchestratorMcpService", () => {
       const taskId = NodeId.make("node:mcp-cancel-dispose-failed-task");
       const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
       const parentProjection = {
-        thread: { id: parentThreadId, runtimeMode: "approval-required", interactionMode: "plan" },
+        thread: {
+          id: parentThreadId,
+          lineage: { parentThreadId: null, relationshipToParent: null },
+          runtimeMode: "approval-required",
+          interactionMode: "plan",
+        },
         runs: [],
         contextTransfers: [],
         subagents: [
@@ -1807,6 +1836,7 @@ describe("OrchestratorMcpService", () => {
           {
             thread: {
               id: parentThreadId,
+              lineage: { parentThreadId: null, relationshipToParent: null },
               runtimeMode: "approval-required",
               interactionMode: "default",
             },
@@ -2078,6 +2108,7 @@ describe("OrchestratorMcpService provider resolution", () => {
     ({
       thread: {
         id: parentThreadId,
+        lineage: { parentThreadId: null, relationshipToParent: null },
         projectId,
         title: "MCP parent",
         createdBy: "user",

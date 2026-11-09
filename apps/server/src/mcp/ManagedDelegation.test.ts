@@ -112,6 +112,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         const parent = {
           thread: {
             id: threadId,
+            lineage: { parentThreadId: null, relationshipToParent: null },
             projectId,
             title: "Parent",
             runtimeMode: "full-access",
@@ -294,6 +295,18 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       readonly providers?: ReadonlyArray<ServerProvider>;
       /** The lead is itself a delegated task with this binding, such as a Spec lead. */
       readonly parentTask?: Partial<AgentTaskBinding>;
+      readonly parentLineage?: {
+        readonly parentThreadId: string | null;
+        readonly relationshipToParent: "subagent" | "fork" | null;
+      };
+      readonly ancestors?: ReadonlyArray<{
+        readonly id: string;
+        readonly lineage: {
+          readonly parentThreadId: string | null;
+          readonly relationshipToParent: "subagent" | "fork" | null;
+        };
+      }>;
+      readonly readOnlyCaller?: boolean;
       /** The repository Forge says a Forge item belongs to, when a lead names one. */
       readonly itemProject?: string | null;
       /** Edits the saved policy, such as turning the review council on. */
@@ -352,6 +365,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       let parent = {
         thread: {
           id: threadId,
+          lineage: options.parentLineage ?? { parentThreadId: null, relationshipToParent: null },
           projectId,
           title: "Lead",
           runtimeMode: "full-access",
@@ -429,7 +443,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             Effect.succeed(
               id === parent.thread.id && (!options.champion || championLaunched)
                 ? (parent.thread as unknown as OrchestrationV2ThreadShell)
-                : (children.get(id) ?? null),
+                : (children.get(id) ??
+                    ((options.ancestors?.find((thread) => thread.id === id) ??
+                      null) as OrchestrationV2ThreadShell | null)),
             ),
           sendToThread: (input) =>
             Effect.suspend(() => {
@@ -630,7 +646,12 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       ) =>
         Effect.gen(function* () {
           const mcp = yield* Mcp.OrchestratorMcpService;
-          return yield* mcp.delegateTask(scope, input).pipe(Effect.flip);
+          return yield* mcp
+            .delegateTask(
+              options.readOnlyCaller === true ? { ...scope, endpointKey: "reader" } : scope,
+              input,
+            )
+            .pipe(Effect.flip);
         }).pipe(
           Effect.provide(
             Mcp.layer.pipe(
@@ -730,7 +751,11 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         addOpenSpecLead: (workId: string) => {
           const id = ThreadId.make(`open-spec-lead:${workId}`);
           childRecords.set(id, {
-            thread: { id, agentTask: { role: "lead", workId } },
+            thread: {
+              id,
+              lineage: { parentThreadId: null, relationshipToParent: null },
+              agentTask: { role: "lead", workId },
+            },
           } as never);
           parent = {
             ...parent,
@@ -1293,14 +1318,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         forgeItem: 9,
       });
 
-      // A Spec lead delegates its own leaves, but never another lead.
+      // A Spec lead delegates its own leaves.
       const child = yield* harness(undefined, true, { parentTask: { role: "lead" } });
-      expect(
-        (yield* child.delegate({
-          ...specLead({ forgeItem: 10 }),
-          agentTask: request({ role: "lead", taskClass: "mixed", workspacePath: child.lead }),
-        })).code,
-      ).toBe("capability_denied");
       yield* child.delegate({
         task: "Implement the importer",
         clientRequestId: "lead-worker",
@@ -1310,13 +1329,89 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       const leaf = yield* harness(undefined, true, {
         parentTask: { role: "implementation-worker" },
       });
+      const leafAttempt = yield* leaf.delegate({
+        task: "Implement the importer",
+        clientRequestId: "leaf-worker",
+        agentTask: request({ workspacePath: leaf.lead }),
+      });
+      expect(leafAttempt.code).not.toBe("capability_denied");
+
+      // Two delegations below a top-level thread: refused with what to do, counted from lineage.
+      const deepWorker = { task: "Implement", clientRequestId: "deep-worker" };
+      const twoDeep = {
+        parentTask: { role: "implementation-worker" },
+        parentLineage: { parentThreadId: "spec-lead", relationshipToParent: "subagent" },
+        ancestors: [
+          {
+            id: "spec-lead",
+            lineage: { parentThreadId: "top-level", relationshipToParent: "subagent" },
+          },
+          { id: "top-level", lineage: { parentThreadId: null, relationshipToParent: null } },
+        ],
+      } as const;
+      const atLimit = yield* harness(undefined, true, twoDeep);
+      const refused = yield* atLimit.delegate({
+        ...deepWorker,
+        agentTask: request({ workspacePath: atLimit.lead }),
+      });
+      expect(refused.code).toBe("capability_denied");
+      expect(refused.message).toContain("delegation limit");
+      // Sending it to a linked environment is refused here too, before any remote route.
+      const remote = yield* atLimit.delegate({
+        ...deepWorker,
+        clientRequestId: "deep-worker-remote",
+        target: { environmentId: EnvironmentId.make("linked") },
+        agentTask: request({ workspacePath: atLimit.lead }),
+      });
+      expect(remote.message).toContain("delegation limit");
+      // A fork sits at its source's depth, so it can't reset the count.
+      const forked = yield* harness(undefined, true, {
+        ...twoDeep,
+        parentLineage: { parentThreadId: "worker", relationshipToParent: "fork" },
+        ancestors: [{ id: "worker", lineage: twoDeep.parentLineage }, ...twoDeep.ancestors],
+      });
       expect(
-        (yield* leaf.delegate({
-          task: "Implement the importer",
-          clientRequestId: "leaf-worker",
-          agentTask: request({ workspacePath: leaf.lead }),
+        (yield* forked.delegate({
+          ...deepWorker,
+          agentTask: request({ workspacePath: forked.lead }),
+        })).message,
+      ).toContain("delegation limit");
+      // A lineage it can't read is refused rather than counted as shallow.
+      const unknown = yield* harness(undefined, true, {
+        ...twoDeep,
+        ancestors: [],
+      });
+      expect(
+        (yield* unknown.delegate({
+          ...deepWorker,
+          agentTask: request({ workspacePath: unknown.lead }),
         })).code,
-      ).toBe("capability_denied");
+      ).toBe("orchestration_error");
+
+      // A read-only agent starts only read-only roles, and nothing on a linked environment.
+      const reader = yield* harness(undefined, true, {
+        parentTask: { role: "reviewer", sourceAccess: "read-only" },
+        readOnlyCaller: true,
+      });
+      for (const attempt of [
+        { ...deepWorker, agentTask: request({ workspacePath: reader.lead }) },
+        { task: "Raw", clientRequestId: "raw-reader" },
+        {
+          ...deepWorker,
+          target: { environmentId: EnvironmentId.make("linked") },
+          agentTask: request({ role: "scout", workspacePath: reader.lead, readOnly: true }),
+        },
+      ]) {
+        const denied = yield* reader.delegate(attempt);
+        expect(denied.code).toBe("capability_denied");
+        expect(denied.message).toContain("read-only");
+      }
+      const scout = yield* reader.delegate({
+        task: "Find it",
+        clientRequestId: "reader-scout",
+        agentTask: request({ role: "scout", workspacePath: reader.lead }),
+      });
+      expect(scout.message ?? "").not.toContain("read-only agent");
     }).pipe(
       Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
     ),
@@ -1345,7 +1440,11 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       const occupant = (sourceAccess: "scoped-write" | "read-only") => (helper: string) => [
         {
           id: "sibling-helper",
-          lineage: { rootThreadId: "lead-thread" },
+          lineage: {
+            rootThreadId: "lead-thread",
+            parentThreadId: null,
+            relationshipToParent: null,
+          },
           worktreePath: helper,
           status: "running",
           agentTask: { workId: "someone-else", sourceAccess },
@@ -1683,7 +1782,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         ({
           id: `writer-in-${projectId}`,
           projectId,
-          lineage: { rootThreadId: "other-lead" },
+          lineage: { rootThreadId: "other-lead", parentThreadId: null, relationshipToParent: null },
           worktreePath,
           status: "running",
           agentTask: { workId: "other-work", sourceAccess: "scoped-write" },
@@ -1780,7 +1879,11 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
               {
                 id: "other-lead",
                 projectId: "lead-project",
-                lineage: { rootThreadId: "other-lead" },
+                lineage: {
+                  rootThreadId: "other-lead",
+                  parentThreadId: null,
+                  relationshipToParent: null,
+                },
                 worktreePath: null,
                 status: "running",
                 workspaceAttachments: [
