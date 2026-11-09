@@ -1396,21 +1396,20 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
       );
       return false;
     }
+    const named = { role: node.role, name: node.name };
     if (step._tag === "submit") {
       submitDispatched = true;
-      return yield* dispatch({ id, kind: "submit", matchedName: matched, chosen }, "click", {
-        locator,
-      });
+      return yield* dispatch(
+        { id, kind: "submit", matchedName: matched, chosen, target: named },
+        "click",
+        { locator },
+      );
     }
     if (step._tag === "action") {
+      const entry = { id, kind: "action" as const, matchedName: matched, chosen, target: named };
       return "press" in step.action
-        ? yield* dispatch({ id, kind: "action", matchedName: matched, chosen }, "press", {
-            locator,
-            key: step.action.press.key,
-          })
-        : yield* dispatch({ id, kind: "action", matchedName: matched, chosen }, "click", {
-            locator,
-          });
+        ? yield* dispatch(entry, "press", { locator, key: step.action.press.key })
+        : yield* dispatch(entry, "click", { locator });
     }
     attempted.add(id);
     const { binding } = step;

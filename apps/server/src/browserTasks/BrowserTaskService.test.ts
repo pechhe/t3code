@@ -1101,6 +1101,8 @@ describe("BrowserTaskService journeys", () => {
       const typed = recorded[0]!.find((step) => step.operation === "type")!;
       assert.strictEqual(typed.value, "a@b.c");
       assert.deepStrictEqual(typed.target, { role: "textbox", name: "Email" });
+      const clicked = recorded[0]!.find((step) => step.operation === "click")!;
+      assert.deepStrictEqual(clicked.target, { role: "button", name: "Save" });
     }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
   );
 
