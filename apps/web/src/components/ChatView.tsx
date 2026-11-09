@@ -2639,6 +2639,15 @@ export default function ChatView(props: ChatViewProps) {
     })
       ? activeContextWindow.usedTokens
       : null;
+  const unsetCompactionModel =
+    selectedProviderEntry !== undefined &&
+    resolveClaudeCompactionSetting(settings, selectedProviderEntry.instanceId).model.trim() === "";
+  const choreWorkerCompactionQuery = useEnvironmentQuery(
+    resumeCompactionTokens !== null && unsetCompactionModel
+      ? serverEnvironment.agentPolicyCompactionModel({ environmentId, input: {} })
+      : null,
+  );
+  const choreWorkerSelection = choreWorkerCompactionQuery.data?.selection ?? null;
   const resumeCompactionModelName =
     resumeCompactionTokens !== null &&
     selectedProviderEntry !== undefined &&
@@ -2666,6 +2675,13 @@ export default function ChatView(props: ChatViewProps) {
           ),
           usedTokens: resumeCompactionTokens,
           now: `${nowMinute}:00.000Z`,
+          choreWorker: {
+            selection: choreWorkerSelection,
+            models:
+              providerInstanceEntries.find(
+                (entry) => entry.instanceId === choreWorkerSelection?.instanceId,
+              )?.models ?? [],
+          },
         })
       : null;
   const [fullHistoryThreadKeys, setFullHistoryThreadKeys] = useState<ReadonlySet<string>>(

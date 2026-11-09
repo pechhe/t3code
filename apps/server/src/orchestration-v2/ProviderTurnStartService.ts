@@ -22,7 +22,6 @@ import {
   type ProjectId,
   isSideChatThread,
   isCompactionCommandMessage,
-  isProviderTextGenerationCapable,
   type ModelSelection,
   type ServerProvider,
   parseGoalCommand,
@@ -1098,7 +1097,7 @@ export const layer: Layer.Layer<
           ? [turn.tokenUsage]
           : [],
       );
-      const compactionPlan =
+      const plannedCompaction =
         providerThread.driver === "claudeAgent" &&
         message.attachments.length === 0 &&
         message.text.trim().toLowerCase() === "/compact"
@@ -1115,6 +1114,30 @@ export const layer: Layer.Layer<
               nowMs: DateTime.toEpochMillis(yield* DateTime.now),
             })
           : ({ kind: "conversation" } as const);
+      // The chore worker's models in the order its role would try them: the default summariser
+      // when no model is set, and the fallbacks when the chosen one fails.
+      const choreWorkerModels =
+        plannedCompaction.kind === "summary" || plannedCompaction.kind === "choreWorker"
+          ? yield* Effect.gen(function* () {
+              if (Option.isNone(managedAgents)) return [];
+              const providers = yield* Effect.forEach(
+                yield* providerInstances.listInstances,
+                (instance) =>
+                  instance.snapshot.getSnapshot.pipe(Effect.orElseSucceed(() => undefined)),
+              );
+              return yield* managedAgents.value.rankedTextModels({
+                providers: providers.filter(
+                  (provider): provider is ServerProvider => provider !== undefined,
+                ),
+              });
+            }).pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<ModelSelection>))
+          : [];
+      const compactionPlan =
+        plannedCompaction.kind !== "choreWorker"
+          ? plannedCompaction
+          : choreWorkerModels[0] === undefined
+            ? ({ kind: "conversation" } as const)
+            : ({ kind: "summary", modelSelection: choreWorkerModels[0] } as const);
       if (compactionPlan.kind === "summary") {
         const summariser = compactionPlan.modelSelection;
         const modelName = summariser.model;
@@ -1195,22 +1218,9 @@ export const layer: Layer.Layer<
         );
         // The chosen model first; when it fails (out of allowance, overloaded, gone), the chore
         // worker's models in the order its role would try them.
-        const fallbacks = yield* Effect.gen(function* () {
-          if (Option.isNone(managedAgents)) return [];
-          const providers = yield* Effect.forEach(
-            yield* providerInstances.listInstances,
-            (instance) => instance.snapshot.getSnapshot.pipe(Effect.orElseSucceed(() => undefined)),
-          );
-          return yield* managedAgents.value.rankedTextModels({
-            providers: providers.filter(
-              (provider): provider is ServerProvider =>
-                provider !== undefined && isProviderTextGenerationCapable(provider),
-            ),
-          });
-        }).pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<ModelSelection>));
         const summariserCandidates = [
           summariser,
-          ...fallbacks.filter(
+          ...choreWorkerModels.filter(
             (candidate) =>
               candidate.instanceId !== summariser.instanceId ||
               candidate.model !== summariser.model,

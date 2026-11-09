@@ -1607,6 +1607,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:agent-policy:read",
       tag: WS_METHODS.agentPolicyRead,
     }),
+    agentPolicyCompactionModel: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:agent-policy:compaction-model",
+      tag: WS_METHODS.agentPolicyCompactionModel,
+    }),
     agentPolicySave: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:agent-policy:save",
       tag: WS_METHODS.agentPolicySave,

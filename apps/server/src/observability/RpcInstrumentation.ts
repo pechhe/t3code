@@ -64,6 +64,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.serverGetDatabaseStorage]: "server",
   [WS_METHODS.serverGetSettings]: "server",
   [WS_METHODS.agentPolicyRead]: "agent-policy",
+  [WS_METHODS.agentPolicyCompactionModel]: "agent-policy",
   [WS_METHODS.agentPolicySave]: "agent-policy",
   [WS_METHODS.peerLinksList]: "peerLinks",
   [WS_METHODS.peerLinksLink]: "peerLinks",

@@ -86,6 +86,7 @@ import {
 } from "./providerSetup.ts";
 import * as Schema from "effect/Schema";
 import {
+  AgentPolicyCompactionModel,
   AgentPolicySettings,
   AgentPolicySaveInput,
   AgentPolicySettingsError,
@@ -644,6 +645,7 @@ export const WS_METHODS = {
   serverGetSettings: "server.getSettings",
   agentPolicyRead: "agentPolicy.read",
   agentPolicySave: "agentPolicy.save",
+  agentPolicyCompactionModel: "agentPolicy.compactionModel",
   peerLinksList: "peerLinks.list",
   threadHandoffOptions: "threadHandoff.options",
   threadHandoffStart: "threadHandoff.start",
@@ -1056,6 +1058,11 @@ const WsAgentPolicyReadRpc = Rpc.make(WS_METHODS.agentPolicyRead, {
   payload: Schema.Struct({}),
   success: AgentPolicySettings,
   error: Schema.Union([EnvironmentAuthorizationError, AgentPolicySettingsError]),
+});
+const WsAgentPolicyCompactionModelRpc = Rpc.make(WS_METHODS.agentPolicyCompactionModel, {
+  payload: Schema.Struct({}),
+  success: AgentPolicyCompactionModel,
+  error: EnvironmentAuthorizationError,
 });
 const WsAgentPolicySaveRpc = Rpc.make(WS_METHODS.agentPolicySave, {
   payload: AgentPolicySaveInput,
@@ -2833,6 +2840,7 @@ export const WsServerOperationsRpcGroup = RpcGroup.make(
   WsServerGetDatabaseStorageRpc,
   WsServerGetSettingsRpc,
   WsAgentPolicyReadRpc,
+  WsAgentPolicyCompactionModelRpc,
   WsAgentPolicySaveRpc,
   WsServerUpdateSettingsRpc,
   WsServerDiscoverSourceControlRpc,

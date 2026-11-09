@@ -2947,6 +2947,51 @@ describe("Claude compaction on another account", () => {
     }),
   );
 
+  effectIt.effect(
+    "with no model set, a cold compaction goes to the chore worker's first model",
+    () =>
+      Effect.gen(function* () {
+        yield* setClaudeClock;
+        const harness = makeLocalCommandHarness({
+          text: "/compact",
+          previousMessages: ["Fix the login redirect"],
+          nativeSession: true,
+          history: threadHistory,
+          claude: otherAccountSettings({}, CACHE_EXPIRED),
+          fallbackSummariser: {
+            instanceId: ProviderInstanceId.make("pi-spare"),
+            model: "gpt-5.5-mini",
+            summary: "Chore worker summary.",
+          },
+        });
+
+        yield* harness.start;
+
+        expect(harness.startRootRun).not.toHaveBeenCalled();
+        expect(harness.projection().turnItems).toMatchObject([
+          { type: "compaction", model: "gpt-5.5-mini", summary: "Chore worker summary." },
+        ]);
+      }),
+  );
+
+  effectIt.effect("with no model set and no chore worker model, the conversation compacts", () =>
+    Effect.gen(function* () {
+      yield* setClaudeClock;
+      const harness = makeLocalCommandHarness({
+        text: "/compact",
+        previousMessages: ["Fix the login redirect"],
+        nativeSession: true,
+        failReadsAfterRunning: true,
+        claude: otherAccountSettings({}, CACHE_EXPIRED),
+      });
+
+      yield* harness.start;
+
+      expect(harness.startRootRun).toHaveBeenCalledTimes(1);
+      expect(harness.startRootRun.mock.calls[0]?.[0].compaction).toBeUndefined();
+    }),
+  );
+
   effectIt.effect("the conversation's own account still compacts in place while warm", () =>
     Effect.gen(function* () {
       yield* setClaudeClock;

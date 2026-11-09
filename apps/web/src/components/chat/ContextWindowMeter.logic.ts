@@ -48,7 +48,7 @@ export function hasAvailableCompactionProvider(input: {
 
 /**
  * The cheaper model that will summarise the next compaction, or null when the conversation's own
- * model does. The server decides with the same shared predicate, so this only labels the promise.
+ * model does (including an unset model whose chore worker offers none). The server decides with the same shared predicate, so this only labels the promise.
  */
 export function resolveCompactionModelDisplayName(input: {
   readonly setting: {
@@ -65,6 +65,11 @@ export function resolveCompactionModelDisplayName(input: {
   readonly usages: ReadonlyArray<OrchestrationV2ProviderTurnTokenUsage>;
   readonly usedTokens: number;
   readonly now: string;
+  /** The model the server says the chore worker would summarise with now, for an unset model. */
+  readonly choreWorker?: {
+    readonly selection: ModelSelection | null;
+    readonly models: ReadonlyArray<ServerProviderModel>;
+  };
 }): string | null {
   const nowMs = Date.parse(input.now);
   const slug = input.setting.model.trim();
@@ -79,6 +84,14 @@ export function resolveCompactionModelDisplayName(input: {
     chosenWindowTokens: chosen?.contextWindowTokens,
     sameAccount: input.setting.instanceId === input.conversationInstanceId,
   });
+  if (choice.choreWorker) {
+    const picked = input.choreWorker?.selection;
+    if (picked === null || picked === undefined) return null;
+    const known = input.choreWorker?.models.find((model) => model.slug === picked.model);
+    return known === undefined
+      ? formatModelSlugName(picked.model)
+      : getDisplayModelName(known, { preferShortName: true }).replace(/^Claude /, "");
+  }
   if (choice.model === null) return null;
   // Another account can be offline, so its catalog may not list the model it would run.
   return chosen === undefined

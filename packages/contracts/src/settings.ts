@@ -923,11 +923,11 @@ export const ClaudeSettings = makeProviderSettingsSchema(
       Schema.annotateKey({
         title: "Compact with",
         description:
-          "The model that summarises a conversation when T3 Code compacts it. The conversation keeps its own model; a model on another account is written by that account and handed to this one.",
+          "The model that summarises a conversation when T3 Code compacts it. The conversation keeps its own model; a model on another account is written by that account and handed to this one. Unset, a compaction after the prompt cache has expired uses your Chore worker's models, and the next one if that one fails.",
         providerSettingsForm: {
           control: "model",
           modelOptions: {
-            emptyLabel: "Same as the conversation",
+            emptyLabel: "Chore worker (default)",
             instanceKey: "compactModelInstanceId",
           },
           clearWhenEmpty: "omit",

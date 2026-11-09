@@ -67,7 +67,7 @@ describe("ProviderSettingsForm helpers", () => {
       label: "Compact with",
       modelChoice: {
         instanceKey: "compactModelInstanceId",
-        emptyLabel: "Same as the conversation",
+        emptyLabel: "Chore worker (default)",
       },
     });
   });

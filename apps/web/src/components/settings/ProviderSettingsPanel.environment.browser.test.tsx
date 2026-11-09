@@ -593,7 +593,7 @@ describe("pooled provider settings", () => {
     // The shared choice is the composer's picker, which reaches every account's models.
     await expect
       .element(page.getByRole("button", { name: "Compact with" }))
-      .toHaveTextContent("Same as the conversation");
+      .toHaveTextContent("Chore worker (default)");
     await userEvent.click(
       page.getByRole("switch", { name: "Only when the prompt cache has expired" }),
     );

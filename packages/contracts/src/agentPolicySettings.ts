@@ -18,6 +18,11 @@ export const AgentPolicyPreview = Schema.Struct({
   candidates: Schema.Array(AgentPolicyCandidate),
 });
 export type AgentPolicyPreview = typeof AgentPolicyPreview.Type;
+/** The model the chore worker's role would summarise a compaction with now, if any. */
+export const AgentPolicyCompactionModel = Schema.Struct({
+  selection: Schema.NullOr(ModelSelection),
+});
+export type AgentPolicyCompactionModel = typeof AgentPolicyCompactionModel.Type;
 export const AgentPolicySettings = Schema.Struct({
   snapshot: AgentPolicySnapshot,
   sourceRoot: Schema.String,

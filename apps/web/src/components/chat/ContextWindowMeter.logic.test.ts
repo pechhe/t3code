@@ -215,4 +215,26 @@ describe("resolveCompactionModelDisplayName", () => {
       }),
     ).toBe("DeepSeek V4.1 Flash");
   });
+
+  it("names the chore worker's model when none is set and the cache has expired", () => {
+    const unset = { ...input, setting: { ...input.setting, model: "" } };
+    const choreWorker = {
+      selection: { instanceId: ProviderInstanceId.make("pi"), model: "gpt-5.5-mini" },
+      models: [{ ...haiku, slug: "gpt-5.5-mini", name: "GPT 5.5 Mini" }],
+    };
+    expect(resolveCompactionModelDisplayName({ ...unset, choreWorker })).toBe("GPT 5.5 Mini");
+    expect(
+      resolveCompactionModelDisplayName({
+        ...unset,
+        choreWorker: { selection: null, models: [] },
+      }),
+    ).toBe(null);
+    expect(
+      resolveCompactionModelDisplayName({
+        ...unset,
+        choreWorker,
+        now: "2026-09-04T10:30:00.000Z",
+      }),
+    ).toBe(null);
+  });
 });

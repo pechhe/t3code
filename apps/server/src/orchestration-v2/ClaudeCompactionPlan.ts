@@ -20,17 +20,15 @@ import {
 } from "../provider/ClaudeModelCatalog.ts";
 
 /**
- * How a Claude `/compact` turn is summarised:
- * - `conversation`: the conversation's own model compacts in place, as always.
- * - `provider`: the chosen model runs on this same account, so the provider compacts with it.
- * - `summary`: the chosen model runs on another account, so T3 writes the summary from the
- *   thread's transcript and hands it to a fresh session of this account.
- * - `windowTooSmall`: the chosen model was passed over because its window is smaller than the
- *   thread, which only matters when the provider has to read the whole thread itself.
+ * How a Claude `/compact` turn is summarised: `conversation` (its own model, in place), `provider`
+ * (a chosen model on this account), `summary` (a chosen model on another account, written by T3),
+ * `choreWorker` (no model set and a cold cache: the chore worker's models write the summary, or
+ * the conversation's model when it has none) or `windowTooSmall` (the chosen model was passed over).
  */
 export type ClaudeCompactionPlan =
   | { readonly kind: "conversation" }
   | { readonly kind: "windowTooSmall" }
+  | { readonly kind: "choreWorker" }
   | { readonly kind: "provider"; readonly modelSelection: ModelSelection }
   | { readonly kind: "summary"; readonly modelSelection: ModelSelection };
 
@@ -73,6 +71,7 @@ export function planClaudeCompaction(input: {
     }),
     sameAccount,
   });
+  if (choice.choreWorker) return { kind: "choreWorker" };
   if (choice.model === null) {
     return choice.windowTooSmall ? { kind: "windowTooSmall" } : { kind: "conversation" };
   }

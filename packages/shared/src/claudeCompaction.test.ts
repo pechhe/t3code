@@ -25,6 +25,7 @@ describe("chooseCompactionModel", () => {
       model: "claude-haiku-4-5",
       crossAccount: false,
       windowTooSmall: false,
+      choreWorker: false,
     });
   });
 
@@ -36,14 +37,31 @@ describe("chooseCompactionModel", () => {
     ["the cache is warm", { promptCacheExpiresAt: WARM }],
     ["the expiry is unknown", { promptCacheExpiresAt: undefined }],
     ["the expiry is unreadable", { promptCacheExpiresAt: "soon" }],
-    ["no model is chosen", { setting: { model: " ", onlyWhenCold: true } }],
     [
       "the chosen model is the conversation's",
       { setting: { model: "claude-sonnet-5-5", onlyWhenCold: true } },
     ],
     ["the chosen model's window is unknown", { chosenWindowTokens: undefined }],
   ])("keeps the conversation's model when %s", (_name, overrides) => {
-    expect(choose(overrides)).toEqual({ model: null, crossAccount: false, windowTooSmall: false });
+    expect(choose(overrides)).toEqual({
+      model: null,
+      crossAccount: false,
+      windowTooSmall: false,
+      choreWorker: false,
+    });
+  });
+
+  it("hands a cold compaction to the chore worker when no model is set", () => {
+    expect(choose({ setting: { model: " ", onlyWhenCold: true } })).toEqual({
+      model: null,
+      crossAccount: false,
+      windowTooSmall: false,
+      choreWorker: true,
+    });
+    expect(
+      choose({ setting: { model: "", onlyWhenCold: true }, promptCacheExpiresAt: WARM })
+        .choreWorker,
+    ).toBe(false);
   });
 
   it("chooses the model on a warm cache when the switch is off", () => {
@@ -60,6 +78,7 @@ describe("chooseCompactionModel", () => {
       model: null,
       crossAccount: false,
       windowTooSmall: true,
+      choreWorker: false,
     });
     expect(choose({ usedTokens: 200_000 }).model).toBe("claude-haiku-4-5");
   });
@@ -67,7 +86,12 @@ describe("chooseCompactionModel", () => {
   it("chooses another account's model whatever the thread's size or that model's window", () => {
     expect(
       choose({ sameAccount: false, usedTokens: 900_000, chosenWindowTokens: undefined }),
-    ).toEqual({ model: "claude-haiku-4-5", crossAccount: true, windowTooSmall: false });
+    ).toEqual({
+      model: "claude-haiku-4-5",
+      crossAccount: true,
+      windowTooSmall: false,
+      choreWorker: false,
+    });
   });
 
   it("summarises on another account when it names the conversation's own model", () => {
@@ -76,7 +100,12 @@ describe("chooseCompactionModel", () => {
         sameAccount: false,
         setting: { model: "claude-sonnet-5-5", onlyWhenCold: false },
       }),
-    ).toEqual({ model: "claude-sonnet-5-5", crossAccount: true, windowTooSmall: false });
+    ).toEqual({
+      model: "claude-sonnet-5-5",
+      crossAccount: true,
+      windowTooSmall: false,
+      choreWorker: false,
+    });
   });
 
   it("still keeps the conversation's model on another account while the cache is warm", () => {
@@ -84,6 +113,7 @@ describe("chooseCompactionModel", () => {
       model: null,
       crossAccount: false,
       windowTooSmall: false,
+      choreWorker: false,
     });
   });
 });

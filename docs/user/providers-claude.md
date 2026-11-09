@@ -138,8 +138,11 @@ over 200,000 tokens. Each Claude provider's settings can override it:
 
 ### Compact on a cheaper model
 
-Set **Compact with** in the Claude provider settings to summarize with a cheaper
-model once the thread's prompt cache has expired. While the cache is warm, the
+Leave **Compact with** on **Chore worker (default)** and a compaction after the
+thread's prompt cache has expired is summarized by your Chore worker role's first
+available model; the Compact chip names it. Or pick a model yourself, on any
+account, to summarize with that instead. With no Chore worker model available,
+the conversation's own model compacts. While the cache is warm, the
 conversation's own model compacts, because reading its cache costs far less than
 a fresh pass on any model. The thread's model, the model picker and the message
 you send afterwards never change. Turn off **Only when the prompt cache has

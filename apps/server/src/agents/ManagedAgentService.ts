@@ -20,6 +20,7 @@ import {
   type ProjectId,
   type RunId,
   type RuntimeMode,
+  isProviderTextGenerationCapable,
   type ServerProvider,
   type ThreadId,
   grantsBrowserTasks,
@@ -732,7 +733,7 @@ const make = Effect.gen(function* () {
         .rank({
           snapshot,
           overloads: yield* currentOverloads,
-          providers: input.providers,
+          providers: input.providers.filter(isProviderTextGenerationCapable),
           ceiling: "full-access",
           runtimeMode: "full-access",
           allowTrustedClaudeWriters: true,

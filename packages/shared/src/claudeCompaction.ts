@@ -74,6 +74,8 @@ export interface ClaudeCompactionModelChoice {
   readonly crossAccount: boolean;
   /** The setting's model was passed over because its window is smaller than the thread. */
   readonly windowTooSmall: boolean;
+  /** No model is set, so the chore worker's first available model summarises. */
+  readonly choreWorker: boolean;
 }
 
 /**
@@ -82,7 +84,9 @@ export interface ClaudeCompactionModelChoice {
  * chip with it, so the chip's promise and the turn cannot disagree.
  *
  * The conversation's model compacts while its prompt cache is warm (a read at a tenth of its input
- * price) unless the setting applies always, and whenever the cache expiry is unknown.
+ * price) unless the setting applies always, and whenever the cache expiry is unknown. With no model
+ * set, a cold cache hands the summary to the chore worker's models (`choreWorker`); the server
+ * still falls back to the conversation's model when the chore worker has none to offer.
  *
  * On the conversation's own account the chosen model needs a context window at least the thread's
  * size, because the provider summarises the thread in place. On another account T3 writes the
@@ -99,9 +103,13 @@ export function chooseCompactionModel(input: {
   /** The chosen model runs on the conversation's own account. */
   readonly sameAccount: boolean;
 }): ClaudeCompactionModelChoice {
-  const keep = { model: null, crossAccount: false, windowTooSmall: false } as const;
+  const keep = {
+    model: null,
+    crossAccount: false,
+    windowTooSmall: false,
+    choreWorker: false,
+  } as const;
   const chosen = input.setting.model.trim();
-  if (chosen === "") return keep;
   // The same model slug on another account is still another account's work: it summarises there.
   if (chosen === input.conversationModel && input.sameAccount) return keep;
   if (input.setting.onlyWhenCold) {
@@ -111,9 +119,10 @@ export function chooseCompactionModel(input: {
         : Date.parse(input.promptCacheExpiresAt);
     if (!Number.isFinite(expiresAtMs) || input.nowMs < expiresAtMs) return keep;
   }
-  if (!input.sameAccount) return { model: chosen, crossAccount: true, windowTooSmall: false };
+  if (chosen === "") return { ...keep, choreWorker: true };
+  if (!input.sameAccount)
+    return { model: chosen, crossAccount: true, windowTooSmall: false, choreWorker: false };
   if (input.chosenWindowTokens === undefined) return keep;
-  if (input.chosenWindowTokens < input.usedTokens)
-    return { model: null, crossAccount: false, windowTooSmall: true };
-  return { model: chosen, crossAccount: false, windowTooSmall: false };
+  if (input.chosenWindowTokens < input.usedTokens) return { ...keep, windowTooSmall: true };
+  return { model: chosen, crossAccount: false, windowTooSmall: false, choreWorker: false };
 }

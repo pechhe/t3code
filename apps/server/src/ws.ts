@@ -1560,6 +1560,7 @@ export const layerWsRpc = (
         );
       const experiments = yield* ExperimentService.ExperimentService;
       const agentPolicySettings = yield* AgentPolicySettings.AgentPolicySettingsService;
+      const compactionManagedAgents = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
       const experimentResults = yield* ExperimentResults.ExperimentResults;
       const usage = yield* UsageService.UsageService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
@@ -3452,6 +3453,16 @@ export const layerWsRpc = (
           resourceTelemetry.readHistory(input),
         [WS_METHODS.experimentsCreate]: (input) => experiments.create(input),
         [WS_METHODS.agentPolicyRead]: () => agentPolicySettings.read(),
+        [WS_METHODS.agentPolicyCompactionModel]: () =>
+          Option.match(compactionManagedAgents, {
+            onNone: () => Effect.succeed({ selection: null }),
+            onSome: (managedAgents) =>
+              providerRegistry.getProviders.pipe(
+                Effect.flatMap((providers) => managedAgents.rankedTextModels({ providers })),
+                Effect.map((models) => ({ selection: models[0] ?? null })),
+                Effect.orElseSucceed(() => ({ selection: null })),
+              ),
+          }),
         [WS_METHODS.agentPolicySave]: (input) => agentPolicySettings.save(input),
         [WS_METHODS.experimentsTransition]: (input) => experiments.transition(input),
         [WS_METHODS.experimentsList]: (_input) => experiments.list(),
