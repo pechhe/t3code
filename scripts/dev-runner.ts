@@ -623,8 +623,8 @@ const runRepoScript = Effect.fn("dev-runner.runRepoScript")(function* (
 });
 
 /**
- * The first start in a worktree seeds its empty database from a small live database
- * and warms the web dependency cache. Each step checks for its own output, so
+ * The first start in a worktree seeds its empty database from the reusable seed in
+ * ~/.t3/dev-seed, or else a small live database, and warms the web dependency cache. Each step checks for its own output, so
  * later starts skip it.
  */
 const prepareFirstStart = Effect.fn("dev-runner.prepareFirstStart")(function* (input: {
@@ -648,7 +648,10 @@ const prepareFirstStart = Effect.fn("dev-runner.prepareFirstStart")(function* (i
         );
       }
     }
-    const source = path.join(yield* HostProcess.HomeDirectory, ".t3", "userdata", "statev2.sqlite");
+    const t3Root = path.join(yield* HostProcess.HomeDirectory, ".t3");
+    const reusableSeed = path.join(t3Root, "dev-seed", "userdata", "statev2.sqlite");
+    const seedExists = yield* exists(reusableSeed);
+    const source = seedExists ? reusableSeed : path.join(t3Root, "userdata", "statev2.sqlite");
     // A V1 state.sqlite counts as data too: the server imports it only while
     // statev2.sqlite is missing, so seeding would hide it.
     if (
@@ -658,9 +661,9 @@ const prepareFirstStart = Effect.fn("dev-runner.prepareFirstStart")(function* (i
     ) {
       const info = yield* fs.stat(source).pipe(Effect.option);
       if (Option.isSome(info)) {
-        if (Number(info.value.size) > LARGE_DEV_DATABASE_BYTES) {
+        if (!seedExists && Number(info.value.size) > LARGE_DEV_DATABASE_BYTES) {
           yield* Effect.logWarning(
-            `[dev-runner] ${source} exceeds 500 MiB; skipping automatic database seeding and starting with an empty database. Run \`vp run migrate-dev-db\` manually with dev stopped if needed; it may use substantial disk space before pruning.`,
+            `[dev-runner] ${source} exceeds 500 MiB; skipping automatic database seeding and starting with an empty database. Run \`vp run migrate-dev-db --base-dir ~/.t3/dev-seed\` once to build a small seed every new worktree reuses; it may use substantial disk space before pruning.`,
           );
         } else {
           yield* Effect.logInfo(
@@ -770,7 +773,9 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     webOffset,
     t3Home: resolvedT3Home,
     browser: input.browser,
-    autoBootstrapProjectFromCwd: input.autoBootstrapProjectFromCwd,
+    // Started from apps/server, it would add a stray project whose thread claims a SlipJay workspace.
+    autoBootstrapProjectFromCwd:
+      input.autoBootstrapProjectFromCwd ?? (worktreeHome === undefined ? undefined : false),
     logWebSocketEvents: input.logWebSocketEvents,
     host: input.host,
     port: input.port,

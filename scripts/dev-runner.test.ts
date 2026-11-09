@@ -806,6 +806,46 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         }).pipe(Effect.scoped),
       );
 
+      it.effect("skips the startup project and thread in a worktree unless asked for", () =>
+        Effect.gen(function* () {
+          const root = yield* makeWorktree;
+          const spawnedBootstrap = (input: {
+            readonly cwd: string;
+            readonly flag: boolean | undefined;
+          }) =>
+            Effect.gen(function* () {
+              let captured: Record<string, string | undefined> | undefined;
+              const spawnerLayer = Layer.succeed(
+                ChildProcessSpawner.ChildProcessSpawner,
+                ChildProcessSpawner.make((command) => {
+                  captured = (
+                    command as {
+                      readonly options?: { readonly env?: Record<string, string | undefined> };
+                    }
+                  ).options?.env;
+                  return Effect.succeed(mockProcess(0));
+                }),
+              );
+              yield* runDevRunnerWithInput({
+                ...devServerInput,
+                t3Home: undefined,
+                autoBootstrapProjectFromCwd: input.flag,
+              }).pipe(
+                Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
+                Effect.provideService(HostProcess.Platform, "linux"),
+                Effect.provideService(HostProcess.WorkingDirectory, input.cwd),
+                Effect.provideService(HostProcess.HomeDirectory, input.cwd),
+                Effect.provideService(HostProcess.Environment, {}),
+              );
+              return captured?.T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD;
+            });
+
+          assert.equal(yield* spawnedBootstrap({ cwd: root, flag: undefined }), "0");
+          assert.equal(yield* spawnedBootstrap({ cwd: root, flag: true }), "1");
+          assert.isUndefined(yield* spawnedBootstrap({ cwd: NodeOS.tmpdir(), flag: undefined }));
+        }).pipe(Effect.scoped),
+      );
+
       it.effect("seeds a worktree database from ~/.t3 only when it has none", () =>
         Effect.gen(function* () {
           const path = yield* Path.Path;
@@ -857,9 +897,10 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         { sourceBytes: 500 * 1024 * 1024 - 1, shouldSeed: true },
         { sourceBytes: 500 * 1024 * 1024, shouldSeed: true },
         { sourceBytes: 500 * 1024 * 1024 + 1, shouldSeed: false },
+        { sourceBytes: 500 * 1024 * 1024 + 1, shouldSeed: true, reusableSeed: true },
       ])(
-        "checks source size before seeding an empty worktree: $sourceBytes bytes",
-        ({ sourceBytes, shouldSeed }) =>
+        "checks source size before seeding an empty worktree: $sourceBytes bytes, reusable seed $reusableSeed",
+        ({ sourceBytes, shouldSeed, reusableSeed }) =>
           Effect.gen(function* () {
             const fs = yield* FileSystem.FileSystem;
             const path = yield* Path.Path;
@@ -868,6 +909,11 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             const source = path.join(home, ".t3", "userdata", "statev2.sqlite");
             NodeFS.mkdirSync(path.dirname(source), { recursive: true });
             NodeFS.writeFileSync(source, "");
+            const seed = path.join(home, ".t3", "dev-seed", "userdata", "statev2.sqlite");
+            if (reusableSeed) {
+              NodeFS.mkdirSync(path.dirname(seed), { recursive: true });
+              NodeFS.writeFileSync(seed, "");
+            }
             const spawned: Array<ReadonlyArray<string>> = [];
             const warnings: Array<string> = [];
             const spawnerLayer = Layer.succeed(
@@ -896,7 +942,9 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
                     .stat(file)
                     .pipe(
                       Effect.map((info) =>
-                        file === source ? { ...info, size: ByteSize.bytes(sourceBytes) } : info,
+                        file === source || file === seed
+                          ? { ...info, size: ByteSize.bytes(sourceBytes) }
+                          : info,
                       ),
                     ),
               }),
@@ -918,6 +966,10 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             ]);
             if (shouldSeed) {
               assert.deepStrictEqual(warnings, []);
+              const migrate = spawned.find((args) =>
+                args.some((arg) => arg.endsWith("migrate-dev-db.ts")),
+              );
+              assert.include([...(migrate ?? [])], reusableSeed ? seed : source);
             } else {
               assert.lengthOf(warnings, 1);
               assert.include(warnings[0]!, source);

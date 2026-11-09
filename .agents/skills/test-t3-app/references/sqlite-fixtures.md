@@ -47,3 +47,7 @@ Most V2 rows carry a `payload_json` that must decode against the schemas in `pac
 Direct projection writes are appropriate for ephemeral visual states, edge-case counts, long titles, long timelines, and similar UI fixtures. They do not create a coherent event history. Leave the event log (`orchestration_events`) unchanged, and do not use direct projection writes to claim backend business behavior works.
 
 Use the app's commands or APIs for behavior tests. Use `node apps/server/src/bin.ts auth ...` for auth state rather than editing `auth_pairing_links` or `auth_sessions`.
+
+## Scheduled tasks
+
+Seeding drops `scheduled_tasks` so a dev server never runs the owner's agents, and a fixture puts that risk back. For real-looking rows, read `scheduled_tasks` from the live database (and `peach-box`'s, where most tasks live) read-only and insert them with the server stopped: `webhook_token`, `webhook_secret`, `last_run_thread_id` and `last_run_webhook_delivery_id` NULL, `project_id` set to a dev project, and every `next_run_at` at least a day out. Stop the server and set `enabled = 0` when the captures are done.

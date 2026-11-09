@@ -1,12 +1,12 @@
 ---
 name: test-t3-app
-description: Test T3 Code's web and desktop UI through its built-in Browser panel against isolated development state. Use for browser verification, browser pairing recovery, and test fixtures. Use test-t3-mobile for native mobile verification.
+description: Screenshot or test T3 Code's web and desktop UI headlessly against isolated development state. Use to show a proposed UI, for browser verification, browser pairing recovery, and test fixtures. Use test-t3-mobile for native mobile verification.
 ---
 
 # Test T3 web and desktop
 
-Use T3's built-in Browser panel for verification. Follow the recovery steps
-below before declaring it unavailable. Do not install or switch to another
+Verify and show UI in T3's headless browser. Follow the recovery steps below
+before declaring it unavailable. Do not install or switch to another
 automation system. For native mobile testing, use
 [test-t3-mobile](../test-t3-mobile/SKILL.md).
 
@@ -17,9 +17,11 @@ repository root and retain its terminal session. Use the worktree's ignored
 `.t3` state and read the actual ports and pairing URL from the dev-runner output.
 Never run against `~/.t3/userdata` or set `VITE_HTTP_URL` or `VITE_WS_URL`.
 
-Test with meaningful project and thread data. Read
-[references/sqlite-fixtures.md](references/sqlite-fixtures.md) only when
-inspecting or seeding SQLite. Stop the test server before direct fixture writes.
+Test with meaningful project and thread data. A new worktree seeds from
+`~/.t3/dev-seed` when it exists; the dev-runner warning names the command that
+builds it. Read [references/sqlite-fixtures.md](references/sqlite-fixtures.md)
+only when inspecting or seeding SQLite, or for data seeding drops, such as
+scheduled tasks. Stop the test server before direct fixture writes.
 
 ## Drive agent turns for free
 
@@ -34,18 +36,22 @@ with `preview_evaluate`, or run
 When the test needs real provider behavior, use that provider's cheapest
 model, such as Haiku for Claude or Luna for Codex.
 
-## Use the Browser panel
+## Drive the headless browser
 
-Call `preview_status`. If no tab can be automated, call `preview_open`, including
-when status reports `available: false` or `tabId: null`. Status can report
-unavailable simply because no tab exists yet; opening a tab needs no user action.
-Stop verification and explain the blocker only if the tools are absent or
-`preview_open` reports unavailable or fails.
+Use `t3_browser_*`; a task whose tool list has only `preview_*` uses those the same way.
 
-Navigate to the complete startup pairing URL once with
-`preview_navigate`, then use `preview_snapshot` and T3's interaction tools.
-If the token was consumed or expired, run `node apps/server/src/bin.ts pair`
-for a fresh one. Keep using the same tab.
+1. Open the complete pairing URL with `t3_browser_open`. The token is single-use and a new
+   tab has no cookie, so keep the tab, or mint a token with `node apps/server/src/bin.ts pair`.
+2. On `Managed browser blocked address`, add `localhost:5733-8733` to
+   `agentBrowserLoopbackAllow` under this project's id in `projectSettingsOverrides` in
+   `~/.t3/userdata/settings.json`, then open again. The server reloads that file live.
+3. Navigate, then `t3_browser_snapshot` until the page shows content. A screenshot straight
+   after navigating is blank.
+4. Capture every state with `t3_browser_task` `steps`, and embed each returned `path` in
+   your reply as a Markdown image.
+
+Your reply carries the screenshots, so give no preview link unless the change is judged by
+motion or the user asks for one.
 
 ## Verify and retain
 
