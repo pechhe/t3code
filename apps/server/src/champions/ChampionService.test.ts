@@ -4766,6 +4766,10 @@ describe("a journey check", () => {
                 yield* service.candidateReplay(f.caller(), { findingId: finding.id }),
                 retest,
               );
+              assert.include(
+                retest.brief,
+                'could not run, which does not show the confirmed bug is fixed: say "blocked"',
+              );
               f.installReplay(
                 retest.workId,
                 retest.attemptId,

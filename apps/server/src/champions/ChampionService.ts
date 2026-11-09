@@ -2682,6 +2682,7 @@ const make = Effect.gen(function* () {
       signInPath: shard.signInPath,
       steps: candidate.steps,
       finalUrl: candidate.finalUrl,
+      retest: candidate.kind === "retest",
     });
     yield* journeys
       .saveCandidate({

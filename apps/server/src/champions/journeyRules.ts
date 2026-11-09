@@ -293,6 +293,7 @@ export const replayBrief = (input: {
   readonly signInPath: string;
   readonly steps: ReadonlyArray<ChampionJourneyStep>;
   readonly finalUrl: string | null;
+  readonly retest: boolean;
 }) => `An earlier browser journey may have found a bug. Decide whether it reproduces. You are the only judge: the journey's own model never judges correctness.
 
 You are on a freshly seeded database that no other journey has touched, so anything that depended on shared data will not recur. Do not read source. Use only the integrated browser, and only ${input.origin}.
@@ -304,7 +305,7 @@ Observed: ${input.observed}
 Sign in by opening ${input.origin}${input.signInPath}, then follow these recorded steps in order. Paths are relative to ${input.origin}. Where a name differs slightly because this database is fresh, use the closest match and say so.
 ${describeSteps(input.steps)}
 ${input.finalUrl === null ? "" : `The journey ended on ${pathOf(input.finalUrl)}.\n`}
-Say "reproduced" only if you saw the observed failure yourself and a real person would call it broken: an error, a dead end, or work lost. The report's expectation may itself be wrong: an empty state on a fresh database, a nicety the page does not offer, or a feature failing because this contained copy has no real model, voice or outbound service, is not a bug, so say "not-reproduced" for those, as you do when you carried out every step and the expected behaviour happened. If a step's target does not exist on this fresh database, the failure needed data only the journey had: say "not-reproduced" too. Say "blocked" only when the browser or the preview stopped you, and why; that proves nothing either way. Take a screenshot of the final page either way.
+Say "reproduced" only if you saw the observed failure yourself and a real person would call it broken: an error, a dead end, or work lost. The report's expectation may itself be wrong: an empty state on a fresh database, a nicety the page does not offer, or a feature failing because this contained copy has no real model, voice or outbound service, is not a bug, so say "not-reproduced" for those, as you do when you carried out every step and the expected behaviour happened. If a step's target does not exist on this fresh database, ${input.retest ? 'this re-test could not run, which does not show the confirmed bug is fixed: say "blocked"' : 'the failure needed data only the journey had: say "not-reproduced" too'}. Otherwise say "blocked" only when the browser or the preview stopped you, and why; that proves nothing either way. Take a screenshot of the final page either way.
 
 ${VERDICT_FORMAT}`;
 
