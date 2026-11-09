@@ -38,7 +38,9 @@ model, such as Haiku for Claude or Luna for Codex.
 
 ## Drive the headless browser
 
-Use `t3_browser_*`; a task whose tool list has only `preview_*` uses those the same way.
+Use `t3_browser_*`; a task whose tool list has only `preview_*` uses those the same way,
+calling `preview_open` even when `preview_status` reports `available: false` or `tabId: null`,
+because that often means only that no tab exists yet. Stop only if `preview_open` itself fails.
 
 1. Open the complete pairing URL with `t3_browser_open`. The token is single-use and a new
    tab has no cookie, so keep the tab, or mint a token with `node apps/server/src/bin.ts pair`.
