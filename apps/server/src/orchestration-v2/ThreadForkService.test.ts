@@ -138,69 +138,71 @@ const planFork = (
     });
   }).pipe(Effect.provide(ThreadForkService.layer));
 
-it.effect("resets a fork's pin, snooze, settle, delegation and Arc run state but keeps its origin", () =>
-  Effect.gen(function* () {
-    const linkOrigin = { sessionId: "mcp-session:fork-source", label: "Linked laptop" };
-    const sourceThread: OrchestrationV2AppThread = {
-      ...makeSourceThread(),
-      lastSnoozeWakeAt: snoozedAt,
-      pinnedAt: snoozedAt,
-      pinOrderKey: "a0",
-      activeOrderKey: "a1",
-      autoSettleDisabledAt: snoozedAt,
-      delegatedFrom: {
-        environmentId: EnvironmentId.make("linked-environment"),
-        threadId: ThreadId.make("linked-parent"),
-        title: "Linked parent",
-      },
-      historyOrigin: "v1_import",
-      linkOrigin,
-      tags: ["private"],
-      arcRun: {
-        arc: { number: 12 },
-        state: "active",
-        startedAt: "2026-01-01T00:00:00.000Z",
-        progressAt: "2026-01-01T00:00:00.000Z",
-        ceilingSince: "2026-01-01T00:00:00.000Z",
-      },
-    };
-    const sourceRun = makeSourceRun("completed");
-    const result = yield* planFork(sourceRun, {
-      ...makeSourceProjection(sourceRun),
-      thread: sourceThread,
-    });
+it.effect(
+  "resets a fork's pin, snooze, settle, delegation and Arc run state but keeps its origin",
+  () =>
+    Effect.gen(function* () {
+      const linkOrigin = { sessionId: "mcp-session:fork-source", label: "Linked laptop" };
+      const sourceThread: OrchestrationV2AppThread = {
+        ...makeSourceThread(),
+        lastSnoozeWakeAt: snoozedAt,
+        pinnedAt: snoozedAt,
+        pinOrderKey: "a0",
+        activeOrderKey: "a1",
+        autoSettleDisabledAt: snoozedAt,
+        delegatedFrom: {
+          environmentId: EnvironmentId.make("linked-environment"),
+          threadId: ThreadId.make("linked-parent"),
+          title: "Linked parent",
+        },
+        historyOrigin: "v1_import",
+        linkOrigin,
+        tags: ["private"],
+        arcRun: {
+          arc: { number: 12 },
+          state: "active",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          progressAt: "2026-01-01T00:00:00.000Z",
+          ceilingSince: "2026-01-01T00:00:00.000Z",
+        },
+      };
+      const sourceRun = makeSourceRun("completed");
+      const result = yield* planFork(sourceRun, {
+        ...makeSourceProjection(sourceRun),
+        thread: sourceThread,
+      });
 
-    assert.isNull(result.targetThread.snoozedUntil);
-    assert.isNull(result.targetThread.snoozedAt);
-    assert.isNull(result.targetThread.lastSnoozeWakeAt);
-    assert.isNull(result.targetThread.pinnedAt);
-    assert.isNull(result.targetThread.pinOrderKey);
-    assert.isNull(result.targetThread.activeOrderKey);
-    assert.isNull(result.targetThread.autoSettleDisabledAt);
-    assert.isUndefined(result.targetThread.delegatedFrom);
-    assert.isUndefined(result.targetThread.arcRun);
-    assert.equal(result.targetThread.historyOrigin, "v1_import");
-    assert.deepEqual(result.targetThread.linkOrigin, linkOrigin);
-    assert.deepEqual(result.targetThread.tags, ["private"]);
-    assert.equal(result.targetThread.projectId, sourceThread.projectId);
-    assert.equal(result.targetThread.providerInstanceId, sourceThread.providerInstanceId);
-    assert.deepEqual(result.targetThread.modelSelection, sourceThread.modelSelection);
-    assert.equal(result.targetThread.runtimeMode, sourceThread.runtimeMode);
-    assert.equal(result.targetThread.interactionMode, sourceThread.interactionMode);
-    assert.equal(result.targetThread.branch, sourceThread.branch);
-    assert.equal(result.targetThread.worktreePath, sourceThread.worktreePath);
-    assert.isNull(result.targetThread.activeProviderThreadId);
-    assert.deepEqual(result.targetThread.lineage, {
-      parentThreadId: sourceThreadId,
-      relationshipToParent: "fork",
-      rootThreadId: sourceThreadId,
-    });
-    assert.deepEqual(result.targetThread.forkedFrom, {
-      type: "run",
-      threadId: sourceThreadId,
-      runId: sourceRunId,
-    });
-  }),
+      assert.isNull(result.targetThread.snoozedUntil);
+      assert.isNull(result.targetThread.snoozedAt);
+      assert.isNull(result.targetThread.lastSnoozeWakeAt);
+      assert.isNull(result.targetThread.pinnedAt);
+      assert.isNull(result.targetThread.pinOrderKey);
+      assert.isNull(result.targetThread.activeOrderKey);
+      assert.isNull(result.targetThread.autoSettleDisabledAt);
+      assert.isUndefined(result.targetThread.delegatedFrom);
+      assert.isUndefined(result.targetThread.arcRun);
+      assert.equal(result.targetThread.historyOrigin, "v1_import");
+      assert.deepEqual(result.targetThread.linkOrigin, linkOrigin);
+      assert.deepEqual(result.targetThread.tags, ["private"]);
+      assert.equal(result.targetThread.projectId, sourceThread.projectId);
+      assert.equal(result.targetThread.providerInstanceId, sourceThread.providerInstanceId);
+      assert.deepEqual(result.targetThread.modelSelection, sourceThread.modelSelection);
+      assert.equal(result.targetThread.runtimeMode, sourceThread.runtimeMode);
+      assert.equal(result.targetThread.interactionMode, sourceThread.interactionMode);
+      assert.equal(result.targetThread.branch, sourceThread.branch);
+      assert.equal(result.targetThread.worktreePath, sourceThread.worktreePath);
+      assert.isNull(result.targetThread.activeProviderThreadId);
+      assert.deepEqual(result.targetThread.lineage, {
+        parentThreadId: sourceThreadId,
+        relationshipToParent: "fork",
+        rootThreadId: sourceThreadId,
+      });
+      assert.deepEqual(result.targetThread.forkedFrom, {
+        type: "run",
+        threadId: sourceThreadId,
+        runId: sourceRunId,
+      });
+    }),
 );
 
 it.effect("starts a fork without the source thread's pending title regeneration", () =>
@@ -277,6 +279,21 @@ it.effect("preserves pull request context without inheriting any watches", () =>
       pullRequests: watchedLinks,
       linkedPullRequest: legacyLink,
       branchPullRequest: legacyLink,
+      threadWatches: [
+        {
+          id: "thread-watch:source",
+          target: { kind: "thread" as const, threadId: ThreadId.make("thread:fork-watched") },
+          title: "Watched thread",
+          startedAt: DateTime.formatIso(sourceCreatedAt),
+        },
+      ],
+      endedThreadWatches: [
+        {
+          threadId: ThreadId.make("thread:fork-earlier-watched"),
+          title: "Earlier watched thread",
+          endedAt: DateTime.formatIso(snoozedAt),
+        },
+      ],
     };
     const result = yield* planFork(sourceRun, {
       ...makeSourceProjection(sourceRun),
@@ -286,6 +303,8 @@ it.effect("preserves pull request context without inheriting any watches", () =>
     assert.deepEqual(result.targetThread.pullRequests, links);
     assert.deepEqual(result.targetThread.linkedPullRequest, legacyLink);
     assert.deepEqual(result.targetThread.branchPullRequest, legacyLink);
+    assert.isUndefined(result.targetThread.threadWatches);
+    assert.isUndefined(result.targetThread.endedThreadWatches);
     assert.deepEqual(sourceThread.pullRequests, watchedLinks);
     assert.deepEqual(sourceThread.pullRequests[0]?.watch, watch);
     assert.deepEqual(sourceThread.pullRequests[1]?.watch, watch);
