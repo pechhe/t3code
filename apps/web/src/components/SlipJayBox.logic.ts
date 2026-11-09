@@ -323,3 +323,31 @@ export function createReleaseAnnouncementGate(windowMs = 60_000) {
     return last === undefined || now - last >= windowMs;
   };
 }
+
+export interface SlipJayProductionAge {
+  repo: string;
+  commitId: string;
+  deployedAt: string;
+  healthy: boolean | null;
+  /** The newest attempt, when it failed or rolled back and is not what is live. */
+  failed: boolean;
+}
+
+/** What each releasing repository's production runs and when it went live, for the header's resting state. */
+export function resolveProductionAges(overview: SlipJayRunnerOverview): SlipJayProductionAge[] {
+  return overview.repositories.flatMap((repository) => {
+    const production = repository.release?.production;
+    const live = production?.live;
+    if (production === undefined || live === null || live === undefined) return [];
+    const attempt = production.latestAttempt;
+    return [
+      {
+        repo: repository.repo,
+        commitId: live.commitId,
+        deployedAt: live.deployedAt,
+        healthy: live.healthy,
+        failed: attempt !== null && attempt.status !== "running",
+      },
+    ];
+  });
+}

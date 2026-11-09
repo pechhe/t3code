@@ -37,7 +37,7 @@ import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
 import { TriangleAlertIcon } from "lucide-react";
 import { useProjectSuggestionBannerItem } from "./chat/ProjectSuggestionBanner";
 import { useSelectedWorkspace } from "../hooks/useSelectedWorkspace";
-import { SlipJayDeployButton } from "./SlipJayDeployButton";
+import { ReleaseButton } from "./ReleaseButton";
 import { SlipJayRunnerControl } from "./SlipJayRunnerControl";
 import { ForgeHomeButton } from "./forgeItem/ForgeHomeButton";
 import { DeviceEnvironmentSwitch } from "./chat/device/DeviceEnvironmentSwitch";
@@ -3657,7 +3657,7 @@ export default function ChatView(props: ChatViewProps) {
                       threadId={activeThread.id}
                       onOpenThread={onOpenRelatedThreadStable}
                     />
-                    <SlipJayDeployButton environmentId={activeThread.environmentId} />
+                    <ReleaseButton environmentId={activeThread.environmentId} />
                     <SlipJayRunnerControl
                       environmentId={activeThread.environmentId}
                       threadRef={scopeThreadRef(activeThread.environmentId, activeThread.id)}

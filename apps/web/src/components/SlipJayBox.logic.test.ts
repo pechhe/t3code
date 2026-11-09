@@ -10,6 +10,7 @@ import {
   resolveBoxFooter,
   createReleaseAnnouncementGate,
   resolveFailedPromotions,
+  resolveProductionAges,
   resolveProductionDeploys,
   resolveProductionLine,
   resolveReleaseOutcomes,
@@ -355,5 +356,56 @@ describe("the release announcement gate", () => {
     const shouldAnnounce = createReleaseAnnouncementGate(60_000);
     expect(shouldAnnounce(released, 0)).toBe(true);
     expect(shouldAnnounce(released, 3_600_000)).toBe(true);
+  });
+});
+
+describe("production ages", () => {
+  const withRelease = (rel: SlipJayRunnerRelease) =>
+    overview({
+      repositories: [
+        { repo: "o/r", screeningLanes: 0, today: { landed: 0, failedScreens: 0 }, release: rel },
+      ],
+    });
+
+  it("reports when production went live, and skips a repository that does not release", () => {
+    const result = resolveProductionAges(
+      overview({
+        repositories: [
+          {
+            repo: "o/none",
+            screeningLanes: 0,
+            today: { landed: 0, failedScreens: 0 },
+            release: null,
+          },
+          ...withRelease(release()).repositories,
+        ],
+      }),
+    );
+    expect(result).toEqual([
+      {
+        repo: "o/r",
+        commitId: "32bf841eaaaa",
+        deployedAt: "2026-10-29T20:00:00Z",
+        healthy: true,
+        failed: false,
+      },
+    ]);
+  });
+
+  it("marks a newer failed attempt, but not one still running", () => {
+    const live = { commitId: "aaaaaaa1", deployedAt: "2026-11-09T10:00:00Z", healthy: true };
+    const attempt = (status: "running" | "failed") => ({
+      commitId: "bbbbbbb1",
+      status,
+      at: "2026-11-09T11:00:00Z",
+      reason: null,
+    });
+    const failed = resolveProductionAges(
+      withRelease(release({ production: { live, latestAttempt: attempt("failed") } })),
+    );
+    const running = resolveProductionAges(
+      withRelease(release({ production: { live, latestAttempt: attempt("running") } })),
+    );
+    expect([failed[0]?.failed, running[0]?.failed]).toEqual([true, false]);
   });
 });

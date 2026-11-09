@@ -13,19 +13,14 @@ import {
   type SlipJayCheckoutStatus,
   slipJayWorkspaceName,
 } from "@t3tools/client-runtime/slipjay-checkout";
-import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type {
   EnvironmentId,
   ScopedThreadRef,
   SlipJayRunnerDeploy,
   SlipJayRunnerOperation,
   SlipJayRunnerOverview,
-  SlipJayRunnerRepository,
   ThreadId,
-  VcsSlipJayPromotion,
 } from "@t3tools/contracts";
 import { XIcon } from "lucide-react";
 import { useState, useSyncExternalStore, type ReactNode } from "react";
@@ -34,19 +29,15 @@ import { useComposerDraftStore } from "~/composerDraftStore";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
-import { Spinner } from "~/components/ui/spinner";
 import { toastManager } from "~/components/ui/toast";
 import { cn } from "~/lib/utils";
-import { useProjects, useThreadShells } from "~/state/entities";
+import { useThreadShells } from "~/state/entities";
 import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { vcsEnvironment } from "~/state/vcs";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import {
   resolveBoxFooter,
-  resolveFailedPromotions,
-  resolveProductionLine,
-  resolveReleaseRow,
   resolveScreeningLanes,
   resolveSlipJayPublishLane,
   type SlipJayTone,
@@ -104,12 +95,8 @@ function useShownLanding(environmentId: EnvironmentId, status: SlipJayCheckoutSt
 type ShownLanding = NonNullable<SlipJayCheckoutStatus["landing"]>;
 
 /**
- * The one place a thread shows SlipJay: the tag leads with the thread's own landing (its
- * Spec, stage and time, then the outcome and what to do next until it is dismissed) and
- * otherwise with what the runner is doing. The popover pins the thread's landing above the
- * runner's lanes, each open operation named by its Spec and linked to the thread whose
- * workspace submitted it, and what staging and production run. Hidden where the thread
- * has no landing and the environment follows no runner.
+ * The landing runner in the header: the thread's own landing, else what the runner is doing.
+ * Its popover pins that landing above the runner's lanes; releases live in `ReleaseButton`.
  */
 export function SlipJayRunnerControl({
   environmentId,
@@ -128,9 +115,6 @@ export function SlipJayRunnerControl({
   const { data: overview } = useEnvironmentQuery(
     vcsEnvironment.slipJayRunner({ environmentId, input: {} }),
   );
-  const { data: promotions } = useEnvironmentQuery(
-    vcsEnvironment.slipJayPromotions({ environmentId, input: {} }),
-  );
   const [open, setOpen] = useState(false);
   const threadShells = useThreadShells(open);
   const threadsByWorkspace = new Map<string, { id: ThreadId; title: string }>();
@@ -147,7 +131,6 @@ export function SlipJayRunnerControl({
   }
   const landing = useShownLanding(environmentId, slipJayStatus);
   const summary = resolveSlipJayRunnerSummary(overview, landing?.operationId);
-  const failedPromotions = resolveFailedPromotions(overview, promotions);
   if (slipJayStatus === null || landing === null) {
     if (overview == null || summary === null) return null;
   }
@@ -171,8 +154,6 @@ export function SlipJayRunnerControl({
       : [...overview.serial, ...overview.deploy, ...overview.deploys].map((entry) => entry.repo),
   );
   const showRepository = repositories.size > 1;
-  const releasing =
-    overview?.repositories.filter((repository) => repository.release !== null) ?? [];
   const withoutLanding = (operations: ReadonlyArray<SlipJayRunnerOperation>) =>
     landing === null
       ? operations
@@ -181,14 +162,6 @@ export function SlipJayRunnerControl({
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
-        {/* Not a trigger: the popover anchors to what opened it, and this leaves on a retry. */}
-        {failedPromotions.length === 0 ? null : (
-          <span className="shrink-0 [-webkit-app-region:no-drag]">
-            <Badge variant="error" render={<button type="button" onClick={() => setOpen(true)} />}>
-              Release failed
-            </Badge>
-          </span>
-        )}
         {slipJayStatus !== null && landing !== null ? (
           <ThreadLandingTag
             key={landing.operationId}
@@ -232,21 +205,6 @@ export function SlipJayRunnerControl({
                 {/* Shown while reconnecting too: a runner paused before the watch dropped can still be resumed. */}
                 <SlipJayPauseButton environmentId={environmentId} paused={overview.paused} />
               </div>
-            )}
-            {releasing.length === 0 ? null : (
-              <RunnerSection title="Releases">
-                {releasing.map((repository) => (
-                  <ReleaseRow
-                    key={repository.repo}
-                    environmentId={environmentId}
-                    repository={repository}
-                    promotion={
-                      promotions?.find((promotion) => promotion.repo === repository.repo) ?? null
-                    }
-                    open={open}
-                  />
-                ))}
-              </RunnerSection>
             )}
             {slipJayStatus !== null && landing !== null ? (
               <RunnerSection title="This thread">
@@ -632,7 +590,7 @@ function RunnerTag({
   );
 }
 
-const TONE_TEXT: Record<SlipJayTone, string> = {
+export const TONE_TEXT: Record<SlipJayTone, string> = {
   ok: "text-success-foreground",
   warn: "text-warning-foreground",
   bad: "text-destructive-foreground",
@@ -729,108 +687,6 @@ function PublishingRef({
   const spec = useSlipJaySpec(null, operation.spec, lookupRef);
   if (spec !== null) return <SlipJaySpecLink spec={spec} className="font-mono" />;
   return <span>{operation.title ?? "a chore"}</span>;
-}
-
-/**
- * One repository's release, in two lines: what is happening and what production runs. A press
- * starts it; the server carries it through and reports back here, so there is nothing to wait on.
- */
-function ReleaseRow({
-  environmentId,
-  repository,
-  promotion,
-  open,
-}: {
-  environmentId: EnvironmentId;
-  repository: SlipJayRunnerRepository;
-  promotion: VcsSlipJayPromotion | null;
-  open: boolean;
-}) {
-  const now = useNow(open);
-  const canRelease = useAtomValue(vcsEnvironment.slipJayPromote.permissionAtom(environmentId));
-  const promote = useAtomCommand(vcsEnvironment.slipJayPromote, { reportFailure: false });
-  const dismiss = useAtomCommand(vcsEnvironment.slipJayDismissPromotion, { reportFailure: false });
-  const [requestError, setRequestError] = useState<string | null>(null);
-  // A repository's apps ship together, so the row names every local project in it.
-  const projects = useProjects().filter(
-    (project) =>
-      project.environmentId === environmentId &&
-      project.repositoryIdentity != null &&
-      `${project.repositoryIdentity.owner}/${project.repositoryIdentity.name}`.toLowerCase() ===
-        repository.repo.toLowerCase(),
-  );
-  const checkout = projects[0]?.workspaceRoot;
-  const release = repository.release;
-  if (release === null) return null;
-  const row = resolveReleaseRow(release, promotion);
-  const production = resolveProductionLine(release, now);
-  const name =
-    projects.length === 0
-      ? repositoryName(repository.repo)
-      : projects.map((project) => project.title).join(" + ");
-  const start = async () => {
-    if (checkout === undefined) return;
-    setRequestError(null);
-    const result = await promote({
-      environmentId,
-      input: { cwd: checkout, repo: repository.repo },
-    });
-    if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
-    const error = squashAtomCommandFailure(result);
-    setRequestError(error instanceof Error ? error.message : "The release could not be started.");
-  };
-  const detail = requestError ?? row.detail;
-  return (
-    <div className="flex flex-col gap-0.5 px-1 text-xs">
-      <div className="flex min-h-6 min-w-0 items-center gap-2">
-        <span className="min-w-0 truncate font-medium text-sm">{name}</span>
-        <span className="ms-auto flex shrink-0 items-center gap-1">
-          {row.action === "retry" ? (
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() =>
-                void dismiss({ environmentId, input: { repo: repository.repo } }).then(() =>
-                  setRequestError(null),
-                )
-              }
-            >
-              Dismiss
-            </Button>
-          ) : null}
-          {row.action === "releasing" ? (
-            <Button size="xs" variant="outline" disabled>
-              <Spinner />
-              Releasing
-            </Button>
-          ) : (row.action === "release" || row.action === "retry") &&
-            canRelease &&
-            checkout !== undefined ? (
-            <Button size="xs" variant="outline" onClick={() => void start()}>
-              {row.action === "retry" ? "Try again" : "Release"}
-            </Button>
-          ) : null}
-        </span>
-      </div>
-      <span className={TONE_TEXT[requestError === null ? row.tone : "bad"]}>{row.text}</span>
-      {detail === null ? null : (
-        <p
-          className={cn(
-            "m-0 whitespace-pre-wrap break-words text-2xs",
-            requestError !== null || row.tone === "bad"
-              ? "text-destructive"
-              : "text-muted-foreground",
-          )}
-        >
-          {detail}
-        </p>
-      )}
-      <span className="text-muted-foreground">{production.text}</span>
-      {production.note === null ? null : (
-        <span className="text-2xs text-muted-foreground">{production.note}</span>
-      )}
-    </div>
-  );
 }
 
 function BoxFooter({ overview }: { overview: SlipJayRunnerOverview }) {

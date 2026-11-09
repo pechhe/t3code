@@ -243,19 +243,20 @@ export function SlipJaySpecLink({ spec, className }: { spec: SlipJaySpec; classN
   );
 }
 
-/** The current time, re-read every second only while `ticking`. */
-export function useNow(ticking: boolean) {
+/** The current time, re-read every `intervalMs` (a second by default) only while `ticking`. */
+export function useNow(ticking: boolean, intervalMs = 1000) {
   const [now, setNow] = useState(() => Date.now());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- holds a timer that re-reads the clock until unmount
   useEffect(() => {
     if (!ticking) return;
     const tick = () => setNow(Date.now());
     // The time read at mount may be long past by the time ticking starts.
     const first = window.setTimeout(tick, 0);
-    const interval = window.setInterval(tick, 1000);
+    const interval = window.setInterval(tick, intervalMs);
     return () => {
       window.clearTimeout(first);
       window.clearInterval(interval);
     };
-  }, [ticking]);
+  }, [ticking, intervalMs]);
   return now;
 }
