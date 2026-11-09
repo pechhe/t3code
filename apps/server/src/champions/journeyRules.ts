@@ -219,6 +219,10 @@ const pageOf = (url: string | null) => {
 };
 
 /** One bug's journeys end the same way: the same last step on the same page, reaching the same page. */
+const pagesOf = (steps: ReadonlyArray<ChampionJourneyStep>) =>
+  [...new Set(steps.map((step) => pageOf(step.url)))].sort().join(" ");
+
+// Joining only repeats: two routes to one last click can be two bugs, and a merge would hide one.
 export const sameFailure = (
   a: { readonly steps: ReadonlyArray<ChampionJourneyStep>; readonly finalUrl: string | null },
   b: { readonly steps: ReadonlyArray<ChampionJourneyStep>; readonly finalUrl: string | null },
@@ -230,6 +234,7 @@ export const sameFailure = (
     other !== undefined &&
     pageOf(a.finalUrl) === pageOf(b.finalUrl) &&
     pageOf(last.url) === pageOf(other.url) &&
+    pagesOf(a.steps) === pagesOf(b.steps) &&
     last.operation === other.operation &&
     last.target?.role === other.target?.role &&
     last.target?.name === other.target?.name

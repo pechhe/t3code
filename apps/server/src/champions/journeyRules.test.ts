@@ -267,6 +267,17 @@ describe("sameFailure", () => {
     ).toBe(true);
   });
 
+  it("keeps apart two routes that end on the same click", () => {
+    const direct = ending("http://localhost:3301/notes", "Save", "http://localhost:3301/notes");
+    const last = direct.steps[0]!;
+    const viaGuidelines = {
+      ...direct,
+      steps: [{ ...last, url: "http://localhost:3301/notes/guidelines" }, last],
+    };
+    expect(Rules.sameFailure(direct, viaGuidelines)).toBe(false);
+    expect(Rules.sameFailure(viaGuidelines, viaGuidelines)).toBe(true);
+  });
+
   it("keeps apart bugs that read alike but end elsewhere", () => {
     const search = ending(
       "http://localhost:3301/notes",
