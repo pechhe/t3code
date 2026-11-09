@@ -2623,6 +2623,18 @@ const make = Effect.gen(function* () {
         reason: "conflict",
         detail: "No journey check is running.",
       });
+    // A replay's brief is the only way to delegate it, so asking again must return it, not a new target.
+    const started = (yield* journeys.candidatesOf(check.id).pipe(Effect.mapError(failure))).find(
+      (open) =>
+        open.status === "pending" &&
+        (input.findingId !== undefined
+          ? open.kind === "retest" && open.findingId === input.findingId
+          : open.id === input.candidateId),
+    );
+    if (started?.replay?.brief !== undefined) {
+      const { brief, workId, attemptId } = started.replay;
+      return { candidateId: started.id, workId, attemptId, brief };
+    }
     let candidate: ChampionJourneys.JourneyCandidate | undefined;
     if (input.findingId !== undefined) {
       const original = yield* journeys.confirmedFor(input.findingId).pipe(Effect.mapError(failure));

@@ -4762,6 +4762,10 @@ describe("a journey check", () => {
               assert.deepEqual(second.covered[0]?.urls, ["/tasks"]);
               yield* walk(policy, owner, "tab-two", "/books");
               const retest = yield* service.candidateReplay(f.caller(), { findingId: finding.id });
+              assert.deepEqual(
+                yield* service.candidateReplay(f.caller(), { findingId: finding.id }),
+                retest,
+              );
               f.installReplay(
                 retest.workId,
                 retest.attemptId,
