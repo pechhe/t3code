@@ -632,9 +632,8 @@ const PEER_THREAD_TOOLS: ReadonlySet<string> = new Set([
   "t3_champions_list",
   "t3_champions_get",
   "t3_champions_learning_search",
-  "t3_champions_learning_topics",
   "t3_champions_learning_read",
-  "t3_champions_contribute_learning",
+  "t3_champions_record_learning",
 ]);
 
 const refusePeerClient = McpInvocationContext.McpInvocationContext.pipe(

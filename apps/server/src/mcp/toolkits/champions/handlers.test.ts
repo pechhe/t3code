@@ -23,6 +23,7 @@ const here = EnvironmentId.make("peach-live");
 const box = EnvironmentId.make("peach-box");
 const leadThread = ThreadId.make("thread:lead");
 const workerThread = ThreadId.make("thread:worker");
+const otherThread = ThreadId.make("thread:other");
 
 const shells = new Map([
   [
@@ -33,6 +34,7 @@ const shells = new Map([
     workerThread,
     { ...liveThreadShell(workerThread), agentTask: { role: "implementation-worker" } as never },
   ],
+  [otherThread, { ...liveThreadShell(otherThread), title: "Other" }],
 ]);
 
 const threadScope = (threadId: ThreadId): McpInvocationContext.McpInvocationScope => ({
@@ -99,29 +101,62 @@ const learning = {
 
 const harness = Effect.sync(() => {
   const contributed: Array<ChampionLearningContributor> = [];
+  const recorded: Array<unknown> = [];
   const forwarded: Array<{ environmentId: string; tool: string; params: unknown }> = [];
   const searched: Array<unknown> = [];
+  const queried: Array<unknown> = [];
+  const findingActions: Array<unknown> = [];
+  const deliveries: Array<unknown> = [];
+  const revision = (input: { readonly id: string }) =>
+    ({
+      ...input,
+      id: "revision:1",
+      championId: input.id,
+      projectId: "project:box",
+      recordedAt: "2026-11-07T00:00:00.000Z",
+      supersedes: null,
+      applicabilityState: "current",
+      isCurrent: true,
+    }) as unknown as ChampionLearningRevision;
   const service = Layer.mock(Champions.ChampionService)({
+    // The lead thread owns this champion; every other caller contributes.
+    get: () => Effect.succeed({ champion: { ownerThreadId: leadThread } } as unknown as never),
+    recordLearning: (_caller, input) =>
+      Effect.sync(() => {
+        recorded.push(input);
+        return revision(input);
+      }),
+    contributeLearning: (contributor, input) =>
+      Effect.sync(() => {
+        contributed.push(contributor);
+        return { ...revision(input), contribution: contributor };
+      }),
     learningSearch: (input) =>
       Effect.sync(() => {
         searched.push(input);
         return { learnings: [], total: 0, nextCursor: null };
       }),
-    contributeLearning: (contributor, input) =>
+    learningQuery: (input) =>
       Effect.sync(() => {
-        contributed.push(contributor);
+        queried.push(input);
         return {
-          ...input,
-          id: "revision:1",
-          championId: input.id,
-          projectId: "project:box",
-          recordedAt: "2026-11-07T00:00:00.000Z",
-          supersedes: null,
-          applicabilityState: "current",
-          isCurrent: true,
-          contribution: contributor,
-        } as unknown as ChampionLearningRevision;
+          revisions: [],
+          nextCursor: null,
+          receiptId: "receipt:1",
+          retrievedAt: "2026-11-07T00:00:00.000Z",
+        };
       }),
+    findingAction: (input, approval) =>
+      Effect.sync(() => {
+        findingActions.push({ input, approval });
+        return {} as never;
+      }),
+    updateDelivery: (_caller, input) =>
+      Effect.sync(() => {
+        deliveries.push(input);
+        return {} as never;
+      }),
+    runtimeState: () => Effect.succeed({ attempts: [], investigations: [], recommendations: [] }),
   });
   const forwarding = Layer.mock(PeerForwarding.PeerForwarding)({
     call: (_scope, tool, environmentId, params) =>
@@ -140,7 +175,16 @@ const harness = Effect.sync(() => {
     Layer.provideMerge(service),
     Layer.provideMerge(forwarding),
   );
-  return { contributed, forwarded, searched, layer };
+  return {
+    contributed,
+    recorded,
+    forwarded,
+    searched,
+    queried,
+    findingActions,
+    deliveries,
+    layer,
+  };
 });
 
 const call = (
@@ -165,26 +209,37 @@ it.effect(
       const h = yield* harness;
       yield* Effect.gen(function* () {
         const search = yield* call("t3_champions_learning_search", linkScope, {
+          action: "search",
           query: "manifest",
         });
         expect(search.isError).toBe(false);
         expect(h.searched).toEqual([{ query: "manifest" }]);
 
-        const refusedWrite = yield* call("t3_champions_run_check", linkScope, {
+        const refusedWrite = yield* call("t3_champions_control", linkScope, {
+          action: "run_check",
           id: "champion:gate",
         });
         expect(refusedWrite.isError).toBe(true);
         expect(refusedWrite.text).toContain("capability_denied");
-        const refusedReceipt = yield* call("t3_champions_learning_query", linkScope, {
+        // Peers keep the same abilities they had: a plain search only, never the
+        // receipt-retaining lookup, and no runtime state through get.
+        const refusedReceipt = yield* call("t3_champions_learning_search", linkScope, {
+          action: "query",
           id: "champion:gate",
           topic: "latency",
         });
         expect(refusedReceipt.text).toContain("capability_denied");
+        expect(h.queried).toEqual([]);
+        const refusedInclude = yield* call("t3_champions_get", linkScope, {
+          id: "champion:gate",
+          include: "runtime_state",
+        });
+        expect(refusedInclude.text).toContain("capability_denied");
 
         // A link must name the thread it authenticated, and never a worker.
-        const bare = yield* call("t3_champions_contribute_learning", linkScope, learning);
+        const bare = yield* call("t3_champions_record_learning", linkScope, learning);
         expect(bare.text).toContain("capability_denied");
-        const fromWorker = yield* call("t3_champions_contribute_learning", linkScope, {
+        const fromWorker = yield* call("t3_champions_record_learning", linkScope, {
           ...learning,
           forwardedFrom: {
             environmentId: here,
@@ -194,7 +249,7 @@ it.effect(
           },
         });
         expect(fromWorker.text).toContain("capability_denied");
-        const fromLead = yield* call("t3_champions_contribute_learning", linkScope, {
+        const fromLead = yield* call("t3_champions_record_learning", linkScope, {
           ...learning,
           forwardedFrom: {
             environmentId: here,
@@ -224,7 +279,7 @@ it.effect(
     Effect.gen(function* () {
       const h = yield* harness;
       yield* Effect.gen(function* () {
-        const worker = yield* call("t3_champions_contribute_learning", threadScope(workerThread), {
+        const worker = yield* call("t3_champions_record_learning", threadScope(workerThread), {
           ...learning,
           environmentId: box,
         });
@@ -232,7 +287,7 @@ it.effect(
         expect(h.forwarded).toEqual([]);
 
         // A model cannot claim to be another thread.
-        const spoofed = yield* call("t3_champions_contribute_learning", threadScope(leadThread), {
+        const spoofed = yield* call("t3_champions_record_learning", threadScope(leadThread), {
           ...learning,
           environmentId: box,
           forwardedFrom: {
@@ -244,14 +299,14 @@ it.effect(
         });
         expect(spoofed.text).toContain("invalid_request");
 
-        yield* call("t3_champions_contribute_learning", threadScope(leadThread), {
+        yield* call("t3_champions_record_learning", threadScope(leadThread), {
           ...learning,
           environmentId: box,
         });
         expect(h.forwarded).toEqual([
           {
             environmentId: box,
-            tool: "t3_champions_contribute_learning",
+            tool: "t3_champions_record_learning",
             params: expect.objectContaining({
               environmentId: box,
               forwardedFrom: {
@@ -265,6 +320,7 @@ it.effect(
         ]);
 
         yield* call("t3_champions_learning_search", threadScope(workerThread), {
+          action: "search",
           query: "manifest",
           environmentId: box,
         });
@@ -272,6 +328,122 @@ it.effect(
           environmentId: box,
           tool: "t3_champions_learning_search",
         });
+      }).pipe(Effect.provide(h.layer));
+    }),
+);
+
+it.effect("the owner records its own learning and any other orchestrating thread contributes", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* Effect.gen(function* () {
+      // A delegated worker searches, but cannot retain the receipt that admits an investigation.
+      const workerQuery = yield* call("t3_champions_learning_search", threadScope(workerThread), {
+        action: "query",
+        id: "champion:gate",
+        topic: "latency",
+      });
+      expect(workerQuery.text).toContain("capability_denied");
+      expect(h.queried).toEqual([]);
+
+      // A plain search keeps its limit of 50; only the query action is capped at 20.
+      const wide = yield* call("t3_champions_learning_search", threadScope(workerThread), {
+        limit: 50,
+      });
+      expect(wide.isError).toBe(false);
+      const wideQuery = yield* call("t3_champions_learning_search", threadScope(leadThread), {
+        action: "query",
+        id: "champion:gate",
+        topic: "latency",
+        limit: 21,
+      });
+      expect(wideQuery.text).toContain("invalid_request");
+      expect(h.queried).toEqual([]);
+
+      // A plain search writes nothing; only the query action retains a receipt.
+      yield* call("t3_champions_learning_search", threadScope(leadThread), {
+        action: "search",
+        query: "manifest",
+      });
+      expect(h.queried).toEqual([]);
+      yield* call("t3_champions_learning_search", threadScope(leadThread), {
+        action: "query",
+        id: "champion:gate",
+        topic: "latency",
+      });
+      expect(h.queried).toEqual([
+        expect.objectContaining({ id: "champion:gate", topic: "latency" }),
+      ]);
+
+      // get can fold in runtime state for a local caller.
+      const runtime = yield* call("t3_champions_get", threadScope(leadThread), {
+        id: "champion:gate",
+        include: "runtime_state",
+      });
+      expect(runtime.isError).toBe(false);
+
+      const owner = yield* call("t3_champions_record_learning", threadScope(leadThread), learning);
+      expect(owner.isError).toBe(false);
+      expect(h.recorded).toHaveLength(1);
+      expect(h.contributed).toEqual([]);
+
+      const contributor = yield* call("t3_champions_record_learning", threadScope(otherThread), {
+        ...learning,
+        learningId: "learning:other",
+      });
+      expect(contributor.isError).toBe(false);
+      expect(h.recorded).toHaveLength(1);
+      expect(h.contributed).toEqual([
+        expect.objectContaining({ threadId: otherThread, threadTitle: "Other" }),
+      ]);
+    }).pipe(Effect.provide(h.layer));
+  }),
+);
+
+it.effect(
+  "finding_action guards each action by its own rule and names the caller for approval",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      yield* Effect.gen(function* () {
+        for (const action of ["resolve_decision", "delivered"]) {
+          const refused = yield* call("t3_champions_finding_action", threadScope(workerThread), {
+            action,
+            id: "champion:gate",
+            findingId: "finding:1",
+            reason: "Yes",
+            evidence: "Landed",
+          });
+          expect(refused.text).toContain("capability_denied");
+        }
+        expect(h.findingActions).toEqual([]);
+        expect(h.deliveries).toEqual([]);
+
+        yield* call("t3_champions_finding_action", threadScope(leadThread), {
+          action: "resolve_decision",
+          id: "champion:gate",
+          findingId: "finding:1",
+          decisionId: "decision:1",
+          reason: "Yes",
+          approvalQuote: "yes do it",
+        });
+        expect(h.findingActions).toEqual([
+          {
+            input: expect.objectContaining({
+              action: "resolve_decision",
+              decisionId: "decision:1",
+            }),
+            approval: { threadId: leadThread, quote: "yes do it" },
+          },
+        ]);
+
+        yield* call("t3_champions_finding_action", threadScope(leadThread), {
+          action: "delivered",
+          findingId: "finding:1",
+          evidence: "Landed",
+        });
+        expect(h.deliveries).toEqual([
+          expect.objectContaining({ action: "delivered", evidence: "Landed" }),
+        ]);
       }).pipe(Effect.provide(h.layer));
     }),
 );

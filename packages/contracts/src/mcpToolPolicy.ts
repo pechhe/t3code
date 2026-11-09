@@ -96,11 +96,7 @@ const CORE_THREAD_TOOLS = new Set([
   "unwatch",
 ]);
 
-const LEARNING_READ_TOOLS = new Set([
-  "t3_champions_learning_search",
-  "t3_champions_learning_topics",
-  "t3_champions_learning_read",
-]);
+const LEARNING_READ_TOOLS = new Set(["t3_champions_learning_search", "t3_champions_learning_read"]);
 
 const PULL_REQUEST_TOOLS = new Set([
   "link_pull_request",

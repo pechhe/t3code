@@ -43,6 +43,7 @@ import { WorkspaceToolkit } from "./toolkits/workspace/tools.ts";
 import { WebToolkit } from "./toolkits/web/tools.ts";
 import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import { MANAGED_BROWSER_TOOL_NAMES } from "./toolkits/managedBrowser/toolNames.ts";
+import { ChampionsToolkit } from "./toolkits/champions/tools.ts";
 
 const tools = [
   ...Object.values(DecisionToolkit.tools),
@@ -62,6 +63,7 @@ const tools = [
   ...Object.values(ThreadToolkit.tools),
   ...Object.values(WebToolkit.tools),
   ...Object.values(WorktreeToolkit.tools),
+  ...Object.values(ChampionsToolkit.tools),
 ];
 
 const names = (session: SessionToolProfile | undefined) =>
@@ -91,24 +93,17 @@ const session = (
 // child lists its own work family and the leaf tools only. A change that needs a higher
 // ceiling states the new number and what bought it.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
-  // Upstream 4192 schemas, bounded decisions, discovery's reviewScope, a lead's trial tools
-  // and upstream's fresh-session and worktree-base guidance measure 48,607 characters; the
-  // `landing` watch target and `whyNotDelegated` on both launchers, with the sentence naming
-  // it in each description, bring them to 49,813; `t3_thread_update`'s `arc_run`, with its
-  // `specs`, to 50,773; the html tools' file-path guidance (#32833) to 50,882; the secret
-  // card's sign-in link (#33157) to 51,027.
-  ["ordinary", undefined, 51_100],
+  // Upstream's schemas and guidance, bounded decisions, a lead's trial tools, the `landing`
+  // watch, `whyNotDelegated`, `arc_run`, the html tools' path guidance and the secret card's
+  // sign-in link measure 51,027 characters; the 22 Champion tools bring them to 74,919.
+  ["ordinary", undefined, 75_000],
   // The preview endpoint is a browser session's listing, so it carries no control plane.
   // Bounded decisions adds the same 2,061 characters to the browser catalogue.
   ["browser/preview", session("phi", "browser"), 34_900],
-  // Upstream schemas with the web family, including upstream's fresh-session and
-  // worktree-base guidance, and t3_thread_handoff, so the thread can move itself,
-  // measure 87,483 characters on this endpoint, 88,116 with the `landing` watch target
-  // 88,651 with `whyNotDelegated` and 89,611 with `t3_thread_update`'s `arc_run` and its
-  // `specs`; the html tools' file-path guidance (#32833) brings them to 89,720, and the
-  // secret card's sign-in link (#33157) to 89,865.
-  ["researcher", session("web-research", "researcher"), 89_950],
-  ["scout", session("source-reader", "scout"), 90_000],
+  // The same set with the web family and t3_thread_handoff, so the thread can move itself,
+  // measures 113,757 characters, and 99,501 for the scout without web.
+  ["researcher", session("web-research", "researcher"), 113_800],
+  ["scout", session("source-reader", "scout"), 99_600],
   ["delegated browser", session("phi", "browser", true), 40_000],
   [
     "delegated implementation-worker",

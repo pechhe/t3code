@@ -3260,11 +3260,9 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
         "not word for word",
       );
 
-      // An ordinary agent thread (here, the lead just launched) does the same through its tool.
-      const viaTool = yield* f.callTool(service, "t3_champions_start_metrics_lead", {
-        id: config.id,
-      });
-      assert.isFalse(viaTool.at(-1)!.isFailure);
+      // Agents start a lead with t3_thread_launch now, so the launch goes through the
+      // same service method the page's button uses.
+      yield* service.startMetricsLead({ id: config.id });
       assert.equal(f.counts().launches, 2);
       assert.equal(f.launchRequests[1]!.model, lead.model);
       assert.equal(
@@ -4075,14 +4073,18 @@ const screenAndToolOutcome = (viaTool: boolean) =>
       const service = yield* Champions.ChampionService;
       yield* activeFinding(f, service);
       const steps = [
-        ["t3_champions_lifecycle", { id: config.id, lifecycle: "paused" }],
-        ["t3_champions_lifecycle", { id: config.id, lifecycle: "active" }],
-        ["t3_champions_run_check", { id: config.id }],
+        ["t3_champions_control", { id: config.id, action: "pause" }],
+        ["t3_champions_control", { id: config.id, action: "resume" }],
+        ["t3_champions_control", { id: config.id, action: "run_check" }],
       ] as const;
       for (const [tool, input] of steps) {
         if (viaTool) assert.isFalse((yield* f.callTool(service, tool, input)).at(-1)!.isFailure);
-        else if (tool === "t3_champions_run_check") yield* service.runCheck(input);
-        else yield* service.setLifecycle(input as { id: string; lifecycle: "paused" | "active" });
+        else if (input.action === "run_check") yield* service.runCheck({ id: input.id });
+        else
+          yield* service.setLifecycle({
+            id: input.id,
+            lifecycle: input.action === "pause" ? "paused" : "active",
+          });
       }
       const detail = yield* service.get({ id: config.id });
       const activity = (yield* service.history({ id: config.id })).activity;

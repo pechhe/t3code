@@ -7,22 +7,26 @@ import { ChampionsToolkit } from "./tools.ts";
 /** Each Champion write the screen sends, and the agent tool that does the same. */
 const SCREEN_WRITES_TO_TOOLS: Record<string, string> = {
   [WS_METHODS.championsUpsert]: "t3_champions_upsert",
-  [WS_METHODS.championsSetLifecycle]: "t3_champions_lifecycle",
-  [WS_METHODS.championsSetup]: "t3_champions_setup",
-  [WS_METHODS.championsRunCheck]: "t3_champions_run_check",
-  [WS_METHODS.championsPropose]: "t3_champions_propose",
-  [WS_METHODS.championsDiscardProposal]: "t3_champions_discard_proposal",
-  [WS_METHODS.championsCancelSetup]: "t3_champions_cancel_setup",
-  [WS_METHODS.championsStartMetricsLead]: "t3_champions_start_metrics_lead",
+  [WS_METHODS.championsSetLifecycle]: "t3_champions_control",
+  [WS_METHODS.championsSetup]: "t3_champions_control",
+  [WS_METHODS.championsRunCheck]: "t3_champions_control",
+  [WS_METHODS.championsPropose]: "t3_champions_proposal",
+  [WS_METHODS.championsDiscardProposal]: "t3_champions_control",
+  [WS_METHODS.championsCancelSetup]: "t3_champions_control",
   [WS_METHODS.championsAccept]: "t3_champions_accept",
   [WS_METHODS.championsFindingAction]: "t3_champions_finding_action",
-  [WS_METHODS.championsCancelInvestigation]: "t3_champions_cancel_investigation",
+  [WS_METHODS.championsCancelInvestigation]: "t3_champions_investigation",
 };
 
 /** Deliberate exceptions, each with its reason. */
 const EXCEPTIONS: Record<string, string> = {
   // Not on the screen; agents start research only as the Champion's owner (T3-375).
-  [WS_METHODS.championsStartInvestigation]: "t3_champions_start_investigation",
+  [WS_METHODS.championsStartInvestigation]: "t3_champions_investigation",
+};
+
+/** Screen writes with deliberately no champion tool, and why. */
+const NO_AGENT_TOOL: Record<string, string> = {
+  [WS_METHODS.championsStartMetricsLead]: "agents start a lead with t3_thread_launch",
 };
 
 const SCREEN_READS = new Set<string>([
@@ -42,17 +46,13 @@ const SCREEN_READS = new Set<string>([
 const RUN_ONLY_TOOLS = new Set([
   "t3_champions_record_learning",
   "t3_champions_synthesize",
-  "t3_champions_complete_setup",
-  "t3_champions_propose_metrics",
+  "t3_champions_proposal",
   "t3_champions_report",
-  "t3_champions_update_finding",
   "t3_champions_confirm_learning",
-  "t3_champions_learning_note",
 ]);
 
 /** Agent writes with no screen command: people read learnings, agents record them (T3-444). */
 const AGENT_ONLY_TOOLS = new Set([
-  "t3_champions_contribute_learning",
   // A journey check's own steps: a person has no check to run them in, and a candidate has no screen.
   "t3_champions_journeys_start",
   "t3_champions_journey_candidate",
@@ -71,7 +71,10 @@ describe("Champion screen and agent tool parity", () => {
   it("classifies every Champion command the screen can send", () => {
     const unclassified = championMethods.filter(
       (method) =>
-        !SCREEN_READS.has(method) && !(method in SCREEN_WRITES_TO_TOOLS) && !(method in EXCEPTIONS),
+        !SCREEN_READS.has(method) &&
+        !(method in SCREEN_WRITES_TO_TOOLS) &&
+        !(method in EXCEPTIONS) &&
+        !(method in NO_AGENT_TOOL),
     );
     expect(unclassified).toEqual([]);
   });
