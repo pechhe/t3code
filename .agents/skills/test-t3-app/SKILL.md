@@ -16,6 +16,8 @@ Reuse this task's healthy dev server. Otherwise run `vp run dev` from the
 repository root and retain its terminal session. Use the worktree's ignored
 `.t3` state and read the actual ports and pairing URL from the dev-runner output.
 Never run against `~/.t3/userdata` or set `VITE_HTTP_URL` or `VITE_WS_URL`.
+Where `vp` is not on the path, as on `peach-box`, run
+`PATH="$PWD/node_modules/.bin:$PATH" vp run dev`; `pnpm exec` rewrites `pnpm-lock.yaml`.
 
 Test with meaningful project and thread data. A new worktree seeds from
 `~/.t3/dev-seed` when it exists; the dev-runner warning names the command that
