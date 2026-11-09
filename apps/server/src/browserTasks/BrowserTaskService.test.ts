@@ -1082,6 +1082,39 @@ describe("BrowserTaskService journeys", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
   );
 
+  it.effect("does not fail a journey for a field it never reached", () =>
+    Effect.gen(function* () {
+      const task = yield* harness({
+        choices: [(request) => labelOf(request, '"Go"'), "DONE"],
+        page: { tree: `- button "Go" [ref=e1] [box=0,10,50,20]`, text: "Saved" },
+        journeys,
+      });
+      const fiber = yield* task.service
+        .run({
+          scope,
+          request: {
+            ...alreadyTrue,
+            requestId: "unused-binding",
+            pageReach: {},
+            bindings: [
+              {
+                id: "b",
+                control: "text",
+                target: { role: "textbox", name: "Nowhere" },
+                text: "x",
+              },
+            ],
+          },
+          authorize: allow,
+        })
+        .pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      yield* passGrace;
+      const result = yield* Fiber.join(fiber);
+      assert.strictEqual(result.status, "passed");
+    }).pipe(Effect.scoped, Effect.provide(NodeCrypto.layer)),
+  );
+
   it.effect("records what a journey typed and where, so its steps can be replayed", () =>
     Effect.gen(function* () {
       const recorded: Array<ReadonlyArray<ChampionJourneyStep>> = [];

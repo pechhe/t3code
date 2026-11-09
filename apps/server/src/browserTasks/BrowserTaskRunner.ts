@@ -814,7 +814,9 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         check.status !== "passed" &&
         !(check.id === artifactCheckId && check.status === "not-evaluated"),
     );
-    const unapplied = bindings.filter((binding) => !bindingApplied(model, binding));
+    // A journey may never reach a field it was offered; that says nothing about the page.
+    const unapplied =
+      input.journey === true ? [] : bindings.filter((binding) => !bindingApplied(model, binding));
     const unsubmitted = request.submit !== undefined && !submitDispatched;
     (record as Mutable<RunRecord>).checksFinal = true;
     if (failing.length > 0 || unapplied.length > 0 || unsubmitted) {
