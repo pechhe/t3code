@@ -23,6 +23,7 @@ const setup = (
     settings?: Parameters<typeof ServerSettings.ServerSettingsService.layerTest>[0];
     environment?: Record<string, string>;
     bitwarden?: string;
+    bitwardenFailures?: number;
     secret?: string;
     status?: number;
     body?: string;
@@ -30,6 +31,7 @@ const setup = (
 ) =>
   Effect.gen(function* () {
     const calls: Array<{ url: string; authorization: string | undefined; body: unknown }> = [];
+    const bitwardenReads: string[] = [];
     const http = HttpClient.make((req) =>
       Effect.sync(() => {
         calls.push({
@@ -88,10 +90,20 @@ const setup = (
                 label: () => Effect.succeed("1Password"),
               }),
               Layer.mock(BitwardenSecrets.BitwardenSecrets)({
-                read: () =>
-                  Effect.succeed(
-                    options.bitwarden ? Option.some(options.bitwarden) : Option.none<string>(),
-                  ),
+                read: (key) =>
+                  Effect.suspend(() => {
+                    bitwardenReads.push(key);
+                    if (bitwardenReads.length <= (options.bitwardenFailures ?? 0))
+                      return Effect.fail(
+                        new BitwardenSecrets.BitwardenSecretsError({
+                          reason: "failed",
+                          cause: new Error("429"),
+                        }),
+                      );
+                    return Effect.succeed(
+                      options.bitwarden ? Option.some(options.bitwarden) : Option.none<string>(),
+                    );
+                  }),
               }),
               NodeCrypto.layer,
               ConfigProvider.layer(ConfigProvider.fromUnknown(options.environment ?? {})),
@@ -100,7 +112,7 @@ const setup = (
         ),
       ),
     );
-    return { service, calls };
+    return { service, calls, bitwardenReads };
   });
 
 const failure = (code: DecisionRoutingFailureCode) => expect.objectContaining({ code });
@@ -228,6 +240,24 @@ it.effect("resolves a key from a reference, then the server environment, then Bi
       source: "bitwarden",
       last4: "7777",
     });
+  }),
+);
+
+it.effect("reads the Bitwarden Jev key once for repeated decisions and retries a failed read", () =>
+  Effect.gen(function* () {
+    const shared = yield* setup({ bitwarden: "bitwarden-key-7777" });
+    for (let attempt = 0; attempt < 3; attempt++) yield* shared.service.decide(routing);
+    expect(shared.bitwardenReads).toEqual(["TYPESAFE_API_KEY"]);
+    expect(shared.calls.map((call) => call.authorization)).toEqual([
+      "Bearer bitwarden-key-7777",
+      "Bearer bitwarden-key-7777",
+      "Bearer bitwarden-key-7777",
+    ]);
+    const flaky = yield* setup({ bitwarden: "bitwarden-key-7777", bitwardenFailures: 1 });
+    yield* flaky.service.decide(routing).pipe(Effect.exit);
+    yield* flaky.service.decide(routing);
+    expect(flaky.bitwardenReads).toHaveLength(2);
+    expect(flaky.calls).toHaveLength(1);
   }),
 );
 

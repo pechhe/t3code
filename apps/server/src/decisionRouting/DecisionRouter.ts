@@ -20,6 +20,7 @@ import * as Context from "effect/Context";
 import * as Digest from "effect/crypto/Digest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
@@ -45,6 +46,7 @@ const ENVIRONMENT_KEY = {
   openrouter: "OPENROUTER_API_KEY",
 } as const;
 const ADMISSION_POLL_MS = 25;
+const BITWARDEN_KEY_TTL = Duration.minutes(10);
 
 const isRoutingError = Schema.is(DecisionRoutingError);
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
@@ -141,6 +143,13 @@ export const layer = Layer.effect(
       openai: yield* readEnvironment(ENVIRONMENT_KEY.openai),
       openrouter: yield* readEnvironment(ENVIRONMENT_KEY.openrouter),
     };
+    // Bitwarden's API answers a burst of `bws secret list` calls with 429, so one read stands for
+    // ten minutes and a concurrent burst shares it; a failed read is retried by the next call.
+    const bitwardenKey = yield* bitwarden
+      .read(ENVIRONMENT_KEY.jev)
+      .pipe(
+        Effect.cachedWithTTL((exit) => (Exit.isSuccess(exit) ? BITWARDEN_KEY_TTL : Duration.zero)),
+      );
     let active = 0;
     let admitted: number[] = [];
 
@@ -185,9 +194,7 @@ export const layer = Layer.effect(
           unreadable: false,
         } satisfies ResolvedKey;
       if (provider === "jev") {
-        const read = yield* bitwarden
-          .read(ENVIRONMENT_KEY.jev)
-          .pipe(Effect.orElseSucceed(() => Option.none<string>()));
+        const read = yield* bitwardenKey.pipe(Effect.orElseSucceed(() => Option.none<string>()));
         const value = Option.isSome(read) ? read.value.trim() : "";
         if (value)
           return {
