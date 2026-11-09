@@ -3564,15 +3564,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     const { thread, runs } = yield* getProjectionWithPendingEvents(command.threadId, events);
     if (thread.deletedAt !== null) return yield* refuse(`Thread ${command.threadId} is deleted.`);
+    if (isDelegatedTaskThread(thread)) {
+      return yield* refuse("A delegated task cannot run an Arc: its parent owns the outcome.");
+    }
     const now = yield* DateTime.now;
     const nowIso = DateTime.formatIso(now);
     const current = thread.arcRun;
     let next: OrchestrationV2ThreadArcRun | undefined;
     switch (command.op) {
       case "start": {
-        if (isDelegatedTaskThread(thread)) {
-          return yield* refuse("A delegated task cannot run an Arc: its parent owns the outcome.");
-        }
         if (thread.archivedAt !== null || thread.settledOverride === "settled") {
           return yield* refuse(
             "A settled or archived thread cannot run an Arc. Unsettle it first.",
@@ -3714,6 +3714,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const { thread } = state;
     const arcRun = thread.arcRun;
     if (arcRun === undefined || arcRun.state !== "active" || thread.deletedAt !== null) return;
+    // A delegated child can carry an inherited run copied before the builder stopped copying it.
+    // Its parent owns the outcome, so this thread gets no Arc-lead wake.
+    if (isDelegatedTaskThread(thread)) return;
     const now = yield* DateTime.now;
     if (
       command.trigger !== "event" &&

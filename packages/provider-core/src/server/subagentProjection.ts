@@ -67,8 +67,9 @@ export function makeSubagentChildThread(input: {
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
 }): OrchestrationV2AppThread {
+  const { arcRun: _parentArcRun, ...parentThread } = input.parentThread;
   return {
-    ...input.parentThread,
+    ...parentThread,
     createdBy: input.createdBy,
     creationSource: input.creationSource,
     id: input.childThreadId,

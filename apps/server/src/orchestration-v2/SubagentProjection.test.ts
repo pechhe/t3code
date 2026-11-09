@@ -133,6 +133,32 @@ it("keeps a subagent child awake when its parent thread is snoozed", () => {
   });
 });
 
+it("a subagent child does not inherit its parent's Arc run", () => {
+  const parentThread: OrchestrationV2AppThread = {
+    ...makeParentThread(),
+    arcRun: {
+      arc: { number: 7012, ref: "YS-ARC-20" },
+      state: "active",
+      startedAt: "2026-11-09T01:20:32.000Z",
+      progressAt: "2026-11-09T01:20:32.000Z",
+      ceilingSince: "2026-11-09T01:20:32.000Z",
+    },
+  };
+  const childThread = makeSubagentChildThread({
+    parentThread,
+    childThreadId,
+    parentNodeId: NodeId.make("node:subagent-parent"),
+    activeProviderThreadId: null,
+    providerInstanceId: childProviderInstanceId,
+    modelSelection: childModelSelection,
+    title: "Child",
+    now: childCreatedAt,
+    createdBy: "agent",
+    creationSource: "provider",
+  });
+  assert.isUndefined(childThread.arcRun);
+});
+
 it.effect.each(["provider", "mcp"] as const)(
   "a %s child does not inherit parent settlement protections and settles once idle",
   (creationSource) =>
