@@ -5,7 +5,7 @@ import * as ContextPeerLinks from "../peer/PeerLinks.ts";
 import * as ContextProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as ContextDocumentText from "../provider/DocumentText.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
-import * as DecisionService from "../decisions/DecisionService.ts";
+import * as DecisionRouter from "../decisionRouting/DecisionRouter.ts";
 import * as BrowserTaskService from "../browserTasks/BrowserTaskService.ts";
 import { BOUNDED_BROWSER_TOOL_NAMES } from "./toolkits/boundedBrowser/toolNames.ts";
 import * as Champions from "../champions/ChampionService.ts";
@@ -70,7 +70,7 @@ import * as BrowserLogins from "../secrets/BrowserLogins.ts";
  */
 const serviceMocks = Layer.mergeAll(
   Layer.mock(AssetSigner.AssetSigner)({}),
-  Layer.mock(DecisionService.DecisionService)({}),
+  Layer.mock(DecisionRouter.DecisionRouter)({}),
   Layer.mock(BrowserTaskService.BrowserTaskService)({}),
   Layer.mock(BrowserLogins.BrowserLogins)({}),
   Layer.mock(Champions.ChampionService)({}),

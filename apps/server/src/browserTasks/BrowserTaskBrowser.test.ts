@@ -7,8 +7,8 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
-  type DecisionRequest,
-  type DecisionResult,
+  type DecisionRoutingRequest,
+  type DecisionRoutedResult,
   EnvironmentId,
   type PreviewAutomationSnapshot,
   type PreviewAutomationStatus,
@@ -30,7 +30,7 @@ import * as Stream from "effect/Stream";
 import { chromium } from "playwright-core";
 
 import * as ServerConfig from "../config.ts";
-import * as DecisionService from "../decisions/DecisionService.ts";
+import * as DecisionRouter from "../decisionRouting/DecisionRouter.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import type { McpThreadInvocationScope } from "../mcp/McpInvocationContext.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
@@ -62,8 +62,8 @@ const scope: McpThreadInvocationScope = {
   browserBackends: { enabled: ["integrated"], default: "integrated" },
 };
 
-const answer = (choice: string): DecisionResult => ({
-  engine: "jev",
+const answer = (choice: string): DecisionRoutedResult => ({
+  provider: "jev",
   requestedModel: "jev-1.14.0",
   resolvedModel: "jev-1.14.0",
   adapterVersion: "test",
@@ -255,7 +255,7 @@ const MANY = `<!doctype html><title>Many</title><main style="margin:0">
 </main>`;
 
 /** Answers with the page-reach label of the choice showing `text`. */
-const pick = (text: string) => (request: DecisionRequest) => {
+const pick = (text: string) => (request: DecisionRoutingRequest) => {
   const question = request.questions[0]!;
   const choice =
     question.type === "choice"
@@ -267,7 +267,7 @@ const pick = (text: string) => (request: DecisionRequest) => {
   return choice.label;
 };
 
-const pageChoices = (request: DecisionRequest) => {
+const pageChoices = (request: DecisionRoutingRequest) => {
   const question = request.questions[0]!;
   return question.type === "choice"
     ? question.choices.filter((entry) => /^P\d+$/.test(entry.label))
@@ -277,7 +277,6 @@ const pageChoices = (request: DecisionRequest) => {
 const request = (
   change: Partial<PreviewTaskRequest> & Pick<PreviewTaskRequest, "requestId" | "tabId">,
 ): PreviewTaskRequest => ({
-  engine: "jev",
   goal: "Do the job",
   checks: [{ id: "any", kind: "url", includes: "/" }],
   ...change,
@@ -311,10 +310,10 @@ const withFixture = <A, E, R>(
     readonly holding: Deferred.Deferred<void>;
     readonly releaseHold: () => void;
     /** Scripted answers; a function reads its answer from the question, such as a page-reach label. */
-    readonly script: Array<string | ((request: DecisionRequest) => string)>;
+    readonly script: Array<string | ((request: DecisionRoutingRequest) => string)>;
     /** Every request the fixture server received, as `host path`. */
     readonly hits: ReadonlyArray<string>;
-    readonly decisions: Array<DecisionRequest>;
+    readonly decisions: Array<DecisionRoutingRequest>;
     /** The saved-login store the server reads, keyed by login key. */
     readonly logins: Map<string, BrowserLogins.Login>;
   }) => Effect.Effect<A, E, R>,
@@ -409,8 +408,8 @@ const withFixture = <A, E, R>(
       ),
     );
     const port = (server.address() as NodeNet.AddressInfo).port;
-    const script: Array<string | ((request: DecisionRequest) => string)> = [];
-    const decisions: DecisionRequest[] = [];
+    const script: Array<string | ((request: DecisionRoutingRequest) => string)> = [];
+    const decisions: DecisionRoutingRequest[] = [];
     const logins = new Map<string, BrowserLogins.Login>();
     const runtime = BrowserTaskService.layer.pipe(
       Layer.provideMerge(
@@ -437,12 +436,14 @@ const withFixture = <A, E, R>(
         }),
       ),
       Layer.provideMerge(
-        Layer.mock(DecisionService.DecisionService)({
+        Layer.mock(DecisionRouter.DecisionRouter)({
           decide: (input) =>
             Effect.sync(() => {
-              decisions.push(input as DecisionRequest);
+              decisions.push(input as DecisionRoutingRequest);
               const next = script.shift() ?? "BLOCKED";
-              return answer(typeof next === "function" ? next(input as DecisionRequest) : next);
+              return answer(
+                typeof next === "function" ? next(input as DecisionRoutingRequest) : next,
+              );
             }),
         }),
       ),

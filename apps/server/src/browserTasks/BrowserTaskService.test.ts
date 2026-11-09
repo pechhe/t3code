@@ -2,9 +2,9 @@ import { PREVIEW_TASK_LIMITS } from "@t3tools/contracts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, describe, it } from "@effect/vitest";
 import {
-  type DecisionRequest,
-  type DecisionResult,
-  DecisionError,
+  type DecisionRoutingRequest,
+  type DecisionRoutedResult,
+  DecisionRoutingError,
   EnvironmentId,
   OrchestratorMcpFailure,
   type PreviewAutomationSnapshot,
@@ -47,8 +47,8 @@ const scope: McpThreadInvocationScope = {
   browserBackends: { enabled: ["integrated"], default: "integrated" },
 };
 
-const answered = (choice: string, cost: number | null = 0.001): DecisionResult => ({
-  engine: "jev",
+const answered = (choice: string, cost: number | null = 0.001): DecisionRoutedResult => ({
+  provider: "jev",
   requestedModel: "jev-1.14.0",
   resolvedModel: "jev-1.14.0",
   adapterVersion: "test",
@@ -116,7 +116,6 @@ const pageSnapshot = (page: FakePage, generation: number): PreviewAutomationSnap
 const FORM_REQUEST: PreviewTaskRequest = {
   requestId: "form-1",
   tabId,
-  engine: "jev",
   goal: "Save the email",
   bindings: [
     { id: "email", control: "text", target: { role: "textbox", name: "Email" }, text: "a@b.c" },
@@ -126,7 +125,7 @@ const FORM_REQUEST: PreviewTaskRequest = {
 };
 
 /** A scripted answer, a refusal, or one read from the question, such as a page-reach label. */
-type Choice = string | DecisionError | ((request: DecisionRequest) => string);
+type Choice = string | DecisionRoutingError | ((request: DecisionRoutingRequest) => string);
 
 const harness = Effect.fn("harness")(function* (options: {
   readonly choices?: ReadonlyArray<Choice>;
@@ -157,11 +156,11 @@ const harness = Effect.fn("harness")(function* (options: {
   /** Refs of text the page paints in a fixed layer. */
   readonly fixed?: ReadonlyArray<string>;
   /** Runs as each decision is asked, so the page can change under it. */
-  readonly onDecide?: (page: FakePage, request: DecisionRequest) => void;
+  readonly onDecide?: (page: FakePage, request: DecisionRoutingRequest) => void;
 }) {
   const page: FakePage = { url: "http://site.test/form", email: "", submits: 0, ...options.page };
   const acts: Array<{ operation: string; input: Record<string, unknown> }> = [];
-  const decisions: DecisionRequest[] = [];
+  const decisions: DecisionRoutingRequest[] = [];
   const queue = [...(options.choices ?? [])];
   const inFlight = yield* Deferred.make<void>();
   const ack = yield* Deferred.make<void>();
@@ -270,7 +269,8 @@ const harness = Effect.fn("harness")(function* (options: {
           decisions.push(request);
           options.onDecide?.(page, request);
           const next = queue.shift();
-          if (next === undefined) return Effect.fail(new DecisionError({ code: "unavailable" }));
+          if (next === undefined)
+            return Effect.fail(new DecisionRoutingError({ provider: "jev", code: "key-missing" }));
           if (typeof next === "function") return Effect.succeed(answered(next(request)));
           return typeof next === "string" ? Effect.succeed(answered(next)) : Effect.fail(next);
         }),
@@ -589,7 +589,7 @@ describe("BrowserTaskService", () => {
   it.effect("reports a failed decision with unknown cost, and does not retry it", () =>
     Effect.gen(function* () {
       const task = yield* harness({
-        choices: [new DecisionError({ code: "rate-limited" })],
+        choices: [new DecisionRoutingError({ provider: "jev", code: "rate-limited" })],
         page: { email: "a@b.c" },
       });
       const result = yield* report(
@@ -763,7 +763,6 @@ describe("BrowserTaskService", () => {
           request: {
             requestId: "absent",
             tabId,
-            engine: "jev",
             goal: "Confirm the banner left",
             checks: [{ id: "gone", kind: "text", includes: "Banner", expect: "absent" }],
           },
@@ -990,7 +989,6 @@ const OVERLAY_TREE = [
 const ORDERED_REQUEST: PreviewTaskRequest = {
   requestId: "ordered-1",
   tabId,
-  engine: "jev",
   goal: "Save the email",
   bindings: FORM_REQUEST.bindings!,
   submit: FORM_REQUEST.submit!,
@@ -1026,7 +1024,6 @@ describe("BrowserTaskService journeys", () => {
   const alreadyTrue = {
     requestId: "already-true",
     tabId: FORM_REQUEST.tabId,
-    engine: FORM_REQUEST.engine,
     goal: "Look around.",
     checks: FORM_REQUEST.checks,
   };
@@ -1187,7 +1184,7 @@ describe("BrowserTaskService journeys", () => {
 
 describe("BrowserTaskService ordered steps", () => {
   const KEY_TARGET = { role: "textbox", name: "Email" } as const;
-  const choicesOf = (decision: DecisionRequest) =>
+  const choicesOf = (decision: DecisionRoutingRequest) =>
     decision.questions[0]!.type === "choice"
       ? decision.questions[0]!.choices.map((choice) => choice.label)
       : [];
@@ -1201,7 +1198,6 @@ describe("BrowserTaskService ordered steps", () => {
           request: {
             requestId: "key",
             tabId,
-            engine: "jev",
             goal: "Accept the suggestion",
             actions: [{ id: "accept", press: { key: "Tab", target: KEY_TARGET } }],
             steps: [{ kind: "run", id: "accept" }],
@@ -1232,7 +1228,6 @@ describe("BrowserTaskService ordered steps", () => {
           request: {
             requestId: "unfocusable",
             tabId,
-            engine: "jev",
             goal: "Accept the suggestion",
             actions: [{ id: "accept", press: { key: "Enter", target: KEY_TARGET } }],
             steps: [{ kind: "run", id: "accept" }],
@@ -1271,7 +1266,6 @@ describe("BrowserTaskService ordered steps", () => {
           request: {
             requestId: "stale-key",
             tabId,
-            engine: "jev",
             goal: "Accept the suggestion",
             actions: [{ id: "accept", press: { key: "Tab", target: KEY_TARGET } }],
             steps: [{ kind: "run", id: "accept" }],
@@ -1304,7 +1298,6 @@ describe("BrowserTaskService ordered steps", () => {
           request: {
             requestId: "recover-key",
             tabId,
-            engine: "jev",
             goal: "Save",
             actions: [{ id: "escape", press: { key: "Escape", target: dismiss } }],
             submit: { id: "save", target: { role: "button", name: "Save" } },
@@ -1349,7 +1342,6 @@ describe("BrowserTaskService ordered steps", () => {
           request: {
             requestId: "overlay",
             tabId,
-            engine: "jev",
             goal: "Save",
             actions: [{ id: "dismiss", target: { role: "button", name: "Dismiss" } }],
             submit: { id: "save", target: { role: "button", name: "Save" } },
@@ -1423,7 +1415,6 @@ describe("BrowserTaskService ordered steps", () => {
           request: {
             requestId: "scope",
             tabId,
-            engine: "jev",
             goal: "Open new",
             actions: [
               {
@@ -1463,7 +1454,6 @@ describe("BrowserTaskService ordered steps", () => {
             request: {
               requestId: "stale",
               tabId,
-              engine: "jev",
               goal: "Open the comments",
               actions: [{ id: "comments", target: { role: "link", name: "81 comments" } }],
               checks: [{ id: "u", kind: "url", includes: "item" }],
@@ -1494,7 +1484,6 @@ describe("BrowserTaskService ordered steps", () => {
           request: {
             requestId: "loading",
             tabId,
-            engine: "jev",
             goal: "Save",
             submit: { id: "save", target: { role: "button", name: "Save" } },
             steps: [{ kind: "run", id: "save" }],
@@ -1638,7 +1627,6 @@ describe("BrowserTaskService ordered steps", () => {
           request: {
             requestId: "taken",
             tabId,
-            engine: "jev",
             goal: "Page on, then finish",
             actions: [
               { id: "next", target: { role: "link", name: "Next" } },
@@ -1667,7 +1655,6 @@ describe("BrowserTaskService ordered steps", () => {
           request: {
             requestId: "stacked",
             tabId,
-            engine: "jev",
             goal: "Save",
             actions: [{ id: "dismiss", target: { role: "button", name: "Dismiss" } }],
             submit: { id: "save", target: { role: "button", name: "Save" } },
@@ -1708,7 +1695,6 @@ describe("BrowserTaskService ordered steps", () => {
           request: {
             requestId: "unusable-recovery",
             tabId,
-            engine: "jev",
             goal: "Save",
             actions: [
               { id: "dismiss", target: { role: "button", name: "Dismiss" } },
@@ -1768,7 +1754,6 @@ describe("BrowserTaskService ordered steps", () => {
           request: {
             requestId: "satisfied",
             tabId,
-            engine: "jev",
             goal: "Accept terms",
             bindings: [
               {
@@ -1810,7 +1795,6 @@ const REPLY_BOX = `  - textbox "Reply to Henry Petch" [ref=reply]`;
 const DESK_REQUEST: PreviewTaskRequest = {
   requestId: "desk",
   tabId,
-  engine: "jev",
   goal: "Open Henry Petch's case",
   actions: [
     { id: "all", target: { role: "button", name: "All cases" } },
@@ -2125,7 +2109,6 @@ const LOGIN_TREE = [
 const LOGIN_REQUEST: PreviewTaskRequest = {
   requestId: "login",
   tabId,
-  engine: "jev",
   goal: "Log in",
   bindings: [
     {
@@ -2162,7 +2145,6 @@ const HEADER_TREE = [
 const PAST_REQUEST: PreviewTaskRequest = {
   requestId: "past",
   tabId,
-  engine: "jev",
   goal: "Open the past front page",
   actions: [{ id: "past", target: { role: "link", name: "past", hint: "in the header" } }],
   steps: [{ kind: "run", id: "past" }],
@@ -2195,7 +2177,6 @@ describe("BrowserTaskService unnamed and repeated targets", () => {
           request: {
             requestId: "dropdown",
             tabId,
-            engine: "jev",
             goal: "Pick option 2",
             bindings: [
               { id: "pick", control: "select", target: { role: "combobox" }, option: "Option 2" },
@@ -2239,7 +2220,6 @@ describe("BrowserTaskService unnamed and repeated targets", () => {
           request: {
             requestId: "entry-ad",
             tabId,
-            engine: "jev",
             goal: "Close the modal",
             actions: [{ id: "close", target: { text: "Close" } }],
             steps: [{ kind: "run", id: "close" }],
@@ -2350,7 +2330,6 @@ describe("BrowserTaskService unnamed and repeated targets", () => {
           request: {
             requestId: "country",
             tabId,
-            engine: "jev",
             goal: "Pick a country",
             bindings: [
               {
@@ -2468,7 +2447,7 @@ describe("BrowserTaskService saved logins", () => {
 });
 
 /** The label of the page-reach choice whose description includes `text`. */
-const labelOf = (request: DecisionRequest, text: string) => {
+const labelOf = (request: DecisionRoutingRequest, text: string) => {
   const question = request.questions[0]!;
   const choice =
     question.type === "choice"
@@ -2480,7 +2459,7 @@ const labelOf = (request: DecisionRequest, text: string) => {
   return choice.label;
 };
 
-const choicesOf = (request: DecisionRequest) => {
+const choicesOf = (request: DecisionRoutingRequest) => {
   const question = request.questions[0]!;
   return question.type === "choice" ? question.choices : [];
 };
@@ -2488,7 +2467,6 @@ const choicesOf = (request: DecisionRequest) => {
 const reach = (change: Partial<PreviewTaskRequest>): PreviewTaskRequest => ({
   requestId: "reach",
   tabId,
-  engine: "jev",
   goal: "Close the ad",
   pageReach: {},
   checks: [{ id: "gone", kind: "text", includes: "This is a modal window", expect: "absent" }],

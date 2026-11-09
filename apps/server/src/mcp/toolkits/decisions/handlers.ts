@@ -1,6 +1,6 @@
 import { canUseDecisions, OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as DecisionService from "../../../decisions/DecisionService.ts";
+import * as DecisionRouter from "../../../decisionRouting/DecisionRouter.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { assertLiveCaller, loadCaller } from "../../threadAccess.ts";
@@ -36,7 +36,7 @@ export const assertDecisionCaller = Effect.gen(function* () {
     });
   }
 });
-const service = assertDecisionCaller.pipe(Effect.andThen(DecisionService.DecisionService));
+const service = assertDecisionCaller.pipe(Effect.andThen(DecisionRouter.DecisionRouter));
 export const layer = McpToolAccess.toLayer(DecisionToolkit, {
   t3_decide: McpToolAccess.reads((input) =>
     service.pipe(Effect.flatMap((decisions) => decisions.decide(input))),

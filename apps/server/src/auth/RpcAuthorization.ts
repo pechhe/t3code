@@ -121,6 +121,9 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.serverGetProcessResourceHistory]: AuthDiagnosticsReadScope,
   [WS_METHODS.serverGetResourceTelemetryHistory]: AuthDiagnosticsReadScope,
   [WS_METHODS.serverRetryResourceTelemetry]: AuthDiagnosticsReadScope,
+  // Key sources and last four characters belong to whoever may change the keys.
+  [WS_METHODS.serverGetDecisionStatus]: AuthSettingsWriteScope,
+  [WS_METHODS.serverTestDecisions]: AuthSettingsWriteScope,
   [WS_METHODS.experimentsList]: AuthOrchestrationReadScope,
   [WS_METHODS.experimentsAssignments]: AuthOrchestrationReadScope,
   [WS_METHODS.experimentsReport]: AuthOrchestrationReadScope,

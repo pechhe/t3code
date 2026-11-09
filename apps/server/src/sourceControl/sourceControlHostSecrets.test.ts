@@ -165,6 +165,7 @@ it.effect("reads a collected reference again once it is invalidated", () =>
     ];
     cache.set("cliproxy#key", "stale");
     cache.set("voice#key", "stale");
+    cache.set("decision#key", "stale");
     cache.set("expo#token", "stale");
     cache.set("simlock#token", "stale");
     assert.deepEqual((yield* read()).bitbucket, {
@@ -177,6 +178,7 @@ it.effect("reads a collected reference again once it is invalidated", () =>
       Effect.succeed({
         sourceControlHosts: hosts,
         cloudSpeechCredentials: { openai: source("voice#key"), xai: "", openrouter: "" },
+        decisionCredentials: { jev: source("decision#key"), openai: "", openrouter: "" },
         usageLimitSources,
         easDeviceHosts,
         simlockDeviceHosts,
@@ -184,6 +186,7 @@ it.effect("reads a collected reference again once it is invalidated", () =>
     );
     assert.isFalse(cache.has("cliproxy#key"));
     assert.isFalse(cache.has("voice#key"));
+    assert.isFalse(cache.has("decision#key"));
     assert.isFalse(cache.has("expo#token"));
     assert.isFalse(cache.has("simlock#token"));
     assert.deepEqual((yield* read()).bitbucket, {

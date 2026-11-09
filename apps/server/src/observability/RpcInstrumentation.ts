@@ -97,6 +97,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.serverGetResourceTelemetryHistory]: "server",
   [WS_METHODS.serverRetryResourceTelemetry]: "server",
   [WS_METHODS.serverCheckOtlpEndpoint]: "server",
+  [WS_METHODS.serverGetDecisionStatus]: "server",
+  [WS_METHODS.serverTestDecisions]: "server",
   [WS_METHODS.experimentsCreate]: "experiments",
   [WS_METHODS.experimentsTransition]: "experiments",
   [WS_METHODS.experimentsList]: "experiments",

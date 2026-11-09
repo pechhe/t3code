@@ -1,7 +1,8 @@
 import type {
-  DecisionError,
-  DecisionRequest,
-  DecisionResult,
+  DecisionRoutedResult,
+  DecisionRoutingError,
+  DecisionRoutingRequest,
+  ServerSettingsError,
   PreviewAutomationSnapshot,
   PreviewTaskActionState,
   PreviewTaskArtifact,
@@ -101,7 +102,9 @@ export interface BrowserTaskPort {
     locator: string,
     timeoutMs: number,
   ) => Effect.Effect<PreviewTaskArtifact, PortFailure>;
-  readonly decide: (request: DecisionRequest) => Effect.Effect<DecisionResult, DecisionError>;
+  readonly decide: (
+    request: DecisionRoutingRequest,
+  ) => Effect.Effect<DecisionRoutedResult, DecisionRoutingError | ServerSettingsError>;
   /** Waits for load and network quiet, up to the bound; never fails for an unsettled page. */
   readonly settle: (timeoutMs: number) => Effect.Effect<void, PortFailure>;
   /** Scrolls the element into view; true when another element paints over its centre. */
@@ -730,7 +733,6 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
       { label: HINT_NONE, description: "No element fits the hint." },
     ];
     const choice = yield* ask(choices, {
-      engine: request.engine,
       rule: HINT_RULE,
       evidence: {
         goal: request.goal,
@@ -1072,7 +1074,6 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
       ...Object.entries(CONTROLS).map(([label, description]) => ({ label, description })),
     ];
     return ask(choices, {
-      engine: request.engine,
       rule: DECISION_RULE,
       evidence: {
         goal: request.goal,
@@ -1160,7 +1161,6 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         })),
     ];
     return ask(choices, {
-      engine: request.engine,
       rule: input.journey === true ? JOURNEY_RULE : PAGE_REACH_RULE,
       evidence: {
         goal: request.goal,
@@ -1261,7 +1261,6 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         { label: OPTION_NONE, description: "No option advances the goal." },
       ];
       const choice = yield* ask(choices, {
-        engine: request.engine,
         rule: OPTION_RULE,
         evidence: {
           goal: request.goal,
@@ -1322,7 +1321,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
 
   const ask = Effect.fn("BrowserTaskRunner.ask")(function* (
     choices: readonly Offer[],
-    decisionRequest: DecisionRequest,
+    decisionRequest: DecisionRoutingRequest,
   ) {
     if (record.decisions >= limits.maxDecisions) {
       yield* stop(
@@ -1636,7 +1635,6 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
       ...Object.entries(RECOVERY_CONTROLS).map(([label, description]) => ({ label, description })),
     ];
     const choice = yield* ask(choices, {
-      engine: request.engine,
       rule: RECOVERY_RULE,
       evidence: {
         goal: request.goal,

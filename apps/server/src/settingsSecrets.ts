@@ -2,6 +2,7 @@ import {
   AntigravitySettings,
   ClaudeSettings,
   CloudSpeechCredentials,
+  DecisionCredentials,
   CodexSettings,
   EasDeviceHostConfig,
   type ProviderInstanceConfig,
@@ -47,6 +48,10 @@ const providerSecretFields = new Map([
 ]);
 const usageLimitSecretFields = secretSettingsFields(UsageLimitSourceConfig);
 const voiceSecretFields = secretSettingsFields(CloudSpeechCredentials);
+const decisionSecretFields = secretSettingsFields(DecisionCredentials);
+/** The slots the decision service already reads, so a key saved before this setting existed still applies. */
+const decisionSecretSlot = (provider: string) =>
+  provider === "openai" ? "decision-api-key-luna" : `decision-api-key-${provider}`;
 const easDeviceHostSecretFields = secretSettingsFields(EasDeviceHostConfig);
 const simlockDeviceHostSecretFields = secretSettingsFields(SimlockDeviceHostConfig);
 const encode = (value: string) => Buffer.from(value, "utf8").toString("base64url");
@@ -239,6 +244,11 @@ function mapSecretFieldGroups(
       voiceSecretFields,
       (provider) => `voice-cloud-${provider}`,
     ) as ServerSettings["cloudSpeechCredentials"],
+    decisionCredentials: mapFields(
+      settings.decisionCredentials,
+      decisionSecretFields,
+      decisionSecretSlot,
+    ) as ServerSettings["decisionCredentials"],
     providerInstances,
     sourceControlHosts,
     usageLimitSources,

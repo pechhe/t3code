@@ -308,6 +308,42 @@ describe("scoped settings writes", () => {
     });
   });
 
+  it("sends decision settings only to environments that advertise them", () => {
+    const upgraded = {
+      ...laptop,
+      serverConfig: { settings: DEFAULT_SERVER_SETTINGS, decisionSettings: true },
+    };
+    const plan = planScopedSettingsPatch(all, [upgraded, server], {
+      decisionProvider: "openrouter",
+    });
+    expect(plan.serverWrites.map((write) => write.environmentId)).toEqual([laptop.environmentId]);
+  });
+
+  it("accepts a replaced secret that reads back redacted", async () => {
+    const redacted = "\u2022\u2022\u2022\u2022\u2022\u2022";
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      decisionCredentials: { ...DEFAULT_SERVER_SETTINGS.decisionCredentials, jev: redacted },
+    };
+    const keyed = {
+      ...laptop,
+      serverConfig: { settings: current, decisionSettings: true },
+    };
+    const plan = planScopedSettingsPatch(
+      named,
+      [{ ...keyed, environmentId: server.environmentId, label: "Server" }],
+      {
+        decisionCredentials: { jev: "new-key-1234" },
+      },
+    );
+    const result = await persistScopedSettingsPatch(
+      plan,
+      vi.fn(async () => ({ _tag: "Success" as const, value: current })),
+      vi.fn(),
+    );
+    expect(result.failedEnvironments).toEqual([]);
+  });
+
   it("persists client keys locally at any scope alongside server keys", async () => {
     const persistServer = vi.fn().mockResolvedValue({ _tag: "Success" });
     const persistClient = vi.fn();

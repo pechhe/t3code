@@ -1,4 +1,5 @@
 import { BackgroundPolicySnapshot, HostPowerSnapshot } from "./background.ts";
+import { DecisionStatus, DecisionTestResult } from "./decisionRouting.ts";
 import {
   ChampionClassChoicesInput,
   ChampionClassChoicesResult,
@@ -677,6 +678,8 @@ export const WS_METHODS = {
   serverGetResourceTelemetryHistory: "server.getResourceTelemetryHistory",
   serverRetryResourceTelemetry: "server.retryResourceTelemetry",
   serverCheckOtlpEndpoint: "server.checkOtlpEndpoint",
+  serverGetDecisionStatus: "server.getDecisionStatus",
+  serverTestDecisions: "server.testDecisions",
   serverPrepareTriage: "server.prepareTriage",
   serverSignalProcess: "server.signalProcess",
   serverReportClientActivity: "server.reportClientActivity",
@@ -1219,6 +1222,18 @@ const WsServerCheckOtlpEndpointRpc = Rpc.make(WS_METHODS.serverCheckOtlpEndpoint
   payload: OtlpEndpointCheckInput,
   success: OtlpEndpointCheckResult,
   error: EnvironmentAuthorizationError,
+});
+
+const WsServerGetDecisionStatusRpc = Rpc.make(WS_METHODS.serverGetDecisionStatus, {
+  payload: Schema.Struct({}),
+  success: DecisionStatus,
+  error: Schema.Union([EnvironmentAuthorizationError, ServerSettingsError]),
+});
+
+const WsServerTestDecisionsRpc = Rpc.make(WS_METHODS.serverTestDecisions, {
+  payload: Schema.Struct({}),
+  success: DecisionTestResult,
+  error: Schema.Union([EnvironmentAuthorizationError, ServerSettingsError]),
 });
 
 const WsExperimentsCreateRpc = Rpc.make(WS_METHODS.experimentsCreate, {
@@ -2922,6 +2937,8 @@ export const WsServerOperationsRpcGroup = RpcGroup.make(
   WsServerGetResourceTelemetryHistoryRpc,
   WsServerRetryResourceTelemetryRpc,
   WsServerCheckOtlpEndpointRpc,
+  WsServerGetDecisionStatusRpc,
+  WsServerTestDecisionsRpc,
   WsExperimentsCreateRpc,
   WsExperimentsTransitionRpc,
   WsExperimentsListRpc,

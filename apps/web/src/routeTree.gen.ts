@@ -45,6 +45,7 @@ import { Route as ChatSettingsDiffsRouteImport } from './routes/_chat.settings.d
 import { Route as ChatSettingsDiagnosticsRouteImport } from './routes/_chat.settings.diagnostics'
 import { Route as ChatSettingsDevicesRouteImport } from './routes/_chat.settings.devices'
 import { Route as ChatSettingsDelegationRouteImport } from './routes/_chat.settings.delegation'
+import { Route as ChatSettingsDecisionsRouteImport } from './routes/_chat.settings.decisions'
 import { Route as ChatSettingsConnectionsRouteImport } from './routes/_chat.settings.connections'
 import { Route as ChatSettingsChatRouteImport } from './routes/_chat.settings.chat'
 import { Route as ChatSettingsBrowserRouteImport } from './routes/_chat.settings.browser'
@@ -239,6 +240,11 @@ const ChatSettingsDelegationRoute = ChatSettingsDelegationRouteImport.update({
   path: '/delegation',
   getParentRoute: () => ChatSettingsRoute,
 } as any)
+const ChatSettingsDecisionsRoute = ChatSettingsDecisionsRouteImport.update({
+  id: '/decisions',
+  path: '/decisions',
+  getParentRoute: () => ChatSettingsRoute,
+} as any)
 const ChatSettingsConnectionsRoute = ChatSettingsConnectionsRouteImport.update({
   id: '/connections',
   path: '/connections',
@@ -316,6 +322,7 @@ export interface FileRoutesByFullPath {
   '/settings/browser': typeof ChatSettingsBrowserRoute
   '/settings/chat': typeof ChatSettingsChatRoute
   '/settings/connections': typeof ChatSettingsConnectionsRoute
+  '/settings/decisions': typeof ChatSettingsDecisionsRoute
   '/settings/delegation': typeof ChatSettingsDelegationRoute
   '/settings/devices': typeof ChatSettingsDevicesRoute
   '/settings/diagnostics': typeof ChatSettingsDiagnosticsRoute
@@ -363,6 +370,7 @@ export interface FileRoutesByTo {
   '/settings/browser': typeof ChatSettingsBrowserRoute
   '/settings/chat': typeof ChatSettingsChatRoute
   '/settings/connections': typeof ChatSettingsConnectionsRoute
+  '/settings/decisions': typeof ChatSettingsDecisionsRoute
   '/settings/delegation': typeof ChatSettingsDelegationRoute
   '/settings/devices': typeof ChatSettingsDevicesRoute
   '/settings/diagnostics': typeof ChatSettingsDiagnosticsRoute
@@ -412,6 +420,7 @@ export interface FileRoutesById {
   '/_chat/settings/browser': typeof ChatSettingsBrowserRoute
   '/_chat/settings/chat': typeof ChatSettingsChatRoute
   '/_chat/settings/connections': typeof ChatSettingsConnectionsRoute
+  '/_chat/settings/decisions': typeof ChatSettingsDecisionsRoute
   '/_chat/settings/delegation': typeof ChatSettingsDelegationRoute
   '/_chat/settings/devices': typeof ChatSettingsDevicesRoute
   '/_chat/settings/diagnostics': typeof ChatSettingsDiagnosticsRoute
@@ -461,6 +470,7 @@ export interface FileRouteTypes {
     | '/settings/browser'
     | '/settings/chat'
     | '/settings/connections'
+    | '/settings/decisions'
     | '/settings/delegation'
     | '/settings/devices'
     | '/settings/diagnostics'
@@ -508,6 +518,7 @@ export interface FileRouteTypes {
     | '/settings/browser'
     | '/settings/chat'
     | '/settings/connections'
+    | '/settings/decisions'
     | '/settings/delegation'
     | '/settings/devices'
     | '/settings/diagnostics'
@@ -556,6 +567,7 @@ export interface FileRouteTypes {
     | '/_chat/settings/browser'
     | '/_chat/settings/chat'
     | '/_chat/settings/connections'
+    | '/_chat/settings/decisions'
     | '/_chat/settings/delegation'
     | '/_chat/settings/devices'
     | '/_chat/settings/diagnostics'
@@ -847,6 +859,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatSettingsDelegationRouteImport
       parentRoute: typeof ChatSettingsRoute
     }
+    '/_chat/settings/decisions': {
+      id: '/_chat/settings/decisions'
+      path: '/decisions'
+      fullPath: '/settings/decisions'
+      preLoaderRoute: typeof ChatSettingsDecisionsRouteImport
+      parentRoute: typeof ChatSettingsRoute
+    }
     '/_chat/settings/connections': {
       id: '/_chat/settings/connections'
       path: '/connections'
@@ -929,6 +948,7 @@ interface ChatSettingsRouteChildren {
   ChatSettingsBrowserRoute: typeof ChatSettingsBrowserRoute
   ChatSettingsChatRoute: typeof ChatSettingsChatRoute
   ChatSettingsConnectionsRoute: typeof ChatSettingsConnectionsRoute
+  ChatSettingsDecisionsRoute: typeof ChatSettingsDecisionsRoute
   ChatSettingsDelegationRoute: typeof ChatSettingsDelegationRoute
   ChatSettingsDevicesRoute: typeof ChatSettingsDevicesRoute
   ChatSettingsDiagnosticsRoute: typeof ChatSettingsDiagnosticsRoute
@@ -960,6 +980,7 @@ const ChatSettingsRouteChildren: ChatSettingsRouteChildren = {
   ChatSettingsBrowserRoute: ChatSettingsBrowserRoute,
   ChatSettingsChatRoute: ChatSettingsChatRoute,
   ChatSettingsConnectionsRoute: ChatSettingsConnectionsRoute,
+  ChatSettingsDecisionsRoute: ChatSettingsDecisionsRoute,
   ChatSettingsDelegationRoute: ChatSettingsDelegationRoute,
   ChatSettingsDevicesRoute: ChatSettingsDevicesRoute,
   ChatSettingsDiagnosticsRoute: ChatSettingsDiagnosticsRoute,

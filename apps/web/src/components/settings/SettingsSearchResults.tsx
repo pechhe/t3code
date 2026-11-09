@@ -72,6 +72,9 @@ const SETTINGS_PAGE_PANELS: Readonly<Record<SettingsPath, ComponentType>> = {
     })),
   ),
 
+  "/settings/decisions": lazy(() =>
+    import("./DecisionsSettings").then((module) => ({ default: module.DecisionsSettings })),
+  ),
   "/settings/delegation": lazy(() =>
     import("./DelegationSettings").then((module) => ({ default: module.DelegationSettings })),
   ),

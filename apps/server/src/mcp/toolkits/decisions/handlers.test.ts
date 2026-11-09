@@ -1,6 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import {
-  DecisionError,
+  DecisionRoutingError,
   canUseDecisions,
   EnvironmentId,
   ProviderInstanceId,
@@ -13,7 +13,7 @@ import * as Exit from "effect/Exit";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
-import * as DecisionService from "../../../decisions/DecisionService.ts";
+import * as DecisionRouter from "../../../decisionRouting/DecisionRouter.ts";
 import { request } from "../../../decisions/decisions.testkit.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as Context from "../../McpInvocationContext.ts";
@@ -39,15 +39,19 @@ const scope = (
   ...(toolProfile === undefined ? {} : { toolProfile }),
   ...(agentRole === undefined ? {} : { agentRole }),
 });
+const routingRequest = () => {
+  const { engine: _engine, ...rest } = request();
+  return rest;
+};
 const run = (invocation: Context.McpInvocationScope, inactive = false) =>
   Effect.gen(function* () {
     let calls = 0;
     const deps = Layer.mergeAll(
       Layer.succeed(Context.McpInvocationContext, invocation),
-      Layer.succeed(DecisionService.DecisionService, {
+      Layer.mock(DecisionRouter.DecisionRouter)({
         decide: () => {
           calls++;
-          return Effect.fail(new DecisionError({ code: "unavailable" }));
+          return Effect.fail(new DecisionRoutingError({ provider: "jev", code: "key-missing" }));
         },
       }),
       Layer.mock(ThreadManagement.ThreadManagementService)({
@@ -59,7 +63,7 @@ const run = (invocation: Context.McpInvocationScope, inactive = false) =>
       Effect.provide(McpToolAccess.HandlersLayer.layer(Handlers.layer).pipe(Layer.provide(deps))),
     );
     const result = yield* toolkit
-      .handle("t3_decide", request())
+      .handle("t3_decide", routingRequest())
       .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(deps), Effect.exit);
     return { calls, result };
   });

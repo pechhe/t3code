@@ -11,6 +11,7 @@ import {
   shardOfOrigin,
 } from "./journeyRules.ts";
 import { engines as decisionEngines } from "../decisions/adapters.ts";
+import * as DecisionRouter from "../decisionRouting/DecisionRouter.ts";
 import * as ChampionLearnings from "./ChampionLearnings.ts";
 import * as ManagedTaskControl from "../agents/ManagedTaskControl.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
@@ -2476,13 +2477,22 @@ const make = Effect.gen(function* () {
     yield* evidence.admit(proof);
     yield* PubSub.publish(changes, undefined);
   });
-  /** Everyone a journey's confirmation must not be: the model that ran it and the one that drove it. */
-  const journeyModels = (doc: Document) =>
-    new Set([
+  /** Everyone a journey's confirmation must not be: the model that ran it, the one that drove it, and the configured decision model under any provider's name. */
+  const journeyModels = Effect.fn("ChampionService.journeyModels")(function* (doc: Document) {
+    const router = yield* Effect.serviceOption(DecisionRouter.DecisionRouter);
+    const configured = Option.isSome(router)
+      ? yield* router.value.status.pipe(
+          Effect.map(({ model }) => [model, model.slice(model.lastIndexOf("/") + 1)]),
+          Effect.orElseSucceed(() => []),
+        )
+      : [];
+    return new Set([
       doc.champion.routineModelSelection.model,
       decisionEngines.jev.model,
       decisionEngines.luna.model,
+      ...configured,
     ]);
+  });
   const guardConfirmation = Effect.fn("ChampionService.guardConfirmation")(function* (
     ownerThreadId: ThreadId,
     request: AgentTaskRequest,
@@ -2524,7 +2534,7 @@ const make = Effect.gen(function* () {
         instanceId: provider.instanceId,
       }),
     );
-    const excluded = journeyModels(doc);
+    const excluded = yield* journeyModels(doc);
     const result = yield* managedAgents.value
       .roles({
         projectId: doc.champion.projectId,
@@ -2784,7 +2794,7 @@ const make = Effect.gen(function* () {
         findingId: findingId ?? candidate.findingId,
       };
     });
-    if (journeyModels(doc).has(finished.model))
+    if ((yield* journeyModels(doc)).has(finished.model))
       return yield* close(
         "inconclusive",
         `The replay ran on ${finished.model}, which may not judge this check's own work.`,

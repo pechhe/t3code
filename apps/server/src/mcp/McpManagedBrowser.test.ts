@@ -1,5 +1,5 @@
 import { DecisionToolkit } from "./toolkits/decisions/tools.ts";
-import * as DecisionService from "../decisions/DecisionService.ts";
+import * as DecisionRouter from "../decisionRouting/DecisionRouter.ts";
 import * as BrowserTaskService from "../browserTasks/BrowserTaskService.ts";
 import * as ContextServerSettingsService from "../serverSettings.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
@@ -166,7 +166,7 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
       // Composed as the server composes them: the endpoints must not share one tool registry.
       const both = Layer.mergeAll(
         McpHttpServer.layerManagedBrowserToolkit.pipe(
-          Layer.provide(Layer.mock(DecisionService.DecisionService)({})),
+          Layer.provide(Layer.mock(DecisionRouter.DecisionRouter)({})),
           Layer.provide(Layer.mock(BrowserTaskService.BrowserTaskService)({})),
           Layer.provide(Layer.mock(BrowserLogins.BrowserLogins)({})),
           Layer.provide(Layer.mock(DeviceService.DeviceService)({})),

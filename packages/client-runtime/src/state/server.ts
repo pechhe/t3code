@@ -1333,6 +1333,10 @@ export function createServerEnvironmentAtoms<R, E>(
       execute: (input: EnvironmentRpcInput<typeof WS_METHODS.serverGetHostResources>) =>
         request(WS_METHODS.serverGetHostResources, input).pipe(Effect.timeout("5 seconds")),
     }),
+    decisionStatus: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:decision-status",
+      tag: WS_METHODS.serverGetDecisionStatus,
+    }),
     processResourceHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:process-resource-history",
       tag: WS_METHODS.serverGetProcessResourceHistory,
@@ -1772,6 +1776,14 @@ export function createServerEnvironmentAtoms<R, E>(
     checkOtlpEndpoint: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:check-otlp-endpoint",
       tag: WS_METHODS.serverCheckOtlpEndpoint,
+    }),
+    testDecisions: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:test-decisions",
+      tag: WS_METHODS.serverTestDecisions,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId }) => environmentId,
+      },
     }),
     retryResourceTelemetry: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:retry-resource-telemetry",

@@ -14,7 +14,7 @@ import * as ContextRunSetupStore from "../agents/RunSetupRecorder.ts";
 import * as ContextThreadProjectMoveService from "../orchestration-v2/ThreadProjectMoveService.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { DecisionService } from "../decisions/DecisionService.ts";
+import { DecisionRouter } from "../decisionRouting/DecisionRouter.ts";
 import { expect, it } from "@effect/vitest";
 import { ProviderInstanceId } from "@t3tools/contracts";
 import { McpProviderSessions } from "@t3tools/provider-core/server/McpProviderSessions";
@@ -67,7 +67,7 @@ import budget from "./agentContextBudget.json" with { type: "json" };
 // Registration only stores tool definitions, so the handlers' services are never called.
 const toolHandlerServices = Layer.mergeAll(
   Layer.mock(ChampionService)({}),
-  Layer.mock(DecisionService)({}),
+  Layer.mock(DecisionRouter)({}),
   Layer.mock(AssetSigner)({}),
   Layer.mock(DeviceService)({}),
   Layer.mock(DocumentText)({}),

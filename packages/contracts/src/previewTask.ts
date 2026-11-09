@@ -206,7 +206,6 @@ export const PreviewTaskRequest = Schema.Struct({
   tabId: PreviewTabId.annotate({
     description: "A tab you own, from preview_open or t3_browser_open.",
   }),
-  engine: Schema.Literal("jev"),
   goal: Text,
   bindings: Schema.optional(Schema.Array(PreviewTaskBinding)).annotate({
     description: "Form fields with the exact values to enter.",

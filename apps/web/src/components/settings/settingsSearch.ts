@@ -28,6 +28,7 @@ export type SettingsPath =
   | "/settings/providers"
   | "/settings/experiments"
   | "/settings/delegation"
+  | "/settings/decisions"
   | "/settings/threads"
   | "/settings/browser"
   | "/settings/devices"
@@ -99,6 +100,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/providers": "Providers",
   "/settings/experiments": "Experiments",
   "/settings/delegation": "Delegation",
+  "/settings/decisions": "Decisions",
   "/settings/threads": "Threads",
   "/settings/browser": "Browser",
   "/settings/devices": "Devices",
@@ -136,6 +138,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     paths: [
       "/settings/providers",
       "/settings/delegation",
+      "/settings/decisions",
       "/settings/experiments",
       "/settings/threads",
       "/settings/browser",
@@ -222,6 +225,15 @@ const SOURCE_CONTROL_HOST_TERMS = sourceControlClients.definitions
   .join(" ");
 
 export const SETTINGS_SEARCH_ITEMS = [
+  {
+    id: "decisions",
+    title: "Decision model",
+    to: "/settings/decisions",
+    scope: "environment",
+    searchTerms: [
+      "decisions jev typesafe openai luna openrouter provider model api key credits test bounded questions",
+    ],
+  },
   {
     id: "delegation",
     title: "Delegation",
@@ -1452,6 +1464,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/connections": "connections",
   "/settings/experiments": null,
   "/settings/delegation": null,
+  "/settings/decisions": "environment",
   "/settings/access": "connections",
   "/settings/secrets": null,
   "/settings/maintenance": null,

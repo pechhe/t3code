@@ -1,7 +1,5 @@
 import { DecisionToolkit } from "./toolkits/decisions/tools.ts";
 import * as DecisionHandlers from "./toolkits/decisions/handlers.ts";
-import * as DecisionService from "../decisions/DecisionService.ts";
-import * as DecisionKeys from "../secrets/decisionKeys.ts";
 import { ChampionsToolkit } from "./toolkits/champions/tools.ts";
 import * as ChampionsHandlers from "./toolkits/champions/handlers.ts";
 import { WebToolkit } from "./toolkits/web/tools.ts";
@@ -1542,6 +1540,5 @@ export const layer = Layer.mergeAll(
 ).pipe(
   Layer.provide(BrowserTaskService.layer.pipe(Layer.provide(ChampionJourneys.layerBrowserPolicy))),
   Layer.provideMerge(BrowserLogins.layer),
-  Layer.provide(DecisionService.layer.pipe(Layer.provide(DecisionKeys.layerSecretStore))),
   Layer.provide(BitwardenSecrets.layer.pipe(Layer.provide(ProcessRunner.layer))),
 );

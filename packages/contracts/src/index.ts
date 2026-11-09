@@ -88,5 +88,6 @@ export * from "./browserBackend.ts";
 export * from "./fleetSummary.ts";
 export * from "./weaveNames.ts";
 export * from "./decisions.ts";
+export * from "./decisionRouting.ts";
 export * from "./champions.ts";
 export * from "./championLearnings.ts";

@@ -93,7 +93,11 @@ export const buildDecisionRequest = (engine: "jev" | "luna", request: DecisionRe
   };
 };
 
-export const chosen = (result: DecisionResult, id: string, offered: readonly string[]) => {
+export const chosen = (
+  result: Pick<DecisionResult, "answers">,
+  id: string,
+  offered: readonly string[],
+) => {
   const answer = result.answers.find((entry) => entry.id === id);
   if (answer?.status !== "answered" || answer.type !== "choice")
     throw new EngineRefusal({

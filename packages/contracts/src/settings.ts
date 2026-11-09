@@ -25,6 +25,12 @@ import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
 import { UsageModelFilter } from "./usage.ts";
 import { SecretProviderId, SecretProviderSlug } from "./secretReference.ts";
 import { SettingsSecretValue } from "./settingsSecretValue.ts";
+import {
+  DecisionOpenRouterModel,
+  DecisionProvider,
+  DEFAULT_DECISION_PROVIDER,
+  DEFAULT_OPENROUTER_DECISION_MODEL,
+} from "./decisionRouting.ts";
 import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
 import { KeybindingShortcut } from "./keybindings.ts";
 import {
@@ -1397,6 +1403,12 @@ export const CloudSpeechCredentials = Schema.Struct({
   openrouter: CloudSpeechCredential,
 });
 
+export const DecisionCredentials = Schema.Struct({
+  jev: CloudSpeechCredential,
+  openai: CloudSpeechCredential,
+  openrouter: CloudSpeechCredential,
+});
+
 const DefaultChildRuntimeMode = Schema.Union([Schema.Literal("inherit"), RuntimeMode]);
 const AdvisorIdleCloseMinutes = Schema.NullOr(
   Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 10080 })),
@@ -1460,6 +1472,15 @@ export const ServerSettings = Schema.Struct({
   phiBrowserSkillDirectory: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   cloudSpeechCredentials: CloudSpeechCredentials.pipe(
     Schema.withDecodingDefault(Effect.succeed({ openai: "", xai: "", openrouter: "" })),
+  ),
+  decisionProvider: DecisionProvider.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_DECISION_PROVIDER)),
+  ),
+  decisionOpenRouterModel: DecisionOpenRouterModel.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_OPENROUTER_DECISION_MODEL)),
+  ),
+  decisionCredentials: DecisionCredentials.pipe(
+    Schema.withDecodingDefault(Effect.succeed({ jev: "", openai: "", openrouter: "" })),
   ),
   speechModelId: Schema.String.pipe(
     Schema.withDecodingDefault(Effect.succeed("handy-computer/parakeet-unified-en-0.6b-gguf")),
@@ -2014,6 +2035,15 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Struct({
       openai: Schema.optionalKey(SettingsSecretValue),
       xai: Schema.optionalKey(SettingsSecretValue),
+      openrouter: Schema.optionalKey(SettingsSecretValue),
+    }),
+  ),
+  decisionProvider: Schema.optionalKey(DecisionProvider),
+  decisionOpenRouterModel: Schema.optionalKey(DecisionOpenRouterModel),
+  decisionCredentials: Schema.optionalKey(
+    Schema.Struct({
+      jev: Schema.optionalKey(SettingsSecretValue),
+      openai: Schema.optionalKey(SettingsSecretValue),
       openrouter: Schema.optionalKey(SettingsSecretValue),
     }),
   ),

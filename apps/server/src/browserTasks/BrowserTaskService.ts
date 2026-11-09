@@ -1,5 +1,4 @@
 import {
-  type DecisionError,
   OrchestratorMcpFailure,
   PREVIEW_TASK_LIMITS,
   type PreviewAutomationSnapshot,
@@ -23,7 +22,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import * as ServerConfig from "../config.ts";
-import * as DecisionService from "../decisions/DecisionService.ts";
+import * as DecisionRouter from "../decisionRouting/DecisionRouter.ts";
 import type { McpThreadInvocationScope } from "../mcp/McpInvocationContext.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as Broker from "../mcp/PreviewAutomationBroker.ts";
@@ -607,7 +606,7 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const broker = yield* Broker.PreviewAutomationBroker;
     const browser = yield* ServerBrowser.ServerBrowser;
-    const decisions = yield* DecisionService.DecisionService;
+    const decisions = yield* DecisionRouter.DecisionRouter;
     const registry = yield* McpSessionRegistry.McpSessionRegistry;
     const logins = yield* BrowserLogins.BrowserLogins;
     const saveServices = yield* Effect.context<
@@ -814,11 +813,7 @@ export const layer = Layer.effect(
             Effect.provide(saveServices),
             Effect.mapError((cause) => failureMessage(cause)),
           ),
-          decide: (input) =>
-            decisions.decide(input) as Effect.Effect<
-              Effect.Success<ReturnType<typeof decisions.decide>>,
-              DecisionError
-            >,
+          decide: decisions.decide,
           capture: Effect.fn("BrowserTaskService.capture")(
             function* (locator: string, timeoutMs: number) {
               const captured = yield* browser.captureTaskTarget({

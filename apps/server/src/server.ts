@@ -61,6 +61,8 @@ import * as PullRequestHttp from "./pullRequest/http.ts";
 import * as SpeechModelStore from "./speech/SpeechModelStore.ts";
 import * as SpeechService from "./speech/SpeechService.ts";
 import * as CloudSpeech from "./speech/CloudSpeech.ts";
+import * as DecisionRouter from "./decisionRouting/DecisionRouter.ts";
+import * as BitwardenSecrets from "./secrets/BitwardenSecrets.ts";
 import { speechHttpApiLayer } from "./speech/http.ts";
 import { speechStreamRouteLayer } from "./speech/stream.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
@@ -827,6 +829,9 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(
     Layer.mergeAll(ProjectStore.layer, ThreadSearch.layer, PeerEnvironments.layer),
   ),
+  // One router for /mcp and WebSocket, so decisions share a single admission limit.
+  Layer.provideMerge(DecisionRouter.layer),
+  Layer.provideMerge(BitwardenSecrets.layer.pipe(Layer.provide(ProcessRunner.layer))),
   Layer.provideMerge(SecretResolver.layer),
   Layer.provideMerge(layerServerSettings),
   Layer.provideMerge(layerSourceControlProviderRegistry),

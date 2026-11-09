@@ -34,6 +34,7 @@ interface ScopedSettingsEnvironment {
   readonly connection: { readonly phase: EnvironmentConnectionPhase };
   readonly serverConfig: {
     readonly settings: ServerSettings;
+    readonly decisionSettings?: boolean | undefined;
   } | null;
 }
 
@@ -287,6 +288,12 @@ export function planScopedSettingsPatch(
           ? connectedEnvironments.flatMap((environment) => {
               const previous = environment.serverConfig?.settings;
               if (!previous) return [];
+              // An older server drops decision settings without saying so.
+              if (
+                serverKeys.some((key) => key.startsWith("decision")) &&
+                environment.serverConfig?.decisionSettings !== true
+              )
+                return [];
               return [
                 {
                   environmentId: environment.environmentId,
@@ -412,7 +419,12 @@ export function planProjectOverridesClear(
   };
 }
 
+// Secrets come back redacted, so a replaced one reads as unchanged.
+const REDACTED_SECRET = "\u2022\u2022\u2022\u2022\u2022\u2022";
+
 function writeWasDropped(value: unknown, before: unknown, saved: unknown): boolean {
+  if (typeof value === "string" && before === REDACTED_SECRET && saved === REDACTED_SECRET)
+    return false;
   if (value === null) return before != null && Equal.equals(saved, before);
   if (isPlainObject(value) && !Array.isArray(before) && !Array.isArray(saved)) {
     const field = (source: unknown, key: string) =>
