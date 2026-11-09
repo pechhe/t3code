@@ -24,7 +24,7 @@ import { formatElapsedDurationLabel } from "~/timestampFormat";
 import {
   resolveFailedPromotions,
   resolveProductionAges,
-  resolveProductionDeploys,
+  resolveReleasesInFlight,
   resolveProductionLine,
   resolveReleaseRow,
 } from "./SlipJayBox.logic";
@@ -46,7 +46,7 @@ export function ReleaseButton({ environmentId }: { environmentId: EnvironmentId 
   const { data: promotions } = useEnvironmentQuery(
     vcsEnvironment.slipJayPromotions({ environmentId, input: {} }),
   );
-  const deploys = overview == null ? [] : resolveProductionDeploys(overview);
+  const deploys = overview == null ? [] : resolveReleasesInFlight(overview, promotions);
   const deploying = deploys.length > 0;
   // A minute is the finest an age at rest shows; a running deploy counts seconds.
   const now = useNow(overview != null, deploying ? 1000 : 30_000);
@@ -55,6 +55,9 @@ export function ReleaseButton({ environmentId }: { environmentId: EnvironmentId 
   if (releasing.length === 0 && !deploying) return null;
   const ages = resolveProductionAges(overview);
   const [deploy] = deploys;
+  // Before the plan names a commit the release has none to show.
+  const sha =
+    deploy === undefined || deploy.commitId === "" ? "" : ` ${deploy.commitId.slice(0, 7)}`;
   const failed =
     !deploying &&
     (resolveFailedPromotions(overview, promotions).length > 0 || ages.some((age) => age.failed));
@@ -69,9 +72,7 @@ export function ReleaseButton({ environmentId }: { environmentId: EnvironmentId 
             variant="outline"
             className="shrink-0 [-webkit-app-region:no-drag]"
             aria-label={
-              deploy === undefined
-                ? "Production releases"
-                : `Releasing ${deploy.commitId.slice(0, 7)} to production`
+              deploy === undefined ? "Production releases" : `Releasing${sha} to production`
             }
           />
         }
@@ -79,7 +80,7 @@ export function ReleaseButton({ environmentId }: { environmentId: EnvironmentId 
         {deploy !== undefined ? (
           <>
             <Spinner />
-            <span className="font-mono max-sm:hidden">Releasing {deploy.commitId.slice(0, 7)}</span>
+            <span className="font-mono max-sm:hidden">Releasing{sha}</span>
             {deploy.startedAt === null ? null : (
               <span className="font-mono tabular-nums">
                 {formatSlipJayDuration(now - Date.parse(deploy.startedAt))}

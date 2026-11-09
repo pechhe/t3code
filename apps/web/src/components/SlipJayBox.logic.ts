@@ -230,11 +230,13 @@ export interface SlipJayProductionDeploy {
 }
 
 /**
- * The production deploys in flight: the runner's running production deploy operations, plus a
- * repository's running production attempt that no operation names (an older runner).
+ * The releases in flight: the runner's running production deploys, a repository's running
+ * production attempt that no operation names (an older runner), and a release this environment
+ * started that is still verifying, before any deploy exists.
  */
-export function resolveProductionDeploys(
+export function resolveReleasesInFlight(
   overview: SlipJayRunnerOverview,
+  promotions: ReadonlyArray<VcsSlipJayPromotion> | null | undefined = [],
 ): SlipJayProductionDeploy[] {
   const deploys: SlipJayProductionDeploy[] = overview.deploy
     .filter(
@@ -253,6 +255,14 @@ export function resolveProductionDeploys(
     if (attempt?.status !== "running" || deploys.some((deploy) => deploy.repo === repository.repo))
       continue;
     deploys.push({ repo: repository.repo, commitId: attempt.commitId, startedAt: attempt.at });
+  }
+  for (const promotion of promotions ?? []) {
+    if (
+      promotion.status !== "releasing" ||
+      deploys.some((deploy) => deploy.repo === promotion.repo)
+    )
+      continue;
+    deploys.push({ repo: promotion.repo, commitId: promotion.candidate ?? "", startedAt: null });
   }
   return deploys;
 }

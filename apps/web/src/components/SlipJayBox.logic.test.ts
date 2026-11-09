@@ -11,7 +11,7 @@ import {
   createReleaseAnnouncementGate,
   resolveFailedPromotions,
   resolveProductionAges,
-  resolveProductionDeploys,
+  resolveReleasesInFlight,
   resolveProductionLine,
   resolveReleaseOutcomes,
   resolveReleaseRow,
@@ -281,7 +281,7 @@ describe("production deploys and release outcomes", () => {
   it("lists a running production deploy but not a staging or queued one", () => {
     const deploy = (over: Partial<SlipJayRunnerOperation>) =>
       landing({ kind: "deploy", environment: "production", commitId: "25fb068aaaa", ...over });
-    const result = resolveProductionDeploys(
+    const result = resolveReleasesInFlight(
       overview({
         deploy: [
           deploy({ startedAt: "2026-11-09T11:00:00Z" }),
@@ -295,8 +295,35 @@ describe("production deploys and release outcomes", () => {
     ]);
   });
 
+  it("includes a release this environment started that is still verifying, until a deploy names it", () => {
+    const promotion = (over: Partial<VcsSlipJayPromotion> = {}): VcsSlipJayPromotion => ({
+      repo: "o/r",
+      status: "releasing",
+      candidate: "2c1d17eaaaa",
+      reason: null,
+      ...over,
+    });
+    expect(resolveReleasesInFlight(overview(), [promotion()])).toEqual([
+      { repo: "o/r", commitId: "2c1d17eaaaa", startedAt: null },
+    ]);
+    const deploying = overview({
+      deploy: [
+        landing({
+          kind: "deploy",
+          environment: "production",
+          commitId: "2c1d17eaaaa",
+          startedAt: "2026-11-09T11:00:00Z",
+        }),
+      ],
+    });
+    expect(resolveReleasesInFlight(deploying, [promotion()])).toEqual([
+      { repo: "o/r", commitId: "2c1d17eaaaa", startedAt: "2026-11-09T11:00:00Z" },
+    ]);
+    expect(resolveReleasesInFlight(overview(), [promotion({ status: "failed" })])).toEqual([]);
+  });
+
   it("falls back to a running production attempt when no operation names it", () => {
-    const result = resolveProductionDeploys(
+    const result = resolveReleasesInFlight(
       withRelease(
         release({ production: { live: live("aaaaaaa1"), latestAttempt: attempt("running") } }),
       ),
