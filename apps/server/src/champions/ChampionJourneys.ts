@@ -36,6 +36,7 @@ import {
   CANDIDATE_WORK_PREFIX,
   allowlistOf,
   incompleteReason,
+  narrowRunReason,
   isCandidateWorkId,
   isCapacityStop,
   isLimitStop,
@@ -797,7 +798,11 @@ export const make = Effect.gen(function* () {
         ranShort ? 0 : final.concurrencyReached,
         yield* peakOfCheck(input.championId),
       );
-      const saved = { ...final, ceilingMeasured: ceiling };
+      const saved = {
+        ...final,
+        ceilingMeasured: ceiling,
+        reduced: final.reduced ?? narrowRunReason(final.concurrencyReached, final.journeyLimit),
+      };
       yield* saveRecord(input.threadId, saved);
       return saved;
     },

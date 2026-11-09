@@ -164,6 +164,12 @@ export const incompleteReason = (input: {
   return null;
 };
 
+/** A run below its planned overlap says so, since that overlap is what a check is measured on. */
+export const narrowRunReason = (reached: number, planned: number) =>
+  reached > 0 && reached < planned
+    ? `Journeys ran at most ${reached} at once of the ${planned} planned.`
+    : null;
+
 /** A path without its origin, so steps stay true on the fresh shard a replay runs on. */
 const pathOf = (url: string | null) => {
   if (url === null) return null;

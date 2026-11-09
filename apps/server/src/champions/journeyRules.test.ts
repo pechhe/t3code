@@ -157,6 +157,12 @@ describe("incompleteReason", () => {
     ).toContain("32 started");
   });
 
+  it("says when a run overlapped less than planned, and only then", () => {
+    expect(Rules.narrowRunReason(8, 32)).toBe("Journeys ran at most 8 at once of the 32 planned.");
+    expect(Rules.narrowRunReason(32, 32)).toBeNull();
+    expect(Rules.narrowRunReason(0, 32)).toBeNull();
+  });
+
   it("is incomplete with an unsettled candidate, a running journey or no journeys", () => {
     expect(Rules.incompleteReason({ ...base, pendingCandidates: 1 })).toContain("never confirmed");
     expect(Rules.incompleteReason({ ...base, served: { ...served, running: 1 } })).toContain(
