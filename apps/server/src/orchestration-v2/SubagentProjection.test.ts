@@ -159,6 +159,43 @@ it("a subagent child does not inherit its parent's Arc run", () => {
   assert.isUndefined(childThread.arcRun);
 });
 
+it("a delegated child does not inherit its parent's thread watches", () => {
+  const watchedThreadId = ThreadId.make("thread:subagent-watched-worker");
+  const parentThread: OrchestrationV2AppThread = {
+    ...makeParentThread(),
+    threadWatches: [
+      {
+        id: "thread-watch:parent",
+        target: { kind: "thread", threadId: watchedThreadId },
+        title: "Watched worker",
+        startedAt: DateTime.formatIso(snoozedAt),
+      },
+    ],
+    endedThreadWatches: [
+      {
+        threadId: ThreadId.make("thread:subagent-earlier-worker"),
+        title: "Earlier worker",
+        endedAt: DateTime.formatIso(snoozedAt),
+      },
+    ],
+  };
+  const childThread = makeSubagentChildThread({
+    parentThread,
+    childThreadId,
+    parentNodeId: NodeId.make("node:subagent-parent"),
+    activeProviderThreadId: null,
+    providerInstanceId: childProviderInstanceId,
+    modelSelection: childModelSelection,
+    title: "Child",
+    now: childCreatedAt,
+    createdBy: "agent",
+    creationSource: "provider",
+  });
+  assert.lengthOf(parentThread.threadWatches ?? [], 1);
+  assert.isUndefined(childThread.threadWatches);
+  assert.isUndefined(childThread.endedThreadWatches);
+});
+
 it.effect.each(["provider", "mcp"] as const)(
   "a %s child does not inherit parent settlement protections and settles once idle",
   (creationSource) =>

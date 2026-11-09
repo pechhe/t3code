@@ -67,7 +67,14 @@ export function makeSubagentChildThread(input: {
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
 }): OrchestrationV2AppThread {
-  const { arcRun: _parentArcRun, ...parentThread } = input.parentThread;
+  // What the parent waits on is the parent's: a child that carried its watches would be woken by
+  // the same finish, and its own result would wait on them too.
+  const {
+    arcRun: _parentArcRun,
+    threadWatches: _parentThreadWatches,
+    endedThreadWatches: _parentEndedThreadWatches,
+    ...parentThread
+  } = input.parentThread;
   return {
     ...parentThread,
     createdBy: input.createdBy,
