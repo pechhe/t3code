@@ -459,7 +459,7 @@ export function useSharedInstanceSummary(instanceId: ProviderInstanceId | null, 
     }
     if (provider === undefined) loaded = false;
     if (provider?.auth.status !== "authenticated") allSignedIn = false;
-    plan ??= provider?.auth.label;
+    plan = plan ?? provider?.auth.label;
   }
   if (missingKey.length > 0) {
     return { text: `API key missing on ${missingKey.join(", ")}`, problem: true };
