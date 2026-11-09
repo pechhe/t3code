@@ -1,4 +1,5 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
+import { handoffChoiceId } from "./chat/threadMoveDialog.logic";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
 export type ThreadActionMenuId =
@@ -109,6 +110,7 @@ export interface ThreadActionMenuState {
    */
   readonly handoffTargets?: ReadonlyArray<{
     readonly environmentId: string;
+    readonly projectId?: string;
     readonly label: string;
     readonly reason: string | null;
   }>;
@@ -203,7 +205,7 @@ export function buildThreadActionMenuItems(
               icon: "folder-tree",
               disabled: state.isRunning,
               children: state.handoffTargets.map((target) => ({
-                id: `continue-on:${target.environmentId}` as const,
+                id: `continue-on:${handoffChoiceId(target)}` as const,
                 label: target.reason === null ? target.label : `${target.label} (${target.reason})`,
                 disabled: target.reason !== null,
               })),

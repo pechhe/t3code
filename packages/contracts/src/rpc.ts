@@ -1014,6 +1014,9 @@ const WsThreadHandoffOptionsRpc = Rpc.make(WS_METHODS.threadHandoffOptions, {
         label: Schema.String,
         projectId: Schema.NullOr(ProjectId),
         reason: Schema.NullOr(Schema.String),
+        candidates: Schema.optional(
+          Schema.Array(Schema.Struct({ projectId: ProjectId, title: Schema.String })),
+        ),
       }),
     ),
   }),

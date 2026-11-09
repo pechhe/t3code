@@ -1,4 +1,4 @@
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import {
   runAtomCommand,
   squashAtomCommandFailure,
@@ -10,6 +10,7 @@ import { AtomRegistry } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentServerConfigsAtom } from "../state/server";
 import { threadHandoffEnvironment } from "../state/threadHandoff";
+import { handoffChoiceId, parseHandoffChoice } from "./chat/threadMoveDialog.logic";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 
 /** How long a menu waits for the move targets before opening without them. */
@@ -34,6 +35,8 @@ export async function readThreadHandoffTargets(
 ): Promise<
   ReadonlyArray<{
     readonly environmentId: string;
+    /** The project there, when several fit and each is its own choice. */
+    readonly projectId?: string;
     readonly label: string;
     readonly reason: string | null;
   }>
@@ -50,22 +53,32 @@ export async function readThreadHandoffTargets(
       Effect.orElseSucceed(() => []),
     ),
   );
-  return result.map((option) => ({
-    environmentId: option.environmentId,
-    label: option.label,
-    reason: option.reason,
-  }));
+  return result.flatMap((option) =>
+    option.candidates === undefined || option.candidates.length === 0
+      ? [{ environmentId: option.environmentId, label: option.label, reason: option.reason }]
+      : option.candidates.map((candidate) => ({
+          environmentId: option.environmentId,
+          projectId: candidate.projectId,
+          label: `${option.label} · ${candidate.title}`,
+          reason: option.reason,
+        })),
+  );
 }
 
-/** Starts the move a "Continue on…" choice asked for; the thread's banner shows how it goes. */
+/** Starts the move a "Continue on…" choice asked for (`handoffChoiceId`); the thread's banner shows how it goes. */
 export async function startThreadHandoff(
   environmentId: EnvironmentId,
   threadId: ThreadId,
-  targetEnvironmentId: string,
+  choice: string,
 ): Promise<void> {
+  const target = parseHandoffChoice(choice);
   const result = await runAtomCommand(appAtomRegistry, threadHandoffEnvironment.start, {
     environmentId,
-    input: { threadId, environmentId: targetEnvironmentId as EnvironmentId },
+    input: {
+      threadId,
+      environmentId: target.environmentId as EnvironmentId,
+      ...(target.projectId === undefined ? {} : { projectId: target.projectId as ProjectId }),
+    },
   });
   if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
     toastManager.add(

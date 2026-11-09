@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { threadMoveDialogCopy } from "./threadMoveDialog.logic";
+import {
+  handoffChoiceId,
+  parseHandoffChoice,
+  threadMoveDialogCopy,
+} from "./threadMoveDialog.logic";
 
 const base = {
   sourceLabel: "peach-box",
@@ -16,6 +20,34 @@ describe("threadMoveDialogCopy", () => {
     });
     expect(copy.title).toBe("Move this thread to Henry's Mac?");
     expect(copy.canMove).toBe(true);
+  });
+
+  it("asks which project when several there fit, and offers no move until one is chosen", () => {
+    const copy = threadMoveDialogCopy({
+      ...base,
+      options: [
+        {
+          environmentId: "environment:mac",
+          label: "Henry's Mac",
+          reason: null,
+          candidates: [
+            { projectId: "project:ys", title: "YardSmith" },
+            { projectId: "project:ps", title: "PropSmith" },
+          ],
+        },
+      ],
+    });
+    expect(copy.canMove).toBe(false);
+    expect(copy.choices.map((choice) => choice.title)).toEqual(["YardSmith", "PropSmith"]);
+  });
+
+  it("round-trips a choice naming a project", () => {
+    const target = { environmentId: "environment:mac", projectId: "project:ys" };
+    expect(parseHandoffChoice(handoffChoiceId(target))).toEqual(target);
+    expect(parseHandoffChoice(handoffChoiceId({ environmentId: "environment:mac" }))).toEqual({
+      environmentId: "environment:mac",
+      projectId: undefined,
+    });
   });
 
   it("waits for the answer before offering the move", () => {

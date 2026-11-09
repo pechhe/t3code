@@ -14,7 +14,7 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
-import { threadMoveDialogCopy } from "./threadMoveDialog.logic";
+import { handoffChoiceId, threadMoveDialogCopy } from "./threadMoveDialog.logic";
 
 /** Asks before moving a started thread to the machine its switch points away from. */
 export function ThreadMoveDialog({
@@ -45,9 +45,13 @@ export function ThreadMoveDialog({
         ? "failed"
         : undefined,
   });
-  const move = () => {
+  const move = (projectId?: string) => {
     onClose();
-    void startThreadHandoff(environmentId, threadId, target.environmentId);
+    void startThreadHandoff(
+      environmentId,
+      threadId,
+      handoffChoiceId({ environmentId: target.environmentId, projectId }),
+    );
   };
   return (
     <AlertDialog open onOpenChange={(open) => !open && onClose()}>
@@ -60,7 +64,12 @@ export function ThreadMoveDialog({
           <AlertDialogClose render={<Button variant="outline" />}>
             {copy.canMove ? "Keep it here" : "Close"}
           </AlertDialogClose>
-          {copy.canMove ? <Button onClick={move}>Move to {target.label}</Button> : null}
+          {copy.choices.map((choice) => (
+            <Button key={choice.projectId} onClick={() => move(choice.projectId)}>
+              Move to {choice.title}
+            </Button>
+          ))}
+          {copy.canMove ? <Button onClick={() => move()}>Move to {target.label}</Button> : null}
         </AlertDialogFooter>
       </AlertDialogPopup>
     </AlertDialog>

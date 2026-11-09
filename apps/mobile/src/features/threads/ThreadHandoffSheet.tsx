@@ -1,5 +1,5 @@
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
@@ -35,7 +35,7 @@ export function ThreadHandoffSheet({ route }: StaticScreenProps<HandoffTarget>) 
     label: "move thread",
     reportFailure: false,
   });
-  const [starting, setStarting] = useState<EnvironmentId | null>(null);
+  const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // A message waiting in the outbox exists only on this device. Once the thread
   // starts moving, the server refuses it, so it would be lost.
@@ -43,14 +43,18 @@ export function ThreadHandoffSheet({ route }: StaticScreenProps<HandoffTarget>) 
     scopedThreadKey(target.environmentId, target.threadId),
   );
 
-  const choose = async (environmentId: EnvironmentId) => {
+  const choose = async (environmentId: EnvironmentId, projectId?: ProjectId) => {
     if (outboxWaiting) return;
     void Haptics.selectionAsync();
-    setStarting(environmentId);
+    setStarting(projectId === undefined ? environmentId : `${environmentId}|${projectId}`);
     setError(null);
     const result = await start({
       environmentId: target.environmentId,
-      input: { threadId: target.threadId, environmentId },
+      input: {
+        threadId: target.threadId,
+        environmentId,
+        ...(projectId === undefined ? {} : { projectId }),
+      },
     });
     setStarting(null);
     if (result._tag === "Failure") {
@@ -86,25 +90,45 @@ export function ThreadHandoffSheet({ route }: StaticScreenProps<HandoffTarget>) 
           No linked environments. Link one from a desktop or with `t3 environment link`.
         </Text>
       ) : (
-        targets.map((option) => (
-          <Pressable
-            key={option.environmentId}
-            accessibilityRole="button"
-            accessibilityState={{
-              disabled: option.reason !== null || starting !== null || outboxWaiting,
-            }}
-            disabled={option.reason !== null || starting !== null || outboxWaiting}
-            onPress={() => void choose(option.environmentId)}
-            className="border-b border-border py-3.5 active:opacity-70 disabled:opacity-50"
-          >
-            <Text className="text-base font-t3-bold text-foreground">
-              {starting === option.environmentId ? `Moving to ${option.label}…` : option.label}
-            </Text>
-            {option.reason !== null ? (
-              <Text className="text-xs text-foreground-muted">{option.reason}</Text>
-            ) : null}
-          </Pressable>
-        ))
+        targets.flatMap((option) =>
+          // Several projects there fit; each is its own choice.
+          (option.candidates !== undefined && option.candidates.length > 0
+            ? option.candidates.map((candidate) => ({
+                key: `${option.environmentId}|${candidate.projectId}`,
+                label: `${option.label} · ${candidate.title}`,
+                environmentId: option.environmentId,
+                projectId: candidate.projectId,
+                reason: option.reason,
+              }))
+            : [
+                {
+                  key: option.environmentId,
+                  label: option.label,
+                  environmentId: option.environmentId,
+                  projectId: undefined,
+                  reason: option.reason,
+                },
+              ]
+          ).map((choice) => (
+            <Pressable
+              key={choice.key}
+              accessibilityRole="button"
+              accessibilityState={{
+                disabled: choice.reason !== null || starting !== null || outboxWaiting,
+              }}
+              disabled={choice.reason !== null || starting !== null || outboxWaiting}
+              onPress={() => void choose(choice.environmentId, choice.projectId)}
+              className="border-b border-border py-3.5 active:opacity-70 disabled:opacity-50"
+            >
+              <Text className="text-base font-t3-bold text-foreground">
+                {starting === choice.key ? `Moving to ${choice.label}…` : choice.label}
+              </Text>
+              {choice.reason !== null ? (
+                <Text className="text-xs text-foreground-muted">{choice.reason}</Text>
+              ) : null}
+            </Pressable>
+          )),
+        )
       )}
       {error !== null ? (
         <Text accessibilityRole="alert" className="pt-3 text-sm text-danger-foreground">

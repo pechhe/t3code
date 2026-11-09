@@ -8,6 +8,7 @@ import {
   ThreadHandoffError,
   type OrchestrationV2ThreadHandoff,
   type OrchestratorMcpImportedMessage,
+  type Project,
   type ProjectId,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -24,6 +25,7 @@ import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import type * as Tool from "effect/ai/Tool";
 import * as HttpBody from "effect/http/HttpBody";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
@@ -42,6 +44,7 @@ import * as PeerForwarding from "../PeerForwarding.ts";
 import * as PeerLinks from "../PeerLinks.ts";
 import * as PeerMcpClient from "../PeerMcpClient.ts";
 import * as HandoffGit from "./HandoffGit.ts";
+import { chooseRemoteProject } from "./remoteProjectChoice.ts";
 
 /**
  * The first message on the other side: where the thread came from, and that
@@ -128,6 +131,11 @@ export class ThreadHandoff extends Context.Service<
         readonly label: string;
         readonly projectId: ProjectId | null;
         readonly reason: string | null;
+        /** Projects there that fit equally; the person picks one and `start` takes its id. */
+        readonly candidates?: ReadonlyArray<{
+          readonly projectId: ProjectId;
+          readonly title: string;
+        }>;
       }>,
       ThreadHandoffError
     >;
@@ -218,14 +226,12 @@ const make = Effect.gen(function* () {
         ),
       );
 
-  /** The project there with this thread's repository, or the one named. */
-  const remoteProject = Effect.fn("ThreadHandoff.remoteProject")(function* (
+  /** The project there that takes this thread, `ambiguous` when several fit equally. */
+  const remoteProjectChoice = Effect.fn("ThreadHandoff.remoteProjectChoice")(function* (
     scope: McpInvocationContext.McpThreadInvocationScope,
     environmentId: EnvironmentId,
     projectId: ProjectId,
-    requested: ProjectId | undefined,
   ) {
-    if (requested !== undefined) return requested;
     const here = yield* projects.getById(projectId).pipe(
       Effect.map(Option.getOrUndefined),
       Effect.orElseSucceed(() => undefined),
@@ -241,22 +247,41 @@ const make = Effect.gen(function* () {
         message: "This thread's project has no repository to match there. Pick the project there.",
       });
     }
-    const listed = yield* forwarding
-      .call(scope, ProjectToolkit.tools.t3_project_list, environmentId, { limit: 100 })
-      .pipe(Effect.mapError(fromRemote));
-    const matches = listed.projects.filter(
-      (project) => project.repositoryIdentity?.canonicalKey === key,
-    );
-    if (matches.length !== 1) {
+    const matches: Array<Project> = [];
+    let cursor: number | null = 0;
+    while (cursor !== null) {
+      const listed: Tool.Success<typeof ProjectToolkit.tools.t3_project_list> = yield* forwarding
+        .call(scope, ProjectToolkit.tools.t3_project_list, environmentId, { cursor, limit: 100 })
+        .pipe(Effect.mapError(fromRemote));
+      matches.push(
+        ...listed.projects.filter((project) => project.repositoryIdentity?.canonicalKey === key),
+      );
+      cursor = listed.nextCursor;
+    }
+    const choice = chooseRemoteProject(matches, here);
+    if (choice._tag === "none") {
       return yield* new ThreadHandoffError({
         reason: "refused",
-        message:
-          matches.length === 0
-            ? `No project there has this repository (${key}). Add it there first.`
-            : `Several projects there have this repository; pick one: ${matches.map((p) => p.title).join(", ")}.`,
+        message: `No project there has this repository (${key}). Add it there first.`,
       });
     }
-    return matches[0]!.id;
+    return choice;
+  });
+
+  /** The project there to move to: the one named, or the single best match. */
+  const remoteProject = Effect.fn("ThreadHandoff.remoteProject")(function* (
+    scope: McpInvocationContext.McpThreadInvocationScope,
+    environmentId: EnvironmentId,
+    projectId: ProjectId,
+    requested: ProjectId | undefined,
+  ) {
+    if (requested !== undefined) return requested;
+    const choice = yield* remoteProjectChoice(scope, environmentId, projectId);
+    if (choice._tag === "chosen") return choice.project.id;
+    return yield* new ThreadHandoffError({
+      reason: "refused",
+      message: `Several projects there have this repository; pass projectId, one of: ${choice.candidates.map((p) => `${p.title} (${p.id})`).join(", ")}.`,
+    });
   });
 
   /** The conversation as the thread there will see it. */
@@ -605,17 +630,24 @@ const make = Effect.gen(function* () {
                 projectId: null,
                 reason: unavailable,
               })
-            : remoteProject(
+            : remoteProjectChoice(
                 scopeFor(records.thread),
                 link.environmentId,
                 records.thread.projectId,
-                undefined,
               ).pipe(
-                Effect.map((projectId) => ({
+                Effect.map((choice) => ({
                   environmentId: link.environmentId,
                   label: link.label,
-                  projectId,
+                  projectId: choice._tag === "chosen" ? choice.project.id : null,
                   reason: null,
+                  ...(choice._tag === "ambiguous"
+                    ? {
+                        candidates: choice.candidates.map((project) => ({
+                          projectId: project.id,
+                          title: project.title,
+                        })),
+                      }
+                    : {}),
                 })),
                 Effect.catch((error) =>
                   Effect.succeed({
@@ -737,9 +769,7 @@ const make = Effect.gen(function* () {
     function* (threadId: ThreadId) {
       // Every run that ends comes here, and a thread's records can be gigabytes across a long
       // thread: its shell says whether it has a move at all. The sweep retries one it could not read.
-      const moving = yield* threads
-        .getThreadShell(threadId)
-        .pipe(Effect.orElseSucceed(() => null));
+      const moving = yield* threads.getThreadShell(threadId).pipe(Effect.orElseSucceed(() => null));
       if (moving?.handoff === undefined) return;
       const records = yield* threads.getThreadRecords(threadId, ["runs", "messages"], {
         messageRoles: ["user"],

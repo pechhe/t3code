@@ -154,6 +154,7 @@ import {
 } from "../state/entities";
 import { visibleLinkedThreads } from "@t3tools/client-runtime/state/threads";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
+import { handoffChoiceId } from "./chat/threadMoveDialog.logic";
 import { readThreadHandoffTargets, startThreadHandoff } from "./threadHandoffMenu";
 import {
   appendBrowsePathSegment,
@@ -323,13 +324,13 @@ function handoffTargetsView(
         label: targets.length === 0 ? "No linked environments answered" : "Continue on",
         items: targets.map((target) => ({
           kind: "action" as const,
-          value: `action:continue-on:${target.environmentId}`,
+          value: `action:continue-on:${handoffChoiceId(target)}`,
           searchTerms: [target.label],
           title: target.label,
           ...(target.reason === null ? {} : { description: target.reason }),
           disabled: target.reason !== null,
           icon: <MonitorIcon className={ITEM_ICON_CLASS} />,
-          run: () => startThreadHandoff(thread.environmentId, thread.id, target.environmentId),
+          run: () => startThreadHandoff(thread.environmentId, thread.id, handoffChoiceId(target)),
         })),
       },
     ],
