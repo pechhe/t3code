@@ -1093,4 +1093,4 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/champions/ChampionService.test.ts ("a journey check"), apps/server/src/champions/journeyRules.test.ts, apps/server/src/preview/ManagedBrowserProxy.test.ts (allowlist-only), apps/server/src/decisions/DecisionService.test.ts, and the evidence on Forge T3-465.
 - **Upstream:** none; depends on the fork's Champions, Jev and bounded browser tasks.
 - **Retire when:** Champions are removed, or Henry drops adversarial checks.
-- **Decision:** `retain` (T3-465, 2026-11-08): no batch tool, because the routine model issued 32 parallel tool calls in one message with all 32 overlapping.
+- **Decision:** `retain` (T3-465, 2026-11-08): no batch tool, because the routine model issued 32 parallel tool calls in one message with all 32 overlapping. That holds at high thinking: an owner at low thinking started 8 at a time on each of its three real Weave checks, even when the brief forbade it (9 Nov 2026), so a journey Champion's routine class is `implementation-worker`.
