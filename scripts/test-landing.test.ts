@@ -287,6 +287,8 @@ describe("tests the import graph cannot see", () => {
       "reads node_modules, which only a lockfile change moves",
     "apps/server/src/provider/acp/AcpSessionRuntime.processTree.test.ts":
       "compiles scripts/acp-thread-spawn-helper.c, mapped by the scripts rule",
+    "apps/server/src/peer/PeerLinks.test.ts":
+      "reads its own fixtures/ TLS material beside the test",
     "apps/server/src/resourceTelemetry/ResourceMonitorBinary.test.ts":
       "compares its own directory against the candidate paths, reading no repository file",
     "apps/web/src/components/diffs/codeViewSearch.test.ts":

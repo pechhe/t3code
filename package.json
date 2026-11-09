@@ -63,11 +63,11 @@
     "test:desktop-smoke": "vp run --filter @t3tools/desktop smoke-test"
   },
   "devDependencies": {
-    "@coderabbitai/config": "1.1.6",
-    "@effect/tsgo": "0.67.1",
-    "@shadcn/lint": "0.2.3",
+    "@coderabbitai/config": "1.2.0",
+    "@effect/tsgo": "0.67.5",
+    "@shadcn/lint": "0.2.5",
     "@types/node": "catalog:",
-    "knip": "6.44.1",
+    "knip": "6.44.2",
     "vite-plus": "catalog:"
   },
   "engines": {

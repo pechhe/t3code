@@ -50,9 +50,9 @@
   },
   "dependencies": {
     "@opencode-ai/sdk": "^1.19.5",
-    "@opencode/client": "2.2.5",
-    "@opencode/protocol": "2.2.5",
-    "@opencode/schema": "2.2.5",
+    "@opencode/client": "2.2.6",
+    "@opencode/protocol": "2.2.6",
+    "@opencode/schema": "2.2.6",
     "@t3tools/contracts": "workspace:*",
     "@t3tools/provider-core": "workspace:*",
     "@t3tools/shared": "workspace:*",
