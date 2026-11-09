@@ -679,6 +679,17 @@ export function readableThemeColorOn(color: string, surface: string, minContrast
   return themeRgbToHexColor(themeOklchToRgb(solved));
 }
 
+/** A chip kind's per-theme contrast-solved lightness with `color`'s hue and chroma. */
+export function contextChipAccentWithHueOf(
+  kind: ContextChipAccentKind,
+  color: string,
+): string | null {
+  const parsed = parseThemeColor(color);
+  if (!parsed) return null;
+  const { C, h } = parsed.color;
+  return `oklch(from var(${contextChipColorVariable(kind)}) l ${formatThemeColorNumber(C, 4)} ${formatThemeColorNumber(h, 2)})`;
+}
+
 // A hair over 5:1, so the 8-bit colour the solver returns never rounds to just under it.
 const CONTEXT_CHIP_CONTRAST = 5.01;
 const CONTEXT_CHIP_MESSAGE_VARIABLE = "--context-chip-message";

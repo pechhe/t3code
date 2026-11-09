@@ -9,6 +9,7 @@ import {
   type ServerSettings,
   type SettingsSecretValue,
   SimlockDeviceHostConfig,
+  TextGeneratorConfig,
   UsageLimitSourceConfig,
   isSecretReference,
   secretSettingsFields,
@@ -47,6 +48,7 @@ const providerSecretFields = new Map([
   ),
 ]);
 const usageLimitSecretFields = secretSettingsFields(UsageLimitSourceConfig);
+const textGeneratorSecretFields = secretSettingsFields(TextGeneratorConfig);
 const voiceSecretFields = secretSettingsFields(CloudSpeechCredentials);
 const decisionSecretFields = secretSettingsFields(DecisionCredentials);
 /** The slots the decision service already reads, so a key saved before this setting existed still applies. */
@@ -218,6 +220,19 @@ function mapSecretFieldGroups(
     ]),
   ) as ServerSettings["usageLimitSources"];
 
+  const textGenerators = Object.fromEntries(
+    Object.entries(settings.textGenerators).map(([id, generator]) => [
+      id,
+      mapFields(
+        generator,
+        textGeneratorSecretFields,
+        (field, serverHost) =>
+          `text-generator-${encode(id)}-${encode(field)}` +
+          (serverHost === null ? "" : `-${encode(serverHost)}`),
+      ),
+    ]),
+  ) as ServerSettings["textGenerators"];
+
   const easDeviceHosts = settings.easDeviceHosts.map(
     (host) =>
       mapFields(
@@ -256,6 +271,7 @@ function mapSecretFieldGroups(
     providerInstances,
     sourceControlHosts,
     usageLimitSources,
+    textGenerators,
     easDeviceHosts,
     simlockDeviceHosts,
   };

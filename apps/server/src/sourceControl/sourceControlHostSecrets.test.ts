@@ -180,6 +180,7 @@ it.effect("reads a collected reference again once it is invalidated", () =>
         cloudSpeechCredentials: { openai: source("voice#key"), xai: "", openrouter: "" },
         decisionCredentials: { jev: source("decision#key"), openai: "", openrouter: "" },
         usageLimitSources,
+        textGenerators: {},
         easDeviceHosts,
         simlockDeviceHosts,
       }),

@@ -258,7 +258,7 @@ import { type TerminalContextDraft } from "../lib/terminalContext";
 import { collectInlineContextIds } from "../lib/composerContextReferences";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
-import { useEnvironmentQuery } from "../state/query";
+import { useEnvironmentQuery, useEnvironmentQueryRefresh } from "../state/query";
 import { useEnvironmentScope } from "~/state/session";
 import {
   primaryServerAvailableEditorsAtom,
@@ -267,7 +267,13 @@ import {
 } from "../state/server";
 import { threadEnvironment } from "../state/threads";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
-import { vcsEnvironment } from "../state/vcs";
+import {
+  chatGitStatusAtom,
+  chatSlipJayCheckoutAtom,
+  NO_CHAT_GIT_STATUS_ATOM,
+  NO_CHAT_SLIPJAY_CHECKOUT_ATOM,
+  vcsEnvironment,
+} from "../state/vcs";
 import {
   type EnvironmentPresentation,
   useEnvironment,
@@ -324,7 +330,6 @@ import {
 import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { ThreadDetailsPanel, type ThreadDetailsPanelProps } from "./chat/ThreadDetailsPanel";
 import { NoActiveThreadState } from "./NoActiveThreadState";
-import { resolveSlipJayCheckoutStatus } from "@t3tools/client-runtime/slipjay-checkout";
 import { resolveEffectiveEnvMode, resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import {
   getProviderStatusBannerKey,
@@ -1678,14 +1683,17 @@ export default function ChatView(props: ChatViewProps) {
   const selectedWorkspace = useSelectedWorkspace(activeThreadRef);
   const gitStatusCwd =
     selectedWorkspace?.attachment?.workspacePath ?? activeThread?.worktreePath ?? gitCwd;
-  const gitStatusQuery = useEnvironmentQuery(
+  const gitStatusAtom =
     gitStatusCwd === null
       ? null
       : vcsEnvironment.status({
           environmentId,
           input: { cwd: gitStatusCwd },
-        }),
-  );
+        });
+  const gitStatusQuery = {
+    data: useAtomValue(gitStatusAtom ? chatGitStatusAtom(gitStatusAtom) : NO_CHAT_GIT_STATUS_ATOM),
+    refresh: useEnvironmentQueryRefresh(gitStatusAtom).refresh,
+  };
   useWorkspaceMutationRefresh({
     enabled: gitStatusCwd !== null,
     mutationId: workspaceMutationId,
@@ -1776,14 +1784,18 @@ export default function ChatView(props: ChatViewProps) {
     }
   }, [environmentId, gitStatusCwd, liveIsGitRepo]);
   const isGitRepo = liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true;
-  const slipJayStatus = resolveSlipJayCheckoutStatus(gitStatusQuery.data, gitStatusCwd);
+  const slipJayCheckout = useAtomValue(
+    gitStatusAtom === null ? NO_CHAT_SLIPJAY_CHECKOUT_ATOM : chatSlipJayCheckoutAtom(gitStatusAtom),
+  );
+  const slipJayStatus =
+    slipJayCheckout === null || gitStatusCwd === null
+      ? null
+      : { ...slipJayCheckout, cwd: gitStatusCwd };
   const activeProjectId = activeProject?.id ?? null;
   // The project's SlipJay-ness and the Git warning describe its primary checkout, not an
   // attachment.
   const liveIsSlipJay =
-    gitStatusQuery.data == null || selectedWorkspace?.attachment
-      ? undefined
-      : gitStatusQuery.data.slipJay !== undefined;
+    gitStatusAtom === null || selectedWorkspace?.attachment ? undefined : slipJayCheckout !== null;
   // Only a status that says the checkout is not SlipJay warns, so a loading thread never flashes it.
   const gitProjectBannerItem: ComposerBannerStackItem | null =
     liveIsGitRepo === true && liveIsSlipJay === false
@@ -2215,6 +2227,10 @@ export default function ChatView(props: ChatViewProps) {
     threadStatus,
     activeActivityRun,
     setTimelineAnchor,
+  });
+
+  const onTimelineFooterGrowStable = useStableCallback(() => {
+    if (timelineLiveFollowEnabled) scrollToEnd();
   });
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- schedules a frame to focus the composer DOM element when a thread opens with the terminal closed
@@ -3812,6 +3828,7 @@ export default function ChatView(props: ChatViewProps) {
                   contentInsetEndAdjustment={composerTimelineInset}
                   liveFollowEnabled={timelineLiveFollowEnabled}
                   onIsAtEndChange={onIsAtEndChangeStable}
+                  onFooterGrow={onTimelineFooterGrowStable}
 
                   onManualNavigation={cancelTimelineLiveFollowForUserNavigationStable}
 

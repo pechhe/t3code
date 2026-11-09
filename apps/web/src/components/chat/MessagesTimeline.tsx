@@ -143,8 +143,6 @@ import { ThreadActivityAnnouncer } from "./ThreadActivityAnnouncer";
 import { useStableHandoffRuns, useIncrementalTimelineRows, useStableRows } from "./useTimelineRows";
 import { useClientSettings } from "../../hooks/useSettings";
 
-const TIMELINE_FOLLOW_EASE_MS = 90;
-
 function timelineListStateFor(identity: string): {
   readonly identity: string;
   readonly rememberedPosition: RememberedTimelinePosition | undefined;
@@ -476,55 +474,19 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const citationThreadRef = parseScopedThreadKey(routeThreadKey);
   const openPullRequest = useOpenPrLink(citationThreadRef ?? undefined);
   const [minimapStripMap] = useState(() => new Map<string, HTMLSpanElement>());
-  const [disclosureToggleSettling, setDisclosureToggleSettling] = useState(false);
-  const disclosureAnchorKeyRef = useRef<string | null>(null);
-  const disclosureSettleFrameRef = useRef<number | null>(null);
-  const disclosureSettleSecondFrameRef = useRef<number | null>(null);
   const normalizedFindQuery = findQuery.trim();
   const findActive = findExpanded;
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- cancels disclosure layout-settle frames on unmount
-  useEffect(() => {
-    return () => {
-      if (disclosureSettleFrameRef.current !== null) {
-        cancelAnimationFrame(disclosureSettleFrameRef.current);
-      }
-      if (disclosureSettleSecondFrameRef.current !== null) {
-        cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
-      }
-    };
-  }, []);
-
-  const scheduleDisclosureSettle = () => {
-    if (disclosureSettleFrameRef.current !== null) {
-      cancelAnimationFrame(disclosureSettleFrameRef.current);
-    }
-    if (disclosureSettleSecondFrameRef.current !== null) {
-      cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
-    }
-    disclosureSettleFrameRef.current = requestAnimationFrame(() => {
-      disclosureSettleSecondFrameRef.current = requestAnimationFrame(() => {
-        disclosureAnchorKeyRef.current = null;
-        setDisclosureToggleSettling(false);
-        disclosureSettleFrameRef.current = null;
-        disclosureSettleSecondFrameRef.current = null;
-      });
-    });
-  };
-
-  const suspendEndScrollMaintenanceForDisclosure = (anchorKey: string) => {
-    disclosureAnchorKeyRef.current = anchorKey;
-    setDisclosureToggleSettling(true);
-    scheduleDisclosureSettle();
-  };
-
-  const shouldRestoreVisibleContentPosition = (row: MessagesTimelineRow) => {
-    const disclosureAnchorKey = disclosureAnchorKeyRef.current;
-    return disclosureAnchorKey === null || row.id === disclosureAnchorKey;
+  const preserveDisclosurePosition = (anchorKey: string) => {
+    const list = listRef.current;
+    // An anchor ends end-follow until the reader scrolls, so a streaming turn keeps the live end.
+    if (!list || (isWorking && list.getState().isFollowingEnd)) return;
+    list.cancelScroll();
+    list.anchorVisibleContent({ key: anchorKey });
   };
 
   const onToggleTurnFold = (runId: RunId) => {
-    suspendEndScrollMaintenanceForDisclosure(`turn-fold:${runId}`);
+    preserveDisclosurePosition(`turn-fold:${runId}`);
     setExpandedRunIds((existing) => {
       const next = new Set(existing);
       if (next.has(runId)) {
@@ -536,7 +498,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     });
   };
   const onToggleWorkGroup = (groupId: string, anchorKey: string) => {
-    suspendEndScrollMaintenanceForDisclosure(anchorKey);
+    preserveDisclosurePosition(anchorKey);
     setExpandedWorkGroupIds((existing) => {
       const next = new Set(existing);
       if (next.has(groupId)) {
@@ -548,7 +510,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     });
   };
   const onToggleAttemptFold = (attemptId: RunAttemptId) => {
-    suspendEndScrollMaintenanceForDisclosure(`attempt-fold:${attemptId}`);
+    preserveDisclosurePosition(`attempt-fold:${attemptId}`);
     setExpandedAttemptIds((existing) => {
       const next = new Set(existing);
       if (next.has(attemptId)) {
@@ -811,10 +773,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onManualNavigation: navigateTimeline,
   });
   const [findListReady, setFindListReady] = useState(false);
-  const handleListLoad = () => {
-    onCitationListLoad();
-    setFindListReady(true);
-  };
   // A follow-up pill opens the reviewer's conversation at that round rather than at the end.
   // The list is reused across threads, so a consumed anchor is forgotten when the thread changes;
   // opening the same round again from the parent then lands on it again.
@@ -916,50 +874,30 @@ const ConversationTimeline = memo(function ConversationTimeline({
       }
     : undefined;
   // Whatever owns the scroll position (citation jump, restore, anchored turn,
-  // fullscreen, disclosure toggle, manual navigation) also stops end-pinning.
+  // fullscreen, manual navigation) also stops end-pinning.
   const endPinSuppressed =
     citationPositioning ||
     (restoringThreadPosition && rememberedPosition?.atEnd === false) ||
     anchoredEndSpace !== undefined ||
     !liveFollowEnabled ||
-    fullscreenAppRowId !== null ||
-    disclosureToggleSettling;
-  // A streaming reply grows a line at a time, which the list's own pin turns
-  // into a visible tick per line. While a turn runs, the view eases instead.
-  const glidesToEnd =
+    fullscreenAppRowId !== null;
+  // While a reply streams the list's own instant pin follows it; giving up the
+  // status line keeps that pin from holding a row still as the reply grows.
+  const followsStreamingEnd =
     settlingListIdentity !== listIdentityKey &&
     !endPinSuppressed &&
     isWorking &&
     !prefersReducedMotion;
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- eases the timeline scroll position to the live edge while streaming
-  useEffect(() => {
-    const node = listRef.current?.getScrollableNode();
-    if (!glidesToEnd || !(node instanceof HTMLElement)) return;
-    let frame = 0;
-    let last = performance.now();
-    const step = (now: number) => {
-      frame = requestAnimationFrame(step);
-      const dt = Math.min(50, now - last);
-      last = now;
-      const hidden = node.scrollHeight - node.clientHeight - node.scrollTop;
-      if (hidden < 0.5) return;
-      // More than a viewport out of view is a jump, such as a thread switch, not growth.
-      if (hidden > node.clientHeight) {
-        node.scrollTop = node.scrollHeight;
-        return;
-      }
-      node.scrollTop += hidden * (1 - Math.exp(-dt / TIMELINE_FOLLOW_EASE_MS));
-    };
-    frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
-  }, [glidesToEnd, listRef]);
+  const handleListLoad = () => {
+    onCitationListLoad();
+    setFindListReady(true);
+  };
   const maintainVisibleContentPosition = {
     data: true,
     // The list anchors on the first row whose top is on screen, which while
     // a reply streams is the status line below it. Holding that line still
-    // would push the reply up a line at a time and undo the eased follow.
-    size: !glidesToEnd,
-    shouldRestorePosition: shouldRestoreVisibleContentPosition,
+    // would push the reply up a line at a time and undo the follow.
+    size: !followsStreamingEnd,
   };
 
   const refreshMinimap = useStableCallback(() => {
@@ -974,7 +912,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
       firstBufferedIndex == null ? undefined : state.elementAtIndex(firstBufferedIndex);
     const firstBufferedTop =
       firstBufferedIndex == null ? undefined : state.positionAtIndex(firstBufferedIndex);
-    const viewport: HTMLElement | undefined = listRef.current?.getScrollableNode();
+    const viewport = listRef.current?.getScrollableNode() ?? undefined;
     // Cached row positions exclude the header and pending scroll adjustments.
     const scroll =
       firstBufferedRow && viewport && firstBufferedTop !== undefined
@@ -1065,13 +1003,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
     const isAtEnd = rememberPosition(liveFollowEnabled && !anchoredEndSpace);
     if (isAtEnd !== undefined && !citationPositioning) {
       onIsAtEndChange(isAtEnd);
-    }
-    scheduleMinimapRefresh();
-  };
-
-  const handleItemSizeChanged = () => {
-    if (disclosureAnchorKeyRef.current !== null) {
-      scheduleDisclosureSettle();
     }
     scheduleMinimapRefresh();
   };
@@ -1237,7 +1168,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     }
     navigateTimeline();
     if (target.groupId !== null && !workGroupViewState.expandedEntries.has(target.groupId)) {
-      suspendEndScrollMaintenanceForDisclosure(target.rowId);
+      preserveDisclosurePosition(target.rowId);
       workGroupViewState.expandedEntries.add(target.groupId);
       setSubagentGroupRevealRevision((revision) => revision + 1);
     }
@@ -1294,7 +1225,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onToggleTurnFold,
     onToggleAttemptFold,
     onToggleWorkGroup,
-    onToggleWorkEntry: suspendEndScrollMaintenanceForDisclosure,
+    onToggleWorkEntry: preserveDisclosurePosition,
     onCancelWorktreeSetup: onCancelWorktreeSetup ?? null,
     retryableWorkspacePreparationRunIds,
     onRetryWorkspacePreparation: onRetryWorkspacePreparation ?? null,
@@ -1413,8 +1344,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
       detachViewport?.();
       viewport?.dispose();
       if (viewportRef.current === viewport) viewportRef.current = null;
-      // Refresh frames only read the list; disclosure frames still run so the
-      // settle flag clears.
       if (minimapRefreshFrameRef.current !== null) {
         cancelAnimationFrame(minimapRefreshFrameRef.current);
         minimapRefreshFrameRef.current = null;
@@ -1582,9 +1511,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
               onLoad={handleListLoad}
               {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
               contentInsetEndAdjustment={anchoredEndSpace ? contentInsetEndAdjustment : 0}
-              maintainScrollAtEnd={
-                endPinSuppressed || glidesToEnd ? false : TIMELINE_MAINTAIN_SCROLL_AT_END
-              }
+              maintainScrollAtEnd={endPinSuppressed ? false : TIMELINE_MAINTAIN_SCROLL_AT_END}
               maintainVisibleContentPosition={
                 findActive ||
                 citationPositioning ||
@@ -1594,7 +1521,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
               }
               maintainScrollAtEndThreshold={1}
               onScroll={handleScroll}
-              onItemSizeChanged={handleItemSizeChanged}
+              onItemSizeChanged={scheduleMinimapRefresh}
               className={cn(
                 "messages-timeline-scroll scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain [overflow-anchor:none]",
                 topFadeEnabled && "topbar-scroll-fade",
@@ -1665,11 +1592,14 @@ function keyExtractor(item: MessagesTimelineRow) {
   return item.id;
 }
 
-// LegendList averages by type; length buckets prevent inflated estimates and nested-update loops.
+// LegendList estimates unmeasured rows from their type's average. Long messages of equal length
+// can differ in height by orders of magnitude, so each gets its own type to avoid nested-update loops.
 function getItemType(item: MessagesTimelineRow) {
   if (item.kind !== "message") return item.kind;
   const lengthBucket = Math.max(0, Math.floor(Math.log2(item.message.text.length / 1000)));
-  return `message:${item.message.role}:${lengthBucket}`;
+  return lengthBucket < 2
+    ? `message:${item.message.role}:${lengthBucket}`
+    : `message:${item.message.id}`;
 }
 
 const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: TimelineRow }) {

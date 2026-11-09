@@ -241,7 +241,13 @@ const make = Effect.gen(function* () {
       shell === null
         ? undefined
         : yield* storage(
-            threads.getThreadRecords(threadId, ["runs", "messages", "turnItems", "subagents"]),
+            threads.getThreadRecords(threadId, [
+              "runs",
+              "messages",
+              "turnItems",
+              "subagents",
+              "providerTurns",
+            ]),
           );
     const runs = projection?.runs.toSorted((a, b) => b.ordinal - a.ordinal) ?? [];
     const active = runs.find((run) => Threads.isActiveRun(run));

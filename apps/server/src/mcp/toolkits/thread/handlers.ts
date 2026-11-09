@@ -184,7 +184,7 @@ export const handlers = {
             matches: result.matches.map((match) => ({
               ...match,
               environmentId: scope.environmentId,
-              link: McpInvocationContext.threadLinkFor(scope, match.threadId),
+              link: McpInvocationContext.threadLinkFor(scope, match.threadId, match.title),
             })),
           };
         }),

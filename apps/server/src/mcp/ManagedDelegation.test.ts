@@ -724,6 +724,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             messages: [],
             nodes: [],
             turnItems: [],
+            providerTurns: [],
             contextTransfers: [],
             subagents: [],
             runtimeRequests: [],

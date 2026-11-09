@@ -3614,11 +3614,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
       detail = requestPrompt(decision.requests[0]!, turnItems);
     } else if (decision.kind !== "archived") {
-      const records = yield* readWatched(["messages", "turnItems"], {
+      const records = yield* readWatched(["messages", "turnItems", "providerTurns"], {
         messageRoles: ["assistant"],
         messageRunIds: [decision.resultRun.id],
         turnItemRunIds: [decision.resultRun.id],
         turnItemTypes: ["assistant_message", "error"],
+        providerTurnAttemptIds:
+          decision.resultRun.activeAttemptId === null ? [] : [decision.resultRun.activeAttemptId],
       });
       const result = subagentResultForRun(records, decision.resultRun);
       detail = result.messageId === null && result.turnItemId === null ? undefined : result.text;
@@ -7124,10 +7126,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         taskIds: delivery.taskIds,
       };
     }
-    // Route durable mailbox deliveries and delegated task questions under the
-    // thread lock, using the live session's capabilities. A question queued
-    // behind a long parent turn is never seen. Never interrupt/restart a turn
-    // for a notification.
+    // Steer mailbox deliveries, delegated task questions, and command notices
+    // into an active goal under the thread lock: queued behind a long turn or a
+    // goal run, they are never seen. Never interrupt/restart a turn for one.
+    const noticeKind = command.notification?.source.kind;
+    const commandNotice = noticeKind === "command" && command.creationSource === "server";
     if (
       !freshContext &&
       (delegatedCompletion !== undefined
@@ -7135,7 +7138,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             (id) =>
               projection.subagents.find((task) => task.id === id)?.completionWake === "always",
           )
-        : command.notification?.source.kind === "delegated_task")
+        : noticeKind === "delegated_task" || commandNotice)
     ) {
       const active = projection.runs.find((run) => run.status === "running");
       const providerThread = projection.providerThreads.find(
@@ -7151,6 +7154,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         active !== undefined &&
         activeTurn !== undefined &&
         providerThread?.providerSessionId != null &&
+        (!commandNotice || providerThread.goal?.status === "active") &&
         (activeMessage === undefined || !isNativeMaintenanceCommand(activeMessage))
       ) {
         const session = yield* providerSessions

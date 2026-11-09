@@ -414,7 +414,8 @@ export function scheduleDraftOf(schedule: ScheduledTask["schedule"]): ScheduleDr
   return {
     ...base,
     kind,
-    timeOfDay: schedule.timeOfDay,
+    // A time input shows nothing for an unpadded hour such as 9:05, which agents may save.
+    timeOfDay: schedule.timeOfDay.padStart(5, "0"),
     weekdays: days.length > 0 ? days : base.weekdays,
   };
 }

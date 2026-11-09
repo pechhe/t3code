@@ -364,7 +364,7 @@ export const handlers = {
         const run = result.projection.runs.find((run) => run.userMessageId === messageId);
         return {
           threadId: thread.id,
-          link: McpInvocationContext.threadLinkFor(scope, thread.id),
+          link: McpInvocationContext.threadLinkFor(scope, thread.id, thread.title),
           projectId: thread.projectId,
           modelSelection: thread.modelSelection,
           runId: run?.id ?? null,

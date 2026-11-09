@@ -282,6 +282,54 @@ describe("GuestPage", () => {
     await expect.element(screen.getByText("notes.txt")).not.toBeInTheDocument();
   });
 
+  it("is at the end after each streamed chunk, not only once the stream stops", async () => {
+    using _page = visit(`/guest?share=${SHARE_ID}`);
+    using _session = vi
+      .spyOn(window, "fetch")
+      .mockImplementation(async () => new Response(null, { status: 204 }));
+    const sources: Array<EventTarget> = [];
+    const longItems = Array.from({ length: 12 }, (_, index) =>
+      reply(
+        `reply-${index}`,
+        index,
+        `Reply ${index}\n\n${"A long paragraph about the change. ".repeat(20)}`,
+      ),
+    );
+    using _stream = vi
+      .spyOn(window, "EventSource")
+      .mockImplementation(
+        fakeEventSource(opening([run("run-1", 1, "running")], longItems), sources) as never,
+      );
+    const send = (event: GuestStreamEvent) =>
+      sources.at(-1)!.dispatchEvent(new MessageEvent("message", { data: encodeEvent(event) }));
+    const container = document.createElement("div");
+    container.style.cssText = "height: 600px; width: 900px; display: flex; flex-direction: column;";
+    await using screen = await render(<GuestPage />, { container });
+    await expect.element(screen.getByText("Reply 11")).toBeInTheDocument();
+    const gap = () => {
+      const node = screen.container.querySelector<HTMLElement>(".messages-timeline-scroll")!;
+      return node.scrollHeight - node.scrollTop - node.clientHeight;
+    };
+    await vi.waitFor(() => expect(gap()).toBeLessThan(2), { timeout: 10_000 });
+
+    for (let index = 0; index < 6; index++) {
+      send(
+        threadEvent(300 + index, {
+          type: "turn-item.updated",
+          payload: {
+            ...reply(
+              "reply-grow",
+              40,
+              `Growing\n\n${"Another paragraph of the reply. ".repeat(20 + index * 4)}`,
+            ),
+            streaming: true,
+          },
+        }),
+      );
+      await vi.waitFor(() => expect(gap()).toBeLessThan(2));
+    }
+  });
+
   it("follows the end as replies stream, and shows the guest's own message even after they scrolled up", async () => {
     using _page = visit(`/guest?share=${SHARE_ID}`);
     using _session = vi
@@ -309,8 +357,8 @@ describe("GuestPage", () => {
     await expect.element(screen.getByText("Reply 11")).toBeInTheDocument();
     const scroller = () =>
       screen.container.querySelector<HTMLElement>(".messages-timeline-scroll")!;
-    // The follow eases to the end over animation frames; a loaded runner delivers few of them,
-    // so allow longer than vi.waitFor's 1 s default for the ease to settle.
+    // Rows measure after the first layout pass, so the end moves under the view for a while; a
+    // loaded runner delivers few frames in that window, so allow longer than vi.waitFor's default.
     const expectAtEnd = () =>
       vi.waitFor(
         () => {
@@ -346,13 +394,15 @@ describe("GuestPage", () => {
     node.dispatchEvent(new Event("scroll"));
     await expect.element(screen.getByRole("button", { name: /scroll to/i })).toBeVisible();
 
-    // The guest's own message waits at the end for the owner.
+    // The guest sends; their message waits at the end for the owner.
     const waiting = {
       id: GuestMessageId.make("guest-1"),
       text: "Can you also check the logout flow?",
       status: "pending" as const,
       submittedAt: "2026-10-23T10:01:00.000Z",
     };
+    await userEvent.type(screen.getByRole("textbox", { name: "Message" }), waiting.text);
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
     send({ type: "view", view: { ...view, messages: [waiting] } });
     await expect.element(screen.getByText(waiting.text)).toBeInTheDocument();
     await expectAtEnd();

@@ -284,6 +284,10 @@ describe("schedule drafts", () => {
     }
   });
 
+  it("pads a stored single-digit hour so the time input shows it", () => {
+    expect(scheduleDraftOf({ type: "fixed_time", timeOfDay: "9:05" }).timeOfDay).toBe("09:05");
+  });
+
   it("refuses an interval that is not whole minutes", () => {
     expect(
       timedScheduleOf({

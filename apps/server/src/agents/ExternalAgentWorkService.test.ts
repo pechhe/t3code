@@ -171,6 +171,7 @@ const makeTestLayer = (
               ],
               messages: [],
               turnItems: [],
+              providerTurns: [],
               subagents: [],
             }) as never,
         ),
