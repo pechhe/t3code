@@ -22,9 +22,7 @@ const lockOf = (entries: ReadonlyArray<readonly [string, string]>) => {
   );
 };
 
-const CALL_PATH = CALL_PATH_PACKAGES.map(
-  (name) => [name, name === "undici" ? "8.11.2" : "4.1.2"] as const,
-);
+const CALL_PATH = CALL_PATH_PACKAGES.map((name) => [name, "4.1.2"] as const);
 const CODE = "apps/server/src/decisions/DecisionService.ts";
 const CORPUS = "apps/server/src/decisionEvaluations/autoRouting/run.ts";
 const codeText = "export const DecisionService = 1;\n";
@@ -175,21 +173,21 @@ describe("a retained run's identity", () => {
   });
 
   it("catches a call-path package absent from either lock", () => {
-    const withoutUndici = lockOf(CALL_PATH.filter(([name]) => name !== "undici"));
+    const withoutNode = lockOf(CALL_PATH.filter(([name]) => name !== "@effect/platform-node"));
     const { run } = clean();
     const absentAtRun = problemsOf({
-      run: { head: HEAD, files: { ...run.files, [LOCK_FILE]: sha(withoutUndici) } },
+      run: { head: HEAD, files: { ...run.files, [LOCK_FILE]: sha(withoutNode) } },
       current: manifest(currentLock),
-      atRun: { [LOCK_FILE]: withoutUndici },
+      atRun: { [LOCK_FILE]: withoutNode },
       now: { [LOCK_FILE]: currentLock },
     });
-    expect(absentAtRun).toEqual([`undici is not in ${LOCK_FILE} at ${HEAD}`]);
+    expect(absentAtRun).toEqual([`@effect/platform-node is not in ${LOCK_FILE} at ${HEAD}`]);
     const absentNow = problemsOf({
       run,
-      current: { ...manifest(currentLock), [LOCK_FILE]: sha(withoutUndici) },
+      current: { ...manifest(currentLock), [LOCK_FILE]: sha(withoutNode) },
       atRun: { [LOCK_FILE]: runLock },
-      now: { [LOCK_FILE]: withoutUndici },
+      now: { [LOCK_FILE]: withoutNode },
     });
-    expect(absentNow).toEqual(["undici is not in the current " + LOCK_FILE]);
+    expect(absentNow).toEqual(["@effect/platform-node is not in the current " + LOCK_FILE]);
   });
 });

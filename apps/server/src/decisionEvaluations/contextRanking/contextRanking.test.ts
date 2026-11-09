@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - reads pool bodies through git at the retained run's commit
-import { amendedManifest } from "../retainedRunIdentity.ts";
+import { gitFileAt, retainedRunProblems } from "../retainedRunIdentity.ts";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -275,15 +275,7 @@ it.effect(
     }),
 );
 
-/**
- * The runs were made before the upstream merge that moved DecisionService from Crypto to Digest and gave this entry point the matching layer
- * (same SHA-256 canonical-JSON digest, same requests). Nothing else that decides what was asked may differ.
- */
-const KNOWN_FOUNDATION_DRIFT = [
-  "apps/server/src/decisionEvaluations/contextRanking/run.ts",
-  "apps/server/src/decisions/DecisionService.ts",
-  "pnpm-lock.yaml",
-];
+const REPOSITORY_ROOT = NodePath.resolve(import.meta.dirname, "../../../../..");
 
 it("keeps retained results tied to the code, labels and corpus that produced them and reproducible from their records", () => {
   for (const [retained, cases] of [
@@ -292,12 +284,13 @@ it("keeps retained results tied to the code, labels and corpus that produced the
   ] as const) {
     expect(retained.corpusDigest).toBe(corpusDigest(cases));
     expect(retained.corpusDigestAll).toBe(corpusDigest(ALL_CASES));
-    const now = runDigests();
-    const recorded = amendedManifest(retained.run.files);
-    const drifted = Object.keys({ ...recorded, ...now }).filter(
-      (f) => recorded[f] !== now[f as keyof typeof now],
-    );
-    expect(drifted.sort()).toEqual(KNOWN_FOUNDATION_DRIFT);
+    expect(
+      retainedRunProblems(
+        { head: retained.run.checkout.head, files: retained.run.files },
+        runDigests(),
+        gitFileAt(REPOSITORY_ROOT),
+      ),
+    ).toEqual([]);
     expect(retained.scorer.files).toEqual(scorerDigests());
     expect(retained.declared).toEqual({
       topK: TOP_K,
@@ -316,11 +309,10 @@ it("keeps the superseded first run reproducible from its records, without claimi
   expect(JSON.parse(JSON.stringify(again.systems))).toEqual(firstHeldout.systems);
 });
 
-it("records the failed call of the final held-out run and keeps its spend unknown", () => {
-  const failed = heldoutResults.records.filter((r) => r.outcome.kind === "failed");
-  expect(failed.map((r) => [r.caseId, r.engine])).toEqual([["h-dev-pairing", "luna"]]);
-  expect(heldoutResults.cost.luna.costUsd).toBeNull();
-  expect(heldoutResults.cost.luna.unobservedAttempts).toBe(1);
+it("answers every call of the final held-out run, so its spend is known", () => {
+  expect(heldoutResults.records.filter((r) => r.outcome.kind === "failed")).toEqual([]);
+  expect(heldoutResults.cost.luna.costUsd).not.toBeNull();
+  expect(heldoutResults.cost.luna.unobservedAttempts).toBe(0);
 });
 
 it("fixes the downstream check on held-out cases whose rubrics were written before the run", () => {
@@ -330,8 +322,6 @@ it("fixes the downstream check on held-out cases whose rubrics were written befo
     expect(d.rubric.length).toBeGreaterThanOrEqual(2);
   }
 });
-
-const REPOSITORY_ROOT = NodePath.resolve(import.meta.dirname, "../../../../..");
 
 /** Reads a repository file as it stood at the commit a retained run measured. */
 const readAt =
@@ -348,8 +338,11 @@ const readAt =
     return result.stdout.toString("utf8");
   };
 
+/** The commit the downstream check read candidate bodies at; the pool holds files deleted since, so the latest held-out run's commit cannot serve it. */
+const DOWNSTREAM_BODIES_HEAD = "97202bdf4f9bce89c39c9db3aa1a371ae42ae083";
+
 it("hands every downstream arm the governing and requested context whole, outside ranking", () => {
-  const read = readAt(heldoutResults.run.checkout.head);
+  const read = readAt(DOWNSTREAM_BODIES_HEAD);
   for (const d of DOWNSTREAM) {
     const c = HELDOUT_CASES.find((x) => x.id === d.caseId)!;
     const selections = armSelections(heldoutResults as never, c);

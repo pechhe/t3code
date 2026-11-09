@@ -7,12 +7,15 @@
   },
   "baselineVersion": "exit-signature-v1",
   "corpusDigest": "a5c91a79816257670aef35f8da893d9c8b6830ccaf870eeffac10f186a5d37f2",
-  "runAt": "2026-11-05T02:35:59.185Z",
-  "engines": ["jev", "luna"],
+  "runAt": "2026-11-09T13:01:49.135Z",
+  "engines": [
+    "jev",
+    "luna"
+  ],
   "run": {
     "checkout": {
-      "head": "4b9960f5ceef94e4844fc10529a6cb9d8e396348",
-      "workingCopyDirty": true
+      "head": "a4351370529b842e2cdb1db052965b83bff54b39",
+      "workingCopyDirty": false
     },
     "files": {
       "apps/server/src/decisionEvaluations/failureTriage/run.ts": "fdd28ad20f7578679e460848d18e7df55cc59fd28e63c2955d3539f9c49d6e72",
@@ -25,10 +28,10 @@
       "apps/server/src/decisionEvaluations/failureTriage/corpusAuthentic.json": "536e6145e630006eb0bef09c0df8bee0c6695bb52b3887fba3347352ff3e82f7",
       "apps/server/src/decisionEvaluations/failureTriage/corpusTune.ts": "72bb780de3bddb5e2dc768e36db36b345f67f0b04e0b12421456e65a5701ea17",
       "apps/server/src/decisionEvaluations/failureTriage/corpusHeldout.ts": "5386a6a1d34a2e1c58ccc7d321d6d71414f0d28bdda8a07764116023b870985b",
-      "apps/server/src/decisions/DecisionService.ts": "60d2f7f879fe5f7c6ee11f7f771e776fc30ce3f16dfd20681eeedea805154a19",
+      "apps/server/src/decisions/DecisionService.ts": "0365453452279692ca8480b0ae4ab3d665a52e9da1d5316ffe2ac3fc0061fd07",
       "apps/server/src/decisions/adapters.ts": "ce64942a3311d10543b83fe3c9b3c47fcc72b9cec6c7b1efdf0067005913a492",
       "apps/server/src/decisions/decisions.testkit.ts": "80cebd187858cfa6029c6356822962a363431afb30ff7b6fb08adbd2c15a2016",
-      "packages/contracts/src/decisions.ts": "4225d2f33a0754c8bbe47500e29a59f19d85c795ed17517db4b1f0f262e26f18"
+      "packages/contracts/src/decisions.ts": "1634ce312d8af8dca8c2070bacc1aad034f8b55ddd9931748e7c6f44ec110caa"
     }
   },
   "scorer": {
@@ -48,17 +51,17 @@
         "choice": "unknown",
         "probabilities": {
           "regression": 0.03,
-          "fixture": 0.09,
-          "environment": 0.3,
+          "fixture": 0.11,
+          "environment": 0.22,
           "known-flake": 0,
-          "unknown": 0.58
+          "unknown": 0.64
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "e251328b525c4f593ca1de2c684abb8fdcb76f3829389b41343741aa52ec637d",
-      "latencyMs": 283,
+      "latencyMs": 257,
       "inputTokens": 2240,
       "outputTokens": 56,
       "costUsd": 0.00009408000000000001,
@@ -82,7 +85,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "5601174e99dce352c6f51c9a2bf80b2ed7fde80ef57c8ba6c865a8d834fb5a3c",
-      "latencyMs": 1437,
+      "latencyMs": 331,
       "inputTokens": 1817,
       "outputTokens": 0,
       "costUsd": 0.00018170000000000003,
@@ -97,16 +100,16 @@
         "probabilities": {
           "regression": 0.06,
           "fixture": 0.23,
-          "environment": 0.23,
+          "environment": 0.2,
           "known-flake": 0,
-          "unknown": 0.48
+          "unknown": 0.51
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "4663852e8dd4dc1f2b4377c221b6983afca6698495b1ea8e24b1cdd9ce4efb18",
-      "latencyMs": 149,
+      "latencyMs": 148,
       "inputTokens": 2161,
       "outputTokens": 56,
       "costUsd": 0.000090762,
@@ -130,7 +133,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "3dee209de5651d9524b236daf3ae1a0f19bcd763182d69da9a3ab9aeb42b94ee",
-      "latencyMs": 243,
+      "latencyMs": 179,
       "inputTokens": 1618,
       "outputTokens": 0,
       "costUsd": 0.0001618,
@@ -144,17 +147,17 @@
         "choice": "unknown",
         "probabilities": {
           "regression": 0.09,
-          "fixture": 0.18,
-          "environment": 0.28,
+          "fixture": 0.21,
+          "environment": 0.19,
           "known-flake": 0,
-          "unknown": 0.45
+          "unknown": 0.51
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "1b1d2cbad20a45dcb26b5bda96841d719bd6ab2a38041e4e165f9269fc18a24f",
-      "latencyMs": 142,
+      "latencyMs": 155,
       "inputTokens": 2241,
       "outputTokens": 56,
       "costUsd": 0.000094122,
@@ -178,7 +181,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "20656410a7389ed5b4fb37e3d0ae7f9800ca480b1ab0a174fc0c435baa0c13ba",
-      "latencyMs": 1172,
+      "latencyMs": 143,
       "inputTokens": 1687,
       "outputTokens": 0,
       "costUsd": 0.0001687,
@@ -191,18 +194,18 @@
         "kind": "answered",
         "choice": "regression",
         "probabilities": {
-          "regression": 0.82,
-          "fixture": 0.14,
+          "regression": 0.8,
+          "fixture": 0.15,
           "environment": 0,
           "known-flake": 0,
-          "unknown": 0.04
+          "unknown": 0.05
         }
       },
       "requestedModel": "jev-1.14.0",
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "8212278fadd221be16119d28a988a1d5d5d62a0ed8f76b7afa9bf150899ee426",
-      "latencyMs": 150,
+      "latencyMs": 173,
       "inputTokens": 1054,
       "outputTokens": 58,
       "costUsd": 0.000044268000000000004,
@@ -226,7 +229,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "4c50d7e1e3566e8f4cf83be2c7c14467aa90f397ff8aede977f7d10a3724bfde",
-      "latencyMs": 279,
+      "latencyMs": 142,
       "inputTokens": 756,
       "outputTokens": 0,
       "costUsd": 0.00007560000000000001,
@@ -239,8 +242,8 @@
         "kind": "answered",
         "choice": "regression",
         "probabilities": {
-          "regression": 0.56,
-          "fixture": 0.43,
+          "regression": 0.57,
+          "fixture": 0.42,
           "environment": 0,
           "known-flake": 0,
           "unknown": 0.01
@@ -250,7 +253,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "374b8e0d3c43a4199375ec8bda869470e52ffe2af3221dca537fa696a5d3a809",
-      "latencyMs": 136,
+      "latencyMs": 134,
       "inputTokens": 1018,
       "outputTokens": 58,
       "costUsd": 0.000042756,
@@ -274,7 +277,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "f413f728a188143108ffd576919f0dbe8f23d4f893d5f2212b3616d4fd07792e",
-      "latencyMs": 244,
+      "latencyMs": 266,
       "inputTokens": 738,
       "outputTokens": 0,
       "costUsd": 0.00007379999999999999,
@@ -298,7 +301,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "282ec1b07b646eafb17bacbfd7b5ab7e8eaa7cf8da58be1dfa8db52b761d6bbb",
-      "latencyMs": 142,
+      "latencyMs": 199,
       "inputTokens": 1015,
       "outputTokens": 56,
       "costUsd": 0.000042630000000000004,
@@ -322,7 +325,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "76bcfdf7bca1d897f40a94e30e5be31a0fc2435ca7b6ddd305a50f88885a7abb",
-      "latencyMs": 286,
+      "latencyMs": 281,
       "inputTokens": 726,
       "outputTokens": 0,
       "costUsd": 0.0000726,
@@ -346,7 +349,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "327d3a3ef67d5335cfcfc3ceefee24b29633905e6cf56e2fa46b614d718bda65",
-      "latencyMs": 142,
+      "latencyMs": 186,
       "inputTokens": 1075,
       "outputTokens": 58,
       "costUsd": 0.000045150000000000006,
@@ -370,7 +373,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "194f4b5465523b4244a46c2a65206f3f803b171aa5df508bcf86a42623fd11a4",
-      "latencyMs": 883,
+      "latencyMs": 241,
       "inputTokens": 775,
       "outputTokens": 0,
       "costUsd": 0.0000775,
@@ -394,7 +397,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "dba849f5169ad41665ce0ebc5a6786a1aafb87ac60eb67f1572458a8ada79f1a",
-      "latencyMs": 150,
+      "latencyMs": 156,
       "inputTokens": 880,
       "outputTokens": 56,
       "costUsd": 0.00003696,
@@ -418,7 +421,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "6860a8bac960bf959de90b89c43e113ada7b77a5231c7d94b7a8a4f13d43ed69",
-      "latencyMs": 254,
+      "latencyMs": 292,
       "inputTokens": 617,
       "outputTokens": 0,
       "costUsd": 0.00006170000000000001,
@@ -459,7 +462,12 @@
           "low": 0.21521252682444186,
           "high": 0.7847874731755582
         },
-        "cases": ["t-syn-regression-1", "t-syn-environment-1", "t-syn-flake-1", "t-syn-unknown-1"]
+        "cases": [
+          "t-syn-regression-1",
+          "t-syn-environment-1",
+          "t-syn-flake-1",
+          "t-syn-unknown-1"
+        ]
       },
       "dangerousStrict": {
         "numerator": 0,
@@ -519,7 +527,12 @@
           "low": 0.5100999795960008,
           "high": 1
         },
-        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
+        "cases": [
+          "t-audit-10-29",
+          "t-audit-10-30",
+          "t-audit-10-31",
+          "t-syn-unknown-1"
+        ]
       },
       "confusion": {
         "unknown": {
@@ -549,7 +562,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31"]
+            "cases": [
+              "t-audit-10-29",
+              "t-audit-10-30",
+              "t-audit-10-31"
+            ]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -607,7 +624,12 @@
           "low": 0.21521252682444186,
           "high": 0.7847874731755582
         },
-        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
+        "cases": [
+          "t-audit-10-29",
+          "t-audit-10-30",
+          "t-audit-10-31",
+          "t-syn-unknown-1"
+        ]
       },
       "resolvedRecovery": {
         "numerator": 1,
@@ -617,7 +639,9 @@
           "low": 0.02241690886329617,
           "high": 0.4708948057698615
         },
-        "cases": ["t-syn-unknown-1"]
+        "cases": [
+          "t-syn-unknown-1"
+        ]
       },
       "dangerousStrict": {
         "numerator": 0,
@@ -667,7 +691,12 @@
           "low": 0.5100999795960008,
           "high": 1
         },
-        "cases": ["t-syn-regression-1", "t-syn-fixture-1", "t-syn-environment-1", "t-syn-flake-1"]
+        "cases": [
+          "t-syn-regression-1",
+          "t-syn-fixture-1",
+          "t-syn-environment-1",
+          "t-syn-flake-1"
+        ]
       },
       "appropriateAbstention": {
         "numerator": 4,
@@ -677,7 +706,12 @@
           "low": 0.5100999795960008,
           "high": 1
         },
-        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
+        "cases": [
+          "t-audit-10-29",
+          "t-audit-10-30",
+          "t-audit-10-31",
+          "t-syn-unknown-1"
+        ]
       },
       "confusion": {
         "unknown": {
@@ -707,7 +741,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31"]
+            "cases": [
+              "t-audit-10-29",
+              "t-audit-10-30",
+              "t-audit-10-31"
+            ]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -730,7 +768,9 @@
               "low": 0.03622316096978745,
               "high": 0.6244717358814613
             },
-            "cases": ["t-syn-unknown-1"]
+            "cases": [
+              "t-syn-unknown-1"
+            ]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -778,7 +818,12 @@
           "low": 0.21521252682444186,
           "high": 0.7847874731755582
         },
-        "cases": ["t-syn-regression-1", "t-syn-environment-1", "t-syn-flake-1", "t-syn-unknown-1"]
+        "cases": [
+          "t-syn-regression-1",
+          "t-syn-environment-1",
+          "t-syn-flake-1",
+          "t-syn-unknown-1"
+        ]
       },
       "dangerousStrict": {
         "numerator": 0,
@@ -838,7 +883,12 @@
           "low": 0.5100999795960008,
           "high": 1
         },
-        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
+        "cases": [
+          "t-audit-10-29",
+          "t-audit-10-30",
+          "t-audit-10-31",
+          "t-syn-unknown-1"
+        ]
       },
       "confusion": {
         "unknown": {
@@ -868,7 +918,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31"]
+            "cases": [
+              "t-audit-10-29",
+              "t-audit-10-30",
+              "t-audit-10-31"
+            ]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -944,7 +998,12 @@
           "low": 0.21521252682444186,
           "high": 0.7847874731755582
         },
-        "cases": ["t-syn-regression-1", "t-syn-environment-1", "t-syn-flake-1", "t-syn-unknown-1"]
+        "cases": [
+          "t-syn-regression-1",
+          "t-syn-environment-1",
+          "t-syn-flake-1",
+          "t-syn-unknown-1"
+        ]
       },
       "dangerousStrict": {
         "numerator": 0,
@@ -1004,7 +1063,12 @@
           "low": 0.5100999795960008,
           "high": 1
         },
-        "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31", "t-syn-unknown-1"]
+        "cases": [
+          "t-audit-10-29",
+          "t-audit-10-30",
+          "t-audit-10-31",
+          "t-syn-unknown-1"
+        ]
       },
       "confusion": {
         "unknown": {
@@ -1034,7 +1098,11 @@
               "low": 0.43849391955098227,
               "high": 1
             },
-            "cases": ["t-audit-10-29", "t-audit-10-30", "t-audit-10-31"]
+            "cases": [
+              "t-audit-10-29",
+              "t-audit-10-30",
+              "t-audit-10-31"
+            ]
           },
           "dangerousWide": {
             "numerator": 0,
@@ -1082,9 +1150,9 @@
     "jev": {
       "calls": 8,
       "latencyMs": {
-        "mean": 161.75,
-        "p50": 142,
-        "max": 283
+        "mean": 176,
+        "p50": 156,
+        "max": 257
       },
       "unobservedAttempts": 0,
       "inputTokens": 11684,
@@ -1092,7 +1160,9 @@
       "costUsd": 0.000490728,
       "knownCostUsd": 0.000490728,
       "costKnownCalls": 8,
-      "costStatuses": ["estimated"],
+      "costStatuses": [
+        "estimated"
+      ],
       "attempts": 8,
       "failedAttempts": 0,
       "choiceDisagreesWithArgmax": 0,
@@ -1101,9 +1171,9 @@
     "luna": {
       "calls": 8,
       "latencyMs": {
-        "mean": 599.75,
-        "p50": 279,
-        "max": 1437
+        "mean": 234.375,
+        "p50": 241,
+        "max": 331
       },
       "unobservedAttempts": 0,
       "inputTokens": 8734,
@@ -1111,7 +1181,9 @@
       "costUsd": 0.0008734000000000001,
       "knownCostUsd": 0.0008734000000000001,
       "costKnownCalls": 8,
-      "costStatuses": ["estimated"],
+      "costStatuses": [
+        "estimated"
+      ],
       "attempts": 8,
       "failedAttempts": 0,
       "choiceDisagreesWithArgmax": 0,

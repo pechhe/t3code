@@ -1,24 +1,4 @@
 {
-  "files": [
-    {
-      "path": "apps/server/src/decisions/DecisionService.ts",
-      "from": "60d2f7f879fe5f7c6ee11f7f771e776fc30ce3f16dfd20681eeedea805154a19",
-      "to": "0365453452279692ca8480b0ae4ab3d665a52e9da1d5316ffe2ac3fc0061fd07",
-      "why": "T3-465: admission limits and a bounded wait for room. Nothing a call sends, its deadline or how its answer is read changed; only whether a burst waits. Not re-measured."
-    },
-    {
-      "path": "packages/contracts/src/decisions.ts",
-      "from": "4225d2f33a0754c8bbe47500e29a59f19d85c795ed17517db4b1f0f262e26f18",
-      "to": "1634ce312d8af8dca8c2070bacc1aad034f8b55ddd9931748e7c6f44ec110caa",
-      "why": "T3-465: admission limits and a bounded wait for room. Nothing a call sends, its deadline or how its answer is read changed; only whether a burst waits. Not re-measured."
-    }
-  ],
-  "packages": [
-    {
-      "name": "undici",
-      "from": "6.29.0,7.29.1,8.11.2",
-      "to": "6.29.1,7.30.1,8.12.3",
-      "why": "The fork's dependency stack moved undici by patch and minor releases. Decision calls use its transport only; the requests and parsing the evaluations measured are the service's own. Recorded by T3-465; not re-measured."
-    }
-  ]
+  "files": [],
+  "packages": []
 }

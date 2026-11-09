@@ -35,21 +35,21 @@
       "unknownCount": 0
     }
   },
-  "runAt": "2026-11-05T00:47:47.090Z",
+  "runAt": "2026-11-09T13:03:52.568Z",
   "engines": [
     "jev",
     "luna"
   ],
   "run": {
     "checkout": {
-      "head": "97202bdf4f9bce89c39c9db3aa1a371ae42ae083",
-      "workingCopyDirty": true
+      "head": "a4351370529b842e2cdb1db052965b83bff54b39",
+      "workingCopyDirty": false
     },
     "runtime": {
       "node": "v24.21.0"
     },
     "files": {
-      "apps/server/src/decisionEvaluations/contextRanking/run.ts": "33d2e55de599b08e728eb930976cf39eac5660896143b6b1e5e11cb256e79cb8",
+      "apps/server/src/decisionEvaluations/contextRanking/run.ts": "c1c41d87d5da10382738bdb01efbfe2f7133daf2d33a71cc83905329bc7b041a",
       "apps/server/src/decisionEvaluations/contextRanking/provenance.ts": "e40d01c45184d789bad42e24831a7f8171ccadbfe7d9c91a3cec54c97d505a80",
       "apps/server/src/decisionEvaluations/contextRanking/rule.ts": "2e0292dd6f2a48014b7076ef9b59d32da02f37ebf05bb65f0e336df3ba6326e6",
       "apps/server/src/decisionEvaluations/contextRanking/baseline.ts": "c4958281d69ef63a151779d2f1467b5503f19f9bfa34839f840500103b800ac1",
@@ -60,11 +60,11 @@
       "apps/server/src/decisionEvaluations/contextRanking/corpusHeldout.ts": "cf26fce84e8d216b630238ba8c9e2ef284849b459cba5f142d6f7226a340c2bc",
       "apps/server/src/decisionEvaluations/contextRanking/findings.ts": "1532ddc875ce3a0703b128336df33c2c69a064bf4d3807b9bc6ef73cb3e0d775",
       "apps/server/src/decisionEvaluations/contextRanking/pool.json": "12d80773051579f9e12eb123e9ce4604a2cf97a2419947c9f22da2def259568c",
-      "apps/server/src/decisions/DecisionService.ts": "e63db78a2a054f1115aed709c53b37a9c16683709bfad94042c4171ec4d0f5f8",
+      "apps/server/src/decisions/DecisionService.ts": "0365453452279692ca8480b0ae4ab3d665a52e9da1d5316ffe2ac3fc0061fd07",
       "apps/server/src/decisions/adapters.ts": "ce64942a3311d10543b83fe3c9b3c47fcc72b9cec6c7b1efdf0067005913a492",
       "apps/server/src/decisions/decisions.testkit.ts": "80cebd187858cfa6029c6356822962a363431afb30ff7b6fb08adbd2c15a2016",
-      "packages/contracts/src/decisions.ts": "4225d2f33a0754c8bbe47500e29a59f19d85c795ed17517db4b1f0f262e26f18",
-      "pnpm-lock.yaml": "5843e5b209222e7d5ef712d688f911b81fa73b030f433d4db6a06be570b08c79"
+      "packages/contracts/src/decisions.ts": "1634ce312d8af8dca8c2070bacc1aad034f8b55ddd9931748e7c6f44ec110caa",
+      "pnpm-lock.yaml": "e138678538eccfc6c37db073c25072e88bed6f79456e6134160cb9210ed41f5a"
     }
   },
   "scorer": {
@@ -87,22 +87,22 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.08,
-          "c02": 0.07,
+          "c01": 0.07,
+          "c02": 0.06,
           "c03": 0.05,
           "c04": 0.83,
           "c05": 0.32,
-          "c06": 0.06,
-          "c07": 0.06,
-          "c08": 0.45,
-          "c09": 0.55,
-          "c10": 0.26,
+          "c06": 0.07,
+          "c07": 0.08,
+          "c08": 0.47,
+          "c09": 0.54,
+          "c10": 0.28,
           "c11": 0.04,
-          "c12": 0.13,
-          "c13": 0.16,
+          "c12": 0.14,
+          "c13": 0.15,
           "c14": 0.04,
           "c15": 0.05,
-          "c16": 0.5
+          "c16": 0.51
         },
         "unanswered": 0
       },
@@ -110,7 +110,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "0655a8089adf5668fb606fe251d7ff62d44fe37593e89302e3ff83b067d6ba61",
-      "latencyMs": 628,
+      "latencyMs": 308,
       "estimatedInputTokens": 2911,
       "inputTokens": 3106,
       "outputTokens": 292,
@@ -146,7 +146,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "b52286f4cbf39527b8f86aad0087fc5a5949ffe92bbbbcee6b4ec80bf716dff5",
-      "latencyMs": 685,
+      "latencyMs": 493,
       "estimatedInputTokens": 2911,
       "inputTokens": 4606,
       "outputTokens": 0,
@@ -159,22 +159,22 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.18,
+          "c01": 0.21,
           "c02": 0.06,
-          "c03": 0.12,
+          "c03": 0.1,
           "c04": 0.12,
-          "c05": 0.65,
+          "c05": 0.64,
           "c06": 0.1,
-          "c07": 0.64,
-          "c08": 0.24,
-          "c09": 0.23,
-          "c10": 0.08,
-          "c11": 0.48,
-          "c12": 0.28,
-          "c13": 0.06,
-          "c14": 0.1,
+          "c07": 0.6,
+          "c08": 0.25,
+          "c09": 0.27,
+          "c10": 0.11,
+          "c11": 0.5,
+          "c12": 0.3,
+          "c13": 0.07,
+          "c14": 0.12,
           "c15": 0.09,
-          "c16": 0.1
+          "c16": 0.09
         },
         "unanswered": 0
       },
@@ -182,7 +182,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "a4f664c5a4d134ffff2c2b2eecf42dfb9d500548c68e09eb16603fd5bd5efce8",
-      "latencyMs": 432,
+      "latencyMs": 171,
       "estimatedInputTokens": 2786,
       "inputTokens": 3057,
       "outputTokens": 292,
@@ -218,7 +218,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "60298e68e1ee2d93f7ef87d1a03cb84e6ed5540e6ed11d98eab0a361b5bfe03e",
-      "latencyMs": 509,
+      "latencyMs": 183,
       "estimatedInputTokens": 2786,
       "inputTokens": 4510,
       "outputTokens": 0,
@@ -233,20 +233,20 @@
         "scores": {
           "c01": 0.08,
           "c02": 0.03,
-          "c03": 0.21,
+          "c03": 0.27,
           "c04": 0.02,
-          "c05": 0.03,
-          "c06": 0.08,
-          "c07": 0.76,
+          "c05": 0.02,
+          "c06": 0.06,
+          "c07": 0.78,
           "c08": 0.02,
-          "c09": 0.17,
-          "c10": 0.19,
+          "c09": 0.19,
+          "c10": 0.18,
           "c11": 0.05,
           "c12": 0.03,
-          "c13": 0.02,
+          "c13": 0.01,
           "c14": 0.12,
-          "c15": 0.22,
-          "c16": 0.05
+          "c15": 0.21,
+          "c16": 0.04
         },
         "unanswered": 0
       },
@@ -254,7 +254,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "8314e0ce35dd267ea82d32145c7431c0e636cd3ee77a9e08a858ee5432c15361",
-      "latencyMs": 330,
+      "latencyMs": 214,
       "estimatedInputTokens": 2858,
       "inputTokens": 3121,
       "outputTokens": 292,
@@ -290,7 +290,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "6054bc21f6a6c498a313e21ba9000d253632cad793cbfce73ff28b38b22b0e2f",
-      "latencyMs": 294,
+      "latencyMs": 191,
       "estimatedInputTokens": 2858,
       "inputTokens": 4563,
       "outputTokens": 0,
@@ -304,20 +304,20 @@
         "kind": "answered",
         "scores": {
           "c01": 0.04,
-          "c02": 0.19,
-          "c03": 0.62,
-          "c04": 0.61,
-          "c05": 0.28,
-          "c06": 0.21,
+          "c02": 0.2,
+          "c03": 0.68,
+          "c04": 0.63,
+          "c05": 0.27,
+          "c06": 0.19,
           "c07": 0.04,
           "c08": 0.02,
           "c09": 0.11,
-          "c10": 0.11,
-          "c11": 0.72,
+          "c10": 0.12,
+          "c11": 0.75,
           "c12": 0.05,
-          "c13": 0.55,
-          "c14": 0.1,
-          "c15": 0.12,
+          "c13": 0.53,
+          "c14": 0.07,
+          "c15": 0.13,
           "c16": 0.02
         },
         "unanswered": 0
@@ -326,7 +326,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "4fdf4a46a60b15ca534fdcd516d572e1f6c44cf43fb36aa0842b8fee3f098283",
-      "latencyMs": 213,
+      "latencyMs": 148,
       "estimatedInputTokens": 2826,
       "inputTokens": 2998,
       "outputTokens": 292,
@@ -362,7 +362,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "aea6a1e36ca33be56302230d1fff2557a1bcf080bd7c9274e688b201b63479f7",
-      "latencyMs": 268,
+      "latencyMs": 350,
       "estimatedInputTokens": 2826,
       "inputTokens": 4476,
       "outputTokens": 0,
@@ -375,21 +375,21 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.04,
+          "c01": 0.05,
           "c02": 0.27,
-          "c03": 0.06,
+          "c03": 0.07,
           "c04": 0.07,
           "c05": 0.05,
           "c06": 0.02,
-          "c07": 0.87,
-          "c08": 0.1,
+          "c07": 0.83,
+          "c08": 0.09,
           "c09": 0.13,
-          "c10": 0.22,
+          "c10": 0.23,
           "c11": 0.04,
-          "c12": 0.19,
-          "c13": 0.16,
-          "c14": 0.14,
-          "c15": 0.11,
+          "c12": 0.18,
+          "c13": 0.15,
+          "c14": 0.12,
+          "c15": 0.1,
           "c16": 0.02
         },
         "unanswered": 0
@@ -398,7 +398,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "d4c524dfadc714d3aa40e855c876b0898251b7b1db0e597f3a1d7cd3f943a3fe",
-      "latencyMs": 207,
+      "latencyMs": 170,
       "estimatedInputTokens": 2811,
       "inputTokens": 3077,
       "outputTokens": 292,
@@ -434,7 +434,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "925ec3b96ad867b8ee34e5a30b85c44383b13871c8b12b7fd8b9bcd8b3f3c6a7",
-      "latencyMs": 462,
+      "latencyMs": 300,
       "estimatedInputTokens": 2811,
       "inputTokens": 4536,
       "outputTokens": 0,
@@ -447,22 +447,22 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.06,
-          "c02": 0.22,
-          "c03": 0.16,
+          "c01": 0.05,
+          "c02": 0.2,
+          "c03": 0.17,
           "c04": 0.09,
-          "c05": 0.78,
-          "c06": 0.06,
-          "c07": 0.05,
+          "c05": 0.8,
+          "c06": 0.07,
+          "c07": 0.06,
           "c08": 0.04,
           "c09": 0.11,
           "c10": 0.03,
           "c11": 0.04,
-          "c12": 0.08,
+          "c12": 0.09,
           "c13": 0.11,
           "c14": 0.1,
-          "c15": 0.22,
-          "c16": 0.22
+          "c15": 0.23,
+          "c16": 0.24
         },
         "unanswered": 0
       },
@@ -470,7 +470,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "628f3d60194693d89d5a9acab81653cc90bc0695bbe4b31e0325ee8b12d01ceb",
-      "latencyMs": 167,
+      "latencyMs": 160,
       "estimatedInputTokens": 2911,
       "inputTokens": 3171,
       "outputTokens": 292,
@@ -506,7 +506,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "983987a0a73fc9a029f0d1add416498fb4140fa5d9cb64848479ecc0ef0983b3",
-      "latencyMs": 577,
+      "latencyMs": 592,
       "estimatedInputTokens": 2911,
       "inputTokens": 4607,
       "outputTokens": 0,
@@ -522,19 +522,19 @@
           "c01": 0.5,
           "c02": 0.07,
           "c03": 0.84,
-          "c04": 0.04,
-          "c05": 0.21,
+          "c04": 0.05,
+          "c05": 0.2,
           "c06": 0.45,
-          "c07": 0.52,
-          "c08": 0.08,
+          "c07": 0.51,
+          "c08": 0.07,
           "c09": 0.03,
           "c10": 0.11,
-          "c11": 0.1,
+          "c11": 0.07,
           "c12": 0.06,
-          "c13": 0.07,
-          "c14": 0.75,
+          "c13": 0.08,
+          "c14": 0.73,
           "c15": 0.05,
-          "c16": 0.22
+          "c16": 0.23
         },
         "unanswered": 0
       },
@@ -542,7 +542,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "1172afa813198aad75ef7e1ad5033fe82068ebb0cd6bad7f9777befa609e4acb",
-      "latencyMs": 182,
+      "latencyMs": 200,
       "estimatedInputTokens": 2762,
       "inputTokens": 3041,
       "outputTokens": 292,
@@ -578,7 +578,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "b999ed93a5e6e0f93ca18d2b31a7acd9f3679676ee404785f195194648778cce",
-      "latencyMs": 468,
+      "latencyMs": 259,
       "estimatedInputTokens": 2762,
       "inputTokens": 4477,
       "outputTokens": 0,
@@ -591,22 +591,22 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.31,
-          "c02": 0.03,
-          "c03": 0.03,
+          "c01": 0.33,
+          "c02": 0.02,
+          "c03": 0.02,
           "c04": 0.03,
           "c05": 0.03,
           "c06": 0.79,
           "c07": 0.29,
-          "c08": 0.23,
+          "c08": 0.24,
           "c09": 0.1,
-          "c10": 0.54,
-          "c11": 0.53,
+          "c10": 0.52,
+          "c11": 0.56,
           "c12": 0.07,
-          "c13": 0.31,
-          "c14": 0.39,
-          "c15": 0.47,
-          "c16": 0.48
+          "c13": 0.32,
+          "c14": 0.4,
+          "c15": 0.45,
+          "c16": 0.53
         },
         "unanswered": 0
       },
@@ -614,7 +614,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "accd18954938937d9d6c9a328c1f0e650ad27642e07a76d0a50f3d476a035be6",
-      "latencyMs": 262,
+      "latencyMs": 143,
       "estimatedInputTokens": 2922,
       "inputTokens": 3099,
       "outputTokens": 292,
@@ -650,7 +650,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "637c9ec1d1893e47c46b77844304846b59f2b429b5c16a84073a979a5e1bee8f",
-      "latencyMs": 299,
+      "latencyMs": 544,
       "estimatedInputTokens": 2922,
       "inputTokens": 4580,
       "outputTokens": 0,
@@ -663,22 +663,22 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.18,
-          "c02": 0.05,
-          "c03": 0.13,
-          "c04": 0.22,
-          "c05": 0.02,
+          "c01": 0.17,
+          "c02": 0.04,
+          "c03": 0.19,
+          "c04": 0.23,
+          "c05": 0.03,
           "c06": 0.03,
-          "c07": 0.12,
-          "c08": 0.26,
-          "c09": 0.86,
+          "c07": 0.11,
+          "c08": 0.25,
+          "c09": 0.85,
           "c10": 0.02,
-          "c11": 0.28,
+          "c11": 0.29,
           "c12": 0.03,
           "c13": 0.03,
-          "c14": 0.7,
-          "c15": 0.05,
-          "c16": 0.18
+          "c14": 0.69,
+          "c15": 0.04,
+          "c16": 0.15
         },
         "unanswered": 0
       },
@@ -686,7 +686,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "2c77a347a5820130c38dd3263a38c28b642f8190e0d1de2d9f97bae82e43253b",
-      "latencyMs": 181,
+      "latencyMs": 161,
       "estimatedInputTokens": 2878,
       "inputTokens": 3132,
       "outputTokens": 292,
@@ -722,7 +722,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "316fc3bc13380ec6c143e3c92574db00c3389b5329c01d159ce04fd85974bd1b",
-      "latencyMs": 761,
+      "latencyMs": 268,
       "estimatedInputTokens": 2878,
       "inputTokens": 4606,
       "outputTokens": 0,
@@ -736,20 +736,20 @@
         "kind": "answered",
         "scores": {
           "c01": 0.04,
-          "c02": 0.75,
+          "c02": 0.73,
           "c03": 0.09,
           "c04": 0.02,
-          "c05": 0.29,
+          "c05": 0.28,
           "c06": 0.03,
-          "c07": 0.12,
+          "c07": 0.13,
           "c08": 0.2,
-          "c09": 0.04,
-          "c10": 0.14,
-          "c11": 0.19,
+          "c09": 0.03,
+          "c10": 0.15,
+          "c11": 0.21,
           "c12": 0.09,
           "c13": 0.06,
-          "c14": 0.78,
-          "c15": 0.04,
+          "c14": 0.79,
+          "c15": 0.05,
           "c16": 0.86
         },
         "unanswered": 0
@@ -758,7 +758,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "a717deae61559e9c1ee1ce806cc168b43fa69a406f1e74834f4385aba1b041e0",
-      "latencyMs": 164,
+      "latencyMs": 172,
       "estimatedInputTokens": 3048,
       "inputTokens": 3301,
       "outputTokens": 292,
@@ -794,7 +794,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "1e3a67490d0b8d76fff7f186f95a98f197624d6b69aade8f83b075aff9fd35f2",
-      "latencyMs": 226,
+      "latencyMs": 158,
       "estimatedInputTokens": 3048,
       "inputTokens": 4786,
       "outputTokens": 0,
@@ -808,21 +808,21 @@
         "kind": "answered",
         "scores": {
           "c01": 0.23,
-          "c02": 0.39,
+          "c02": 0.4,
           "c03": 0.02,
           "c04": 0.76,
           "c05": 0.07,
           "c06": 0.04,
           "c07": 0.03,
-          "c08": 0.08,
-          "c09": 0.43,
-          "c10": 0.53,
+          "c08": 0.09,
+          "c09": 0.45,
+          "c10": 0.54,
           "c11": 0.02,
           "c12": 0.65,
-          "c13": 0.08,
-          "c14": 0.19,
-          "c15": 0.08,
-          "c16": 0.1
+          "c13": 0.09,
+          "c14": 0.18,
+          "c15": 0.06,
+          "c16": 0.08
         },
         "unanswered": 0
       },
@@ -830,7 +830,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "1209b48c63af193f70d7858e0b1eee20e06b499abd41a2eb0b5e33fed3fed919",
-      "latencyMs": 223,
+      "latencyMs": 156,
       "estimatedInputTokens": 2803,
       "inputTokens": 3020,
       "outputTokens": 292,
@@ -866,7 +866,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "19009b348698dda4924582139c1975e625d83cfd9311cd6fe6910255e4f3e7bf",
-      "latencyMs": 248,
+      "latencyMs": 482,
       "estimatedInputTokens": 2803,
       "inputTokens": 4495,
       "outputTokens": 0,
@@ -879,22 +879,22 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.09,
-          "c02": 0.72,
-          "c03": 0.03,
+          "c01": 0.1,
+          "c02": 0.75,
+          "c03": 0.02,
           "c04": 0.04,
           "c05": 0.04,
-          "c06": 0.04,
+          "c06": 0.06,
           "c07": 0.03,
-          "c08": 0.15,
+          "c08": 0.12,
           "c09": 0.04,
           "c10": 0.02,
-          "c11": 0.42,
-          "c12": 0.47,
+          "c11": 0.4,
+          "c12": 0.44,
           "c13": 0.28,
-          "c14": 0.03,
-          "c15": 0.03,
-          "c16": 0.54
+          "c14": 0.04,
+          "c15": 0.04,
+          "c16": 0.59
         },
         "unanswered": 0
       },
@@ -902,7 +902,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "00121f95f6d0d545ff6bf35383532fb9966e3cea788bda60d26a642be7a9ad20",
-      "latencyMs": 163,
+      "latencyMs": 177,
       "estimatedInputTokens": 2803,
       "inputTokens": 3010,
       "outputTokens": 292,
@@ -938,7 +938,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "f3f4004f98f9d0b209be9af88662823eaa7aa15ace1544d25933efdd333f21e7",
-      "latencyMs": 582,
+      "latencyMs": 241,
       "estimatedInputTokens": 2803,
       "inputTokens": 4544,
       "outputTokens": 0,
@@ -951,19 +951,19 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.1,
+          "c01": 0.11,
           "c02": 0.03,
           "c03": 0.03,
           "c04": 0.02,
           "c05": 0.02,
-          "c06": 0.09,
-          "c07": 0.04,
-          "c08": 0.02,
+          "c06": 0.08,
+          "c07": 0.03,
+          "c08": 0.03,
           "c09": 0.16,
-          "c10": 0.11,
-          "c11": 0.04,
+          "c10": 0.12,
+          "c11": 0.03,
           "c12": 0.94,
-          "c13": 0.12,
+          "c13": 0.1,
           "c14": 0.02,
           "c15": 0.02,
           "c16": 0.04
@@ -974,7 +974,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "393d3f09352a52f62ee540d731883207890f33ba61550315c6aa8444cd57429e",
-      "latencyMs": 293,
+      "latencyMs": 154,
       "estimatedInputTokens": 2742,
       "inputTokens": 2920,
       "outputTokens": 292,
@@ -1010,7 +1010,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "341d186fb883289928fdabddde4c32a007413d9e860196bd7e61d91196510ae3",
-      "latencyMs": 683,
+      "latencyMs": 653,
       "estimatedInputTokens": 2742,
       "inputTokens": 4441,
       "outputTokens": 0,
@@ -1023,20 +1023,20 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.03,
+          "c01": 0.04,
           "c02": 0.03,
-          "c03": 0.77,
+          "c03": 0.76,
           "c04": 0.03,
-          "c05": 0.19,
-          "c06": 0.12,
-          "c07": 0.12,
-          "c08": 0.54,
-          "c09": 0.15,
+          "c05": 0.2,
+          "c06": 0.13,
+          "c07": 0.1,
+          "c08": 0.55,
+          "c09": 0.14,
           "c10": 0.83,
           "c11": 0.03,
-          "c12": 0.03,
+          "c12": 0.04,
           "c13": 0.06,
-          "c14": 0.85,
+          "c14": 0.84,
           "c15": 0.02,
           "c16": 0.02
         },
@@ -1046,7 +1046,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "6595573102d59bdb688020bf33477429165479c16642096444f2164df10f4a52",
-      "latencyMs": 216,
+      "latencyMs": 234,
       "estimatedInputTokens": 2782,
       "inputTokens": 3002,
       "outputTokens": 292,
@@ -1082,7 +1082,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "c9e3d6000fabb416e160022fd7f01078342f8bfa0658490962c56cde1700c580",
-      "latencyMs": 543,
+      "latencyMs": 611,
       "estimatedInputTokens": 2782,
       "inputTokens": 4491,
       "outputTokens": 0,
@@ -1095,22 +1095,22 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.33,
-          "c02": 0.78,
-          "c03": 0.24,
-          "c04": 0.22,
-          "c05": 0.18,
+          "c01": 0.28,
+          "c02": 0.75,
+          "c03": 0.25,
+          "c04": 0.18,
+          "c05": 0.16,
           "c06": 0.02,
           "c07": 0.05,
-          "c08": 0.04,
+          "c08": 0.05,
           "c09": 0.02,
           "c10": 0.02,
           "c11": 0.03,
-          "c12": 0.88,
-          "c13": 0.03,
-          "c14": 0.16,
+          "c12": 0.87,
+          "c13": 0.04,
+          "c14": 0.13,
           "c15": 0.03,
-          "c16": 0.61
+          "c16": 0.55
         },
         "unanswered": 0
       },
@@ -1118,7 +1118,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "b50e0aad8b2a31a6039e4afaf1022abf8ca1d96b722b53d8eb3de49e9aa23b87",
-      "latencyMs": 152,
+      "latencyMs": 172,
       "estimatedInputTokens": 2878,
       "inputTokens": 3070,
       "outputTokens": 292,
@@ -1154,7 +1154,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "90a9354dfb6f2fef5c63770fc48afc8bf85b277ab5cf030390fd33bb0220af55",
-      "latencyMs": 264,
+      "latencyMs": 451,
       "estimatedInputTokens": 2878,
       "inputTokens": 4576,
       "outputTokens": 0,
@@ -1168,21 +1168,21 @@
         "kind": "answered",
         "scores": {
           "c01": 0.66,
-          "c02": 0.15,
-          "c03": 0.08,
-          "c04": 0.45,
+          "c02": 0.13,
+          "c03": 0.06,
+          "c04": 0.48,
           "c05": 0.08,
-          "c06": 0.14,
-          "c07": 0.66,
-          "c08": 0.6,
-          "c09": 0.05,
-          "c10": 0.61,
-          "c11": 0.34,
-          "c12": 0.29,
+          "c06": 0.12,
+          "c07": 0.68,
+          "c08": 0.63,
+          "c09": 0.04,
+          "c10": 0.6,
+          "c11": 0.27,
+          "c12": 0.27,
           "c13": 0.22,
-          "c14": 0.48,
-          "c15": 0.22,
-          "c16": 0.05
+          "c14": 0.49,
+          "c15": 0.19,
+          "c16": 0.04
         },
         "unanswered": 0
       },
@@ -1190,7 +1190,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "f9d22ef34868ca069a3c9ae34194cc9bb48fb49f9a518f70dc90ac05a5d6138c",
-      "latencyMs": 567,
+      "latencyMs": 156,
       "estimatedInputTokens": 2831,
       "inputTokens": 3065,
       "outputTokens": 292,
@@ -1226,7 +1226,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "1d7685bb2c13bcdddb29e4315ab5d2872da3ee8d3f6640e403efc052640dd29c",
-      "latencyMs": 482,
+      "latencyMs": 169,
       "estimatedInputTokens": 2831,
       "inputTokens": 4539,
       "outputTokens": 0,
@@ -1239,22 +1239,22 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.14,
+          "c01": 0.13,
           "c02": 0.04,
           "c03": 0.06,
-          "c04": 0.09,
-          "c05": 0.86,
-          "c06": 0.06,
+          "c04": 0.08,
+          "c05": 0.84,
+          "c06": 0.05,
           "c07": 0.03,
           "c08": 0.03,
-          "c09": 0.25,
-          "c10": 0.04,
+          "c09": 0.26,
+          "c10": 0.03,
           "c11": 0.04,
-          "c12": 0.03,
-          "c13": 0.12,
-          "c14": 0.05,
-          "c15": 0.39,
-          "c16": 0.16
+          "c12": 0.02,
+          "c13": 0.11,
+          "c14": 0.04,
+          "c15": 0.4,
+          "c16": 0.15
         },
         "unanswered": 0
       },
@@ -1262,7 +1262,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "81bfe5a09f37d50c8ad6cf6a9d7d8e03c0d80f8848e8bd312f8d9ec5b25711a3",
-      "latencyMs": 269,
+      "latencyMs": 143,
       "estimatedInputTokens": 2834,
       "inputTokens": 2998,
       "outputTokens": 292,
@@ -1298,7 +1298,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "bac576154a2202bb883736dfc0ff496da4fa649c3b544aa295c8588ef7ece676",
-      "latencyMs": 436,
+      "latencyMs": 535,
       "estimatedInputTokens": 2834,
       "inputTokens": 4532,
       "outputTokens": 0,
@@ -1312,21 +1312,21 @@
         "kind": "answered",
         "scores": {
           "c01": 0.04,
-          "c02": 0.28,
-          "c03": 0.13,
-          "c04": 0.07,
-          "c05": 0.26,
-          "c06": 0.54,
+          "c02": 0.27,
+          "c03": 0.14,
+          "c04": 0.08,
+          "c05": 0.25,
+          "c06": 0.53,
           "c07": 0.88,
           "c08": 0.06,
           "c09": 0.04,
-          "c10": 0.03,
+          "c10": 0.04,
           "c11": 0.1,
           "c12": 0.05,
-          "c13": 0.09,
-          "c14": 0.1,
+          "c13": 0.1,
+          "c14": 0.09,
           "c15": 0.25,
-          "c16": 0.08
+          "c16": 0.09
         },
         "unanswered": 0
       },
@@ -1334,7 +1334,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "f76627105eb5a5cbcea8c1cb3b23418f7cd3dfc6e6910f30c9eb71368e41dfe9",
-      "latencyMs": 178,
+      "latencyMs": 163,
       "estimatedInputTokens": 2731,
       "inputTokens": 2936,
       "outputTokens": 292,
@@ -1370,7 +1370,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "3eb5aad7620603ffb5c1945faa72d7c541d69ed98ad0c1218141b88ebe6a6b70",
-      "latencyMs": 335,
+      "latencyMs": 170,
       "estimatedInputTokens": 2731,
       "inputTokens": 4433,
       "outputTokens": 0,
@@ -1383,22 +1383,22 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.4,
-          "c02": 0.15,
-          "c03": 0.04,
+          "c01": 0.42,
+          "c02": 0.16,
+          "c03": 0.03,
           "c04": 0.16,
           "c05": 0.06,
-          "c06": 0.48,
-          "c07": 0.31,
-          "c08": 0.54,
-          "c09": 0.02,
-          "c10": 0.67,
+          "c06": 0.5,
+          "c07": 0.36,
+          "c08": 0.55,
+          "c09": 0.03,
+          "c10": 0.68,
           "c11": 0.03,
           "c12": 0.46,
           "c13": 0.03,
-          "c14": 0.19,
-          "c15": 0.47,
-          "c16": 0.07
+          "c14": 0.17,
+          "c15": 0.48,
+          "c16": 0.09
         },
         "unanswered": 0
       },
@@ -1406,7 +1406,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "eff4e744be9a20fe1a13d080c8b8e86056a5631f110259e558107ae7ad074463",
-      "latencyMs": 403,
+      "latencyMs": 163,
       "estimatedInputTokens": 2781,
       "inputTokens": 2973,
       "outputTokens": 292,
@@ -1442,7 +1442,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "28775cc97d8d0ec143d17654ff333b8e307b0dc8687ff77662d175665a3f63cd",
-      "latencyMs": 729,
+      "latencyMs": 458,
       "estimatedInputTokens": 2781,
       "inputTokens": 4467,
       "outputTokens": 0,
@@ -1455,22 +1455,22 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.07,
+          "c01": 0.06,
           "c02": 0.15,
-          "c03": 0.83,
-          "c04": 0.24,
-          "c05": 0.69,
-          "c06": 0.29,
+          "c03": 0.86,
+          "c04": 0.23,
+          "c05": 0.71,
+          "c06": 0.33,
           "c07": 0.08,
-          "c08": 0.16,
-          "c09": 0.11,
-          "c10": 0.59,
+          "c08": 0.13,
+          "c09": 0.1,
+          "c10": 0.6,
           "c11": 0.05,
           "c12": 0.13,
-          "c13": 0.12,
-          "c14": 0.03,
-          "c15": 0.9,
-          "c16": 0.13
+          "c13": 0.11,
+          "c14": 0.04,
+          "c15": 0.91,
+          "c16": 0.12
         },
         "unanswered": 0
       },
@@ -1478,7 +1478,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "9f539ea15999044cc37bd63a5f6f921e208dc1a99cd8b7fe048de1a6a149fd89",
-      "latencyMs": 225,
+      "latencyMs": 237,
       "estimatedInputTokens": 2964,
       "inputTokens": 3150,
       "outputTokens": 292,
@@ -1514,7 +1514,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "df7f8b016609e9b9b2115bc53a075e4ee701eeb13f967d27017c2c0ddbf3d9c3",
-      "latencyMs": 330,
+      "latencyMs": 255,
       "estimatedInputTokens": 2964,
       "inputTokens": 4663,
       "outputTokens": 0,
@@ -1527,22 +1527,22 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.06,
+          "c01": 0.04,
           "c02": 0.04,
-          "c03": 0.57,
-          "c04": 0.2,
+          "c03": 0.63,
+          "c04": 0.19,
           "c05": 0.08,
-          "c06": 0.05,
-          "c07": 0.05,
+          "c06": 0.04,
+          "c07": 0.04,
           "c08": 0.03,
           "c09": 0.04,
           "c10": 0.03,
           "c11": 0.08,
-          "c12": 0.03,
-          "c13": 0.09,
+          "c12": 0.04,
+          "c13": 0.1,
           "c14": 0.04,
-          "c15": 0.27,
-          "c16": 0.19
+          "c15": 0.23,
+          "c16": 0.2
         },
         "unanswered": 0
       },
@@ -1550,7 +1550,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "d3e434f67d207d7af6954ecce6c0853f1aa65778ed6c4cbba5813ddb9e521eac",
-      "latencyMs": 168,
+      "latencyMs": 200,
       "estimatedInputTokens": 2824,
       "inputTokens": 3009,
       "outputTokens": 292,
@@ -1586,7 +1586,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "5aba1e0e270613ae0a6b8600942f756b813f7c3e7cf10b5d4196afffb238ef73",
-      "latencyMs": 459,
+      "latencyMs": 160,
       "estimatedInputTokens": 2824,
       "inputTokens": 4554,
       "outputTokens": 0,
@@ -1599,22 +1599,22 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.37,
+          "c01": 0.43,
           "c02": 0.07,
           "c03": 0.02,
-          "c04": 0.08,
-          "c05": 0.14,
-          "c06": 0.67,
+          "c04": 0.07,
+          "c05": 0.11,
+          "c06": 0.66,
           "c07": 0.04,
-          "c08": 0.17,
-          "c09": 0.03,
+          "c08": 0.14,
+          "c09": 0.02,
           "c10": 0.72,
           "c11": 0.03,
-          "c12": 0.05,
+          "c12": 0.04,
           "c13": 0.02,
           "c14": 0.02,
           "c15": 0.02,
-          "c16": 0.03
+          "c16": 0.04
         },
         "unanswered": 0
       },
@@ -1622,7 +1622,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "77be723772319261015222f2a4161a93013a5291ae8c92e7363fc91cf2f3af76",
-      "latencyMs": 178,
+      "latencyMs": 201,
       "estimatedInputTokens": 2882,
       "inputTokens": 3089,
       "outputTokens": 292,
@@ -1658,7 +1658,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "e1607fb71176bc5ddee2b46226b55619554467553052bbb08ae28adfe47cd081",
-      "latencyMs": 212,
+      "latencyMs": 667,
       "estimatedInputTokens": 2882,
       "inputTokens": 4584,
       "outputTokens": 0,
@@ -1671,19 +1671,19 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.05,
-          "c02": 0.08,
+          "c01": 0.06,
+          "c02": 0.09,
           "c03": 0.03,
-          "c04": 0.15,
+          "c04": 0.12,
           "c05": 0.04,
           "c06": 0.03,
           "c07": 0.05,
-          "c08": 0.21,
-          "c09": 0.07,
+          "c08": 0.19,
+          "c09": 0.08,
           "c10": 0.02,
           "c11": 0.15,
           "c12": 0.03,
-          "c13": 0.77,
+          "c13": 0.79,
           "c14": 0.16,
           "c15": 0.05,
           "c16": 0.05
@@ -1694,7 +1694,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "0567d3c021a2e1f28b7216fb045bc542b7456da18d52838e4d57d3d2f1fa73a9",
-      "latencyMs": 168,
+      "latencyMs": 153,
       "estimatedInputTokens": 2957,
       "inputTokens": 3103,
       "outputTokens": 292,
@@ -1730,7 +1730,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "d9b1f08996e49f49d8547aabb4c86e3b1b00e9d14e6a0b19adad5cd97051f510",
-      "latencyMs": 639,
+      "latencyMs": 201,
       "estimatedInputTokens": 2957,
       "inputTokens": 4627,
       "outputTokens": 0,
@@ -1743,20 +1743,20 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.14,
-          "c02": 0.04,
-          "c03": 0.03,
+          "c01": 0.15,
+          "c02": 0.05,
+          "c03": 0.04,
           "c04": 0.04,
-          "c05": 0.33,
-          "c06": 0.66,
+          "c05": 0.34,
+          "c06": 0.65,
           "c07": 0.03,
           "c08": 0.02,
-          "c09": 0.03,
-          "c10": 0.32,
-          "c11": 0.11,
-          "c12": 0.09,
+          "c09": 0.04,
+          "c10": 0.36,
+          "c11": 0.09,
+          "c12": 0.08,
           "c13": 0.03,
-          "c14": 0.3,
+          "c14": 0.27,
           "c15": 0.72,
           "c16": 0.02
         },
@@ -1766,7 +1766,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "2d9a8b8e10aa4719155a748fc20a4a0d0e68d9ac5f50235b616125108147d7eb",
-      "latencyMs": 335,
+      "latencyMs": 162,
       "estimatedInputTokens": 2872,
       "inputTokens": 3062,
       "outputTokens": 292,
@@ -1802,7 +1802,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "2cd88ee5612404573c7f209f0c8aed90e5c010e78a0ccd4fb93e2d76d9d66244",
-      "latencyMs": 373,
+      "latencyMs": 479,
       "estimatedInputTokens": 2872,
       "inputTokens": 4542,
       "outputTokens": 0,
@@ -1816,21 +1816,21 @@
         "kind": "answered",
         "scores": {
           "c01": 0.1,
-          "c02": 0.2,
-          "c03": 0.75,
-          "c04": 0.05,
+          "c02": 0.18,
+          "c03": 0.77,
+          "c04": 0.04,
           "c05": 0.05,
           "c06": 0.05,
-          "c07": 0.05,
-          "c08": 0.11,
-          "c09": 0.1,
-          "c10": 0.1,
-          "c11": 0.11,
+          "c07": 0.04,
+          "c08": 0.1,
+          "c09": 0.11,
+          "c10": 0.11,
+          "c11": 0.1,
           "c12": 0.05,
           "c13": 0.05,
-          "c14": 0.07,
+          "c14": 0.08,
           "c15": 0.04,
-          "c16": 0.08
+          "c16": 0.07
         },
         "unanswered": 0
       },
@@ -1838,7 +1838,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "b97d589b71daacb724b74c4d264a0821d0de8f99fd357a13389717ace29becd6",
-      "latencyMs": 277,
+      "latencyMs": 191,
       "estimatedInputTokens": 2903,
       "inputTokens": 3101,
       "outputTokens": 292,
@@ -1874,7 +1874,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "a2c5c1b3a8a40d7f1000119809fcc96362869424ea116e4e152f26a4c8621826",
-      "latencyMs": 577,
+      "latencyMs": 163,
       "estimatedInputTokens": 2903,
       "inputTokens": 4593,
       "outputTokens": 0,
@@ -1888,21 +1888,21 @@
         "kind": "answered",
         "scores": {
           "c01": 0.04,
-          "c02": 0.12,
-          "c03": 0.31,
-          "c04": 0.51,
-          "c05": 0.15,
+          "c02": 0.13,
+          "c03": 0.28,
+          "c04": 0.52,
+          "c05": 0.16,
           "c06": 0.06,
           "c07": 0.04,
           "c08": 0.07,
-          "c09": 0.07,
+          "c09": 0.08,
           "c10": 0.09,
-          "c11": 0.05,
-          "c12": 0.06,
+          "c11": 0.06,
+          "c12": 0.05,
           "c13": 0.04,
-          "c14": 0.46,
-          "c15": 0.86,
-          "c16": 0.85
+          "c14": 0.44,
+          "c15": 0.87,
+          "c16": 0.87
         },
         "unanswered": 0
       },
@@ -1910,7 +1910,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "ac43edbd916737d1c1b1d1cd7bef7554873c31f32ff482cfc9a1d6ce113c9c7f",
-      "latencyMs": 254,
+      "latencyMs": 189,
       "estimatedInputTokens": 3030,
       "inputTokens": 3132,
       "outputTokens": 292,
@@ -1946,7 +1946,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "29259cea2dbde1e4cf233c17d711f9e1c3248f1d4d00c58b495258721ed64690",
-      "latencyMs": 660,
+      "latencyMs": 222,
       "estimatedInputTokens": 3030,
       "inputTokens": 4645,
       "outputTokens": 0,
@@ -1960,21 +1960,21 @@
         "kind": "answered",
         "scores": {
           "c01": 0.03,
-          "c02": 0.34,
+          "c02": 0.27,
           "c03": 0.08,
-          "c04": 0.15,
-          "c05": 0.15,
-          "c06": 0.05,
+          "c04": 0.16,
+          "c05": 0.19,
+          "c06": 0.04,
           "c07": 0.03,
           "c08": 0.14,
-          "c09": 0.33,
+          "c09": 0.31,
           "c10": 0.02,
           "c11": 0.07,
           "c12": 0.02,
           "c13": 0.02,
-          "c14": 0.03,
+          "c14": 0.04,
           "c15": 0.03,
-          "c16": 0.09
+          "c16": 0.08
         },
         "unanswered": 0
       },
@@ -1982,7 +1982,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "7716b08a0d3bc67bae82c194caccb0844e47d5d771f42b68af5ab45af7970d0a",
-      "latencyMs": 179,
+      "latencyMs": 174,
       "estimatedInputTokens": 2869,
       "inputTokens": 3077,
       "outputTokens": 292,
@@ -2018,7 +2018,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "bb067d48fd86c8c7f3f453bb8e354226d8d4d5389bce9196edf0948457b53222",
-      "latencyMs": 470,
+      "latencyMs": 639,
       "estimatedInputTokens": 2869,
       "inputTokens": 4574,
       "outputTokens": 0,
@@ -2031,22 +2031,22 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.21,
-          "c02": 0.16,
+          "c01": 0.22,
+          "c02": 0.17,
           "c03": 0.03,
-          "c04": 0.22,
-          "c05": 0.24,
-          "c06": 0.6,
+          "c04": 0.23,
+          "c05": 0.22,
+          "c06": 0.54,
           "c07": 0.16,
-          "c08": 0.15,
-          "c09": 0.79,
-          "c10": 0.19,
-          "c11": 0.29,
-          "c12": 0.64,
+          "c08": 0.14,
+          "c09": 0.8,
+          "c10": 0.18,
+          "c11": 0.27,
+          "c12": 0.59,
           "c13": 0.08,
           "c14": 0.08,
           "c15": 0.43,
-          "c16": 0.28
+          "c16": 0.24
         },
         "unanswered": 0
       },
@@ -2054,7 +2054,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "5245c0230380f52810090caa477f97e4acdba8e9a803f6b5e8b9ef45bc5df328",
-      "latencyMs": 261,
+      "latencyMs": 154,
       "estimatedInputTokens": 2808,
       "inputTokens": 3002,
       "outputTokens": 292,
@@ -2065,19 +2065,37 @@
       "caseId": "h-dev-pairing",
       "engine": "luna",
       "outcome": {
-        "kind": "failed",
-        "code": "unavailable"
+        "kind": "answered",
+        "scores": {
+          "c01": 0.03,
+          "c02": 0,
+          "c03": 0,
+          "c04": 0.05,
+          "c05": 0.16,
+          "c06": 0.96,
+          "c07": 0,
+          "c08": 0,
+          "c09": 0.99,
+          "c10": 0.03,
+          "c11": 0.03,
+          "c12": 0.15,
+          "c13": 0,
+          "c14": 0,
+          "c15": 0.08,
+          "c16": 0.01
+        },
+        "unanswered": 0
       },
-      "requestedModel": null,
-      "resolvedModel": null,
-      "adapterVersion": null,
-      "digest": null,
-      "latencyMs": null,
+      "requestedModel": "gpt-6-luna",
+      "resolvedModel": "gpt-6-luna",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "ee36d6674f15f39db6eb5aa6a041a2ec1dbd6048df9303509b66a09d923e2d51",
+      "latencyMs": 471,
       "estimatedInputTokens": 2808,
-      "inputTokens": null,
-      "outputTokens": null,
-      "costUsd": null,
-      "costStatus": null
+      "inputTokens": 4549,
+      "outputTokens": 0,
+      "costUsd": 0.00045490000000000005,
+      "costStatus": "estimated"
     },
     {
       "caseId": "h-stray-server",
@@ -2085,16 +2103,16 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.03,
+          "c01": 0.04,
           "c02": 0.03,
-          "c03": 0.04,
+          "c03": 0.03,
           "c04": 0.05,
-          "c05": 0.04,
-          "c06": 0.12,
-          "c07": 0.15,
-          "c08": 0.02,
+          "c05": 0.05,
+          "c06": 0.15,
+          "c07": 0.17,
+          "c08": 0.03,
           "c09": 0.03,
-          "c10": 0.84,
+          "c10": 0.83,
           "c11": 0.05,
           "c12": 0.02,
           "c13": 0.02,
@@ -2108,7 +2126,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "85c40e3b6b354cf62b19af8300947bb3498c0994d6e48142a9635e6169b7a643",
-      "latencyMs": 268,
+      "latencyMs": 189,
       "estimatedInputTokens": 2814,
       "inputTokens": 3095,
       "outputTokens": 292,
@@ -2144,7 +2162,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "44f4c2bc5982e8c12e11d62c6b93da6d6f575c14c59dcd5fc451f6551dd1c2af",
-      "latencyMs": 555,
+      "latencyMs": 665,
       "estimatedInputTokens": 2814,
       "inputTokens": 4556,
       "outputTokens": 0,
@@ -2158,20 +2176,20 @@
         "kind": "answered",
         "scores": {
           "c01": 0.03,
-          "c02": 0.05,
-          "c03": 0.04,
-          "c04": 0.87,
-          "c05": 0.39,
-          "c06": 0.07,
-          "c07": 0.18,
-          "c08": 0.06,
-          "c09": 0.28,
+          "c02": 0.04,
+          "c03": 0.05,
+          "c04": 0.84,
+          "c05": 0.37,
+          "c06": 0.06,
+          "c07": 0.16,
+          "c08": 0.08,
+          "c09": 0.27,
           "c10": 0.04,
           "c11": 0.04,
           "c12": 0.03,
           "c13": 0.03,
           "c14": 0.03,
-          "c15": 0.15,
+          "c15": 0.16,
           "c16": 0.07
         },
         "unanswered": 0
@@ -2180,7 +2198,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "89a15531a93d9f3a1f0ccd077954b537373214e8612427befbfde3cbafdcd257",
-      "latencyMs": 217,
+      "latencyMs": 149,
       "estimatedInputTokens": 2943,
       "inputTokens": 3112,
       "outputTokens": 292,
@@ -2216,7 +2234,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "6e49f4e7cd5272f66f7d50f038c870bc1c25aa1a8d7e3120b598f39deca52675",
-      "latencyMs": 486,
+      "latencyMs": 438,
       "estimatedInputTokens": 2943,
       "inputTokens": 4612,
       "outputTokens": 0,
@@ -2229,21 +2247,21 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.24,
-          "c02": 0.22,
-          "c03": 0.14,
-          "c04": 0.1,
-          "c05": 0.52,
-          "c06": 0.65,
+          "c01": 0.23,
+          "c02": 0.21,
+          "c03": 0.15,
+          "c04": 0.09,
+          "c05": 0.5,
+          "c06": 0.67,
           "c07": 0.05,
-          "c08": 0.21,
-          "c09": 0.61,
-          "c10": 0.26,
+          "c08": 0.19,
+          "c09": 0.58,
+          "c10": 0.27,
           "c11": 0.87,
-          "c12": 0.63,
-          "c13": 0.27,
-          "c14": 0.19,
-          "c15": 0.17,
+          "c12": 0.65,
+          "c13": 0.22,
+          "c14": 0.2,
+          "c15": 0.18,
           "c16": 0.03
         },
         "unanswered": 0
@@ -2288,7 +2306,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "0a7d5f1588106aaa4996f9f2fb50853f54782fc5984300a3e1f2f8badc7c78c9",
-      "latencyMs": 409,
+      "latencyMs": 198,
       "estimatedInputTokens": 2800,
       "inputTokens": 4486,
       "outputTokens": 0,
@@ -2301,22 +2319,22 @@
       "outcome": {
         "kind": "answered",
         "scores": {
-          "c01": 0.22,
-          "c02": 0.41,
-          "c03": 0.42,
-          "c04": 0.56,
+          "c01": 0.21,
+          "c02": 0.49,
+          "c03": 0.41,
+          "c04": 0.53,
           "c05": 0.59,
-          "c06": 0.43,
-          "c07": 0.53,
+          "c06": 0.41,
+          "c07": 0.54,
           "c08": 0.07,
-          "c09": 0.16,
-          "c10": 0.17,
-          "c11": 0.2,
-          "c12": 0.07,
-          "c13": 0.1,
-          "c14": 0.06,
-          "c15": 0.09,
-          "c16": 0.31
+          "c09": 0.12,
+          "c10": 0.16,
+          "c11": 0.19,
+          "c12": 0.06,
+          "c13": 0.09,
+          "c14": 0.05,
+          "c15": 0.08,
+          "c16": 0.3
         },
         "unanswered": 0
       },
@@ -2324,7 +2342,7 @@
       "resolvedModel": "jev-1.14.0",
       "adapterVersion": "t3-decisions-v1",
       "digest": "de77655a89222a5d6c727d69739b76d352a488d7ccdf6abeaaad2233fb5f132a",
-      "latencyMs": 208,
+      "latencyMs": 201,
       "estimatedInputTokens": 2861,
       "inputTokens": 3052,
       "outputTokens": 292,
@@ -2360,7 +2378,7 @@
       "resolvedModel": "gpt-6-luna",
       "adapterVersion": "t3-decisions-v1",
       "digest": "373fe049bfa7514d00dde60215ec714c6eb8290fcf5ccc4500d2e81ef7819278",
-      "latencyMs": 467,
+      "latencyMs": 228,
       "estimatedInputTokens": 2861,
       "inputTokens": 4581,
       "outputTokens": 0,
@@ -2867,8 +2885,8 @@
           "included": {
             "needed": 54,
             "helpful": 39,
-            "unneeded": 50,
-            "uncertain": 17,
+            "unneeded": 49,
+            "uncertain": 18,
             "total": 160
           },
           "precisionStrict": {
@@ -2877,14 +2895,14 @@
             "high": 0.4138161986794579
           },
           "noise": {
-            "value": 0.3125,
-            "low": 0.24578530120802664,
-            "high": 0.3880073375357356
+            "value": 0.30625,
+            "low": 0.24006651044279392,
+            "high": 0.3815192162590937
           },
           "meanIncludedCandidates": 5,
-          "meanIncludedTokens": 52670.0625,
+          "meanIncludedTokens": 51320.0625,
           "meanAllTokens": 103222.375,
-          "tokenSavingFraction": 0.4897418074327393,
+          "tokenSavingFraction": 0.502820367192675,
           "meanIncludedWhenNoneNeeded": 5
         },
         "threshold": {
@@ -2913,36 +2931,36 @@
           "allNeededRetainedCases": 20,
           "included": {
             "needed": 47,
-            "helpful": 14,
-            "unneeded": 7,
+            "helpful": 16,
+            "unneeded": 8,
             "uncertain": 5,
-            "total": 73
+            "total": 76
           },
           "precisionStrict": {
-            "value": 0.6438356164383562,
-            "low": 0.529332842211795,
-            "high": 0.7439566259929274
+            "value": 0.618421052631579,
+            "low": 0.5060154789314374,
+            "high": 0.719430904908566
           },
           "noise": {
-            "value": 0.0958904109589041,
-            "low": 0.04722835432935106,
-            "high": 0.18495837785738106
+            "value": 0.10526315789473684,
+            "low": 0.054310612607017986,
+            "high": 0.19420144125963795
           },
-          "meanIncludedCandidates": 2.28125,
-          "meanIncludedTokens": 21640.8125,
+          "meanIncludedCandidates": 2.375,
+          "meanIncludedTokens": 25921.65625,
           "meanAllTokens": 103222.375,
-          "tokenSavingFraction": 0.7903476596038408,
+          "tokenSavingFraction": 0.7488756071539722,
           "meanIncludedWhenNoneNeeded": 0.5
         },
         "budget": {
           "cases": 32,
           "casesWithNeeded": 30,
           "neededItems": 58,
-          "neededRetained": 41,
+          "neededRetained": 42,
           "recall": {
-            "value": 0.7068965517241379,
-            "low": 0.5798685554332221,
-            "high": 0.8082197217135527
+            "value": 0.7241379310344828,
+            "low": 0.5979510037164683,
+            "high": 0.822477963192538
           },
           "criticalOmissionCases": 14,
           "criticalOmissionIds": [
@@ -2963,26 +2981,26 @@
           ],
           "allNeededRetainedCases": 16,
           "included": {
-            "needed": 41,
-            "helpful": 29,
-            "unneeded": 124,
+            "needed": 42,
+            "helpful": 30,
+            "unneeded": 123,
             "uncertain": 16,
-            "total": 210
+            "total": 211
           },
           "precisionStrict": {
-            "value": 0.19523809523809524,
-            "low": 0.1473033898153551,
-            "high": 0.2541227124958884
+            "value": 0.1990521327014218,
+            "low": 0.15077014444490908,
+            "high": 0.2580966671967841
           },
           "noise": {
-            "value": 0.5904761904761905,
-            "low": 0.5229208602572285,
-            "high": 0.654780765619121
+            "value": 0.5829383886255924,
+            "low": 0.5155048518292172,
+            "high": 0.647405869371891
           },
-          "meanIncludedCandidates": 6.5625,
-          "meanIncludedTokens": 7483.40625,
+          "meanIncludedCandidates": 6.59375,
+          "meanIncludedTokens": 7518.5625,
           "meanAllTokens": 103222.375,
-          "tokenSavingFraction": 0.9275020919640727,
+          "tokenSavingFraction": 0.9271615044703244,
           "meanIncludedWhenNoneNeeded": 6
         },
         "all": {
@@ -3089,7 +3107,7 @@
           "meanIncludedWhenNoneNeeded": 0
         }
       },
-      "meanAveragePrecision": 0.843042328042328,
+      "meanAveragePrecision": 0.8373544973544973,
       "byStratumTopK": {
         "authentic": {
           "cases": 12,
@@ -3117,40 +3135,39 @@
           "cases": 32,
           "casesWithNeeded": 30,
           "neededItems": 58,
-          "neededRetained": 55,
+          "neededRetained": 56,
           "recall": {
-            "value": 0.9482758620689655,
-            "low": 0.8586037466498081,
-            "high": 0.9822541871682043
+            "value": 0.9655172413793104,
+            "low": 0.8827063524467295,
+            "high": 0.9904922711335143
           },
-          "criticalOmissionCases": 3,
+          "criticalOmissionCases": 2,
           "criticalOmissionIds": [
             "h-readonly-enforcing-provider",
-            "h-cost-aggregation",
-            "h-dev-pairing"
+            "h-cost-aggregation"
           ],
-          "allNeededRetainedCases": 27,
+          "allNeededRetainedCases": 28,
           "included": {
-            "needed": 55,
-            "helpful": 38,
-            "unneeded": 51,
-            "uncertain": 11,
-            "total": 155
+            "needed": 56,
+            "helpful": 39,
+            "unneeded": 53,
+            "uncertain": 12,
+            "total": 160
           },
           "precisionStrict": {
-            "value": 0.3548387096774194,
-            "low": 0.2838579959370039,
-            "high": 0.43284090409925857
+            "value": 0.35,
+            "low": 0.28039680852544535,
+            "high": 0.42663730246956433
           },
           "noise": {
-            "value": 0.32903225806451614,
-            "low": 0.2599794092229003,
-            "high": 0.4063548508198088
+            "value": 0.33125,
+            "low": 0.2630282728403034,
+            "high": 0.4073851020290825
           },
-          "meanIncludedCandidates": 4.84375,
-          "meanIncludedTokens": 57452.40625,
+          "meanIncludedCandidates": 5,
+          "meanIncludedTokens": 57801.875,
           "meanAllTokens": 103222.375,
-          "tokenSavingFraction": 0.44341131222760566,
+          "tokenSavingFraction": 0.4400257211675279,
           "meanIncludedWhenNoneNeeded": 5
         },
         "threshold": {
@@ -3181,25 +3198,25 @@
           "allNeededRetainedCases": 18,
           "included": {
             "needed": 45,
-            "helpful": 12,
-            "unneeded": 9,
+            "helpful": 13,
+            "unneeded": 10,
             "uncertain": 4,
-            "total": 70
+            "total": 72
           },
           "precisionStrict": {
-            "value": 0.6428571428571429,
-            "low": 0.5258817704420135,
-            "high": 0.7449682653101913
+            "value": 0.625,
+            "low": 0.5095268590406966,
+            "high": 0.7278099060064543
           },
           "noise": {
-            "value": 0.12857142857142856,
-            "low": 0.06914021991242263,
-            "high": 0.22664968713184502
+            "value": 0.1388888888888889,
+            "low": 0.07722647811471899,
+            "high": 0.23713397841573391
           },
-          "meanIncludedCandidates": 2.1875,
-          "meanIncludedTokens": 22234.28125,
+          "meanIncludedCandidates": 2.25,
+          "meanIncludedTokens": 22250.96875,
           "meanAllTokens": 103222.375,
-          "tokenSavingFraction": 0.78459823996493,
+          "tokenSavingFraction": 0.7844365744345643,
           "meanIncludedWhenNoneNeeded": 0.5
         },
         "budget": {
@@ -3232,25 +3249,25 @@
           "allNeededRetainedCases": 16,
           "included": {
             "needed": 42,
-            "helpful": 25,
-            "unneeded": 123,
-            "uncertain": 15,
-            "total": 205
+            "helpful": 26,
+            "unneeded": 128,
+            "uncertain": 16,
+            "total": 212
           },
           "precisionStrict": {
-            "value": 0.2048780487804878,
-            "low": 0.1552973047189184,
-            "high": 0.26531621289443064
+            "value": 0.19811320754716982,
+            "low": 0.1500411918346862,
+            "high": 0.25693132875448665
           },
           "noise": {
-            "value": 0.6,
-            "low": 0.5316914569850033,
-            "high": 0.6646295825013826
+            "value": 0.6037735849056604,
+            "low": 0.5366479474786662,
+            "high": 0.6672052485688057
           },
-          "meanIncludedCandidates": 6.40625,
-          "meanIncludedTokens": 7253.90625,
+          "meanIncludedCandidates": 6.625,
+          "meanIncludedTokens": 7424.625,
           "meanAllTokens": 103222.375,
-          "tokenSavingFraction": 0.9297254471232618,
+          "tokenSavingFraction": 0.9280715542536199,
           "meanIncludedWhenNoneNeeded": 7.5
         },
         "all": {
@@ -3357,7 +3374,7 @@
           "meanIncludedWhenNoneNeeded": 0
         }
       },
-      "meanAveragePrecision": 0.808095238095238,
+      "meanAveragePrecision": 0.819206349206349,
       "byStratumTopK": {
         "authentic": {
           "cases": 12,
@@ -3374,8 +3391,8 @@
         "synthetic": {
           "cases": 14,
           "neededItems": 21,
-          "neededRetained": 20,
-          "criticalOmissionCases": 1
+          "neededRetained": 21,
+          "criticalOmissionCases": 0
         }
       }
     }
@@ -3449,7 +3466,7 @@
     },
     "luna": {
       "topK": {
-        "better": 7,
+        "better": 8,
         "worse": 1,
         "betterCases": [
           "h-pending-items-index",
@@ -3458,6 +3475,7 @@
           "h-write-recommendation",
           "h-single-label",
           "h-settings-animation",
+          "h-dev-pairing",
           "h-provider-docs"
         ],
         "worseCases": [
@@ -3479,9 +3497,9 @@
     "jev": {
       "calls": 32,
       "latencyMs": {
-        "mean": 254.0625,
-        "p50": 216,
-        "max": 628
+        "mean": 178.96875,
+        "p50": 170,
+        "max": 308
       },
       "unobservedAttempts": 0,
       "inputTokens": 98062,
@@ -3507,35 +3525,33 @@
       }
     },
     "luna": {
-      "calls": 31,
+      "calls": 32,
       "latencyMs": {
-        "mean": 467.35483870967744,
-        "p50": 468,
-        "max": 761
+        "mean": 371.6875,
+        "p50": 300,
+        "max": 667
       },
-      "unobservedAttempts": 1,
-      "inputTokens": null,
-      "knownInputTokens": 141282,
-      "costUsd": null,
-      "knownCostUsd": 0.014128199999999999,
-      "costKnownCalls": 31,
+      "unobservedAttempts": 0,
+      "inputTokens": 145831,
+      "knownInputTokens": 145831,
+      "costUsd": 0.014583099999999998,
+      "knownCostUsd": 0.014583099999999998,
+      "costKnownCalls": 32,
       "costStatuses": [
         "estimated"
       ],
       "attempts": 32,
-      "failedAttempts": 1,
-      "failureCodes": [
-        "unavailable"
-      ],
+      "failedAttempts": 0,
+      "failureCodes": [],
       "unansweredQuestions": 0,
       "knownOutputTokens": 0,
       "tokenEstimate": {
-        "comparedCalls": 31,
-        "meanEstimateOverReported": 0.6271450266615247,
+        "comparedCalls": 32,
+        "meanEstimateOverReported": 0.6268366984143601,
         "minEstimateOverReported": 0.6160613579968419,
         "maxEstimateOverReported": 0.6523143164693218,
-        "totalEstimated": 88617,
-        "totalReported": 141282
+        "totalEstimated": 91425,
+        "totalReported": 145831
       }
     }
   },
@@ -4039,8 +4055,8 @@
             "included": {
               "needed": 54,
               "helpful": 39,
-              "unneeded": 50,
-              "uncertain": 17,
+              "unneeded": 49,
+              "uncertain": 18,
               "total": 160
             },
             "precisionStrict": {
@@ -4049,14 +4065,14 @@
               "high": 0.4138161986794579
             },
             "noise": {
-              "value": 0.3125,
-              "low": 0.24578530120802664,
-              "high": 0.3880073375357356
+              "value": 0.30625,
+              "low": 0.24006651044279392,
+              "high": 0.3815192162590937
             },
             "meanIncludedCandidates": 5,
-            "meanIncludedTokens": 52670.0625,
+            "meanIncludedTokens": 51320.0625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.4897418074327393,
+            "tokenSavingFraction": 0.502820367192675,
             "meanIncludedWhenNoneNeeded": 5
           },
           "threshold": {
@@ -4085,36 +4101,36 @@
             "allNeededRetainedCases": 20,
             "included": {
               "needed": 47,
-              "helpful": 14,
-              "unneeded": 7,
+              "helpful": 16,
+              "unneeded": 8,
               "uncertain": 5,
-              "total": 73
+              "total": 76
             },
             "precisionStrict": {
-              "value": 0.6438356164383562,
-              "low": 0.529332842211795,
-              "high": 0.7439566259929274
+              "value": 0.618421052631579,
+              "low": 0.5060154789314374,
+              "high": 0.719430904908566
             },
             "noise": {
-              "value": 0.0958904109589041,
-              "low": 0.04722835432935106,
-              "high": 0.18495837785738106
+              "value": 0.10526315789473684,
+              "low": 0.054310612607017986,
+              "high": 0.19420144125963795
             },
-            "meanIncludedCandidates": 2.28125,
-            "meanIncludedTokens": 21640.8125,
+            "meanIncludedCandidates": 2.375,
+            "meanIncludedTokens": 25921.65625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.7903476596038408,
+            "tokenSavingFraction": 0.7488756071539722,
             "meanIncludedWhenNoneNeeded": 0.5
           },
           "budget": {
             "cases": 32,
             "casesWithNeeded": 30,
             "neededItems": 58,
-            "neededRetained": 41,
+            "neededRetained": 42,
             "recall": {
-              "value": 0.7068965517241379,
-              "low": 0.5798685554332221,
-              "high": 0.8082197217135527
+              "value": 0.7241379310344828,
+              "low": 0.5979510037164683,
+              "high": 0.822477963192538
             },
             "criticalOmissionCases": 14,
             "criticalOmissionIds": [
@@ -4135,26 +4151,26 @@
             ],
             "allNeededRetainedCases": 16,
             "included": {
-              "needed": 41,
-              "helpful": 29,
-              "unneeded": 124,
+              "needed": 42,
+              "helpful": 30,
+              "unneeded": 123,
               "uncertain": 16,
-              "total": 210
+              "total": 211
             },
             "precisionStrict": {
-              "value": 0.19523809523809524,
-              "low": 0.1473033898153551,
-              "high": 0.2541227124958884
+              "value": 0.1990521327014218,
+              "low": 0.15077014444490908,
+              "high": 0.2580966671967841
             },
             "noise": {
-              "value": 0.5904761904761905,
-              "low": 0.5229208602572285,
-              "high": 0.654780765619121
+              "value": 0.5829383886255924,
+              "low": 0.5155048518292172,
+              "high": 0.647405869371891
             },
-            "meanIncludedCandidates": 6.5625,
-            "meanIncludedTokens": 7483.40625,
+            "meanIncludedCandidates": 6.59375,
+            "meanIncludedTokens": 7518.5625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.9275020919640727,
+            "tokenSavingFraction": 0.9271615044703244,
             "meanIncludedWhenNoneNeeded": 6
           },
           "all": {
@@ -4261,7 +4277,7 @@
             "meanIncludedWhenNoneNeeded": 0
           }
         },
-        "meanAveragePrecision": 0.843042328042328,
+        "meanAveragePrecision": 0.8373544973544973,
         "byStratumTopK": {
           "authentic": {
             "cases": 12,
@@ -4289,40 +4305,39 @@
             "cases": 32,
             "casesWithNeeded": 30,
             "neededItems": 58,
-            "neededRetained": 55,
+            "neededRetained": 56,
             "recall": {
-              "value": 0.9482758620689655,
-              "low": 0.8586037466498081,
-              "high": 0.9822541871682043
+              "value": 0.9655172413793104,
+              "low": 0.8827063524467295,
+              "high": 0.9904922711335143
             },
-            "criticalOmissionCases": 3,
+            "criticalOmissionCases": 2,
             "criticalOmissionIds": [
               "h-readonly-enforcing-provider",
-              "h-cost-aggregation",
-              "h-dev-pairing"
+              "h-cost-aggregation"
             ],
-            "allNeededRetainedCases": 27,
+            "allNeededRetainedCases": 28,
             "included": {
-              "needed": 55,
-              "helpful": 38,
-              "unneeded": 51,
-              "uncertain": 11,
-              "total": 155
+              "needed": 56,
+              "helpful": 39,
+              "unneeded": 53,
+              "uncertain": 12,
+              "total": 160
             },
             "precisionStrict": {
-              "value": 0.3548387096774194,
-              "low": 0.2838579959370039,
-              "high": 0.43284090409925857
+              "value": 0.35,
+              "low": 0.28039680852544535,
+              "high": 0.42663730246956433
             },
             "noise": {
-              "value": 0.32903225806451614,
-              "low": 0.2599794092229003,
-              "high": 0.4063548508198088
+              "value": 0.33125,
+              "low": 0.2630282728403034,
+              "high": 0.4073851020290825
             },
-            "meanIncludedCandidates": 4.84375,
-            "meanIncludedTokens": 57452.40625,
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 57801.875,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.44341131222760566,
+            "tokenSavingFraction": 0.4400257211675279,
             "meanIncludedWhenNoneNeeded": 5
           },
           "threshold": {
@@ -4353,25 +4368,25 @@
             "allNeededRetainedCases": 18,
             "included": {
               "needed": 45,
-              "helpful": 12,
-              "unneeded": 9,
+              "helpful": 13,
+              "unneeded": 10,
               "uncertain": 4,
-              "total": 70
+              "total": 72
             },
             "precisionStrict": {
-              "value": 0.6428571428571429,
-              "low": 0.5258817704420135,
-              "high": 0.7449682653101913
+              "value": 0.625,
+              "low": 0.5095268590406966,
+              "high": 0.7278099060064543
             },
             "noise": {
-              "value": 0.12857142857142856,
-              "low": 0.06914021991242263,
-              "high": 0.22664968713184502
+              "value": 0.1388888888888889,
+              "low": 0.07722647811471899,
+              "high": 0.23713397841573391
             },
-            "meanIncludedCandidates": 2.1875,
-            "meanIncludedTokens": 22234.28125,
+            "meanIncludedCandidates": 2.25,
+            "meanIncludedTokens": 22250.96875,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.78459823996493,
+            "tokenSavingFraction": 0.7844365744345643,
             "meanIncludedWhenNoneNeeded": 0.5
           },
           "budget": {
@@ -4404,25 +4419,25 @@
             "allNeededRetainedCases": 16,
             "included": {
               "needed": 42,
-              "helpful": 25,
-              "unneeded": 123,
-              "uncertain": 15,
-              "total": 205
+              "helpful": 26,
+              "unneeded": 128,
+              "uncertain": 16,
+              "total": 212
             },
             "precisionStrict": {
-              "value": 0.2048780487804878,
-              "low": 0.1552973047189184,
-              "high": 0.26531621289443064
+              "value": 0.19811320754716982,
+              "low": 0.1500411918346862,
+              "high": 0.25693132875448665
             },
             "noise": {
-              "value": 0.6,
-              "low": 0.5316914569850033,
-              "high": 0.6646295825013826
+              "value": 0.6037735849056604,
+              "low": 0.5366479474786662,
+              "high": 0.6672052485688057
             },
-            "meanIncludedCandidates": 6.40625,
-            "meanIncludedTokens": 7253.90625,
+            "meanIncludedCandidates": 6.625,
+            "meanIncludedTokens": 7424.625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.9297254471232618,
+            "tokenSavingFraction": 0.9280715542536199,
             "meanIncludedWhenNoneNeeded": 7.5
           },
           "all": {
@@ -4529,7 +4544,7 @@
             "meanIncludedWhenNoneNeeded": 0
           }
         },
-        "meanAveragePrecision": 0.808095238095238,
+        "meanAveragePrecision": 0.819206349206349,
         "byStratumTopK": {
           "authentic": {
             "cases": 12,
@@ -4546,8 +4561,8 @@
           "synthetic": {
             "cases": 14,
             "neededItems": 21,
-            "neededRetained": 20,
-            "criticalOmissionCases": 1
+            "neededRetained": 21,
+            "criticalOmissionCases": 0
           }
         }
       }
@@ -5060,12 +5075,11 @@
               "low": 0.7348278122915763,
               "high": 0.8926380183410854
             },
-            "criticalOmissionCases": 11,
+            "criticalOmissionCases": 10,
             "criticalOmissionIds": [
               "h-bounded-background-wait",
               "h-event-compaction",
               "h-readonly-enforcing-provider",
-              "h-self-steer-task",
               "h-forge-promotion-failures",
               "h-cost-aggregation",
               "h-write-recommendation",
@@ -5074,12 +5088,12 @@
               "h-provider-docs",
               "h-unattended-spec"
             ],
-            "allNeededRetainedCases": 20,
+            "allNeededRetainedCases": 21,
             "included": {
               "needed": 72,
               "helpful": 21,
-              "unneeded": 50,
-              "uncertain": 17,
+              "unneeded": 49,
+              "uncertain": 18,
               "total": 160
             },
             "precisionStrict": {
@@ -5088,25 +5102,25 @@
               "high": 0.5273597259813871
             },
             "noise": {
-              "value": 0.3125,
-              "low": 0.24578530120802664,
-              "high": 0.3880073375357356
+              "value": 0.30625,
+              "low": 0.24006651044279392,
+              "high": 0.3815192162590937
             },
             "meanIncludedCandidates": 5,
-            "meanIncludedTokens": 52670.0625,
+            "meanIncludedTokens": 51320.0625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.4897418074327393,
+            "tokenSavingFraction": 0.502820367192675,
             "meanIncludedWhenNoneNeeded": 5
           },
           "threshold": {
             "cases": 32,
             "casesWithNeeded": 31,
             "neededItems": 87,
-            "neededRetained": 55,
+            "neededRetained": 57,
             "recall": {
-              "value": 0.632183908045977,
-              "low": 0.5272733007011118,
-              "high": 0.7259146660454009
+              "value": 0.6551724137931034,
+              "low": 0.550645767576964,
+              "high": 0.7465748890385073
             },
             "criticalOmissionCases": 20,
             "criticalOmissionIds": [
@@ -5133,39 +5147,39 @@
             ],
             "allNeededRetainedCases": 11,
             "included": {
-              "needed": 55,
+              "needed": 57,
               "helpful": 6,
-              "unneeded": 7,
+              "unneeded": 8,
               "uncertain": 5,
-              "total": 73
+              "total": 76
             },
             "precisionStrict": {
-              "value": 0.7534246575342466,
-              "low": 0.6435533785848676,
-              "high": 0.8379566368234529
+              "value": 0.75,
+              "low": 0.6422303597102302,
+              "high": 0.833712006174221
             },
             "noise": {
-              "value": 0.0958904109589041,
-              "low": 0.04722835432935106,
-              "high": 0.18495837785738106
+              "value": 0.10526315789473684,
+              "low": 0.054310612607017986,
+              "high": 0.19420144125963795
             },
-            "meanIncludedCandidates": 2.28125,
-            "meanIncludedTokens": 21640.8125,
+            "meanIncludedCandidates": 2.375,
+            "meanIncludedTokens": 25921.65625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.7903476596038408,
+            "tokenSavingFraction": 0.7488756071539722,
             "meanIncludedWhenNoneNeeded": 0
           },
           "budget": {
             "cases": 32,
             "casesWithNeeded": 31,
             "neededItems": 87,
-            "neededRetained": 54,
+            "neededRetained": 55,
             "recall": {
-              "value": 0.6206896551724138,
-              "low": 0.5156742657309596,
-              "high": 0.7154973560810736
+              "value": 0.632183908045977,
+              "low": 0.5272733007011118,
+              "high": 0.7259146660454009
             },
-            "criticalOmissionCases": 17,
+            "criticalOmissionCases": 18,
             "criticalOmissionIds": [
               "h-claude-missing-transcript",
               "h-bounded-background-wait",
@@ -5183,30 +5197,31 @@
               "h-reddit-reply",
               "h-dev-pairing",
               "h-stray-server",
+              "h-provider-docs",
               "h-unattended-spec"
             ],
-            "allNeededRetainedCases": 14,
+            "allNeededRetainedCases": 13,
             "included": {
-              "needed": 54,
-              "helpful": 16,
-              "unneeded": 124,
+              "needed": 55,
+              "helpful": 17,
+              "unneeded": 123,
               "uncertain": 16,
-              "total": 210
+              "total": 211
             },
             "precisionStrict": {
-              "value": 0.2571428571428571,
-              "low": 0.20276340536850979,
-              "high": 0.32024801991076235
+              "value": 0.26066350710900477,
+              "low": 0.2060846124088966,
+              "high": 0.32380159212504833
             },
             "noise": {
-              "value": 0.5904761904761905,
-              "low": 0.5229208602572285,
-              "high": 0.654780765619121
+              "value": 0.5829383886255924,
+              "low": 0.5155048518292172,
+              "high": 0.647405869371891
             },
-            "meanIncludedCandidates": 6.5625,
-            "meanIncludedTokens": 7483.40625,
+            "meanIncludedCandidates": 6.59375,
+            "meanIncludedTokens": 7518.5625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.9275020919640727,
+            "tokenSavingFraction": 0.9271615044703244,
             "meanIncludedWhenNoneNeeded": 7
           },
           "all": {
@@ -5314,13 +5329,13 @@
             "meanIncludedWhenNoneNeeded": 0
           }
         },
-        "meanAveragePrecision": 0.8484778662198018,
+        "meanAveragePrecision": 0.8529849183074989,
         "byStratumTopK": {
           "authentic": {
             "cases": 12,
             "neededItems": 41,
             "neededRetained": 33,
-            "criticalOmissionCases": 5
+            "criticalOmissionCases": 4
           },
           "reconstructed": {
             "cases": 6,
@@ -5342,13 +5357,13 @@
             "cases": 32,
             "casesWithNeeded": 31,
             "neededItems": 87,
-            "neededRetained": 73,
+            "neededRetained": 75,
             "recall": {
-              "value": 0.8390804597701149,
-              "low": 0.747827723662026,
-              "high": 0.9016544519051152
+              "value": 0.8620689655172413,
+              "low": 0.7742118537134604,
+              "high": 0.9193030117226393
             },
-            "criticalOmissionCases": 10,
+            "criticalOmissionCases": 9,
             "criticalOmissionIds": [
               "h-claude-missing-transcript",
               "h-video-frames-note",
@@ -5357,43 +5372,42 @@
               "h-cost-aggregation",
               "h-settings-animation",
               "h-fork-rebase",
-              "h-dev-pairing",
               "h-new-spec",
               "h-provider-docs"
             ],
-            "allNeededRetainedCases": 21,
+            "allNeededRetainedCases": 22,
             "included": {
-              "needed": 73,
+              "needed": 75,
               "helpful": 20,
-              "unneeded": 51,
-              "uncertain": 11,
-              "total": 155
+              "unneeded": 53,
+              "uncertain": 12,
+              "total": 160
             },
             "precisionStrict": {
-              "value": 0.47096774193548385,
-              "low": 0.39404010770828635,
-              "high": 0.549299672298966
+              "value": 0.46875,
+              "low": 0.39306676250273337,
+              "high": 0.5458986772878935
             },
             "noise": {
-              "value": 0.32903225806451614,
-              "low": 0.2599794092229003,
-              "high": 0.4063548508198088
+              "value": 0.33125,
+              "low": 0.2630282728403034,
+              "high": 0.4073851020290825
             },
-            "meanIncludedCandidates": 4.84375,
-            "meanIncludedTokens": 57452.40625,
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 57801.875,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.44341131222760566,
+            "tokenSavingFraction": 0.4400257211675279,
             "meanIncludedWhenNoneNeeded": 5
           },
           "threshold": {
             "cases": 32,
             "casesWithNeeded": 31,
             "neededItems": 87,
-            "neededRetained": 49,
+            "neededRetained": 50,
             "recall": {
-              "value": 0.5632183908045977,
-              "low": 0.45851365231750213,
-              "high": 0.6625762448221343
+              "value": 0.5747126436781609,
+              "low": 0.4698369712299657,
+              "high": 0.6732692708441501
             },
             "criticalOmissionCases": 22,
             "criticalOmissionIds": [
@@ -5422,37 +5436,37 @@
             ],
             "allNeededRetainedCases": 9,
             "included": {
-              "needed": 49,
+              "needed": 50,
               "helpful": 8,
-              "unneeded": 9,
+              "unneeded": 10,
               "uncertain": 4,
-              "total": 70
+              "total": 72
             },
             "precisionStrict": {
-              "value": 0.7,
-              "low": 0.584554617438188,
-              "high": 0.7946354326148984
+              "value": 0.6944444444444444,
+              "low": 0.5804553438658896,
+              "high": 0.7887351795407894
             },
             "noise": {
-              "value": 0.12857142857142856,
-              "low": 0.06914021991242263,
-              "high": 0.22664968713184502
+              "value": 0.1388888888888889,
+              "low": 0.07722647811471899,
+              "high": 0.23713397841573391
             },
-            "meanIncludedCandidates": 2.1875,
-            "meanIncludedTokens": 22234.28125,
+            "meanIncludedCandidates": 2.25,
+            "meanIncludedTokens": 22250.96875,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.78459823996493,
+            "tokenSavingFraction": 0.7844365744345643,
             "meanIncludedWhenNoneNeeded": 0
           },
           "budget": {
             "cases": 32,
             "casesWithNeeded": 31,
             "neededItems": 87,
-            "neededRetained": 55,
+            "neededRetained": 56,
             "recall": {
-              "value": 0.632183908045977,
-              "low": 0.5272733007011118,
-              "high": 0.7259146660454009
+              "value": 0.6436781609195402,
+              "low": 0.5389300856293024,
+              "high": 0.7362742260516895
             },
             "criticalOmissionCases": 17,
             "criticalOmissionIds": [
@@ -5476,26 +5490,26 @@
             ],
             "allNeededRetainedCases": 14,
             "included": {
-              "needed": 55,
+              "needed": 56,
               "helpful": 12,
-              "unneeded": 123,
-              "uncertain": 15,
-              "total": 205
+              "unneeded": 128,
+              "uncertain": 16,
+              "total": 212
             },
             "precisionStrict": {
-              "value": 0.2682926829268293,
-              "low": 0.21231137284770663,
-              "high": 0.3327984137082286
+              "value": 0.2641509433962264,
+              "low": 0.20938121777411872,
+              "high": 0.3273160639361726
             },
             "noise": {
-              "value": 0.6,
-              "low": 0.5316914569850033,
-              "high": 0.6646295825013826
+              "value": 0.6037735849056604,
+              "low": 0.5366479474786662,
+              "high": 0.6672052485688057
             },
-            "meanIncludedCandidates": 6.40625,
-            "meanIncludedTokens": 7253.90625,
+            "meanIncludedCandidates": 6.625,
+            "meanIncludedTokens": 7424.625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.9297254471232618,
+            "tokenSavingFraction": 0.9280715542536199,
             "meanIncludedWhenNoneNeeded": 7
           },
           "all": {
@@ -5603,7 +5617,7 @@
             "meanIncludedWhenNoneNeeded": 0
           }
         },
-        "meanAveragePrecision": 0.7849129544290833,
+        "meanAveragePrecision": 0.8117946748591908,
         "byStratumTopK": {
           "authentic": {
             "cases": 12,
@@ -5620,8 +5634,8 @@
           "synthetic": {
             "cases": 14,
             "neededItems": 29,
-            "neededRetained": 23,
-            "criticalOmissionCases": 5
+            "neededRetained": 25,
+            "criticalOmissionCases": 4
           }
         }
       }
@@ -6119,11 +6133,11 @@
             "cases": 32,
             "casesWithNeeded": 30,
             "neededItems": 84,
-            "neededRetained": 68,
+            "neededRetained": 69,
             "recall": {
-              "value": 0.8095238095238095,
-              "low": 0.7127605972340397,
-              "high": 0.8792140480365381
+              "value": 0.8214285714285714,
+              "low": 0.7260538098918103,
+              "high": 0.8886890909660974
             },
             "criticalOmissionCases": 10,
             "criticalOmissionIds": [
@@ -6140,16 +6154,16 @@
             ],
             "allNeededRetainedCases": 20,
             "included": {
-              "needed": 68,
-              "helpful": 35,
+              "needed": 69,
+              "helpful": 34,
               "unneeded": 57,
               "uncertain": 0,
               "total": 160
             },
             "precisionStrict": {
-              "value": 0.425,
-              "low": 0.35104220189233704,
-              "high": 0.5024748536051677
+              "value": 0.43125,
+              "low": 0.3570099319186306,
+              "high": 0.5087140356207488
             },
             "noise": {
               "value": 0.35625,
@@ -6157,25 +6171,24 @@
               "high": 0.43302765340278515
             },
             "meanIncludedCandidates": 5,
-            "meanIncludedTokens": 52670.0625,
+            "meanIncludedTokens": 51320.0625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.4897418074327393,
+            "tokenSavingFraction": 0.502820367192675,
             "meanIncludedWhenNoneNeeded": 5
           },
           "threshold": {
             "cases": 32,
             "casesWithNeeded": 30,
             "neededItems": 84,
-            "neededRetained": 52,
+            "neededRetained": 54,
             "recall": {
-              "value": 0.6190476190476191,
-              "low": 0.5121524397704628,
-              "high": 0.7155301161028366
+              "value": 0.6428571428571429,
+              "low": 0.5362111603479548,
+              "high": 0.7370079067000043
             },
-            "criticalOmissionCases": 19,
+            "criticalOmissionCases": 18,
             "criticalOmissionIds": [
               "h-claude-missing-transcript",
-              "h-bounded-background-wait",
               "h-pending-items-index",
               "h-weave-signin-post",
               "h-video-frames-note",
@@ -6194,39 +6207,39 @@
               "h-new-spec",
               "h-unattended-spec"
             ],
-            "allNeededRetainedCases": 11,
+            "allNeededRetainedCases": 12,
             "included": {
-              "needed": 52,
+              "needed": 54,
               "helpful": 10,
-              "unneeded": 11,
+              "unneeded": 12,
               "uncertain": 0,
-              "total": 73
+              "total": 76
             },
             "precisionStrict": {
-              "value": 0.7123287671232876,
-              "low": 0.5999432011345229,
-              "high": 0.8034841090724483
+              "value": 0.7105263157894737,
+              "low": 0.6004023269144307,
+              "high": 0.8003912443566861
             },
             "noise": {
-              "value": 0.1506849315068493,
-              "low": 0.08627588209726772,
-              "high": 0.25002112369126345
+              "value": 0.15789473684210525,
+              "low": 0.09269405994267452,
+              "high": 0.25601638674176064
             },
-            "meanIncludedCandidates": 2.28125,
-            "meanIncludedTokens": 21640.8125,
+            "meanIncludedCandidates": 2.375,
+            "meanIncludedTokens": 25921.65625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.7903476596038408,
+            "tokenSavingFraction": 0.7488756071539722,
             "meanIncludedWhenNoneNeeded": 0.5
           },
           "budget": {
             "cases": 32,
             "casesWithNeeded": 30,
             "neededItems": 84,
-            "neededRetained": 49,
+            "neededRetained": 51,
             "recall": {
-              "value": 0.5833333333333334,
-              "low": 0.4765244867612664,
-              "high": 0.6828533023500432
+              "value": 0.6071428571428571,
+              "low": 0.5002161009140969,
+              "high": 0.7046981993718724
             },
             "criticalOmissionCases": 17,
             "criticalOmissionIds": [
@@ -6250,26 +6263,26 @@
             ],
             "allNeededRetainedCases": 13,
             "included": {
-              "needed": 49,
+              "needed": 51,
               "helpful": 33,
-              "unneeded": 128,
+              "unneeded": 127,
               "uncertain": 0,
-              "total": 210
+              "total": 211
             },
             "precisionStrict": {
-              "value": 0.23333333333333334,
-              "low": 0.18123248999948172,
-              "high": 0.29501534952285635
+              "value": 0.24170616113744076,
+              "low": 0.18889083770951473,
+              "high": 0.30375863054989116
             },
             "noise": {
-              "value": 0.6095238095238096,
-              "low": 0.5421379687498527,
-              "high": 0.6729745257320443
+              "value": 0.6018957345971564,
+              "low": 0.5345914008192714,
+              "high": 0.6655560566563758
             },
-            "meanIncludedCandidates": 6.5625,
-            "meanIncludedTokens": 7483.40625,
+            "meanIncludedCandidates": 6.59375,
+            "meanIncludedTokens": 7518.5625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.9275020919640727,
+            "tokenSavingFraction": 0.9271615044703244,
             "meanIncludedWhenNoneNeeded": 6
           },
           "all": {
@@ -6376,12 +6389,12 @@
             "meanIncludedWhenNoneNeeded": 0
           }
         },
-        "meanAveragePrecision": 0.8365289802789804,
+        "meanAveragePrecision": 0.8439258056758058,
         "byStratumTopK": {
           "authentic": {
             "cases": 12,
             "neededItems": 41,
-            "neededRetained": 30,
+            "neededRetained": 31,
             "criticalOmissionCases": 6
           },
           "reconstructed": {
@@ -6404,13 +6417,13 @@
             "cases": 32,
             "casesWithNeeded": 30,
             "neededItems": 84,
-            "neededRetained": 66,
+            "neededRetained": 68,
             "recall": {
-              "value": 0.7857142857142857,
-              "low": 0.6865046833134146,
-              "high": 0.8599334507825035
+              "value": 0.8095238095238095,
+              "low": 0.7127605972340397,
+              "high": 0.8792140480365381
             },
-            "criticalOmissionCases": 12,
+            "criticalOmissionCases": 11,
             "criticalOmissionIds": [
               "h-claude-missing-transcript",
               "h-weave-signin-post",
@@ -6422,42 +6435,41 @@
               "h-settings-animation",
               "h-fork-rebase",
               "h-reddit-reply",
-              "h-dev-pairing",
               "h-new-spec"
             ],
-            "allNeededRetainedCases": 18,
+            "allNeededRetainedCases": 19,
             "included": {
-              "needed": 66,
-              "helpful": 33,
-              "unneeded": 56,
+              "needed": 68,
+              "helpful": 34,
+              "unneeded": 58,
               "uncertain": 0,
-              "total": 155
+              "total": 160
             },
             "precisionStrict": {
-              "value": 0.4258064516129032,
-              "low": 0.35068292881143126,
-              "high": 0.5045187312071028
+              "value": 0.425,
+              "low": 0.35104220189233704,
+              "high": 0.5024748536051677
             },
             "noise": {
-              "value": 0.36129032258064514,
-              "low": 0.2898640250305404,
-              "high": 0.4394260350041103
+              "value": 0.3625,
+              "low": 0.2920431858352033,
+              "high": 0.43940474924355566
             },
-            "meanIncludedCandidates": 4.84375,
-            "meanIncludedTokens": 57452.40625,
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 57801.875,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.44341131222760566,
+            "tokenSavingFraction": 0.4400257211675279,
             "meanIncludedWhenNoneNeeded": 5
           },
           "threshold": {
             "cases": 32,
             "casesWithNeeded": 30,
             "neededItems": 84,
-            "neededRetained": 47,
+            "neededRetained": 48,
             "recall": {
-              "value": 0.5595238095238095,
-              "low": 0.4530690997323842,
-              "high": 0.6607721782042654
+              "value": 0.5714285714285714,
+              "low": 0.4647675967027547,
+              "high": 0.6718419368212247
             },
             "criticalOmissionCases": 22,
             "criticalOmissionIds": [
@@ -6486,37 +6498,37 @@
             ],
             "allNeededRetainedCases": 8,
             "included": {
-              "needed": 47,
+              "needed": 48,
               "helpful": 11,
-              "unneeded": 12,
+              "unneeded": 13,
               "uncertain": 0,
-              "total": 70
+              "total": 72
             },
             "precisionStrict": {
-              "value": 0.6714285714285714,
-              "low": 0.5550071611698237,
-              "high": 0.7700128817328218
+              "value": 0.6666666666666666,
+              "low": 0.5517938807199863,
+              "high": 0.7646551393428815
             },
             "noise": {
-              "value": 0.17142857142857143,
-              "low": 0.10087625712010548,
-              "high": 0.2761686606498236
+              "value": 0.18055555555555555,
+              "low": 0.10866714144495851,
+              "high": 0.2848055701012113
             },
-            "meanIncludedCandidates": 2.1875,
-            "meanIncludedTokens": 22234.28125,
+            "meanIncludedCandidates": 2.25,
+            "meanIncludedTokens": 22250.96875,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.78459823996493,
+            "tokenSavingFraction": 0.7844365744345643,
             "meanIncludedWhenNoneNeeded": 0.5
           },
           "budget": {
             "cases": 32,
             "casesWithNeeded": 30,
             "neededItems": 84,
-            "neededRetained": 50,
+            "neededRetained": 51,
             "recall": {
-              "value": 0.5952380952380952,
-              "low": 0.4883404055387379,
-              "high": 0.6938056391599015
+              "value": 0.6071428571428571,
+              "low": 0.5002161009140969,
+              "high": 0.7046981993718724
             },
             "criticalOmissionCases": 17,
             "criticalOmissionIds": [
@@ -6540,26 +6552,26 @@
             ],
             "allNeededRetainedCases": 13,
             "included": {
-              "needed": 50,
-              "helpful": 28,
-              "unneeded": 127,
+              "needed": 51,
+              "helpful": 29,
+              "unneeded": 132,
               "uncertain": 0,
-              "total": 205
+              "total": 212
             },
             "precisionStrict": {
-              "value": 0.24390243902439024,
-              "low": 0.19017998996695418,
-              "high": 0.3070466162264479
+              "value": 0.24056603773584906,
+              "low": 0.18797378114065447,
+              "high": 0.302393228740666
             },
             "noise": {
-              "value": 0.6195121951219512,
-              "low": 0.5514290620749349,
-              "high": 0.6831985217014775
+              "value": 0.6226415094339622,
+              "low": 0.5557545977769636,
+              "high": 0.6851628157336849
             },
-            "meanIncludedCandidates": 6.40625,
-            "meanIncludedTokens": 7253.90625,
+            "meanIncludedCandidates": 6.625,
+            "meanIncludedTokens": 7424.625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.9297254471232618,
+            "tokenSavingFraction": 0.9280715542536199,
             "meanIncludedWhenNoneNeeded": 7.5
           },
           "all": {
@@ -6666,7 +6678,7 @@
             "meanIncludedWhenNoneNeeded": 0
           }
         },
-        "meanAveragePrecision": 0.7557156084656085,
+        "meanAveragePrecision": 0.7834933862433862,
         "byStratumTopK": {
           "authentic": {
             "cases": 12,
@@ -6683,8 +6695,8 @@
           "synthetic": {
             "cases": 14,
             "neededItems": 28,
-            "neededRetained": 22,
-            "criticalOmissionCases": 5
+            "neededRetained": 24,
+            "criticalOmissionCases": 4
           }
         }
       }
@@ -7184,11 +7196,11 @@
             "cases": 32,
             "casesWithNeeded": 31,
             "neededItems": 69,
-            "neededRetained": 62,
+            "neededRetained": 61,
             "recall": {
-              "value": 0.8985507246376812,
-              "low": 0.8050790434713212,
-              "high": 0.9499839974283845
+              "value": 0.8840579710144928,
+              "low": 0.7875404685083913,
+              "high": 0.940065734540416
             },
             "criticalOmissionCases": 7,
             "criticalOmissionIds": [
@@ -7202,26 +7214,26 @@
             ],
             "allNeededRetainedCases": 24,
             "included": {
-              "needed": 62,
-              "helpful": 38,
-              "unneeded": 60,
+              "needed": 61,
+              "helpful": 40,
+              "unneeded": 59,
               "uncertain": 0,
               "total": 160
             },
             "precisionStrict": {
-              "value": 0.3875,
-              "low": 0.31549219195675016,
-              "high": 0.4647833912895072
+              "value": 0.38125,
+              "low": 0.3096107383060811,
+              "high": 0.4584579328983015
             },
             "noise": {
-              "value": 0.375,
-              "low": 0.3037420039328711,
-              "high": 0.452119755229637
+              "value": 0.36875,
+              "low": 0.2978861099664524,
+              "high": 0.4457687371541812
             },
             "meanIncludedCandidates": 5,
-            "meanIncludedTokens": 52670.0625,
+            "meanIncludedTokens": 51320.0625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.4897418074327393,
+            "tokenSavingFraction": 0.502820367192675,
             "meanIncludedWhenNoneNeeded": 5
           },
           "threshold": {
@@ -7254,25 +7266,25 @@
             "allNeededRetainedCases": 17,
             "included": {
               "needed": 53,
-              "helpful": 12,
-              "unneeded": 8,
+              "helpful": 14,
+              "unneeded": 9,
               "uncertain": 0,
-              "total": 73
+              "total": 76
             },
             "precisionStrict": {
-              "value": 0.726027397260274,
-              "low": 0.6143679489221651,
-              "high": 0.815086929685256
+              "value": 0.6973684210526315,
+              "low": 0.5866558660798696,
+              "high": 0.7890881069868022
             },
             "noise": {
-              "value": 0.1095890410958904,
-              "low": 0.056586041610119084,
-              "high": 0.20162825897706282
+              "value": 0.11842105263157894,
+              "low": 0.06356747118952921,
+              "high": 0.20999418088157157
             },
-            "meanIncludedCandidates": 2.28125,
-            "meanIncludedTokens": 21640.8125,
+            "meanIncludedCandidates": 2.375,
+            "meanIncludedTokens": 25921.65625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.7903476596038408,
+            "tokenSavingFraction": 0.7488756071539722,
             "meanIncludedWhenNoneNeeded": 0
           },
           "budget": {
@@ -7285,7 +7297,7 @@
               "low": 0.5942832702456184,
               "high": 0.8038408785924083
             },
-            "criticalOmissionCases": 16,
+            "criticalOmissionCases": 17,
             "criticalOmissionIds": [
               "h-claude-missing-transcript",
               "h-bounded-background-wait",
@@ -7302,30 +7314,31 @@
               "h-reddit-reply",
               "h-dev-pairing",
               "h-stray-server",
+              "h-provider-docs",
               "h-unattended-spec"
             ],
-            "allNeededRetainedCases": 15,
+            "allNeededRetainedCases": 14,
             "included": {
               "needed": 49,
-              "helpful": 25,
-              "unneeded": 136,
+              "helpful": 27,
+              "unneeded": 135,
               "uncertain": 0,
-              "total": 210
+              "total": 211
             },
             "precisionStrict": {
-              "value": 0.23333333333333334,
-              "low": 0.18123248999948172,
-              "high": 0.29501534952285635
+              "value": 0.23222748815165878,
+              "low": 0.18034911941435464,
+              "high": 0.29368198070778184
             },
             "noise": {
-              "value": 0.6476190476190476,
-              "low": 0.5808833279153238,
-              "high": 0.7090509037776678
+              "value": 0.6398104265402843,
+              "low": 0.5730687393985028,
+              "high": 0.7015521906262223
             },
-            "meanIncludedCandidates": 6.5625,
-            "meanIncludedTokens": 7483.40625,
+            "meanIncludedCandidates": 6.59375,
+            "meanIncludedTokens": 7518.5625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.9275020919640727,
+            "tokenSavingFraction": 0.9271615044703244,
             "meanIncludedWhenNoneNeeded": 7
           },
           "all": {
@@ -7433,12 +7446,12 @@
             "meanIncludedWhenNoneNeeded": 0
           }
         },
-        "meanAveragePrecision": 0.8526241679467487,
+        "meanAveragePrecision": 0.8447656286365964,
         "byStratumTopK": {
           "authentic": {
             "cases": 12,
             "neededItems": 31,
-            "neededRetained": 30,
+            "neededRetained": 29,
             "criticalOmissionCases": 1
           },
           "reconstructed": {
@@ -7461,41 +7474,40 @@
             "cases": 32,
             "casesWithNeeded": 31,
             "neededItems": 69,
-            "neededRetained": 65,
+            "neededRetained": 66,
             "recall": {
-              "value": 0.9420289855072463,
-              "low": 0.8602055747557683,
-              "high": 0.9772279796966324
+              "value": 0.9565217391304348,
+              "low": 0.8797860261535665,
+              "high": 0.9851043661497328
             },
-            "criticalOmissionCases": 4,
+            "criticalOmissionCases": 3,
             "criticalOmissionIds": [
               "h-readonly-enforcing-provider",
               "h-cost-aggregation",
-              "h-dev-pairing",
               "h-provider-docs"
             ],
-            "allNeededRetainedCases": 27,
+            "allNeededRetainedCases": 28,
             "included": {
-              "needed": 65,
-              "helpful": 33,
-              "unneeded": 57,
+              "needed": 66,
+              "helpful": 34,
+              "unneeded": 60,
               "uncertain": 0,
-              "total": 155
+              "total": 160
             },
             "precisionStrict": {
-              "value": 0.41935483870967744,
-              "low": 0.34454075364903425,
-              "high": 0.49806974637111157
+              "value": 0.4125,
+              "low": 0.339143049116834,
+              "high": 0.4899601822969216
             },
             "noise": {
-              "value": 0.36774193548387096,
-              "low": 0.2958842575386197,
-              "high": 0.44599696249441945
+              "value": 0.375,
+              "low": 0.3037420039328711,
+              "high": 0.452119755229637
             },
-            "meanIncludedCandidates": 4.84375,
-            "meanIncludedTokens": 57452.40625,
+            "meanIncludedCandidates": 5,
+            "meanIncludedTokens": 57801.875,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.44341131222760566,
+            "tokenSavingFraction": 0.4400257211675279,
             "meanIncludedWhenNoneNeeded": 5
           },
           "threshold": {
@@ -7530,25 +7542,25 @@
             "allNeededRetainedCases": 15,
             "included": {
               "needed": 50,
-              "helpful": 10,
-              "unneeded": 10,
+              "helpful": 11,
+              "unneeded": 11,
               "uncertain": 0,
-              "total": 70
+              "total": 72
             },
             "precisionStrict": {
-              "value": 0.7142857142857143,
-              "low": 0.5994958195463383,
-              "high": 0.8067792340819687
+              "value": 0.6944444444444444,
+              "low": 0.5804553438658896,
+              "high": 0.7887351795407894
             },
             "noise": {
-              "value": 0.14285714285714285,
-              "low": 0.07948856360443703,
-              "high": 0.24338634701505113
+              "value": 0.1527777777777778,
+              "low": 0.08750619034775439,
+              "high": 0.25322501785460416
             },
-            "meanIncludedCandidates": 2.1875,
-            "meanIncludedTokens": 22234.28125,
+            "meanIncludedCandidates": 2.25,
+            "meanIncludedTokens": 22250.96875,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.78459823996493,
+            "tokenSavingFraction": 0.7844365744345643,
             "meanIncludedWhenNoneNeeded": 0
           },
           "budget": {
@@ -7583,25 +7595,25 @@
             "allNeededRetainedCases": 15,
             "included": {
               "needed": 50,
-              "helpful": 21,
-              "unneeded": 134,
+              "helpful": 22,
+              "unneeded": 140,
               "uncertain": 0,
-              "total": 205
+              "total": 212
             },
             "precisionStrict": {
-              "value": 0.24390243902439024,
-              "low": 0.19017998996695418,
-              "high": 0.3070466162264479
+              "value": 0.2358490566037736,
+              "low": 0.18371934338414503,
+              "high": 0.29738161213138126
             },
             "noise": {
-              "value": 0.6536585365853659,
-              "low": 0.5862381239964322,
-              "high": 0.7154259122875267
+              "value": 0.660377358490566,
+              "low": 0.5942779997349571,
+              "high": 0.7207678487020449
             },
-            "meanIncludedCandidates": 6.40625,
-            "meanIncludedTokens": 7253.90625,
+            "meanIncludedCandidates": 6.625,
+            "meanIncludedTokens": 7424.625,
             "meanAllTokens": 103222.375,
-            "tokenSavingFraction": 0.9297254471232618,
+            "tokenSavingFraction": 0.9280715542536199,
             "meanIncludedWhenNoneNeeded": 7
           },
           "all": {
@@ -7709,7 +7721,7 @@
             "meanIncludedWhenNoneNeeded": 0
           }
         },
-        "meanAveragePrecision": 0.8447068612391192,
+        "meanAveragePrecision": 0.8554595494111622,
         "byStratumTopK": {
           "authentic": {
             "cases": 12,
@@ -7726,8 +7738,8 @@
           "synthetic": {
             "cases": 14,
             "neededItems": 23,
-            "neededRetained": 21,
-            "criticalOmissionCases": 2
+            "neededRetained": 22,
+            "criticalOmissionCases": 1
           }
         }
       }

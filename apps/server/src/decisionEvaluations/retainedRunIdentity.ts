@@ -8,12 +8,14 @@ import amendments from "./retainedRunAmendments.json" with { type: "json" };
 
 export const LOCK_FILE = "pnpm-lock.yaml";
 
-/** Packages whose locked version changes what a decision call sends or how its answer is read. */
+/**
+ * Packages whose locked version changes what a decision call sends or how its answer is read. `undici` is not one:
+ * the service and the harnesses call the global `fetch`, and only `outboundHttp.ts` loads the npm package.
+ */
 export const CALL_PATH_PACKAGES = [
   "effect",
   "@effect/platform-node",
   "@effect/platform-node-shared",
-  "undici",
 ] as const;
 
 /**
