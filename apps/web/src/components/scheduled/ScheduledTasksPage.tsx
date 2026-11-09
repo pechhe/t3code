@@ -75,6 +75,7 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Toggle } from "../ui/toggle";
+import { ToggleGroup } from "../ui/toggle-group";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { AgentRoleChip } from "../AgentRoleChip";
 import { ModelLabel } from "../ModelLabel";
@@ -104,12 +105,14 @@ import {
   roleModelSummary,
   scheduleDraftOf,
   scheduledTaskDestinationThreads,
+  matchesTaskScope,
   soonestRunAt,
   timedScheduleOf,
   unbindDraftFromThread,
   webhookDraftErrors,
   webhookDraftOf,
   webhookScheduleOf,
+  type TaskScope,
   type WebhookDraft,
   workspaceChoiceOf,
 } from "./scheduledTasks.logic";
@@ -254,12 +257,14 @@ export function ScheduledTasksPage(props: {
   readonly taskId?: string | undefined;
 }) {
   const sources = useAllScheduledTasks();
-  const groups = groupScheduledTasks(
+  const [scope, setScope] = useState<TaskScope>("all");
+  const allGroups = groupScheduledTasks(
     sources.flatMap((source) =>
       source.tasks === null ? [] : [{ environmentId: source.environmentId, tasks: source.tasks }],
     ),
   );
-  const linkedKey = groups.find((group) =>
+  const groups = allGroups.filter((group) => matchesTaskScope(group, scope));
+  const linkedKey = allGroups.find((group) =>
     group.members.some(
       (member) =>
         member.task.id === props.taskId &&
@@ -268,7 +273,7 @@ export function ScheduledTasksPage(props: {
   )?.key;
   const [selected, setSelected] = useState<string | "new" | null>(null);
   const resolvedKey = selected ?? linkedKey ?? groups[0]?.key ?? null;
-  const liveGroup = groups.find((group) => group.key === resolvedKey) ?? null;
+  const liveGroup = allGroups.find((group) => group.key === resolvedKey) ?? null;
   // While the list is unknown (a disconnect or a reload), the open editor keeps its task, so its
   // draft survives and a save still updates that task instead of creating another. Once the list
   // is known, a missing task was deleted, and the editor lets it go.
@@ -313,6 +318,19 @@ export function ScheduledTasksPage(props: {
             New task
           </Button>
         </div>
+        <ToggleGroup
+          aria-label="Filter tasks"
+          className="mx-3 mb-2"
+          value={[scope]}
+          onValueChange={(next) => {
+            const value = next[0];
+            if (value === "all" || value === "thread" || value === "global") setScope(value);
+          }}
+        >
+          <Toggle value="all">All</Toggle>
+          <Toggle value="thread">In a thread</Toggle>
+          <Toggle value="global">Global</Toggle>
+        </ToggleGroup>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
           {errors.map((source) => (
             <p key={source.environmentId} className="px-2 py-1 text-destructive text-xs">
@@ -320,6 +338,11 @@ export function ScheduledTasksPage(props: {
             </p>
           ))}
           {loading ? <p className="px-2 py-1 text-muted-foreground text-xs">Loading…</p> : null}
+          {!loading && groups.length === 0 && allGroups.length > 0 ? (
+            <p className="px-2 py-1 text-muted-foreground text-xs">
+              No {scope === "thread" ? "thread" : "global"} tasks.
+            </p>
+          ) : null}
           {groups.map((group) => (
             <TaskListItem
               key={group.key}

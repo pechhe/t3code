@@ -12,6 +12,7 @@ import {
   isWebhookDedupeTemplate,
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
   ScheduledTaskId,
+  scheduledTaskThreadMode,
   type AgentPolicyManifest,
   type AgentRole,
   type OrchestrationV2ThreadLaunchWorkspaceStrategy,
@@ -80,6 +81,13 @@ export function groupScheduledTasks(
     })
     .toSorted((a, b) => a.lead.title.localeCompare(b.lead.title) || a.key.localeCompare(b.key));
 }
+
+export type TaskScope = "all" | "thread" | "global";
+
+/** By thread mode, not binding: a one-thread task has no thread until its first run. */
+export const matchesTaskScope = (group: ScheduledTaskGroup, scope: TaskScope) =>
+  scope === "all" ||
+  (scheduledTaskThreadMode(group.lead) !== "new_thread") === (scope === "thread");
 
 export type GroupStatus = "running" | "failed" | "paused" | "ready";
 

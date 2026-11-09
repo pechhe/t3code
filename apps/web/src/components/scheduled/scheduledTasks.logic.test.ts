@@ -13,6 +13,7 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import {
   chosenThreadId,
   groupScheduledTasks,
+  matchesTaskScope,
   markGroupFailuresSeen,
   moveDraftToThread,
   planGroupSave,
@@ -101,6 +102,24 @@ describe("groupScheduledTasks", () => {
       ["Alone", 1],
       ["New", 2],
     ]);
+  });
+
+  it("filters by thread mode, so a task never changes filter on its first run", () => {
+    const groups = groupScheduledTasks([
+      {
+        environmentId: mac,
+        tasks: [
+          task({ id: "a", title: "Bound", threadId: ThreadId.make("thread-1") }),
+          task({ id: "b", title: "Global", threadId: null }),
+          task({ id: "c", title: "Unbound", threadId: null, threadMode: "fresh_session" }),
+        ],
+      },
+    ]);
+    const titles = (scope: "all" | "thread" | "global") =>
+      groups.filter((group) => matchesTaskScope(group, scope)).map((group) => group.lead.title);
+    expect(titles("all")).toEqual(["Bound", "Global", "Unbound"]);
+    expect(titles("thread")).toEqual(["Bound", "Unbound"]);
+    expect(titles("global")).toEqual(["Global"]);
   });
 });
 
