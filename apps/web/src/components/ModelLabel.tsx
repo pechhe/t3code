@@ -3,7 +3,7 @@ import { formatModelSlugName } from "@t3tools/shared/model";
 import { useMemo } from "react";
 
 import { cn } from "~/lib/utils";
-import { deriveProviderInstanceEntries } from "~/providerInstances";
+import { deriveProviderInstanceEntries, entryAnswersTo } from "~/providerInstances";
 import { useEnvironmentProviders } from "~/state/environments";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getDisplayModelName, getProviderRowLabel } from "./chat/providerIconUtils";
@@ -30,7 +30,7 @@ export function ModelLabel(props: {
   const entry = useMemo(() => {
     const entries = deriveProviderInstanceEntries(providers ?? []);
     return (
-      entries.find((candidate) => candidate.instanceId === props.instanceId) ??
+      entries.find((candidate) => entryAnswersTo(candidate, props.instanceId)) ??
       entries.find(
         (candidate) => candidate.driverKind === props.driverKind && candidate.isDefault,
       ) ??

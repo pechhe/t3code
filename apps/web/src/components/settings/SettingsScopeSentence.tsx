@@ -27,6 +27,7 @@ import {
   MenuTrigger,
 } from "../ui/menu";
 import { useOptionalSettingsScope } from "./SettingsScopeContext";
+import { SharedMachinesMenu } from "./SharedProviderSetup";
 import {
   resolveSettingsScope,
   type ResolvedSettingsScope,
@@ -117,7 +118,11 @@ export function SettingsScopeSentence({ pathname: pagePathname }: { pathname?: s
         <span className="shrink-0">
           {scope.search.machine || scope.scope.kind === "checkout" ? "on" : "across"}
         </span>
-        <EnvironmentScopeMenu {...props} />
+        {pathname === "/settings/providers" ? (
+          <SharedMachinesMenu fallback={<EnvironmentScopeMenu {...props} />} />
+        ) : (
+          <EnvironmentScopeMenu {...props} />
+        )}
       </span>
     </p>
   );

@@ -9,6 +9,7 @@ import {
   useAndroidFloatingTabs,
 } from "../settings/appearance/AppearancePreferencesProvider";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { providerAnswersTo } from "@t3tools/client-runtime/state/provider-instance-display";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/reactivity";
 import { useAtomValue } from "@effect/atom-react";
@@ -498,8 +499,8 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
   const selectedProviderStatus = (() => {
     if (!props.serverConfig) return null;
     return (
-      props.serverConfig.providers.find(
-        (p) => p.instanceId === props.selectedThread.modelSelection.instanceId,
+      props.serverConfig.providers.find((p) =>
+        providerAnswersTo(p, props.selectedThread.modelSelection.instanceId),
       ) ?? null
     );
   })();

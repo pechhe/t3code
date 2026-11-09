@@ -501,6 +501,7 @@ export const makeProviderInstanceRegistry = Effect.fn(
   const entries = yield* Ref.make<ReadonlyMap<ProviderInstanceId, LiveEntry>>(new Map());
   const unavailable = yield* Ref.make<ReadonlyMap<ProviderInstanceId, ServerProvider>>(new Map());
   const pools = yield* Ref.make<ReadonlyArray<ProviderPool>>([]);
+  const aliases = yield* Ref.make<Readonly<Record<ProviderInstanceId, ProviderInstanceId>>>({});
   const secretsUnreadable = yield* Ref.make<
     ReadonlyMap<ProviderInstanceId, ProviderInstanceConfig>
   >(new Map());
@@ -594,7 +595,14 @@ export const makeProviderInstanceRegistry = Effect.fn(
   }
 
   const registry: ProviderInstanceRegistry["Service"] = {
-    getInstance: (id) => Ref.get(entries).pipe(Effect.map((map) => map.get(id)?.instance)),
+    getInstance: (id) =>
+      Effect.all([Ref.get(entries), Ref.get(aliases)]).pipe(
+        Effect.map(([map, former]) => {
+          const direct = map.get(id)?.instance;
+          if (direct !== undefined || !Object.hasOwn(former, id)) return direct;
+          return map.get(former[id]!)?.instance;
+        }),
+      ),
     listInstances: Ref.get(entries).pipe(
       Effect.map(
         (map) =>
@@ -619,6 +627,7 @@ export const makeProviderInstanceRegistry = Effect.fn(
 
   const mutator: ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutatorShape = {
     reconcile,
+    setAliases: (next) => Ref.set(aliases, next),
     reloadSecrets,
   };
 

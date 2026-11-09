@@ -1395,6 +1395,63 @@ describe("provider setup commands", () => {
       expect(yield* Queue.takeAll(requested)).toEqual(["antigravity"]);
     }).pipe(Effect.scoped),
   );
+
+  it.effect("gives a renamed provider its former instance ids in every config reader", () =>
+    Effect.gen(function* () {
+      const client = {
+        [WS_METHODS.subscribeServerConfig]: () => Stream.never,
+      } as unknown as WsRpcProtocolClient;
+      const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
+        target: TARGET,
+        state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
+        session: yield* SubscriptionRef.make(Option.some(session(client))),
+        prepared: yield* SubscriptionRef.make(Option.none<PreparedConnection>()),
+        connect: Effect.void,
+        disconnect: Effect.void,
+        retryNow: Effect.void,
+      } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
+      const runtime = Atom.runtime(
+        Layer.merge(
+          Layer.succeed(EnvironmentRegistry.EnvironmentRegistry, {
+            run: (_environmentId, effect) =>
+              Effect.provideService(
+                effect,
+                EnvironmentSupervisor.EnvironmentSupervisor,
+                supervisor,
+              ),
+          } as EnvironmentRegistry.EnvironmentRegistry["Service"]),
+          Layer.succeed(
+            Persistence.EnvironmentCacheStore,
+            {} as Persistence.EnvironmentCacheStore["Service"],
+          ),
+        ),
+      );
+      const config = {
+        ...CONFIG,
+        providers: [
+          { instanceId: ProviderInstanceId.make("claudeAgent_claude_ys"), enabled: true },
+          { instanceId: ProviderInstanceId.make("codex"), enabled: true },
+        ],
+        settings: {
+          ...CONFIG.settings,
+          providerInstanceAliases: { claudeAgent_pool1: "claudeAgent_claude_ys" },
+        },
+      } as unknown as ServerConfig;
+      const atoms = createServerEnvironmentAtoms(runtime, {
+        initialConfigValueAtom: () => Atom.make(config),
+      });
+      const registry = yield* Effect.acquireRelease(Effect.sync(AtomRegistry.make), (registry) =>
+        Effect.sync(() => registry.dispose()),
+      );
+
+      const providers = registry.get(atoms.configValueAtom(TARGET.environmentId))?.providers;
+      expect(providers?.map((provider) => provider.formerInstanceIds)).toEqual([
+        ["claudeAgent_pool1"],
+        undefined,
+      ]);
+      expect(registry.get(atoms.providersValueAtom(TARGET.environmentId))).toBe(providers);
+    }).pipe(Effect.scoped),
+  );
 });
 
 describe("resource telemetry history", () => {

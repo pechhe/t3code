@@ -647,6 +647,8 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     ),
     updateSettings,
     updateProviderInstance: () => Effect.die("Unexpected provider mutation"),
+    applySharedProviderSetup: () => Effect.die("Unexpected shared setup write"),
+    setProviderSetupSharing: () => Effect.die("Unexpected shared setup write"),
     setAway: () => Effect.die("Unexpected Away change"),
     withSettingsSnapshot: (use) => Ref.get(settings).pipe(Effect.flatMap(use)),
     streamChanges: Stream.fromPubSub(settingsChanges),

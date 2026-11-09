@@ -409,6 +409,16 @@ ends, as for any delegated task. It keeps following the task across restarts.
 If the other machine revokes the link, or the link is removed here, the task
 fails with that reason.
 
+## Share one provider setup
+
+To use the same providers on every environment, open **Settings > Providers**. When a connected environment has its own setup, choose **Use shared setup**. This replaces its providers with the shared ones and keeps its sign-ins. The environment menu in the settings header lists what is sharing, and **Stop sharing** returns an environment to its own setup.
+
+After that, a change on one environment applies to all of them. An environment that was offline catches up when you next connect to it, and if two changed while apart, the later change replaces the whole setup.
+
+Sign-ins and API keys stay on each machine and are never copied. A provider that can't run on one of them shows which machine needs attention, with a button to sign in or add its key there.
+
+Spreading a change needs this version of T3 Code connected to both environments. An edit from the mobile app applies to the environment you made it on, and spreads the next time desktop or web connects to both.
+
 ## Manage or revoke access
 
 On the host, **Settings → Sharing & access** lets authorized administrators create

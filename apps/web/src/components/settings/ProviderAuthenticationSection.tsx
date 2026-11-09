@@ -33,12 +33,14 @@ export function ProviderAuthenticationSection({
   instanceId,
   provider,
   readOnly,
+  title,
 }: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
   readonly instanceId: ProviderInstanceId;
   readonly provider: ServerProvider;
   readonly readOnly: boolean;
+  readonly title?: string;
 }) {
   const target = { environmentId, input: { instanceId } };
   const query = useEnvironmentQuery(serverEnvironment.providerAuthState(target));
@@ -165,7 +167,7 @@ export function ProviderAuthenticationSection({
 
   return (
     <SettingsRow
-      title="Account"
+      title={title ?? "Account"}
       description={
         signedIn && !active && provider.auth.email?.trim() ? (
           <span>

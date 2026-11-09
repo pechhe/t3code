@@ -3456,6 +3456,10 @@ export const layerWsRpc = (
               : serverSettings.updateProviderInstance(providerInstanceMutation, nextPatch);
             return settingsForClient(settings);
           }),
+        [WS_METHODS.serverApplySharedProviderSetup]: (input) =>
+          serverSettings.applySharedProviderSetup(input).pipe(Effect.map(settingsForClient)),
+        [WS_METHODS.serverSetProviderSetupSharing]: ({ shared }) =>
+          serverSettings.setProviderSetupSharing(shared).pipe(Effect.map(settingsForClient)),
         [WS_METHODS.serverDiscoverSourceControl]: (_input) => sourceControlDiscovery.discover,
         [WS_METHODS.serverGetTraceDiagnostics]: (_input) =>
           TraceDiagnostics.readTraceDiagnostics({

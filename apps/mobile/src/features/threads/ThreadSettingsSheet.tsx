@@ -119,6 +119,7 @@ import {
   providerSectionIsCollapsed,
 } from "./thread-settings-sheet-state";
 import { formatProviderUpdateRequiredNotice } from "@t3tools/client-runtime/providerUpdateRequiredModels";
+import { providerAnswersTo } from "@t3tools/client-runtime/state/provider-instance-display";
 
 const PRIMARY_PROVIDER_DRIVERS: ReadonlySet<string> = new Set([
   "claudeAgent",
@@ -824,7 +825,8 @@ function ThreadSettingsOptionsItem(props: {
   const selectedProvider = session.environmentId
     ? (configs
         .get(session.environmentId)
-        ?.providers.find((provider) => provider.instanceId === session.providerInstanceId) ?? null)
+        ?.providers.find((provider) => providerAnswersTo(provider, session.providerInstanceId)) ??
+      null)
     : null;
 
   return (

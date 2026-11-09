@@ -282,6 +282,8 @@ export const ServerProvider = Schema.Struct({
   poolMembers: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
   poolPreferredMember: Schema.optionalKey(ProviderInstanceId),
   poolPolicy: Schema.optionalKey(ProviderPoolPolicy),
+  // Old ids of this instance that existing threads may still name.
+  formerInstanceIds: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
   versionAdvisory: Schema.optionalKey(ServerProviderVersionAdvisory),
   compatibilityAdvisory: Schema.optionalKey(ServerProviderCompatibilityAdvisory),
   updateState: Schema.optionalKey(ServerProviderUpdateState),

@@ -1,6 +1,7 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   normalizeProviderAccentColor,
+  providerAnswersTo,
   resolveProviderInstanceDisplayName,
   shouldShowInstanceBadge,
 } from "@t3tools/client-runtime/state/provider-instance-display";
@@ -122,8 +123,8 @@ function SubagentMetadata(props: {
       acpRegistryAgentId: typeof agentId === "string" ? agentId.trim() || undefined : undefined,
     };
   });
-  const provider = providers.find(
-    (candidate) => candidate.instanceId === subagent.providerInstanceId,
+  const provider = providers.find((candidate) =>
+    providerAnswersTo(candidate, subagent.providerInstanceId),
   );
   const showBadge = provider !== undefined && shouldShowInstanceBadge(provider, providers);
   const parent = useThreadShell(scopeThreadRef(environmentId, subagent.threadId))?.source;

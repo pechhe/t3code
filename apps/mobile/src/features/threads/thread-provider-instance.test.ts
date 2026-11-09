@@ -115,6 +115,25 @@ describe("resolveThreadProviderInstance", () => {
       showBadge: true,
     });
   });
+
+  it("resolves a thread on an instance id that joining a shared setup renamed", () => {
+    const providers = [
+      {
+        instanceId: ProviderInstanceId.make("claudeAgent_claude_ys"),
+        formerInstanceIds: [ProviderInstanceId.make("claudeAgent_pool1")],
+        driver: "claudeAgent",
+        enabled: true,
+        displayName: "Claude YS",
+      },
+    ] as unknown as ServerConfig["providers"];
+
+    expect(
+      resolveThreadProviderInstance(
+        providers,
+        makeThread(EnvironmentId.make("environment-a"), "claudeAgent_pool1"),
+      ),
+    ).toMatchObject({ driverKind: "claudeAgent", displayName: "Claude YS" });
+  });
 });
 
 describe("createThreadRowProviderInstanceResolver", () => {

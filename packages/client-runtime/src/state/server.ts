@@ -57,6 +57,7 @@ import {
   applyServerConfigProjection,
   reuseUnchanged,
   type ServerConfigProjection,
+  withFormerInstanceIds,
   withoutEnvironmentThemes,
 } from "./serverConfigProjection.ts";
 
@@ -809,9 +810,8 @@ export function createServerEnvironmentAtoms<R, E>(
         get(options.initialConfigValueAtom(environmentId)),
       );
       if (config === null) return null;
-      const merged = withFetchedWorkspaceSnapshots(
-        config,
-        get(fetchedWorkspaceSnapshotsAtom(environmentId)),
+      const merged = withFormerInstanceIds(
+        withFetchedWorkspaceSnapshots(config, get(fetchedWorkspaceSnapshotsAtom(environmentId))),
       );
       if (merged === config) return config;
       // Keep provider identities stable across config events; the projection already reuses the rest.
@@ -1209,6 +1209,14 @@ export function createServerEnvironmentAtoms<R, E>(
 
   return {
     configValueAtom,
+    applySharedProviderSetup: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:apply-shared-provider-setup",
+      tag: WS_METHODS.serverApplySharedProviderSetup,
+    }),
+    setProviderSetupSharing: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:set-provider-setup-sharing",
+      tag: WS_METHODS.serverSetProviderSetupSharing,
+    }),
     setAway: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:set-away",
       tag: WS_METHODS.serverSetAway,

@@ -43,6 +43,7 @@ import {
 } from "../ChatView.logic";
 import { readPreparedConnection } from "../../state/session";
 import { recallableComposerPrompt } from "./composerPromptHistory";
+import { entryAnswersTo } from "../../providerInstances";
 
 // Kept per route so a send in flight, and the multiple-model selections, survive
 // ChatView remounting while the user navigates.
@@ -287,8 +288,8 @@ export function resolveMultipleModelTargets(input: {
 }): Array<MultipleModelTarget | { readonly error: string }> {
   const { messageText } = input;
   return input.selections.map((selection) => {
-    const provider = input.providerInstanceEntries.find(
-      (entry) => entry.instanceId === selection.instanceId,
+    const provider = input.providerInstanceEntries.find((entry) =>
+      entryAnswersTo(entry, selection.instanceId),
     );
     if (!provider?.enabled || !provider.isAvailable || provider.status !== "ready") {
       return { error: `Provider for ${selection.model} is unavailable.` };

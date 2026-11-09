@@ -1,4 +1,5 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { providerAnswersTo } from "@t3tools/client-runtime/state/provider-instance-display";
 import {
   isActiveSubagentStatus,
   type RuntimeSubagent,
@@ -49,8 +50,8 @@ export function ThreadWorkflowGroup(props: {
   readonly onOpen: (threadId: ThreadId) => void;
 }) {
   const { group } = props;
-  const provider = useEnvironmentServerConfig(props.environmentId)?.providers.find(
-    (candidate) => candidate.instanceId === props.subagent.providerInstanceId,
+  const provider = useEnvironmentServerConfig(props.environmentId)?.providers.find((candidate) =>
+    providerAnswersTo(candidate, props.subagent.providerInstanceId),
   );
   const [selected, setSelected] = useState<string | null>(null);
   const rail = workflowRail(group);

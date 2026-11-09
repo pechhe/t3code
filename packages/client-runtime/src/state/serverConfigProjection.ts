@@ -1,4 +1,8 @@
-import type { ServerConfig, ServerConfigStreamEvent } from "@t3tools/contracts";
+import {
+  ProviderInstanceId,
+  type ServerConfig,
+  type ServerConfigStreamEvent,
+} from "@t3tools/contracts";
 import * as Equal from "effect/Equal";
 import * as Option from "effect/Option";
 
@@ -59,6 +63,21 @@ export function reuseUnchanged<T>(previous: unknown, next: T): T {
     merged[key] = reused;
   }
   return (same ? previous : merged) as T;
+}
+
+/** Providers a shared setup renamed keep answering to the ids recorded in `providerInstanceAliases`. */
+export function withFormerInstanceIds(config: ServerConfig): ServerConfig {
+  const aliases = Object.entries(config.settings.providerInstanceAliases ?? {});
+  if (aliases.length === 0) return config;
+  return {
+    ...config,
+    providers: config.providers.map((provider) => {
+      const formerInstanceIds = aliases
+        .filter(([, current]) => current === provider.instanceId)
+        .map(([former]) => ProviderInstanceId.make(former));
+      return formerInstanceIds.length === 0 ? provider : { ...provider, formerInstanceIds };
+    }),
+  };
 }
 
 export function applyServerConfigProjection(

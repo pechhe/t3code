@@ -70,6 +70,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.serverGetNpmRelease]: AuthOrchestrationReadScope,
   [WS_METHODS.serverRefreshProviders]: AuthOrchestrationReadScope,
   [WS_METHODS.serverUpdateProvider]: AuthProvidersManageScope,
+  [WS_METHODS.serverApplySharedProviderSetup]: AuthProvidersManageScope,
+  [WS_METHODS.serverSetProviderSetupSharing]: AuthProvidersManageScope,
   [WS_METHODS.providerAuthStart]: AuthProvidersManageScope,
   [WS_METHODS.providerConsumeResetCredit]: AuthProvidersManageScope,
   [WS_METHODS.providerAuthComplete]: AuthProvidersManageScope,

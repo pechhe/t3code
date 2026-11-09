@@ -73,6 +73,8 @@ import {
   deriveProviderInstanceEntries,
   shouldShowInstanceBadge,
   type ProviderInstanceEntry,
+  entryAnswersTo,
+  providerAnswersTo,
 } from "../../providerInstances";
 import { formatShortTimestamp } from "../../timestampFormat";
 import { getTriggerDisplayModelName } from "./providerIconUtils";
@@ -350,27 +352,27 @@ export function EnvironmentSubagentAvatar({
   const providerDriver = useAtomValue(
     providersAtom,
     (providers) =>
-      providers?.find((provider) => provider.instanceId === providerInstanceId)?.driver,
+      providers?.find((provider) => providerAnswersTo(provider, providerInstanceId))?.driver,
   );
   const displayName = useAtomValue(
     providersAtom,
     (providers) =>
-      entries(providers).find((entry) => entry.instanceId === providerInstanceId)?.displayName,
+      entries(providers).find((entry) => entryAnswersTo(entry, providerInstanceId))?.displayName,
   );
   const accentColor = useAtomValue(
     providersAtom,
     (providers) =>
-      entries(providers).find((entry) => entry.instanceId === providerInstanceId)?.accentColor,
+      entries(providers).find((entry) => entryAnswersTo(entry, providerInstanceId))?.accentColor,
   );
   const showBadge = useAtomValue(providersAtom, (providers) => {
     const all = entries(providers);
-    const entry = all.find((candidate) => candidate.instanceId === providerInstanceId);
+    const entry = all.find((candidate) => entryAnswersTo(candidate, providerInstanceId));
     return entry !== undefined && shouldShowInstanceBadge(entry, all);
   });
   const iconUrl = useAtomValue(
     providersAtom,
     (providers) =>
-      providers?.find((provider) => provider.instanceId === providerInstanceId)?.iconUrl,
+      providers?.find((provider) => providerAnswersTo(provider, providerInstanceId))?.iconUrl,
   );
   return (
     <SubagentAvatar

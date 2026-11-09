@@ -35,6 +35,7 @@ import {
   NO_PROVIDER_MODEL_SELECTION,
   resolveDefaultProviderModelSelection,
   resolveProjectDefaultProviderModelSelection,
+  entryAnswersTo,
 } from "./providerInstances";
 import { sortModelsForProviderInstance } from "./modelOrdering";
 import { resolveModelShortName } from "@t3tools/client-runtime/provider-clients";
@@ -267,8 +268,8 @@ export function resolveAppModelSelectionForInstance(
   selectedModel: string | null | undefined,
   resolutionOptions?: { readonly preserveUnavailableSelection?: boolean },
 ): string | null {
-  const entry = deriveProviderInstanceEntries(providers).find(
-    (candidate) => candidate.instanceId === instanceId,
+  const entry = deriveProviderInstanceEntries(providers).find((candidate) =>
+    entryAnswersTo(candidate, instanceId),
   );
   if (!entry) return null;
   const options = getAppModelOptionsForInstance(
@@ -383,7 +384,7 @@ export function resolveAppModelSelectionState(
   );
   const entries = deriveProviderInstanceEntries(supportedProviders);
   const selectedEntry = entries.find(
-    (entry) => entry.instanceId === selection.instanceId && entry.enabled && entry.isAvailable,
+    (entry) => entryAnswersTo(entry, selection.instanceId) && entry.enabled && entry.isAvailable,
   );
   const entry =
     selectedEntry ?? entries.find((candidate) => candidate.enabled && candidate.isAvailable);

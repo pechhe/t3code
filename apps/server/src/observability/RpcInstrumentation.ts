@@ -78,6 +78,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.threadHandoffCancel]: "threadHandoff",
   [WS_METHODS.serverUpdateSettings]: "server",
   [WS_METHODS.serverSetAway]: "server",
+  [WS_METHODS.serverApplySharedProviderSetup]: "server",
+  [WS_METHODS.serverSetProviderSetupSharing]: "server",
   [WS_METHODS.serverSearchAcpRegistry]: "server",
   [WS_METHODS.serverPrepareAcpRegistryAgent]: "server",
   [WS_METHODS.serverUninstallAcpRegistryManagedBinary]: "server",

@@ -19,6 +19,7 @@ import { useNowMinute } from "../../hooks/useNowMinute";
 import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
 import { formatContextWindowTokens } from "../../lib/contextWindow";
 import { cn } from "../../lib/utils";
+import { providerAnswersTo } from "../../providerInstances";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { formatContextWindowCompactionMessage } from "./compaction.logic";
@@ -47,15 +48,15 @@ export function ThreadDetailsUsage({
 }: Omit<ThreadDetailsUsageInput, "contextWindow">) {
   const nowMinute = useNowMinute();
   const now = Date.parse(`${nowMinute}:00Z`);
+  const provider = providers.find((candidate) => providerAnswersTo(candidate, providerInstanceId));
+  const instanceId = provider?.instanceId ?? providerInstanceId;
   const report =
-    providerInstanceId !== null
-      ? collectProviderUsageLimits(providerInstanceId, providers, sources, now)
-      : null;
+    instanceId !== null ? collectProviderUsageLimits(instanceId, providers, sources, now) : null;
   // Only this instance's data: the report keeps one instance per login, and any other entry may be
   // a different login or workspace, so fall back to the instance's own snapshot.
   const limits =
-    report?.accounts.find((entry) => entry.instanceId === providerInstanceId)?.limits ??
-    providers.find((provider) => provider.instanceId === providerInstanceId)?.usageLimits;
+    report?.accounts.find((entry) => entry.instanceId === instanceId)?.limits ??
+    provider?.usageLimits;
   if (!limits) return null;
   const notice = limitsNotice(limits);
 

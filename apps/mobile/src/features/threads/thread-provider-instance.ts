@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
   normalizeProviderAccentColor,
+  providerAnswersTo,
   resolveProviderInstanceDisplayName,
   shouldShowInstanceBadge,
 } from "@t3tools/client-runtime/state/provider-instance-display";
@@ -23,7 +24,7 @@ export function resolveThreadProviderInstance(
 ): ThreadRowProviderInstance | null {
   if (providers === undefined) return null;
   const instanceId = thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId;
-  const snapshot = providers.find((provider) => provider.instanceId === instanceId);
+  const snapshot = providers.find((provider) => providerAnswersTo(provider, instanceId));
   if (!snapshot) return null;
   const entry = {
     driverKind: snapshot.driver,

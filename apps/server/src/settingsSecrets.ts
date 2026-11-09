@@ -56,6 +56,10 @@ const easDeviceHostSecretFields = secretSettingsFields(EasDeviceHostConfig);
 const simlockDeviceHostSecretFields = secretSettingsFields(SimlockDeviceHostConfig);
 const encode = (value: string) => Buffer.from(value, "utf8").toString("base64url");
 
+/** A secret's place within its provider instance, the same whatever the instance is called. */
+export const secretSlotOf = (secretName: string, instanceId: string) =>
+  secretName.replace(`-${encode(instanceId)}-`, "-");
+
 export interface SettingsSecret {
   readonly secretName: string;
   readonly kind: "field" | "environment";

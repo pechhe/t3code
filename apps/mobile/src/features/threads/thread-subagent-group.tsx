@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  providerAnswersTo,
   resolveProviderInstanceDisplayName,
   shouldShowInstanceBadge,
 } from "@t3tools/client-runtime/state/provider-instance-display";
@@ -49,8 +50,8 @@ function SubagentAvatar(props: {
   readonly config: ServerConfig | null | undefined;
 }) {
   const providers = props.config?.providers ?? [];
-  const provider = providers.find(
-    (candidate) => candidate.instanceId === props.item.providerInstanceId,
+  const provider = providers.find((candidate) =>
+    providerAnswersTo(candidate, props.item.providerInstanceId),
   );
   // A remote task's own driver is only a "remote" label.
   const driver =
@@ -68,8 +69,8 @@ function SubagentAvatar(props: {
       acpRegistryAgentId: typeof agentId === "string" ? agentId.trim() || undefined : undefined,
     };
   });
-  const badgeEntry = badgeEntries.find(
-    (candidate) => candidate.instanceId === props.item.providerInstanceId,
+  const badgeEntry = badgeEntries.find((candidate) =>
+    providerAnswersTo(candidate, props.item.providerInstanceId),
   );
   const showBadge =
     provider !== undefined &&

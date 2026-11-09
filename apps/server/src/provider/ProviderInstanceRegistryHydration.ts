@@ -159,6 +159,7 @@ export const layerSettingsWatcher = (
           serverSettings.getSettings.pipe(
             Effect.flatMap((current) =>
               Effect.gen(function* () {
+                yield* mutator.setAliases(current.providerInstanceAliases ?? {});
                 yield* mutator.reconcile(deriveProviderInstanceConfigMap(current));
                 // Reconcile leaves instances parked on an unreadable secret alone,
                 // and a corrected secret provider is what can make them readable.

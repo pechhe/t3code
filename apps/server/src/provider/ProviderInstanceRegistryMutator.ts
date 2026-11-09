@@ -7,6 +7,10 @@ export interface ProviderInstanceRegistryMutatorShape {
   readonly reconcile: (configMap: ProviderInstanceConfigMap) => Effect.Effect<void>;
   /** Re-reads the secrets of every instance, or one, and rebuilds those whose secrets changed. */
   readonly reloadSecrets: (instanceId?: ProviderInstanceId) => Effect.Effect<void>;
+  /** Old ids that existing threads may still name, resolved by `getInstance`. */
+  readonly setAliases: (
+    aliases: Readonly<Record<ProviderInstanceId, ProviderInstanceId>>,
+  ) => Effect.Effect<void>;
 }
 
 export class ProviderInstanceRegistryMutator extends Context.Service<

@@ -282,6 +282,21 @@ describe("brandProviderInstanceEntries", () => {
 });
 
 describe("resolveSelectableProviderInstance", () => {
+  it("answers a thread's former instance id with the account sharing renamed", () => {
+    const renamed = {
+      ...provider({ provider: ProviderDriverKind.make("claudeAgent"), instanceId: "claude_ys" }),
+      formerInstanceIds: [ProviderInstanceId.make("claudeAgent_pool1")],
+    };
+    const other = provider({ provider: ProviderDriverKind.make("codex"), instanceId: "codex" });
+
+    expect(
+      resolveSelectableProviderInstance(
+        [other, renamed],
+        ProviderInstanceId.make("claudeAgent_pool1"),
+      ),
+    ).toBe("claude_ys");
+  });
+
   it("falls back to the first enabled and available instance", () => {
     const disabled = ProviderInstanceId.make("codex");
     const fallback = ProviderInstanceId.make("claudeAgent");

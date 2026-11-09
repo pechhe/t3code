@@ -59,6 +59,7 @@ function useResolvedSettingsScope(
   routeSearch: SettingsScopeSearch,
   singleEnvironment: boolean,
   environmentOnly: boolean,
+  preferredEnvironmentId: EnvironmentId | null,
 ) {
   const rawSearch = environmentOnly
     ? routeSearch.machine === undefined
@@ -73,7 +74,7 @@ function useResolvedSettingsScope(
         rawSearch,
         resolveSettingsScope(rawSearch, groups, availableEnvironments),
         availableEnvironments,
-        primaryEnvironmentId,
+        preferredEnvironmentId ?? primaryEnvironmentId,
       )
     : rawSearch;
   const scope = resolveSettingsScope(search, groups, availableEnvironments);
@@ -107,15 +108,23 @@ export function SettingsScopeProvider({
   children,
   singleEnvironment = false,
   environmentOnly = false,
+  preferredEnvironmentId = null,
 }: {
   singleEnvironment?: boolean;
   /** For pages whose settings never vary by project: the project axis is ignored, not lost. */
   environmentOnly?: boolean;
+  /** Overrides the primary environment as the single environment shown by default. */
+  preferredEnvironmentId?: EnvironmentId | null;
   search: SettingsScopeSearch;
   onChange: (next: SettingsScopeSearch) => void;
   children: ReactNode;
 }) {
-  const resolved = useResolvedSettingsScope(search, singleEnvironment, environmentOnly);
+  const resolved = useResolvedSettingsScope(
+    search,
+    singleEnvironment,
+    environmentOnly,
+    preferredEnvironmentId,
+  );
   const value = {
     ...resolved,
     singleEnvironment,

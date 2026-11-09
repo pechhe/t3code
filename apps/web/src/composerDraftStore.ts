@@ -107,6 +107,7 @@ import { UnifiedSettings } from "@t3tools/contracts/settings";
 
 const isElementContextDetails = Schema.is(ElementContextDetails);
 import { ReviewCommentContextSchema, type ReviewCommentContext } from "./reviewCommentContext";
+import { providerAnswersTo } from "./providerInstances";
 const isRuntimeMode = Schema.is(RuntimeMode);
 const isProviderDriverKind = Schema.is(ProviderDriverKind);
 const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
@@ -1275,15 +1276,15 @@ function withFallbackInstanceOptions(input: {
     return modelOptions;
   }
   const requestedOptions = modelOptions[requestedInstanceId];
-  const requestedProvider = input.providers.find(
-    (provider) => provider.instanceId === requestedInstanceId,
+  const requestedProvider = input.providers.find((provider) =>
+    providerAnswersTo(provider, requestedInstanceId),
   );
   const requestedModel = input.optionSelections?.[requestedInstanceId]?.model;
   // Static aliases are shared across instances; exact custom slugs and catalog aliases are not.
   const modelIdentity = (instanceId: ProviderInstanceId, model: string | undefined) => {
     const isCustom =
       input.providers
-        .find((provider) => provider.instanceId === instanceId)
+        .find((provider) => providerAnswersTo(provider, instanceId))
         ?.models.some((entry) => entry.slug === model && entry.isCustom) ||
       readInstanceCustomModels(input.settings, instanceId, input.selectedProvider).some(
         (entry) => entry.slug === model,

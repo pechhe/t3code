@@ -36,6 +36,7 @@ import { RunningThreadKeepAlive } from "../components/desktop/RunningThreadKeepA
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
 import { ChatGptWelcomeCoordinator } from "../components/settings/ChatGptWelcomeCoordinator";
+import { SharedProviderSetupSync } from "../components/settings/SharedProviderSetup";
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useProjectThemeSync } from "../hooks/useProjectTheme";
@@ -216,6 +217,7 @@ function RootRouteBranch() {
   return (
     <>
       <ChatGptWelcomeCoordinator />
+      <SharedProviderSetupSync />
       <FirstRunGate
         enabled={primaryEnvironmentAuthenticated}
         hostedStatic={authGateState.status === "hosted-static"}

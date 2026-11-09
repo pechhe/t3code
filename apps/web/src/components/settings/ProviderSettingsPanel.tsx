@@ -99,6 +99,12 @@ import { useManagedPolicy } from "~/state/managedPolicy";
 import { ExpandableText } from "./ExpandableText";
 import { IntervalSecondsField } from "./IntervalSecondsField";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
+import { SharedProviderMachines } from "./SharedProviderMachines";
+import {
+  SharedSetupBanners,
+  useSharedInstanceSummary,
+  useSharedProviderSetup,
+} from "./SharedProviderSetup";
 import { useSecretSources } from "./SecretSourceInput";
 import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
@@ -346,6 +352,7 @@ export function ScopedProviderSettingsPanel(target: { readonly instanceId?: Prov
 export function ProviderSettingsPanel(target: ProviderSettingsTarget) {
   return (
     <SettingsPageContainer className="@container/providers gap-8">
+      <SharedSetupBanners />
       <ProviderSettingsPanelContent
         key={`${target.environmentId ?? ""}:${target.instanceId ?? ""}`}
         {...target}
@@ -871,10 +878,18 @@ export function EnvironmentProviderSettings({
       persistInstance(instanceId, next),
   );
 
+  const sharedMembers = useSharedProviderSetup().members;
+  const everyMachineNote =
+    sharedMembers.length > 1 &&
+    sharedMembers.some((member) => member.environmentId === environmentId)
+      ? ` This applies to all ${sharedMembers.length} machines.`
+      : "";
+
   const deleteInstance = useStableCallback(
     async (instanceId: ProviderInstanceId, instance: ProviderInstanceConfig) => {
       const confirmed = await confirmProviderInstanceRemoval(
         `Remove the ${providerInstanceName(instance)} provider instance?`,
+        everyMachineNote,
       );
       if (!confirmed) return;
       const updateResult = await persistProviderInstance({
@@ -920,7 +935,7 @@ export function EnvironmentProviderSettings({
       !resolveProviderInstanceEnabled({ driver: driverKind });
     const confirmed = await confirmProviderInstanceRemoval(
       `Reset the ${providerInstanceName(instance)} provider to its defaults?`,
-      turnsOff ? " It will also be turned off." : "",
+      `${turnsOff ? " It will also be turned off." : ""}${everyMachineNote}`,
     );
     if (!confirmed) return;
     const result = await persistProviderInstance({ operation: "remove", instanceId });
@@ -1342,6 +1357,15 @@ function ProviderInstanceRow({
       : undefined;
   const isInstanceUpdateRunning =
     isUpdateDispatching || (liveProvider !== undefined && isProviderUpdateActive(liveProvider));
+  const sharing = useSharedProviderSetup();
+  const isShared = sharing.members.some((member) => member.environmentId === environmentId);
+  const sharedSummary = useSharedInstanceSummary(
+    isShared ? instanceId : null,
+    resolveProviderInstanceEnabled(instance),
+  );
+  const sharedMachines = isShared ? (
+    <SharedProviderMachines instanceId={instanceId} readOnly={readOnly} />
+  ) : null;
   const hiddenModels = modelPreferences?.hiddenModels ?? NO_MODELS;
   const modelOrder = modelPreferences?.modelOrder ?? NO_MODELS;
   const favoriteModels = Arr.filterMap(favorites, (favorite) =>
@@ -1367,6 +1391,7 @@ function ProviderInstanceRow({
 
   return (
     <ProviderInstanceCard
+      sharedSummary={sharedSummary}
       environmentId={environmentId}
       secretSources={secretSources}
       acpProjects={acpProjects}
@@ -1429,6 +1454,8 @@ function ProviderInstanceRow({
               })
             }
           />
+        ) : mode === "editor" && sharedMachines ? (
+          sharedMachines
         ) : mode === "editor" &&
           !readOnly &&
           liveProvider &&

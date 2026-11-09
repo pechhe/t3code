@@ -1,5 +1,6 @@
 import {
   normalizeProviderAccentColor,
+  providerAnswersTo,
   resolveProviderInstanceDisplayName,
   shouldShowInstanceBadge,
 } from "@t3tools/client-runtime/state/provider-instance-display";
@@ -120,7 +121,7 @@ function selectionDriver(
   instanceId: ModelSelection["instanceId"],
 ): string | undefined {
   return (
-    config?.providers.find((candidate) => candidate.instanceId === instanceId)?.driver ??
+    config?.providers.find((candidate) => providerAnswersTo(candidate, instanceId))?.driver ??
     config?.settings?.providerInstances[instanceId]?.driver
   );
 }
@@ -168,8 +169,8 @@ export function isModelSelectionUnavailable(
   if (!config || !selection) {
     return false;
   }
-  const provider = config.providers.find(
-    (candidate) => candidate.instanceId === selection.instanceId,
+  const provider = config.providers.find((candidate) =>
+    providerAnswersTo(candidate, selection.instanceId),
   );
   if (isDisabledForProject(config, provider, selection.instanceId, projectId)) {
     return true;
@@ -194,8 +195,8 @@ export function describeUnavailableModelSelection(
   selection: ModelSelection,
   projectId: ProjectId | null,
 ): { readonly title: string; readonly detail: string } {
-  const provider = config?.providers.find(
-    (candidate) => candidate.instanceId === selection.instanceId,
+  const provider = config?.providers.find((candidate) =>
+    providerAnswersTo(candidate, selection.instanceId),
   );
   const driver = selectionDriver(config, selection.instanceId);
   if (isDriverDisallowed(config, driver)) {
@@ -230,8 +231,8 @@ export function resolveSelectableModelSelection(
   if (!selection || !config) {
     return selection;
   }
-  const provider = config.providers.find(
-    (candidate) => candidate.instanceId === selection.instanceId,
+  const provider = config.providers.find((candidate) =>
+    providerAnswersTo(candidate, selection.instanceId),
   );
   const driver =
     provider?.driver ?? config.settings?.providerInstances[selection.instanceId]?.driver;
@@ -255,7 +256,9 @@ export function resolveDefaultableModelSelection(
   if (!usable || !config) {
     return usable;
   }
-  const provider = config.providers.find((candidate) => candidate.instanceId === usable.instanceId);
+  const provider = config.providers.find((candidate) =>
+    providerAnswersTo(candidate, usable.instanceId),
+  );
   const model = provider?.models.find((candidate) => candidate.slug === usable.model);
   return provider?.driver !== "antigravity" && model?.isLegacy === true ? null : usable;
 }
@@ -284,11 +287,12 @@ export function buildModelOptions(
   includeHidden = false,
 ): ReadonlyArray<ModelOption> {
   const options = new Map<string, ModelOption>();
-  const lockedProvider = config?.providers.find(
-    (provider) => provider.instanceId === providerInstanceId,
+  const lockedProvider = config?.providers.find((provider) =>
+    providerAnswersTo(provider, providerInstanceId),
   );
   const matchesLockedProvider = (provider: T3ServerConfig["providers"][number]) => {
-    if (providerInstanceId === undefined || provider.instanceId === providerInstanceId) return true;
+    if (providerInstanceId === undefined || providerAnswersTo(provider, providerInstanceId))
+      return true;
     if (!lockedProvider || provider.driver !== lockedProvider.driver) return false;
     const groupKey = lockedProvider.continuation?.groupKey;
     if (groupKey) return provider.continuation?.groupKey === groupKey;
@@ -310,7 +314,7 @@ export function buildModelOptions(
     acpRegistryAgentId: registryAgentId(provider.instanceId),
   }));
   const providerBadgeFor = (instanceId: ModelSelection["instanceId"]) => {
-    const snapshot = config?.providers.find((provider) => provider.instanceId === instanceId);
+    const snapshot = config?.providers.find((provider) => providerAnswersTo(provider, instanceId));
     const instance = config?.settings?.providerInstances[instanceId];
     const driver = snapshot?.driver ?? instance?.driver;
     if (!driver) return undefined;
@@ -402,7 +406,7 @@ export function buildModelOptions(
       fallbackModelSelection.instanceId
     ]?.hiddenModels.includes(fallbackModelSelection.model) ||
       config?.providers
-        .find((provider) => provider.instanceId === fallbackModelSelection.instanceId)
+        .find((provider) => providerAnswersTo(provider, fallbackModelSelection.instanceId))
         ?.models.find((model) => model.slug === fallbackModelSelection.model)?.isCustom)
   ) {
     const key = `${fallbackModelSelection.instanceId}:${fallbackModelSelection.model}`;
@@ -416,8 +420,8 @@ export function buildModelOptions(
             : normalizeSelectionOptions(fallbackModelSelection, existing.capabilities),
       });
     } else {
-      const provider = config?.providers.find(
-        (candidate) => candidate.instanceId === fallbackModelSelection.instanceId,
+      const provider = config?.providers.find((candidate) =>
+        providerAnswersTo(candidate, fallbackModelSelection.instanceId),
       );
       const instanceConfig = config?.settings?.providerInstances[fallbackModelSelection.instanceId];
       const model = provider?.models.find(

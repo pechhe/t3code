@@ -24,6 +24,8 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.experimentsRecordOutcome]: AuthOrchestrationOperateScope,
   [WS_METHODS.experimentsImportHistorical]: AuthOrchestrationOperateScope,
   [WS_METHODS.providerAuthRemoveMethod]: AuthProvidersManageScope,
+  [WS_METHODS.serverApplySharedProviderSetup]: AuthProvidersManageScope,
+  [WS_METHODS.serverSetProviderSetupSharing]: AuthProvidersManageScope,
   [WS_METHODS.previewClose]: AuthPreviewOperateScope,
   // Away answers and continues threads, which is what operating them already allows.
   [WS_METHODS.serverSetAway]: AuthOrchestrationOperateScope,

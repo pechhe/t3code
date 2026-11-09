@@ -14,11 +14,12 @@ import {
 } from "@t3tools/contracts";
 import {
   normalizeProviderAccentColor,
+  providerAnswersTo,
   resolveProviderInstanceDisplayName,
   shouldShowInstanceBadge,
 } from "@t3tools/client-runtime/state/provider-instance-display";
 
-export { normalizeProviderAccentColor, shouldShowInstanceBadge };
+export { normalizeProviderAccentColor, providerAnswersTo, shouldShowInstanceBadge };
 
 /** Placeholder for untargetable drafts. Never persist or dispatch it; disable send until replaced. */
 export const NO_PROVIDER_MODEL_SELECTION: ModelSelection = {
@@ -51,6 +52,11 @@ export function isProviderInstancePickerReady(entry: ProviderInstanceEntry): boo
 export function isProviderInstancePickerVisible(entry: ProviderInstanceEntry): boolean {
   return entry.enabled;
 }
+
+export const entryAnswersTo = (
+  entry: ProviderInstanceEntry,
+  instanceId: ProviderInstanceId | null | undefined,
+): boolean => providerAnswersTo(entry.snapshot, instanceId);
 
 export function deriveProviderInstanceEntries(
   providers: ReadonlyArray<ServerProvider>,
@@ -191,7 +197,9 @@ function getProviderInstanceEntry(
   providers: ReadonlyArray<ServerProvider>,
   instanceId: ProviderInstanceId,
 ): ProviderInstanceEntry | undefined {
-  return deriveProviderInstanceEntries(providers).find((entry) => entry.instanceId === instanceId);
+  return deriveProviderInstanceEntries(providers).find((entry) =>
+    entryAnswersTo(entry, instanceId),
+  );
 }
 
 export function getDefaultProviderInstanceModel(
@@ -216,7 +224,7 @@ export function resolveSelectableProviderInstanceEntry(
   instanceId: ProviderInstanceId | undefined,
 ): ProviderInstanceEntry | undefined {
   if (instanceId !== undefined) {
-    const requested = entries.find((entry) => entry.instanceId === instanceId);
+    const requested = entries.find((entry) => entryAnswersTo(entry, instanceId));
     if (requested && isSelectableProviderInstanceEntry(requested)) {
       return requested;
     }

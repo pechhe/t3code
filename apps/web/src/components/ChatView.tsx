@@ -225,6 +225,7 @@ import {
   providerInstanceEntriesFor,
   resolveProjectDefaultProviderModelSelection,
   shouldShowInstanceBadge,
+  providerAnswersTo,
 } from "../providerInstances";
 import {
   useClientSettings,
@@ -2744,7 +2745,7 @@ export default function ChatView(props: ChatViewProps) {
             modelFallbackBannerItem({
               fallbackModelName:
                 providerStatuses
-                  .find((provider) => provider.instanceId === fallbackSelection.instanceId)
+                  .find((provider) => providerAnswersTo(provider, fallbackSelection.instanceId))
                   ?.models.find((model) => model.slug === fallbackSelection.model)?.name ??
                 fallbackSelection.model,
               defaultProviderName: fallback.provider.displayName ?? fallback.provider.driver,

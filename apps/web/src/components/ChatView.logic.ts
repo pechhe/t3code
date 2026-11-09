@@ -98,6 +98,7 @@ import {
   NO_PROVIDER_MODEL_SELECTION,
   resolveSelectableProviderInstanceEntry,
   type ProviderInstanceEntry,
+  entryAnswersTo,
 } from "../providerInstances";
 
 type ThreadProjection = EnvironmentThread["projection"];
@@ -462,11 +463,11 @@ export function resolveComposerProviderSelection(input: {
   );
   const requestedDriverKind =
     input.lockedProvider ??
-    input.entries.find((entry) => entry.instanceId === requestedInstanceId)?.driverKind ??
+    input.entries.find((entry) => entryAnswersTo(entry, requestedInstanceId))?.driverKind ??
     input.entries[0]?.driverKind ??
     ProviderDriverKind.make("unconfigured");
   const lockedContinuationGroupKey = input.lockedProvider
-    ? (input.entries.find((entry) => entry.instanceId === input.lockedInstanceId)
+    ? (input.entries.find((entry) => entryAnswersTo(entry, input.lockedInstanceId))
         ?.continuationGroupKey ?? null)
     : null;
   // Missing metadata must not move Antigravity history into another Google profile.
@@ -478,7 +479,7 @@ export function resolveComposerProviderSelection(input: {
     (entry) =>
       (!input.lockedProvider || entry.driverKind === input.lockedProvider) &&
       (!lockedContinuationGroupKey || entry.continuationGroupKey === lockedContinuationGroupKey) &&
-      (!requiresExactInstance || entry.instanceId === input.lockedInstanceId),
+      (!requiresExactInstance || entryAnswersTo(entry, input.lockedInstanceId)),
   );
   const selectedProviderEntry =
     input.candidateInstanceIds

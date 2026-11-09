@@ -53,6 +53,15 @@ describe("RPC authorization scopes", () => {
     );
   });
 
+  it("keeps changing or leaving the shared provider setup to provider managers", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverApplySharedProviderSetup)).toBe(
+      AuthProvidersManageScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverSetProviderSetupSharing)).toBe(
+      AuthProvidersManageScope,
+    );
+  });
+
   it("restricts policy reads and saves to settings owners", () => {
     for (const method of [WS_METHODS.agentPolicyRead, WS_METHODS.agentPolicySave])
       expect(requiredScopeForRpcMethod(method)).toBe(AuthSettingsWriteScope);

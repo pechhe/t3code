@@ -559,6 +559,10 @@
       "types": "./src/weaveOrigins.ts",
       "import": "./src/weaveOrigins.ts"
     },
+    "./sharedProviderSetup": {
+      "types": "./src/sharedProviderSetup.ts",
+      "import": "./src/sharedProviderSetup.ts"
+    },
     "./providerPools": {
       "types": "./src/providerPools.ts",
       "import": "./src/providerPools.ts"

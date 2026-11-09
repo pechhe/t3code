@@ -14,7 +14,11 @@ import { ModelPickerContent, resolveModelPickerSelectedModel } from "./ModelPick
 import { ChatGptSharingControl } from "./ChatGptSharingControl";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 import { ModelEsque, getDisplayModelName, getTriggerDisplayModelName } from "./providerIconUtils";
-import { shouldShowInstanceBadge, type ProviderInstanceEntry } from "../../providerInstances";
+import {
+  shouldShowInstanceBadge,
+  type ProviderInstanceEntry,
+  entryAnswersTo,
+} from "../../providerInstances";
 import { ComposerControl, type ComposerControlSize } from "./ComposerControl";
 import { takeOpenTarget, useComposerMenuProps } from "./composerEventScope";
 import { shortcutLabelForCommand } from "../../keybindings";
@@ -125,7 +129,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const docked = props.effortColumn !== undefined;
 
   const activeEntry =
-    props.instanceEntries.find((entry) => entry.instanceId === props.activeInstanceId) ?? null;
+    props.instanceEntries.find((entry) => entryAnswersTo(entry, props.activeInstanceId)) ?? null;
 
   const activeInstanceId = props.activeInstanceId;
   const selectedInstanceOptions = props.modelOptionsByInstance.get(activeInstanceId) ?? [];
@@ -201,8 +205,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     ? shortcutLabelForCommand(props.keybindings, "modelPicker.toggle")
     : null;
   const selectedEntries = props.selectedModels?.map((selection) => {
-    const entry = props.instanceEntries.find(
-      (candidate) => candidate.instanceId === selection.instanceId,
+    const entry = props.instanceEntries.find((candidate) =>
+      entryAnswersTo(candidate, selection.instanceId),
     );
     const model = resolveModelPickerSelectedModel({
       driverKind: entry?.driverKind,

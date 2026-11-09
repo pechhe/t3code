@@ -2,6 +2,7 @@ import {
   defaultInstanceIdForDriver,
   PROVIDER_DISPLAY_NAMES,
   type ProviderDriverKind,
+  type ProviderInstanceId,
   type ServerProvider,
 } from "@t3tools/contracts";
 
@@ -12,6 +13,14 @@ function humanizeSlug(slug: string): string {
     .trim()
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
+
+/** A provider renamed by joining a shared setup still answers to its former instance ids. */
+export const providerAnswersTo = (
+  provider: Pick<ServerProvider, "instanceId" | "formerInstanceIds">,
+  instanceId: ProviderInstanceId | null | undefined,
+): boolean =>
+  provider.instanceId === instanceId ||
+  (instanceId != null && provider.formerInstanceIds?.includes(instanceId) === true);
 
 export function resolveProviderInstanceDisplayName(
   snapshot: Pick<ServerProvider, "instanceId" | "driver" | "displayName">,

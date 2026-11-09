@@ -1429,6 +1429,22 @@ const DelegationRuntimeSettingsPatch = Schema.Struct({
 });
 export type DelegationRuntimeSettings = typeof DelegationRuntimeSettings.Type;
 
+/** Where this environment stands in the provider setup it shares with others. */
+export const SharedProviderSetupState = Schema.Struct({
+  shared: Schema.Boolean,
+  /** Raised by each edit here, and taken from the winner when a setup is received. */
+  version: Schema.Number,
+  /** The version last agreed with others; lower than `version` while an edit is unspread. */
+  baseVersion: Schema.Number,
+  changedAt: Schema.String,
+  digest: Schema.String,
+  /** Per instance, the secrets its settings expect that this machine doesn't hold. */
+  missingSecrets: Schema.optionalKey(Schema.Record(Schema.String, Schema.Array(Schema.String))),
+  /** Recently removed instances, so a client still listing one can't bring it back. */
+  removedInstanceIds: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+export type SharedProviderSetupState = typeof SharedProviderSetupState.Type;
+
 export const ServerSettings = Schema.Struct({
   /** Away: every covered thread here keeps working without the owner. Set only through `server.setAway`. */
   away: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -1652,6 +1668,12 @@ export const ServerSettings = Schema.Struct({
   // Schema.Unknown preserves unknown-driver configs across versions; see providerInstance.ts.
   providerInstances: Schema.Record(ProviderInstanceId, ProviderInstanceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  // Only the server writes these. Absent on a server that can't share its provider setup.
+  sharedProviderSetup: Schema.optionalKey(SharedProviderSetupState),
+  // Old ids that history still names, kept when sharing gave an account a new id on this machine.
+  providerInstanceAliases: Schema.optionalKey(
+    Schema.Record(ProviderInstanceId, ProviderInstanceId),
   ),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   sourceControlHosts: Schema.Record(Schema.String, SourceControlHostSettings).pipe(
@@ -1916,6 +1938,7 @@ export const ServerSettingsOperation = Schema.Literals([
   "prepare-directory",
   "write-managed-setting",
   "use-disallowed-provider",
+  "apply-shared-provider-setup",
 ]);
 export type ServerSettingsOperation = typeof ServerSettingsOperation.Type;
 

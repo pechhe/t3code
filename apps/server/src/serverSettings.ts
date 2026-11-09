@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeUtil from "node:util";
+
 import {
   DEFAULT_SERVER_SETTINGS,
   ModelSelection,
@@ -6,6 +9,7 @@ import {
   keepUnknownOverrideKeys,
   ProjectSettingsOverrides,
   type ProviderInstanceConfig,
+  type ProviderInstanceConfigMap,
   type ProviderInstanceMutation,
   defaultInstanceIdForDriver,
   isProviderDriverKind,
@@ -26,6 +30,7 @@ import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
 import * as Effect from "effect/Effect";
@@ -65,10 +70,22 @@ import {
 import {
   mapSettingsSecrets,
   mapSettingsSecretValues,
+  secretSlotOf,
   withoutRemovedSecretProviderReferences,
   SECRET_REDACTED,
   type SettingsSecret,
 } from "./settingsSecrets.ts";
+import {
+  digestProviderInstances,
+  planInstanceRenames,
+  renameInstanceIds,
+  sharedProviderSetupOf,
+  stampLocalEdit,
+  UNSHARED_PROVIDER_SETUP,
+  withoutDanglingPoolMembers,
+  asWholeListWrite,
+  withRemovalsTracked,
+} from "./sharedProviderSetup.ts";
 
 export {
   resolveReviewGuideModelSelection,
@@ -193,8 +210,35 @@ export function redactServerSettingsForClient(
     : mapSettingsSecretValues(redacted, (value) =>
         isSecretReference(value) ? SECRET_REDACTED : value,
       );
-  return { ...shaped, secretProviders: withoutUnknownSecretProviderConfigs(shaped) };
+  return {
+    ...shaped,
+    sharedProviderSetup: shaped.sharedProviderSetup ?? UNSHARED_PROVIDER_SETUP,
+    secretProviders: withoutUnknownSecretProviderConfigs(shaped),
+  };
 }
+
+const providerInstancesDigest = (settings: ServerSettings): string =>
+  digestProviderInstances(
+    redactServerSettingsForClient(settings, { secretReferences: true }).providerInstances,
+  );
+
+/** A shared environment's edit is a new version, however it was made. */
+const withLocalEditStamp = (settings: ServerSettings, changedAt: string): ServerSettings => {
+  const state = sharedProviderSetupOf(settings);
+  if (!state.shared) return settings;
+  const stamped = stampLocalEdit(state, providerInstancesDigest(settings), changedAt);
+  return stamped === state ? settings : { ...settings, sharedProviderSetup: stamped };
+};
+
+const withHandRemovalsTracked = (
+  before: Option.Option<ServerSettings["providerInstances"]>,
+  settings: ServerSettings,
+): ServerSettings => {
+  const state = sharedProviderSetupOf(settings);
+  if (!state.shared || Option.isNone(before)) return settings;
+  const tracked = withRemovalsTracked(state, before.value, settings.providerInstances);
+  return tracked === state ? settings : { ...settings, sharedProviderSetup: tracked };
+};
 
 /** A client shown a reference as a saved secret sends that marker back; it keeps the reference. */
 function withEchoedSecretReferences(current: ServerSettings, next: ServerSettings): ServerSettings {
@@ -340,6 +384,19 @@ export class ServerSettingsService extends Context.Service<
       patch?: ServerSettingsPatch,
     ) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
+    /** Takes the shared provider setup a client chose, keeping this machine's own secrets. */
+    readonly applySharedProviderSetup: (input: {
+      readonly instances: ProviderInstanceConfigMap;
+      readonly version: number;
+      readonly changedAt: string;
+      readonly expectedDigest: string;
+      readonly join: boolean;
+    }) => Effect.Effect<ServerSettings, ServerSettingsError>;
+
+    readonly setProviderSetupSharing: (
+      shared: boolean,
+    ) => Effect.Effect<ServerSettings, ServerSettingsError>;
+
     /** Away stays out of the settings patch so the reactor's `setAway` is the one way to change it. */
     readonly setAway: (away: boolean) => Effect.Effect<ServerSettings, ServerSettingsError>;
 
@@ -406,6 +463,27 @@ const makeTest = Effect.fn("serverSettings.makeTest")(function* (
           yield* ensureProviderInstanceMutationAllowed(currentSettings, mutation, "test settings");
           const patched = applyServerSettingsPatch(currentSettings, patch);
           return applyProviderInstanceMutation(patched, mutation);
+        }),
+      ),
+    applySharedProviderSetup: ({ instances, version, changedAt, join }) =>
+      updateTestSettings((current) =>
+        Effect.succeed({
+          ...current,
+          providerInstances: withoutDanglingPoolMembers(instances),
+          sharedProviderSetup: {
+            shared: join || sharedProviderSetupOf(current).shared,
+            version,
+            baseVersion: version,
+            changedAt,
+            digest: providerInstancesDigest({ ...current, providerInstances: instances }),
+          },
+        }),
+      ),
+    setProviderSetupSharing: (shared) =>
+      updateTestSettings((current) =>
+        Effect.succeed({
+          ...current,
+          sharedProviderSetup: { ...sharedProviderSetupOf(current), shared },
         }),
       ),
     setAway: (away) => updateTestSettings((current) => Effect.succeed({ ...current, away })),
@@ -1258,9 +1336,68 @@ const make = Effect.gen(function* () {
     );
   };
 
+  /** Names follow the instance id, so a renamed instance's secrets are copied before its write. */
+  const secretNamesByInstance = (settings: ServerSettings, id: ProviderInstanceId) => {
+    const names: Array<{ readonly name: string; readonly secret: SettingsSecret }> = [];
+    mapSettingsSecrets(
+      {
+        ...settings,
+        providerInstances: {
+          [id]: settings.providerInstances[id],
+        } as ServerSettings["providerInstances"],
+      },
+      (secret) => {
+        if (secret.secretName.startsWith("provider-")) {
+          names.push({ name: secret.secretName, secret });
+        }
+        return secret;
+      },
+    );
+    return names;
+  };
+
+  const withMissingSecrets = Effect.fn("serverSettings.withMissingSecrets")(function* (
+    settings: ServerSettings,
+  ) {
+    const state = sharedProviderSetupOf(settings);
+    if (!state.shared) return settings;
+    const missingSecrets: Record<string, ReadonlyArray<string>> = {};
+    for (const id of Object.keys(settings.providerInstances) as ProviderInstanceId[]) {
+      const names: string[] = [];
+      for (const { name, secret } of secretNamesByInstance(settings, id)) {
+        if (!secret.sensitive) continue;
+        const absent = secret.redacted
+          ? Option.isNone(yield* secretStore.get(name).pipe(Effect.orElseSucceed(Option.none)))
+          : secret.kind === "environment" && secret.value.length === 0;
+        if (absent) names.push(secret.environmentVariable ?? "credential");
+      }
+      if (names.length > 0) missingSecrets[id] = names;
+    }
+    return NodeUtil.isDeepStrictEqual(missingSecrets, state.missingSecrets ?? {})
+      ? settings
+      : { ...settings, sharedProviderSetup: { ...state, missingSecrets } };
+  });
+
+  /** A provider list in a client's patch is that client's copy of the whole list. */
+  const asClientPatch = (
+    current: ServerSettings,
+    patch: ServerSettingsPatch,
+  ): ServerSettingsPatch =>
+    patch.providerInstances === undefined
+      ? patch
+      : {
+          ...patch,
+          providerInstances: asWholeListWrite(
+            sharedProviderSetupOf(current),
+            current.providerInstances,
+            patch.providerInstances,
+          ),
+        };
+
   const updateAndPersistSettings = (
     patch: ServerSettingsPatch,
     update: (current: ServerSettings) => Effect.Effect<ServerSettings, ServerSettingsError>,
+    stamp: "edit" | "received" = "edit",
   ): Effect.Effect<ServerSettings, ServerSettingsError> =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
@@ -1308,11 +1445,32 @@ const make = Effect.gen(function* () {
           current,
           withoutRemovedSecretProviderReferences(current, vettedProviders.settings),
         );
-        const next = yield* normalizeServerSettings(persisted.settings);
-        const materializedNext = yield* Effect.uninterruptibleMask(() =>
+        const normalized = yield* normalizeServerSettings(persisted.settings);
+        const stamped =
+          stamp === "received"
+            ? {
+                ...normalized,
+                sharedProviderSetup: {
+                  ...sharedProviderSetupOf(normalized),
+                  digest: providerInstancesDigest(normalized),
+                },
+              }
+            : withLocalEditStamp(normalized, DateTime.formatIso(yield* DateTime.now));
+        const tracked = sharedProviderSetupOf(stamped).shared
+          ? {
+              ...stamped,
+              sharedProviderSetup: withRemovalsTracked(
+                sharedProviderSetupOf(stamped),
+                current.providerInstances,
+                stamped.providerInstances,
+              ),
+            }
+          : stamped;
+        const { next, materializedNext } = yield* Effect.uninterruptibleMask(() =>
           Effect.gen(function* () {
             yield* invalidateMaterialized;
             const rollbackSecretChanges = yield* applySettingsSecretChanges(persisted.changes);
+            const next = yield* withMissingSecrets(tracked);
             const materializedExit = yield* Effect.exit(materializeSettingsSecrets(next));
             if (Exit.isFailure(materializedExit)) {
               yield* rollbackSecretChanges;
@@ -1323,7 +1481,7 @@ const make = Effect.gen(function* () {
               yield* rollbackSecretChanges;
               return yield* Effect.failCause(writeExit.cause);
             }
-            return materializedExit.value;
+            return { next, materializedNext: materializedExit.value };
           }).pipe(Effect.ensuring(invalidateMaterialized)),
         );
         yield* Cache.set(settingsCache, cacheKey, { settings: next, parseFailure: Option.none() });
@@ -1334,12 +1492,117 @@ const make = Effect.gen(function* () {
       }),
     );
 
+  const applySharedProviderSetup: ServerSettingsService["Service"]["applySharedProviderSetup"] = (
+    input,
+  ) =>
+    updateAndPersistSettings(
+      { providerInstances: input.instances },
+      (current) =>
+        Effect.gen(function* () {
+          const state = sharedProviderSetupOf(current);
+          // A machine that stopped sharing takes nothing until it joins again.
+          if (
+            state.shared ? providerInstancesDigest(current) !== input.expectedDigest : !input.join
+          ) {
+            return yield* new ServerSettingsError({
+              settingsPath,
+              operation: "apply-shared-provider-setup",
+            });
+          }
+          const moveFailed = (cause: unknown) =>
+            new ServerSettingsError({ settingsPath, operation: "write-secret", cause });
+          const renames = input.join
+            ? planInstanceRenames(current.providerInstances, input.instances)
+            : new Map<ProviderInstanceId, ProviderInstanceId>();
+          const renamed =
+            renames.size === 0
+              ? current
+              : yield* encodeServerSettings(current).pipe(
+                  Effect.map((encoded) => renameInstanceIds(encoded, renames)),
+                  Effect.flatMap(decodeServerSettings),
+                  Effect.mapError(
+                    (cause) =>
+                      new ServerSettingsError({ settingsPath, operation: "normalize", cause }),
+                  ),
+                );
+          const localRedacted = new Set<string>();
+          mapSettingsSecrets(renamed, (secret) => {
+            if (secret.redacted) localRedacted.add(secret.secretName);
+            return secret;
+          });
+          for (const [oldId, newId] of renames) {
+            const newNames = new Map(
+              secretNamesByInstance(renamed, newId).map(({ name }) => [
+                secretSlotOf(name, newId),
+                name,
+              ]),
+            );
+            for (const { name } of secretNamesByInstance(current, oldId)) {
+              const target = newNames.get(secretSlotOf(name, oldId));
+              if (target === undefined) continue;
+              const stored = yield* secretStore.get(name).pipe(Effect.mapError(moveFailed));
+              if (Option.isSome(stored)) {
+                yield* secretStore.set(target, stored.value).pipe(Effect.mapError(moveFailed));
+              }
+            }
+          }
+          // An empty slot in what arrives says nothing about this machine's own secret.
+          const received = mapSettingsSecrets(
+            { ...renamed, providerInstances: withoutDanglingPoolMembers(input.instances) },
+            (secret) =>
+              !secret.sensitive
+                ? secret
+                : {
+                    value: "",
+                    redacted:
+                      secret.kind === "environment" ||
+                      secret.redacted ||
+                      localRedacted.has(secret.secretName),
+                  },
+          );
+          return {
+            ...received,
+            ...(renames.size === 0
+              ? {}
+              : {
+                  providerInstanceAliases: {
+                    ...renamed.providerInstanceAliases,
+                    ...Object.fromEntries(renames),
+                  } as NonNullable<ServerSettings["providerInstanceAliases"]>,
+                }),
+            sharedProviderSetup: {
+              shared: input.join || state.shared,
+              version: input.version,
+              baseVersion: input.version,
+              changedAt: input.changedAt,
+              digest: state.digest,
+              ...(state.removedInstanceIds ? { removedInstanceIds: state.removedInstanceIds } : {}),
+            },
+          };
+        }),
+      "received",
+    );
+
   const withSettingsSnapshot: ServerSettingsService["Service"]["withSettingsSnapshot"] = (use) =>
     writeSemaphore.withPermits(1)(getMaterializedSettings.pipe(Effect.flatMap(use)));
 
   const revalidateAndEmit = writeSemaphore.withPermits(1)(
     Effect.gen(function* () {
-      const { settings } = yield* reloadSettings;
+      const before = yield* Cache.getOption(settingsCache, cacheKey);
+      const { settings: loaded, parseFailure } = yield* reloadSettings;
+      // A hand edit reaches here without passing through a write above.
+      const settings = Option.isSome(parseFailure)
+        ? loaded
+        : yield* withMissingSecrets(
+            withHandRemovalsTracked(
+              Option.map(before, (cached) => cached.settings.providerInstances),
+              withLocalEditStamp(loaded, DateTime.formatIso(yield* DateTime.now)),
+            ),
+          );
+      if (settings !== loaded) {
+        yield* writeSettingsAtomically(settings);
+        yield* Cache.set(settingsCache, cacheKey, { settings, parseFailure: Option.none() });
+      }
       yield* emitChange(settings);
     }),
   );
@@ -1425,7 +1688,7 @@ const make = Effect.gen(function* () {
 
     const startup = Effect.gen(function* () {
       yield* startWatcher;
-      yield* reloadSettings;
+      yield* revalidateAndEmit.pipe(Effect.ignoreCause({ log: true }));
     });
 
     const startupExit = yield* Effect.exit(startup);
@@ -1445,7 +1708,7 @@ const make = Effect.gen(function* () {
     updateSettings: (patch) =>
       updateAndPersistSettings(patch, (current) =>
         ensureSecretProviderWritesAllowed(patch, settingsPath).pipe(
-          Effect.as(applyServerSettingsPatch(current, patch)),
+          Effect.as(applyServerSettingsPatch(current, asClientPatch(current, patch))),
         ),
       ),
     updateProviderInstance: (mutation, patch = {}) =>
@@ -1453,9 +1716,32 @@ const make = Effect.gen(function* () {
         Effect.gen(function* () {
           yield* ensureSecretProviderWritesAllowed(patch, settingsPath);
           yield* ensureProviderInstanceMutationAllowed(current, mutation, settingsPath);
-          const patched = applyServerSettingsPatch(current, patch);
+          const patched = applyServerSettingsPatch(current, asClientPatch(current, patch));
           return applyProviderInstanceMutation(patched, mutation);
         }),
+      ),
+    applySharedProviderSetup,
+    setProviderSetupSharing: (shared) =>
+      updateAndPersistSettings(
+        {},
+        (current) =>
+          Effect.gen(function* () {
+            const state = sharedProviderSetupOf(current);
+            return {
+              ...current,
+              providerInstances: shared
+                ? withoutDanglingPoolMembers(current.providerInstances)
+                : current.providerInstances,
+              sharedProviderSetup: {
+                ...state,
+                shared,
+                version: Math.max(state.version, 1),
+                baseVersion: Math.max(state.version, 1),
+                changedAt: DateTime.formatIso(yield* DateTime.now),
+              },
+            };
+          }),
+        "received",
       ),
     setAway: (away) =>
       updateAndPersistSettings({}, (current) => Effect.succeed({ ...current, away })),

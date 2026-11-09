@@ -275,7 +275,11 @@ import {
   ProviderUploadFeedbackInput,
   ProviderUploadFeedbackResult,
 } from "./provider.ts";
-import { ProviderInstanceId, ProviderInstanceMutation } from "./providerInstance.ts";
+import {
+  ProviderInstanceConfigMap,
+  ProviderInstanceId,
+  ProviderInstanceMutation,
+} from "./providerInstance.ts";
 import {
   GuestShareCreateError,
   GuestShareCreateInput,
@@ -659,6 +663,8 @@ export const WS_METHODS = {
   peerLinksAnswerRequest: "peerLinks.answerRequest",
   serverUpdateSettings: "server.updateSettings",
   serverSetAway: "server.setAway",
+  serverApplySharedProviderSetup: "server.applySharedProviderSetup",
+  serverSetProviderSetupSharing: "server.setProviderSetupSharing",
   serverDiscoverSourceControl: "server.discoverSourceControl",
   serverSearchAcpRegistry: "server.searchAcpRegistry",
   serverPrepareAcpRegistryAgent: "server.prepareAcpRegistryAgent",
@@ -1090,6 +1096,25 @@ const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
     patch: ServerSettingsPatch,
     providerInstanceMutation: Schema.optionalKey(ProviderInstanceMutation),
   }),
+  success: ServerSettings,
+  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+const WsServerApplySharedProviderSetupRpc = Rpc.make(WS_METHODS.serverApplySharedProviderSetup, {
+  payload: Schema.Struct({
+    instances: ProviderInstanceConfigMap,
+    version: Schema.Number,
+    changedAt: Schema.String,
+    /** Refuses the write if this environment changed after the client planned it. */
+    expectedDigest: Schema.String,
+    join: Schema.Boolean,
+  }),
+  success: ServerSettings,
+  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+const WsServerSetProviderSetupSharingRpc = Rpc.make(WS_METHODS.serverSetProviderSetupSharing, {
+  payload: Schema.Struct({ shared: Schema.Boolean }),
   success: ServerSettings,
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
 });
@@ -2918,6 +2943,8 @@ export const WsServerOperationsRpcGroup = RpcGroup.make(
   WsAgentPolicyCompactionModelRpc,
   WsAgentPolicySaveRpc,
   WsServerUpdateSettingsRpc,
+  WsServerApplySharedProviderSetupRpc,
+  WsServerSetProviderSetupSharingRpc,
   WsServerDiscoverSourceControlRpc,
   WsServerSearchAcpRegistryRpc,
   WsServerPrepareAcpRegistryAgentRpc,

@@ -10,6 +10,7 @@ import {
 import { resolveModelShortName } from "@t3tools/client-runtime/provider-clients";
 import {
   normalizeProviderAccentColor,
+  providerAnswersTo,
   resolveProviderInstanceDisplayName,
   shouldShowInstanceBadge,
 } from "@t3tools/client-runtime/state/provider-instance-display";
@@ -62,7 +63,9 @@ export function ThreadModelSwitchDivider(props: {
   const change = resolveModelSwitchChange(props.modelSwitch, providers);
   if (change === null) return null;
   const describe = (selection: ModelSelection, effort: string | undefined) => {
-    const provider = providers.find((candidate) => candidate.instanceId === selection.instanceId);
+    const provider = providers.find((candidate) =>
+      providerAnswersTo(candidate, selection.instanceId),
+    );
     const model = provider?.models.find((candidate) => candidate.slug === selection.model);
     const modelName =
       (model ? resolveModelShortName(model, provider?.driver) : undefined) ??
@@ -170,7 +173,9 @@ function HandoffEndpoint(props: {
   surfaceColor: string;
   showAccount: boolean;
 }) {
-  const provider = props.providers.find((candidate) => candidate.instanceId === props.instanceId);
+  const provider = props.providers.find((candidate) =>
+    providerAnswersTo(candidate, props.instanceId),
+  );
   const model = provider?.models.find((candidate) => candidate.slug === props.model);
   const label =
     (model ? resolveModelShortName(model, provider?.driver) : undefined) ??

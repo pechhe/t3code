@@ -369,6 +369,22 @@ describe("ProviderInstanceRegistry — multi-instance codex slice", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.live("answers a former instance id with the account it was renamed to", () =>
+    Effect.gen(function* () {
+      const sharedId = ProviderInstanceId.make("codex_shared");
+      const formerId = ProviderInstanceId.make("codex_former");
+      const { registry, mutator } = yield* makeProviderInstanceRegistry({
+        drivers: [CodexDriver],
+        configMap: {
+          [sharedId]: { driver: ProviderDriverKind.make("codex"), config: makeCodexConfig({}) },
+        },
+      });
+      expect(yield* registry.getInstance(formerId)).toBeUndefined();
+      yield* mutator.setAliases({ [formerId]: sharedId });
+      expect(yield* registry.getInstance(formerId)).toBe(yield* registry.getInstance(sharedId));
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.live("records an account pool without starting a driver for it", () =>
     Effect.gen(function* () {
       const memberId = ProviderInstanceId.make("codex_member");

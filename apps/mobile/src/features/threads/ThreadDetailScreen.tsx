@@ -12,6 +12,7 @@ import * as Dialog from "../../components/ui/Dialog";
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
 import { mobilePreferencesAtom } from "../../state/preferences";
 import { parseThreadKey, threadKey } from "@t3tools/client-runtime/state/entities";
+import { providerAnswersTo } from "@t3tools/client-runtime/state/provider-instance-display";
 import { createThreadVisitTracker } from "@t3tools/client-runtime/state/thread-visits";
 import { useChildThreadInputs, useThreadReportedModelSelection } from "../../state/entities";
 import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
@@ -1234,8 +1235,8 @@ function ThreadDetailBody(
       : isSplitLayout
         ? CHAT_CONTENT_MAX_WIDTH
         : undefined;
-  const providerSubagentProvider = props.serverConfig?.providers.find(
-    (provider) => provider.instanceId === props.selectedThread.modelSelection.instanceId,
+  const providerSubagentProvider = props.serverConfig?.providers.find((provider) =>
+    providerAnswersTo(provider, props.selectedThread.modelSelection.instanceId),
   );
   const providerSubagentModelSlug = providerSubagentProvider
     ? resolveSelectableModel(
@@ -1263,8 +1264,8 @@ function ThreadDetailBody(
   const selectedInstanceId = props.selectedThread.modelSelection.instanceId;
   useAtomMount(threadStreamHaptics(props.selectedThreadDetailRef));
   const selectedProviderSkills = (() => {
-    const provider = props.serverConfig?.providers.find(
-      (candidate) => candidate.instanceId === selectedInstanceId,
+    const provider = props.serverConfig?.providers.find((candidate) =>
+      providerAnswersTo(candidate, selectedInstanceId),
     );
     return provider
       ? resolveProviderSkillsForCwd(provider, props.threadCwd ?? props.projectWorkspaceRoot)
@@ -1720,10 +1721,11 @@ function ThreadDetailBody(
                         threadKey={selectedThreadKey}
                         threadRuntimeMode={props.selectedThread.runtimeMode}
                         supportedRuntimeModes={
-                          props.serverConfig?.providers.find(
-                            (provider) =>
-                              provider.instanceId ===
+                          props.serverConfig?.providers.find((provider) =>
+                            providerAnswersTo(
+                              provider,
                               props.selectedThread.modelSelection.instanceId,
+                            ),
                           )?.supportedRuntimeModes
                         }
                         policy={props.serverConfig?.managedPolicy}

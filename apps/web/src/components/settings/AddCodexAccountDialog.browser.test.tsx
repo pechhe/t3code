@@ -25,7 +25,7 @@ vi.mock(import("../../state/server"), async (original) => {
     serverEnvironment: {
       ...actual.serverEnvironment,
       providersValueAtom: (() => providersAtom.current) as never,
-      updateSettings: setup.update as never,
+      mutateProviderInstance: setup.update as never,
     },
   };
 });
@@ -69,9 +69,9 @@ function codexProvider(
 
 function createdInstanceId(): ProviderInstanceId {
   const [call] = setup.update.mock.calls as unknown as [
-    [{ input: { patch: { providerInstances: Record<string, unknown> } } }],
+    [{ input: { providerInstanceMutation: { instanceId: string } } }],
   ];
-  return ProviderInstanceId.make(Object.keys(call[0].input.patch.providerInstances)[0]!);
+  return ProviderInstanceId.make(call[0].input.providerInstanceMutation.instanceId);
 }
 
 function Owner({ onClose }: { readonly onClose: () => void }) {

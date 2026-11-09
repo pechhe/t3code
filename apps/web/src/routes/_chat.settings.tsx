@@ -1,3 +1,4 @@
+import { useSharedProviderSetup } from "../components/settings/SharedProviderSetup";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { Outlet, createFileRoute, redirect, useLocation } from "@tanstack/react-router";
 import { useDeferredValue, useEffect, useState, type ReactNode } from "react";
@@ -164,6 +165,7 @@ function SettingsRouteLayout() {
   // The search view stacks pages, so only Providers' own block narrows to one environment
   // and only Delegation's own page drops the project axis.
   const isSearching = useSettingsSearchQuery((state) => state.query.trim().length > 0);
+  const { editingEnvironmentId } = useSharedProviderSetup();
   return (
     <SettingsScopeProvider
       search={rawSearch}
@@ -171,6 +173,7 @@ function SettingsRouteLayout() {
         (pathname === "/settings/providers" || pathname === "/settings/secrets") && !isSearching
       }
       environmentOnly={pathname === "/settings/delegation" && !isSearching}
+      preferredEnvironmentId={pathname === "/settings/providers" ? editingEnvironmentId : null}
       onChange={(next) => {
         // Send every axis so retain middleware recognizes "all" as an explicit target.
         void navigate({

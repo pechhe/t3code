@@ -10,6 +10,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { providerAnswersTo } from "@t3tools/client-runtime/state/provider-instance-display";
 import {
   hasUnseenThreadCompletion,
   resolveThreadProviderStack,
@@ -57,11 +58,11 @@ export function resolveThreadListV2ProviderDrivers(
   if (providers === undefined) return [];
   const stack = resolveThreadProviderStack(thread);
   const drivers = stack.flatMap((instanceId) => {
-    const driver = providers.find((provider) => provider.instanceId === instanceId)?.driver;
+    const driver = providers.find((provider) => providerAnswersTo(provider, instanceId))?.driver;
     return driver === undefined ? [] : [driver];
   });
-  const currentDriver = providers.find(
-    (provider) => provider.instanceId === stack[stack.length - 1],
+  const currentDriver = providers.find((provider) =>
+    providerAnswersTo(provider, stack[stack.length - 1]),
   )?.driver;
   return currentDriver === undefined ? [] : drivers;
 }

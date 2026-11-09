@@ -664,6 +664,8 @@ interface ProviderInstanceCardProps {
   readonly onDelete?: (() => void) | undefined;
   readonly headerAction?: ReactNode | undefined;
   readonly setup?: ReactNode;
+  /** Replaces the status line when this provider is shared across machines. */
+  readonly sharedSummary?: { readonly text: string; readonly problem: boolean } | null;
   readonly runtime?: ReactNode;
   readonly hiddenModels: ReadonlyArray<string>;
   readonly favoriteModels: ReadonlyArray<string>;
@@ -722,6 +724,7 @@ export function ProviderInstanceCard({
   onDelete,
   headerAction,
   setup,
+  sharedSummary,
   runtime,
   hiddenModels,
   favoriteModels,
@@ -1150,6 +1153,10 @@ export function ProviderInstanceCard({
                 >
                   {updateProgress ? (
                     `Updating · ${updateProgress}`
+                  ) : sharedSummary ? (
+                    <span className={sharedSummary.problem ? "text-destructive" : undefined}>
+                      {sharedSummary.text}
+                    </span>
                   ) : (
                     <>
                       {summary.headline}
