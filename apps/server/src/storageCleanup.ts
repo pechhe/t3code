@@ -1018,7 +1018,6 @@ const make = Effect.gen(function* () {
           )
         )
           return keep(waitForStop("settled moments ago"));
-        const head = yield* git.resolveCommit({ cwd: worktreePath, revision: "HEAD" });
         // A SlipJay workspace is released when its thread is settled, never because it has
         // been inactive: settlement is the promise Henry made, and inactivity is not it.
         const settledFor =
@@ -1050,7 +1049,9 @@ const make = Effect.gen(function* () {
                 : `settled for ${settledDays} of ${settings.worktreeSettledAfterDays} days`
               : settings.worktreeOnMerge
                 ? "not merged"
-                : "has commits beyond the default branch";
+                : settings.worktreeUnchanged
+                  ? "has commits beyond the default branch"
+                  : "no rules apply";
         // Only Git-based rules can make a not-yet-due worktree eligible, so skip Git otherwise.
         if (!eligible && !settings.worktreeUnchanged && !settings.worktreeOnMerge)
           return keep(notDueReason);
@@ -1069,6 +1070,7 @@ const make = Effect.gen(function* () {
           return keep("repository or branch changed");
         const changes = yield* localChangesReason(worktreePath, settings);
         if (changes !== null) return keep(changes);
+        const head = yield* git.resolveCommit({ cwd: worktreePath, revision: "HEAD" });
         if (!eligible && (settings.worktreeUnchanged || settings.worktreeOnMerge)) {
           const repositoryCwd = path.resolve(project.workspaceRoot);
           const remotes = yield* git.execute({
