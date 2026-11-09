@@ -1955,10 +1955,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         projection.thread.worktreePath === null;
       const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
       const queuedInstanceId = currentProviderInstanceId(settings, queuedRun.providerInstanceId);
+      const overrides =
+        settings.projectSettingsOverrides[projection.thread.projectId]?.providerInstances;
       const projectOverride =
-        settings.projectSettingsOverrides[projection.thread.projectId]?.providerInstances?.[
-          queuedInstanceId
-        ]?.enabled;
+        overrides?.[queuedInstanceId]?.enabled ??
+        overrides?.[queuedRun.providerInstanceId]?.enabled;
       const machineInstance = Object.hasOwn(settings.providerInstances, queuedInstanceId)
         ? settings.providerInstances[queuedInstanceId]
         : undefined;

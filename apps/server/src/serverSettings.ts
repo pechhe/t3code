@@ -85,6 +85,7 @@ import {
   UNSHARED_PROVIDER_SETUP,
   withoutDanglingPoolMembers,
   asWholeListWrite,
+  withAliasesAdded,
   withRemovalsTracked,
 } from "./sharedProviderSetup.ts";
 
@@ -1569,10 +1570,10 @@ const make = Effect.gen(function* () {
             ...(renames.size === 0
               ? {}
               : {
-                  providerInstanceAliases: {
-                    ...renamed.providerInstanceAliases,
-                    ...Object.fromEntries(renames),
-                  } as NonNullable<ServerSettings["providerInstanceAliases"]>,
+                  providerInstanceAliases: withAliasesAdded(
+                    renamed.providerInstanceAliases ?? {},
+                    renames,
+                  ),
                 }),
             sharedProviderSetup: {
               shared: input.join || state.shared,

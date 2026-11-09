@@ -47,6 +47,18 @@ const homePathOf = (instance: ProviderInstanceConfigMap[ProviderInstanceId]): st
 };
 
 /** The same account is the same driver on the same home; only those local ids are renamed. */
+/** Repoints older aliases at a renamed id, so every alias stays one hop from a live instance. */
+export const withAliasesAdded = (
+  aliases: NonNullable<ServerSettings["providerInstanceAliases"]>,
+  renames: ReadonlyMap<ProviderInstanceId, ProviderInstanceId>,
+): NonNullable<ServerSettings["providerInstanceAliases"]> =>
+  ({
+    ...Object.fromEntries(
+      Object.entries(aliases).map(([former, current]) => [former, renames.get(current) ?? current]),
+    ),
+    ...Object.fromEntries(renames),
+  }) as NonNullable<ServerSettings["providerInstanceAliases"]>;
+
 export function planInstanceRenames(
   local: ProviderInstanceConfigMap,
   incoming: ProviderInstanceConfigMap,

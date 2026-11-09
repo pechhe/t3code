@@ -16,6 +16,7 @@ import * as ServerConfig from "./config.ts";
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import * as ManagedPolicy from "./policy/ManagedPolicy.ts";
 import * as ServerSettingsModule from "./serverSettings.ts";
+import { withAliasesAdded } from "./sharedProviderSetup.ts";
 
 const testLayer = ServerSettingsModule.layer.pipe(
   Layer.provideMerge(ServerSecretStore.layer),
@@ -48,6 +49,13 @@ const stateOf = (settings: { readonly sharedProviderSetup?: unknown }) =>
   };
 
 it.describe("shared provider setup", () => {
+  it("keeps an earlier alias pointing at a live instance when a later join renames it again", () => {
+    const w = ProviderInstanceId.make("claudeAgent_w");
+    const x = ProviderInstanceId.make("claudeAgent_x");
+    const y = ProviderInstanceId.make("claudeAgent_y");
+    assert.deepStrictEqual(withAliasesAdded({ [w]: x }, new Map([[x, y]])), { [w]: y, [x]: y });
+  });
+
   it.effect("counts each edit once on a shared machine and none on an unshared one", () =>
     Effect.gen(function* () {
       const service = yield* ServerSettingsModule.ServerSettingsService;
