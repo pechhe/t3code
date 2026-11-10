@@ -1,4 +1,3 @@
-import { shouldCreateNewThreadInCurrentProject } from "./Sidebar.logic";
 import { dispatchCommandPalette } from "../commandPaletteStore";
 import { SidebarReleaseApprovals } from "./SidebarReleaseApprovals";
 import { playKeyClick } from "~/lib/interfaceSounds";
@@ -212,6 +211,7 @@ import {
   resolveSidebarThreadSection,
   resolveSidebarReorderableThreadKeys,
   searchSidebarThreads,
+  shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
   sidebarListItemId,
   sidebarThreadKeyAtY,

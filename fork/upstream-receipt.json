@@ -3,32 +3,32 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.9-nightly.20261109.4443",
-      "sha": "b10cdded50851ead0be729a5cedfff125dde7ca8"
-    },
-    "target": {
       "tag": "v0.1.9-nightly.20261110.4449",
       "sha": "eb381a7d4f4475d60fbb1f59efe9f204de59bba8"
+    },
+    "target": {
+      "tag": "v0.1.9-nightly.20261110.4452",
+      "sha": "822671581383a357c5dc8d3ea9984b408c3e03c6"
     }
   },
   "fork": {
-    "base": "cb5a49d628548f9895a21659effa29fe075691bf"
+    "base": "99f36db480a13916652e005917285fadb1e110f6"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "86e8375be3a6ce6122ea22758df83cf9af44f2dc"
+    "blob": "83a84542fc98b7e8be7edb9efc1b54a8eaae26fb"
   },
   "policy": {
     "requiredLandingVerificationSha256": "f57f8da576ea5674b21d79bbc7768f8e0c381aa98726cc2705048b36ea3176a7"
   },
-  "attempt": "v0.1.9-nightly.20261110.4449@1794276562",
-  "reviewedAt": "2026-11-10T02:29:28Z",
+  "attempt": "v0.1.9-nightly.20261110.4452@1794280173",
+  "reviewedAt": "2026-11-10T03:35:00Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:0c583c14-a850-4f6a-86d1-b724c07f8948",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:f8124cdb-88d4-42f4-89cc-8f582b409794",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 7,
+    "upstreamCommits": 15,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
@@ -108,98 +108,153 @@
       "shared-provider-setup"
     ],
     "areas": [
-      "agent sign-in approval on the hosted app (McpOAuth.approvingSession authenticating through authenticateHttpRequest, a DPoP-thumbprint-bound csrf token, /approve-agent on agentApprovalAppUrlConfig, optional bearer headers on the approval and decision endpoints, the mcpHostedApproval capability, ApproveAgentSurface and ConnectAgentSurface, and client-runtime connectMcpApproval replacing web connectAgentApproval, mintConnectMcpApprovalCode and the connectSignIn field)",
-      "server auth internals (EnvironmentAuth dropping authenticateBrowserSession, the makeDpopKey helper moving to auth/dpop.testkit.ts)",
-      "dependencies (@pierre/diffs 1.7.0-beta.3 with upstream's replacement patch and built-in find, @pierre/highlights 0.5.0, the regenerated vendored wasm C and generated language table, the lockfile)",
-      "web diff viewer (find reaching folded files and collapsed context, expanding hidden context after a diff refresh, StyledDiffCodeView and the diff render surface tokens)",
-      "web UI primitives (dropdown items over the desktop title bar respond to clicks: autocomplete, combobox, select)",
-      "usage sources (Cursor account usage scanning through the account cache, OpenCode in-window usage reads, UsageService tests)",
-      "mobile review model and user docs (outside-agents approval guidance beside the fork's t3 agent section)"
+      "mobile workspace shell and thread header (AdaptiveWorkspaceLayout's `useWorkspacePaneState` split, Android screen header, app bar and toolbar layout at rest, composer model control, provider icons, thread list rows, files route screen, thread inspector navigation)",
+      "mobile dev-client CI and script (`.github/workflows/mobile-dev-client.yml`, `.github/scripts/mobile-preview-comment.cjs`, `scripts/mobile-native-client.ts` dispatching the Blacksmith build, the `test-t3-mobile` skill's description of that wait)",
+      "web new-thread defaults (last used project storage and atom, `resolveDefaultProjectRef`'s `lastUsedProjectKey`, `defaultProjectFallbackReady`, chat route commands, SnapShotCoordinator, Sidebar)",
+      "web background work details (`BackgroundWorkDetails`, `ThreadActivityBanners`' banner item, a pending background task's `command`/`itemId`/`sourceThreadId`, Claude's roster merging each update over the previous one)",
+      "orchestration instructions and WebMCP copy (`orchestrationInstructions.ts` visuals bullet, `preview_evaluate`'s description, `evals/mcp-tool-use/cases/visual-preview.ndjson`)",
+      "preview server tab visibility (`ServerBrowser`'s `isVisible`)",
+      "Antigravity usage and pricing (`antigravityUsageReader` model names from usage metadata and effort prices, `antigravityAuthSupport`'s inherited Crashpad pipe)",
+      "desktop shell external link allowlist (`ElectronShell`'s `APP_LAUNCH_URLS`)",
+      "expanded image and zoomable image scrolling (`ExpandedImageDialog`, `ZoomableImage` pinch and pan)",
+      "mobile EAS preview and production workflow rewrites and the CI runner change (`.github/workflows/mobile-eas-*.yml`, `ci.yml`, `infra/task-cache/README.md`)"
     ],
     "exclusions": [
       {
-        "what": "upstream's own code inside the 7 incoming commits",
+        "what": "upstream's own code inside the 15 incoming commits",
         "why": "upstream reviewed it; only the merge's conflict resolutions and this reconciliation commit are reviewed here"
       },
       {
         "what": "the merge's clean auto-merges",
-        "why": "checked file by file that each side's changes survived intact (merged-vs-upstream equals the fork's delta and merged-vs-fork equals upstream's delta for every file both sides touched), and covered by the typechecks and suites below"
+        "why": "checked every upstream-changed file the fork had also changed (26 of 74) and read each merged result for a semantic clash; ServerBrowser, SnapShotCoordinator, useHandleNewThread, ThreadActivityBanners, ClaudeAdapterV2, antigravityUsageReader, contracts and the mobile shell keep both sides, and the typechecks and suites below cover them"
       },
       {
-        "what": "the regenerated vendored highlights sources (Vendor/highlights/highlights.c and .h, src/lib/highlights.generated.ts)",
-        "why": "generated from the pinned @pierre/highlights 0.5.0, not hand-written; apps/mobile/scripts/generate-highlights.test.ts proves the committed copies match the generator's output"
+        "what": "upstream's mobile EAS preview and production workflow rewrites",
+        "why": "they describe upstream's own release pipeline on Blacksmith; the fork's build requirements are recorded in desktop-fork-build and no fork workflow file was changed by the merge"
+      },
+      {
+        "what": "`evals/mcp-tool-use/cases/visual-preview.ndjson`",
+        "why": "a new eval case costs a real model turn and the copy it covers is asserted by orchestrationInstructions.test.ts; evals/mcp-tool-use is run by #135's routine, not per update"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "linked-environments",
-      "upstream": "agent sign-in approval moves to the hosted app (#33632) and stops failing with \"Your session cannot approve\" (#33645): approvingSession authenticates with authenticateHttpRequest and binds the csrf token to the DPoP key thumbprint, the page moves to /approve-agent on agentApprovalAppUrlConfig, the approval and decision endpoints accept an optional bearer, and mcpHostedApproval is a new optional capability. connectSignIn, connectAgentApproval, mintConnectMcpApprovalCode and peerPairingCode.test.ts are removed.",
-      "decision": "adopt",
-      "requirements": [
-        "the previous tag's connectSignIn adaptation retires; removing the optional key still decodes in a shipped client",
-        "a peerLink client is still redirected to the environment's own page and still needs a plain pairing code (mcpOAuthHttp.ts), and a peer session holds only orchestration:read, never access:write, so it can never approve",
-        "the fork's peer sessions, its peer-threads access, McpClientAccess and its environment-qualified link rule are unchanged"
-      ],
-      "evidence": [
-        "apps/server/src/auth/McpOAuth.test.ts keeps the fork's 152 lines beside upstream's 135, and passes with EnvironmentAuth.test.ts (44 tests across the auth suites)",
-        "grep finds no remaining reference to connectSignIn, connectAgentApproval, mintConnectMcpApprovalCode, ConnectApprovalCodeError, approvingBrowserSession or authenticateBrowserSession",
-        "apps/server/src/shippedClientCompatibility.test.ts and the server and web typechecks are clean"
-      ]
-    },
-    {
-      "entry": "dpop-forwarded-proto",
-      "upstream": "the new hosted-approval page authenticates through authenticateHttpRequest, so server-side DPoP verification now runs behind the T3 Connect tunnel on that path; upstream still has no x-forwarded-proto handling of its own",
-      "decision": "retain",
-      "requirements": [
-        "DPoP proof verification still compares against the scheme upgraded to https when x-forwarded-proto says so, on HTTP requests and WebSocket upgrades",
-        "McpOAuth.approvingSession and McpOAuth.requestUrls both reach that helper, so an approval behind the tunnel verifies and the /approve-agent URL names the tunnel host"
-      ],
-      "evidence": [
-        "auth/dpop.ts and auth/McpOAuth.ts both import forwardedRequestUrl; EnvironmentAuth.authenticateHttpRequest has no direct URL comparison of its own",
-        "forwardedUrl.test.ts, dpop.test.ts, McpOAuth.test.ts and EnvironmentAuth.test.ts pass (44 tests), including the TLS-proxy regression"
-      ]
-    },
-    {
-      "entry": "validation-tooling",
-      "upstream": "@pierre/diffs 1.7.0-beta.3 with patches/@pierre__diffs@1.7.0-beta.3.patch replacing the 1.6.1 patch, @pierre/highlights 0.5.0, and the lockfile entries for both",
+      "entry": "fork-guidance",
+      "upstream": "the visuals bullet now says page tools write only on user request (#26570), and a second always-delivered bullet spells out the `preview_*` usage rules",
       "decision": "adapt",
       "requirements": [
-        "each catalogue entry, override, patch, install permission and release-age exception keeps the newer side: upstream's pierre versions, the fork's @noble 2.4.0, @tailwindcss 4.3.5, @electron-webauthn/macos 1.4.0 and pnpm 12.15.0",
-        "the stale @pierre/diffs@1.6.1 and @pierre/highlights@0.2.0 minimumReleaseAgeExclude lines go with the versions they named"
+        "upstream's wording is the base and the fork's rules stay inside its one bullet",
+        "preview rules reach only a thread whose listing carries the preview family",
+        "the `.png`-for-an-image and never-restate-the-page rules survive"
       ],
       "evidence": [
-        "vp i regenerated the lockfile from upstream's copy; the diff moves the pierre entries, upstream's patch swap, a floating @cloudflare/workers-types date version and pnpm's packageManagerDependencies record for the already-pinned 12.15.0",
-        "a second vp i leaves pnpm-lock.yaml byte-identical, and the supply-chain policies pass on 2,033 entries"
+        "packages/provider-core/src/server/orchestrationInstructions.ts: the visuals bullet keeps `before your final reply`, the reader-above-the-reply rule and the image rule, with upstream's page-tool sentence",
+        "the preview usage text lives once, in T3_CODE_BROWSER_TOOL_INSTRUCTIONS, now with upstream's `including recording edits`; packages/provider-core/src/server/orchestrationInstructions.test.ts passes"
+      ]
+    },
+    {
+      "entry": "session-tool-listings",
+      "upstream": "`preview_evaluate`'s description is shortened for requested WebMCP writes, and a pending background task gains optional `command`, `itemId` and `sourceThreadId`",
+      "decision": "adapt",
+      "requirements": [
+        "the family table, endpoints and child texts are unchanged",
+        "the recorded budgets match the measurement again"
+      ],
+      "evidence": [
+        "apps/server/src/provider/agentContextBudget.json re-measured to 9,801 / 12,263 / 122,092 bytes and AgentContextBudget.test.ts passes",
+        "apps/server/src/shippedClientCompatibility.test.ts passes, so the additive optional fields still decode for a shipped client"
       ]
     },
     {
       "entry": "mobile-fork-screens",
-      "upstream": "the vendored @pierre/highlights copies regenerate for 0.5.0, and upstream tweaks the mobile review model (#33627)",
-      "decision": "adopt",
+      "upstream": "upstream's mobile batch: the workspace pane state split, Android header, app bar and toolbar layout settling at rest, composer model control and provider icon restyling, dev clients built on Blacksmith (#33599, #33611, #33617, #33618)",
+      "decision": "adapt",
       "requirements": [
-        "the generated wasm C and language table match the pinned package, and the shipped wasm is unchanged",
-        "taking upstream's copies must not change a generated byte beyond the version stamp",
-        "the Forge item header and sheet, workflow badge, release approval card, Jujutsu labels, Away key and the fork's mobile settings entries stay in place"
+        "the Forge item header and sheet, workflow badge, release approval card, Jujutsu labels, Away key and settings entries stay where the last update put them",
+        "upstream's structure is taken whole, with the fork's header title content re-attached"
       ],
       "evidence": [
-        "diffing the fork's 0.4.0 copies against upstream's 0.5.0 copies leaves only the generator's version stamp in each of the three files (highlights.wasm sha256 2fca61b6..., unchanged)",
-        "apps/mobile/scripts/generate-highlights.test.ts passes, so the committed copies are what the 0.5.0 generator produces",
-        "the mobile typecheck is clean"
+        "apps/mobile/src/features/threads/ThreadHeader.tsx keeps `titleContent` inside upstream's split hook import; the conflict was resolved by keeping both",
+        "the mobile typecheck is clean and thread-inspector-navigation.test.tsx, layout.test.ts and filePreview.test.ts pass (121 tests)",
+        "scripts/mobile-native-client.ts still offers `ensure`, so AGENTS.md's instruction is unchanged"
+      ]
+    },
+    {
+      "entry": "no-project-chats",
+      "upstream": "a new thread defaults to the last used project (#6f8c7433: `LAST_USED_PROJECT_STORAGE_KEY`, `lastUsedProjectKey`, `defaultProjectFallbackReady`)",
+      "decision": "adapt",
+      "requirements": [
+        "the sidebar's New thread still starts a No project draft unless shift or a single open project group applies",
+        "the paths that already started in a project now use the remembered one and wait for it to be ready",
+        "the fork's in-place draft retargeting, chip row and palette exclusions are unchanged"
+      ],
+      "evidence": [
+        "apps/web/src/hooks/useHandleNewThread.ts keeps the fork's `retargetDraftId` beside upstream's last-used read; components/Sidebar.tsx still decides with the fork's `shouldCreateNewThreadInCurrentProject`",
+        "useHandleNewThread.test.ts, state/shell.test.ts and Sidebar.browser.test.tsx pass (the merged test keeps the fork's scenario table and adds upstream's required `defaultProjectFallbackReady`)",
+        "the chat route commands keep the fork's gate (shortcuts/chatRouteCommands.ts checks shouldCreateNewThreadInCurrentProject) and chatRouteCommands.test.ts asserts it; that suite needs `using`/`DisposableStack`, so the landing gate runs it on the SlipJay runner (peach-live, Node 24.21.0, where both are available) rather than on this Mac's Node 22"
+      ]
+    },
+    {
+      "entry": "delegated-work-visibility",
+      "upstream": "full command details for background work (#33647): `BackgroundWorkDetails` in the banner, a pending task's command and item ids, Claude's roster merging",
+      "decision": "adapt",
+      "requirements": [
+        "the detail opens over the fork's `backgroundWorkNowItem` with its `BackgroundWorkStrip` link handlers intact",
+        "the subagent panel, its finish rules and the roll-up are unchanged"
+      ],
+      "evidence": [
+        "components/chat/ThreadActivityBanners.tsx takes both upstream's `environmentId` and `BackgroundWorkDetails` and the fork's `handlers`; upstream's new BackgroundWorkDetails.browser.test.tsx passes once it supplies those handlers",
+        "ClaudeAdapterV2.test.ts passes (518 tests across the six server suites run for this update)"
+      ]
+    },
+    {
+      "entry": "preview-browser-lifetime",
+      "upstream": "a tab's visibility is `isVisible(tab)` rather than `viewers.size > 0`, so a desktop-embedded tab counts while the desktop shows it (#23589)",
+      "decision": "adopt",
+      "requirements": [
+        "the fork's profile-context close, revoked-access and stalled-start bounds are unchanged",
+        "no second lifetime policy is introduced"
+      ],
+      "evidence": [
+        "apps/server/src/preview/ServerBrowser.ts keeps the fork's context ownership beside upstream's visibility helper; ServerBrowser.test.ts and ServerBrowserContexts.test.ts pass"
+      ]
+    },
+    {
+      "entry": "snapshot-overlay",
+      "upstream": "SnapShotCoordinator remembers the last used project and holds a capture until that default is ready",
+      "decision": "adapt",
+      "requirements": [
+        "the overlay still reuses its conversation until the user ends it and starts a fresh project-less chat otherwise",
+        "the overlay's dock, shortcut, capture pool and conversation state are unchanged"
+      ],
+      "evidence": [
+        "components/desktop/SnapShotCoordinator.tsx keeps `reusableSnapShotTarget`, `overlay` and `startOverlayDraft` beside upstream's last-used project effect; SnapShotCoordinator.browser.test.ts plus the overlay dock and session suites pass (20 tests)"
       ]
     },
     {
       "entry": "account-pools",
-      "upstream": "Cursor's account usage scan reuses the account cache instead of rescanning (#33636) and OpenCode's usage read is bounded to in-window messages (#33612)",
+      "upstream": "Antigravity model names come from the usage metadata and Gemini Flash effort variants are priced (#33661, #13809)",
       "decision": "adopt",
       "requirements": [
-        "the chosen member's usage refresh before routing, the pool's routing and its snapshot read the same records as before",
-        "the fork's pre-routing refresh keeps working through the same seams, which upstream did not re-shape",
-        "the fork's pool configuration and usage card are unchanged"
+        "pool routing, capacity-weighted shares and the usage card read the same data as before",
+        "no fork change to the usage sources"
       ],
       "evidence": [
-        "ProviderRegistry.refreshInstanceUsage (ProviderRegistry.ts) -> the Cursor driver's refreshUsage -> CursorUsageAccounts.startRefresh -> readCursorAccountUsage/mergeCursorFetch: the call path is unchanged; upstream changed only the read's internals and added a two-permit refresh lock",
-        "apps/server/src/provider/ProviderRegistry.test.ts passes (56 tests), beside provider-cursor accountUsage and accountCache, provider-opencode usage and apps/server/src/usage/UsageService.test.ts (66 tests)"
+        "apps/server/src/provider/Drivers/antigravityUsageReader.ts and its test are upstream's; antigravityUsageReader.test.ts and antigravityAuthSupport.test.ts pass"
+      ]
+    },
+    {
+      "entry": "desktop-fork-build",
+      "upstream": "the desktop shell opens one exact app link, `grokbot://app` (#33663), and its tests cover it beside the editor deep links",
+      "decision": "adapt",
+      "requirements": [
+        "the fork's `activate` choice for opened links is kept",
+        "the no-update-feed build, local signing, screen-picker staging and `T3 Peach` name are unchanged"
+      ],
+      "evidence": [
+        "apps/desktop/src/electron/ElectronShell.ts keeps `shouldActivate` beside upstream's `APP_LAUNCH_URLS`",
+        "the fork base landed the same `{ activate: true }` correction for upstream's two editor deep-link cases (99f36db4), so this merge's reconciliation adds only upstream's new Grok Bot case; ElectronShell.test.ts passes (11 tests)"
       ]
     }
   ],
@@ -208,52 +263,52 @@
     {
       "command": "vp i",
       "result": "passed",
-      "note": "lockfile up to date, installation of the merged dependency set; supply-chain policies pass on 2,033 entries and a second run leaves the lockfile byte-identical"
+      "note": "lockfile up to date, so the update changed no dependency; installation of the merged set is unchanged"
     },
     {
-      "command": "vp run --filter t3 typecheck",
+      "command": "vp run --filter t3 --filter @t3tools/contracts --filter @t3tools/mobile --filter @t3tools/provider-core typecheck",
       "result": "passed",
-      "note": "no errors (545 effect-tsgo suggestions, present on the fork base too)"
+      "note": "4/4 tasks clean (the effect-tsgo TS377141 suggestions are present on the fork base too)"
     },
     {
       "command": "vp run --filter @t3tools/web typecheck",
       "result": "passed",
-      "note": "no errors (63 suggestions)"
+      "note": "clean after supplying the fork's `handlers` to upstream's new BackgroundWorkDetails browser test"
     },
     {
-      "command": "vp run --filter @t3tools/mobile typecheck",
+      "command": "vp test run apps/server/src/provider/AgentContextBudget.test.ts",
       "result": "passed",
-      "note": "no errors (41 suggestions)"
+      "note": "2 tests; the committed budget now records the re-measured 9,801 / 12,263 / 122,092 bytes"
     },
     {
-      "command": "vp test run (server auth)",
+      "command": "vp test run packages/provider-core/src/server/orchestrationInstructions.test.ts apps/server/src/preview/ServerBrowser.test.ts apps/server/src/preview/ServerBrowserContexts.test.ts apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts apps/server/src/provider/Drivers/antigravityUsageReader.test.ts apps/server/src/provider/antigravityAuthSupport.test.ts",
       "result": "passed",
-      "note": "44 tests: McpOAuth.test.ts, EnvironmentAuth.test.ts, forwardedUrl.test.ts, dpop.test.ts"
+      "note": "518 tests across the six suites the reconciliation touches on the server"
     },
     {
-      "command": "vp test run (clients and client-runtime)",
+      "command": "vp test run apps/server/src/shippedClientCompatibility.test.ts",
       "result": "passed",
-      "note": "963 tests across 73 files: shippedClientCompatibility.test.ts, ConnectAgentSurface.logic.test.ts and the whole packages/client-runtime/src/state tree"
+      "note": "the additive optional keys on a pending background task still decode in a shipped client's frozen schema"
     },
     {
-      "command": "vp test run (usage sources)",
+      "command": "vp test run (web reconciliation)",
       "result": "passed",
-      "note": "66 tests: provider-opencode usage, apps/server UsageService, provider-cursor accountUsage and accountCache"
+      "note": "Sidebar.browser, BackgroundWorkDetails.browser, ExpandedImageDialog.browser, useHandleNewThread, state/shell and SnapShotCoordinator.browser suites, plus the overlay dock and session suites (20 tests)"
     },
     {
-      "command": "vp test run (web diff viewer and UI primitives)",
+      "command": "vp test run apps/mobile/src/features/threads/thread-inspector-navigation.test.tsx apps/mobile/src/lib/layout.test.ts apps/mobile/src/lib/filePreview.test.ts",
       "result": "passed",
-      "note": "21 tests: codeViewContextExpansion.browser, codeViewSearch.browser, AnnotatableCodeView.browser, fileEditorDismissal.browser, reviewCommentContext and the components/ui suites"
+      "note": "121 tests"
     },
     {
-      "command": "vp test run apps/server/src/provider/ProviderRegistry.test.ts",
+      "command": "vp test run apps/desktop/src/electron/ElectronShell.test.ts",
       "result": "passed",
-      "note": "56 tests; the pool's pre-routing refresh calls the same instance refreshUsage seam the Cursor scan sits behind"
+      "note": "11 tests, including upstream's Grok Bot and editor cases asserting the fork's `activate` argument"
     },
     {
-      "command": "vp test run apps/mobile/scripts/generate-highlights.test.ts",
-      "result": "passed",
-      "note": "the committed vendored highlights sources match @pierre/highlights 0.5.0"
+      "command": "vp test run apps/web/src/shortcuts/chatRouteCommands.test.ts",
+      "result": "failed",
+      "note": "environmental, not caused by this merge: the file is byte-identical to the upstream tag and uses `using`/`DisposableStack`, which this Mac's Node 22.23.2 lacks while package.json requires 26.12.1 (the fork's own pcmWorklet.test.ts fails the same way on the base). The SlipJay runner that runs the landing gate has Node 24.21.0, where `DisposableStack` is a function and a `using` module runs, so the gate runs this suite there"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
@@ -261,9 +316,9 @@
       "note": "the merged config lists and selects tests; the canonical gate runs on the SlipJay runner at landing"
     },
     {
-      "command": "vp run knip:check (pre-commit hook in the temporary merge clone)",
-      "result": "failed",
-      "note": "pre-existing on the fork base, not caused by this merge: the mobile third-party licence generator rejects @napi-rs/wasm-runtime@1.2.2 and @tybys/wasm-util@0.10.3, which are nested inside the fork's own @tailwindcss/oxide-wasm32-wasi@4.3.5. The merge touched neither the licence config nor that package, and slipjay.json's landing gate does not run knip"
+      "command": "jj rebase onto t3peach@origin (99f36db4)",
+      "result": "passed",
+      "note": "t3peach moved during the review with one commit, `fix(tests): repair three audit failures from the 20261109 upstream merge` (ElectronShell editor cases, a test-landing input rule for mobile plugins, third-party licence overrides); the rebase of the merge and this reconciliation was clean, the ElectronShell case it overlaps now carries both sides, and the receipt's fork base is updated to it"
     }
   ],
   "result": "reconciled"

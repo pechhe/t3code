@@ -64,6 +64,7 @@ describe("sidebar header new thread", () => {
         activeDraftThread: null,
         activeThread: null,
         defaultProjectRef: currentProjectRef,
+        defaultProjectFallbackReady: true,
         handleNewThread: startThread,
         routeDraftId: null,
         routeThreadRef: null,
