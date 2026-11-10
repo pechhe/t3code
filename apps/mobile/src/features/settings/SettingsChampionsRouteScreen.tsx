@@ -32,7 +32,12 @@ import type {
   EnvironmentId,
   ThreadId,
 } from "@t3tools/contracts";
-import { AGENT_ROLE_TITLE_LABEL, resolveEnvironmentMachineKind } from "@t3tools/contracts";
+import {
+  AGENT_ROLE_TITLE_LABEL,
+  championProposalResult,
+  championProposalRetiring,
+  resolveEnvironmentMachineKind,
+} from "@t3tools/contracts";
 import { useFocusEffect, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { AsyncResult, type Atom } from "effect/reactivity";
 import { useState } from "react";
@@ -942,12 +947,20 @@ function ChampionDetailContent(props: {
                 <Text className="px-4 pt-4 text-sm text-foreground-muted">
                   {data.proposal.reason}
                 </Text>
-                {data.proposal.metrics.map((metric) => (
+                {championProposalResult(data.metrics, data.proposal).map((metric) => (
                   <View key={metric.id} className="gap-1 px-4 py-3">
                     <Text className="text-base font-t3-medium text-foreground">{metric.name}</Text>
                     <Text className="text-sm text-foreground-muted">
                       {metric.unit} · {metric.source}
                       {(metric.required ?? true) ? "" : " · Optional"}
+                    </Text>
+                  </View>
+                ))}
+                {championProposalRetiring(data.metrics, data.proposal).map((metric) => (
+                  <View key={metric.id} className="gap-1 px-4 py-3">
+                    <Text className="text-base font-t3-medium text-foreground">{metric.name}</Text>
+                    <Text className="text-sm text-foreground-muted">
+                      {metric.unit} · {metric.source} · Stops tracking
                     </Text>
                   </View>
                 ))}

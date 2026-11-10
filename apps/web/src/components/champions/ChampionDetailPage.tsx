@@ -2,7 +2,13 @@ import { useAtomValue } from "@effect/atom-react";
 import { championStatus, pendingChampionDecision } from "@t3tools/client-runtime/champions";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
-import type { ChampionDetail, ChampionSummary, EnvironmentId } from "@t3tools/contracts";
+import {
+  championProposalResult,
+  championProposalRetiring,
+  type ChampionDetail,
+  type ChampionSummary,
+  type EnvironmentId,
+} from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ArchiveIcon,
@@ -122,6 +128,8 @@ function ProposalCard(props: {
   );
   if (proposal === null) return null;
   const initial = metrics.length === 0;
+  const installs = championProposalResult(metrics, proposal);
+  const retiring = championProposalRetiring(metrics, proposal);
   const { id } = champion;
   const acceptStep = () =>
     accept({
@@ -137,7 +145,7 @@ function ProposalCard(props: {
         <p className="text-muted-foreground text-xs">{proposal.reason}</p>
       </div>
       <ul className="flex flex-col gap-2">
-        {proposal.metrics.map((metric) => {
+        {installs.map((metric) => {
           const change = metricChange(metric, metrics);
           return (
             <li key={metric.id} className="flex flex-col gap-0.5">
@@ -160,12 +168,28 @@ function ProposalCard(props: {
             </li>
           );
         })}
+        {retiring.map((metric) => (
+          <li key={metric.id} className="flex flex-col gap-0.5">
+            <span className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-medium">{metric.name}</span>
+              <span className="text-muted-foreground text-xs">
+                {metric.unit} · {metricTargetLabel(metric)}
+              </span>
+              <Badge variant="warning">Stops tracking</Badge>
+            </span>
+          </li>
+        ))}
       </ul>
-      {!initial &&
-      proposal.metrics.some((metric) => metricChange(metric, metrics) === "new-series") ? (
+      {!initial && installs.some((metric) => metricChange(metric, metrics) === "new-series") ? (
         <p className="text-muted-foreground text-xs">
           A new series measures something different. Current readings stay as history and aren't
           joined to it.
+        </p>
+      ) : null}
+      {retiring.length > 0 ? (
+        <p className="text-muted-foreground text-xs">
+          A metric that stops tracking keeps its readings as history, and a running check finishes
+          measuring it.
         </p>
       ) : null}
       <div className="flex flex-wrap gap-2">

@@ -591,9 +591,14 @@ const metricsKey = (metrics: ReadonlyArray<ChampionMetricInput>) =>
 
 export function metricsMatchProposal(
   metrics: ReadonlyArray<ChampionMetricInput>,
+  retires: ReadonlyArray<string>,
   proposal: ChampionProposal | null,
 ): boolean {
-  return proposal !== null && metricsKey(metrics) === metricsKey(proposal.metrics);
+  return (
+    proposal !== null &&
+    metricsKey(metrics) === metricsKey(proposal.metrics) &&
+    JSON.stringify(retires.toSorted()) === JSON.stringify((proposal.retires ?? []).toSorted())
+  );
 }
 
 export const metricInputsOf = (metrics: ReadonlyArray<ChampionMetric>) => metrics.map(inputOf);

@@ -956,6 +956,113 @@ it.effect(
     ),
 );
 
+it.effect("keeps accepted metrics a proposal leaves out and retires only those it names", () =>
+  withFixture((_f, service) =>
+    Effect.gen(function* () {
+      const latency = { ...metric, id: "latency", name: "Latency", unit: "ms", maximum: 500 };
+      yield* service.upsert(config);
+      yield* service.propose({ id: config.id, metrics: [metric, latency], reason: "Start" });
+      const before = yield* service.accept({ id: config.id });
+      const crashes = { ...metric, id: "crashes", name: "Crashes" };
+      const pending = yield* service.propose({
+        id: config.id,
+        metrics: [crashes],
+        reason: "Add crashes",
+      });
+      assert.deepEqual(
+        pending.proposal?.metrics.map((m) => m.id),
+        ["errors", "latency", "crashes"],
+      );
+      const added = yield* service.accept({ id: config.id });
+      assert.deepEqual(
+        added.metrics.map(({ id, version, seriesId }) => ({ id, version, seriesId })),
+        [
+          ...before.metrics.map(({ id, version, seriesId }) => ({ id, version, seriesId })),
+          { id: "crashes", version: 1, seriesId: added.metrics[2]!.seriesId },
+        ],
+      );
+
+      const retiring = yield* service.propose({
+        id: config.id,
+        metrics: [],
+        retires: ["latency"],
+        reason: "Latency is measured elsewhere",
+      });
+      assert.deepEqual(retiring.proposal?.retires, ["latency"]);
+      assert.deepEqual(
+        retiring.proposal?.metrics.map((m) => m.id),
+        ["errors", "crashes"],
+      );
+      const retired = yield* service.accept({ id: config.id });
+      assert.deepEqual(
+        retired.metrics.map(({ id, version }) => ({ id, version })),
+        [
+          { id: "errors", version: 1 },
+          { id: "crashes", version: 1 },
+        ],
+      );
+      yield* refusedWith(
+        service.propose({ id: config.id, metrics: [], retires: ["latency"], reason: "Again" }),
+        "not an accepted metric",
+      );
+
+      const restored = yield* service.propose({
+        id: config.id,
+        metrics: [{ ...latency, name: "Page latency" }],
+        reason: "Bring latency back",
+      });
+      assert.deepEqual(restored.proposal?.retires, []);
+      const back = yield* service.accept({ id: config.id });
+      const latencyBack = back.metrics.find((m) => m.id === "latency")!;
+      assert.equal(latencyBack.seriesId, before.metrics[1]!.seriesId);
+      assert.equal(latencyBack.version, 2);
+    }),
+  ),
+);
+
+it.effect("refuses a proposal that would track more than 32 metrics and accepts exactly 32", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      const numbered = (n: number) => ({ ...metric, id: `m${n}`, name: `Metric ${n}` });
+      yield* service.upsert(config);
+      yield* service.propose({
+        id: config.id,
+        metrics: Array.from({ length: 31 }, (_, n) => numbered(n)),
+        reason: "Start",
+      });
+      yield* service.accept({ id: config.id });
+      yield* refusedWith(
+        service.propose({ id: config.id, metrics: [numbered(31), numbered(32)], reason: "Two" }),
+        "at most 32",
+      );
+      yield* service.propose({ id: config.id, metrics: [numbered(31)], reason: "One more" });
+      const full = yield* service.accept({ id: config.id });
+      assert.equal(full.metrics.length, 32);
+      yield* refusedWith(
+        service.propose({ id: config.id, metrics: [numbered(32)], reason: "Too many" }),
+        "at most 32",
+      );
+      const swapped = yield* service.propose({
+        id: config.id,
+        metrics: [numbered(32)],
+        retires: ["m0"],
+        reason: "Swap",
+      });
+      assert.equal(swapped.proposal?.metrics.length, 32);
+      yield* service.discardProposal({ id: config.id });
+      yield* service.runCheck({ id: config.id });
+      yield* service.report(f.caller(), {
+        samples: Array.from({ length: 32 }, (_, n) => ({ ...sample, metricId: `m${n}`, value: 1 })),
+        findings: [],
+        summary: "All 32 measured",
+      });
+      const read = yield* service.get({ id: config.id });
+      assert.equal(read.metrics.length, 32);
+      assert.equal(read.champion.latestSamples?.length, 32);
+    }),
+  ),
+);
+
 it.effect("retains setup authentication through repeated verified server restarts", () =>
   withFixture((f, service) =>
     Effect.gen(function* () {

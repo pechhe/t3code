@@ -1,5 +1,9 @@
 import { championCadenceMs, formatChampionDuration } from "@t3tools/client-runtime/champions";
-import type { ChampionDetail, EnvironmentId } from "@t3tools/contracts";
+import {
+  championProposalResult,
+  type ChampionDetail,
+  type EnvironmentId,
+} from "@t3tools/contracts";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
@@ -157,7 +161,10 @@ export function ChampionMetricsEditor(props: {
   const { environmentId, detail } = props;
   const { champion, metrics, proposal } = detail;
   const [drafts, setDrafts] = useState<ReadonlyArray<MetricDraft>>(() =>
-    (proposal?.metrics ?? metricInputsOf(metrics)).map(metricDraftOf),
+    (proposal === null
+      ? metricInputsOf(metrics)
+      : championProposalResult(metricInputsOf(metrics), proposal)
+    ).map(metricDraftOf),
   );
   const [errors, setErrors] = useState<Readonly<Record<string, string>>>({});
   const { busy, error, run } = useChampionAction();
@@ -211,7 +218,8 @@ export function ChampionMetricsEditor(props: {
     }
     setErrors({});
     const id = champion.id;
-    const unchanged = metricsMatchProposal(parsed.metrics, proposal);
+    const retires = removed.map((metric) => metric.id);
+    const unchanged = metricsMatchProposal(parsed.metrics, retires, proposal);
     const reason = proposal ? `${proposal.reason} Edited by you.` : "Edited by you.";
     // Accept exactly the proposal shown, or the one this save just filed.
     let proposalId = unchanged ? proposal?.id : undefined;
@@ -222,7 +230,7 @@ export function ChampionMetricsEditor(props: {
             () =>
               propose({
                 environmentId,
-                input: { id, metrics: parsed.metrics, reason },
+                input: { id, metrics: parsed.metrics, retires, reason },
               }).then((result) => {
                 if (result._tag === "Success") proposalId = result.value.proposal?.id;
                 return result;

@@ -39,6 +39,8 @@ import {
   ChampionActivity,
   ChampionCharter,
   ChampionError,
+  CHAMPION_METRIC_LIMIT,
+  championProposalResult,
   DEFAULT_CHAMPION_INSTRUCTIONS,
   CommandId,
   MessageId,
@@ -193,6 +195,29 @@ const decodeActivity = Schema.decodeEffect(Schema.fromJsonString(ChampionActivit
 const decodeMetric = Schema.decodeEffect(Schema.fromJsonString(ChampionMetric));
 const encodeCharter = Schema.encodeSync(Schema.fromJsonString(ChampionCharter));
 const encodeFindings = Schema.encodeSync(Schema.fromJsonString(Schema.Array(ChampionFinding)));
+const PROPOSAL_RULE =
+  "A proposal keeps every accepted metric it does not list: list only metrics to add or change, and to stop tracking one, name its id in retires.";
+const metricInputOf = (metric: ChampionMetricInput): ChampionMetricInput => ({
+  id: metric.id,
+  name: metric.name,
+  description: metric.description,
+  required: metric.required ?? true,
+  baseline: metric.baseline ?? null,
+  ...(metric.staleAfterMs === undefined ? {} : { staleAfterMs: metric.staleAfterMs }),
+  unit: metric.unit,
+  source: metric.source,
+  context: metric.context,
+  direction: metric.direction,
+  minimum: metric.minimum,
+  maximum: metric.maximum,
+});
+const sameDefinition = (a: ChampionMetricInput, b: ChampionMetricInput) =>
+  JSON.stringify(metricInputOf(a)) === JSON.stringify(metricInputOf(b));
+const sameSeries = (a: ChampionMetricInput, b: ChampionMetricInput) =>
+  a.unit === b.unit &&
+  a.source === b.source &&
+  a.context === b.context &&
+  a.direction === b.direction;
 
 type Caller = McpThreadCaller | undefined;
 /** An agent completing an approval for the user: the thread it acts from and the user's words. */
@@ -271,11 +296,7 @@ export class ChampionService extends Context.Service<
     readonly startMetricsLead: (input: {
       readonly id: string;
     }) => Effect.Effect<{ readonly threadId: ThreadId }, ChampionError>;
-    readonly propose: DetailOperation<{
-      id: string;
-      metrics: ReadonlyArray<ChampionMetricInput>;
-      reason: string;
-    }>;
+    readonly propose: DetailOperation<{ id: string } & ChampionProposal>;
     /** Without `relay` the user accepts; with it an agent does, quoting the user's own words. */
     readonly accept: (
       input: ChampionAcceptInput,
@@ -892,7 +913,7 @@ const make = Effect.gen(function* () {
   const routinePrompt = (doc: Document, check: Check) =>
     [
       `You own champion ${doc.champion.name} in this project. Your goal: ${doc.champion.purpose}`,
-      "Work towards the goal, not the metrics. Metrics are your instruments for seeing progress; when they cannot show it (blank, insufficient, or measuring the wrong thing), say so and propose a better metric with t3_champions_proposal action submit for the user to accept.",
+      `Work towards the goal, not the metrics. Metrics are your instruments for seeing progress; when they cannot show it (blank, insufficient, or measuring the wrong thing), say so and propose a better metric with t3_champions_proposal action submit for the user to accept. ${PROPOSAL_RULE}`,
       check.kind === "setup"
         ? 'SETUP: inspect the actual product and propose measurable metrics that show progress towards the goal with t3_champions_proposal action submit, or call t3_champions_report with only a summary for a no-change summary. Name each metric in plain words someone outside engineering understands ("How long common screens take to become usable", not "Sentinel usable readiness"), and start its description with one plain sentence on what it tells the user about the goal; method detail follows. Renaming or rewording a metric keeps its series, so fix unclear names on any setup. Proposals require user acceptance. Do not edit the shared root or delegate repairs during setup.'
         : "CHECK: call t3_champions_check_context, then ask what most stands in the way of the goal right now. Collect honest observations and call t3_champions_report before finishing; its summary opens with one or two plain sentences on progress towards the goal, then the readings. Dispatch alone is not completion.",
@@ -1288,25 +1309,52 @@ const make = Effect.gen(function* () {
       return yield* mutate(
         Effect.gen(function* () {
           const doc = yield* read(input.id);
+          const retires = input.retires ?? [];
+          const invalid = (detail?: string) =>
+            new ChampionError({ reason: "invalid", ...(detail === undefined ? {} : { detail }) });
           if (
-            input.metrics.length === 0 ||
-            input.metrics.length > 32 ||
-            new Set(input.metrics.map((m) => m.id)).size !== input.metrics.length
+            new Set(input.metrics.map((m) => m.id)).size !== input.metrics.length ||
+            new Set(retires).size !== retires.length
           )
-            return yield* new ChampionError({ reason: "invalid" });
+            return yield* invalid();
+          if (input.metrics.length === 0 && retires.length === 0)
+            return yield* invalid(
+              "The proposal changes nothing: list each metric to add or change, or name an accepted metric in retires to stop tracking it.",
+            );
           for (const metric of input.metrics)
             if (
               metric.minimum !== null &&
               metric.maximum !== null &&
               metric.minimum > metric.maximum
             )
-              return yield* new ChampionError({ reason: "invalid" });
+              return yield* invalid();
+          for (const retired of retires) {
+            if (input.metrics.some((m) => m.id === retired))
+              return yield* invalid(
+                `${retired} is both listed and named in retires. List a metric to change it, or name it in retires to stop tracking it, not both.`,
+              );
+            if (!doc.metrics.some((m) => m.id === retired))
+              return yield* invalid(
+                `${retired} is not an accepted metric, so there is nothing to retire. Read the champion for its accepted metric ids.`,
+              );
+          }
+          // Stored whole, so the pending proposal is exactly what acceptance installs.
+          const metrics = championProposalResult(doc.metrics, input).map(metricInputOf);
+          if (metrics.length > CHAMPION_METRIC_LIMIT)
+            return yield* invalid(
+              `Accepting this would track ${metrics.length} metrics; a champion tracks at most ${CHAMPION_METRIC_LIMIT}. Name metrics to stop tracking in retires, or propose fewer.`,
+            );
+          if (metrics.length === 0)
+            return yield* invalid(
+              "This would retire every metric; a champion keeps at least one. Propose a replacement alongside the retirement.",
+            );
           const saved = yield* write({
             ...doc,
             proposal: {
               id: yield* uuid,
               proposedAt: yield* now,
-              metrics: input.metrics,
+              metrics,
+              retires,
               reason: input.reason,
             },
             champion: {
@@ -1379,29 +1427,40 @@ const make = Effect.gen(function* () {
                   detail:
                     "The pending proposal was replaced after it was read. Read the champion again and accept the current proposal by its id.",
                 });
+              const proposal = doc.proposal;
+              // Proposals filed before retirement was explicit list only changes; keep what they omit.
+              const resulting = championProposalResult(doc.metrics, proposal);
+              if (resulting.length > CHAMPION_METRIC_LIMIT)
+                return yield* new ChampionError({
+                  reason: "conflict",
+                  detail: `Accepting this proposal would track ${resulting.length} metrics; a champion tracks at most ${CHAMPION_METRIC_LIMIT}. Edit it to stop tracking some first.`,
+                });
               const metrics = yield* Effect.forEach(
-                doc.proposal.metrics,
+                resulting,
                 Effect.fn("ChampionService.acceptMetric")(function* (metric) {
-                  const old = doc.metrics.find((m) => m.id === metric.id);
-                  const sameSeries =
-                    old !== undefined &&
-                    ["unit", "source", "context", "direction"].every(
-                      (key) =>
-                        old[key as keyof ChampionMetricInput] ===
-                        metric[key as keyof ChampionMetricInput],
-                    );
-                  const versions = yield* sql<{
-                    version: number | null;
-                  }>`SELECT MAX(version) AS version FROM champion_metric_definitions WHERE champion_id = ${id} AND metric_id = ${metric.id}`.pipe(
+                  const current = doc.metrics.find((m) => m.id === metric.id);
+                  if (current !== undefined && sameDefinition(current, metric)) return current;
+                  const stored = yield* sql<{
+                    version: number;
+                    document_json: string;
+                  }>`SELECT version, document_json FROM champion_metric_definitions WHERE champion_id = ${id} AND metric_id = ${metric.id} ORDER BY version DESC LIMIT 1`.pipe(
                     Effect.mapError(failure),
                   );
+                  const previous =
+                    current ??
+                    (stored[0] === undefined
+                      ? undefined
+                      : yield* decodeMetric(stored[0].document_json).pipe(
+                          Effect.mapError(failure),
+                        ));
                   const definition = {
-                    ...metric,
-                    required: metric.required ?? true,
-                    baseline: metric.baseline ?? null,
-                    version: (versions[0]?.version ?? 0) + 1,
-                    seriesId: sameSeries ? old.seriesId : yield* uuid,
-                    reason: doc.proposal!.reason,
+                    ...metricInputOf(metric),
+                    version: (stored[0]?.version ?? 0) + 1,
+                    seriesId:
+                      previous !== undefined && sameSeries(previous, metric)
+                        ? previous.seriesId
+                        : yield* uuid,
+                    reason: proposal.reason,
                   };
                   const at = yield* now;
                   const json = yield* encodeMetric(definition).pipe(Effect.mapError(failure));
@@ -2013,7 +2072,7 @@ const make = Effect.gen(function* () {
             `The user asked you to fix the metrics of the ${doc.champion.name} champion (id ${doc.champion.id}). Its goal: ${doc.champion.purpose}`,
             `Its metrics now:\n${metricLines.join("\n") || "- none"}`,
             `What looks wrong:\n${problems.map((line) => `- ${line}`).join("\n") || "- nothing recorded; judge from the metrics above"}`,
-            "Work out which metrics fail to show honest progress towards the goal: ones that cannot be collected here, that measure the wrong thing, or whose names a non-engineer would not understand. Shape the fix as a Spec with the shape skill and lead it with the lead skill. Read current state with t3_champions_get. Give new or changed definitions to the champion with t3_champions_proposal; the user accepts them on its page, and renaming keeps a metric's history. Do not change the champion's checks or findings directly.",
+            `Work out which metrics fail to show honest progress towards the goal: ones that cannot be collected here, that measure the wrong thing, or whose names a non-engineer would not understand. Shape the fix as a Spec with the shape skill and lead it with the lead skill. Read current state with t3_champions_get. Give new or changed definitions to the champion with t3_champions_proposal; the user accepts them on its page, and renaming keeps a metric's history. ${PROPOSAL_RULE} Do not change the champion's checks or findings directly.`,
           ].join("\n\n"),
           attachments: [],
         },

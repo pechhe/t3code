@@ -112,24 +112,34 @@ export const handlers = {
     McpToolAccess.writesEnvironment((input, check) =>
       Effect.gen(function* () {
         yield* check;
-        if (input.id === undefined || input.metrics === undefined || input.reason === undefined)
-          return yield* missing("t3_champions_proposal", "id, metrics and reason with action edit");
+        const metrics = input.metrics ?? (input.retires === undefined ? undefined : []);
+        if (input.id === undefined || metrics === undefined || input.reason === undefined)
+          return yield* missing(
+            "t3_champions_proposal",
+            "id, reason, and metrics or retires with action edit",
+          );
         const service = yield* Champions.ChampionService;
         return yield* service.propose({
           id: input.id,
-          metrics: input.metrics,
+          metrics,
+          ...(input.retires === undefined ? {} : { retires: input.retires }),
           reason: input.reason,
         });
       }).pipe(Effect.mapError(failure)),
     ),
     McpToolAccess.actsAsCaller((input) =>
       Effect.gen(function* () {
-        if (input.metrics === undefined || input.reason === undefined)
-          return yield* missing("t3_champions_proposal", "metrics and reason with action submit");
+        const metrics = input.metrics ?? (input.retires === undefined ? undefined : []);
+        if (metrics === undefined || input.reason === undefined)
+          return yield* missing(
+            "t3_champions_proposal",
+            "reason, and metrics or retires with action submit",
+          );
         const scope = yield* McpInvocationContext.McpInvocationContext;
         const service = yield* Champions.ChampionService;
         return yield* service.proposeFromSetup(scope.thread, {
-          metrics: input.metrics,
+          metrics,
+          ...(input.retires === undefined ? {} : { retires: input.retires }),
           reason: input.reason,
         });
       }).pipe(Effect.mapError(failure)),

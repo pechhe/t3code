@@ -110,11 +110,12 @@ const control = Tool.make("t3_champions_control", {
 const proposal = Tool.make("t3_champions_proposal", {
   ...shared,
   description:
-    "Edit the pending metric proposal with action edit (champion id plus metrics and reason; requires subsequent user acceptance), or submit metric proposals from your authenticated setup run or routine check with action submit (metrics and reason; the proposal waits for the user to accept it on the Champion page, and a check still reports as usual).",
+    "Edit the pending metric proposal with action edit (champion id plus metrics and reason; requires subsequent user acceptance), or submit metric proposals from your authenticated setup run or routine check with action submit (metrics and reason; the proposal waits for the user to accept it on the Champion page, and a check still reports as usual). Accepted metrics you do not list are kept unchanged: list only metrics to add or change, and to stop tracking one, name its id in retires. A champion tracks at most 32 metrics.",
   parameters: Schema.Struct({
     action: Schema.Literals(["edit", "submit"]),
     id: Schema.optional(ChampionGetInput.fields.id),
     metrics: Schema.optional(ChampionProposal.fields.metrics),
+    retires: ChampionProposal.fields.retires,
     reason: Schema.optional(ChampionProposal.fields.reason),
   }),
   success: ChampionDetail,

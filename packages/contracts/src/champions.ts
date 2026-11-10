@@ -278,11 +278,49 @@ export const ChampionActivity = Schema.Struct({
   approval: Schema.optional(ChampionRelayedApproval),
 });
 export type ChampionActivity = typeof ChampionActivity.Type;
+export const CHAMPION_METRIC_LIMIT = 32;
+/** Accepted metrics a proposal neither lists nor retires stay accepted unchanged. */
 export const ChampionProposal = Schema.Struct({
-  metrics: Schema.Array(ChampionMetricInput).check(Schema.isMinLength(1), Schema.isMaxLength(32)),
+  metrics: Schema.Array(ChampionMetricInput).check(Schema.isMaxLength(CHAMPION_METRIC_LIMIT)),
+  /** Ids of accepted metrics to stop tracking. A stored proposal lacks it only if filed before retirement was explicit. */
+  retires: Schema.optional(
+    Schema.Array(ChampionLabel).check(Schema.isMaxLength(CHAMPION_METRIC_LIMIT)),
+  ),
   reason: ChampionLabel,
 });
 export type ChampionProposal = typeof ChampionProposal.Type;
+/** The metrics accepting `proposal` installs: accepted ones in place (replaced when listed, dropped when retired), then new ones. */
+export function championProposalResult<
+  A extends { readonly id: string },
+  P extends { readonly id: string },
+>(
+  accepted: ReadonlyArray<A>,
+  proposal: {
+    readonly metrics: ReadonlyArray<P>;
+    readonly retires?: ReadonlyArray<string> | undefined;
+  },
+): Array<A | P> {
+  const listed = new Map(proposal.metrics.map((metric) => [metric.id, metric]));
+  const retired = new Set(proposal.retires);
+  const known = new Set(accepted.map((metric) => metric.id));
+  return [
+    ...accepted.flatMap((metric) =>
+      retired.has(metric.id) ? [] : [listed.get(metric.id) ?? metric],
+    ),
+    ...proposal.metrics.filter((metric) => !known.has(metric.id)),
+  ];
+}
+/** The accepted metrics accepting `proposal` stops tracking. */
+export function championProposalRetiring<A extends { readonly id: string }>(
+  accepted: ReadonlyArray<A>,
+  proposal: {
+    readonly metrics: ReadonlyArray<{ readonly id: string }>;
+    readonly retires?: ReadonlyArray<string> | undefined;
+  },
+): Array<A> {
+  const installs = new Set(championProposalResult(accepted, proposal).map((metric) => metric.id));
+  return accepted.filter((metric) => !installs.has(metric.id));
+}
 /** A pending proposal; proposals filed before identities existed have none. */
 export const ChampionPendingProposal = Schema.Struct({
   ...ChampionProposal.fields,

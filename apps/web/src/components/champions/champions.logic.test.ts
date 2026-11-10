@@ -533,13 +533,21 @@ describe("parseMetricDrafts", () => {
     const proposed = metric();
     const parsed = parseMetricDrafts([metricDraftOf(proposed)]);
     if (!parsed.ok) throw new Error("expected valid");
-    expect(metricsMatchProposal(parsed.metrics, { metrics: [proposed], reason: "r" })).toBe(true);
-    expect(metricsMatchProposal(parsed.metrics, null)).toBe(false);
+    expect(metricsMatchProposal(parsed.metrics, [], { metrics: [proposed], reason: "r" })).toBe(
+      true,
+    );
+    expect(metricsMatchProposal(parsed.metrics, [], null)).toBe(false);
+    const retiring = { metrics: [proposed], retires: ["old"], reason: "r" };
+    expect(metricsMatchProposal(parsed.metrics, ["old"], retiring)).toBe(true);
+    expect(metricsMatchProposal(parsed.metrics, [], retiring)).toBe(false);
+    expect(metricsMatchProposal(parsed.metrics, ["old", "other"], retiring)).toBe(false);
 
     const explicit = metric({ required: false, baseline: 40, staleAfterMs: 7_200_000 });
     const reparsed = parseMetricDrafts([metricDraftOf(explicit)]);
     if (!reparsed.ok) throw new Error("expected valid");
-    expect(metricsMatchProposal(reparsed.metrics, { metrics: [explicit], reason: "r" })).toBe(true);
+    expect(metricsMatchProposal(reparsed.metrics, [], { metrics: [explicit], reason: "r" })).toBe(
+      true,
+    );
   });
 });
 
