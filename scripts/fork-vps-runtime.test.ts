@@ -126,6 +126,60 @@ esac
       },
     );
 
+    it("repoints the t3 on PATH at the runtime it installed, and leaves a link it does not own alone", async () => {
+      const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-fork-launcher-"));
+      try {
+        const home = NodePath.join(root, "home");
+        const versions = NodePath.join(home, ".t3/runtime/versions");
+        const bin = NodePath.join(root, "bin");
+        const clone = NodePath.join(root, "clone");
+        const archive = NodePath.join(root, "archive");
+        const earlier = "0.0.45-nightly.20261014.3144";
+        const version = "0.0.46-nightly.20261015.3145";
+        const launcher = NodePath.join(home, ".local/bin/t3");
+        const foreign = NodePath.join(bin, "t3");
+        for (const path of [
+          versions,
+          NodePath.join(versions, earlier),
+          NodePath.join(home, ".local/bin"),
+          bin,
+          NodePath.join(clone, "scripts"),
+          archive,
+        ]) {
+          await NodeFSP.mkdir(path, { recursive: true });
+        }
+        const script = NodePath.join(clone, "scripts/fork-vps-runtime.sh");
+        await NodeFSP.copyFile(NodePath.join(import.meta.dirname, "fork-vps-runtime.sh"), script);
+        await NodeFSP.writeFile(NodePath.join(versions, earlier, "t3"), "", { mode: 0o755 });
+        await NodeFSP.writeFile(NodePath.join(archive, "t3"), "#!/bin/sh\nexit 0\n", {
+          mode: 0o755,
+        });
+        const pending = NodePath.join(versions, `.fork-pending-${version}.tar.gz`);
+        await execFile("tar", ["-czf", pending, "-C", root, "archive"]);
+        await NodeFSP.writeFile(`${pending}.source`, "fixture-commit\n");
+        await NodeFSP.symlink(NodePath.join(versions, earlier, "t3"), launcher);
+        await NodeFSP.symlink("/opt/official/t3", foreign);
+        await NodeFSP.writeFile(
+          NodePath.join(home, ".t3/runtime/launchers"),
+          `${launcher}\n${foreign}\n`,
+        );
+        await execFile("bash", [script, "install", version, "fixture-commit"], {
+          env: {
+            ...process.env,
+            HOME: home,
+            PATH: `${bin}:${process.env.PATH}`,
+            T3_TEST_MODE: "ok",
+            T3_TEST_LOG: NodePath.join(root, "calls"),
+          },
+          timeout: 10000,
+        });
+        expect(await NodeFSP.readlink(launcher)).toBe(NodePath.join(versions, version, "t3"));
+        expect(await NodeFSP.readlink(foreign)).toBe("/opt/official/t3");
+      } finally {
+        await NodeFSP.rm(root, { recursive: true, force: true });
+      }
+    });
+
     it("reads a failed retry of the installed version and source back as partial, until a retry finishes", async () => {
       const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-fork-retry-"));
       try {

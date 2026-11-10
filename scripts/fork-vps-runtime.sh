@@ -17,7 +17,10 @@
 # version strings. `state` reads back an install whose answer was lost: it prints
 # `installed` once every install step finished, `partial` when the runtime was
 # switched but a later step (service install, restart, health check) did not
-# finish, and `absent` when the switch never happened.
+# finish, and `absent` when the switch never happened. A `t3` launcher already
+# pointing into the versions directory (~/.local/bin/t3, and every path
+# scripts/install.sh recorded in ~/.t3/runtime/launchers) is repointed at the
+# version just installed, so the CLI on PATH is the runtime being served.
 #
 # The desktop's SSH launcher runs ~/.t3/runtime/versions/<version>/t3 and
 # downloads the official archive only when that directory is not marked
@@ -75,6 +78,21 @@ if [ "$MODE" = install ]; then
   if [ -d "$TARGET" ]; then mv "$TARGET" "$TARGET.official"; fi
   mv "$staging" "$TARGET"
   rm -f "$PENDING" "$PENDING.source"
+  # The `t3` on PATH moves with the runtime, in the same step: a launcher a previous
+  # install left pointing into these versions would otherwise keep running the one
+  # just moved aside. Only a link into a version directory is ours to repoint.
+  while read -r launcher; do
+    [ -L "$launcher" ] || continue
+    resolved="$(readlink "$launcher")"
+    case "$resolved" in /*) ;; *) resolved="$(dirname "$launcher")/$resolved" ;; esac
+    case "$(dirname "$resolved")" in
+      "$VERSIONS"/*/*) ;;
+      "$VERSIONS"/*) ln -sfn "$TARGET/t3" "$launcher" ;;
+    esac
+  done <<EOF
+$HOME/.local/bin/t3
+$(cat "$HOME/.t3/runtime/launchers" 2>/dev/null || true)
+EOF
   echo "installed fork runtime $VERSION ($commit)"
 else
   [ "$MODE" = build ] || { echo "usage: $0 build <version> | install <version> <source commit> | state <version> <source commit>" >&2; exit 2; }
