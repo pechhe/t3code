@@ -1,3 +1,4 @@
+import { PAUSED_SUBAGENT_LABEL } from "@t3tools/client-runtime/state/subagentRuntime";
 import type { SubagentStatus } from "@t3tools/client-runtime/state/threads";
 import { CheckIcon, CircleXIcon, type LucideIcon } from "lucide-react";
 
@@ -20,7 +21,16 @@ const STOPPED_OUTCOME = {
   icon: null,
 };
 
-export function subagentFinishedOutcome(status: string): {
+const PAUSED_OUTCOME = {
+  label: PAUSED_SUBAGENT_LABEL,
+  className: "text-muted-foreground",
+  icon: null,
+};
+
+export function subagentFinishedOutcome(
+  status: string,
+  pausedByParentStop = false,
+): {
   readonly label: string;
   readonly className: string;
   readonly icon: LucideIcon | null;
@@ -31,5 +41,6 @@ export function subagentFinishedOutcome(status: string): {
   if (status === "failed") {
     return { label: "Failed", className: "text-destructive", icon: CircleXIcon };
   }
+  if (status === "interrupted" && pausedByParentStop) return PAUSED_OUTCOME;
   return STOPPED_OUTCOME;
 }

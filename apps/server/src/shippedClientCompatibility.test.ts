@@ -2,8 +2,11 @@ import {
   DEFAULT_SERVER_SETTINGS,
   Experiment,
   ExperimentAssignment,
+  OrchestrationV2DelegatedCompletionTaskDeliveryState,
+  OrchestrationV2Subagent,
   OrchestrationV2ThreadShell,
   OrchestrationV2ThreadStanding,
+  RunId,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -12,6 +15,7 @@ import {
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
@@ -137,6 +141,49 @@ it("a shipped client ignores additive champion owner metadata on an ordinary thr
     champion: { id: "quality", attention: false },
   });
   assert.deepEqual(Object.keys(decoded).toSorted(), ["id", "title"]);
+});
+
+const decodeSubagent = Schema.decodeSync(OrchestrationV2Subagent);
+
+it("a shipped client decodes a task its parent's Stop paused as an interrupted task", () => {
+  const { pausedByParentStop: _paused, ...fields } = OrchestrationV2Subagent.fields;
+  // What a shipped client knows of a task: no pause mark, and a delivery without its stop flag.
+  const shippedTask = Schema.Struct({
+    ...fields,
+    completionDelivery: Schema.optional(
+      Schema.Struct({
+        state: OrchestrationV2DelegatedCompletionTaskDeliveryState,
+        observedByRunId: Schema.NullOr(RunId),
+      }),
+    ),
+  });
+  const now = DateTime.makeUnsafe("2026-11-10T09:00:00.000Z");
+  const wire = decodeSubagent({
+    id: "node:task",
+    threadId: "thread-lead",
+    runId: "run-lead",
+    parentNodeId: "node:root",
+    origin: "app_owned",
+    createdBy: "agent",
+    driver: "codex",
+    providerInstanceId: "codex",
+    providerThreadId: null,
+    childThreadId: "thread-child",
+    nativeTaskRef: null,
+    prompt: "Lead the Spec.",
+    title: null,
+    model: null,
+    status: "interrupted",
+    result: "Stopped with its parent.",
+    startedAt: now,
+    completedAt: now,
+    updatedAt: now,
+    pausedByParentStop: true,
+    completionDelivery: { state: "disposed", observedByRunId: null, stopped: true },
+  });
+  const decoded = Schema.decodeSync(shippedTask)(wire);
+  assert.equal(decoded.status, "interrupted");
+  assert.notProperty(decoded, "pausedByParentStop");
 });
 
 const decodeStanding = Schema.decodeUnknownSync(OrchestrationV2ThreadStanding);

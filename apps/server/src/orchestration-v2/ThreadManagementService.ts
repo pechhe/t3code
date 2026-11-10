@@ -61,6 +61,7 @@ import * as Stream from "effect/Stream";
 
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
+import { PAUSED_TASK_RESUME_MESSAGE_PREFIX } from "./serverContinuation.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { projectedRowEncodedBytes } from "./threadHistoryPaging.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
@@ -369,6 +370,9 @@ export type ThreadManagementError = typeof ThreadManagementError.Type;
 
 type ThreadManagementFailure = ThreadManagementError | Orchestrator.OrchestratorV2Error;
 
+const PAUSED_TASK_RESUME_TEXT =
+  "Your parent thread was stopped, which interrupted you, and has now resumed. Before you continue, check any operation you had running when you were stopped (a landing, a background command, a delegated task) and whether it finished. Then carry on with your task.";
+
 export interface ThreadManagementServiceShape {
   readonly searchThreadStream: (
     input: OrchestrationV2SearchThreadInput,
@@ -510,6 +514,11 @@ export interface ThreadManagementServiceShape {
     void,
     Orchestrator.OrchestratorV2Error | ThreadManagementProviderInstanceDisabledError
   >;
+  /** Continues each task a Stop of this thread paused, as a new task in its own conversation. */
+  readonly resumeDelegatedTasks: (input: {
+    readonly threadId: ThreadId;
+    readonly commandId: CommandId;
+  }) => Effect.Effect<void, Orchestrator.OrchestratorV2Error>;
   readonly getThreadEventSequence: Orchestrator.OrchestratorV2["Service"]["getThreadEventSequence"];
   readonly recoverDelegatedTask: Orchestrator.OrchestratorV2["Service"]["recoverDelegatedTask"];
   readonly delegatedTaskResultPending: Orchestrator.OrchestratorV2["Service"]["delegatedTaskResultPending"];
@@ -1735,6 +1744,44 @@ const make = Effect.gen(function* () {
     if (failures[0] !== undefined) return yield* failures[0];
   });
 
+  const resumeDelegatedTasks: ThreadManagementServiceShape["resumeDelegatedTasks"] = Effect.fn(
+    "ThreadManagementService.resumeDelegatedTasks",
+  )(function* (input) {
+    const { subagents } = yield* orchestrator.getThreadRecords(input.threadId, ["subagents"], {
+      pausedSubagents: true,
+    });
+    const resumed = new Set<ThreadId>();
+    for (const task of subagents) {
+      if (task.origin !== "app_owned" || task.childThreadId === null) continue;
+      const threadId = task.childThreadId;
+      if (resumed.has(threadId)) continue;
+      resumed.add(threadId);
+      // A task that cannot resume keeps its mark, so the parent's next message tries again.
+      yield* dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make(`${input.commandId}:resume:${threadId}`),
+        threadId,
+        messageId: MessageId.make(
+          `${PAUSED_TASK_RESUME_MESSAGE_PREFIX}${input.commandId}:${threadId}`,
+        ),
+        senderThreadId: input.threadId,
+        text: PAUSED_TASK_RESUME_TEXT,
+        attachments: [],
+        dispatchMode: { type: "queue_after_active" },
+        createdBy: "agent",
+        creationSource: "server",
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("Unable to resume a delegated task", {
+            parentThreadId: input.threadId,
+            threadId,
+            error,
+          }),
+        ),
+      );
+    }
+  });
+
   return ThreadManagementService.of({
     ensureLegacyTranscript,
     searchThreadStream: (input) =>
@@ -1824,6 +1871,7 @@ const make = Effect.gen(function* () {
     markThreadRead,
     interruptThread,
     stopDelegatedTasks,
+    resumeDelegatedTasks,
     stopWorkflow,
     forceStopThread,
     awaitBackgroundTasks,

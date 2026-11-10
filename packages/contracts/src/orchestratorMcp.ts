@@ -309,6 +309,10 @@ export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   status: OrchestratorMcpDelegatedTaskStatus,
   workState: Schema.Literals(["working", "waiting_for_children", "result_available"]),
   hasPendingChildRuns: Schema.Boolean,
+  pausedByParentStop: Schema.optional(Schema.Literal(true)).annotate({
+    description:
+      "Stopping its parent thread interrupted it. The parent's next message from a person continues it as a new task, so do not delegate it again.",
+  }),
   latestTerminalRunId: Schema.NullOr(RunId),
   latestTerminalStatus: Schema.NullOr(OrchestratorMcpTerminalDelegatedTaskStatus),
   latestTerminalSummary: Schema.NullOr(Schema.String),

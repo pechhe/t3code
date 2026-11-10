@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
+import { isSubagentPausedByParentStop } from "@t3tools/client-runtime/state/subagentRuntime";
 import { isSubagentDoer } from "@t3tools/client-runtime/state/threads";
 import {
   agentTaskTopic,
@@ -315,7 +316,7 @@ function FinishedSubagentRow(props: {
   const role = shell?.source.agentTask?.role;
   const message = shell?.source.latestVisibleMessage;
   const summary = message?.role === "assistant" ? message.text.trim() : (subagent.result ?? "");
-  const outcome = subagentFinishedOutcome(subagent.status);
+  const outcome = subagentFinishedOutcome(subagent.status, isSubagentPausedByParentStop(subagent));
   const OutcomeIcon = outcome.icon;
   const startedAt = subagent.startedAt === null ? null : DateTime.formatIso(subagent.startedAt);
   const completedAt =

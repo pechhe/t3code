@@ -5,7 +5,10 @@ import {
 } from "@t3tools/client-runtime/work-log/presentation";
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { AgentElapsed } from "./AgentElapsed";
-import { projectedSubagentsToRuntime } from "@t3tools/client-runtime/state/subagentRuntime";
+import {
+  isSubagentPausedByParentStop,
+  projectedSubagentsToRuntime,
+} from "@t3tools/client-runtime/state/subagentRuntime";
 import type { ReactNode } from "react";
 import { useThreadShell, useProject } from "../../state/entities";
 import { useEnvironment } from "../../state/environments";
@@ -638,7 +641,9 @@ function SubagentTimelineLink(props: {
       />
     );
   }
-  const outcome = settled ? subagentFinishedOutcome(status) : null;
+  const outcome = settled
+    ? subagentFinishedOutcome(status, agent ? isSubagentPausedByParentStop(agent) : false)
+    : null;
   const OutcomeIcon = outcome?.icon ?? null;
   const showDetail = detail !== null && (failed || isSubagentDoer(role));
   const content = (

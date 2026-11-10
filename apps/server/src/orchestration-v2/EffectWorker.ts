@@ -646,6 +646,19 @@ export const layerExecutor: Layer.Layer<
                     }),
                 ),
               );
+          case "delegated-tasks.resume":
+            return threads
+              .resumeDelegatedTasks({ threadId: effect.threadId, commandId: effect.commandId })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationEffectExecutionError({
+                      effectId: effect.id,
+                      effectType: effect.request.type,
+                      cause,
+                    }),
+                ),
+              );
           case "delegated-tasks.stop":
             return threads
               .stopDelegatedTasks({

@@ -381,6 +381,8 @@ export interface ProjectionRecordFilter {
    * run is active or `except` names them.
    */
   readonly omitSettledSubagents?: true | { readonly except: ReadonlyArray<NodeId> };
+  /** Only subagents a Stop of their thread paused. */
+  readonly pausedSubagents?: true;
 }
 
 // A fork inherits its source's history before it has messages of its own,
@@ -3676,6 +3678,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             WHERE ${threadColumn(filter?.subagentIds)} = ${threadId}
               ${filter?.subagentIds === undefined ? sql`` : sql`AND subagent_id IN (SELECT value FROM json_each(${encodeIdList(filter.subagentIds)}))`}
               ${filter?.subagentRunIds === undefined ? sql`` : sql`AND run_id IN (SELECT value FROM json_each(${encodeIdList(filter.subagentRunIds)}))`}
+              ${filter?.pausedSubagents === true ? sql`AND json_extract(payload_json, '$.pausedByParentStop') = 1` : sql``}
               ${
                 filter?.omitSettledSubagents !== undefined
                   ? sql`AND (${

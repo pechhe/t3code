@@ -6,6 +6,8 @@ import { neverStarted } from "./RestartBackgroundNote.ts";
 
 export const UNATTENDED_CONTINUATION_MESSAGE_PREFIX = "message:unattended-continuation:";
 export const ARC_RUN_WAKE_MESSAGE_PREFIX = "message:arc-run-wake:";
+/** A task's continuation after its parent's Stop: it resumes the thread like its owner's message. */
+export const PAUSED_TASK_RESUME_MESSAGE_PREFIX = "message:paused-task-resume:";
 
 /** Server continuations in a row without the owner; past this, T3 stops continuing on its own. */
 export const MAX_CONTINUATION_CHAIN = 3;

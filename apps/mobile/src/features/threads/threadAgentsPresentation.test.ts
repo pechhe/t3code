@@ -62,6 +62,20 @@ describe("resolveSubagentRowPresentation", () => {
     expect(row.tone).toBe("failed");
   });
 
+  it("reads a task its parent's Stop interrupted as paused, not working", () => {
+    const paused = resolveSubagentRowPresentation({
+      ...base,
+      status: "interrupted",
+      pausedByParentStop: true,
+    });
+    const plain = resolveSubagentRowPresentation({ ...base, status: "interrupted" });
+
+    expect(paused.statusLabel).toBe("Paused");
+    expect(paused.live).toBe(false);
+    expect(paused.tone).toBe("stopped");
+    expect(plain.statusLabel).toBe("Interrupted");
+  });
+
   it("falls back to a trimmed prompt when the agent has no title", () => {
     const long = resolveSubagentRowPresentation({ ...base, prompt: "x".repeat(200) });
     const titled = resolveSubagentRowPresentation({ ...base, title: "Subagent: /root/my_worker" });

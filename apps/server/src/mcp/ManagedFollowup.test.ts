@@ -339,18 +339,39 @@ it.effect(
         expect(afterRestart.childThreadId).toBe(childId);
         expect(sends).toBe(beforeRestart + 1);
         child = { ...child, thread: { ...child.thread, agentTask: binding } };
+        // A Stop that interrupted the task, its own or its parent's, leaves it open to continue.
+        child = { ...child, runs: child.runs.map((run) => ({ ...run, status: "interrupted" })) };
         parent = {
           ...parent,
           subagents: parent.subagents.map((task) => ({
             ...task,
+            status: "interrupted",
+            result: "Interrupted.",
+            completionDelivery: { state: "disposed", observedByRunId: null, stopped: true },
+          })),
+        };
+        const beforeStop = sends;
+        expect(
+          (yield* service.delegateTask(scope, { ...input, clientRequestId: "after-stop" }))
+            .childThreadId,
+        ).toBe(childId);
+        expect(sends).toBe(beforeStop + 1);
+        child = { ...child, runs: child.runs.map((run) => ({ ...run, status: "interrupted" })) };
+        // task_cancel closes it.
+        parent = {
+          ...parent,
+          subagents: parent.subagents.map((task) => ({
+            ...task,
+            status: "interrupted",
+            result: "Interrupted.",
             completionDelivery: { state: "disposed", observedByRunId: null },
           })),
         };
-        expect(
-          (yield* service
-            .delegateTask(scope, { ...input, clientRequestId: "closed" })
-            .pipe(Effect.flip)).code,
-        ).toBe("invalid_request");
+        const closed = yield* service
+          .delegateTask(scope, { ...input, clientRequestId: "closed" })
+          .pipe(Effect.flip);
+        expect(closed.code).toBe("invalid_request");
+        expect(closed.message).toContain("closed");
         expect(
           (yield* service
             .delegateTask(scope, {

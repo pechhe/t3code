@@ -79,6 +79,7 @@ import {
   resolveProjectProviderInstanceEnabled,
   type ProviderSessionId,
   RunId,
+  type ScheduledTaskId,
   RuntimeMode,
   ThreadLinkedPullRequest,
   ThreadId,
@@ -153,7 +154,11 @@ import {
   decideArcRunWake,
   latestArcRunTurn,
 } from "./arcRun.ts";
-import { ARC_RUN_WAKE_MESSAGE_PREFIX, serverContinuationCapReached } from "./serverContinuation.ts";
+import {
+  ARC_RUN_WAKE_MESSAGE_PREFIX,
+  PAUSED_TASK_RESUME_MESSAGE_PREFIX,
+  serverContinuationCapReached,
+} from "./serverContinuation.ts";
 import {
   isBufferedProviderNotification,
   isUndeliveredMailboxSteer,
@@ -747,6 +752,39 @@ function pendingThreadTitleGenerationEffect(
   };
 }
 
+/** A person's message from a client resumes a stopped thread, and so does a task's resume. */
+function resumesStoppedThread(message: {
+  readonly messageId: MessageId;
+  readonly createdBy: OrchestrationV2ConversationMessage["createdBy"];
+  readonly creationSource: OrchestrationV2ConversationMessage["creationSource"];
+  readonly scheduledTaskId?: ScheduledTaskId | undefined;
+}): boolean {
+  return (
+    (message.createdBy === "user" &&
+      (message.creationSource === "web" || message.creationSource === "mobile") &&
+      message.scheduledTaskId === undefined) ||
+    message.messageId.startsWith(PAUSED_TASK_RESUME_MESSAGE_PREFIX)
+  );
+}
+
+/** A Stop that paused tasks left their run's cohort stopped; other threads skip the resume. */
+function mayHavePausedTasks(runs: ReadonlyArray<OrchestrationV2Run>): boolean {
+  return runs.some((run) => run.delegatedCompletion?.disposition === "stopped");
+}
+
+function pausedTasksResumeEffect(input: {
+  readonly commandId: CommandId;
+  readonly threadId: ThreadId;
+  readonly runId: RunId;
+}): PendingOrchestrationEffectV2 {
+  return {
+    id: `effect:${input.commandId}:delegated-tasks.resume:${input.runId}`,
+    commandId: input.commandId,
+    threadId: input.threadId,
+    request: { type: "delegated-tasks.resume" },
+  };
+}
+
 function delegatedTasksStopEffect(command: {
   readonly commandId: CommandId;
   readonly threadId: ThreadId;
@@ -799,7 +837,8 @@ function mayStartSubagentFollowup(
   return (
     command.createdBy === "user" ||
     command.creationSource === "mcp" ||
-    command.usageLimitContinuationOfRunId !== undefined
+    command.usageLimitContinuationOfRunId !== undefined ||
+    command.messageId.startsWith(PAUSED_TASK_RESUME_MESSAGE_PREFIX)
   );
 }
 
@@ -2806,6 +2845,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             threadId,
             request: { type: "provider-turn.start", runId: queuedRun.id },
           },
+          ...(queuedMessage !== undefined &&
+          mayHavePausedTasks(projection.runs) &&
+          resumesStoppedThread({ ...queuedMessage, messageId: queuedMessage.id })
+            ? [pausedTasksResumeEffect({ commandId, threadId, runId: queuedRun.id })]
+            : []),
         ],
       );
     },
@@ -3029,6 +3073,29 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
       return plan.parentRun?.id;
     }
+    const { pausedByParentStop: _paused, ...unpausedTask } = task;
+    // Cancelling a task a Stop disposed closes it, so it is neither continued nor resumed.
+    if (
+      state === "disposed" &&
+      task.completionDelivery?.state === "disposed" &&
+      (task.completionDelivery.stopped === true || task.pausedByParentStop === true)
+    ) {
+      yield* emitEvent({
+        type: "subagent.updated",
+        threadId: command.parentThreadId,
+        ...(task.runId === null ? {} : { runId: task.runId }),
+        nodeId: task.id,
+        driver: task.driver,
+        providerInstanceId: task.providerInstanceId,
+        occurredAt: now,
+        payload: {
+          ...unpausedTask,
+          completionDelivery: { state, observedByRunId: null },
+          updatedAt: now,
+        },
+      });
+      return;
+    }
     // task_status and t3_thread_read use distinct command IDs, so two
     // valid observations can race after their read preflight. Re-emit the
     // existing task row so the second dispatch is a successful idempotent
@@ -3051,7 +3118,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return;
     }
     const updatedTask: OrchestrationV2Subagent = {
-      ...task,
+      ...(state === "disposed" ? unpausedTask : task),
       completionDelivery: {
         state,
         observedByRunId:
@@ -3275,6 +3342,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           completionDelivery: {
             state: "disposed",
             observedByRunId: null,
+            ...(input.disposition === "stopped" ? { stopped: true as const } : {}),
           },
           updatedAt: input.now,
         },
@@ -7627,11 +7695,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       command.createdBy === "user" &&
       (command.creationSource === "web" || command.creationSource === "mobile") &&
       command.scheduledTaskId === undefined;
+    const resumesThread = resumesStoppedThread(command);
     // Whatever a held Arc run is sent waits for its owner's message, which releases the queue, so a
     // question or a delegated result is neither a new turn nor lost. Compaction is not a turn.
     const arcRunHoldsMessage =
       isArcRunHeld(projection.thread.arcRun) &&
-      !sentByUserFromClient &&
+      !resumesThread &&
       command.idleCompaction === undefined &&
       !command.messageId.startsWith(ARC_RUN_WAKE_MESSAGE_PREFIX);
     const queueBehindRun =
@@ -7696,7 +7765,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     }
     const heldRunsToRelease =
-      sentByUserFromClient && startsOrQueuesRun && !worktreeSetupUnresolved
+      resumesThread && startsOrQueuesRun && !worktreeSetupUnresolved
         ? projection.runs.filter((run) => run.status === "queued" && run.queueHeld === true)
         : [];
     const releasedAt = yield* DateTime.now;
@@ -8483,6 +8552,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       } satisfies PendingOrchestrationEffectV2;
       if (dispatchMode.type !== "defer_start") {
         yield* Ref.update(effects, (existing) => [...existing, pendingEffect]);
+      }
+      if (resumesThread && mayHavePausedTasks(projection.runs)) {
+        yield* Ref.update(effects, (existing) => [
+          ...existing,
+          pausedTasksResumeEffect({
+            commandId: command.commandId,
+            threadId: command.threadId,
+            runId,
+          }),
+        ]);
       }
       return;
     }
@@ -9858,8 +9937,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const now = message.createdAt;
     const adapter = yield* providerAdapters.get(run.providerInstanceId);
     const taskId = idAllocator.derive.delegatedTaskNode({ commandId: command.commandId });
+    const { pausedByParentStop: _paused, ...unpausedOriginal } = original;
     const task: OrchestrationV2Subagent = {
-      ...original,
+      ...unpausedOriginal,
       createdBy: command.createdBy,
       driver: adapter.driver,
       id: taskId,
@@ -9922,6 +10002,24 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       result: null,
     };
     const emitEvent = emit(events, command);
+    // The new task carries the conversation on, so the tasks a Stop paused there are resumed.
+    const { subagents: paused } = yield* projectionStore
+      .getThreadRecords(parentThreadId, ["subagents"], { pausedSubagents: true })
+      .pipe(mapDispatchError(command));
+    for (const pausedTask of paused) {
+      if (pausedTask.childThreadId !== child.id) continue;
+      const { pausedByParentStop: _pausedTask, ...resumed } = pausedTask;
+      yield* emitEvent({
+        type: "subagent.updated",
+        threadId: parentThreadId,
+        ...(pausedTask.runId === null ? {} : { runId: pausedTask.runId }),
+        nodeId: pausedTask.id,
+        driver: pausedTask.driver,
+        providerInstanceId: pausedTask.providerInstanceId,
+        occurredAt: now,
+        payload: { ...resumed, updatedAt: now },
+      });
+    }
     yield* emitEvent({
       type: "run.updated",
       threadId: child.id,
@@ -13027,6 +13125,26 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         },
       });
     }
+    // Read before the disposals below, which leave a stopped task's row looking settled.
+    for (const task of subagents) {
+      if (
+        task.origin !== "app_owned" ||
+        task.childThreadId === null ||
+        task.pausedByParentStop === true ||
+        !(task.status === "idle" || isOrchestrationV2WorkActive(task.status))
+      )
+        continue;
+      yield* emitEvent({
+        type: "subagent.updated",
+        threadId: thread.id,
+        ...(task.runId === null ? {} : { runId: task.runId }),
+        nodeId: task.id,
+        driver: task.driver,
+        providerInstanceId: task.providerInstanceId,
+        occurredAt: input.now,
+        payload: { ...task, pausedByParentStop: true, updatedAt: input.now },
+      });
+    }
     const cohortRunIds = new Set(input.cohortRunIds);
     for (const run of runs) {
       if (run.delegatedCompletion?.delivery != null) cohortRunIds.add(run.id);
@@ -14089,6 +14207,41 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     }
     const now = yield* DateTime.now;
+    // A tree walk stops a child whose turn ended but whose run still waits (on its checkpoint or
+    // on work under it), so its task ends interrupted rather than reporting a run that is over.
+    if (
+      command.stopDelegatedTasks === false &&
+      target === undefined &&
+      latestRun?.status === "waiting"
+    ) {
+      const rootNode =
+        latestRun.rootNodeId === null
+          ? undefined
+          : (yield* projectionStore
+              .getThreadRecords(command.threadId, ["nodes"], { nodeIds: [latestRun.rootNodeId] })
+              .pipe(mapDispatchError(command))).nodes[0];
+      const emitEvent = emit(events, command);
+      if (rootNode !== undefined) {
+        yield* emitEvent({
+          type: "node.updated",
+          threadId: command.threadId,
+          runId: latestRun.id,
+          nodeId: rootNode.id,
+          providerInstanceId: latestRun.providerInstanceId,
+          occurredAt: now,
+          payload: { ...rootNode, status: "interrupted", completedAt: now },
+        });
+      }
+      yield* emitEvent({
+        type: "run.updated",
+        threadId: command.threadId,
+        runId: latestRun.id,
+        ...(latestRun.rootNodeId === null ? {} : { nodeId: latestRun.rootNodeId }),
+        providerInstanceId: latestRun.providerInstanceId,
+        occurredAt: now,
+        payload: { ...latestRun, status: "interrupted", completedAt: now },
+      });
+    }
     // Record that Stop reached the turn it could not interrupt and the thread's last executed
     // run, so a late tool call from their agent starts nothing.
     const executed = latestExecutedRun(projection.runs);

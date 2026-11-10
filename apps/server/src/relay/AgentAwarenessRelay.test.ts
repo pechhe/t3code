@@ -261,6 +261,7 @@ const makeTestRelay = Effect.fnUntraced(function* (
     forceStopThread: () => Effect.die("unused forceStopThread"),
     awaitBackgroundTasks: unused,
     stopDelegatedTasks: unused,
+    resumeDelegatedTasks: unused,
     getThreadEventSequence: unused,
     recoverDelegatedTask: unused,
     delegatedTaskResultPending: unused,

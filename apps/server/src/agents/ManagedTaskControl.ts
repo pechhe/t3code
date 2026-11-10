@@ -211,8 +211,11 @@ export const layer = Layer.effect(
       const parentTask = parentProjection.subagents.find(
         (task) => task.id === input.taskId && task.origin === "app_owned",
       );
+      // A Stop's disposal leaves the task open; cancelling closes it.
       const disposeCompletionDelivery =
-        parentTask?.completionDelivery?.state === "disposed"
+        parentTask?.completionDelivery?.state === "disposed" &&
+        parentTask.completionDelivery.stopped !== true &&
+        parentTask.pausedByParentStop !== true
           ? Effect.void
           : dispatch({
               type: "delegated_task.completion-delivery.dispose",

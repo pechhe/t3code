@@ -89,6 +89,16 @@ export function isTerminalSubagentStatus(status: RuntimeSubagentStatus): boolean
   return TERMINAL_STATUSES.has(status);
 }
 
+/** A task its parent's Stop interrupted; its status stays `interrupted`, and the parent's next message resumes it. */
+export function isSubagentPausedByParentStop(subagent: {
+  readonly status: RuntimeSubagentStatus;
+  readonly pausedByParentStop?: true | undefined;
+}): boolean {
+  return subagent.status === "interrupted" && subagent.pausedByParentStop === true;
+}
+
+export const PAUSED_SUBAGENT_LABEL = "Paused";
+
 export function isActiveSubagentStatus(status: RuntimeSubagentStatus): boolean {
   return isOrchestrationV2WorkActive(status);
 }

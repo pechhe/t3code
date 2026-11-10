@@ -1009,6 +1009,8 @@ export type OrchestrationV2DelegatedCompletionTaskDeliveryState =
 export const OrchestrationV2DelegatedCompletionTaskDelivery = Schema.Struct({
   state: OrchestrationV2DelegatedCompletionTaskDeliveryState,
   observedByRunId: Schema.NullOr(RunId),
+  /** Disposed by a Stop, which leaves the task open to a follow-up; any other disposal closes it. */
+  stopped: Schema.optional(Schema.Literal(true)),
 });
 export type OrchestrationV2DelegatedCompletionTaskDelivery =
   typeof OrchestrationV2DelegatedCompletionTaskDelivery.Type;
@@ -1332,6 +1334,11 @@ export const OrchestrationV2Subagent = Schema.Struct({
   /** Hash of the delegate_task request that created it, so a retry can tell a changed request. */
   requestFingerprint: Schema.optional(Schema.String),
   completionDelivery: Schema.optional(OrchestrationV2DelegatedCompletionTaskDelivery),
+  /**
+   * Its parent's Stop interrupted it. The parent's next message from a person continues it as a
+   * new task in the same conversation, which clears this.
+   */
+  pausedByParentStop: Schema.optional(Schema.Literal(true)),
   status: Schema.Literals([
     "idle",
     "pending",

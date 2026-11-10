@@ -5,6 +5,8 @@ import {
 } from "@t3tools/client-runtime/state/subagent-display";
 import {
   isActiveSubagentStatus,
+  isSubagentPausedByParentStop,
+  PAUSED_SUBAGENT_LABEL,
   type RuntimeSubagent,
   type SubagentWorkflowGroup,
 } from "@t3tools/client-runtime/state/subagentRuntime";
@@ -70,7 +72,10 @@ function rowTone(status: OrchestrationV2Subagent["status"]): SubagentRowTone {
   return "stopped";
 }
 
-function rowStatusLabel(status: OrchestrationV2Subagent["status"]): string {
+function rowStatusLabel(
+  status: OrchestrationV2Subagent["status"],
+  pausedByParentStop: boolean,
+): string {
   switch (status) {
     case "pending":
     case "running":
@@ -86,14 +91,21 @@ function rowStatusLabel(status: OrchestrationV2Subagent["status"]): string {
     case "cancelled":
       return "Cancelled";
     case "interrupted":
-      return "Interrupted";
+      return pausedByParentStop ? PAUSED_SUBAGENT_LABEL : "Interrupted";
   }
 }
 
 export function resolveSubagentRowPresentation(
   subagent: Pick<
     OrchestrationV2Subagent,
-    "title" | "prompt" | "status" | "progress" | "result" | "childThreadId" | "remoteChild"
+    | "title"
+    | "prompt"
+    | "status"
+    | "pausedByParentStop"
+    | "progress"
+    | "result"
+    | "childThreadId"
+    | "remoteChild"
   >,
   canOpenRemote = false,
 ): SubagentRowPresentation {
@@ -101,7 +113,7 @@ export function resolveSubagentRowPresentation(
   return {
     title: rowTitle(subagent),
     detail: subagentDetailPreview(subagent),
-    statusLabel: rowStatusLabel(subagent.status),
+    statusLabel: rowStatusLabel(subagent.status, isSubagentPausedByParentStop(subagent)),
     tone: rowTone(subagent.status),
     live,
     canOpenThread:

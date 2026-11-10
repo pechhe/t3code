@@ -599,6 +599,22 @@ function delegatedTaskRun(
     : childProjection.runs.find((run) => run.id === spawnTransfer.targetRunId);
 }
 
+const CLOSED_TASK_MESSAGE =
+  "This task is closed: task_cancel ended it, or its thread is archived. Delegate a fresh task for new work.";
+
+/** Cancelling a task closes its conversation; a Stop's disposal leaves it open to a follow-up. */
+function closedTask(
+  subagents: ReadonlyArray<OrchestrationV2Subagent>,
+  childThreadId: ThreadId | null,
+): boolean {
+  return subagents.some(
+    (task) =>
+      task.childThreadId === childThreadId &&
+      task.completionDelivery?.state === "disposed" &&
+      task.completionDelivery.stopped !== true,
+  );
+}
+
 function hasPendingChildRuns(
   childProjection: Pick<OrchestrationV2ThreadProjection, "runs">,
   delegatedRun: OrchestrationV2Run | undefined,
@@ -1910,6 +1926,7 @@ const make = Effect.gen(function* () {
       status,
       workState,
       hasPendingChildRuns: hasPendingChildRuns(childProjection, childRun),
+      ...(task.pausedByParentStop === true ? { pausedByParentStop: true as const } : {}),
       providerInstanceId: modelSelection.instanceId,
       model: modelSelection.model,
       executedModel: runExecutedModel(childControls, executionRun),
@@ -3326,21 +3343,20 @@ const make = Effect.gen(function* () {
             return yield* readTask(scope, deriveIds.delegatedTaskNode({ commandId }), false, true);
           }
           if (
+            closedTask(parent.subagents, current.childThreadId) ||
+            child.thread.archivedAt !== null
+          )
+            return yield* failure("invalid_request", CLOSED_TASK_MESSAGE);
+          if (
             current.workState !== "result_available" ||
             // Status may derive a terminal child result before parent publication.
             // Orchestration creates a consultation task only after that publication.
             !parent.subagents.some((task) => task.id === followup.taskId && task.result !== null) ||
-            current.hasPendingChildRuns ||
-            parent.subagents.some(
-              (task) =>
-                task.childThreadId === current.childThreadId &&
-                task.completionDelivery?.state === "disposed",
-            ) ||
-            child.thread.archivedAt !== null
+            current.hasPendingChildRuns
           )
             return yield* failure(
               "invalid_request",
-              "The agent is busy, awaiting result publication, or closed. Retry after publication; delegate a fresh task for new work.",
+              "The agent is busy or awaiting result publication. Retry after publication.",
             );
           const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
           if (Option.isNone(managed))
@@ -3352,20 +3368,15 @@ const make = Effect.gen(function* () {
               deriveIds.delegatedTaskNode({ commandId }),
             ]);
             yield* assertLiveCaller(scope, owned);
+            if (closedTask(owned.subagents, current.childThreadId))
+              return yield* failure("invalid_request", CLOSED_TASK_MESSAGE);
             if (
               refreshed.hasPendingChildRuns ||
-              !owned.subagents.some(
-                (task) => task.id === followup.taskId && task.result !== null,
-              ) ||
-              owned.subagents.some(
-                (task) =>
-                  task.childThreadId === current.childThreadId &&
-                  task.completionDelivery?.state === "disposed",
-              )
+              !owned.subagents.some((task) => task.id === followup.taskId && task.result !== null)
             )
               return yield* failure(
                 "invalid_request",
-                "The agent is busy, awaiting result publication, or closed. If the advisor is closed, start a new advisor.",
+                "The agent is busy or awaiting result publication. Retry after publication.",
               );
             // A task sent to another project stays there, where the caller holds a workspace
             // only while it has one attached.

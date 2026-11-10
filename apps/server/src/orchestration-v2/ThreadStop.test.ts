@@ -2,6 +2,7 @@ import { assert, it } from "@effect/vitest";
 import {
   CommandId,
   ContextTransferId,
+  EnvironmentId,
   EventId,
   MessageId,
   NodeId,
@@ -25,6 +26,7 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 import * as EventStore from "./EventStore.ts";
+import * as EventSink from "./EventSink.ts";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -631,6 +633,204 @@ it.effect.each(["run.interrupt", "thread.stop"] as const)(
         [stopCommandId],
       );
     }).pipe(Effect.provide(layerTest)),
+);
+
+// A task settles under its parent once the terminal reactor publishes its result.
+const settledTask = (threadId: ThreadId, childThreadId: ThreadId) =>
+  Effect.gen(function* () {
+    const sink = yield* EventSink.EventSinkV2;
+    yield* sink.stream({ threadId, eventType: "subagent.updated" }).pipe(
+      Stream.filter(
+        ({ event }) =>
+          event.type === "subagent.updated" &&
+          event.payload.childThreadId === childThreadId &&
+          event.payload.result !== null,
+      ),
+      Stream.take(1),
+      Stream.runDrain,
+    );
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    return (yield* orchestrator.getThreadProjection(threadId)).subagents.find(
+      (task) => task.childThreadId === childThreadId && task.result !== null,
+    )!;
+  });
+
+const resumeEffects = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  return yield* sql<{ readonly thread_id: string; readonly command_id: string }>`
+    SELECT thread_id, command_id FROM orchestration_v2_effect_outbox
+    WHERE effect_type = 'delegated-tasks.resume'
+  `;
+});
+
+it.effect("Stop pauses its tasks, and the next message a person sends resumes each of them", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const threads = yield* ThreadManagementService.ThreadManagementService;
+    const parentThreadId = ThreadId.make("thread:pause-parent");
+    yield* createWatchingThread(parentThreadId, 1);
+    yield* send(parentThreadId, "first", "start_immediately");
+    const childThreadId = yield* delegate(parentThreadId, "paused child");
+    const grandchildThreadId = yield* delegate(childThreadId, "paused grandchild");
+    const liveRun = (yield* orchestrator.getThreadProjection(parentThreadId)).runs.at(-1)!;
+    yield* orchestrator.dispatch({
+      type: "delegated_task.remote.request",
+      commandId: CommandId.make("pause-remote-delegate"),
+      parentThreadId,
+      parentRunId: liveRun.id,
+      parentNodeId: liveRun.rootNodeId!,
+      task: "Run the suite there.",
+      driver: ProviderDriverKind.make("remote"),
+      modelSelection,
+      remoteChild: {
+        environmentId: EnvironmentId.make("environment:box"),
+        threadId: ThreadId.make("thread:pause-on-the-box"),
+        label: "Box",
+      },
+      completionWake: "always",
+    });
+
+    const stopCommandId = CommandId.make("pause-stop");
+    yield* orchestrator.dispatch({
+      type: "thread.stop",
+      commandId: stopCommandId,
+      threadId: parentThreadId,
+    });
+    yield* threads.stopDelegatedTasks({ threadId: parentThreadId, commandId: stopCommandId });
+    const paused = yield* settledTask(parentThreadId, childThreadId);
+    assert.equal(paused.status, "interrupted");
+    assert.isTrue(paused.pausedByParentStop);
+    assert.deepEqual(paused.completionDelivery, {
+      state: "disposed",
+      observedByRunId: null,
+      stopped: true,
+    });
+    assert.isTrue((yield* settledTask(childThreadId, grandchildThreadId)).pausedByParentStop);
+    // A task in a linked environment is stopped there, never paused or resumed here.
+    const remoteTask = () =>
+      orchestrator
+        .getThreadProjection(parentThreadId)
+        .pipe(Effect.map((p) => p.subagents.find((task) => task.remoteChild !== undefined)!));
+    assert.isUndefined((yield* remoteTask()).pausedByParentStop);
+
+    // Only a person coming back resumes the tasks; an agent's message on the thread does not.
+    const before = (yield* resumeEffects).length;
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("pause-agent-send"),
+      threadId: parentThreadId,
+      messageId: MessageId.make("message:pause-agent-send"),
+      text: "agent nudge",
+      attachments: [],
+      dispatchMode: { type: "queue_after_active" },
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    assert.lengthOf(yield* resumeEffects, before);
+    const nudge = (yield* orchestrator.getThreadProjection(parentThreadId)).runs.at(-1)!;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const now = yield* DateTime.now;
+    yield* projections.apply({
+      id: EventId.make("event:pause:nudge-completed"),
+      type: "run.updated",
+      threadId: parentThreadId,
+      runId: nudge.id,
+      occurredAt: now,
+      payload: { ...nudge, status: "completed", completedAt: now },
+    });
+
+    yield* send(parentThreadId, "carry on", "start_immediately");
+    const resume = (yield* resumeEffects)[before];
+    assert.equal(resume?.thread_id, parentThreadId);
+    yield* threads.resumeDelegatedTasks({
+      threadId: parentThreadId,
+      commandId: CommandId.make(resume!.command_id),
+    });
+    const parent = yield* orchestrator.getThreadProjection(parentThreadId);
+    const parentRun = parent.runs.at(-1)!;
+    const continued = parent.subagents.find(
+      (task) => task.childThreadId === childThreadId && task.id !== paused.id,
+    )!;
+    assert.equal(continued.runId, parentRun.id);
+    assert.equal(continued.status, "running");
+    assert.deepEqual(continued.completionDelivery, { state: "pending", observedByRunId: null });
+    assert.isUndefined(continued.pausedByParentStop);
+    assert.isUndefined(parent.subagents.find((task) => task.id === paused.id)?.pausedByParentStop);
+    assert.lengthOf(
+      parent.subagents.filter((task) => task.remoteChild !== undefined),
+      1,
+    );
+    const child = yield* orchestrator.getThreadProjection(childThreadId);
+    assert.equal(child.runs.at(-1)?.delegatedTaskId, continued.id);
+    assert.equal(child.runs.at(-1)?.status, "starting");
+
+    // The resumed child resumes its own paused task in turn.
+    const childResume = (yield* resumeEffects)
+      .slice(before)
+      .find((row) => row.thread_id === childThreadId);
+    assert.isDefined(childResume);
+    yield* threads.resumeDelegatedTasks({
+      threadId: childThreadId,
+      commandId: CommandId.make(childResume!.command_id),
+    });
+    const grandchild = yield* orchestrator.getThreadProjection(grandchildThreadId);
+    assert.equal(grandchild.runs.at(-1)?.status, "starting");
+    assert.isDefined(grandchild.runs.at(-1)?.delegatedTaskId);
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("a waiting child stops with its parent, and cancelling a paused task closes it", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threads = yield* ThreadManagementService.ThreadManagementService;
+    const parentThreadId = ThreadId.make("thread:pause-waiting");
+    yield* createWatchingThread(parentThreadId, 1);
+    yield* send(parentThreadId, "first", "start_immediately");
+    const childThreadId = yield* delegate(parentThreadId, "waiting child");
+    // Its turn ended, but its run still waits, with no background work.
+    const childRun = (yield* orchestrator.getThreadProjection(childThreadId)).runs[0]!;
+    const now = yield* DateTime.now;
+    yield* projections.apply({
+      id: EventId.make("event:pause-waiting:child-waiting"),
+      type: "run.updated",
+      threadId: childThreadId,
+      runId: childRun.id,
+      occurredAt: now,
+      payload: { ...childRun, status: "waiting" },
+    });
+
+    const stopCommandId = CommandId.make("pause-waiting-stop");
+    yield* orchestrator.dispatch({
+      type: "thread.stop",
+      commandId: stopCommandId,
+      threadId: parentThreadId,
+    });
+    yield* threads.stopDelegatedTasks({ threadId: parentThreadId, commandId: stopCommandId });
+    assert.deepEqual((yield* threadState(childThreadId)).runs, ["interrupted"]);
+    const paused = yield* settledTask(parentThreadId, childThreadId);
+    assert.equal(paused.status, "interrupted");
+    assert.isTrue(paused.pausedByParentStop);
+
+    yield* orchestrator.dispatch({
+      type: "delegated_task.completion-delivery.dispose",
+      commandId: CommandId.make("pause-waiting-cancel"),
+      parentThreadId,
+      taskId: paused.id,
+    });
+    const cancelled = (yield* orchestrator.getThreadProjection(parentThreadId)).subagents.find(
+      (task) => task.id === paused.id,
+    )!;
+    assert.isUndefined(cancelled.pausedByParentStop);
+    assert.deepEqual(cancelled.completionDelivery, { state: "disposed", observedByRunId: null });
+
+    yield* send(parentThreadId, "carry on", "start_immediately");
+    yield* threads.resumeDelegatedTasks({
+      threadId: parentThreadId,
+      commandId: CommandId.make("pause-waiting-resume"),
+    });
+    assert.deepEqual((yield* threadState(childThreadId)).runs, ["interrupted"]);
+  }).pipe(Effect.provide(layerTest)),
 );
 
 it.effect("a repeated Stop that changes nothing still stops the delegated tasks", () =>
