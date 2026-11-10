@@ -294,6 +294,11 @@ on the runner.
 `node scripts/test-landing.ts --plan` prints the selection and commands without running them, and
 `--replay` prints what the last 30 first-parent integration commits would have run and deferred,
 with each one's estimate.
+A run that executes tests restarts itself on the `engines.node` pin through the global Vite+
+CLI (`vp env exec --node=<pin>`, which downloads a missing runtime), so a gate host whose `node`
+is older than the pin still tests on the pinned runtime. When that cannot provide it, the gate
+fails with what it tried rather than testing on the host's Node. `--plan` reads only the tree and
+needs neither.
 Each listing and each Vitest run prints a `Vitest list|run <workspace>` line on stderr with the
 contexts it built and its load, discovery, tests and close times, so a slow gate shows whether
 Vitest setup or the tests themselves took the time.

@@ -33,6 +33,73 @@ import {
 import { listTests, mapConcurrently, runCommand, VITEST_FLAGS } from "./lib/test-landing-vitest.ts";
 
 const ROOT = NodePath.resolve(import.meta.dirname, "..");
+const ENGINES_NODE = (
+  JSON.parse(NodeFS.readFileSync(NodePath.join(ROOT, "package.json"), "utf8")) as {
+    engines?: { node?: string };
+  }
+).engines?.node;
+// Only an exact pin can be compared with the running version; a range is left to the host.
+const PINNED_NODE =
+  ENGINES_NODE !== undefined && /^\d+\.\d+\.\d+$/.test(ENGINES_NODE) ? ENGINES_NODE : undefined;
+
+/** What the gate does about its Node runtime before it runs tests. */
+export type PinnedNodeDecision =
+  | { readonly kind: "run" }
+  | { readonly kind: "restart"; readonly executable: string; readonly args: ReadonlyArray<string> }
+  | { readonly kind: "fail"; readonly message: string };
+
+// A gate host can resolve an older system Node than `engines.node`, and the tests use Node 26 APIs
+// (StatementSync#stat), so a run that executes tests restarts on the runtime Vite+ manages. `--plan`
+// only reads the tree, and the suite proves it needs nothing outside the repository.
+export function pinnedNodeDecision(input: {
+  readonly pin: string | undefined;
+  readonly running: string;
+  readonly restarted: boolean;
+  readonly args: ReadonlyArray<string>;
+}): PinnedNodeDecision {
+  const { pin } = input;
+  if (pin === undefined || input.args.includes("--plan") || input.running === pin)
+    return { kind: "run" };
+  if (input.restarted)
+    return {
+      kind: "fail",
+      message: `The landing gate runs tests on Node ${pin}, and vp started ${input.running}.`,
+    };
+  return {
+    kind: "restart",
+    executable: "vp",
+    args: ["env", "exec", `--node=${pin}`, "node", import.meta.filename, ...input.args],
+  };
+}
+
+function runOnPinnedNode(args: ReadonlyArray<string>) {
+  const decision = pinnedNodeDecision({
+    pin: PINNED_NODE,
+    running: process.versions.node,
+    restarted: process.env.T3_LANDING_PINNED_NODE !== undefined,
+    args,
+  });
+  if (decision.kind === "run") return;
+  if (decision.kind === "fail") {
+    console.error(decision.message);
+    process.exit(1);
+  }
+  const child = NodeChildProcess.spawnSync(decision.executable, decision.args, {
+    stdio: "inherit",
+    env: { ...process.env, T3_LANDING_PINNED_NODE: process.versions.node },
+  });
+  // A spawn error means vp is missing; any exit status is the restarted gate's own result, and the
+  // restarted run (or vp, when it cannot provide the runtime) has already said why it failed.
+  if (child.error !== undefined) {
+    console.error(
+      `The landing gate runs tests on Node ${PINNED_NODE} and started ${process.versions.node}; ` +
+        `\`vp env exec --node=${PINNED_NODE}\` could not start: ${child.error.message}. ` +
+        `Install the global Vite+ CLI, or run the gate on Node ${PINNED_NODE}.`,
+    );
+    process.exit(1);
+  }
+  process.exit(child.status ?? 1);
+}
 const SHA = /^[0-9a-f]{40}$/;
 const CODE = /\.[cm]?[jt]sx?$/;
 const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
@@ -1220,6 +1287,7 @@ if (import.meta.main) {
   } else if (args[0] === "--durations" && args[1]) {
     recordDurations(NodePath.resolve(args[1]));
   } else {
+    runOnPinnedNode(args);
     process.exitCode = await run(args);
   }
 }

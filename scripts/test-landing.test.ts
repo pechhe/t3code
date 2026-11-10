@@ -20,6 +20,7 @@ import {
   landingCommands as runCommands,
   planCandidate,
   plannedRuns,
+  pinnedNodeDecision,
   readQuarantine,
   readWorkspaces,
   relativeImports,
@@ -1389,8 +1390,8 @@ describe("audit", () => {
     assert.strictEqual(result.status, 0, result.stderr);
     assert.include(result.stdout, '"kind": "complete"');
     assert.include(result.stdout, "Landing quarantine exclusions: []");
-    assert.match(result.stdout, /\(cd apps\/server && node \S+test-landing-vitest\.ts run /);
-    assert.match(result.stdout, /\(cd packages\/shared && node \S+test-landing-vitest\.ts run /);
+    assert.match(result.stdout, /\(cd apps\/server && \S+ \S+test-landing-vitest\.ts run /);
+    assert.match(result.stdout, /\(cd packages\/shared && \S+ \S+test-landing-vitest\.ts run /);
     // Without a report directory from the runner, the audit still writes reports, to an evidence path.
     assert.include(result.stdout, ".t3/review/test-reports/vitest-packages-shared.json");
   });
@@ -1400,6 +1401,53 @@ describe("audit", () => {
       NodeFS.readFileSync(NodePath.join(REPOSITORY_ROOT, "package.json"), "utf8"),
     ) as { scripts: Record<string, string> };
     assert.strictEqual(manifest.scripts["test:audit"], "node scripts/test-landing.ts --audit");
+  });
+});
+
+describe("pinned node", () => {
+  const pin = "26.12.1";
+  const started = "24.21.0";
+
+  it("restarts a test run on the pinned Node through the global Vite+ CLI", () => {
+    assert.deepStrictEqual(
+      pinnedNodeDecision({ pin, running: started, restarted: false, args: ["--audit"] }),
+      {
+        kind: "restart",
+        executable: "vp",
+        args: [
+          "env",
+          "exec",
+          `--node=${pin}`,
+          "node",
+          NodePath.join(REPOSITORY_ROOT, "scripts/test-landing.ts"),
+          "--audit",
+        ],
+      },
+    );
+  });
+
+  it("runs on the Node it already has when that is the pin, or when the invocation only plans", () => {
+    assert.deepStrictEqual(pinnedNodeDecision({ pin, running: pin, restarted: false, args: [] }), {
+      kind: "run",
+    });
+    assert.deepStrictEqual(
+      pinnedNodeDecision({ pin, running: started, restarted: false, args: ["--audit", "--plan"] }),
+      { kind: "run" },
+    );
+  });
+
+  it("fails rather than testing on the Node the restart handed it", () => {
+    const decision = pinnedNodeDecision({ pin, running: started, restarted: true, args: [] });
+    if (decision.kind !== "fail") throw new Error(`expected a failure, got ${decision.kind}`);
+    assert.include(decision.message, pin);
+    assert.include(decision.message, started);
+  });
+
+  it("leaves a host alone when `engines.node` is a range or absent", () => {
+    assert.deepStrictEqual(
+      pinnedNodeDecision({ pin: undefined, running: started, restarted: false, args: [] }),
+      { kind: "run" },
+    );
   });
 });
 

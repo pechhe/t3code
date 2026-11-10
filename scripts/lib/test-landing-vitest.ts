@@ -217,7 +217,7 @@ function privateCacheDir() {
 
 /** The command that runs a request in its own process, from any directory. */
 export function runCommand(request: RunRequest) {
-  return ["node", import.meta.filename, "run", JSON.stringify(request)];
+  return [process.execPath, import.meta.filename, "run", JSON.stringify(request)];
 }
 
 /** Maps a few items at a time, keeping their order. */
