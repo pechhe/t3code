@@ -187,9 +187,7 @@ export const describeStep = (step: ChampionJourneyStep) => {
     step.target === null
       ? (step.description ?? step.id)
       : `the ${step.target.role} named "${step.target.name}"`;
-  const named = (
-    target: { readonly role: string; readonly name: string } | null | undefined,
-  ) =>
+  const named = (target: { readonly role: string; readonly name: string } | null | undefined) =>
     target === null || target === undefined
       ? "the focused element"
       : `the ${target.role} named "${target.name}"`;
@@ -210,10 +208,7 @@ export const describeStep = (step: ChampionJourneyStep) => {
 };
 
 /** The manifest shard a recorded URL came from, by its origin's port. */
-export const shardOfOrigin = (
-  manifest: ChampionJourneyManifest,
-  url: string | null,
-) => {
+export const shardOfOrigin = (manifest: ChampionJourneyManifest, url: string | null) => {
   if (url === null) return undefined;
   let port: string;
   try {
@@ -324,7 +319,7 @@ export const findingEvidence = (input: {
   ].join("\n\n");
 };
 
-export const VERDICT_FORMAT = `End your final message with exactly these lines:
+const VERDICT_FORMAT = `End your final message with exactly these lines:
 VERDICT: reproduced | not-reproduced | blocked
 REASON: <one sentence: what you saw>
 STEPS: <on this one line, everything you did in order after signing in, with any text you typed>
@@ -345,11 +340,27 @@ export const replayBrief = (input: {
   readonly missingServices?: ReadonlyArray<{ readonly name: string; readonly what: string }>;
   /** This replay target's own pages for changing data, which can differ from the journey's. */
   readonly workPaths?: ReadonlyArray<string> | undefined;
-}) => `An earlier browser journey may have found a bug. Decide whether it reproduces. You are the only judge: the journey's own model never judges correctness.${input.viewport ? `
-The journey ran at a viewport of ${input.viewport.width}x${input.viewport.height}. Open your tab with viewport { width: ${input.viewport.width}, height: ${input.viewport.height} } and run the whole replay at exactly that size: a different width would be a different page, and a verdict at the wrong width proves nothing.` : ""}${input.locale ? `
-The journey's shard uses ${input.locale}. This replay's target is in ${input.locale} too: read every screen in ${input.locale}, and judge an English leak from what the screen shows, not from data or terms the product deliberately keeps in English.` : ""}${input.missingServices && input.missingServices.length > 0 ? `
-This contained target lacks these services: ${input.missingServices.map((service) => `${service.name} (${service.what})`).join("; ")}. If the failure is caused by one of these missing services, it is not a bug in the app: end with an extra line \`MISSING: <the service's name>\` and say what cannot work without it as your REASON.` : ""}${input.workPaths && input.workPaths.length > 0 ? `
-This target's pages for changing data are ${input.workPaths.join(", ")}. The recorded steps can name an earlier day's page, which this target may not have in the same state: repeat those steps on the first of these instead. If you cannot set up the same situation here, say "blocked". Never say "not-reproduced" for a situation you could not set up: that would close a real bug as fixed.` : ""}
+}) => `An earlier browser journey may have found a bug. Decide whether it reproduces. You are the only judge: the journey's own model never judges correctness.${
+  input.viewport
+    ? `
+The journey ran at a viewport of ${input.viewport.width}x${input.viewport.height}. Open your tab with viewport { width: ${input.viewport.width}, height: ${input.viewport.height} } and run the whole replay at exactly that size: a different width would be a different page, and a verdict at the wrong width proves nothing.`
+    : ""
+}${
+  input.locale
+    ? `
+The journey's shard uses ${input.locale}. This replay's target is in ${input.locale} too: read every screen in ${input.locale}, and judge an English leak from what the screen shows, not from data or terms the product deliberately keeps in English.`
+    : ""
+}${
+  input.missingServices && input.missingServices.length > 0
+    ? `
+This contained target lacks these services: ${input.missingServices.map((service) => `${service.name} (${service.what})`).join("; ")}. If the failure is caused by one of these missing services, it is not a bug in the app: end with an extra line \`MISSING: <the service's name>\` and say what cannot work without it as your REASON.`
+    : ""
+}${
+  input.workPaths && input.workPaths.length > 0
+    ? `
+This target's pages for changing data are ${input.workPaths.join(", ")}. The recorded steps can name an earlier day's page, which this target may not have in the same state: repeat those steps on the first of these instead. If you cannot set up the same situation here, say "blocked". Never say "not-reproduced" for a situation you could not set up: that would close a real bug as fixed.`
+    : ""
+}
 
 You are on a freshly seeded database that no other journey has touched, so anything that depended on shared data will not recur. Do not read source. Use only the integrated browser, and only ${input.origin}.
 

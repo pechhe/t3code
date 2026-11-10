@@ -350,7 +350,7 @@ export function ScopedProviderSettingsPanel(target: { readonly instanceId?: Prov
   );
 }
 
-export function ProviderSettingsPanel(target: ProviderSettingsTarget) {
+function ProviderSettingsPanel(target: ProviderSettingsTarget) {
   return (
     <SettingsPageContainer className="@container/providers gap-8">
       <SharedSetupBanners />

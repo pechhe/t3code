@@ -149,7 +149,7 @@ const isChampionError = Schema.is(ChampionError);
 const collapse = (text: string) => text.replace(/\s+/g, " ").trim();
 const wordCharacter = /[\p{L}\p{N}]/u;
 /** Whether `quote` appears in `text` word for word: whole words, any run of spaces alike. */
-export function quotedIn(quote: string, text: string) {
+function quotedIn(quote: string, text: string) {
   const needle = collapse(quote);
   const haystack = collapse(text);
   if (needle === "") return false;
@@ -2682,10 +2682,10 @@ const make = Effect.gen(function* () {
     const candidateShard =
       running.record.manifest === null
         ? undefined
-        : shardOfOrigin(running.record.manifest, candidate.finalUrl) ??
+        : (shardOfOrigin(running.record.manifest, candidate.finalUrl) ??
           candidate.steps
             .map((step) => shardOfOrigin(running.record!.manifest!, step.url))
-            .find((entry) => entry !== undefined);
+            .find((entry) => entry !== undefined));
     const manifest = yield* journeys.provisionReplay({
       checkId: check.id,
       config,

@@ -127,7 +127,7 @@ const PROBE_TIMEOUT_MS = 4_000;
 /** A shard this many probes behind is down, which makes the check incomplete whatever its owner says. */
 const PROBES_TO_DOWN = 3;
 /** Each replay is a production server and a database clone beside the journey browsers. */
-export const MAX_OPEN_REPLAYS = 4;
+const MAX_OPEN_REPLAYS = 4;
 /** One per process however many services this module serves: a check absent here outlived a restart. */
 const monitors = new Map<string, Fiber.Fiber<void, never>>();
 /** Checks being finished: no monitor, not yet closed, and not a server restart's orphan. */

@@ -47,7 +47,7 @@ interface Row {
 }
 
 /** Lower-cased words of two or more characters, at most twelve of them. */
-export const searchTerms = (query: string | undefined) =>
+const searchTerms = (query: string | undefined) =>
   [
     ...new Set(
       (query ?? "")
@@ -58,7 +58,7 @@ export const searchTerms = (query: string | undefined) =>
   ].slice(0, 12);
 
 /** Distinct terms matched first, then where they matched: the plain sentence weighs most. */
-export const relevance = (entry: ChampionLearningEntry, terms: ReadonlyArray<string>) => {
+const relevance = (entry: ChampionLearningEntry, terms: ReadonlyArray<string>) => {
   const fields: ReadonlyArray<readonly [string, number]> = [
     [(entry.plainSummary ?? "").toLowerCase(), 4],
     [entry.revision.conclusion.toLowerCase(), 3],

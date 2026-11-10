@@ -150,7 +150,7 @@ export const plannedScreenshots = (request: PreviewTaskRequest) => {
 };
 
 /** Sized so the run's planned screenshots can never pass the total cap together. */
-export const screenshotByteBudget = (request: PreviewTaskRequest) =>
+const screenshotByteBudget = (request: PreviewTaskRequest) =>
   Math.min(
     PREVIEW_TASK_LIMITS.screenshotBytes,
     Math.floor(PREVIEW_TASK_LIMITS.screenshotTotalBytes / Math.max(1, plannedScreenshots(request))),
@@ -349,7 +349,7 @@ const unresolvedDetail = (
 };
 
 /** A click's, key press's or drag source's target; a URL action has none. */
-export const actionTarget = (action: Action): PreviewTaskTarget | undefined =>
+const actionTarget = (action: Action): PreviewTaskTarget | undefined =>
   "target" in action
     ? action.target
     : "press" in action
@@ -359,7 +359,7 @@ export const actionTarget = (action: Action): PreviewTaskTarget | undefined =>
         : undefined;
 
 /** Every target an action names: a drag's two, a key press's one, a click's one. */
-export const actionTargets = (action: Action): ReadonlyArray<PreviewTaskTarget> =>
+const actionTargets = (action: Action): ReadonlyArray<PreviewTaskTarget> =>
   "drag" in action
     ? [action.drag.from, action.drag.to]
     : "target" in action
@@ -578,9 +578,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     };
     if (model.focused !== undefined)
       (record as Mutable<RunRecord>).focusedElement =
-        model.focused === null
-          ? null
-          : { role: model.focused.role, name: model.focused.name };
+        model.focused === null ? null : { role: model.focused.role, name: model.focused.name };
     if (model.viewport !== undefined)
       (record as Mutable<RunRecord>).viewport = {
         width: model.viewport.width,
@@ -1429,12 +1427,14 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
           ? request.submit!.id
           : step.action.id;
     // A key with no target goes to whatever holds focus: no element to pick.
-    if (step._tag === "action" && "press" in step.action && step.action.press.target === undefined) {
-      return yield* dispatch(
-        { id, kind: "action", key: step.action.press.key },
-        "press",
-        { key: step.action.press.key },
-      );
+    if (
+      step._tag === "action" &&
+      "press" in step.action &&
+      step.action.press.target === undefined
+    ) {
+      return yield* dispatch({ id, kind: "action", key: step.action.press.key }, "press", {
+        key: step.action.press.key,
+      });
     }
     const picked = ready ?? (yield* pickNode(fresh, target!, id));
     if (picked === undefined) return false;
@@ -1446,7 +1446,10 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         ? (ready?.to ?? (yield* pickNode(fresh, step.action.drag.to, id)))
         : undefined;
     if (step._tag === "action" && "drag" in step.action && pickedTo === undefined) return false;
-    if (avoided(fresh, node, avoid) || (pickedTo !== undefined && avoided(fresh, pickedTo.node, avoid))) {
+    if (
+      avoided(fresh, node, avoid) ||
+      (pickedTo !== undefined && avoided(fresh, pickedTo.node, avoid))
+    ) {
       record.actions.push({
         id,
         kind: step._tag === "binding" ? "binding" : step._tag,
@@ -1487,11 +1490,10 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
       }
       const entry = { id, kind: "action" as const, matchedName: matched, chosen, target: named };
       return "press" in step.action
-        ? yield* dispatch(
-            { ...entry, key: step.action.press.key },
-            "press",
-            { locator, key: step.action.press.key },
-          )
+        ? yield* dispatch({ ...entry, key: step.action.press.key }, "press", {
+            locator,
+            key: step.action.press.key,
+          })
         : yield* dispatch(entry, "click", { locator });
     }
     attempted.add(id);
@@ -1757,7 +1759,11 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
       return yield* settle;
     }
     // A key with no target needs no element at all.
-    if (step._tag === "action" && "press" in step.action && step.action.press.target === undefined) {
+    if (
+      step._tag === "action" &&
+      "press" in step.action &&
+      step.action.press.target === undefined
+    ) {
       const model = yield* observe;
       if (model === undefined) return false;
       if (!(yield* applyStep(step, model, false))) return false;
@@ -1778,7 +1784,8 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
       step._tag === "action" && "drag" in step.action ? step.action.drag.to : undefined,
     );
     if (ready === undefined) return false;
-    const picked = ready.pickedTo === undefined ? ready.picked : { ...ready.picked, to: ready.pickedTo };
+    const picked =
+      ready.pickedTo === undefined ? ready.picked : { ...ready.picked, to: ready.pickedTo };
     if (!(yield* applyStep(step, ready.model, false, picked))) return false;
     previousStep = id;
     return yield* settle;

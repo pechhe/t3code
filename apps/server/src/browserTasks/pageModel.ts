@@ -304,7 +304,7 @@ const optionsOf = (model: PageModel, node: PageNode) => {
 export const selectableOptions = (model: PageModel, node: PageNode) =>
   optionsOf(model, node).map((option) => option.name);
 
-export const fieldValue = (model: PageModel, node: PageNode) =>
+const fieldValue = (model: PageModel, node: PageNode) =>
   optionsOf(model, node).find((option) => option.selected)?.name ?? node.value;
 
 export const bindingSatisfied = (
@@ -386,18 +386,18 @@ const evaluateFocus = (
   check: Extract<PreviewTaskCheck, { kind: "focus" }>,
 ): Omit<PreviewTaskCheckResult, "id"> => {
   if (model.focused === undefined)
-    return { status: "unsupported", detail: "This backend does not report which element holds focus." };
-  if (model.focused === null)
-    return { status: "failed", detail: "Nothing holds focus." };
+    return {
+      status: "unsupported",
+      detail: "This backend does not report which element holds focus.",
+    };
+  if (model.focused === null) return { status: "failed", detail: "Nothing holds focus." };
   const resolved = resolveTarget(model, check.target);
   if (resolved._tag !== "unique")
     return { status: "failed", detail: "The target is not rendered as one element." };
   const { node } = resolved;
   const holds = model.focused === node;
   const shown = matchedName(check.target, node);
-  const base = {
-    ...(shown === undefined ? {} : { matchedName: shown }),
-  };
+  const base = shown === undefined ? {} : { matchedName: shown };
   return holds
     ? { status: "passed", ...base }
     : {

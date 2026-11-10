@@ -119,7 +119,7 @@ export const pageReachProbe = (model: PageModel) => ({
   ),
 });
 
-export /** The origin of the document the element is in; an about: frame shares its parent's. */
+/** The origin of the document the element is in; an about: frame shares its parent's. */
 const frameOrigin = (model: PageModel, node: PageNode, facts: PageFacts): string => {
   const frame = ancestorsOf(model, node).find((up) => up.role === "iframe");
   if (frame === undefined) return originOf(model.url);

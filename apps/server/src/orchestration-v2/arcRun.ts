@@ -94,14 +94,14 @@ export const needsOwnerAnswer = (
 ) => questions.some((question) => question.allowCustomAnswer === false);
 
 /** Idle compaction serves the provider's cache: it neither continues a thread nor counts as a turn. */
-export function isCompactionRun(run: Pick<OrchestrationV2Run, "userMessageId">): boolean {
+function isCompactionRun(run: Pick<OrchestrationV2Run, "userMessageId">): boolean {
   return run.userMessageId.startsWith("idle-compact:");
 }
 
 const ranSince = (run: OrchestrationV2Run, since: string) =>
   !neverStarted(run) && DateTime.toEpochMillis(run.requestedAt) >= Date.parse(since);
 
-export function arcRunNoProgressWakes(
+function arcRunNoProgressWakes(
   runs: ReadonlyArray<OrchestrationV2Run>,
   arcRun: Pick<OrchestrationV2ThreadArcRun, "progressAt">,
 ): number {
@@ -111,7 +111,7 @@ export function arcRunNoProgressWakes(
   ).length;
 }
 
-export function arcRunTurns(
+function arcRunTurns(
   runs: ReadonlyArray<OrchestrationV2Run>,
   arcRun: Pick<OrchestrationV2ThreadArcRun, "ceilingSince">,
 ): number {
@@ -133,7 +133,7 @@ export function latestArcRunTurn(
 }
 
 /** Whether something already promises to bring this thread back, so a wake would only make it poll. */
-export function arcRunHasNextTrigger(state: ArcRunState): boolean {
+function arcRunHasNextTrigger(state: ArcRunState): boolean {
   const { thread, runs } = state;
   if (runs.some((run) => LIVE_RUN.has(run.status))) return true;
   if (

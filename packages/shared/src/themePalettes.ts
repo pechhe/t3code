@@ -1001,7 +1001,7 @@ export const IRIS_THEME: ThemeDefinition = {
   sidebarArtwork: true,
 };
 
-export const GRAPHITE_THEME: ThemeDefinition = {
+const GRAPHITE_THEME: ThemeDefinition = {
   id: "graphite",
   label: "Graphite",
   appearance: "light",
@@ -1136,7 +1136,7 @@ export const GRAPHITE_THEME: ThemeDefinition = {
   sidebarArtwork: true,
 };
 
-export const LAGOON_THEME: ThemeDefinition = {
+const LAGOON_THEME: ThemeDefinition = {
   id: "lagoon",
   label: "Lagoon",
   appearance: "light",
@@ -1271,7 +1271,7 @@ export const LAGOON_THEME: ThemeDefinition = {
   sidebarArtwork: true,
 };
 
-export const SOLSTICE_THEME: ThemeDefinition = {
+const SOLSTICE_THEME: ThemeDefinition = {
   id: "solstice",
   label: "Solstice",
   appearance: "light",
@@ -1406,7 +1406,7 @@ export const SOLSTICE_THEME: ThemeDefinition = {
   sidebarArtwork: true,
 };
 
-export const FJORD_THEME: ThemeDefinition = {
+const FJORD_THEME: ThemeDefinition = {
   id: "fjord",
   label: "Fjord",
   appearance: "light",
@@ -1541,7 +1541,7 @@ export const FJORD_THEME: ThemeDefinition = {
   sidebarArtwork: true,
 };
 
-export const ROSEWATER_THEME: ThemeDefinition = {
+const ROSEWATER_THEME: ThemeDefinition = {
   id: "rosewater",
   label: "Rosewater",
   appearance: "light",

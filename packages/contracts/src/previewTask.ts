@@ -109,7 +109,7 @@ const ScreenshotAfter = Schema.optional(Schema.Literals(["viewport", "full-page"
 });
 
 /** A fixed list: a bounded task must never reload, close tabs or reach browser shortcuts. */
-export const PREVIEW_TASK_KEYS = [
+const PREVIEW_TASK_KEYS = [
   "Tab",
   "Shift+Tab",
   "Enter",

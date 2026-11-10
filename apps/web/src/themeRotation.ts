@@ -37,7 +37,7 @@ export function localDateKey(date: Date): string {
 }
 
 /** Whole local calendar days since 1970-01-01, so a daylight-saving day is still one step. */
-export function localDayNumber(date: Date): number {
+function localDayNumber(date: Date): number {
   return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000);
 }
 
