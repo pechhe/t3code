@@ -1,12 +1,7 @@
 /**
- * Account pools: a configured instance whose turns run on one of its member
- * instances (for example several Claude subscriptions).
- *
- * A pooled turn goes to the pool's preferred member while it has allowance,
- * otherwise by the pool's strategy: the member whose allowance would otherwise
- * lapse unused soonest, or the first in the pool's own order, among those with
- * allowance left. A thread already on a member stays there while it has
- * allowance, which avoids a provider switch and its context handoff.
+ * Account pools: a configured instance whose turns run on one of its member instances.
+ * `rankAccounts` is the one rule that places new work, pooled turns and delegated tasks alike;
+ * a thread stays on its member while it has allowance, avoiding a provider switch.
  *
  * @module providerPools
  */
@@ -17,6 +12,7 @@ import type {
   ServerProvider,
   ServerProviderUsageWindow,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 
 export interface ProviderPool {
   readonly instanceId: ProviderInstanceId;
@@ -25,14 +21,13 @@ export interface ProviderPool {
   readonly accentColor?: string | undefined;
   readonly enabled: boolean;
   readonly members: ReadonlyArray<ProviderInstanceId>;
-  readonly preferredMember?: ProviderInstanceId | undefined;
   readonly policy?: ProviderPoolPolicy | undefined;
 }
 
-type PoolRoute = Pick<ProviderPool, "driver" | "members" | "preferredMember" | "policy">;
+export type PoolRoute = Pick<ProviderPool, "driver" | "members" | "policy">;
 
 /** The usage a member must reach to count as out: its real limit unless the pool keeps a reserve. */
-const limitPercentOf = (pool: Pick<ProviderPool, "policy">): number =>
+export const limitPercentOf = (pool: Pick<ProviderPool, "policy">): number =>
   pool.policy?.reservePercent ?? 100;
 
 /** Whether the provider can take a turn now, ignoring usage limits. */
@@ -103,12 +98,9 @@ const isBehindPace = (window: ServerProviderUsageWindow, nowMs: number): boolean
 };
 
 /**
- * How urgently an account's allowance should be spent. Tier 0: some of it
- * will lapse unused, because a weekly window is behind pace (then its session
- * allowance is lost at each session reset too) or the account reports only
- * session windows; the deadline is the soonest reset that loses it. Tier 1:
- * every weekly window is on or ahead of pace, so it runs out before its reset
- * and nothing lapses; the soonest weekly reset only says which refills first.
+ * Tier 0: some allowance will lapse unused (a weekly window behind pace, or only session
+ * windows), by the soonest reset that loses it. Tier 1: every weekly window is on or ahead of
+ * pace, so nothing lapses; the soonest weekly reset only says which refills first.
  */
 const spendUrgency = (
   provider: ServerProvider,
@@ -125,7 +117,11 @@ const spendUrgency = (
 };
 
 /** When an exhausted account can take a turn again: its last blocking window's reset. */
-const usableAgainMs = (provider: ServerProvider, nowMs: number, limitPercent: number): number => {
+export const usableAgainMs = (
+  provider: ServerProvider,
+  nowMs: number,
+  limitPercent = 100,
+): number => {
   let latest = nowMs;
   for (const window of provider.usageLimits?.windows ?? []) {
     if (window.usedPercent < limitPercent) continue;
@@ -136,36 +132,112 @@ const usableAgainMs = (provider: ServerProvider, nowMs: number, limitPercent: nu
   return latest;
 };
 
+/** Whether an account has any usage reading to rank it by. */
+const hasUsageReading = (provider: ServerProvider): boolean =>
+  (provider.usageLimits?.windows.length ?? 0) > 0;
+
+/**
+ * Where an account stands for new work: allowance known to be left, no
+ * reading at all (never read, or the read is unavailable), or out.
+ */
+export type AccountStanding = "available" | "unknown" | "out";
+
+export const accountStanding = (
+  provider: ServerProvider,
+  nowMs: number,
+  limitPercent = 100,
+): AccountStanding =>
+  isProviderUsageExhausted(provider, nowMs, limitPercent)
+    ? "out"
+    : hasUsageReading(provider)
+      ? "available"
+      : "unknown";
+
+const STANDING_RANK: Record<AccountStanding, number> = { available: 0, unknown: 1, out: 2 };
+
 /**
  * Accounts with allowance left come first, ranked by `preference`; then those
- * at a limit, by which can take a turn again soonest. Ties keep their input
- * order.
+ * with no reading, by the same preference; then those at a limit, by which
+ * can take a turn again soonest. Ties keep their input order.
  */
 const byAllowance =
   (
     nowMs: number,
-    limitPercent: number,
+    limitPercentFor: (provider: ServerProvider) => number,
     preference: (a: ServerProvider, b: ServerProvider) => number,
   ) =>
   (a: ServerProvider, b: ServerProvider): number => {
-    const aExhausted = isProviderUsageExhausted(a, nowMs, limitPercent);
-    const exhaustion =
-      Number(aExhausted) - Number(isProviderUsageExhausted(b, nowMs, limitPercent));
-    if (exhaustion !== 0) return exhaustion;
-    if (aExhausted) {
-      return usableAgainMs(a, nowMs, limitPercent) - usableAgainMs(b, nowMs, limitPercent) || 0;
+    const aStanding = accountStanding(a, nowMs, limitPercentFor(a));
+    const standing =
+      STANDING_RANK[aStanding] - STANDING_RANK[accountStanding(b, nowMs, limitPercentFor(b))];
+    if (standing !== 0) return standing;
+    if (aStanding === "out") {
+      return (
+        usableAgainMs(a, nowMs, limitPercentFor(a)) - usableAgainMs(b, nowMs, limitPercentFor(b)) ||
+        0
+      );
     }
     return preference(a, b);
   };
 
-/** Order accounts for a pooled turn so the least allowance goes unused: by `spendUrgency`. */
-export const compareByUsageReset = (nowMs: number, limitPercent = 100) =>
-  byAllowance(nowMs, limitPercent, (a, b) => {
+/** Spend first the allowance that would otherwise lapse unused soonest: by `spendUrgency`. */
+const bySpendUrgency =
+  (nowMs: number) =>
+  (a: ServerProvider, b: ServerProvider): number => {
     const urgencyA = spendUrgency(a, nowMs);
     const urgencyB = spendUrgency(b, nowMs);
     // Two accounts with no known reset subtract to NaN, which ties.
     return urgencyA.tier - urgencyB.tier || urgencyA.deadlineMs - urgencyB.deadlineMs || 0;
-  });
+  };
+
+/** Order accounts for a pooled turn so the least allowance goes unused: by `spendUrgency`. */
+export const compareByUsageReset = (nowMs: number, limitPercent = 100) =>
+  byAllowance(nowMs, () => limitPercent, bySpendUrgency(nowMs));
+
+/** The pool an account belongs to, if any. */
+export const poolOf = (
+  pools: ReadonlyArray<PoolRoute>,
+  provider: ServerProvider,
+): PoolRoute | undefined =>
+  pools.find(
+    (pool) => pool.driver === provider.driver && pool.members.includes(provider.instanceId),
+  );
+
+/**
+ * Orders accounts that could serve the same work and drops members their pool switches off:
+ * allowance left (against the pool's reserve) first by the pool's strategy, then no reading,
+ * then out, soonest back first. Accounts in no pool rank by spend urgency.
+ */
+export const rankAccounts = (input: {
+  readonly accounts: ReadonlyArray<ServerProvider>;
+  readonly pools: ReadonlyArray<PoolRoute>;
+  readonly nowMs: number;
+}): ReadonlyArray<ServerProvider> => {
+  const pools = new Map(
+    input.accounts.map((provider) => [provider, poolOf(input.pools, provider)]),
+  );
+  const spend = bySpendUrgency(input.nowMs);
+  return input.accounts
+    .filter(
+      (provider) =>
+        pools.get(provider)?.policy?.disabledMembers?.includes(provider.instanceId) !== true,
+    )
+    .sort(
+      byAllowance(
+        input.nowMs,
+        (provider) => {
+          const pool = pools.get(provider);
+          return pool === undefined ? 100 : limitPercentOf(pool);
+        },
+        (a, b) => {
+          const pool = pools.get(a);
+          return pool !== undefined && pool === pools.get(b) && pool.policy?.strategy === "order"
+            ? pool.members.indexOf(a.instanceId) - pool.members.indexOf(b.instanceId)
+            : spend(a, b);
+        },
+      ),
+    );
+};
 
 const routableMembers = (
   pool: PoolRoute,
@@ -202,31 +274,72 @@ export const pickPoolMember = (input: {
   return orderForPool(input.pool, candidates, input.nowMs)[0]?.instanceId;
 };
 
+/** Why a new pooled turn goes to the account `explainPoolPick` names. */
+export type PoolPickReason =
+  /** The only member with usage left. */
+  | "only-available"
+  /** The pool's strategy ranks it first: its unspent allowance lapses soonest. */
+  | "lapses-soonest"
+  /** The first member with usage left in the pool's own order. */
+  | "pool-order"
+  /** No member has a usage reading to rank by, so the pool's order decides. */
+  | "no-reading"
+  /** Every member is out; the turn waits for this one, back soonest. */
+  | "all-out";
+
+export interface PoolAccountStanding {
+  readonly provider: ServerProvider;
+  readonly standing: AccountStanding;
+  /** When an account that is out can take a turn again. */
+  readonly outUntilMs?: number | undefined;
+}
+
 /**
- * The pool's strategy order (spend, or the pool's own member order), with the
- * preferred member first unless it is out.
+ * The account a new pooled turn goes to and why, from the same rule the
+ * server routes by, with each routable member's standing in pool order.
  */
+export const explainPoolPick = (input: {
+  readonly pool: PoolRoute;
+  readonly providers: ReadonlyArray<ServerProvider>;
+  readonly nowMs: number;
+}):
+  | {
+      readonly member: ServerProvider;
+      readonly reason: PoolPickReason;
+      readonly accounts: ReadonlyArray<PoolAccountStanding>;
+    }
+  | undefined => {
+  const members = routableMembers(input.pool, input.providers);
+  const member = orderForPool(input.pool, members, input.nowMs)[0];
+  if (member === undefined) return undefined;
+  const limitPercent = limitPercentOf(input.pool);
+  const accounts = members.map((provider): PoolAccountStanding => {
+    const standing = accountStanding(provider, input.nowMs, limitPercent);
+    return standing === "out"
+      ? { provider, standing, outUntilMs: usableAgainMs(provider, input.nowMs, limitPercent) }
+      : { provider, standing };
+  });
+  const usable = accounts.filter((account) => account.standing !== "out");
+  const chosen = accounts.find((account) => account.provider === member)!;
+  const reason: PoolPickReason =
+    chosen.standing === "out"
+      ? "all-out"
+      : usable.length === 1
+        ? "only-available"
+        : chosen.standing === "unknown"
+          ? "no-reading"
+          : input.pool.policy?.strategy === "order"
+            ? "pool-order"
+            : "lapses-soonest";
+  return { member, reason, accounts };
+};
+
+/** The pool's strategy order: spend, or the pool's own member order. */
 const orderForPool = (
   pool: PoolRoute,
   candidates: ReadonlyArray<ServerProvider>,
   nowMs: number,
-): ReadonlyArray<ServerProvider> => {
-  const limitPercent = limitPercentOf(pool);
-  const ordered = [...candidates].sort(
-    pool.policy?.strategy === "order"
-      ? byAllowance(
-          nowMs,
-          limitPercent,
-          (a, b) => pool.members.indexOf(a.instanceId) - pool.members.indexOf(b.instanceId),
-        )
-      : compareByUsageReset(nowMs, limitPercent),
-  );
-  const preferred = ordered.find((provider) => provider.instanceId === pool.preferredMember);
-  if (preferred === undefined || isProviderUsageExhausted(preferred, nowMs, limitPercent)) {
-    return ordered;
-  }
-  return [preferred, ...ordered.filter((provider) => provider !== preferred)];
-};
+): ReadonlyArray<ServerProvider> => rankAccounts({ accounts: candidates, pools: [pool], nowMs });
 
 /**
  * The member a thread should move to after `limited` hit its usage limit:
@@ -271,6 +384,68 @@ export const pickPoolSwitchMember = (input: {
       !isProviderUsageExhausted(provider, input.nowMs, limitPercent),
   )?.instanceId;
 };
+
+/** The window a remembered usage limit adds to an account's reading. */
+export const REMEMBERED_LIMIT_WINDOW_ID = "t3-usage-limit";
+
+/**
+ * Adds each limit a run reported to its account's reading, until that limit's reset, so every
+ * pick treats the account as out even when a later read fails or still shows allowance.
+ */
+export const withRememberedLimits = (
+  providers: ReadonlyArray<ServerProvider>,
+  limits: ReadonlyMap<ProviderInstanceId, number>,
+  nowMs: number,
+): ReadonlyArray<ServerProvider> => {
+  if (limits.size === 0) return providers;
+  return providers.map((provider) => {
+    const resetMs = limits.get(provider.instanceId);
+    if (resetMs === undefined || resetMs <= nowMs) return provider;
+    const resetsAt = DateTime.formatIso(DateTime.makeUnsafe(resetMs));
+    const usage = provider.usageLimits;
+    return {
+      ...provider,
+      usageLimits: {
+        ...usage,
+        checkedAt: usage?.checkedAt ?? resetsAt,
+        windows: [
+          ...(usage?.windows ?? []).filter((window) => window.id !== REMEMBERED_LIMIT_WINDOW_ID),
+          {
+            id: REMEMBERED_LIMIT_WINDOW_ID,
+            kind: "other",
+            label: "Usage limit reached",
+            usedPercent: 100,
+            resetsAt,
+          },
+        ],
+      },
+    };
+  });
+};
+
+/** The routing view of every pool snapshot in a provider list. */
+export const poolRoutesOf = (providers: ReadonlyArray<ServerProvider>): ReadonlyArray<PoolRoute> =>
+  providers.flatMap((provider) =>
+    provider.poolMembers === undefined
+      ? []
+      : [{ driver: provider.driver, members: provider.poolMembers, policy: provider.poolPolicy }],
+  );
+
+/**
+ * Whether `provider` is the named account, a pool it belongs to, or a sibling in that pool:
+ * narrowing work to a named account keeps these, so a sibling can serve when it is out.
+ */
+export const sharesPoolWith = (
+  providers: ReadonlyArray<ServerProvider>,
+  named: ProviderInstanceId,
+  provider: ServerProvider,
+): boolean =>
+  provider.instanceId === named ||
+  providers.some(
+    (pool) =>
+      pool.poolMembers?.includes(named) === true &&
+      (pool === provider || pool.poolMembers.includes(provider.instanceId)),
+  );
 
 /**
  * Append one snapshot per pool, presented as the member a turn would use now
@@ -317,9 +492,6 @@ export const withPoolSnapshots = (
         ...(pool.accentColor === undefined ? {} : { accentColor: pool.accentColor }),
         enabled: pool.enabled && base.enabled,
         poolMembers: pool.members,
-        ...(pool.preferredMember === undefined
-          ? {}
-          : { poolPreferredMember: pool.preferredMember }),
         ...(pool.policy === undefined ? {} : { poolPolicy: pool.policy }),
       },
     ];

@@ -47,6 +47,10 @@ import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EffectOutbox from "./EffectOutbox.ts";
 import * as EventSink from "./EventSink.ts";
+import {
+  delegatedRecoveryContinuation,
+  delegatedRecoveryEffectId,
+} from "./DelegatedTaskRecovery.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import { continueRestartedRun } from "./RestartContinuation.ts";
 import * as RuntimeLayer from "./runtimeLayer.ts";
@@ -2380,6 +2384,7 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
       "restarted",
       "stopped",
       "overlapping",
+      "recovered",
     ] as const;
     it.effect.each(outcomes)(
       "delivers a %s follow-up independently of the original task",
@@ -2571,6 +2576,89 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
             assert.equal(continuation.delegatedTaskId, run.delegatedTaskId);
             run = continuation;
           }
+          if (outcome === "recovered") {
+            // The follow-up's own turn hits an upstream error; its recovery continues the same task.
+            const failedRun = {
+              ...run,
+              status: "failed" as const,
+              startedAt: now,
+              completedAt: now,
+            };
+            yield* eventSink.writeWithEffects({
+              commandId: reconcileCommandId("followup-upstream-error"),
+              events: [
+                {
+                  id: EventId.make("event:followup-upstream-error"),
+                  type: "run.updated",
+                  threadId: child.childThreadId,
+                  runId: run.id,
+                  occurredAt: now,
+                  payload: failedRun,
+                },
+                {
+                  id: EventId.make("event:followup-upstream-error-item"),
+                  type: "turn-item.updated",
+                  threadId: child.childThreadId,
+                  occurredAt: now,
+                  payload: {
+                    id: TurnItemId.make("turn-item:followup-upstream-error"),
+                    type: "error",
+                    threadId: child.childThreadId,
+                    runId: run.id,
+                    nodeId: run.rootNodeId,
+                    providerThreadId: null,
+                    providerTurnId: null,
+                    nativeItemRef: null,
+                    parentItemId: null,
+                    ordinal: 1,
+                    status: "failed",
+                    title: "Provider error",
+                    startedAt: now,
+                    completedAt: now,
+                    updatedAt: now,
+                    failure: {
+                      class: "transport_error",
+                      message: "Connection reset.",
+                      code: null,
+                      retryable: true,
+                      resetAt: null,
+                    },
+                  },
+                },
+              ],
+              effects: [
+                {
+                  id: delegatedRecoveryEffectId(run.id),
+                  commandId: reconcileCommandId("followup-upstream-error"),
+                  threadId: child.childThreadId,
+                  request: { type: "delegated-task.recover", sourceRunId: run.id },
+                },
+              ],
+            });
+            yield* orchestrator.recoverDelegatedTasks;
+            assert.isNull(
+              (yield* orchestrator.getThreadProjection(parentThreadId)).subagents.find(
+                (task) => task.id === run.delegatedTaskId,
+              )!.result,
+            );
+            const retry = delegatedRecoveryContinuation({
+              threadId: child.childThreadId,
+              run: failedRun,
+              recovery: { type: "retry" },
+            });
+            assert(retry.type === "message.dispatch");
+            yield* orchestrator.dispatch(retry);
+            const childRuns = (yield* orchestrator.getThreadProjection(child.childThreadId)).runs;
+            const continuation = childRuns.find((row) => row.userMessageId === retry.messageId)!;
+            assert.equal(continuation.delegatedTaskId, run.delegatedTaskId);
+            assert.equal(
+              (yield* orchestrator.getThreadProjection(parentThreadId)).subagents.filter(
+                (task) => task.childThreadId === child.childThreadId,
+              ).length,
+              2,
+            );
+            run = continuation;
+          }
           if (outcome === "stopped") {
             yield* orchestrator.dispatch({
               type: "thread.stop",
@@ -2592,7 +2680,9 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
                   status:
                     outcome === "stopped"
                       ? "interrupted"
-                      : outcome === "restarted" || outcome === "overlapping"
+                      : outcome === "restarted" ||
+                          outcome === "overlapping" ||
+                          outcome === "recovered"
                         ? "completed"
                         : outcome,
                   startedAt: now,
@@ -2622,7 +2712,7 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
             followup.status,
             outcome === "stopped"
               ? "interrupted"
-              : outcome === "restarted" || outcome === "overlapping"
+              : outcome === "restarted" || outcome === "overlapping" || outcome === "recovered"
                 ? "completed"
                 : outcome,
           );
@@ -3387,6 +3477,71 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
       const finishedTask = finished.subagents.find((row) => row.id === resumed.taskId);
       assert.equal(finishedTask?.status, "completed");
       assert.equal(finishedTask?.result, "Finished after the restart.");
+    }),
+  );
+
+  it.effect("holds a delegated child's failure while its recovery is pending", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const now = yield* DateTime.now;
+      const threadId = ThreadId.make("thread:recovery-parent");
+      const projectId = ProjectId.make("project:recovery-parent");
+      const runId = RunId.make("run:recovery-parent");
+      const rootNodeId = NodeId.make("node:recovery-parent-root");
+      yield* seedParentWithTerminalTask({
+        threadId,
+        projectId,
+        runId,
+        rootNodeId,
+        taskId: NodeId.make("node:recovery-parent-settled"),
+        deliveryState: "delivered",
+        now,
+      });
+      const child = yield* seedRestartCancelledChild({
+        parentThreadId: threadId,
+        projectId,
+        parentRunId: runId,
+        rootNodeId,
+        name: "recovery-child",
+        completionWake: "always",
+        continuationPending: false,
+        runStatus: "completed",
+        now,
+      });
+      const eventSink = yield* EventSink.EventSinkV2;
+      const failedRunId = RunId.make("run:recovery-child:2");
+      const commandId = CommandId.make("command:recovery-child:failed");
+      yield* eventSink.writeWithEffects({
+        commandId,
+        events: [
+          runEvent({
+            threadId: child.childThreadId,
+            runId: failedRunId,
+            ordinal: 2,
+            status: "failed",
+            now,
+          }),
+        ],
+        effects: [
+          {
+            id: delegatedRecoveryEffectId(failedRunId),
+            commandId,
+            threadId: child.childThreadId,
+            request: { type: "delegated-task.recover", sourceRunId: failedRunId },
+          },
+        ],
+      });
+
+      // While the recovery may still continue the task, the parent hears nothing.
+      yield* orchestrator.recoverDelegatedTasks;
+      const held = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(held.subagents.find((row) => row.id === child.taskId)?.status, "running");
+      assert.isTrue(yield* orchestrator.delegatedTaskResultPending(child.childThreadId));
+
+      // A recovery that gives up reports the failure.
+      yield* orchestrator.recoverDelegatedTask(child.childThreadId, failedRunId);
+      const reported = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(reported.subagents.find((row) => row.id === child.taskId)?.status, "failed");
     }),
   );
 

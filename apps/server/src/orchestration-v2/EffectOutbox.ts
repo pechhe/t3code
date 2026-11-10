@@ -35,6 +35,11 @@ export const OrchestrationEffectRequestV2 = Schema.Union([
     type: Schema.Literal("provider-runtime.continue"),
     sourceRunId: RunId,
   }),
+  /** A delegated task's failed run: fail over, retry, or let the parent hear of it. */
+  Schema.Struct({
+    type: Schema.Literal("delegated-task.recover"),
+    sourceRunId: RunId,
+  }),
   Schema.Struct({
     type: Schema.Literal("provider-session.detach"),
     providerSessionId: ProviderSessionId,
@@ -129,6 +134,7 @@ export type OrchestrationEffectRequestV2 = typeof OrchestrationEffectRequestV2.T
 
 export const REPLAY_SAFE_EFFECT_TYPES_AFTER_PROCESS_LOSS = [
   "provider-runtime.continue",
+  "delegated-task.recover",
   "provider-session.detach",
   "provider-thread.rollback",
   "checkpoint.capture",

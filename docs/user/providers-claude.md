@@ -51,8 +51,17 @@ whose usage would otherwise go to waste soonest, skipping accounts that have run
 out. An account that has used less of its weekly limit than the share of the week
 that has passed would reset with usage left, so it goes first, starting with
 whichever of its 5-hour or weekly limits resets sooner. Accounts on track to use
-their weekly limit come next, soonest weekly reset first. Delegated tasks that
-name the pool are routed the same way.
+their weekly limit come next, soonest weekly reset first. An account with no usage
+reading yet comes after every account known to have usage left, and before any that
+are out.
+
+Subagents that agents delegate pick their account by the same rule, as a new thread
+would, whichever account the delegating thread is on. They never start on an account
+that is out while another has usage: they move to the role's next model when every
+account for theirs is out, and the call is refused, naming when an account returns,
+when the role has none. Naming an account that is out gives the task its pool sibling
+when that account offers the same model and effort. If a subagent hits a limit
+mid-task, it carries on on another account with usage left, in the same thread.
 
 Set up each account as its own Claude instance first, then add the pool to
 `providerInstances` in `settings.json`, listing the member instance ids:
@@ -92,10 +101,14 @@ Open the pool in **Settings → Providers** to change how it works:
   stores keep winning until you clear them.
 
 On the composer, the lamp beside the model slider shows the account the next
-message uses. In a thread that has already run, click it to move the thread to the
-next account in your pool's order that has usage left; accounts you switched off
-or that have run out are skipped. On a new thread, click it to prefer an account:
-it goes first while it has usage left, whichever way the pool picks.
+message uses; hover it to see why, with each account's usage left and reset time.
+On a new thread, click it to choose an account for that thread only, marked by a
+ring; click again to try the next account, and back to **Auto**. Other threads keep
+picking automatically, and a thread you set this way still moves to another
+account when its own runs out. In a thread that has already run, click it to move
+the thread to the next account in your pool's order that has usage left; accounts
+you switched off or that have run out are skipped. The lamp goes dark when every
+account is out, showing when the first returns.
 
 ## Compact long conversations
 

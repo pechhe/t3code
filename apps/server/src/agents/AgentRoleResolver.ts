@@ -19,7 +19,14 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-import { compareByUsageReset, isProviderUsageExhausted } from "@t3tools/shared/providerPools";
+import {
+  accountStanding,
+  limitPercentOf,
+  poolOf,
+  poolRoutesOf,
+  rankAccounts,
+  usableAgainMs,
+} from "@t3tools/shared/providerPools";
 import {
   providerOverloadKey,
   type ProviderOverloadSnapshot,
@@ -43,6 +50,7 @@ export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentR
     "review-scope-invalid",
     "review-prior-invalid",
     "role-not-configured",
+    "usage-limited",
   ]),
   candidates: Schema.optional(Schema.Array(AgentPolicyCandidate)),
   /** The offending field, option or account and how to correct the request. */
@@ -352,22 +360,96 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     }
   }
   const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-  let candidates = eligible;
+  // Which account serves each model follows the pool rule a new pooled thread uses: a member its
+  // pool switches off, or an account out of usage (at its pool's reserve), never serves while
+  // another account can; the rest keep the rule's order.
+  const overloadEnds = (instanceId: ProviderInstanceId, model: string) => {
+    const until = input.overloads?.get(providerOverloadKey(instanceId, model));
+    return until !== undefined && until > nowMs ? until : undefined;
+  };
+  const pools = poolRoutesOf(input.providers);
+  const accountRank = new Map<(typeof eligible)[number], number>();
+  const excluded = new Map<
+    (typeof eligible)[number],
+    | { readonly reason: "usage-limited"; readonly untilMs: number }
+    | { readonly reason: "pool-disabled" }
+  >();
+  for (const alias of new Set(eligible.map((candidate) => candidate.alias))) {
+    const serving = eligible.filter((candidate) => candidate.alias === alias);
+    const ranked = rankAccounts({
+      accounts: serving.map((candidate) => candidate.provider),
+      pools,
+      nowMs,
+    });
+    for (const candidate of serving) {
+      const index = ranked.indexOf(candidate.provider);
+      if (index < 0) {
+        excluded.set(candidate, { reason: "pool-disabled" });
+        continue;
+      }
+      const pool = poolOf(pools, candidate.provider);
+      const limitPercent = pool === undefined ? 100 : limitPercentOf(pool);
+      if (accountStanding(candidate.provider, nowMs, limitPercent) === "out") {
+        excluded.set(candidate, {
+          reason: "usage-limited",
+          untilMs: usableAgainMs(candidate.provider, nowMs, limitPercent),
+        });
+        continue;
+      }
+      accountRank.set(candidate, index);
+    }
+  }
+  const serves = (candidate: (typeof eligible)[number]) => !excluded.has(candidate);
+  /** The refusal when every account that could serve is out: it names the earliest return. */
+  const allOut = (detail: string) => {
+    const returns = [...excluded.values()].flatMap((entry) =>
+      entry.reason === "usage-limited" && Number.isFinite(entry.untilMs) ? [entry.untilMs] : [],
+    );
+    const earliest = returns.length === 0 ? undefined : Math.min(...returns);
+    return new AgentRoleError({
+      reason: "usage-limited",
+      candidates: finalDiagnostics(undefined),
+      detail: `${detail}${earliest === undefined ? "" : `; the earliest an account returns is ${DateTime.formatIso(DateTime.makeUnsafe(earliest))}`}`,
+    });
+  };
+  let candidates = eligible.filter(serves);
   if (input.selection !== undefined) {
     const selection = input.selection;
-    const requested = eligible.filter(
+    const named = eligible.filter(
       ({ selection: value }) =>
         (selection.model === undefined || value.model === selection.model) &&
         (selection.instanceId === undefined || value.instanceId === selection.instanceId),
     );
     // Explicit choices override preferences, including a reviewer's different-model
     // preference. Role eligibility and authority still apply to every candidate.
-    if (requested.length === 0)
+    if (named.length === 0)
       return yield* new AgentRoleError({
         reason: "selection-denied",
         candidates: diagnostics,
         detail: `${requestedName(selection)} is not eligible for ${request.role}: ${explain(input, diagnostics, selection.instanceId)}`,
       });
+    // A named account that is out hands the task to a pool sibling offering the same model and
+    // options, so naming an account never starts work where it would be refused.
+    const substitutes = (candidate: (typeof eligible)[number]) => {
+      const pool = poolOf(pools, candidate.provider);
+      return pool === undefined
+        ? []
+        : eligible.filter(
+            (sibling) =>
+              serves(sibling) &&
+              sibling.alias === candidate.alias &&
+              pool.members.includes(sibling.provider.instanceId) &&
+              sameOptions(sibling.selection, candidate.selection),
+          );
+    };
+    const requested =
+      selection.instanceId === undefined || named.some(serves)
+        ? named.filter(serves)
+        : [...new Set(named.flatMap(substitutes))];
+    if (requested.length === 0)
+      return yield* allOut(
+        `${requestedName(selection)} is out of usage for ${request.role} and no account in its pool can run ${named[0]!.selection.model} with the same options`,
+      );
     // A choice may name an eligible model, but cannot pick effort or options the role does not
     // set. Stated options must be the role's own; omitted ones are the role's. An option the
     // caller merely inherited (its own id and value, on the same account and model) and the
@@ -389,17 +471,14 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       );
     const matching = requested.filter(({ selection: value }) => mismatches(value).length === 0);
     if (matching.length === 0) {
-      // Name the account that would otherwise serve, not one that is out of allowance.
-      const named =
-        requested.find(({ provider }) => !isProviderUsageExhausted(provider, nowMs))?.selection ??
-        requested[0]!.selection;
-      const offending = mismatches(named)
+      const shown = requested[0]!.selection;
+      const offending = mismatches(shown)
         .map((option) => `${option.id}=${String(option.value)}`)
         .join(", ");
       return yield* new AgentRoleError({
         reason: "unsupported-options",
         candidates: diagnostics,
-        detail: `option ${offending} ${mismatches(named).length === 1 ? "is" : "are"} not part of ${request.role}'s selection of ${named.model} on ${named.instanceId}, which is ${optionList(named)}; omit target.options or state exactly those`,
+        detail: `option ${offending} ${mismatches(shown).length === 1 ? "is" : "are"} not part of ${request.role}'s selection of ${shown.model} on ${shown.instanceId}, which is ${optionList(shown)}; omit target.options or state exactly those`,
       });
     }
     candidates = matching;
@@ -421,76 +500,82 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     candidate.provider.driver !== authorDriver
       ? 1
       : 0;
-  const byUsageReset = compareByUsageReset(nowMs);
-  const limitedInstances = new Set(
-    eligible
-      .filter(({ provider }) => isProviderUsageExhausted(provider, nowMs))
-      .map(({ provider }) => provider.instanceId),
-  );
-  const limited = (candidate: { readonly provider: ServerProvider }) =>
-    limitedInstances.has(candidate.provider.instanceId);
-  const overloadEnds = (instanceId: ProviderInstanceId, model: string) => {
-    const until = input.overloads?.get(providerOverloadKey(instanceId, model));
-    return until !== undefined && until > nowMs ? until : undefined;
-  };
   const overloadedUntil = (candidate: (typeof eligible)[number]) =>
     overloadEnds(candidate.provider.instanceId, candidate.selection.model);
-  // Healthy, then overloaded (it may recover within the provider's own retries), then out of
-  // allowance (it will refuse until its reset).
+  // Healthy, then overloaded: it may recover within the provider's own retries.
   const tier = (candidate: (typeof eligible)[number]) =>
-    limited(candidate) ? 2 : overloadedUntil(candidate) === undefined ? 0 : 1;
+    overloadedUntil(candidate) === undefined ? 0 : 1;
   candidates.sort(
     (a, b) =>
       tier(a) - tier(b) ||
-      // Among degraded candidates, the soonest to recover serves first.
-      (tier(a) === 2 ? byUsageReset(a.provider, b.provider) : 0) ||
+      // Among overloaded candidates, the soonest to recover serves first.
       (tier(a) === 1 ? (overloadedUntil(a) ?? 0) - (overloadedUntil(b) ?? 0) : 0) ||
-      // Among accounts with allowance, a reviewer never defaults to the model that wrote the work.
+      // A reviewer never defaults to the model that wrote the work.
       (reviewer
         ? Number(a.selection.model === request.authorModel) -
           Number(b.selection.model === request.authorModel)
         : 0) ||
       otherProvider(b) - otherProvider(a) ||
       position(a.alias) - position(b.alias) ||
-      byUsageReset(a.provider, b.provider),
+      accountRank.get(a)! - accountRank.get(b)!,
   );
+  function finalDiagnostics(chosen: (typeof eligible)[number] | undefined) {
+    return diagnostics.map((candidate) => {
+      if (candidate.reason !== "eligible") return candidate;
+      const entry = eligible.find(
+        (value) =>
+          value.alias === candidate.alias &&
+          value.provider.instanceId === candidate.providerInstanceId,
+      );
+      const out = entry === undefined ? undefined : excluded.get(entry);
+      if (out !== undefined)
+        return {
+          ...candidate,
+          reason: out.reason,
+          ...(out.reason === "usage-limited" && Number.isFinite(out.untilMs)
+            ? { until: DateTime.formatIso(DateTime.makeUnsafe(out.untilMs)) }
+            : {}),
+        };
+      const until =
+        candidate.providerInstanceId === undefined
+          ? undefined
+          : overloadEnds(candidate.providerInstanceId, candidate.model);
+      return {
+        ...candidate,
+        reason:
+          entry !== undefined && entry === chosen
+            ? "selected"
+            : until !== undefined
+              ? "overloaded"
+              : "lower-preference",
+        ...(until === undefined ? {} : { until: DateTime.formatIso(DateTime.makeUnsafe(until)) }),
+      };
+    });
+  }
   const chosen = candidates[0];
   if (chosen === undefined)
-    return yield* new AgentRoleError({
-      reason: "no-eligible-model",
-      candidates: diagnostics,
-      detail: explain(input, diagnostics),
-    });
+    return yield* excluded.size > 0 && eligible.every((candidate) => excluded.has(candidate))
+      ? allOut(`every account that can run ${request.role}'s models is out of usage`)
+      : new AgentRoleError({
+          reason: "no-eligible-model",
+          candidates: diagnostics,
+          detail: explain(input, diagnostics),
+        });
   return {
     selection: chosen.selection,
     ranked: candidates.map((candidate) => candidate.selection),
     executionRequirement: admission.executionRequirement,
     executionBoundary: admission.executionBoundary,
     refusal: null,
-    candidates: diagnostics.map((candidate) => {
-      if (candidate.reason !== "eligible") return candidate;
-      const until =
-        candidate.providerInstanceId === undefined
-          ? undefined
-          : overloadEnds(candidate.providerInstanceId, candidate.model);
-      const selected =
-        candidate.alias === chosen.alias &&
-        candidate.providerInstanceId === chosen.provider.instanceId;
-      return {
-        ...candidate,
-        reason: selected
-          ? "selected"
-          : candidate.providerInstanceId !== undefined &&
-              limitedInstances.has(candidate.providerInstanceId)
-            ? "usage-limited"
-            : until !== undefined
-              ? "overloaded"
-              : "lower-preference",
-        ...(until === undefined ? {} : { until: DateTime.formatIso(DateTime.makeUnsafe(until)) }),
-      };
-    }),
+    candidates: finalDiagnostics(chosen),
   };
 });
+
+const sameOptions = (a: ModelSelection, b: ModelSelection) =>
+  (a.options ?? []).length === (b.options ?? []).length &&
+  (a.options ?? []).every((option) =>
+    b.options?.some((other) => other.id === option.id && other.value === option.value),
+  );
 
 export const layer = Layer.succeed(AgentRoleResolver, {
   resolve: Effect.fn("AgentRoleResolver.resolve")((input) =>

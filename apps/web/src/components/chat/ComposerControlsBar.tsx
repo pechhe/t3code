@@ -76,7 +76,6 @@ export function ComposerControlsBar(props: {
   modelSliderRef: RefObject<DeviceModelSliderHandle | null>;
   poolAccount: ReturnType<typeof useComposerPoolAccount>;
   /** True until the thread has run: its pool account is placed like a new thread's. */
-  isNewThread: boolean;
   showProviderUnavailable: boolean;
   providerSetupInstanceId: ProviderInstanceId | undefined;
   onOpenProviderSetup: ChatComposerProps["onOpenProviderSetup"];
@@ -126,7 +125,6 @@ export function ComposerControlsBar(props: {
     reasoningDialRef,
     modelSliderRef,
     poolAccount,
-    isNewThread,
     showProviderUnavailable,
     providerSetupInstanceId,
     onOpenProviderSetup,
@@ -300,7 +298,7 @@ export function ComposerControlsBar(props: {
       <DeviceModelSlider
         ref={modelSliderRef}
         environmentId={environmentId}
-        activeInstanceId={selectedInstanceId}
+        activeInstanceId={poolAccount?.pool ?? selectedInstanceId}
         model={selectedModelForPickerWithCustomFallback}
         instanceEntries={providerInstanceEntries}
         modelOptionsByInstance={modelOptionsByInstance}
@@ -313,10 +311,10 @@ export function ComposerControlsBar(props: {
           onProviderModelSelect(instanceId, model, { focusComposer: false });
         }}
         renderOverflow={(trigger) => cloneElement(composerModelPicker, { trigger })}
-        lightColor={poolAccount?.next.color}
+        lightColor={poolAccount?.auto.color}
         fast={fastActive}
       />
-      {poolAccount ? <ComposerPoolAccount state={poolAccount} isNew={isNewThread} device /> : null}
+      {poolAccount ? <ComposerPoolAccount state={poolAccount} device /> : null}
       {providerTraitsPickerInput ? (
         <DeviceReasoningDial ref={reasoningDialRef} {...providerTraitsPickerInput} />
       ) : null}
@@ -325,11 +323,7 @@ export function ComposerControlsBar(props: {
     <>
       {composerModelPicker}
       {poolAccount ? (
-        <ComposerPoolAccount
-          state={poolAccount}
-          isNew={isNewThread}
-          size={composerControlsCollapsed ? "xs" : "sm"}
-        />
+        <ComposerPoolAccount state={poolAccount} size={composerControlsCollapsed ? "xs" : "sm"} />
       ) : null}
 
       <>

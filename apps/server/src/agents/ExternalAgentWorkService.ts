@@ -54,6 +54,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import { defaultChildMode, exceedsCaller } from "./delegationRuntime.ts";
 import { withRetiredDemanding } from "./retiredDemanding.ts";
 import { managedTaskTitle } from "./taskTitle.ts";
+import { sharesPoolWith } from "@t3tools/shared/providerPools";
 
 const isManagedAgentError = Schema.is(Managed.ManagedAgentError);
 
@@ -755,7 +756,7 @@ const make = Effect.gen(function* () {
           const requestedProviders = eligible.filter(
             (p) =>
               (input.target?.providerInstanceId === undefined ||
-                p.instanceId === input.target.providerInstanceId) &&
+                sharesPoolWith(eligible, input.target.providerInstanceId, p)) &&
               (input.target?.driverKind === undefined || p.driver === input.target.driverKind),
           );
           const agentTask = input.agentTask;
@@ -788,14 +789,17 @@ const make = Effect.gen(function* () {
                   ...(original === undefined && unit === undefined
                     ? {}
                     : { policyHash: original?.policyHash ?? unit!.policyHash }),
-                  ...(input.target?.model === undefined
+                  ...(input.target?.model === undefined &&
+                  input.target?.providerInstanceId === undefined
                     ? {}
                     : {
                         selection: {
                           ...(input.target.providerInstanceId === undefined
                             ? {}
                             : { instanceId: input.target.providerInstanceId }),
-                          model: input.target.model,
+                          ...(input.target.model === undefined
+                            ? {}
+                            : { model: input.target.model }),
                           ...(input.target.options === undefined
                             ? {}
                             : { options: input.target.options }),

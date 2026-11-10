@@ -7391,10 +7391,8 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       if (terminal.status !== "failed") return;
       assert.equal(terminal.failure.message, input.expected);
       assert.equal(terminal.failure.code, `api_error_${apiErrorStatus}`);
-      assert.equal(
-        terminal.failure.class,
-        apiErrorStatus === 429 ? "usage_limit" : "provider_error",
-      );
+      // A 429 with no reset time is an upstream error, not a usage limit.
+      assert.equal(terminal.failure.class, "provider_error");
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
@@ -8420,7 +8418,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       const terminal = yield* Queue.take(harness.terminalReceipts);
       assert.equal(terminal.status, "failed");
       if (terminal.status !== "failed") return;
-      assert.equal(terminal.failure.class, "usage_limit");
+      assert.equal(terminal.failure.class, input.seconds > 0 ? "usage_limit" : "provider_error");
       assert.equal(
         terminal.failure.resetAt,
         input.seconds > 0
@@ -11141,17 +11139,29 @@ describe("ClaudeAdapterV2 background wake turns", () => {
   it.effect.each([
     {
       windowStatus: "allowed",
+      resetsAt: 1_900_000_000,
       expectedClass: "provider_error",
+      expectedCode: "blocking_limit",
       expectedMessage: "Claude stopped: the prompt exceeds the model's context window.",
     },
     {
       windowStatus: "rejected",
+      resetsAt: 1_900_000_000,
       expectedClass: "usage_limit",
+      expectedCode: "blocking_limit",
+      expectedMessage: "Claude usage limit reached. Send the message again once the limit resets.",
+    },
+    // A limit that never says when it resets is an upstream rate limit, not a usage limit.
+    {
+      windowStatus: "rejected",
+      resetsAt: undefined,
+      expectedClass: "provider_error",
+      expectedCode: "api_error_429",
       expectedMessage: "Claude usage limit reached. Send the message again once the limit resets.",
     },
   ] as const)(
-    "classifies blocking_limit by its rate-limit evidence ($windowStatus window)",
-    ({ windowStatus, expectedClass, expectedMessage }) =>
+    "classifies blocking_limit by its rate-limit evidence ($windowStatus window, reset $resetsAt)",
+    ({ windowStatus, resetsAt, expectedClass, expectedCode, expectedMessage }) =>
       Effect.gen(function* () {
         const harness = yield* makeWakeHarness;
         yield* harness.runtime.startTurn(
@@ -11167,7 +11177,11 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         yield* Queue.offerAll(harness.sdkMessages, [
           claudeSdkFrame({
             type: "rate_limit_event",
-            rate_limit_info: { status: windowStatus, rateLimitType: "five_hour" },
+            rate_limit_info: {
+              status: windowStatus,
+              rateLimitType: "five_hour",
+              ...(resetsAt === undefined ? {} : { resetsAt }),
+            },
             uuid: "00000000-0000-4000-8000-000000000660",
             session_id: WAKE_NATIVE_SESSION,
           }),
@@ -11189,8 +11203,8 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         if (terminal.status !== "failed") return;
         assert.equal(terminal.failure.class, expectedClass);
         assert.include(terminal.failure.message, expectedMessage);
-        assert.equal(terminal.failure.code, "blocking_limit");
-        if (expectedClass === "provider_error") {
+        assert.equal(terminal.failure.code, expectedCode);
+        if (windowStatus === "allowed") {
           assert.include(terminal.failure.message, "/compact");
         }
       }).pipe(

@@ -8,7 +8,12 @@ import {
 } from "@t3tools/contracts";
 
 import {
+  explainPoolPick,
+  isProviderUsageExhausted,
+  usableAgainMs,
+  withRememberedLimits,
   needsUsageRefresh,
+  rankAccounts,
   pickPoolFailoverMember,
   pickPoolMember,
   pickPoolSwitchMember,
@@ -263,47 +268,6 @@ describe("pickPoolFailoverMember", () => {
   });
 });
 
-describe("preferred member", () => {
-  const preferB: ProviderPool = { ...pool, preferredMember: ProviderInstanceId.make("b") };
-  const providers = [
-    account("a", [{ usedPercent: 10, resetsAt: at(1) }]),
-    account("b", [{ usedPercent: 10, resetsAt: at(4) }]),
-    account("c", [{ usedPercent: 10, resetsAt: at(3) }]),
-  ];
-
-  it("takes new threads ahead of the spend order", () => {
-    expect(pickPoolMember({ pool, providers, nowMs: NOW })).toBe("a");
-    expect(pickPoolMember({ pool: preferB, providers, nowMs: NOW })).toBe("b");
-  });
-
-  it("leaves a thread on its current member while it has allowance", () => {
-    expect(
-      pickPoolMember({
-        pool: preferB,
-        providers,
-        nowMs: NOW,
-        current: ProviderInstanceId.make("c"),
-      }),
-    ).toBe("c");
-  });
-
-  it("falls back to the spend order once the preferred member is at a limit", () => {
-    const limited = [providers[0]!, account("b", [{ usedPercent: 100, resetsAt: at(2) }])];
-    expect(pickPoolMember({ pool: preferB, providers: limited, nowMs: NOW })).toBe("a");
-  });
-
-  it("is where a limited thread fails over to", () => {
-    expect(
-      pickPoolFailoverMember({
-        pool: preferB,
-        providers,
-        nowMs: NOW,
-        limited: ProviderInstanceId.make("c"),
-      }),
-    ).toBe("b");
-  });
-});
-
 describe("pool policy", () => {
   const id = ProviderInstanceId.make;
   const providers = [
@@ -329,11 +293,6 @@ describe("pool policy", () => {
     expect(
       pickPoolFailoverMember({ pool: ordered, providers: cOut, nowMs: NOW, limited: id("b") }),
     ).toBe("a");
-  });
-
-  it("a preferred member still takes precedence over the order", () => {
-    const pinned = { ...withPolicy({ strategy: "order" }), preferredMember: id("a") };
-    expect(pickPoolMember({ pool: pinned, providers, nowMs: NOW })).toBe("a");
   });
 
   it("never routes to a disabled member, even as the only one left", () => {
@@ -451,5 +410,110 @@ describe("pickPoolSwitchMember", () => {
 
   it("offers nothing when no other member can take a turn", () => {
     expect(switchFrom("a", [fresh("a"), out("b"), out("c")])).toBeUndefined();
+  });
+});
+
+describe("accounts with no usage reading", () => {
+  const id = ProviderInstanceId.make;
+  const unread = account("b", []);
+  const unavailable = account("b", [], {
+    usageLimits: { checkedAt: at(0), windows: [], unavailable: { reason: "probeFailed" } },
+  });
+  const known = account("a", [{ usedPercent: 90, resetsAt: at(100) }]);
+  const out = account("a", [{ usedPercent: 100, resetsAt: at(2) }]);
+
+  it.each([undefined, "order"] as const)(
+    "rank below known allowance and above an account that is out (strategy %s)",
+    (strategy) => {
+      const ordered: ProviderPool = {
+        ...pool,
+        members: [id("b"), id("a")],
+        ...(strategy === undefined ? {} : { policy: { strategy } }),
+      };
+      for (const noReading of [unread, unavailable]) {
+        expect(pickPoolMember({ pool: ordered, providers: [noReading, known], nowMs: NOW })).toBe(
+          "a",
+        );
+        expect(pickPoolMember({ pool: ordered, providers: [noReading, out], nowMs: NOW })).toBe(
+          "b",
+        );
+      }
+    },
+  );
+});
+
+describe("rankAccounts", () => {
+  const id = ProviderInstanceId.make;
+  const providers = [
+    account("a", [{ usedPercent: 10, resetsAt: at(1) }]),
+    account("b", [{ usedPercent: 10, resetsAt: at(4) }]),
+    account("c", [{ usedPercent: 92, resetsAt: at(3) }]),
+  ];
+
+  it("drops members the pool switches off and ranks a member at the reserve as out", () => {
+    const route = { ...pool, policy: { disabledMembers: [id("a")], reservePercent: 90 } };
+    expect(
+      rankAccounts({ accounts: providers, pools: [route], nowMs: NOW }).map((p) => p.instanceId),
+    ).toEqual(["b", "c"]);
+  });
+
+  it("ranks accounts outside any pool by spend urgency, with their real limit", () => {
+    expect(
+      rankAccounts({ accounts: providers, pools: [], nowMs: NOW }).map((p) => p.instanceId),
+    ).toEqual(["a", "c", "b"]);
+  });
+
+  it("agrees with the member a new pooled turn is routed to", () => {
+    for (const route of [pool, { ...pool, policy: { strategy: "order" as const } }]) {
+      expect(rankAccounts({ accounts: providers, pools: [route], nowMs: NOW })[0]?.instanceId).toBe(
+        pickPoolMember({ pool: route, providers, nowMs: NOW }),
+      );
+    }
+  });
+});
+
+describe("explainPoolPick", () => {
+  const two: ProviderPool = {
+    ...pool,
+    members: [ProviderInstanceId.make("a"), ProviderInstanceId.make("b")],
+  };
+
+  it("names the account whose allowance lapses soonest, with each account's standing", () => {
+    const providers = [
+      account("a", [{ usedPercent: 10, resetsAt: at(1) }]),
+      account("b", [{ usedPercent: 10, resetsAt: at(4) }]),
+    ];
+    const pick = explainPoolPick({ pool: two, providers, nowMs: NOW });
+    expect(pick?.member.instanceId).toBe("a");
+    expect(pick?.reason).toBe("lapses-soonest");
+    expect(pick?.accounts.map((entry) => entry.standing)).toEqual(["available", "available"]);
+  });
+
+  it("says when only one account has usage left, and when every account is out", () => {
+    const oneOut = [
+      account("a", [{ usedPercent: 100, resetsAt: at(1) }]),
+      account("b", [{ usedPercent: 10, resetsAt: at(4) }]),
+    ];
+    const one = explainPoolPick({ pool: two, providers: oneOut, nowMs: NOW });
+    expect(one?.member.instanceId).toBe("b");
+    expect(one?.reason).toBe("only-available");
+    expect(one?.accounts[0]).toMatchObject({ standing: "out", outUntilMs: NOW + 3_600_000 });
+
+    const allOut = [oneOut[0]!, account("b", [{ usedPercent: 100, resetsAt: at(4) }])];
+    const none = explainPoolPick({ pool: two, providers: allOut, nowMs: NOW });
+    expect(none?.member.instanceId).toBe("a");
+    expect(none?.reason).toBe("all-out");
+  });
+});
+
+describe("withRememberedLimits", () => {
+  it("counts an account as out until a remembered reset, even when its reading shows allowance", () => {
+    const fresh = account("a", [{ usedPercent: 5, resetsAt: at(4) }]);
+    const limits = new Map([[fresh.instanceId, NOW + 3_600_000]]);
+    const [remembered] = withRememberedLimits([fresh], limits, NOW);
+    expect(isProviderUsageExhausted(remembered!, NOW)).toBe(true);
+    expect(usableAgainMs(remembered!, NOW)).toBe(NOW + 3_600_000);
+    // Once the reset passes the remembered limit drops away.
+    expect(withRememberedLimits([fresh], limits, NOW + 3_600_000)[0]).toBe(fresh);
   });
 });

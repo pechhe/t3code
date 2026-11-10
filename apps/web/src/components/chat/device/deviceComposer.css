@@ -1396,6 +1396,13 @@
   white-space: nowrap;
   pointer-events: none;
 }
+.device-unit__detail {
+  display: block;
+  margin-top: 3px;
+  text-align: center;
+  font-weight: 500;
+  font-size: 7px;
+}
 .device-unit__caption[data-lit] {
   color: oklch(0.64 0.17 52);
   text-shadow:
@@ -1438,7 +1445,8 @@
   transform: translateY(1px);
   box-shadow: var(--cap-pressed-shadow);
 }
-.device-cap:disabled {
+.device-cap:disabled,
+.device-cap[aria-disabled="true"] {
   cursor: default;
   opacity: 0.6;
 }
@@ -1471,8 +1479,8 @@
     0 0 12px oklch(0.7 0.22 27 / 0.4);
 }
 
-/* The pooled account: a lamp in the colour of the account the next turn uses, latched
-   while the pool has a preferred account. */
+/* The pooled account: a lamp in the colour of the account the next turn uses, ringed and
+   latched while the user has chosen it for this thread, dark while every account is out. */
 .device-cap--account .device-cap__lamp {
   background: radial-gradient(
     circle at 34% 28%,
@@ -1490,6 +1498,20 @@
     inset 0 0 0 1px color-mix(in oklch, var(--account-light) 40%, black),
     0 0 6px color-mix(in oklch, var(--account-light) 80%, transparent),
     0 0 12px color-mix(in oklch, var(--account-light) 40%, transparent);
+  outline: 1.5px solid var(--account-light);
+  outline-offset: 2px;
+}
+.device-cap--account[data-out] .device-cap__lamp {
+  background: radial-gradient(
+    circle at 34% 28%,
+    oklch(0.62 0.01 40),
+    oklch(0.45 0.01 40) 45%,
+    oklch(0.32 0.01 40) 80%,
+    oklch(0.2 0.01 40) 100%
+  );
+  box-shadow:
+    inset 0 0 0 1px oklch(0.25 0.01 40 / 0.7),
+    0 1px 0 oklch(1 0.002 250 / 0.5);
 }
 
 /* Away is a latching key, not a cap: the press bottoms out, then it springs back to rest a

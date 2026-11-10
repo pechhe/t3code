@@ -54,6 +54,7 @@ import {
   needsUsageRefresh,
   USAGE_REFRESH_STALE_MS,
   withPoolSnapshots,
+  withRememberedLimits,
   type ProviderPool,
 } from "@t3tools/shared/providerPools";
 
@@ -94,6 +95,15 @@ export class ProviderRegistry extends Context.Service<
     readonly refreshInstanceUsage: (
       instanceId: ProviderInstanceId,
     ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
+
+    /**
+     * Counts an account as out until `resetAt` for every later pick, after a run reported a
+     * usage limit with that reset. Held in memory: after a restart the usage poll takes over.
+     */
+    readonly rememberUsageLimit: (input: {
+      readonly instanceId: ProviderInstanceId;
+      readonly resetAt: string;
+    }) => Effect.Effect<void>;
 
     readonly refreshWorkspaceSnapshot: (input: {
       readonly instanceId: ProviderInstanceId;
@@ -504,6 +514,7 @@ export const layer = Layer.effect(
     const maintenanceActionStatesRef = yield* Ref.make<
       ReadonlyMap<ProviderInstanceId, { readonly update?: ServerProviderUpdateState | undefined }>
     >(new Map());
+    const rememberedLimitsRef = yield* Ref.make<ReadonlyMap<ProviderInstanceId, number>>(new Map());
     const poolsRef = yield* Ref.make<ReadonlyArray<ProviderPool>>(
       yield* instanceRegistry.listPools,
     );
@@ -1238,8 +1249,26 @@ export const layer = Layer.effect(
     // Untraced: every provider read runs it, so a span per read would swamp traces.
     const withPools = Effect.fnUntraced(function* (providers: ReadonlyArray<ServerProvider>) {
       const pools = yield* Ref.get(poolsRef);
-      const now = yield* DateTime.now;
-      return withPoolSnapshots(providers, pools, DateTime.toEpochMillis(now));
+      const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+      const limits = yield* Ref.get(rememberedLimitsRef);
+      return withPoolSnapshots(withRememberedLimits(providers, limits, nowMs), pools, nowMs);
+    });
+
+    const rememberUsageLimit = Effect.fn("ProviderRegistry.rememberUsageLimit")(function* (input: {
+      readonly instanceId: ProviderInstanceId;
+      readonly resetAt: string;
+    }) {
+      const resetMs = Date.parse(input.resetAt);
+      const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+      if (!Number.isFinite(resetMs) || resetMs <= nowMs) return;
+      yield* Ref.update(rememberedLimitsRef, (limits) =>
+        new Map(
+          [...limits].filter(
+            ([instanceId, until]) => until > nowMs && instanceId !== input.instanceId,
+          ),
+        ).set(input.instanceId, Math.max(resetMs, limits.get(input.instanceId) ?? 0)),
+      );
+      yield* PubSub.publish(changesPubSub, yield* Ref.get(providersRef));
     });
 
     return {
@@ -1253,6 +1282,7 @@ export const layer = Layer.effect(
         ),
       refreshInstanceUsage: (instanceId: ProviderInstanceId) =>
         refreshInstanceUsage(instanceId).pipe(Effect.flatMap(withPools)),
+      rememberUsageLimit,
       reloadSecretsAndRefresh: (instanceId?: ProviderInstanceId) =>
         reloadSecretsAndRefresh(instanceId).pipe(
           Effect.catchCause(recoverRefreshFailure),

@@ -160,10 +160,7 @@ it.effect(
 );
 
 /** Sends a pooled model change and follow-up to a thread on `claude_later`, returning the accounts each was routed to. */
-const routePooledThread = (input: {
-  readonly hasRun: boolean;
-  readonly preferredMember?: ProviderInstanceId;
-}) => {
+const routePooledThread = (input: { readonly hasRun: boolean }) => {
   const projectId = ProjectId.make("project:thread-management:pool");
   const threadId = ThreadId.make("thread:thread-management:pool");
   const pool = ProviderInstanceId.make("claude_pool");
@@ -193,7 +190,6 @@ const routePooledThread = (input: {
       ...member(sooner, "2026-10-15T02:00:00.000Z"),
       instanceId: pool,
       poolMembers: [later, sooner],
-      ...(input.preferredMember ? { poolPreferredMember: input.preferredMember } : {}),
     },
   ];
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
@@ -266,12 +262,6 @@ it.effect("places a thread that has not run like a new one", () =>
   Effect.gen(function* () {
     // The allowance that resets sooner is spent first.
     expect(yield* routePooledThread({ hasRun: false })).toEqual(["claude_sooner", "claude_sooner"]);
-    expect(
-      yield* routePooledThread({
-        hasRun: false,
-        preferredMember: ProviderInstanceId.make("claude_later"),
-      }),
-    ).toEqual(["claude_later", "claude_later"]);
   }),
 );
 

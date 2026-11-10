@@ -197,6 +197,7 @@ import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import { withRetiredDemanding } from "../agents/retiredDemanding.ts";
+import { sharesPoolWith } from "@t3tools/shared/providerPools";
 
 const isManagedAgentError = Schema.is(ManagedAgent.ManagedAgentError);
 
@@ -3711,7 +3712,11 @@ const make = Effect.gen(function* () {
                   eligibleProviders.filter(
                     (provider) =>
                       (input.target?.providerInstanceId === undefined ||
-                        provider.instanceId === input.target.providerInstanceId) &&
+                        sharesPoolWith(
+                          eligibleProviders,
+                          input.target.providerInstanceId,
+                          provider,
+                        )) &&
                       (input.target?.driverKind === undefined ||
                         provider.driver === input.target.driverKind),
                   ),

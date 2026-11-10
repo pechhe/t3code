@@ -773,7 +773,7 @@ export const AgentPolicyCandidate = Schema.Struct({
   model: Schema.String,
   providerInstanceId: Schema.optional(ProviderInstanceId),
   reason: Schema.String,
-  /** When an `overloaded` candidate's cool-down ends and it may serve again. */
+  /** When an `overloaded` candidate's cool-down ends, or a `usage-limited` one's usage returns. */
   until: Schema.optional(IsoDateTime),
 });
 export type AgentPolicyCandidate = typeof AgentPolicyCandidate.Type;

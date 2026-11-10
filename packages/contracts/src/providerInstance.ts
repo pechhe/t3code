@@ -111,8 +111,8 @@ export const ProviderInstanceConfig = Schema.Struct({
    */
   pool: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
   /**
-   * The pool member new threads use first while it has allowance; without it
-   * the pool spends whichever allowance would lapse unused soonest.
+   * Retired: routing ignores it, and the composer's lamp chooses an account for one thread
+   * instead. Kept so stored settings and older clients' writes still decode.
    */
   preferredMember: Schema.optionalKey(ProviderInstanceId),
   poolPolicy: Schema.optionalKey(ProviderPoolPolicy),

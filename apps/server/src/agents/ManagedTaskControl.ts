@@ -375,6 +375,22 @@ export const layer = Layer.effect(
             (run.delegatedTaskId === input.taskId || run.id === current.childRunId),
         )
       ) {
+        // A failed turn whose recovery has not acted yet still holds the task open: settle
+        // the failure, so the task ends as failed and its recovery no longer continues it.
+        const latestChildRun = child.runs.toSorted((a, b) => b.ordinal - a.ordinal)[0];
+        if (latestChildRun?.status === "failed") {
+          yield* threadManagement.recoverDelegatedTask(childThreadId, latestChildRun.id);
+          const { subagents } = yield* threadManagement
+            .getThreadRecords(principal.ownerThreadId, ["subagents"], {
+              subagentIds: [input.taskId],
+            })
+            .pipe(Effect.mapError(threadManagementFailure));
+          if (subagents.some((task) => task.id === input.taskId && task.status === "failed")) {
+            yield* stopWithinLimit;
+            yield* disposeCompletionDelivery;
+            return { taskId: input.taskId, status: "failed" as const };
+          }
+        }
         if (yield* cancelOrphan) return { taskId: input.taskId, status: "cancelled" as const };
         return yield* failure(
           "task_not_cancellable",

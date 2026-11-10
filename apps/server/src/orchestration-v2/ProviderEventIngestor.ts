@@ -762,7 +762,10 @@ export const layer: Layer.Layer<
                     storedEvents.length === 0 ||
                     input.event.type !== "turn.terminal" ||
                     input.event.status !== "failed" ||
-                    input.event.failure.class !== "usage_limit"
+                    // A rate limit that reported no reset is an upstream error until the usage
+                    // read shows the account is out.
+                    (input.event.failure.class !== "usage_limit" &&
+                      input.event.failure.code !== "api_error_429")
                   )
                     return;
                   const instance = yield* instances.getInstance(input.providerInstanceId);

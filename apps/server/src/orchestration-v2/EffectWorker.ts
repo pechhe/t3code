@@ -27,6 +27,7 @@ import * as ProviderTurnControlService from "./ProviderTurnControlService.ts";
 import * as ProviderTurnStartService from "./ProviderTurnStartService.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadTitleRegenerationService from "./ThreadTitleRegenerationService.ts";
+import * as DelegatedTaskRecovery from "./DelegatedTaskRecovery.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -100,6 +101,7 @@ export const layerExecutor: Layer.Layer<
     const threads = yield* ThreadManagementService.ThreadManagementService;
     const releasedWorkspaces = yield* ThreadLaunchService.ReleasedWorkspacePreparation;
     const settings = yield* ServerSettings.ServerSettingsService;
+    const recoverDelegatedRun = yield* DelegatedTaskRecovery.makeRecoverDelegatedRun;
     return OrchestrationEffectExecutorV2.of({
       execute: Effect.fn("OrchestrationEffectExecutorV2.execute")(function (effect, options) {
         const willRetry = options?.willRetry ?? false;
@@ -109,6 +111,27 @@ export const layerExecutor: Layer.Layer<
             return continueRestartedRun({ threadId: effect.threadId, sourceRunId }).pipe(
               Effect.provideService(ThreadManagementService.ThreadManagementService, threads),
               Effect.provideService(ServerSettings.ServerSettingsService, settings),
+              Effect.tapError(() =>
+                willRetry
+                  ? Effect.void
+                  : threads.recoverDelegatedTask(effect.threadId, sourceRunId),
+              ),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationEffectExecutionError({
+                    effectId: effect.id,
+                    effectType: effect.request.type,
+                    cause,
+                  }),
+              ),
+            );
+          }
+          case "delegated-task.recover": {
+            const sourceRunId = effect.request.sourceRunId;
+            return recoverDelegatedRun(threads, settings, {
+              threadId: effect.threadId,
+              sourceRunId,
+            }).pipe(
               Effect.tapError(() =>
                 willRetry
                   ? Effect.void

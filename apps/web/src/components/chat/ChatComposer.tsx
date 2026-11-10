@@ -2618,7 +2618,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     : expandedControlsIconOnlyBlockCount;
   const poolAccount = useComposerPoolAccount({
     environmentId,
-    selectedInstanceId,
+    selection: selectedModelSelection,
+    draftTarget: composerDraftTarget,
     providers: providerStatuses,
     // A thread that has not run yet is placed like a new one, as the server does.
     current: activeThread?.latestRun ? activeThreadModelSelection?.instanceId : undefined,
@@ -2698,7 +2699,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       reasoningDialRef={reasoningDialRef}
       modelSliderRef={modelSliderRef}
       poolAccount={poolAccount}
-      isNewThread={!activeThread?.latestRun}
       showProviderUnavailable={showProviderUnavailable}
       providerSetupInstanceId={providerSetupInstanceId}
       onOpenProviderSetup={onOpenProviderSetup}
@@ -2708,7 +2708,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       multipleModelSelections={multipleModelSelections}
       onMultipleModelSelectionsChange={setMultipleModelSelections}
       selectedModelSelection={selectedModelSelection}
-      onProviderModelSelect={onProviderModelSelect}
+      onProviderModelSelect={
+        poolAccount === null
+          ? onProviderModelSelect
+          : (instanceId, model, options) =>
+              onProviderModelSelect(poolAccount.keepAccount(instanceId, model), model, options)
+      }
       activeThreadModelSelection={activeThreadModelSelection}
       selectedModelForPickerWithCustomFallback={selectedModelForPickerWithCustomFallback}
       lockedProvider={lockedProvider}

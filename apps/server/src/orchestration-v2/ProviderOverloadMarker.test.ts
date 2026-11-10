@@ -13,6 +13,7 @@ import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 
 import * as ProviderOverloads from "../provider/ProviderOverloads.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderOverloadMarker from "./ProviderOverloadMarker.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
@@ -82,5 +83,62 @@ it.effect("marks the run's account and model only for an overload failure", () =
       (yield* overloads.current).get(key),
       DateTime.toEpochMillis(yield* DateTime.now) + ProviderOverloads.PROVIDER_OVERLOAD_COOLDOWN_MS,
     );
+  }),
+);
+
+it.effect("remembers an account as out only for a usage limit that reports its reset", () =>
+  Effect.gen(function* () {
+    const events = yield* Queue.unbounded<OrchestrationV2DomainEvent>();
+    const remembered = yield* Queue.unbounded<{
+      readonly instanceId: string;
+      readonly resetAt: string;
+    }>();
+    yield* Layer.build(
+      ProviderOverloadMarker.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            ProviderOverloads.layer,
+            Layer.mock(ProviderRegistry.ProviderRegistry)({
+              rememberUsageLimit: (input) => Queue.offer(remembered, input).pipe(Effect.asVoid),
+            }),
+            Layer.mock(Orchestrator.OrchestratorV2)({
+              streamDomainEvents: Stream.fromQueue(events),
+            }),
+            Layer.mock(ThreadManagement.ThreadManagementService)({
+              getThreadRecords: () =>
+                Effect.succeed({
+                  runs: [
+                    { id: runId, modelSelection: { instanceId, model } } as OrchestrationV2Run,
+                  ],
+                } as never),
+            }),
+          ),
+        ),
+      ),
+    );
+    const limit = (resetAt: string | null) =>
+      ({
+        type: "turn-item.updated",
+        payload: {
+          type: "error",
+          status: "failed",
+          threadId,
+          runId,
+          failure: {
+            class: "usage_limit",
+            message: "Usage limit reached.",
+            code: null,
+            retryable: true,
+            resetAt,
+          },
+        },
+      }) as unknown as OrchestrationV2DomainEvent;
+    const resetAt = "2026-10-15T17:30:00.000Z";
+    // Events are handled in order: the first remembered limit proves the earlier ones did nothing.
+    yield* Queue.offer(events, errorEvent("api_error_429"));
+    yield* Queue.offer(events, limit(null));
+    yield* Queue.offer(events, limit(resetAt));
+    assert.deepEqual(yield* Queue.take(remembered), { instanceId, resetAt });
+    assert.equal(yield* Queue.size(remembered), 0);
   }),
 );

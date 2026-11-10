@@ -4449,12 +4449,8 @@ function providerFailureFromApiRetry(message: SDKAPIRetryMessage): Orchestration
       message.error_status === null
         ? message.error
         : `api_error_${Math.trunc(message.error_status)}`,
-    class:
-      message.error_status === 429
-        ? "usage_limit"
-        : message.error_status === null
-          ? "transport_error"
-          : "provider_error",
+    // A retried 429 says nothing of when usage returns, so it is no usage limit.
+    class: message.error_status === null ? "transport_error" : "provider_error",
     retryable: true,
   });
 }
@@ -10666,9 +10662,21 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     failureHint,
                     usageLimited,
                   );
+            const limitResetAt =
+              resultFailure?.class === "usage_limit"
+                ? (resetAt ?? resultFailure.resetAt ?? null)
+                : null;
+            // Only a limit that says when it resets is a usage limit; a bare rate-limit or
+            // capacity response is an upstream error, and a usage read decides the account.
             const terminalFailure =
               resultFailure?.class === "usage_limit"
-                ? { ...resultFailure, resetAt: resetAt ?? resultFailure.resetAt ?? null }
+                ? {
+                    ...resultFailure,
+                    ...(limitResetAt === null
+                      ? { class: "provider_error" as const, code: "api_error_429" }
+                      : {}),
+                    resetAt: limitResetAt,
+                  }
                 : resultFailure;
             yield* finalizeActiveTurn({
               context,

@@ -73,7 +73,6 @@ function routePoolSelection(
       pool: {
         driver: pool.driver,
         members,
-        preferredMember: pool.poolPreferredMember,
         policy: pool.poolPolicy,
       },
       providers,

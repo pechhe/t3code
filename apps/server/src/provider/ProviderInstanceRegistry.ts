@@ -398,7 +398,6 @@ const makeReconcile = <R>(input: {
             accentColor: entry.accentColor,
             enabled: resolveEntryEnabled(entry, undefined),
             members: entry.pool,
-            preferredMember: entry.preferredMember,
             policy: entry.poolPolicy,
           });
           continue;

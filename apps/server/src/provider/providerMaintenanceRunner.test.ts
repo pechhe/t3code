@@ -198,6 +198,7 @@ function makeRegistry(
       refresh: () => Ref.get(providersRef),
       refreshInstance: () => Ref.get(providersRef),
       refreshInstanceUsage: () => Ref.get(providersRef),
+      rememberUsageLimit: () => Effect.void,
       reloadSecretsAndRefresh: () => Ref.get(providersRef),
       refreshAfterUpdate: () => {
         const version = options?.installedVersionAfterUpdate;

@@ -817,7 +817,6 @@ const make = Effect.gen(function* () {
                 pool: {
                   driver: pool.driver,
                   members,
-                  preferredMember: pool.poolPreferredMember,
                   policy: pool.poolPolicy,
                 },
                 providers: candidates,
@@ -853,8 +852,9 @@ const make = Effect.gen(function* () {
         return routePoolSelection(command.modelSelection, command.threadId).pipe(
           Effect.map((modelSelection) => ({ ...command, modelSelection })),
         );
+      // A delegated task is placed like a new thread, never on its parent's account.
       case "delegated_task.request":
-        return routePoolSelection(command.modelSelection, command.parentThreadId).pipe(
+        return routePoolSelection(command.modelSelection).pipe(
           Effect.map((modelSelection) => ({ ...command, modelSelection })),
         );
       default:

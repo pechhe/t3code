@@ -1140,17 +1140,18 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       );
       expect(kept).toMatchObject({ model: claudeModel, instanceId: spare.instanceId });
 
-      // With every account out, the one resetting soonest serves rather than refusing.
+      // With every account out nothing starts: the refusal names the earliest return.
       const allOut = yield* resolver.preview(
         input({ request: review(), providers: [codexOut, claudeOut] }),
       );
-      expect(allOut.refusal).toBeNull();
-      expect(allOut.selection?.model).toBe(codexModel);
+      expect(allOut.selection).toBeNull();
+      expect(allOut.refusal).toMatch(/^usage-limited: .*2026-10-15T02:00:00\.000Z/);
       expect(allOut.candidates).toContainEqual(
-        expect.objectContaining({ alias: "sol", reason: "selected" }),
-      );
-      expect(allOut.candidates).toContainEqual(
-        expect.objectContaining({ alias: "sonnet", reason: "usage-limited" }),
+        expect.objectContaining({
+          alias: "sonnet",
+          reason: "usage-limited",
+          until: "2026-10-15T03:00:00.000Z",
+        }),
       );
 
       // Allowance outranks a reviewer's preference against the author's model.
@@ -1168,6 +1169,100 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         }),
       );
       expect(chosen.instanceId).toBe(spare.instanceId);
+    }),
+  );
+
+  it.effect("picks among pooled accounts by the pool's rule, never one that is out", () =>
+    Effect.gen(function* () {
+      const resolver = yield* Resolver.AgentRoleResolver;
+      const id = ProviderInstanceId.make;
+      const used = (
+        account: ServerProvider,
+        name: string,
+        usedPercent: number,
+        resetsAt: string,
+      ) => ({
+        ...account,
+        instanceId: id(name),
+        usageLimits: {
+          checkedAt: "2026-10-15T00:00:00.000Z",
+          windows: [
+            { id: "five_hour", kind: "session" as const, label: "Session", usedPercent, resetsAt },
+          ],
+        },
+      });
+      const soon = used(claude, "claude-soon", 20, "2026-10-15T02:00:00.000Z");
+      const late = used(claude, "claude-late", 20, "2026-10-15T05:00:00.000Z");
+      const out = used(claude, "claude-out", 100, "2026-10-15T03:00:00.000Z");
+      const pool = (
+        members: ReadonlyArray<ServerProvider>,
+        policy?: ServerProvider["poolPolicy"],
+      ): ServerProvider => ({
+        ...claude,
+        instanceId: id("claude-pool"),
+        poolMembers: members.map((member) => member.instanceId),
+        ...(policy === undefined ? {} : { poolPolicy: policy }),
+      });
+      const claudeOnly = (
+        providers: ReadonlyArray<ServerProvider>,
+        selection?: Input["selection"],
+      ) =>
+        input({
+          snapshot: snapshot(),
+          request: request({
+            role: "reviewer",
+            sourceRevision: "reviewed-commit",
+            review: changeReview,
+          }),
+          providers,
+          ...(selection === undefined ? {} : { selection }),
+        });
+
+      // The account with allowance serves, and discovery names it and why the other is skipped.
+      const preview = yield* resolver.preview(claudeOnly([out, soon, pool([out, soon])]));
+      expect(preview.selection).toMatchObject({ model: claudeModel, instanceId: soon.instanceId });
+      expect(preview.candidates).toContainEqual(
+        expect.objectContaining({ providerInstanceId: out.instanceId, reason: "usage-limited" }),
+      );
+
+      // The pool's strategy decides between accounts with allowance: spend what lapses soonest,
+      // or the pool's own order.
+      expect((yield* resolve(claudeOnly([late, soon, pool([late, soon])]))).instanceId).toBe(
+        soon.instanceId,
+      );
+      expect(
+        (yield* resolve(claudeOnly([late, soon, pool([late, soon], { strategy: "order" })])))
+          .instanceId,
+      ).toBe(late.instanceId);
+
+      // A member the pool switches off, or one at the pool's reserve, does not serve.
+      expect(
+        (yield* resolve(
+          claudeOnly([soon, late, pool([soon, late], { disabledMembers: [soon.instanceId] })]),
+        )).instanceId,
+      ).toBe(late.instanceId);
+      const reserved = used(claude, "claude-soon", 92, "2026-10-15T02:00:00.000Z");
+      expect(
+        (yield* resolve(
+          claudeOnly([reserved, late, pool([reserved, late], { reservePercent: 90 })]),
+        )).instanceId,
+      ).toBe(late.instanceId);
+
+      // Naming an account that is out hands the task to its pool sibling.
+      expect(
+        (yield* resolve(
+          claudeOnly([out, soon, pool([out, soon])], {
+            instanceId: out.instanceId,
+            model: claudeModel,
+          }),
+        )).instanceId,
+      ).toBe(soon.instanceId);
+      // Outside a pool there is no sibling, so the call is refused rather than started.
+      const refused = yield* refusal(
+        claudeOnly([out, soon], { instanceId: out.instanceId, model: claudeModel }),
+      );
+      expect(refused).toMatchObject({ reason: "usage-limited" });
+      expect(refused.detail).toContain("2026-10-15T03:00:00.000Z");
     }),
   );
 

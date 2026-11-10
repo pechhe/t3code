@@ -141,6 +141,10 @@ import {
   runOutcome,
 } from "./RestartBackgroundNote.ts";
 import {
+  delegatedRecoveryEffectId,
+  isDelegatedRecoverableFailure,
+} from "./DelegatedTaskRecovery.ts";
+import {
   arcRunAttentionMessage,
   arcRunScopesOverlap,
   isArcRunHeld,
@@ -2827,6 +2831,35 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           threadId,
           request: { type: "provider-runtime.continue", sourceRunId: run.id },
           availableAt: DateTime.add(yield* DateTime.now, { milliseconds: delayMs }),
+        },
+      ],
+    );
+  });
+
+  // A delegated task's run that failed on a usage limit or an upstream error gets one recovery
+  // effect; while it is pending the parent hears nothing (`awaitsRestartContinuation`).
+  const scheduleDelegatedRecovery = Effect.fn("Orchestrator.scheduleDelegatedRecovery")(function* (
+    threadId: ThreadId,
+    runId: RunId,
+  ) {
+    if ((yield* appOwnedSubagentParentThreadId(threadId)) === undefined) return;
+    const projection = yield* projectionStore.getThreadRecords(threadId, ["runs", "turnItems"], {
+      turnItemTypes: ["error"],
+      turnItemRunIds: [runId],
+    });
+    const run = projection.runs.find((candidate) => candidate.id === runId);
+    if (run === undefined || run.restartContinuationOfRunId !== undefined) return;
+    const failure = latestRootProviderFailure(run, projection.turnItems);
+    if (failure === null || !isDelegatedRecoverableFailure(failure)) return;
+    yield* writeSystemEvents(
+      [],
+      [
+        {
+          id: delegatedRecoveryEffectId(run.id),
+          commandId: CommandId.make(`command:delegated-recovery:${run.id}`),
+          threadId,
+          request: { type: "delegated-task.recover", sourceRunId: run.id },
+          availableAt: yield* DateTime.now,
         },
       ],
     );
@@ -6971,7 +7004,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.dispatchMode.type !== "start_immediately" ||
         source === undefined ||
         (source.status !== "interrupted" &&
-          !(source.status === "failed" && limited?.class === "usage_limit")) ||
+          !(
+            source.status === "failed" &&
+            (limited?.class === "usage_limit" ||
+              // A delegated task's recovery also continues after an upstream error.
+              (projection.thread.lineage.relationshipToParent === "subagent" &&
+                limited !== null &&
+                isDelegatedRecoverableFailure(limited)))
+          )) ||
         latestExecutedRun(projection.runs)?.id !== source.id ||
         projection.thread.archivedAt !== null ||
         projection.thread.deletedAt !== null ||
@@ -7084,7 +7124,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       projection = applyToProjection(projection, event);
     }
 
-    const continuedRunId = command.restartContinuationOfRunId;
+    // A continuation stays part of the delegated task whose run it continues.
+    const continuedRunId = command.restartContinuationOfRunId ?? command.manualContinuationOfRunId;
     const continuedTaskId =
       continuedRunId === undefined
         ? undefined
@@ -14233,13 +14274,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   );
 
   const awaitsRestartContinuation = (run: OrchestrationV2Run) =>
-    effectOutbox
-      .get(`effect:restart-continuation:${run.id}`)
-      .pipe(
-        Effect.map(
-          Option.exists((effect) => effect.status === "pending" || effect.status === "running"),
-        ),
-      );
+    Effect.forEach(
+      [`effect:restart-continuation:${run.id}`, delegatedRecoveryEffectId(run.id)],
+      (effectId) =>
+        effectOutbox
+          .get(effectId)
+          .pipe(
+            Effect.map(
+              Option.exists((effect) => effect.status === "pending" || effect.status === "running"),
+            ),
+          ),
+    ).pipe(Effect.map((pending) => pending.includes(true)));
 
   const childAwaitsRestartContinuation = (
     runs: ReadonlyArray<OrchestrationV2Run>,
@@ -16006,6 +16051,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       // while writing child events, so nesting parent inside child would invert the order.
       // The keyed semaphores are neither reentrant nor deadlock-aware.
       if (delegatedTaskTerminalStatus(run.status) !== null) {
+        // Before the parent hears of a delegated task's failure, a recovery may continue it.
+        if (run.status === "failed") {
+          yield* threadDispatch
+            .withLock(threadId, scheduleDelegatedRecovery(threadId, run.id))
+            .pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("Failed to schedule a delegated task recovery", {
+                  threadId,
+                  runId: run.id,
+                  cause,
+                }),
+              ),
+            );
+        }
         // Before the parent hears of the failure: a pending continuation keeps the task open.
         if (run.status === "failed" && run.restartContinuationOfRunId !== undefined) {
           yield* threadDispatch.withLock(threadId, retryContinuationStart(threadId, run.id)).pipe(

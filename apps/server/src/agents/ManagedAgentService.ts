@@ -173,6 +173,16 @@ export class ManagedAgentService extends Context.Service<
      * The chore worker's models in the order its role would try them, for work that only needs
      * text written (a compaction summary), so no workspace, sandbox or browser rule applies.
      */
+    /**
+     * The models other than `model` a running task's role could start on now, as a relaunch
+     * would rank them: none when a trial pins the task's model or nothing else can run.
+     */
+    readonly otherModels: (input: {
+      readonly binding: AgentTaskBinding;
+      readonly providers: ReadonlyArray<ServerProvider>;
+      readonly runtimeMode: RuntimeMode;
+      readonly model: string;
+    }) => Effect.Effect<ReadonlyArray<ModelSelection>>;
     readonly rankedTextModels: (input: {
       readonly providers: ReadonlyArray<ServerProvider>;
     }) => Effect.Effect<ReadonlyArray<ModelSelection>, ManagedAgentError>;
@@ -622,7 +632,7 @@ const make = Effect.gen(function* () {
     const usageLimited = result.candidates.filter(
       (candidate) => candidate.reason === "usage-limited",
     );
-    const overloaded = result.candidates.filter((candidate) => candidate.until !== undefined);
+    const overloaded = result.candidates.filter((candidate) => candidate.reason === "overloaded");
     const sourceAccess =
       input.request.readOnly === true ? ("read-only" as const) : policy.sourceAccess;
     const toolProfile =
@@ -788,6 +798,40 @@ const make = Effect.gen(function* () {
       const { policy, brief } = configured;
       return (yield* discover(input, snapshot, input.role, policy, brief)).ranked;
     }),
+    otherModels: Effect.fn("ManagedAgentService.otherModels")(
+      function* (input) {
+        if (input.binding.assigned != null) return [];
+        const snapshot = yield* store.get(input.binding.policyHash);
+        const context = yield* execution(
+          { ceiling: input.runtimeMode, runtimeMode: input.runtimeMode },
+          input.binding,
+          true,
+          input.binding.sourceAccess === "read-only",
+        );
+        const result = yield* resolver.preview({
+          ...context,
+          snapshot,
+          overloads: yield* currentOverloads,
+          providers: input.providers,
+        });
+        // An overloaded or exhausted model is no model to pass to.
+        return result.candidates.flatMap((candidate) => {
+          const selection = result.selection;
+          return candidate.model !== input.model &&
+            (candidate.reason === "selected" || candidate.reason === "lower-preference") &&
+            candidate.providerInstanceId !== undefined
+            ? [
+                {
+                  instanceId: candidate.providerInstanceId,
+                  model: candidate.model,
+                  ...(selection?.model === candidate.model ? { options: selection.options } : {}),
+                },
+              ]
+            : [];
+        });
+      },
+      Effect.orElseSucceed((): ReadonlyArray<ModelSelection> => []),
+    ),
     rankedTextModels: Effect.fn("ManagedAgentService.rankedTextModels")(function* (input) {
       const snapshot = yield* currentPolicy;
       const role = snapshot.manifest.roles["chore-worker"];

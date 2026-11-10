@@ -129,6 +129,14 @@ the bar show each account's quota, countdown, and credits. Tap a row to open its
 
 The same account signed in on more than one environment, or reported by a hub as well, counts once.
 
+When a run stops at a usage limit that says when it resets, T3 Code counts that account as out
+until then for every new thread and delegated task, even if a later reading still shows usage
+left, and Limits shows it as **Usage limit reached**. This lasts until the reset or a server
+restart. A rate-limit response without a reset time, an overloaded response or a connection error
+is treated as a passing error, not a limit. A subagent that hits one moves to its job's next model
+when there is one; otherwise it tries the same model again after about 30 seconds, up to three
+times, before the agent that delegated it hears the error.
+
 In a thread, **Usage left** sits beside the composer when the window is wide enough to fit it. Each
 provider shows one figure: what is left in its tightest window (5-hour or weekly), added up across
 its accounts, so two Claude accounts can show up to 200%. With more than one account, each

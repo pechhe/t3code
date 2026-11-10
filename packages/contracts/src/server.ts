@@ -280,7 +280,6 @@ export const ServerProvider = Schema.Struct({
   usageLimits: Schema.optional(ServerProviderUsageLimits),
   // Set on an account pool: the instances a turn on it can be routed to.
   poolMembers: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
-  poolPreferredMember: Schema.optionalKey(ProviderInstanceId),
   poolPolicy: Schema.optionalKey(ProviderPoolPolicy),
   // Old ids of this instance that existing threads may still name.
   formerInstanceIds: Schema.optionalKey(Schema.Array(ProviderInstanceId)),

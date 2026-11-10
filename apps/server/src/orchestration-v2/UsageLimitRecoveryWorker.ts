@@ -62,7 +62,6 @@ export function poolFailoverCommand(
       pool: {
         driver: pool.driver,
         members: pool.poolMembers,
-        preferredMember: pool.poolPreferredMember,
         policy: pool.poolPolicy,
       },
       providers,
