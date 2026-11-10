@@ -116,18 +116,24 @@ export const loadCaller = Effect.fn("mcp.loadCaller")(function* () {
 const MAX_DELEGATION_DEPTH = 2;
 
 /**
- * Refuses a thread already two delegations below a top-level thread, by every route that starts
- * another agent. Counts `subagent` edges from the server's lineage; a fork sits at its source's
- * depth. A launched thread has no parent, so it starts a fresh count, visible in the sidebar.
+ * How many delegations a thread sits below a top-level thread. Counts `subagent` edges from the
+ * server's lineage, starting from the depth a linked environment stated for a task it delegated
+ * here; a fork sits at its source's depth. A launched thread has no parent, so it starts a fresh
+ * count, visible in the sidebar.
  */
-export const assertBelowDelegationLimit = Effect.fn("mcp.assertBelowDelegationLimit")(function* (
+export const delegationDepth = Effect.fn("mcp.delegationDepth")(function* (
   threads: Pick<ThreadManagement.ThreadManagementService["Service"], "getThreadShell">,
-  shell: Pick<OrchestrationV2ThreadShell, "id" | "lineage">,
+  shell: Pick<OrchestrationV2ThreadShell, "id" | "lineage" | "delegatedFrom">,
 ) {
   const seen = new Set<ThreadId>([shell.id]);
   let depth = 0;
-  let lineage = shell.lineage;
-  while (lineage.parentThreadId !== null) {
+  let current: Pick<OrchestrationV2ThreadShell, "lineage" | "delegatedFrom"> = shell;
+  while (true) {
+    const lineage = current.lineage;
+    if (lineage.parentThreadId === null) {
+      depth += current.delegatedFrom?.depth ?? 0;
+      break;
+    }
     if (lineage.relationshipToParent === "subagent") depth += 1;
     if (depth >= MAX_DELEGATION_DEPTH || seen.has(lineage.parentThreadId)) break;
     seen.add(lineage.parentThreadId);
@@ -135,9 +141,17 @@ export const assertBelowDelegationLimit = Effect.fn("mcp.assertBelowDelegationLi
       .getThreadShell(lineage.parentThreadId)
       .pipe(Effect.mapError(unavailable));
     if (parent === null) return yield* unavailable();
-    lineage = parent.lineage;
+    current = parent;
   }
-  if (depth >= MAX_DELEGATION_DEPTH)
+  return depth;
+});
+
+/** Refuses a thread already two delegations below a top-level thread, by every route that starts another agent. */
+export const assertBelowDelegationLimit = Effect.fn("mcp.assertBelowDelegationLimit")(function* (
+  threads: Pick<ThreadManagement.ThreadManagementService["Service"], "getThreadShell">,
+  shell: Pick<OrchestrationV2ThreadShell, "id" | "lineage" | "delegatedFrom">,
+) {
+  if ((yield* delegationDepth(threads, shell)) >= MAX_DELEGATION_DEPTH)
     return yield* new OrchestratorMcpFailure({
       code: "capability_denied",
       message:

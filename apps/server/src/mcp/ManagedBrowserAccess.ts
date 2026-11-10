@@ -72,11 +72,16 @@ export const assertManagedBrowserCaller = Effect.fn("mcp.assertManagedBrowserCal
 export const isManagedBrowserTask = (task: OrchestrationV2ThreadShell["agentTask"]) =>
   usesPhi(task?.toolProfile) && ["browser", "ui-verifier"].includes(task?.role ?? "");
 
+/** A browser role's task on the integrated browser, or a role whose policy granted bounded tasks. */
+const roleGrantsBoundedBrowser = (task: NonNullable<OrchestrationV2ThreadShell["agentTask"]>) =>
+  isManagedBrowserTask(task)
+    ? (task.browser?.backend ?? "integrated") === "integrated"
+    : task.browserTasks === true && BOUNDED_BROWSER_ROLES.has(task.role);
+
 /**
  * Whether a thread may run bounded browser tasks, from what the server recorded, never the caller.
- * Every editor may; a browser role's task only on the integrated browser (Phi never falls back to
- * headless); another read-only task only when its role policy granted them. A subagent with no
- * task record, an outside client's work and a linked environment's work may not.
+ * Every editor may, and a read-only role only when it grants them. A subagent with no task record
+ * and an outside client's work may not; linked work only as a role this environment resolved.
  */
 export const boundedBrowserEligible = (
   thread: Pick<
@@ -84,13 +89,13 @@ export const boundedBrowserEligible = (
     "agentTask" | "lineage" | "linkOrigin" | "delegatedFrom"
   >,
 ): boolean => {
-  if (thread.linkOrigin !== undefined || thread.delegatedFrom !== undefined) return false;
   const task = thread.agentTask;
+  if (thread.linkOrigin !== undefined || thread.delegatedFrom != null)
+    return task !== undefined && task.externalOwner === undefined && roleGrantsBoundedBrowser(task);
   if (task === undefined) return thread.lineage.relationshipToParent !== "subagent";
   if (task.externalOwner !== undefined) return false;
   if (!isReadOnlyTask(task)) return true;
-  if (isManagedBrowserTask(task)) return (task.browser?.backend ?? "integrated") === "integrated";
-  return task.browserTasks === true && BOUNDED_BROWSER_ROLES.has(task.role);
+  return roleGrantsBoundedBrowser(task);
 };
 
 /** Bounded tasks always use the integrated browser, so its project setting is what decides. */

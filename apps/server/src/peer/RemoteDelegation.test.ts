@@ -7,6 +7,8 @@ import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  type AgentTaskBinding,
+  type AgentTaskHandoff,
   CommandId,
   EventId,
   MessageId,
@@ -39,6 +41,8 @@ import type * as SqlClient from "effect/sql/SqlClient";
 import { McpSchema, McpServer } from "effect/ai";
 
 import * as ServerConfig from "../config.ts";
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
+import { boundedBrowserEligible } from "../mcp/ManagedBrowserAccess.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import { idleThreadProjection, liveThreadShell } from "../mcp/McpToolAccess.testkit.ts";
@@ -138,6 +142,10 @@ interface BoxThread {
   readonly sent: Ref.Ref<ReadonlyArray<string>>;
   /** Runs as the launch there is answered, before the laptop hears back. */
   readonly afterLaunch: Ref.Ref<Effect.Effect<void>>;
+  /** The role binding the box resolved for the launch, if any. */
+  readonly agentTask: Ref.Ref<AgentTaskBinding | null>;
+  /** The thread there waits on a question or an approval. */
+  readonly pendingRequest: Ref.Ref<boolean>;
 }
 
 const makeBoxThread = Effect.gen(function* () {
@@ -173,6 +181,8 @@ const makeBoxThread = Effect.gen(function* () {
     releaseStop: yield* Deferred.make<void>(),
     sent: yield* Ref.make<ReadonlyArray<string>>([]),
     afterLaunch: yield* Ref.make<Effect.Effect<void>>(Effect.void),
+    agentTask: yield* Ref.make<AgentTaskBinding | null>(null),
+    pendingRequest: yield* Ref.make(false),
   } satisfies BoxThread;
 });
 
@@ -209,24 +219,41 @@ const boxProjects: ReadonlyArray<Project> = [
   },
 ];
 
-const serveBox = (thread: BoxThread) => {
-  return servePeer(box, boxToolkitLayer(thread));
-};
+/** A box with a role policy runs a version that resolves roles a link delegates. */
+const serveBox = (thread: BoxThread, policy?: Layer.Layer<ManagedAgent.ManagedAgentService>) =>
+  servePeer(
+    policy === undefined
+      ? box
+      : descriptorOf("environment-box", "Box", { linkedRoleDelegation: true }),
+    boxToolkitLayer(thread, policy),
+  );
 
 const boxRunId = RunId.make("run:box");
 const boxLaterRunId = RunId.make("run:box-later");
 
-const boxToolkitLayer = (thread: BoxThread) => {
+const boxToolkitLayer = (
+  thread: BoxThread,
+  policy?: Layer.Layer<ManagedAgent.ManagedAgentService>,
+) => {
   const runId = boxRunId;
   const interrupts = new Set<string>();
   const shellOf = (threadId: ThreadId) =>
     Effect.gen(function* () {
       if ((yield* Ref.get(thread.launched)) !== threadId) return null;
       const linkOrigin = yield* Ref.get(thread.linkOrigin);
+      const agentTask = yield* Ref.get(thread.agentTask);
+      const delegatedFrom = yield* Ref.get(thread.delegatedFrom);
+      // A managed task runs in the mode the box resolved for it, within the link.
+      const runtimeMode =
+        agentTask === null
+          ? "full-access"
+          : ((yield* Ref.get(thread.launchedWith))?.runtimeMode ?? "full-access");
       return {
-        ...liveThreadShell(threadId, { runtimeMode: "full-access" }),
+        ...liveThreadShell(threadId, { runtimeMode }),
         projectId: boxProject,
         ...(linkOrigin === null ? {} : { linkOrigin }),
+        ...(agentTask === null ? {} : { agentTask }),
+        ...(delegatedFrom == null ? {} : { delegatedFrom }),
       };
     });
   const runOf = (status: OrchestrationV2Run["status"]) =>
@@ -239,7 +266,9 @@ const boxToolkitLayer = (thread: BoxThread) => {
       activeAttemptId: "attempt:box",
       requestedAt: DateTime.makeUnsafe(0),
       startedAt: DateTime.makeUnsafe(0),
-      completedAt: null,
+      completedAt: ["completed", "failed", "cancelled", "interrupted"].includes(status)
+        ? DateTime.makeUnsafe(1)
+        : null,
     }) as unknown as OrchestrationV2Run;
   const projectionOf = (threadId: ThreadId) =>
     Effect.gen(function* () {
@@ -247,11 +276,13 @@ const boxToolkitLayer = (thread: BoxThread) => {
       const status = yield* Ref.get(thread.status);
       const runless = yield* Ref.get(thread.runless);
       const model = yield* Ref.get(thread.executedModel);
+      const pending = yield* Ref.get(thread.pendingRequest);
       return shell === null
         ? (null as never)
         : {
             ...idleThreadProjection(shell),
             runs: runless ? [] : [runOf(status)],
+            runtimeRequests: (pending ? [{ status: "pending" }] : []) as never,
             providerTurns: (model === null
               ? []
               : [{ runAttemptId: "attempt:box", ordinal: 1, model }]) as never,
@@ -270,6 +301,8 @@ const boxToolkitLayer = (thread: BoxThread) => {
     });
   const layerBoxThreads = Layer.mock(ThreadManagement.ThreadManagementService)({
     getThreadShell: shellOf,
+    isProviderInstanceEnabledForProject: () => Effect.succeed(true),
+    listProjectThreads: () => Effect.succeed([] as never),
     getProjectThreadRecords: (input) => projectionOf(input.threadId),
     getThreadRecords: (threadId) => projectionOf(threadId),
     waitForThread: (input) =>
@@ -444,6 +477,7 @@ const boxToolkitLayer = (thread: BoxThread) => {
           Ref.set(thread.launched, input.threadId!).pipe(
             Effect.andThen(Ref.set(thread.linkOrigin, input.linkOrigin ?? null)),
             Effect.andThen(Ref.set(thread.delegatedFrom, input.delegatedFrom ?? null)),
+            Effect.andThen(Ref.set(thread.agentTask, input.agentTask ?? null)),
             Effect.andThen(Ref.set(thread.message, input.initialMessage?.text ?? null)),
             Effect.andThen(
               Ref.set(thread.launchedWith, {
@@ -461,6 +495,7 @@ const boxToolkitLayer = (thread: BoxThread) => {
                   projectId: input.projectId,
                   title: input.title,
                   modelSelection: input.modelSelection,
+                  ...(input.agentTask === undefined ? {} : { agentTask: input.agentTask }),
                 },
                 runs:
                   input.initialMessage?.messageId && !runless
@@ -518,9 +553,15 @@ const boxToolkitLayer = (thread: BoxThread) => {
     ),
     Layer.provide(Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({})),
     Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
+    Layer.provide(policy ?? Layer.empty),
     Layer.provide(
       Layer.mock(ProjectService.ProjectService)({
-        getById: () => Effect.succeedNone,
+        // Only a box with a role policy reads its project to place a role there.
+        getById: (id) =>
+          policy === undefined
+            ? Effect.succeedNone
+            : Effect.succeed(Option.fromUndefinedOr(boxProjects.find((p) => p.id === id))),
+        listShells: () => Effect.succeed([]),
         // More than a page, so finding the project with this repository pages.
         listPage: ({ cursor, limit }) =>
           Effect.succeed({
@@ -850,10 +891,12 @@ it.effect("a task delegated to the box wakes the laptop's parent when it ends th
         `[Laptop parent](t3-thread://v2/${box.environmentId}/${delegated.remoteChild.threadId})`,
       );
       // ...naming the parent here, so the thread there links back to it.
+      // ...and how far below a top-level thread it sits, so the limit holds there too.
       expect(yield* Ref.get(thread.delegatedFrom)).toEqual({
         environmentId: laptop.environmentId,
         threadId: parentThreadId,
         title: "Laptop parent",
+        depth: 1,
       });
       // A retry with the same key launches nothing new and records nothing new.
       const retried = yield* delegateToBox(a);
@@ -1256,36 +1299,8 @@ it.effect("refuses worktree isolation for a task there before launching anything
   ),
 );
 
-it.effect("refuses a managed role for a task there instead of running an unmanaged thread", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const thread = yield* makeBoxThread;
-      const b = yield* serveBox(thread);
-      const offers = yield* SubscriptionRef.make<
-        ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
-      >([]);
-      const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
-      const a = yield* makeLaptop(database, offers);
-      yield* linkTo(a.links, b, "auto");
-      yield* seedParent(a);
-
-      const result = yield* a.call("delegate_task", {
-        task: "Check the box.",
-        agentTask: {
-          role: "chore-worker",
-          taskClass: "non-ui",
-          workId: "work:jev-check",
-          attemptId: "attempt:jev-check",
-          workspacePath: "/home/ubuntu/.t3/scratch/jev-check",
-        },
-        target: { environmentId: box.environmentId },
-      });
-      expect(result.isError).toBe(true);
-      expect(JSON.stringify(result.content)).toContain("agentTask");
-      // The role would have run there as a plain thread on this parent's model.
-      expect(yield* Ref.get(thread.launched)).toBeNull();
-    }),
-  ).pipe(
+const laptopLayers = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
     Effect.provide(
       NodeHttpServer.layerTest.pipe(
         Layer.provideMerge(
@@ -1301,6 +1316,465 @@ it.effect("refuses a managed role for a task there instead of running an unmanag
         ),
         Layer.provideMerge(Layer.mergeAll(SqlitePersistence.layerMemory)),
       ),
+    ),
+  );
+
+const choreRole = {
+  role: "chore-worker",
+  taskClass: "non-ui",
+  workId: "work:jev-check",
+  attemptId: "attempt:jev-check",
+  workspacePath: "/home/ubuntu/.t3/scratch/jev-check",
+} as const;
+
+/** The box's own model for its roles, which no laptop thread runs. */
+const boxModel = { instanceId: ProviderInstanceId.make("pi"), model: "deepseek-box" };
+
+/** What the box's role policy saw, and the binding it gives a scout. */
+interface BoxPolicySeen {
+  readonly prepared: Ref.Ref<
+    ReadonlyArray<{ readonly role: string; readonly workspacePath: string }>
+  >;
+  readonly selections: Ref.Ref<ReadonlyArray<unknown>>;
+  /** What an isolated writer's run there handed back. */
+  readonly handoff: Ref.Ref<AgentTaskHandoff | undefined>;
+}
+
+/** The box's role policy: a read-only scout and a browser role, each on the box's own model. */
+const boxPolicy = (seen: BoxPolicySeen) =>
+  Layer.mock(ManagedAgent.ManagedAgentService)({
+    configured: () => Effect.succeed(true),
+    roles: ({ selection }) =>
+      Ref.update(seen.selections, (all) => [...all, selection]).pipe(
+        Effect.as({
+          policyHash: "b".repeat(64),
+          policyRevision: "box-policy",
+          roles: ["scout", "browser"].map((role) => ({
+            role,
+            sourceAccess: "read-only",
+            permissionClass: "read-only",
+            briefHash: "c".repeat(64),
+            selection: boxModel,
+            refusal: null,
+            models: [{ model: boxModel.model, effort: "low", available: true }],
+          })),
+        } as never),
+      ),
+    prepare: ({ request }) =>
+      Ref.update(seen.prepared, (all) => [
+        ...all,
+        { role: request.role, workspacePath: request.workspacePath },
+      ]).pipe(
+        Effect.as({
+          binding: {
+            ...request,
+            requestFingerprint: "d".repeat(64),
+            policyHash: "b".repeat(64),
+            policyRevision: "box-policy",
+            briefHash: "c".repeat(64),
+            sourceAccess: "read-only",
+            toolProfile: request.role === "browser" ? "phi" : "source-reader",
+            requested: boxModel,
+            assigned: null,
+            effective: boxModel,
+          } as AgentTaskBinding,
+          brief: "You are the box's scout.",
+        }),
+      ),
+    validate: () => Effect.void,
+    handoff: () => Ref.get(seen.handoff),
+  });
+
+const makeBoxPolicySeen = Effect.gen(function* () {
+  return {
+    prepared: yield* Ref.make<
+      ReadonlyArray<{ readonly role: string; readonly workspacePath: string }>
+    >([]),
+    selections: yield* Ref.make<ReadonlyArray<unknown>>([]),
+    handoff: yield* Ref.make<AgentTaskHandoff | undefined>(undefined),
+  } satisfies BoxPolicySeen;
+});
+
+it.effect("refuses a managed role before anything starts on a box too old to resolve one", () =>
+  laptopLayers(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const thread = yield* makeBoxThread;
+        const b = yield* serveBox(thread);
+        const offers = yield* SubscriptionRef.make<
+          ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+        >([]);
+        const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+        const a = yield* makeLaptop(database, offers);
+        yield* linkTo(a.links, b, "auto");
+        yield* seedParent(a);
+
+        const result = yield* a.call("delegate_task", {
+          task: "Check the box.",
+          agentTask: choreRole,
+          target: { environmentId: box.environmentId },
+          clientRequestId: "old-box",
+        });
+        expect(result.isError).toBe(true);
+        expect(JSON.stringify(result.content)).toContain("cannot resolve a managed role");
+        // No revision of this checkout crosses the link, whatever the box can do.
+        const pinned = yield* a.call("delegate_task", {
+          task: "Check the box.",
+          agentTask: { ...choreRole, role: "scout", sourceRevision: "abc123" },
+          target: { environmentId: box.environmentId },
+          clientRequestId: "pinned-box",
+        });
+        expect(JSON.stringify(pinned.content)).toContain("pinned to a source revision");
+        // The role would have run there as a plain thread on this parent's model.
+        expect(yield* Ref.get(thread.launched)).toBeNull();
+      }),
+    ),
+  ),
+);
+
+it.effect(
+  "a role delegated to the box runs there as the box's policy resolves it, and the laptop's record names it",
+  () =>
+    laptopLayers(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const thread = yield* makeBoxThread;
+          const seen = yield* makeBoxPolicySeen;
+          const b = yield* serveBox(thread, boxPolicy(seen));
+          const offers = yield* SubscriptionRef.make<
+            ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+          >([]);
+          const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+          const a = yield* makeLaptop(database, offers);
+          yield* linkTo(a.links, b, "auto");
+          yield* seedParent(a);
+
+          // Discovery there answers with the box's roles and models, as a delegation meets them.
+          const roles = yield* a.call("agent_roles", {
+            environmentId: box.environmentId,
+            projectId: boxProject,
+            taskClass: "non-ui",
+          });
+          expect(roles.isError, JSON.stringify(roles.content)).toBe(false);
+          expect(roles.structuredContent).toMatchObject({
+            environmentId: box.environmentId,
+            policyRevision: "box-policy",
+            roles: [{ role: "scout", selection: boxModel }, { role: "browser" }],
+          });
+
+          const result = yield* a.call("delegate_task", {
+            task: "Map the box's checkout.",
+            agentTask: { ...choreRole, role: "scout" },
+            target: {
+              environmentId: box.environmentId,
+              projectId: boxProject,
+              model: boxModel.model,
+            },
+            clientRequestId: "scout-on-box",
+          });
+          expect(result.isError, JSON.stringify(result.content)).toBe(false);
+          const delegated = result.structuredContent as {
+            readonly taskId: NodeId;
+            readonly model: string;
+            readonly agentTask?: AgentTaskBinding;
+          };
+          // The box chose the model and workspace; the laptop only asked for the model.
+          expect(yield* Ref.get(thread.launchedWith)).toMatchObject({ modelSelection: boxModel });
+          expect(yield* Ref.get(seen.selections)).toContainEqual({ model: boxModel.model });
+          expect(yield* Ref.get(seen.prepared)).toEqual([
+            { role: "scout", workspacePath: "/srv/app" },
+          ]);
+          expect(yield* Ref.get(thread.message)).toBe(
+            "You are the box's scout.\n\nMap the box's checkout.",
+          );
+          expect(yield* Ref.get(thread.agentTask)).toMatchObject({
+            role: "scout",
+            sourceAccess: "read-only",
+            effective: boxModel,
+          });
+          // The laptop's task and its status name the role, model and permissions the box gave it.
+          expect(delegated.model).toBe(boxModel.model);
+          expect(delegated.agentTask).toMatchObject({
+            role: "scout",
+            sourceAccess: "read-only",
+            policyRevision: "box-policy",
+          });
+          const status = yield* a.call("task_status", { taskId: delegated.taskId });
+          expect(status.structuredContent).toMatchObject({
+            agentTask: { role: "scout", effective: boxModel },
+            hasPendingQuestion: false,
+          });
+          // A question or approval waiting there shows in its status here; it is answered there.
+          yield* Ref.set(thread.pendingRequest, true);
+          const waiting = yield* a.call("task_status", { taskId: delegated.taskId });
+          expect(waiting.structuredContent).toMatchObject({ hasPendingQuestion: true });
+          yield* Ref.set(thread.pendingRequest, false);
+
+          yield* Ref.set(thread.reply, "The checkout has three packages.");
+          yield* Ref.set(thread.status, "completed");
+          yield* Deferred.succeed(thread.finished, undefined);
+          expect(yield* taskResult(a, delegated.taskId)).toMatchObject({ status: "completed" });
+
+          // A follow-up continues the same thread there, which keeps its role, model and workspace.
+          const followed = yield* a.call("delegate_task", {
+            task: "Now map its tests.",
+            followup: { taskId: delegated.taskId, changes: "Nothing changed here." },
+            clientRequestId: "scout-on-box-followup",
+          });
+          expect(followed.isError, JSON.stringify(followed.content)).toBe(false);
+          const next = followed.structuredContent as {
+            readonly taskId: NodeId;
+            readonly remoteChild: { readonly threadId: ThreadId };
+            readonly agentTask?: AgentTaskBinding;
+          };
+          expect(next.taskId).not.toBe(delegated.taskId);
+          expect(next.remoteChild.threadId).toBe(yield* Ref.get(thread.launched));
+          expect(next.agentTask).toMatchObject({ role: "scout", effective: boxModel });
+          expect(yield* Ref.get(thread.sent)).toEqual([
+            "Changes since your previous task: Nothing changed here.\n\nNow map its tests.",
+          ]);
+          // The box resolved the role once; the follow-up was checked against that binding.
+          expect(yield* Ref.get(seen.prepared)).toHaveLength(1);
+        }),
+      ),
+    ),
+);
+
+/** The box's thread for a task, as its own server records it. */
+const boxShell = (thread: BoxThread) =>
+  Effect.gen(function* () {
+    const launched = yield* Ref.get(thread.launched);
+    const linkOrigin = yield* Ref.get(thread.linkOrigin);
+    const delegatedFrom = yield* Ref.get(thread.delegatedFrom);
+    const agentTask = yield* Ref.get(thread.agentTask);
+    return {
+      ...liveThreadShell(launched!),
+      ...(linkOrigin === null ? {} : { linkOrigin }),
+      ...(delegatedFrom == null ? {} : { delegatedFrom }),
+      ...(agentTask === null ? {} : { agentTask }),
+    };
+  });
+
+const delegateRole = (
+  laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>,
+  role: "scout" | "browser",
+  clientRequestId: string,
+) =>
+  laptopEnv
+    .call("delegate_task", {
+      task: "Check the box.",
+      agentTask: {
+        ...choreRole,
+        role,
+        ...(role === "browser" ? { taskClass: "ui", browser: { backend: "integrated" } } : {}),
+      },
+      target: { environmentId: box.environmentId, projectId: boxProject },
+      clientRequestId,
+    })
+    .pipe(
+      Effect.map((result) => {
+        expect(result.isError, JSON.stringify(result.content)).toBe(false);
+        return result.structuredContent as { readonly taskId: NodeId };
+      }),
+    );
+
+it.effect(
+  "a browser role the box resolves gets bounded browser tasks there; an ordinary linked thread does not",
+  () =>
+    laptopLayers(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const thread = yield* makeBoxThread;
+          const b = yield* serveBox(thread, boxPolicy(yield* makeBoxPolicySeen));
+          const offers = yield* SubscriptionRef.make<
+            ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+          >([]);
+          const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+          const a = yield* makeLaptop(database, offers);
+          yield* linkTo(a.links, b, "auto");
+          yield* seedParent(a);
+
+          yield* delegateRole(a, "browser", "browser-on-box");
+          const shell = yield* boxShell(thread);
+          expect(shell.agentTask).toMatchObject({
+            role: "browser",
+            browser: { backend: "integrated" },
+          });
+          expect(boundedBrowserEligible(shell)).toBe(true);
+          const { agentTask: _role, ...ordinary } = shell;
+          expect(boundedBrowserEligible(ordinary)).toBe(false);
+        }),
+      ),
+    ),
+);
+
+it.effect("a writer's result here names the workspace and revision it handed back on the box", () =>
+  laptopLayers(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const thread = yield* makeBoxThread;
+        const seen = yield* makeBoxPolicySeen;
+        const b = yield* serveBox(thread, boxPolicy(seen));
+        const offers = yield* SubscriptionRef.make<
+          ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+        >([]);
+        const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+        const a = yield* makeLaptop(database, offers);
+        yield* linkTo(a.links, b, "auto");
+        yield* seedParent(a);
+
+        const { taskId } = yield* delegateRole(a, "scout", "writer-on-box");
+        // The box bound it as an isolated writer in a workspace it allocated.
+        yield* Ref.update(thread.agentTask, (binding) => ({
+          ...binding!,
+          sourceAccess: "scoped-write" as const,
+          workspaceAssignment: "isolated" as const,
+          workspacePath: "/srv/workspaces/w1",
+        }));
+        yield* Ref.set(seen.handoff, {
+          workspacePath: "/srv/workspaces/w1",
+          revision: "abc123",
+          quiescent: true,
+        });
+        yield* Ref.set(thread.reply, "Fixed the flaky test.");
+        yield* Ref.set(thread.status, "completed");
+        yield* Deferred.succeed(thread.finished, undefined);
+        const task = yield* taskResult(a, taskId);
+        expect(task?.result).toContain("Fixed the flaky test.");
+        expect(task?.result).toContain("Workspace in Box: /srv/workspaces/w1 at abc123");
+      }),
+    ),
+  ),
+);
+
+it.effect(
+  "a managed task there keeps its role across a laptop restart, and cancel stops it there",
+  () =>
+    laptopLayers(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const thread = yield* makeBoxThread;
+          const b = yield* serveBox(thread, boxPolicy(yield* makeBoxPolicySeen));
+          const offers = yield* SubscriptionRef.make<
+            ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+          >([]);
+          const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+          // The link outlives the restart, so the box knows the same link session.
+          const linking = yield* layerLinkingEnvironment(laptop).pipe(Layer.build);
+          const { taskId } = yield* Effect.scoped(
+            Effect.gen(function* () {
+              const before = yield* makeLaptop(database, offers, linking);
+              yield* linkTo(before.links, b, "auto");
+              yield* seedParent(before);
+              return yield* delegateRole(before, "scout", "scout-before-restart");
+            }),
+          );
+          const after = yield* makeLaptop(database, offers, linking);
+          yield* after.remote.start();
+          const status = yield* after.call("task_status", { taskId });
+          expect(status.structuredContent).toMatchObject({
+            status: "running",
+            agentTask: { role: "scout", effective: boxModel },
+          });
+          const cancel = yield* after.call("task_cancel", { taskId, reason: "Not needed" });
+          expect(cancel.structuredContent).toEqual({ taskId, status: "cancel_requested" });
+          expect(yield* Ref.get(thread.stops)).toEqual(["thread.stop", "delegated-tasks"]);
+        }),
+      ),
+    ),
+);
+
+it.effect("a read-only link starts no managed role there", () =>
+  laptopLayers(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const thread = yield* makeBoxThread;
+        const seen = yield* makeBoxPolicySeen;
+        const b = yield* serveBox(thread, boxPolicy(seen));
+        const offers = yield* SubscriptionRef.make<
+          ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+        >([]);
+        const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+        const a = yield* makeLaptop(database, offers);
+        yield* linkTo(a.links, b, "read-only");
+        yield* seedParent(a);
+
+        const result = yield* a.call("delegate_task", {
+          task: "Check the box.",
+          agentTask: { ...choreRole, role: "scout" },
+          target: { environmentId: box.environmentId, projectId: boxProject },
+          clientRequestId: "read-only-link",
+        });
+        expect(result.isError).toBe(true);
+        expect(yield* Ref.get(thread.launched)).toBeNull();
+        expect(yield* Ref.get(seen.prepared)).toEqual([]);
+      }),
+    ),
+  ),
+);
+
+it.effect("a box with a role policy refuses a task delegated without a role", () =>
+  laptopLayers(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const thread = yield* makeBoxThread;
+        const b = yield* serveBox(thread, boxPolicy(yield* makeBoxPolicySeen));
+        const offers = yield* SubscriptionRef.make<
+          ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+        >([]);
+        const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+        const a = yield* makeLaptop(database, offers);
+        yield* linkTo(a.links, b, "auto");
+        yield* seedParent(a);
+
+        const result = yield* a.call("delegate_task", {
+          task: "Check the box.",
+          target: { environmentId: box.environmentId, projectId: boxProject },
+        });
+        expect(result.isError).toBe(true);
+        expect(JSON.stringify(result.content)).toContain("must name a role");
+        expect(yield* Ref.get(thread.launched)).toBeNull();
+      }),
+    ),
+  ),
+);
+
+it.effect("a role the box's policy lacks is refused there before anything starts", () =>
+  laptopLayers(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const thread = yield* makeBoxThread;
+        const b = yield* serveBox(thread, boxPolicy(yield* makeBoxPolicySeen));
+        const offers = yield* SubscriptionRef.make<
+          ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+        >([]);
+        const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+        const a = yield* makeLaptop(database, offers);
+        yield* linkTo(a.links, b, "auto");
+        yield* seedParent(a);
+
+        for (const [request, cause] of [
+          [{ agentTask: choreRole }, "has no `chore-worker` role"],
+          [
+            { agentTask: { ...choreRole, role: "scout" }, model: "gpt-5.4" },
+            "gpt-5.4 is not on this environment's list",
+          ],
+        ] as const) {
+          const result = yield* a.call("delegate_task", {
+            task: "Check the box.",
+            agentTask: request.agentTask,
+            target: {
+              environmentId: box.environmentId,
+              projectId: boxProject,
+              ...("model" in request ? { model: request.model } : {}),
+            },
+            clientRequestId: `refused-${cause}`,
+          });
+          expect(result.isError, cause).toBe(true);
+          expect(JSON.stringify(result.content), cause).toContain(cause);
+        }
+        expect(yield* Ref.get(thread.launched)).toBeNull();
+      }),
     ),
   ),
 );

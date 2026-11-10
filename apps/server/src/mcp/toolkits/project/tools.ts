@@ -1,5 +1,7 @@
 import { McpAttachmentInput } from "../attachment/input.ts";
 import {
+  AgentTaskBinding,
+  AgentTaskLinkedRequest,
   WEAVE_NAMES,
   NonNegativeInt,
   ForgeItemReferenceInput,
@@ -183,6 +185,8 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
     ),
     /** Set by a linked environment launching its agent's delegated task here; ignored otherwise. */
     delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
+    /** Set by a linked environment delegating a managed role here, with delegatedFrom. */
+    delegatedRole: Schema.optional(AgentTaskLinkedRequest),
   }),
   success: Schema.Struct({
     threadId: ThreadId,
@@ -191,6 +195,8 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
     modelSelection: ModelSelection,
     runId: Schema.NullOr(RunId),
     status: Schema.NullOr(OrchestrationV2RunStatus),
+    /** The role binding this environment resolved for a delegatedRole launch. */
+    agentTask: Schema.optional(AgentTaskBinding),
   }),
   dependencies: [
     ...shared.dependencies,

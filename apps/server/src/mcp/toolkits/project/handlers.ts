@@ -26,6 +26,8 @@ import * as Repositories from "../../../sourceControl/SourceControlRepositorySer
 import * as WorkspaceProvider from "../../../project/WorkspaceProvider.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
+import * as ManagedAgent from "../../../agents/ManagedAgentService.ts";
+import { admitLinkedRole } from "../../../peer/LinkedRoleAdmission.ts";
 import * as DateTime from "effect/DateTime";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -197,6 +199,34 @@ export const handlers = {
         const launchedModel =
           launched === null || launched.deletedAt !== null ? undefined : launched.modelSelection;
         const replaying = launchedModel !== undefined;
+        // A role delegated from a linked environment resolves here, under this policy; a task
+        // delegated without one never runs here as an unmanaged thread while a policy is set.
+        const delegatedHere = linkOrigin !== undefined && input.delegatedFrom !== undefined;
+        if (input.delegatedRole !== undefined && !delegatedHere)
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message: "delegatedRole is set only by a linked environment's delegate_task.",
+          });
+        if (input.delegatedRole === undefined && delegatedHere && !replaying) {
+          const policy = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+          if (Option.isSome(policy) && (yield* policy.value.configured()))
+            return yield* new OrchestratorMcpFailure({
+              code: "capability_denied",
+              message:
+                "This environment has a role policy, so a task delegated here must name a role: call agent_roles with this environmentId, then delegate_task with agentTask.",
+            });
+        }
+        const admitted =
+          input.delegatedRole === undefined || replaying
+            ? undefined
+            : yield* admitLinkedRole({
+                threadId,
+                projectId,
+                title: input.title,
+                request: input.delegatedRole,
+                ceiling: context.limits.runtimeMode,
+                runtimeMode: input.runtimeMode,
+              });
         if (!replaying && input.workspaceStrategy?.type === "existing_worktree") {
           const project = yield* readProject;
           if (project === undefined)
@@ -248,7 +278,7 @@ export const handlers = {
         // project's effective defaults, as the composer does. Its mode stays
         // within the ceiling it was approved with.
         const projectDefaults =
-          caller === undefined && !replaying
+          caller === undefined && !replaying && admitted === undefined
             ? yield* ServerSettings.ServerSettingsService.pipe(
                 Effect.flatMap((settings) => settings.getSettings),
                 Effect.mapError(unavailable),
@@ -261,6 +291,7 @@ export const handlers = {
               )
             : undefined;
         const modelSelection =
+          admitted?.binding.effective ??
           input.modelSelection ??
           launchedModel ??
           caller?.modelSelection ??
@@ -289,7 +320,8 @@ export const handlers = {
                 Effect.orElseSucceed(() => runtimeMode),
               )
             : runtimeMode;
-        if (!replaying) {
+        if (admitted !== undefined) startedRuntimeMode = admitted.runtimeMode;
+        else if (!replaying) {
           const providers = yield* (yield* ProviderRegistry.ProviderRegistry).getProviders;
           startedRuntimeMode = yield* resolveRuntimeMode(startedRuntimeMode, input.runtimeMode, {
             modelSelection,
@@ -307,10 +339,16 @@ export const handlers = {
           runtimeMode: startedRuntimeMode,
           interactionMode,
           workspaceStrategy:
-            forgeItem === undefined
-              ? (input.workspaceStrategy ?? { type: "root" })
-              : { type: "worktree", baseRef: "HEAD", forgeItem },
-          rootIsDefault: input.workspaceStrategy === undefined && forgeItem === undefined,
+            admitted !== undefined
+              ? admitted.workspaceStrategy
+              : forgeItem === undefined
+                ? (input.workspaceStrategy ?? { type: "root" })
+                : { type: "worktree", baseRef: "HEAD", forgeItem },
+          rootIsDefault:
+            admitted === undefined &&
+            input.workspaceStrategy === undefined &&
+            forgeItem === undefined,
+          ...(admitted === undefined ? {} : { agentTask: admitted.binding }),
           ...(input.watch === true && caller !== undefined ? { watchedBy: caller.id } : {}),
           ...(input.message === undefined && attachments.length === 0
             ? {}
@@ -318,7 +356,10 @@ export const handlers = {
                 initialMessage: {
                   messageId,
                   ...(caller === undefined ? {} : { senderThreadId: caller.id }),
-                  text: input.message ?? "",
+                  text:
+                    admitted === undefined
+                      ? (input.message ?? "")
+                      : `${admitted.brief}\n\n${input.message ?? ""}`,
                   attachments,
                 },
               }),
@@ -328,6 +369,7 @@ export const handlers = {
           // Kept only alongside linkOrigin: thread.create drops it otherwise.
           ...(input.delegatedFrom === undefined ? {} : { delegatedFrom: input.delegatedFrom }),
         }).pipe(
+          Effect.onExit((exit) => admitted?.settle(exit._tag === "Success") ?? Effect.void),
           Effect.mapError((error) => {
             if (error._tag === "AttachmentClaimError") {
               return new OrchestratorMcpFailure({
@@ -369,6 +411,9 @@ export const handlers = {
           modelSelection: thread.modelSelection,
           runId: run?.id ?? null,
           status: run?.status ?? null,
+          ...(thread.agentTask === undefined || !delegatedHere
+            ? {}
+            : { agentTask: thread.agentTask }),
         };
       }),
     // The launched thread carries the caller's link, if it has one.

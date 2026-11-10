@@ -197,6 +197,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   cloudVoiceTranscription: Schema.optionalKey(Schema.Boolean),
   /** Accepts `t3_thread_import`, for threads moved here from a linked environment. */
   threadImport: Schema.optionalKey(Schema.Boolean),
+  /** Resolves a managed role a linked environment delegates here under its own role policy. */
+  linkedRoleDelegation: Schema.optionalKey(Schema.Boolean),
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 

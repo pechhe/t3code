@@ -20,6 +20,7 @@ import * as McpHttpServer from "../../McpHttpServer.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import { liveThreadShell } from "../../McpToolAccess.testkit.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
+import { assertBelowDelegationLimit } from "../../threadAccess.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
 import * as OrchestratorHandlers from "./handlers.ts";
 import { OrchestratorToolkit } from "./tools.ts";
@@ -170,5 +171,23 @@ it.effect("schedule_task and create_threads are refused at the delegation limit"
         }),
       ).toContain("delegation limit");
     }).pipe(Effect.provide(layer));
+  }),
+);
+
+it.effect("a task a linked environment delegated counts its depth there toward the limit", () =>
+  Effect.gen(function* () {
+    const threads = { getThreadShell: () => Effect.succeed(null) };
+    const linked = (depth: number) => ({
+      ...liveThreadShell(threadId),
+      delegatedFrom: {
+        environmentId: EnvironmentId.make("environment-laptop"),
+        threadId: ThreadId.make("thread:laptop"),
+        title: "Laptop parent",
+        depth,
+      },
+    });
+    yield* assertBelowDelegationLimit(threads, linked(1));
+    const refused = yield* assertBelowDelegationLimit(threads, linked(2)).pipe(Effect.flip);
+    expect(refused.message).toContain("delegation limit");
   }),
 );

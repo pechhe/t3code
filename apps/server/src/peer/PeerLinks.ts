@@ -75,6 +75,8 @@ export interface ResolvedPeerLink {
   /** The first address that answered as this peer. */
   readonly url: string;
   readonly token: string;
+  /** What that address said the peer supports, as it answered just now. */
+  readonly capabilities: ExecutionEnvironmentCapabilities;
 }
 
 export const LINKED_ENVIRONMENTS_OFF =
@@ -625,12 +627,14 @@ const make = Effect.gen(function* () {
       // reused LAN address or a moved hostname never receives it.
       let fenced = true;
       let label = link.label;
+      let capabilities: ExecutionEnvironmentCapabilities = { repositoryIdentity: false };
       const url = yield* Effect.findFirst(link.urls, (candidate) =>
         answersAs(candidate, environmentId).pipe(
           Effect.map((found) => {
             if (Option.isNone(found)) return false;
             fenced = linkLimitsHold(found.value);
             label = found.value.label;
+            capabilities = found.value.capabilities;
             return true;
           }),
         ),
@@ -653,6 +657,7 @@ const make = Effect.gen(function* () {
         link: yield* withLabel(link, label),
         url: url.value,
         token: new TextDecoder().decode(stored.value),
+        capabilities,
       };
     },
   );

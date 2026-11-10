@@ -145,6 +145,8 @@ export const OrchestrationV2DelegatedFrom = Schema.Struct({
   environmentId: EnvironmentId,
   threadId: ThreadId,
   title: Schema.String,
+  /** Delegations between this thread and a top-level thread there, so the limit holds across the link. */
+  depth: Schema.optional(NonNegativeInt),
 });
 export type OrchestrationV2DelegatedFrom = typeof OrchestrationV2DelegatedFrom.Type;
 
@@ -1262,6 +1264,8 @@ export const OrchestrationV2RemoteTaskChild = Schema.Struct({
    * one owed, so each reaches the thread there once however often it is sent.
    */
   stopCount: Schema.optional(NonNegativeInt),
+  /** The role binding the linked environment resolved for a managed task, under its own policy. */
+  agentTask: Schema.optional(AgentTaskBinding),
 });
 export type OrchestrationV2RemoteTaskChild = typeof OrchestrationV2RemoteTaskChild.Type;
 

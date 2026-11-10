@@ -142,10 +142,25 @@ it("grants bounded browsing only from what the server recorded about the thread"
   expect(boundedBrowserEligible(shell({ linkOrigin: { sessionId: "peer", label: "Peer" } }))).toBe(
     false,
   );
+  const delegatedFrom = { environmentId, threadId: ThreadId.make("other"), title: "x" };
+  expect(boundedBrowserEligible(shell({ delegatedFrom }))).toBe(false);
+  // A role this environment resolved for a linked delegation keeps what its role grants here;
+  // being an editor alone grants a linked task nothing.
+  const linked = { linkOrigin: { sessionId: "peer", label: "Peer" }, delegatedFrom };
+  const linkedBrowser = (backend: "integrated" | "phi") =>
+    shell({ ...linked, agentTask: task("browser", { toolProfile: "phi", browser: { backend } }) });
+  expect(boundedBrowserEligible(linkedBrowser("integrated"))).toBe(true);
+  expect(boundedBrowserEligible(linkedBrowser("phi"))).toBe(false);
   expect(
     boundedBrowserEligible(
-      shell({ delegatedFrom: { environmentId, threadId: ThreadId.make("other"), title: "x" } }),
+      shell({ ...linked, agentTask: task("implementation-worker", { browserTasks: true }) }),
     ),
+  ).toBe(true);
+  expect(
+    boundedBrowserEligible(shell({ ...linked, agentTask: task("implementation-worker") })),
+  ).toBe(false);
+  expect(
+    boundedBrowserEligible(shell({ ...linked, agentTask: task("scout", { browserTasks: true }) })),
   ).toBe(false);
 });
 

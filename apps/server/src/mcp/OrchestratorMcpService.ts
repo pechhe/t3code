@@ -196,6 +196,7 @@ import {
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
+import { revalidateLinkedRole } from "../peer/LinkedRoleAdmission.ts";
 import { withRetiredDemanding } from "../agents/retiredDemanding.ts";
 import { sharesPoolWith } from "@t3tools/shared/providerPools";
 
@@ -261,7 +262,7 @@ export interface OrchestratorMcpServiceShape {
   ) => Effect.Effect<AgentExternalSession, OrchestratorMcpFailure>;
   readonly agentRoles: (
     scope: McpInvocationScope,
-    input: AgentRolesInput,
+    input: AgentRolesInput & { readonly projectId?: ProjectId | undefined },
   ) => Effect.Effect<AgentRolesResult, OrchestratorMcpFailure>;
   readonly capabilities: (
     scope: McpInvocationScope,
@@ -2007,6 +2008,35 @@ const make = Effect.gen(function* () {
    * A task that runs in a linked environment, answered from its row here:
    * the follower records its result once its thread there ends.
    */
+  /**
+   * Runs as a thread read reports them, each with the workspace and revision the run of an
+   * isolated writer a linked environment delegated here handed back.
+   */
+  const recentRunsWithHandoff = Effect.fn("OrchestratorMcpService.recentRunsWithHandoff")(
+    function* (
+      target: Pick<OrchestrationV2ThreadProjection, "thread" | "providerTurns">,
+      runs: ReadonlyArray<OrchestrationV2Run>,
+    ) {
+      const binding = target.thread.agentTask;
+      // Only a task a linked environment delegated here has its caller read it this way.
+      const managed =
+        target.thread.delegatedFrom != null &&
+        binding?.workspaceAssignment === "isolated" &&
+        binding.sourceAccess === "scoped-write"
+          ? yield* Effect.serviceOption(ManagedAgent.ManagedAgentService)
+          : Option.none();
+      return yield* Effect.forEach(runs, (run) => {
+        const reported = threadRun(target, run);
+        if (Option.isNone(managed) || binding === undefined || run.completedAt === null)
+          return Effect.succeed(reported);
+        return managed.value.handoff(binding, { threadId: target.thread.id, runId: run.id }).pipe(
+          Effect.map((handoff) => (handoff === undefined ? reported : { ...reported, handoff })),
+          Effect.orElseSucceed(() => reported),
+        );
+      });
+    },
+  );
+
   const readRemoteTask = Effect.fn("OrchestratorMcpService.readRemoteTask")(function* (
     scope: McpThreadInvocationScope,
     task: OrchestrationV2Subagent,
@@ -2081,8 +2111,11 @@ const make = Effect.gen(function* () {
         : null,
       latestTerminalSummary: terminal ? task.result : null,
       latestTerminalResultContextTransferId: null,
+      ...(task.remoteChild?.agentTask === undefined
+        ? {}
+        : { agentTask: task.remoteChild.agentTask }),
       // Its questions and approvals are answered in the environment it runs in.
-      hasPendingQuestion: false,
+      hasPendingQuestion: terminal ? false : yield* remoteDelegation.pendingThere(scope, task),
       pendingApproval: null,
       waitTimedOut,
     } satisfies OrchestratorMcpDelegateTaskResult;
@@ -2924,12 +2957,15 @@ const make = Effect.gen(function* () {
                   .pipe(Effect.mapError(externalFailure)),
               ),
             );
-      const projectId = session?.projectId ?? parent?.thread.projectId;
+      // A linked environment names the project its task would run in here.
+      const { projectId: requestedProject, ...request } = input;
+      const projectId = requestedProject ?? session?.projectId ?? parent?.thread.projectId;
       if (projectId === undefined)
         return yield* failure(
           "invalid_request",
-          "Attach an external agent session before discovering roles.",
+          "Pass projectId, or attach an external agent session before discovering roles.",
         );
+      if (requestedProject !== undefined) yield* requireProject(requestedProject);
       const catalog = yield* loadProviders;
       const eligible = yield* Effect.filter(catalog, (p) =>
         threadManagement.isProviderInstanceEnabledForProject({
@@ -2942,7 +2978,7 @@ const make = Effect.gen(function* () {
           projectId,
           providers: eligible,
           ceiling: limits.runtimeMode,
-          request: input,
+          request,
           ...selectionOf({
             providerInstanceId: input.providerInstanceId,
             model: input.model,
@@ -3217,6 +3253,19 @@ const make = Effect.gen(function* () {
         if (input.followup !== undefined) {
           const followup = input.followup;
           const current = yield* readTask(scope, followup.taskId);
+          const remoteTask = parent.subagents.find(
+            (task) => task.id === followup.taskId && task.remoteChild !== undefined,
+          );
+          if (remoteTask !== undefined) {
+            const { taskId } = yield* remoteDelegation.followup(scope, remoteTask, {
+              text: followupPrompt(followup, input.task),
+              clientRequestId: key,
+              mode: input.mode,
+            });
+            return yield* input.mode === "wait"
+              ? awaitTask(scope, taskId, input.timeoutMs)
+              : readTask(scope, taskId, false, true);
+          }
           if (current.childThreadId === null)
             return yield* failure(
               "invalid_request",
@@ -4639,10 +4688,12 @@ const make = Effect.gen(function* () {
           shell,
           yield* Clock.currentTimeMillis,
         ),
-        recentRuns: target.runs
-          .toSorted((left, right) => right.ordinal - left.ordinal)
-          .slice(0, input.runLimit ?? DEFAULT_THREAD_RUN_LIMIT)
-          .map((run) => threadRun(target, run)),
+        recentRuns: yield* recentRunsWithHandoff(
+          target,
+          target.runs
+            .toSorted((left, right) => right.ordinal - left.ordinal)
+            .slice(0, input.runLimit ?? DEFAULT_THREAD_RUN_LIMIT),
+        ),
         items: page.map((row) =>
           timelineItem({
             row,
@@ -4671,7 +4722,29 @@ const make = Effect.gen(function* () {
                 directChildTaskIds(managedTarget, new Set(managedTarget.runs.map((run) => run.id))),
               ),
             };
-      if (
+      // A link continues the managed task it delegated here, as delegate_task's followup does.
+      const linkedFollowup =
+        parent === undefined &&
+        target.thread.agentTask !== undefined &&
+        target.thread.delegatedFrom != null &&
+        scope.client?.linked === true &&
+        target.thread.linkOrigin?.sessionId === scope.client.sessionId;
+      if (linkedFollowup) {
+        const { runs } = yield* loadThreadRecords(input.threadId, ["runs"]);
+        if (runs.some(ThreadManagementService.isActiveRun))
+          return yield* failure(
+            "invalid_request",
+            "The task is still running here. Retry once its result is published.",
+          );
+        yield* revalidateLinkedRole({
+          thread: { ...target.thread, agentTask: target.thread.agentTask! },
+          ceiling: limits.runtimeMode,
+        }).pipe(
+          Effect.provideService(ProjectService.ProjectService, projects),
+          Effect.provideService(ProviderRegistry.ProviderRegistry, providerRegistry),
+          Effect.provideService(ThreadManagementService.ThreadManagementService, threadManagement),
+        );
+      } else if (
         target.thread.agentTask !== undefined &&
         (managedTarget === undefined || !ownsRunningManagedTask(managedParent, managedTarget))
       )

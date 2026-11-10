@@ -292,6 +292,7 @@ export const make = Effect.gen(function* () {
       mcpModeLimitHeader: true,
       linkFence: true,
       threadImport: true,
+      linkedRoleDelegation: true,
       mcpApprovalCodes: true,
       mcpHostedApproval: true,
     },

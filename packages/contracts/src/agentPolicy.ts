@@ -5,6 +5,7 @@ import { RuntimeMode } from "./providerPolicy.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { BrowserBackend, PhiBrowserLane } from "./browserBackend.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { ProviderOptionSelections } from "./model.ts";
 
 export const AgentRole = Schema.Literals([
   "chore-worker",
@@ -652,6 +653,31 @@ export const AgentTaskRequest = Schema.Union([
   ),
 ]);
 export type AgentTaskRequest = typeof AgentTaskRequest.Type;
+
+/**
+ * A managed role a linked environment asks this one to run. No path, workspace, project, work
+ * unit or revision of the caller's crosses the link: this environment chooses those and resolves
+ * the role under its own policy, so a role that needs a pinned revision is refused here.
+ * `selection` is only a request: a model the role's list here does not hold is refused.
+ */
+export const AgentTaskLinkedRequest = Schema.Struct({
+  browser: agentTaskRequestFields.browser,
+  executionRequirement: agentTaskRequestFields.executionRequirement,
+  role: AgentRole,
+  taskClass: AgentTaskClass,
+  workId: TrimmedNonEmptyString,
+  attemptId: TrimmedNonEmptyString,
+  readOnly: agentTaskRequestFields.readOnly,
+  authorModel: agentTaskRequestFields.authorModel,
+  selection: Schema.optional(
+    Schema.Struct({
+      instanceId: Schema.optional(ProviderInstanceId),
+      model: Schema.optional(TrimmedNonEmptyString),
+      options: Schema.optional(ProviderOptionSelections),
+    }),
+  ),
+});
+export type AgentTaskLinkedRequest = typeof AgentTaskLinkedRequest.Type;
 
 export const AgentTaskWireRequest = Schema.Struct({
   ...agentTaskRequestFields,

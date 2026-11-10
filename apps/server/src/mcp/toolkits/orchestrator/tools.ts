@@ -24,6 +24,7 @@ import {
   OrchestratorMcpRequestReleaseApprovalInput,
   OrchestratorMcpRequestReleaseApprovalResult,
   OrchestratorMcpEnvironmentTarget,
+  ProjectId,
   OrchestratorMcpRequestSecretInput,
   OrchestratorMcpRequestSecretResult,
   OrchestratorMcpFailure,
@@ -108,7 +109,15 @@ const AgentSessionAttachTool = Tool.make("agent_session_attach", {
 const AgentRolesTool = Tool.make("agent_roles", {
   description:
     "Discover delegation roles without launching: each role's models in list order, each with its effort, a note on what it is good at and whether it can start now, plus the default selection and refusal causes. Choose the model the task needs and name it as delegate_task's target.model; without one the first available runs. Pass model to check a choice in each role's pool; usageLimited reports exhausted accounts. Browser defaults to integrated; pass browser.backend='phi' to check Phi availability. Pass reviewScope=spec for the Reviewer Spec list; discovery defaults to its change list. Discovery grants no launch authority.",
-  parameters: AgentRolesInput,
+  parameters: Schema.Struct({
+    environmentId: OrchestratorMcpEnvironmentTarget,
+    projectId: Schema.optional(
+      ProjectId.annotate({
+        description: "Project the roles would run in. Default: your thread's project.",
+      }),
+    ),
+    ...AgentRolesInput.fields,
+  }),
   success: AgentRolesResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
