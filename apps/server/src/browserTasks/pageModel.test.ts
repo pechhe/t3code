@@ -8,6 +8,7 @@ import {
   evidentAbsence,
   pageModelFromSnapshot,
   resolveTarget,
+  targetCandidates,
 } from "./pageModel.ts";
 
 // Lines as Playwright 1.60's `ariaSnapshot({ mode: "ai", boxes: true })` wrote them for filled fields.
@@ -294,5 +295,67 @@ describe("text checks", () => {
         { id: "shown", kind: "text", includes: "this is a modal window", expect: "present" },
       ]).map(({ status }) => status),
     ).toEqual(["failed", "passed"]);
+  });
+});
+
+describe("targetCandidates", () => {
+  const page = pageModelFromSnapshot(
+    snapshot(String.raw`- main [ref=e1]:
+  - region "Billing" [ref=e2]:
+    - button "Save" [ref=e3]
+    - text: Email
+    - generic "Email" [ref=e4]
+    - textbox "Billing email" [ref=e5]
+  - region "Shipping" [ref=e6]:
+    - button "Save" [ref=e7]
+  - list [ref=e8]:
+    - button "Save" [ref=e9]
+  - button "Send message" [ref=e10]`),
+  );
+  const selects = (target: Parameters<typeof resolveTarget>[1]) =>
+    resolveTarget(page, target)._tag === "unique";
+
+  it("gives each element an ambiguous target matched a target a retry resolves", () => {
+    const candidates = targetCandidates(
+      page,
+      { role: "button", name: "Save" },
+      { text: false, hint: true },
+    );
+    expect(candidates.map(({ target }) => target)).toEqual([
+      { role: "button", name: "Save", scope: { role: "region", name: "Billing" } },
+      { role: "button", name: "Save", scope: { role: "region", name: "Shipping" } },
+      { role: "button", name: "Save", hint: "in main" },
+    ]);
+    expect(candidates.slice(0, 2).every(({ target }) => selects(target))).toBe(true);
+    // Without a hint to fall back on, an element no scope singles out is left out.
+    expect(
+      targetCandidates(page, { role: "button", name: "Save" }, { text: false, hint: false }),
+    ).toHaveLength(2);
+  });
+
+  it("offers the controls of the expected kind for a wrong-control target", () => {
+    const candidates = targetCandidates(
+      page,
+      { role: "generic", nameIncludes: "email" },
+      { text: false, hint: false, roles: ["textbox"] },
+    );
+    expect(candidates).toEqual([
+      {
+        element: 'textbox "Billing email" in region "Billing"',
+        target: { role: "textbox", name: "Billing email" },
+      },
+    ]);
+  });
+
+  it("offers the near misses of a missing target, each selectable", () => {
+    const candidates = targetCandidates(
+      page,
+      { role: "button", name: "Send mesage" },
+      { text: false, hint: false },
+    );
+    expect(candidates.map(({ target }) => target)).toEqual([
+      { role: "button", name: "Send message" },
+    ]);
+    expect(candidates.every(({ target }) => selects(target))).toBe(true);
   });
 });

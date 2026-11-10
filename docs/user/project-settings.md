@@ -338,9 +338,9 @@ the default is `~/.agents/skills/phi-browser`. New sessions use the changed dire
 
 ### Bounded browser tasks
 
-A delegated browser agent on the integrated browser can hand a defined job to
-`preview_task` instead of driving each step: reach a page, fill a form with values it supplies, or
-capture one element. It runs only when the agent asks, and Phi tasks are refused. The agent names
+An agent can hand a defined job on a page to `t3_browser_task` instead of driving each step: reach
+a page, fill a form with values it supplies, or capture one element. It runs on a fresh headless tab
+of the integrated browser that the agent opened with `t3_browser_open`, never on Phi. The agent names
 the fields, the only clicks, key presses or URLs allowed, an explicit submit target and the checks
 that define success; text checks ignore letter case, since pages often restyle text in capitals; the supplied fields are filled directly, Jev only picks among the other steps, and the result is `passed` only when every check holds
 on the final page. A run defaults to 12 actions, 16 decisions and 60 seconds, up to 24, 32 and 120
@@ -355,7 +355,12 @@ runs once, in order, with no model call, and screenshots taken between steps com
 tied to the step and page that produced them. Jev steps in only when a step's target is covered,
 for example by a cookie banner, or has not appeared yet, or when the step names a repeated control
 with a hint, as below. A target the page plainly lacks, such as a
-stale link name, stops the task straight away and names the nearest matches. When a control's
+stale link name, stops the task straight away and names the nearest matches. A task stopped by a
+target that matched several elements, the wrong kind of control or nothing at all lists the
+elements it found, each with a target that picks it, so the agent can send it again; one stopped
+because the page changed under it says to read the page again first. Every stopped task also names
+its fault: the request was wrong, the page changed, the page likely has a defect, or a limit or
+infrastructure problem. When a control's
 name carries text that changes, such as a support case row that includes the case's age, the agent
 can name it by a part of its name that appears once on the page instead; the task still acts only when exactly one control
 matches, and reports the full name it used. A control the page leaves unnamed can be named by its
@@ -375,12 +380,20 @@ the tab's own), where any page change to another site, a redirect included, is s
 sent and a pop-up is refused, and the controls to avoid, which are never offered or clicked. The
 avoid list goes by what the page calls a control, so one the page renames can slip through.
 
-Ordinary threads, scheduled runs and every editing agent, delegated workers included, can run the
-same bounded tasks themselves through the `t3_browser_*` tools, as can a reviewer whose role policy
-grants `browserTasks`. Each opens fresh tabs on the integrated browser with no cookies from elsewhere,
+Ordinary threads, scheduled runs and every editing agent, delegated workers included, can run
+bounded tasks through the `t3_browser_*` tools, as can a browser agent on the integrated browser
+and a reviewer whose role policy grants `browserTasks`. Each opens fresh tabs on the integrated browser with no cookies from elsewhere,
 and only the session that opened a tab can use it. They follow **Agent browser access** with the integrated
 browser enabled, checked on every call: turning it off stops further work at once, while closing a
-tab or cancelling a task still works. A reviewer using them stays read-only.
+tab or cancelling a task still works. A reviewer using them stays read-only. A tab no task or
+snapshot has used for five minutes is closed.
+
+To see how bounded tasks are going on a machine, run `t3 browser report` there. It reads the
+environment's own record of every `t3_browser_task` call, including calls refused before they ran,
+and prints the passed, blocked, failed, refused and cancelled counts and rates by agent harness,
+by mode (ordered steps, goal or page reach) and by fault, for the last 24 hours; `--hours` changes
+the window and `--json` prints the same summary as JSON. The record keeps 90 days and holds no page
+content, typed values, logins or addresses.
 
 #### Saved logins
 

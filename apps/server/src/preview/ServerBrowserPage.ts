@@ -562,8 +562,7 @@ const SHRINK_PNG = `async function (png, width, height) {
   return canvas.toDataURL("image/png").slice("data:image/png;base64,".length);
 }`;
 
-const shrinkPng = async (cdp: CDPSession, png: string, scale: number) => {
-  const size = pngSize(png);
+const shrinkPng = async (cdp: CDPSession, png: string, width: number, height: number) => {
   const { frameTree } = await cdp.send("Page.getFrameTree");
   const { executionContextId } = await cdp.send("Page.createIsolatedWorld", {
     frameId: frameTree.frame.id,
@@ -572,11 +571,7 @@ const shrinkPng = async (cdp: CDPSession, png: string, scale: number) => {
   const { result, exceptionDetails } = await cdp.send("Runtime.callFunctionOn", {
     functionDeclaration: SHRINK_PNG,
     executionContextId,
-    arguments: [
-      { value: png },
-      { value: Math.round(size.width * scale) },
-      { value: Math.round(size.height * scale) },
-    ],
+    arguments: [{ value: png }, { value: width }, { value: height }],
     awaitPromise: true,
     returnByValue: true,
   });
@@ -621,10 +616,11 @@ const capture = async (
   scope: Locator | null,
   deadline: number,
 ): Promise<PreviewAutomationSnapshot> => {
-  const { renderScale, viewport } = await renderingOf(input);
+  const { viewport } = await renderingOf(input);
   // A late metrics reply must not begin a capture after viewers have resumed.
   if (Date.now() >= deadline) throw tooBusy();
-  const scale = Math.min(1, MAX_SCREENSHOT_WIDTH / (viewport.width * renderScale));
+  // The agent reads the inline image at CSS size; `fullScreenshot` keeps the device pixels to save.
+  const maxWidth = Math.max(1, Math.min(MAX_SCREENSHOT_WIDTH, viewport.width));
   const state = refsFor(input.page);
   invalidateRefs(input.page);
   const generation = state.generation;
@@ -643,14 +639,19 @@ const capture = async (
     >,
     shownBefore
       ? Promise.resolve(undefined)
-      : captureViewport(input.cdp, { format: "png" }).then(async (full) =>
-          scale < 1
-            ? {
-                data: await shrinkPng(input.cdp, full, scale),
-                full: input.fullScreenshot ? full : undefined,
-              }
-            : { data: full, full: undefined },
-        ),
+      : captureViewport(input.cdp, { format: "png" }).then(async (full) => {
+          const size = pngSize(full);
+          if (size.width <= maxWidth) return { data: full, full: undefined };
+          return {
+            data: await shrinkPng(
+              input.cdp,
+              full,
+              maxWidth,
+              Math.max(1, Math.round((size.height * maxWidth) / size.width)),
+            ),
+            full: input.fullScreenshot ? full : undefined,
+          };
+        }),
   ]);
   void pageAndScreenshot.catch(constVoid);
   // Leaves time for the second read; a frame that never loads holds the tree until then.
@@ -1565,6 +1566,8 @@ export interface TaskScreenshot {
   readonly cut: boolean;
   readonly url: string;
   readonly title: string;
+  /** A PNG no wider than the tab in CSS pixels, when the capture is wider: what an agent is shown. */
+  readonly inline?: Buffer;
 }
 
 /** A PNG, or a JPEG when the PNG is over budget; refused when neither fits. */
@@ -1620,12 +1623,26 @@ export const captureTaskScreenshot = async (input: {
   if (data.length > input.maxBytes)
     throw taskCaptureError(`The screenshot is larger than its ${input.maxBytes}-byte budget.`);
   if (await secretShown(page, input.cdp, input.secrets)) throw secretVisible();
+  const cssWidth = page.viewportSize()?.width ?? width;
+  const inline =
+    width > cssWidth && cssWidth > 0
+      ? Buffer.from(
+          await shrinkPng(
+            input.cdp,
+            png.toString("base64"),
+            cssWidth,
+            Math.max(1, Math.round((height * cssWidth) / width)),
+          ),
+          "base64",
+        )
+      : undefined;
   return {
     data,
     mimeType,
     width,
     height,
     cut,
+    ...(inline === undefined ? {} : { inline }),
     url: withoutDataPayload(page.url()),
     title: (await page.title()).slice(0, 512),
   };

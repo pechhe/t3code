@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import { McpSchema } from "effect/ai";
 
+import { inlineCopyPath } from "../preview/browserArtifacts.ts";
 import { attachTaskImages } from "./taskImages.ts";
 
 const task = (structuredContent: object) =>
@@ -60,5 +61,19 @@ it.effect("never resends images on a replay or with a failure", () =>
     expect(
       images(yield* attachTaskImages(failed, { includeImages: true, driver: "codex" })),
     ).toEqual([]);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("shows the copy at the tab's CSS width and leaves the evidence file as saved", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const [shot] = (yield* savedShots).slice(-1);
+    yield* fileSystem.writeFile(inlineCopyPath(shot!.path), new Uint8Array([9]));
+    const attached = yield* attachTaskImages(task({ screenshots: [shot] }), {
+      includeImages: true,
+      driver: "codex",
+    });
+    expect(images(attached)).toEqual([9]);
+    expect(Array.from(yield* fileSystem.readFile(shot!.path))).toEqual([4]);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

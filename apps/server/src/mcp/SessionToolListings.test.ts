@@ -125,10 +125,10 @@ const serviceMocks = Layer.mergeAll(
  * The registry only holds tool descriptors, so the tools never run: every service
  * below is an empty mock kept in step with the toolkits' handler dependencies.
  */
-const listedToolNames = (key: SessionEndpointKey) =>
+const listedTools = (key: SessionEndpointKey) =>
   Effect.gen(function* () {
     const server = yield* McpServer.McpServer;
-    return server.tools.map(({ tool }) => tool.name).toSorted();
+    return server.tools.map(({ tool }) => tool);
   }).pipe(
     Effect.provide(
       McpHttpServer.layerSessionToolkits(SESSION_TOOL_ENDPOINTS[key].families).pipe(
@@ -151,6 +151,24 @@ const contextServices = Layer.mergeAll(
       Layer.mock(ContextProjectCloneTracker.ProjectCloneTracker)({}),
     ),
   ),
+);
+
+const listedToolNames = (key: SessionEndpointKey) =>
+  listedTools(key).pipe(Effect.map((tools) => tools.map((tool) => tool.name).toSorted()));
+
+it.effect("says on every endpoint which open tool is headless and which follows the setting", () =>
+  Effect.gen(function* () {
+    for (const key of Object.keys(SESSION_TOOL_ENDPOINTS) as Array<SessionEndpointKey>) {
+      const tools = yield* listedTools(key);
+      for (const [name, sentence] of [
+        ["t3_browser_open", McpToolAccessTestkit.HEADLESS_OPEN],
+        ["preview_open", McpToolAccessTestkit.SETTING_OPEN],
+      ] as const) {
+        const tool = tools.find((candidate) => candidate.name === name);
+        if (tool !== undefined) expect(tool.description, `${key} ${name}`).toContain(sentence);
+      }
+    }
+  }).pipe(Effect.provide(contextServices)),
 );
 
 it.effect("registers only the tool families each session endpoint declares", () =>

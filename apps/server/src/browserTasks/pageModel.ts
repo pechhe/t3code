@@ -500,10 +500,13 @@ const nearFragment = (node: PageNode, target: PreviewTaskTarget, fragment: strin
 };
 
 /** Hints for a missing target, labelled by the caller as page data. They never resolve it. */
-export const nearMatches = (model: PageModel, target: PreviewTaskTarget): readonly string[] => {
+export const nearMatches = (model: PageModel, target: PreviewTaskTarget): readonly string[] =>
+  [...new Set(nearNodes(model, target).map(describeNode))].slice(0, MAX_NEAR_MATCHES);
+
+const nearNodes = (model: PageModel, target: PreviewTaskTarget): readonly PageNode[] => {
   if (target.role === undefined || target.text !== undefined) return [];
   if (target.name === undefined && target.nameIncludes === undefined) return [];
-  const near = model.nodes
+  return model.nodes
     .filter((node) => node.ref !== undefined && node.name.length > 0)
     .flatMap((node) => {
       const rank =
@@ -512,8 +515,8 @@ export const nearMatches = (model: PageModel, target: PreviewTaskTarget): readon
           : nearFragment(node, target, target.nameIncludes);
       return rank === undefined ? [] : [{ node, rank }];
     })
-    .toSorted((a, b) => a.rank - b.rank);
-  return [...new Set(near.map(({ node }) => describeNode(node)))].slice(0, MAX_NEAR_MATCHES);
+    .toSorted((a, b) => a.rank - b.rank)
+    .map(({ node }) => node);
 };
 
 /**
@@ -536,4 +539,94 @@ export const evidentAbsence = (
   const exact = target.name !== undefined && target.text === undefined;
   if (scopeMissing || (exact && nearest.length > 0)) return { nearest };
   return undefined;
+};
+
+const MAX_CANDIDATES = 5;
+/** Longer names do not fit a target's `name`. */
+const MAX_TARGET_NAME_CHARS = 512;
+
+export interface TargetCandidate {
+  readonly element: string;
+  readonly target: PreviewTaskTarget;
+}
+
+/**
+ * A target that resolves to exactly this element: its own role and name, or visible text where
+ * the use allows it, narrowed by the nearest named ancestor that holds no other match; failing
+ * that, a `hint` naming its region where the use takes one.
+ */
+const selectingTarget = (
+  model: PageModel,
+  node: PageNode,
+  use: { readonly text: boolean; readonly hint: boolean },
+): PreviewTaskTarget | undefined => {
+  if (node.name.length > MAX_TARGET_NAME_CHARS) return undefined;
+  const text = lineText(node);
+  const base: PreviewTaskTarget =
+    node.name !== ""
+      ? { role: node.role, name: node.name }
+      : use.text && text !== "" && text.length <= MAX_TARGET_NAME_CHARS
+        ? { text }
+        : { role: node.role };
+  const selects = (target: PreviewTaskTarget) => {
+    const resolved = resolveTarget(model, target);
+    return resolved._tag === "unique" && resolved.node === node;
+  };
+  if (selects(base)) return base;
+  for (let parent = node.parent; parent !== null; parent = model.nodes[parent]!.parent) {
+    const ancestor = model.nodes[parent]!;
+    if (ancestor.ref === undefined || ancestor.name === "") continue;
+    if (ancestor.name.length > MAX_TARGET_NAME_CHARS) continue;
+    const scoped = { ...base, scope: { role: ancestor.role, name: ancestor.name } };
+    if (selects(scoped)) return scoped;
+  }
+  const resolved = resolveTarget(model, base);
+  return use.hint &&
+    resolved._tag === "ambiguous" &&
+    resolved.scope !== true &&
+    resolved.nodes.includes(node)
+    ? { ...base, hint: regionOf(model, node).slice(0, 200) }
+    : undefined;
+};
+
+/**
+ * What a blocked target could have meant, each with a target that selects it: the elements an
+ * ambiguous target matched, the controls of the expected kind named like a wrong-control target,
+ * or the near misses of a missing one. Page data, never instructions.
+ */
+export const targetCandidates = (
+  model: PageModel,
+  target: PreviewTaskTarget,
+  use: { readonly text: boolean; readonly hint: boolean; readonly roles?: readonly string[] },
+): readonly TargetCandidate[] => {
+  const resolved = resolveTarget(model, target);
+  const roles = use.roles;
+  const nodes =
+    roles !== undefined
+      ? model.nodes.filter(
+          (node) =>
+            node.ref !== undefined &&
+            roles.includes(node.role) &&
+            (target.text !== undefined
+              ? lineText(node) === normalized(target.text) || node.name === normalized(target.text)
+              : nameMatches(node.name, target)),
+        )
+      : resolved._tag === "ambiguous"
+        ? resolved.scope === true
+          ? matchingAll(model, { ...target, scope: undefined }).filter((node) =>
+              resolved.nodes.some((scope) => inside(model, node, scope)),
+            )
+          : resolved.nodes
+        : resolved._tag === "missing"
+          ? nearNodes(model, target)
+          : [];
+  return [...new Set(nodes)]
+    .slice(0, MAX_CANDIDATES * 2)
+    .flatMap((node) => {
+      const selecting = selectingTarget(model, node, use);
+      return selecting === undefined
+        ? []
+        : [{ element: describeElement(model, node), target: selecting }];
+    })
+    .slice(0, MAX_CANDIDATES);
 };

@@ -5,6 +5,7 @@ import {
   type OrchestrationV2LinkOrigin,
   OrchestratorMcpEnvironmentTarget,
   OrchestratorMcpFailure,
+  type PreviewTaskResult,
   type ProviderInteractionMode,
   type RuntimeMode,
   type ThreadId,
@@ -22,6 +23,7 @@ import {
   DispatchModeLimit,
   type DispatchModeRefusal,
 } from "../orchestration-v2/DispatchModeLimit.ts";
+import * as BrowserTaskCalls from "../browserTasks/BrowserTaskCalls.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import { assertNotLinked, assertSameLink, callerLinkOrigin } from "./linkOrigin.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
@@ -283,6 +285,34 @@ export const asBoundedBrowser = <P, A, E, R>(handle: (params: P) => Effect.Effec
       assertBoundedBrowserCaller({ checkSettings: true }).pipe(
         Effect.flatMap(({ scope }) =>
           Effect.provideService(handle(params), McpInvocationContext.McpInvocationContext, scope),
+        ),
+      ),
+    undefined,
+  );
+
+/** A bounded task leaves one record however it ends, including a call refused before it runs. */
+export const asRecordedBoundedTask = <P, E, R>(
+  calls: Option.Option<BrowserTaskCalls.BrowserTaskCalls["Service"]>,
+  handle: (params: P) => Effect.Effect<PreviewTaskResult, E, R>,
+) =>
+  declare(
+    (params: P) =>
+      McpInvocationContext.McpInvocationContext.pipe(
+        Effect.flatMap((invocation) =>
+          BrowserTaskCalls.recorded(
+            calls,
+            invocation,
+            params,
+            assertBoundedBrowserCaller({ checkSettings: true }).pipe(
+              Effect.flatMap(({ scope }) =>
+                Effect.provideService(
+                  handle(params),
+                  McpInvocationContext.McpInvocationContext,
+                  scope,
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     undefined,

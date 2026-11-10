@@ -1,6 +1,7 @@
 import {
   OrchestratorMcpFailure,
   PREVIEW_TASK_LIMITS,
+  PREVIEW_TASK_REASON_FAULT,
   type PreviewAutomationSnapshot,
   type PreviewAutomationStatus,
   type PreviewTabId,
@@ -20,13 +21,14 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import type { Mutable } from "effect/Types";
 
 import * as ServerConfig from "../config.ts";
 import * as DecisionRouter from "../decisionRouting/DecisionRouter.ts";
 import type { McpThreadInvocationScope } from "../mcp/McpInvocationContext.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as Broker from "../mcp/PreviewAutomationBroker.ts";
-import { saveBrowserScreenshot } from "../preview/browserArtifacts.ts";
+import { inlineCopyPath, saveBrowserScreenshot } from "../preview/browserArtifacts.ts";
 import * as JourneyBrowserPolicy from "../preview/JourneyBrowserPolicy.ts";
 import * as ServerBrowser from "../preview/ServerBrowser.ts";
 import {
@@ -320,25 +322,14 @@ const toResult = (record: RunRecord, replayed: boolean): PreviewTaskResult => ({
   ...(replayed ? { replayed: true } : {}),
 });
 
-/** A bounded-only caller has no step-by-step preview tools, so its guidance names its own. */
 const CONTINUATION = {
-  preview: {
-    ready: "Continue with normal preview tools in this tab.",
-    "inspect-first":
-      "An action may have taken effect. Take preview_snapshot first; only then change the page, and do not assume repeating the action is safe.",
-    unavailable: "The tab is gone. Inspect the site another way before repeating anything.",
-  },
-  bounded: {
-    ready:
-      "The tab is yours: send another bounded t3_browser_task, take t3_browser_snapshot, or t3_browser_close it.",
-    "inspect-first":
-      "An action may have taken effect. Take t3_browser_snapshot first; send a new bounded request only after reading the page, and do not assume repeating the action is safe.",
-    unavailable:
-      "The tab is gone. Open a new tab with t3_browser_open and read the page before repeating anything.",
-  },
+  ready:
+    "The tab is yours: send another bounded t3_browser_task, take t3_browser_snapshot, or t3_browser_close it.",
+  "inspect-first":
+    "An action may have taken effect. Take t3_browser_snapshot first; send a new bounded request only after reading the page, and do not assume repeating the action is safe.",
+  unavailable:
+    "The tab is gone. Open a new tab with t3_browser_open and read the page before repeating anything.",
 } as const;
-const lane = (scope: McpThreadInvocationScope) =>
-  scope.browserLane === "bounded" ? ("bounded" as const) : ("preview" as const);
 
 /** Key order must not make an identical repeat look like a conflict. */
 const canonicalJson = (value: unknown): string => {
@@ -461,7 +452,7 @@ export const makeService = Effect.fn("BrowserTaskService.make")(function* (backe
         });
         if (admitted._tag === "full")
           return yield* invalid(
-            `This session has used its ${requestLimit} task requests; replay protection is never evicted. ${lane(scope) === "bounded" ? "No further bounded tasks run in this session." : "Use normal preview tools."}`,
+            `This session has used its ${requestLimit} task requests; replay protection is never evicted. No further bounded tasks run in this session.`,
           );
         if (admitted._tag === "raced") {
           if (admitted.entry.digest !== digest)
@@ -484,11 +475,11 @@ export const makeService = Effect.fn("BrowserTaskService.make")(function* (backe
           ),
         };
 
-        const setContinuation = (state: keyof (typeof CONTINUATION)["preview"]) =>
+        const setContinuation = (state: keyof typeof CONTINUATION) =>
           Effect.sync(() => {
             (entry.record as { continuation: RunRecord["continuation"] }).continuation = {
               state,
-              guidance: CONTINUATION[lane(scope)][state],
+              guidance: CONTINUATION[state],
             };
           });
 
@@ -544,10 +535,13 @@ export const makeService = Effect.fn("BrowserTaskService.make")(function* (backe
             Effect.logError("bounded browser task stopped unexpectedly", { cause }).pipe(
               Effect.andThen(
                 Effect.sync(() => {
-                  const mutable = entry.record as { status: RunRecord["status"]; reason?: string };
+                  const mutable = entry.record as Mutable<
+                    Pick<RunRecord, "status" | "reason" | "fault">
+                  >;
                   if (mutable.status === "running") {
                     mutable.status = "blocked";
                     mutable.reason = "internal-error";
+                    mutable.fault = PREVIEW_TASK_REASON_FAULT["internal-error"];
                   }
                 }),
               ),
@@ -645,11 +639,7 @@ export const layer = Layer.effect(
             Effect.flatMap((status) =>
               status.tabId === tabId && status.control?.ownedByCaller === true
                 ? Effect.void
-                : Effect.fail(
-                    denied(
-                      `Run a task only on a tab you own, from ${scope.browserLane === "bounded" ? "t3_browser_open" : "preview_open"}.`,
-                    ),
-                  ),
+                : Effect.fail(denied("Run a task only on a tab you own, from t3_browser_open.")),
             ),
           ),
       port: (scope, tabId, lease) => {
@@ -731,34 +721,34 @@ export const layer = Layer.effect(
                       ),
                     )
                 : operation === "press"
-                ? browser
-                    .pressTaskTarget({
-                      ...lessee,
-                      ...(input.locator === undefined ? {} : { locator: String(input.locator) }),
-                      key: String(input.key),
-                      timeoutMs,
-                    })
-                    .pipe(
-                      Effect.mapError(failureMessage),
-                      Effect.flatMap((outcome) =>
-                        outcome === "pressed"
-                          ? Effect.void
-                          : Effect.fail(
-                              outcome === "stale"
-                                ? {
-                                    _tag: "PreviewAutomationInvalidSelectorError",
-                                    message:
-                                      "The target is gone or ambiguous, so the key was not pressed.",
-                                  }
-                                : {
-                                    _tag: TARGET_NOT_FOCUSABLE,
-                                    message:
-                                      "The target did not hold focus, so the key was not pressed.",
-                                  },
-                            ),
-                      ),
-                    )
-                : invoke<unknown>(operation, input, timeoutMs),
+                  ? browser
+                      .pressTaskTarget({
+                        ...lessee,
+                        ...(input.locator === undefined ? {} : { locator: String(input.locator) }),
+                        key: String(input.key),
+                        timeoutMs,
+                      })
+                      .pipe(
+                        Effect.mapError(failureMessage),
+                        Effect.flatMap((outcome) =>
+                          outcome === "pressed"
+                            ? Effect.void
+                            : Effect.fail(
+                                outcome === "stale"
+                                  ? {
+                                      _tag: "PreviewAutomationInvalidSelectorError",
+                                      message:
+                                        "The target is gone or ambiguous, so the key was not pressed.",
+                                    }
+                                  : {
+                                      _tag: TARGET_NOT_FOCUSABLE,
+                                      message:
+                                        "The target did not hold focus, so the key was not pressed.",
+                                    },
+                              ),
+                        ),
+                      )
+                  : invoke<unknown>(operation, input, timeoutMs),
           fence: (origins, timeoutMs) =>
             browser
               .fenceTask({ ...lessee, origins, timeoutMs })
@@ -798,6 +788,10 @@ export const layer = Layer.effect(
                 new Uint8Array(taken.data),
                 taken.mimeType === "image/png" ? "png" : "jpg",
               );
+              if (taken.inline !== undefined) {
+                const fileSystem = yield* FileSystem.FileSystem;
+                yield* fileSystem.writeFile(inlineCopyPath(path), new Uint8Array(taken.inline));
+              }
               return {
                 path,
                 mimeType: taken.mimeType,

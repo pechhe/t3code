@@ -100,3 +100,9 @@ export const idleThreadProjection = (
     updatedAt: shell.updatedAt,
   };
 };
+
+/** Each open tool says which one is headless and which follows the project's browser setting. */
+export const HEADLESS_OPEN =
+  "It is always headless on the integrated browser, whatever the project's browser setting; preview_open follows that setting.";
+export const SETTING_OPEN =
+  "It follows the project's browser setting; t3_browser_open is always headless.";

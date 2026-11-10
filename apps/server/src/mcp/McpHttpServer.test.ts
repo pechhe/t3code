@@ -69,6 +69,7 @@ const environmentId = EnvironmentId.make("environment-mcp-test");
 const threadId = ThreadId.make("thread-mcp-test");
 const alternateTabId = PreviewTabId.make("tab-mcp-alternate");
 const decodeJsonText = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
+const encodeJsonText = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const invocation = {
   environmentId,
   requestNamespace: "provider-session-mcp-test",
@@ -625,11 +626,15 @@ it.effect.each([
             Effect.provideService(McpSchema.McpServerClient, client),
           );
         const metadata = { ...page, title: `Snapshot ${call}`, screenshot };
-        const { accessibilityTree: _tree, ...boundedMetadata } = metadata;
+        const {
+          accessibilityTree: _tree,
+          interactiveElements: _elements,
+          ...boundedMetadata
+        } = metadata;
         expect(snapshot.isError).toBe(false);
         expect(snapshot.structuredContent).toEqual({
           ...boundedMetadata,
-          omitted: ["accessibilityTree (use interactiveElements locators or preview_evaluate)"],
+          omitted: ["accessibilityTree (use preview_evaluate for more)"],
         });
         const [identity, text, ...rest] = snapshot.content;
         expect(identity?.type === "text" ? decodeJsonText(identity.text) : null).toEqual({
@@ -639,7 +644,7 @@ it.effect.each([
         expect(rest).toEqual([
           {
             type: "text",
-            text: "Snapshot text was bounded. Omitted: accessibilityTree (use interactiveElements locators or preview_evaluate).",
+            text: "Snapshot text was bounded. Omitted: accessibilityTree (use preview_evaluate for more).",
           },
           ...(images
             ? [
@@ -1233,14 +1238,13 @@ it.effect("keeps the snapshot text under the agent's output ceiling", () =>
       const parsed = decodeJsonText(body) as {
         readonly accessibilityTree?: unknown;
         readonly visibleText: string;
-        readonly interactiveElements: ReadonlyArray<{ readonly name: string }>;
+        readonly interactiveElements?: unknown;
         readonly consoleEntries: ReadonlyArray<{ readonly text: string }>;
       };
       expect(parsed.accessibilityTree).toBeUndefined();
       expect(parsed.visibleText.length).toBeLessThanOrEqual(8_001);
-      expect(parsed.interactiveElements).toHaveLength(4);
-      expect(parsed.interactiveElements[0]?.name.length).toBeLessThanOrEqual(201);
-      expect(parsed.interactiveElements[3]?.name).toBe("Continue");
+      // The tree's refs are the one copy of the page's elements an agent reads.
+      expect(parsed.interactiveElements).toBeUndefined();
       expect(parsed.consoleEntries).toHaveLength(40);
       expect(parsed.consoleEntries[0]?.text).toBe("entry 60");
       expect(notice?.type === "text" ? notice.text : "").toContain("accessibilityTree");
@@ -1249,6 +1253,80 @@ it.effect("keeps the snapshot text under the agent's output ceiling", () =>
         ...parsed,
         omitted: expect.arrayContaining(["60 older console entries"]),
       });
+    }),
+  ).pipe(Effect.provide(layerTest)),
+);
+
+/**
+ * A fixed fixture page: its controls, described as the server browser's tree and element list do,
+ * so the test measures what an agent reads back from a real integrated-browser snapshot.
+ */
+const FIXTURE_CONTROLS = [
+  { role: "button", name: "Save changes" },
+  { role: "link", name: "Open the report" },
+  { role: "textbox", name: "Search projects" },
+  { role: "button", name: "New thread" },
+  { role: "tab", name: "Settings" },
+  { role: "checkbox", name: "Notify me" },
+  { role: "menuitem", name: "Duplicate" },
+  { role: "button", name: "Archive" },
+  { role: "combobox", name: "Branch" },
+  { role: "link", name: "Documentation" },
+  { role: "button", name: "Invite a teammate" },
+  { role: "switch", name: "Beta features" },
+] as const;
+
+const fixtureSnapshot = () => {
+  const interactiveElements = FIXTURE_CONTROLS.map(({ role, name }, index) => ({
+    tag: "unknown",
+    role,
+    name,
+    selector: `aria-ref=t3-1-e${index + 1}`,
+    x: 16,
+    y: 40 + index * 32,
+    width: 180,
+    height: 24,
+  }));
+  return {
+    ...snapshotResult,
+    visibleText: "Welcome back. Your threads are up to date.",
+    accessibilityTree: interactiveElements
+      .map(
+        (element) =>
+          `  - ${element.role} "${element.name}" [ref=${element.selector.slice("aria-ref=".length)}] [box=${element.x},${element.y},${element.width},${element.height}]`,
+      )
+      .join("\n"),
+    interactiveElements,
+  };
+};
+
+it.effect("sends an agent one copy of the fixture page's elements, a third smaller", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fixture = fixtureSnapshot();
+      yield* serveSnapshots("mcp-elements-once-client", fixture);
+
+      const snapshot = yield* callSnapshot({ includeImage: false });
+
+      const [, body] = snapshot.content;
+      const text = body?.type === "text" ? body.text : "";
+      // The tool used to send this whole snapshot, listing every element beside the tree's refs.
+      const before = Buffer.byteLength(
+        encodeJsonText({
+          ...fixture,
+          screenshot: {
+            mimeType: "image/png",
+            width: fixture.screenshot.width,
+            height: fixture.screenshot.height,
+          },
+        }),
+        "utf8",
+      );
+      const after = Buffer.byteLength(text, "utf8");
+      // 2,526 bytes to 1,011 on this fixture: 60% less, and the row asks for at least a third.
+      expect(after * 3).toBeLessThanOrEqual(before * 2);
+      expect(decodeJsonText(text)).not.toHaveProperty("interactiveElements");
+      expect(decodeJsonText(text)).toHaveProperty("accessibilityTree");
     }),
   ).pipe(Effect.provide(layerTest)),
 );
@@ -1289,7 +1367,7 @@ it.effect("bounds the snapshot text even when nothing but logs and the title are
 );
 
 // regression: #13558 preview snapshots overflowed the agent's tool output
-it.effect("bounds page text made of wide characters before dropping locators", () =>
+it.effect("bounds page text made of wide characters before dropping the tree", () =>
   Effect.scoped(
     Effect.gen(function* () {
       yield* serveSnapshots("mcp-wide-text-client", {
@@ -1316,10 +1394,10 @@ it.effect("bounds page text made of wide characters before dropping locators", (
       );
       const parsed = decodeJsonText(body) as {
         readonly visibleText: string;
-        readonly interactiveElements: ReadonlyArray<unknown>;
+        readonly interactiveElements?: unknown;
       };
       expect(parsed.visibleText).toMatch(/^界+…$/);
-      expect(parsed.interactiveElements).toHaveLength(20);
+      expect(parsed.interactiveElements).toBeUndefined();
       expect(notice?.type === "text" ? notice.text : "").toContain(
         "visibleText after 4000 characters",
       );

@@ -118,6 +118,7 @@ import Migration0112 from "./Migrations/112_ChampionLearningAnnotations.ts";
 import Migration0113 from "./Migrations/113_ArcRunIndex.ts";
 import Migration0114 from "./Migrations/114_ChampionJourneys.ts";
 import Migration0115 from "./Migrations/115_ScheduledTaskPurpose.ts";
+import Migration0116 from "./Migrations/116_BrowserTaskCalls.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -236,6 +237,7 @@ const migrationEntries = [
   [113, "ArcRunIndex", Migration0113],
   [114, "ChampionJourneys", Migration0114],
   [115, "ScheduledTaskPurpose", Migration0115],
+  [116, "BrowserTaskCalls", Migration0116],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

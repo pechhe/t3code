@@ -3,7 +3,9 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import { McpSchema } from "effect/ai";
 
-export const TASK_IMAGE_TOOLS: ReadonlySet<string> = new Set(["t3_browser_task", "preview_task"]);
+import { inlineCopyPath } from "../preview/browserArtifacts.ts";
+
+export const TASK_IMAGE_TOOLS: ReadonlySet<string> = new Set(["t3_browser_task"]);
 /** Adapters that accept image tool results; providers replay images later, and some reject them. */
 const IMAGE_RESULT_DRIVERS: ReadonlySet<string> = new Set(["claudeAgent", "codex"]);
 
@@ -27,9 +29,16 @@ export const attachTaskImages = Effect.fn("attachTaskImages")(function* (
   const shots = task?.screenshots ?? [];
   if (task?.replayed === true || shots.length === 0) return result;
   const fileSystem = yield* FileSystem.FileSystem;
+  // The copy at the tab's CSS width when one was saved; the evidence file keeps device pixels.
   const images = yield* Effect.forEach(shots.slice(-PREVIEW_TASK_LIMITS.inlineImages), (shot) =>
-    fileSystem.readFile(shot.path).pipe(
-      Effect.map((data) => [{ type: "image" as const, data, mimeType: shot.mimeType }]),
+    fileSystem.readFile(inlineCopyPath(shot.path)).pipe(
+      Effect.map((data) => ({ data, mimeType: "image/png" })),
+      Effect.catch(() =>
+        fileSystem
+          .readFile(shot.path)
+          .pipe(Effect.map((data) => ({ data, mimeType: shot.mimeType }))),
+      ),
+      Effect.map(({ data, mimeType }) => [{ type: "image" as const, data, mimeType }]),
       Effect.orElseSucceed(() => []),
     ),
   );

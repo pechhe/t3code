@@ -15,15 +15,37 @@ const requirePlaywright = NodeModule.createRequire(import.meta.url);
 const loadPlaywright = () =>
   requirePlaywright("playwright-core") as typeof import("playwright-core");
 
-const managedStart = async <A>(operation: Promise<A>, message: string) => {
+/** A start the open's own limit ended; its name marks it as a timeout for the operation error. */
+const startTimeout = () =>
+  Object.assign(new Error("The browser never started before the open's limit passed."), {
+    name: "TimeoutError",
+  });
+
+/**
+ * Bounds a start by the open's remaining limit, never by a shorter one of its own. A launch that
+ * finishes after the limit is abandoned and closed here, so it outlives no open.
+ */
+const startedWithin = async <A>(
+  operation: Promise<A>,
+  timeoutMs: number | undefined,
+  abandon: (started: A) => void,
+) => {
+  if (timeoutMs === undefined) return operation;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let expired = false;
   try {
     return await Promise.race([
       operation,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), 5_000);
+        timer = setTimeout(() => {
+          expired = true;
+          reject(startTimeout());
+        }, timeoutMs);
       }),
     ]);
+  } catch (cause) {
+    if (expired) void operation.then(abandon, constVoid);
+    throw cause;
   } finally {
     clearTimeout(timer);
   }
@@ -315,6 +337,8 @@ export class ServerBrowserContexts {
     }) => void;
     /** Runs Chrome at the machine's lowest priority, carrying this argument so its processes can be found. */
     readonly journey?: { readonly marker: string };
+    /** What is left of the open's limit; absent when the caller set none, as a popup or a reuse does. */
+    readonly startTimeoutMs?: number;
   }) {
     if (this.closing) throw new Error("The preview browser is closed.");
     const initial = await options.policy();
@@ -322,38 +346,47 @@ export class ServerBrowserContexts {
     const proxy = await ManagedBrowserProxy.start(options);
     let browser: Browser | undefined;
     try {
-      const launch = await managedStart(
+      const launch = await startedWithin(
         this.launchOptions(),
-        "Managed browser not ready within 5 seconds. Run t3 browser setup.",
+        options.startTimeoutMs,
+        // Nothing has launched yet, so there is nothing to close.
+        constVoid,
       );
       const { chromium } = loadPlaywright();
       const { executable, ...launchOptions } = launch;
-      browser = await this.launch(
-        executable,
-        (executablePath) =>
-          chromium.launch({
-            ...launchOptions,
-            executablePath,
-            timeout: 10_000,
-            proxy: { server: "per-context" },
-            args: [
-              ...launch.args,
-              "--proxy-bypass-list=<-loopback>",
-              "--disable-quic",
-              "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-              ...(options.journey === undefined ? [] : [options.journey.marker]),
-            ],
-          }),
-        { lowestPriority: options.journey !== undefined },
+      browser = await startedWithin(
+        this.launch(
+          executable,
+          (executablePath) =>
+            chromium.launch({
+              ...launchOptions,
+              executablePath,
+              // The open's own limit races the launch; Playwright's cap stays only for a start with none.
+              timeout: options.startTimeoutMs === undefined ? 10_000 : 0,
+              proxy: { server: "per-context" },
+              args: [
+                ...launch.args,
+                "--proxy-bypass-list=<-loopback>",
+                "--disable-quic",
+                "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+                ...(options.journey === undefined ? [] : [options.journey.marker]),
+              ],
+            }),
+          { lowestPriority: options.journey !== undefined },
+        ),
+        options.startTimeoutMs,
+        (late) => void late.close().catch(constVoid),
       );
-      const context = await managedStart(
+      const context = await startedWithin(
         browser.newContext({
           viewport: { width: 1280, height: 800 },
           deviceScaleFactor: 2,
           proxy: { ...proxy.configuration, bypass: "<-loopback>" },
           serviceWorkers: "block",
         }),
-        "Managed browser context could not start within 5 seconds.",
+        options.startTimeoutMs,
+        // The catch below closes this browser, which closes a context that arrives late.
+        constVoid,
       );
       this.managedContexts.add(context);
       this.track(context, false, null);

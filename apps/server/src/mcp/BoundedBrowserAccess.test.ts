@@ -115,6 +115,16 @@ it("grants bounded browsing only from what the server recorded about the thread"
       ),
       role,
     ).toBe(false);
+  // A browser role's own task gets them on the integrated browser; one that selected Phi never does.
+  for (const role of ["browser", "ui-verifier"] as const) {
+    const browserTask = (backend: "integrated" | "phi") =>
+      shell({
+        agentTask: task(role, { toolProfile: "phi", browser: { backend } }),
+        lineage: subagent,
+      });
+    expect(boundedBrowserEligible(browserTask("integrated")), role).toBe(true);
+    expect(boundedBrowserEligible(browserTask("phi")), role).toBe(false);
+  }
   // A subagent missing its task record is not an ordinary thread.
   expect(boundedBrowserEligible(shell({ lineage: subagent }))).toBe(false);
   // Work owned by an outside client or another environment is never granted it.

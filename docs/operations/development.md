@@ -491,8 +491,9 @@ profiles keep their existing networking and storage. This boundary is browser ne
 not an operating-system sandbox for a provider process.
 
 Managed integrated open requests have a 15-second response deadline plus the broker's host-response
-grace (currently 5 seconds), rather than the ordinary first-install allowance. Executable
-readiness and context creation each have a 5-second bound and Chromium launch a 10-second bound; run `t3 browser setup`
+grace (currently 5 seconds), rather than the ordinary first-install allowance. Starting
+the browser shares the open's own limit rather than having one of its own, and a timeout says
+whether the browser never started or the page never loaded; run `t3 browser setup`
 on the host before dispatching verification. Missing/disconnected hosts refuse immediately.
 An unavailable browser never falls back to Phi. Credential expiry is swept at least once
 per minute; cancellation, task cleanup and project access revocation release browser

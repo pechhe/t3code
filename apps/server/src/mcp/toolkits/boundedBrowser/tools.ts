@@ -35,7 +35,7 @@ const bounded = <T extends Tool.Any>(tool: T): T =>
 const OpenTool = bounded(
   Tool.make("t3_browser_open", {
     description:
-      "Open a fresh tab for bounded browser work: integrated browser, new isolated storage, no cookies from elsewhere, in the background. Returns its `tabId`; pass it to every other t3_browser_* call, and `logins`, the saved login keys a task may type on this origin. Each call opens another tab, and only this session can use it. Use it for a page you need to check or a form you were given values for; close the tab when done. `viewport` fixes the tab's size for its life, for a whole journey at one width such as a phone's; only the integrated backend honours it.",
+      "Open a fresh tab for bounded browser work. It is always headless on the integrated browser, whatever the project's browser setting; preview_open follows that setting. New isolated storage, no cookies from elsewhere. Returns its `tabId`; pass it to every other t3_browser_* call, and `logins`, the saved login keys a task may type on this origin. Each call opens another tab, and only this session can use it. Use it for a page you need to check or a form you were given values for; close the tab when done. `viewport` fixes the tab's size for its life, for a whole journey at one width such as a phone's; only the integrated backend honours it.",
     parameters: Schema.Struct({
       url: PreviewAutomationOpenInput.fields.url,
       viewport: Schema.optional(PreviewViewportSize).annotate({
@@ -69,7 +69,7 @@ const StatusTool = bounded(
 export const BoundedBrowserSnapshotTool = bounded(
   Tool.make("t3_browser_snapshot", {
     description:
-      "Read one of your bounded tabs only when you need to see it: after a task reports `inspect-first` or is blocked, or to judge the page yourself. Returns page state and semantic elements; `locator` narrows it to one element. `includeImage=true` shows you the screenshot; `save=true` writes the PNG and returns `screenshotPath`, which you can open or embed as ![alt](path). Refused while a task holds the tab.",
+      "Read a bounded tab only when you need it: after a task reports `inspect-first` or is blocked, or to judge the page yourself. Returns page state, each element once in `accessibilityTree`, and image size; `locator` narrows it. `includeImage=true` shows the image at most the tab's CSS width; `save=true` writes the full PNG and `screenshotPath` to embed as ![alt](path). Refused while a task holds it.",
     parameters: Schema.Struct({
       tabId: PreviewTabId,
       locator: PreviewAutomationSnapshotInput.fields.locator,

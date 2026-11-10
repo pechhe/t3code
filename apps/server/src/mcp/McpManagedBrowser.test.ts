@@ -23,7 +23,6 @@ import { MANAGED_BROWSER_TOOL_NAMES } from "./toolkits/managedBrowser/toolNames.
 import { BOUNDED_BROWSER_TOOL_NAMES } from "./toolkits/boundedBrowser/toolNames.ts";
 import {
   ManagedBrowserSnapshotToolkit,
-  ManagedBrowserTaskToolkit,
   ManagedBrowserToolkit,
 } from "./toolkits/managedBrowser/tools.ts";
 import * as BrowserLogins from "../secrets/BrowserLogins.ts";
@@ -82,7 +81,11 @@ const message = (text: string) =>
     text.trimStart().startsWith("{")
       ? text
       : (text.split("\n").find((line) => line.startsWith("data:")) ?? "data:{}").slice(5),
-  ) as { readonly result?: { readonly tools?: ReadonlyArray<{ readonly name: string }> } };
+  ) as {
+    readonly result?: {
+      readonly tools?: ReadonlyArray<{ readonly name: string; readonly description?: string }>;
+    };
+  };
 
 const openSession = (path: string, token: string) =>
   Effect.gen(function* () {
@@ -119,7 +122,8 @@ const listTools = (path: string, token: string) =>
       headers: { accept },
       body: HttpBody.text(initialize, "application/json"),
     });
-    if (opened.status !== 200) return { status: opened.status, names: [] as Array<string> };
+    if (opened.status !== 200)
+      return { status: opened.status, names: [] as Array<string>, descriptions: new Map() };
     const sessionId = opened.headers["mcp-session-id"]!;
     yield* http.post(path, {
       headers: { accept, "mcp-session-id": sessionId },
@@ -136,14 +140,18 @@ const listTools = (path: string, token: string) =>
       ),
     });
     const body = message(yield* listed.text);
-    return { status: listed.status, names: (body.result?.tools ?? []).map((tool) => tool.name) };
+    const tools = body.result?.tools ?? [];
+    return {
+      status: listed.status,
+      names: tools.map((tool) => tool.name),
+      descriptions: new Map(tools.map((tool) => [tool.name, tool.description ?? ""])),
+    };
   });
 
 it("lists exactly the managed browser tools the adapters pre-approve", () => {
   const toolkit = [
     ...Object.keys(DecisionToolkit.tools),
     ...Object.keys(ManagedBrowserToolkit.tools),
-    ...Object.keys(ManagedBrowserTaskToolkit.tools),
     ...Object.keys(ManagedBrowserSnapshotToolkit.tools),
     ...Object.keys(DeviceStandardToolkit.tools),
     "device_screenshot",
@@ -207,6 +215,10 @@ it.effect("serves a managed browser task only the narrow endpoint, and only its 
         [...withoutDevices, ...BOUNDED_BROWSER_TOOL_NAMES].sort(),
       );
       expect(mine.names.some((name) => name.startsWith("t3_browser_"))).toBe(false);
+      expect(bounded.descriptions.get("t3_browser_open")).toContain(
+        McpToolAccessTestkit.HEADLESS_OPEN,
+      );
+      expect(bounded.descriptions.get("preview_open")).toContain(McpToolAccessTestkit.SETTING_OPEN);
 
       // A tool listed earlier is refused when called without the grant: listing grants nothing.
       const call = yield* openSession("/mcp/browser", tokens.managed);

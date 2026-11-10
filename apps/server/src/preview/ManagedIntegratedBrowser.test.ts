@@ -217,7 +217,8 @@ it.live.each(["access", "backend", "allow-list"] as const)(
           yield* invoke("waitFor", { text: "saved" });
           yield* invoke("resize", { mode: "freeform", width: 375, height: 667 });
           const phone = yield* invoke<PreviewAutomationSnapshot>("snapshot");
-          expect(phone.screenshot!.width).toBe(750);
+          // The agent's image is the tab's CSS width; the saved file keeps the device pixels.
+          expect(phone.screenshot!.width).toBe(375);
           yield* invoke("setColorScheme", { colorScheme: "dark" });
           yield* invoke("waitFor", { text: "dark mode" });
           yield* invoke("recordingStart");

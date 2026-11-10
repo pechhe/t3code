@@ -51,3 +51,7 @@ export const saveBrowserScreenshot = Effect.fn("saveBrowserScreenshot")(function
   );
   return screenshotPath;
 });
+
+/** Where a saved screenshot's copy at the tab's CSS width sits, the one an agent is shown inline. */
+export const inlineCopyPath = (screenshotPath: string) =>
+  screenshotPath.replace(/\.(png|jpg)$/, "") + ".inline.png";

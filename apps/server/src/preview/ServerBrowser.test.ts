@@ -64,7 +64,9 @@ vi.mock("./ServerBrowserContexts.ts", () => ({
       contexts.push(context);
       return context as unknown as BrowserContext;
     }
-    async managedContext() {
+    async managedContext(options: { startTimeoutMs?: number } = {}) {
+      managedStartTimeouts.push(options.startTimeoutMs);
+      if (managedStartFailure) throw managedStartFailure;
       return this.contextFor("default", "managed");
     }
     hold = vi.fn((context: BrowserContext) => {
@@ -325,6 +327,9 @@ let keyCopy = "";
 let focusedFrame: ReturnType<typeof makeFrame> | null = null;
 let contextFailure: Error | null = null;
 let pageSetupFailure: Error | null = null;
+let managedStartFailure: Error | null = null;
+/** The part of its open's limit each managed start was given. */
+const managedStartTimeouts: Array<number | undefined> = [];
 let initialNavigation: (() => Promise<void>) | null = null;
 let desktopRendersNext = false;
 let desktopPageUrl = "about:blank";
@@ -500,6 +505,8 @@ beforeEach(() => {
   contextGate = null;
   contextFailure = null;
   pageSetupFailure = null;
+  managedStartFailure = null;
+  managedStartTimeouts.length = 0;
   initialNavigation = null;
   pageCopy = "";
   keyCopy = "";
@@ -539,7 +546,7 @@ it.live("tells the desktop once per thread when its agent turns start and end", 
   }).pipe(Effect.scoped, Effect.provide(layer)),
 );
 
-it.live("preview_open reports its navigation timeout instead of the request budget", () =>
+it.live("preview_open reports its navigation timeout, and that the page never loaded", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const { broker, tabId } = yield* ready;
@@ -566,11 +573,46 @@ it.live("preview_open reports its navigation timeout instead of the request budg
         _tag: "PreviewAutomationTimeoutError",
         timeoutMs: 15_000,
       });
-      expect(error.message).toBe("Preview automation open timed out after 15000ms.");
+      expect(error.message).toBe(
+        "Preview automation open timed out after 15000ms. The page never loaded before the open's limit passed.",
+      );
       // The failed open returned no tabId, so its tab must not linger and block later opens.
       const { sessions } = yield* manager.list({ threadId: scope.thread.threadId });
       expect(sessions.map((session) => session.tabId)).toEqual([tabId]);
       expect(contexts[1]!.page.close).toHaveBeenCalled();
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
+it.live("preview_open says the browser never started when the start runs out of its limit", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { broker } = yield* ready;
+      managedStartFailure = Object.assign(
+        new Error("The browser never started before the open's limit passed."),
+        { name: "TimeoutError" },
+      );
+      const managed = {
+        ...asSession("managed-slow-start"),
+        managedBrowser: true as const,
+        managedProjectId: ProjectId.make("managed-slow-start-project"),
+      };
+
+      const error = yield* broker
+        .invoke<PreviewAutomationStatus>({ scope: managed, operation: "open", input: {} })
+        .pipe(Effect.flip);
+
+      expect(error).toMatchObject({
+        _tag: "PreviewAutomationTimeoutError",
+        timeoutMs: 15_000,
+      });
+      expect(error.message).toBe(
+        "Preview automation open timed out after 15000ms. The browser never started before the open's limit passed.",
+      );
+      // A start is bounded by what is left of the open's own limit, not by a limit of its own.
+      expect(managedStartTimeouts).toHaveLength(1);
+      expect(managedStartTimeouts[0]).toBeGreaterThan(0);
+      expect(managedStartTimeouts[0]).toBeLessThanOrEqual(15_000);
     }),
   ).pipe(Effect.provide(layer)),
 );
@@ -2626,6 +2668,48 @@ it.live("a full server leaves an idle tab alone while a bounded task leases it",
       now.mockReturnValue(31 * 60 * 1000);
       yield* open("agent-new");
       expect(releasedDesktopTabs).toEqual([opened[1]]);
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
+it.live("closes a bounded tab idle past five minutes and keeps one used inside that window", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* Broker.PreviewAutomationBroker;
+      const manager = yield* Manager.PreviewManager;
+      yield* ServerBrowser.ServerBrowser;
+      yield* Effect.yieldNow;
+      const now = vi.spyOn(Date, "now").mockReturnValue(0);
+      yield* Effect.addFinalizer(() => Effect.sync(() => now.mockRestore()));
+      const open = (providerSessionId: string, browserLane?: "bounded") =>
+        broker.invoke<PreviewAutomationStatus>({
+          scope: {
+            ...asSession(providerSessionId),
+            ...(browserLane === undefined ? {} : { browserLane }),
+          },
+          operation: "open",
+          input: { reuseExistingTab: false, open: false },
+        });
+      const idle = yield* open("agent-bounded-idle", "bounded");
+      const reused = yield* open("agent-bounded-reused", "bounded");
+      // An agent's own preview tab keeps the longer window however long it sits unused.
+      const preview = yield* open("agent-preview");
+
+      now.mockReturnValue(4 * 60 * 1000);
+      yield* broker.invoke<PreviewAutomationStatus>({
+        scope: { ...asSession("agent-bounded-reused"), browserLane: "bounded" as const },
+        tabId: PreviewTabId.make(reused.tabId!),
+        operation: "status",
+        input: {},
+      });
+
+      now.mockReturnValue(6 * 60 * 1000);
+      const fresh = yield* open("agent-fresh");
+
+      const { sessions } = yield* manager.list({ threadId: scope.thread.threadId });
+      const open_tabs = sessions.map((session) => session.tabId);
+      expect(open_tabs).toEqual(expect.arrayContaining([reused.tabId, preview.tabId, fresh.tabId]));
+      expect(open_tabs).not.toContain(idle.tabId);
     }),
   ).pipe(Effect.provide(layer)),
 );

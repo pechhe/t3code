@@ -510,6 +510,22 @@ describe("server browser snapshot screenshot", () => {
   const colorOf = ([red, green, blue]: readonly [number, number, number, number]) =>
     blue - red > 100 ? "blue" : red - blue > 100 ? "red" : `rgb(${red}, ${green}, ${blue})`;
 
+  it("gives a task screenshot an inline copy no wider than the tab, keeping the capture", async () => {
+    const page = await context.newPage();
+    await page.setContent(halves(""));
+    const taken = await ServerBrowserPage.captureTaskScreenshot({
+      page,
+      cdp: await context.newCDPSession(page),
+      framing: "viewport",
+      maxBytes: 5_000_000,
+      timeoutMs: 10_000,
+      secrets: [],
+    });
+    expect([taken.width, taken.height]).toEqual([2560, 1600]);
+    // A PNG's IHDR holds its width and height, big-endian, at bytes 16 and 20.
+    expect([taken.inline!.readUInt32BE(16), taken.inline!.readUInt32BE(20)]).toEqual([1280, 800]);
+  });
+
   it("captures a blurred backdrop-filter page as rendered, not mirrored", async () => {
     const { screenshot, pixels } = await screenshotOf(halves("backdrop-filter: blur(4px);"));
 
@@ -527,6 +543,24 @@ describe("server browser snapshot screenshot", () => {
       fullSize: [fullScreenshot?.width, fullScreenshot?.height],
       colors: pixels.map(colorOf),
     }).toEqual({ size: [1280, 800], fullSize: [2560, 1600], colors: ["blue", "red", "red"] });
+  });
+
+  it("caps the inline image at the tab's CSS width and keeps the device pixels to save", async () => {
+    const page = await context.newPage();
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.setContent("<title>Phone</title><h1>Phone</h1>");
+    const captured = await ServerBrowserPage.snapshot({
+      page,
+      cdp: await context.newCDPSession(page),
+      renderScale: 2,
+      fullScreenshot: true,
+      consoleEntries: [],
+      networkEntries: [],
+      actionTimeline: [],
+    });
+
+    expect([captured.screenshot?.width, captured.screenshot?.height]).toEqual([375, 667]);
+    expect([captured.fullScreenshot?.width, captured.fullScreenshot?.height]).toEqual([750, 1334]);
   });
 
   it("shrinks the screenshot of an XML document, whose createElement makes no canvas", async () => {

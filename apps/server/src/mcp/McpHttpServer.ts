@@ -14,6 +14,7 @@ import * as Context from "effect/Context";
 import * as Fiber from "effect/Fiber";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -25,6 +26,7 @@ import type * as Types from "effect/Types";
 import { AiError, McpProtocol, McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import {
+  PreviewTaskRequest,
   DeviceToolError,
   OrchestratorMcpFailure,
   PreviewAutomationError,
@@ -84,6 +86,7 @@ import * as ThreadMetadataMcpService from "./ThreadMetadataMcpService.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import { saveBrowserScreenshot } from "../preview/browserArtifacts.ts";
+import * as BrowserTaskCalls from "../browserTasks/BrowserTaskCalls.ts";
 import * as BrowserTaskService from "../browserTasks/BrowserTaskService.ts";
 import * as ChampionJourneys from "../champions/ChampionJourneys.ts";
 import * as ThreadDirectory from "../peers/ThreadDirectory.ts";
@@ -97,10 +100,7 @@ import {
   BoundedBrowserSnapshotToolkit,
   BoundedBrowserToolkit,
 } from "./toolkits/boundedBrowser/tools.ts";
-import {
-  ManagedBrowserTaskToolkit,
-  ManagedBrowserToolkit,
-} from "./toolkits/managedBrowser/tools.ts";
+import { ManagedBrowserToolkit } from "./toolkits/managedBrowser/tools.ts";
 import {
   PreviewSnapshotTool,
   PreviewSnapshotToolkit,
@@ -326,7 +326,6 @@ const layerSessionAuthMiddleware = (key: SessionEndpointKey) =>
 /** Claude Code spills oversized results to files, losing locators; bound both text and its preferred structuredContent. */
 export const MAX_SNAPSHOT_TEXT_BYTES = 20_000;
 const MAX_SNAPSHOT_VISIBLE_TEXT_CHARS = 8_000;
-const MAX_SNAPSHOT_ELEMENT_NAME_CHARS = 200;
 const MAX_SNAPSHOT_LOG_ENTRIES = 40;
 const MAX_SNAPSHOT_LOG_TEXT_CHARS = 500;
 const MAX_SNAPSHOT_IDENTIFIER_CHARS = 2_048;
@@ -359,10 +358,6 @@ type SnapshotMetadata = {
   readonly url: string;
   readonly title: string;
   readonly visibleText: string;
-  readonly interactiveElements: ReadonlyArray<{
-    readonly name: string;
-    readonly [key: string]: unknown;
-  }>;
   readonly consoleEntries: ReadonlyArray<unknown>;
   readonly networkEntries: ReadonlyArray<unknown>;
   readonly actionTimeline: ReadonlyArray<unknown>;
@@ -374,7 +369,7 @@ const boundSnapshotMetadata = (metadata: SnapshotMetadata) => {
   const { accessibilityTree, ...withoutTree } = metadata;
   const ariaTree = typeof accessibilityTree === "string" ? accessibilityTree : undefined;
   if (accessibilityTree !== undefined && ariaTree === undefined) {
-    omitted.push("accessibilityTree (use interactiveElements locators or preview_evaluate)");
+    omitted.push("accessibilityTree (use preview_evaluate for more)");
   }
   const tail = <A>(entries: ReadonlyArray<A>, label: string) => {
     if (entries.length > MAX_SNAPSHOT_LOG_ENTRIES) {
@@ -392,41 +387,25 @@ const boundSnapshotMetadata = (metadata: SnapshotMetadata) => {
   ) {
     omitted.push(`url or title after ${MAX_SNAPSHOT_IDENTIFIER_CHARS} characters`);
   }
-  if (
-    metadata.interactiveElements.some(
-      (element) => element.name.length > MAX_SNAPSHOT_ELEMENT_NAME_CHARS,
-    )
-  ) {
-    omitted.push(`element names longer than ${MAX_SNAPSHOT_ELEMENT_NAME_CHARS} characters`);
-  }
+  // The elements list repeats the tree's own refs, so the agent reads one copy of them.
+  const { interactiveElements: _elements, ...pageFields } = withoutTree;
   const bounded = {
-    ...withoutTree,
+    ...pageFields,
     url: cutText(metadata.url, MAX_SNAPSHOT_IDENTIFIER_CHARS),
     title: cutText(metadata.title, MAX_SNAPSHOT_IDENTIFIER_CHARS),
-    interactiveElements: metadata.interactiveElements.map((element) => ({
-      ...element,
-      name: cutText(element.name, MAX_SNAPSHOT_ELEMENT_NAME_CHARS),
-    })),
     consoleEntries: tail(metadata.consoleEntries, "console entries"),
     networkEntries: tail(metadata.networkEntries, "network entries"),
     actionTimeline: tail(metadata.actionTimeline, "action timeline entries"),
   };
 
   // Per-field character caps can still exceed the total byte ceiling.
-  const shedOrder = [
-    "actionTimeline",
-    "networkEntries",
-    "consoleEntries",
-    "interactiveElements",
-  ] as const;
+  const shedOrder = ["actionTimeline", "networkEntries", "consoleEntries"] as const;
   const lists: Record<(typeof shedOrder)[number], ReadonlyArray<unknown>> = {
-    interactiveElements: bounded.interactiveElements,
     consoleEntries: bounded.consoleEntries,
     networkEntries: bounded.networkEntries,
     actionTimeline: bounded.actionTimeline,
   };
   const dropped: Record<(typeof shedOrder)[number], number> = {
-    interactiveElements: 0,
     consoleEntries: 0,
     networkEntries: 0,
     actionTimeline: 0,
@@ -441,18 +420,10 @@ const boundSnapshotMetadata = (metadata: SnapshotMetadata) => {
   });
   let text = encodeJsonText(value());
   while (utf8Length(text) > MAX_SNAPSHOT_TEXT_BYTES) {
-    // Elements carry the locators, so they go last; logs shed newest-last.
+    // Logs shed newest-last, and the tree carries the locators, so it goes last.
     const key =
-      shedOrder.find(
-        (candidate) => candidate !== "interactiveElements" && lists[candidate].length > 0,
-      ) ??
-      (visibleTextChars > 0
-        ? "visibleText"
-        : lists.interactiveElements.length > 0
-          ? "interactiveElements"
-          : ariaTreeChars > 0
-            ? "accessibilityTree"
-            : undefined);
+      shedOrder.find((candidate) => lists[candidate].length > 0) ??
+      (visibleTextChars > 0 ? "visibleText" : ariaTreeChars > 0 ? "accessibilityTree" : undefined);
     if (key === undefined) break;
     if (key === "visibleText") {
       visibleTextChars = Math.floor(visibleTextChars / 2);
@@ -461,12 +432,7 @@ const boundSnapshotMetadata = (metadata: SnapshotMetadata) => {
     } else {
       const keep = Math.floor(lists[key].length / 2);
       dropped[key] += lists[key].length - keep;
-      lists[key] =
-        keep === 0
-          ? []
-          : key === "interactiveElements"
-            ? lists[key].slice(0, keep)
-            : lists[key].slice(-keep);
+      lists[key] = keep === 0 ? [] : lists[key].slice(-keep);
     }
     text = encodeJsonText(value());
   }
@@ -1141,6 +1107,46 @@ const withAdvertisedSchemas = Effect.fn("McpHttpServer.withAdvertisedSchemas")(f
   return yield* registration.pipe(Effect.provideService(McpServer.McpServer, advertisingServer));
 });
 
+const decodesAsAdvertised = Schema.decodeUnknownExit(Schema.toCodecJson(PreviewTaskRequest));
+
+/**
+ * A `t3_browser_task` call whose parameters do not decode is refused before its handler runs, so
+ * it is recorded here; the handler records every other call.
+ */
+export const withUndecodedTaskRecord = Effect.fn("McpHttpServer.withUndecodedTaskRecord")(
+  function* <A, E, R>(registration: Effect.Effect<A, E, R>) {
+    const server = yield* McpServer.McpServer;
+    const calls = yield* Effect.serviceOption(BrowserTaskCalls.BrowserTaskCalls);
+    if (Option.isNone(calls)) return yield* registration;
+    const recording = McpServer.McpServer.of({
+      ...server,
+      addTool: Effect.fn("McpServer.addTool")(function (options) {
+        if (options.tool.name !== "t3_browser_task") return server.addTool(options);
+        return server.addTool({
+          ...options,
+          handle: (payload) =>
+            Effect.withFiber((fiber) => {
+              const invocation = Context.getOption(
+                fiber.context,
+                McpInvocationContext.McpInvocationContext,
+              );
+              if (Option.isNone(invocation) || Exit.isSuccess(decodesAsAdvertised(payload)))
+                return options.handle(payload);
+              return calls.value
+                .record(invocation.value, {
+                  ...BrowserTaskCalls.undecodedCall,
+                  mode: BrowserTaskCalls.callMode(payload),
+                  durationMs: 0,
+                })
+                .pipe(Effect.andThen(options.handle(payload)));
+            }),
+        });
+      }),
+    });
+    return yield* registration.pipe(Effect.provideService(McpServer.McpServer, recording));
+  },
+);
+
 /** Task tools return JSON; `attachTaskImages` adds screenshots for callers that ask and can take them. */
 const withTaskImages = Effect.fn("McpHttpServer.withTaskImages")(function* <A, E, R>(
   registration: Effect.Effect<A, E, R>,
@@ -1233,7 +1239,11 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
       withToolSpans(
         withAdvertisedSchemas(
           toolkit,
-          withTaskImages(McpServer.registerToolkit(decodeAsAdvertised(listedForReadOnly(toolkit)))),
+          withTaskImages(
+            withUndecodedTaskRecord(
+              McpServer.registerToolkit(decodeAsAdvertised(listedForReadOnly(toolkit))),
+            ),
+          ),
         ),
       ),
     ),
@@ -1480,7 +1490,6 @@ export const layerManagedBrowserToolkit = Layer.fresh(
   Layer.mergeAll(
     toolkitRegistration(DecisionToolkit, DecisionHandlers.layer),
     toolkitRegistration(ManagedBrowserToolkit, ManagedBrowserHandlers.layer),
-    toolkitRegistration(ManagedBrowserTaskToolkit, ManagedBrowserHandlers.layerTask),
     imageToolRegistration(
       registerPreviewSnapshot(PreviewSnapshotToolkit, PreviewSnapshotTool),
       ManagedBrowserHandlers.layerSnapshot,
@@ -1563,6 +1572,7 @@ export const layer = Layer.mergeAll(
   ...sessionEndpointLayers,
 ).pipe(
   Layer.provide(BrowserTaskService.layer.pipe(Layer.provide(ChampionJourneys.layerBrowserPolicy))),
+  Layer.provide(BrowserTaskCalls.layer),
   Layer.provideMerge(BrowserLogins.layer),
   Layer.provide(BitwardenSecrets.layer.pipe(Layer.provide(ProcessRunner.layer))),
 );

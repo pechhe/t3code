@@ -17,7 +17,6 @@ import {
   ProviderSessionId,
   ThreadId,
   type ProviderThreadId,
-  usesPhi,
   isLeafAgentTask,
   isReadOnlyTask,
   sessionEndpointKey,
@@ -58,6 +57,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import {
   boundedBrowserEligible,
+  isManagedBrowserTask,
   projectAllowsBoundedBrowser,
 } from "../mcp/ManagedBrowserAccess.ts";
 import * as EventSink from "./EventSink.ts";
@@ -437,9 +437,7 @@ export const layerWithOptions = (
           return yield* Effect.gen(function* () {
             const settings = yield* serverSettings.value.getSettings;
             // Browser roles use the narrow endpoint, pinned to their task's backend.
-            const managedBrowser =
-              usesPhi(thread.agentTask?.toolProfile) &&
-              ["browser", "ui-verifier"].includes(thread.agentTask?.role ?? "");
+            const managedBrowser = isManagedBrowserTask(thread.agentTask);
             const selectedBrowser = thread.agentTask?.browser ?? { backend: "integrated" as const };
             const pinnedBackends = {
               enabled: [selectedBrowser.backend],

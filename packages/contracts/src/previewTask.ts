@@ -316,12 +316,86 @@ export const PreviewTaskScreenshot = Schema.Struct({
 });
 export type PreviewTaskScreenshot = typeof PreviewTaskScreenshot.Type;
 
+/**
+ * What the caller does next: fix its request, snapshot again because the page changed, report a
+ * likely defect in the page, or treat it as a limit or infrastructure problem.
+ */
+export const PreviewTaskFault = Schema.Literals([
+  "request",
+  "page-changed",
+  "page-defect",
+  "limit",
+]);
+export type PreviewTaskFault = typeof PreviewTaskFault.Type;
+
+/** Every reason a task ends with, or is refused with before it runs, and its one fault. */
+export const PREVIEW_TASK_REASON_FAULT = {
+  cancelled: "request",
+  "invalid-request": "request",
+  "ambiguous-target": "request",
+  "target-not-found": "request",
+  "wrong-control": "request",
+  "missing-option": "request",
+  "target-not-focusable": "request",
+  "target-refused": "request",
+  "login-refused": "request",
+  "avoided-target": "request",
+  "submit-target": "request",
+  "origin-fenced": "request",
+  "nothing-tested": "request",
+  "tab-busy": "request",
+  "stale-target": "page-changed",
+  "checks-failed": "page-defect",
+  "false-done": "page-defect",
+  "binding-not-applied": "page-defect",
+  "page-broken": "page-defect",
+  "model-blocked": "page-defect",
+  "uncertain-mutation": "page-defect",
+  "secret-visible": "page-defect",
+  "not-authorized": "limit",
+  "session-limit": "limit",
+  deadline: "limit",
+  "action-limit": "limit",
+  "decision-limit": "limit",
+  "decision-failed": "limit",
+  "decision-invalid-input": "limit",
+  "decision-unavailable": "limit",
+  "decision-invalid-provider-response": "limit",
+  "decision-transport-error": "limit",
+  "decision-cancelled": "limit",
+  "decision-timeout": "limit",
+  "decision-busy": "limit",
+  "decision-rate-limited": "limit",
+  "decision-engine-not-accepted": "limit",
+  "decision-key-missing": "limit",
+  "decision-key-unreadable": "limit",
+  "decision-key-rejected": "limit",
+  "decision-credits-exhausted": "limit",
+  "decision-unreachable": "limit",
+  "decision-refused": "limit",
+  "authority-revoked": "limit",
+  "observation-failed": "limit",
+  "snapshot-truncated": "limit",
+  "screenshot-failed": "limit",
+  "capture-failed": "limit",
+  "fence-failed": "limit",
+  "tab-unavailable": "limit",
+  "internal-error": "limit",
+} as const satisfies Record<string, PreviewTaskFault>;
+export type PreviewTaskReason = keyof typeof PREVIEW_TASK_REASON_FAULT;
+export const isPreviewTaskReason = (reason: string): reason is PreviewTaskReason =>
+  Object.hasOwn(PREVIEW_TASK_REASON_FAULT, reason);
+export const PreviewTaskReason = Schema.Literals(
+  Object.keys(PREVIEW_TASK_REASON_FAULT) as [PreviewTaskReason, ...PreviewTaskReason[]],
+);
+
 export const PreviewTaskResult = Schema.Struct({
   requestId: Schema.String,
   tabId: PreviewTabId,
   status: Schema.Literals(["running", "passed", "failed", "blocked", "cancelled"]),
   /** Machine-readable cause of any status but `running` and `passed`. */
-  reason: Schema.optional(Schema.String),
+  reason: Schema.optional(PreviewTaskReason),
+  fault: Schema.optional(PreviewTaskFault),
   detail: Schema.optional(Schema.String),
   replayed: Schema.optional(Schema.Boolean),
   actions: Schema.Array(
@@ -357,6 +431,13 @@ export const PreviewTaskResult = Schema.Struct({
       target: Schema.String,
       nearest: Schema.Array(Schema.String),
     }),
+  ),
+  /**
+   * With reason `ambiguous-target`, `wrong-control` or `target-not-found`: elements the page has,
+   * each with a target that selects it, through a `scope` or else a `hint`. Page data.
+   */
+  candidates: Schema.optional(
+    Schema.Array(Schema.Struct({ element: Schema.String, target: PreviewTaskTarget })),
   ),
   evidence: Schema.Struct({
     url: Schema.NullOr(Schema.String),

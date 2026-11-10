@@ -423,6 +423,9 @@ interface ServerTab {
 
   readonly isolatedContext: boolean;
 
+  /** Opened by a bounded task's lane, so nothing else will use it again. */
+  readonly bounded: boolean;
+
   readonly desktop: { readonly close: () => Promise<void> } | null;
   readonly profileId: string | undefined;
   readonly openerTabId: string | undefined;
@@ -471,6 +474,14 @@ interface ServerDownload {
   readonly completedAt: string;
 }
 
+/** What the caller starting a tab knows about it before the tab exists. */
+interface TabStart {
+  /** The open's deadline, in `performance.now()` terms; its remaining part bounds a browser start. */
+  readonly deadlineMs?: number;
+  /** The caller's lane: a bounded task's own tab is never reused, so it ages out sooner. */
+  readonly bounded?: boolean;
+}
+
 /** Read-only operations remain available during human control; evaluate requires control because scripts can mutate the page. */
 const READ_OPERATIONS: ReadonlySet<PreviewAutomationRequest["operation"]> = new Set([
   "status",
@@ -483,7 +494,13 @@ export const SERVER_TAB_LIMIT = 128;
 /** Slots a Champion check's journeys may never take, so other agents and people can always open a tab. */
 const SERVER_TABS_KEPT_FROM_JOURNEYS = 32;
 const AGENT_TAB_IDLE_MS = 30 * 60 * 1000;
+/** A bounded task's own tab is one job's; it is closed sooner than an agent's preview tab. */
+const BOUNDED_AGENT_TAB_IDLE_MS = 5 * 60 * 1000;
 const IDLE_SWEEP_INTERVAL = "1 minute";
+
+/** An open that ends while its browser was starting says so, rather than blaming the page. */
+const BROWSER_NEVER_STARTED = "The browser never started before the open's limit passed.";
+const PAGE_NEVER_LOADED = "The page never loaded before the open's limit passed.";
 
 const DOWNLOAD_LIMIT = 20;
 const ABORTED_NAVIGATION_DOWNLOAD_WAIT_MS = 5_000;
@@ -645,7 +662,12 @@ const make = Effect.gen(function* () {
   const heldLoginForms = () => secretForms([...tabs.values()].flatMap(loginValues));
   const pendingTabs = new Map<
     string,
-    { readonly agentId: string | null; promise?: Promise<ServerTab> }
+    {
+      readonly agentId: string | null;
+      /** What the open that reserved this tab knows: a session's own open, not a reattached tab. */
+      readonly start?: TabStart;
+      promise?: Promise<ServerTab>;
+    }
   >();
   const crashedManagedTabs = new Map<string, string>();
 
@@ -1004,10 +1026,13 @@ const make = Effect.gen(function* () {
       });
   };
 
-  const createTab = async (snapshot: PreviewSessionSnapshot): Promise<ServerTab> => {
+  const createTab = async (
+    snapshot: PreviewSessionSnapshot,
+    start: TabStart,
+  ): Promise<ServerTab> => {
     const opened: Array<() => Promise<void>> = [];
     try {
-      return await setUpTab(snapshot, opened);
+      return await setUpTab(snapshot, opened, start);
     } catch (cause) {
       // An unpublished tab is in no list, so nothing else would ever close it.
       for (const close of opened.reverse()) await close().catch(constVoid);
@@ -1015,14 +1040,22 @@ const make = Effect.gen(function* () {
     }
   };
 
-  const managedContextOptions = (snapshot: PreviewSessionSnapshot, projectId: ProjectId) => {
+  const managedContextOptions = (
+    snapshot: PreviewSessionSnapshot,
+    projectId: ProjectId,
+    startTimeoutMs: number | undefined,
+  ) => {
     const journey =
       snapshot.automationOwner === undefined
         ? undefined
         : journeySessions.get(snapshot.automationOwner);
-    if (journey === undefined) return { serverPort, policy: async () => managedPolicy(projectId) };
+    // The open's remaining limit reaches the start, which has no limit of its own.
+    const limit = startTimeoutMs === undefined ? {} : { startTimeoutMs };
+    if (journey === undefined)
+      return { serverPort, policy: async () => managedPolicy(projectId), ...limit };
     return {
       serverPort,
+      ...limit,
       policy: async () => (managedPolicy(projectId) === null ? null : journey.allow),
       allowlistOnly: true,
       journey: { marker: JourneyBrowserPolicy.journeyBrowserMarker(journey.checkId) },
@@ -1039,6 +1072,7 @@ const make = Effect.gen(function* () {
   const setUpTab = async (
     snapshot: PreviewSessionSnapshot,
     opened: Array<() => Promise<void>>,
+    start: TabStart,
   ): Promise<ServerTab> => {
     const key = tabKey(snapshot.threadId, snapshot.tabId);
     const adopted = adoptedPages.get(key);
@@ -1073,7 +1107,15 @@ const make = Effect.gen(function* () {
             snapshot.profileId ?? "default",
             isolatedContext ? key : undefined,
           )
-        : await contexts.managedContext(managedContextOptions(snapshot, managedProject)));
+        : await contexts.managedContext(
+            managedContextOptions(
+              snapshot,
+              managedProject,
+              start.deadlineMs === undefined
+                ? undefined
+                : Math.max(0, start.deadlineMs - performance.now()),
+            ),
+          ));
     // Ownership starts before any setup await, so a sibling tab closing cannot
     // end this tab's context while it is still being prepared.
     if (desktop === null) {
@@ -1119,6 +1161,7 @@ const make = Effect.gen(function* () {
           .catch(constVoid);
       },
       isolatedContext,
+      bounded: start.bounded === true,
       desktop: desktop === null ? null : { close: desktop.close },
       profileId: snapshot.profileId,
       openerTabId: adopted?.openerTabId,
@@ -1279,7 +1322,15 @@ const make = Effect.gen(function* () {
         snapshot.automationOwner !== undefined && journeySessions.has(snapshot.automationOwner)
           ? JourneyBrowserPolicy.JOURNEY_OPEN_TIMEOUT_MS
           : NAVIGATION_TIMEOUT_MS;
-      const options = { waitUntil: "commit", timeout: commitTimeout } as const;
+      // The commit gets what the browser's start left of the open's own limit.
+      const openLimit =
+        start.deadlineMs === undefined
+          ? commitTimeout
+          : Math.max(1, Math.floor(start.deadlineMs - performance.now()));
+      const options = {
+        waitUntil: "commit",
+        timeout: Math.min(commitTimeout, openLimit),
+      } as const;
       tab.initialNavigation = (
         (desktop || adopted) && page.url() === snapshot.navStatus.url
           ? page.reload(options)
@@ -1654,7 +1705,8 @@ const make = Effect.gen(function* () {
     if (pending?.promise) return pending.promise;
     const existing = tabs.get(key);
     if (existing) return Promise.resolve(existing);
-    const opening = createTab(snapshot)
+    // The manager publishes a tab before this promise exists, so the reservation carries the start.
+    const opening = createTab(snapshot, pending?.start ?? {})
       .catch((cause: unknown) => {
         if (snapshot.automationOwner !== undefined && managedSessions.has(snapshot.automationOwner))
           runFork(
@@ -1721,13 +1773,13 @@ const make = Effect.gen(function* () {
     tab.viewers.size > 0 || (tab.desktop !== null && desktopChannel.isShown(tab));
 
   const idleAgentTabs = () => {
-    const cutoff = Date.now() - AGENT_TAB_IDLE_MS;
+    const now = Date.now();
     return [...tabs.values()].filter(
       (tab) =>
         tab.control.agentId !== null &&
         !isVisible(tab) &&
         !tab.control.taskLeaseHeld &&
-        tab.usedAt < cutoff,
+        tab.usedAt < now - (tab.bounded ? BOUNDED_AGENT_TAB_IDLE_MS : AGENT_TAB_IDLE_MS),
     );
   };
 
@@ -1743,10 +1795,13 @@ const make = Effect.gen(function* () {
   // A Playwright launch must settle before its capacity can be released.
   const openTab = Effect.fn("ServerBrowser.openTab")(function* (
     input: Parameters<typeof manager.open>[0],
-    options: { readonly reclaimIdleSlot?: boolean } = {},
+    options: TabStart & { readonly reclaimIdleSlot?: boolean } = {},
   ) {
     let key: string = NodeCrypto.randomUUID();
-    const reservation = { agentId: input.automationOwner ?? null };
+    const reservation: { agentId: string | null; start: TabStart } = {
+      agentId: input.automationOwner ?? null,
+      start: options,
+    };
     return yield* Effect.acquireUseRelease(
       Effect.try({
         try: () => {
@@ -2319,6 +2374,36 @@ const make = Effect.gen(function* () {
     }
   };
 
+  // Starting a tab is the browser's launch, so the open's own limit ends it rather than a
+  // shorter limit of its own; a late start says the browser never started, not the page.
+  const startTab = async (opening: Promise<ServerTab>, timeoutMs: number) => {
+    try {
+      return await opening;
+    } catch (cause) {
+      if (isOperationError(cause) && cause.tag === "PreviewAutomationTimeoutError")
+        throw new ServerBrowserPage.ServerBrowserOperationError({
+          tag: "PreviewAutomationTimeoutError",
+          message: BROWSER_NEVER_STARTED,
+          detail: { timeoutMs, reason: BROWSER_NEVER_STARTED },
+        });
+      throw cause;
+    }
+  };
+
+  const loadPage = async (loading: Promise<unknown> | undefined, timeoutMs: number) => {
+    try {
+      await loading;
+    } catch (cause) {
+      const error = ServerBrowserPage.toOperationError(cause, timeoutMs);
+      if (error.tag !== "PreviewAutomationTimeoutError") throw error;
+      throw new ServerBrowserPage.ServerBrowserOperationError({
+        tag: "PreviewAutomationTimeoutError",
+        message: PAGE_NEVER_LOADED,
+        detail: { timeoutMs, reason: PAGE_NEVER_LOADED },
+      });
+    }
+  };
+
   const runOperation = async (
     request: PreviewAutomationRequest,
     deadlineMs: number,
@@ -2422,6 +2507,10 @@ const make = Effect.gen(function* () {
           request.managedBrowser?.journey === undefined
             ? Math.min(request.timeoutMs, NAVIGATION_TIMEOUT_MS)
             : request.timeoutMs;
+        // A page waits only for what the open's own limit has left; the failure reports the
+        // limit itself, so a slow start and a slow page are told apart by more than rounding.
+        const remainingLimit = () =>
+          Math.max(1, Math.min(navigationTimeout, Math.floor(deadlineMs - performance.now())));
         const profileId =
           existing || request.managedBrowser !== undefined
             ? undefined
@@ -2429,19 +2518,26 @@ const make = Effect.gen(function* () {
         if (!existing) closeIdleAgentTabs();
         const tab =
           existing ??
-          (await runPromise(
-            openTab(
-              {
-                threadId: request.threadId,
-                ...(url ? { url } : {}),
-                ...(profileId === undefined ? {} : { profileId }),
-                ...(open.viewport === undefined ? {} : { viewport: open.viewport }),
-                runtime: "server",
-                reveal: false,
-                automationOwner: request.agentSessionId,
-              },
-              { reclaimIdleSlot: true },
+          (await startTab(
+            runPromise(
+              openTab(
+                {
+                  threadId: request.threadId,
+                  ...(url ? { url } : {}),
+                  ...(profileId === undefined ? {} : { profileId }),
+                  ...(open.viewport === undefined ? {} : { viewport: open.viewport }),
+                  runtime: "server",
+                  reveal: false,
+                  automationOwner: request.agentSessionId,
+                },
+                {
+                  reclaimIdleSlot: true,
+                  deadlineMs,
+                  bounded: request.browserLane === "bounded",
+                },
+              ),
             ),
+            request.timeoutMs,
           ));
         // A reused tab keeps the size it was opened with unless this open fixes a new one.
         if (
@@ -2471,10 +2567,11 @@ const make = Effect.gen(function* () {
                 reason: "dialogPending",
               });
             if (existing) {
-              if (url) await navigate(tab, url, "load", navigationTimeout);
+              if (url)
+                await loadPage(navigate(tab, url, "load", remainingLimit()), navigationTimeout);
             } else {
               // A failed open returns no tabId; a leftover hidden tab would block later reuse.
-              await tab.initialNavigation?.catch(async (cause: unknown) => {
+              const initial = tab.initialNavigation?.catch(async (cause: unknown) => {
                 // Playwright rejects downloads too; their tab must survive to save the file.
                 if (cause instanceof Error && cause.message.includes("Download is starting")) {
                   throw cause;
@@ -2493,6 +2590,7 @@ const make = Effect.gen(function* () {
                   });
                 throw cause;
               });
+              await loadPage(initial, navigationTimeout);
             }
             const reveal = open.open ?? open.show;
             if (reveal !== false) {
@@ -2506,7 +2604,7 @@ const make = Effect.gen(function* () {
             }
             if (!existing && url) {
               await tab.page
-                .waitForLoadState("load", { timeout: navigationTimeout })
+                .waitForLoadState("load", { timeout: remainingLimit() })
                 .catch(constVoid);
             }
             return statusWithTitle(tab, request.agentSessionId);

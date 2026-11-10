@@ -686,6 +686,8 @@ export const PreviewAutomationRequest = Schema.Struct({
   tabIdExplicit: Schema.optional(Schema.Boolean),
   /** Supplied by the broker from authenticated scope, never from tool input. */
   agentSessionId: Schema.optional(Schema.String),
+  /** A bounded task's own lane, so its tab ages out sooner; never from tool input. */
+  browserLane: Schema.optional(Schema.Literal("bounded")),
   managedBrowser: Schema.optional(
     Schema.Struct({
       projectId: ProjectId,

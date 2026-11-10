@@ -695,6 +695,9 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
             tabId: requestContext.tabId,
             tabIdExplicit: input.tabId !== undefined,
             agentSessionId: hostAssignmentKey(input.scope),
+            ...(input.scope.browserLane === undefined
+              ? {}
+              : { browserLane: input.scope.browserLane }),
             ...(input.scope.managedBrowser === true && input.scope.managedProjectId !== undefined
               ? {
                   managedBrowser: {

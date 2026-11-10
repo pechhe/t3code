@@ -490,7 +490,67 @@ it("refuses a failed managed launch and disposes its proxy without falling back"
   }
 });
 
-it("refuses a browser that is not ready after five seconds without launching Chromium", async () => {
+it("lets a slow browser start finish inside the caller's own limit", async () => {
+  vi.useFakeTimers();
+  const browser = makeBrowser();
+  const launch = Promise.withResolvers<Browser>();
+  launches.launch.mockImplementationOnce(() => launch.promise);
+  const pool = new ServerBrowserContexts(options());
+  try {
+    const opening = pool.managedContext({
+      serverPort: 3000,
+      policy: async () => [],
+      startTimeoutMs: 15_000,
+    });
+    const failed = vi.fn();
+    void opening.catch(failed);
+    // Past five seconds the start is still going: the open's own limit is its only cap.
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(failed).not.toHaveBeenCalled();
+    // Nor does Playwright's own launch timeout cut it short.
+    expect(launches.launch.mock.calls.at(-1)?.[0]).toMatchObject({ timeout: 0 });
+    launch.resolve(browser as unknown as Browser);
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(opening).resolves.toBe(browser.created[0]);
+    expect(browser.close).not.toHaveBeenCalled();
+  } finally {
+    await pool.close();
+    vi.useRealTimers();
+  }
+});
+
+it("fails a browser that never starts at the caller's limit and closes it when it arrives", async () => {
+  vi.useFakeTimers();
+  const started = Promise.withResolvers<void>();
+  const launch = Promise.withResolvers<Browser>();
+  const browser = makeBrowser();
+  launches.launch.mockImplementationOnce(() => {
+    started.resolve();
+    return launch.promise;
+  });
+  const pool = new ServerBrowserContexts(options());
+  try {
+    const opening = expect(
+      pool.managedContext({ serverPort: 3000, policy: async () => [], startTimeoutMs: 15_000 }),
+    ).rejects.toMatchObject({
+      name: "TimeoutError",
+      message: "The browser never started before the open's limit passed.",
+    });
+    await started.promise;
+    await vi.advanceTimersByTimeAsync(15_000);
+    await opening;
+    // The abandoned launch still owns a browser process, so it is closed when it finally resolves.
+    launch.resolve(browser as unknown as Browser);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(browser.close).toHaveBeenCalled();
+    expect(browser.newContext).not.toHaveBeenCalled();
+  } finally {
+    await pool.close();
+    vi.useRealTimers();
+  }
+});
+
+it("refuses a browser whose executable never resolves at the caller's limit", async () => {
   vi.useFakeTimers();
   const started = Promise.withResolvers<void>();
   const pool = new ServerBrowserContexts({
@@ -502,10 +562,10 @@ it("refuses a browser that is not ready after five seconds without launching Chr
   });
   try {
     const opening = expect(
-      pool.managedContext({ serverPort: 3000, policy: async () => [] }),
-    ).rejects.toThrow("not ready within 5 seconds");
+      pool.managedContext({ serverPort: 3000, policy: async () => [], startTimeoutMs: 15_000 }),
+    ).rejects.toThrow("never started");
     await started.promise;
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(15_000);
     await opening;
     expect(launches.launch).not.toHaveBeenCalled();
   } finally {
@@ -539,7 +599,7 @@ it("closes a managed context whose access is revoked while Chromium starts", asy
   }
 });
 
-it("bounds a stalled context start and closes the managed browser", async () => {
+it("bounds a stalled context start by the caller's limit and closes the managed browser", async () => {
   vi.useFakeTimers();
   const started = Promise.withResolvers<void>();
   const browser = makeBrowser();
@@ -551,10 +611,10 @@ it("bounds a stalled context start and closes the managed browser", async () => 
   const pool = new ServerBrowserContexts(options());
   try {
     const opening = expect(
-      pool.managedContext({ serverPort: 3000, policy: async () => [] }),
-    ).rejects.toThrow("context could not start within 5 seconds");
+      pool.managedContext({ serverPort: 3000, policy: async () => [], startTimeoutMs: 15_000 }),
+    ).rejects.toThrow("never started");
     await started.promise;
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(15_000);
     await opening;
     expect(browser.close).toHaveBeenCalled();
   } finally {

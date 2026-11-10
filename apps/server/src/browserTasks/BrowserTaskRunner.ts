@@ -10,12 +10,17 @@ import type {
   PreviewTaskCheckResult,
   PreviewTaskKey,
   PreviewTaskRequest,
+  PreviewTaskReason,
   PreviewTaskResult,
   PreviewTaskScreenshot,
   PreviewTaskScreenshotRequest,
   PreviewTaskTarget,
 } from "@t3tools/contracts";
-import { PREVIEW_TASK_LIMITS } from "@t3tools/contracts";
+import {
+  isPreviewTaskReason,
+  PREVIEW_TASK_LIMITS,
+  PREVIEW_TASK_REASON_FAULT,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
@@ -44,6 +49,7 @@ import {
   nearMatches,
   pageModelFromSnapshot,
   resolveTarget,
+  targetCandidates,
   selectableOptions,
   type PageModel,
   type PageNode,
@@ -156,11 +162,17 @@ const screenshotByteBudget = (request: PreviewTaskRequest) =>
     Math.floor(PREVIEW_TASK_LIMITS.screenshotTotalBytes / Math.max(1, plannedScreenshots(request))),
   );
 
+const STALE_GUIDANCE = "The page changed: take a snapshot again before sending a new request.";
+
 /** Stops that leave nothing to show, or no right to look. */
 /** Reasons a run gives up on a fragment target that never appeared, rather than one it refused. */
-const GAVE_UP = new Set(["decision-limit", "deadline", "model-blocked"]);
+const GAVE_UP: ReadonlySet<string> = new Set<PreviewTaskReason>([
+  "decision-limit",
+  "deadline",
+  "model-blocked",
+]);
 
-const NO_STOP_SCREENSHOT = new Set([
+const NO_STOP_SCREENSHOT: ReadonlySet<string> = new Set<PreviewTaskReason>([
   "cancelled",
   "deadline",
   "authority-revoked",
@@ -257,7 +269,7 @@ const refusedBeforeEffect = (cause: unknown) =>
   tagOf(cause) === TARGET_NOT_FOCUSABLE ||
   tagOf(cause) === LOGIN_REFUSED;
 
-const refusalReason = (cause: unknown) => {
+const refusalReason = (cause: unknown): PreviewTaskReason => {
   switch (tagOf(cause)) {
     case "PreviewAutomationInvalidSelectorError":
       return "stale-target";
@@ -499,14 +511,20 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
 
   const stop = (
     status: "passed" | "failed" | "blocked" | "cancelled",
-    reason?: string,
+    reason?: PreviewTaskReason,
     detail?: string,
   ) =>
     Effect.sync(() => {
       const mutable = record as Mutable<RunRecord>;
       mutable.status = status;
-      if (reason !== undefined) mutable.reason = reason;
-      if (detail !== undefined) mutable.detail = detail.slice(0, MAX_DETAIL_CHARS);
+      if (reason !== undefined) {
+        mutable.reason = reason;
+        mutable.fault = PREVIEW_TASK_REASON_FAULT[reason];
+      }
+      if (reason === "stale-target")
+        mutable.detail =
+          `${(detail ?? "").slice(0, MAX_DETAIL_CHARS - STALE_GUIDANCE.length - 1)} ${STALE_GUIDANCE}`.trim();
+      else if (detail !== undefined) mutable.detail = detail.slice(0, MAX_DETAIL_CHARS);
     });
 
   /** The gate in front of every provider call and browser dispatch. */
@@ -690,6 +708,17 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     return false;
   });
 
+  /** Elements the caller may have meant, each with a target that selects it. */
+  const offerCandidates = (
+    model: PageModel,
+    target: PreviewTaskTarget,
+    use: Parameters<typeof targetCandidates>[2],
+  ) =>
+    Effect.sync(() => {
+      const candidates = targetCandidates(model, target, use);
+      if (candidates.length > 0) (record as Mutable<RunRecord>).candidates = candidates;
+    });
+
   const resolveNode = Effect.fn("BrowserTaskRunner.resolveNode")(function* (
     model: PageModel,
     target: PreviewTaskTarget,
@@ -703,6 +732,8 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         : resolved._tag === "unknown"
           ? "snapshot-truncated"
           : "stale-target";
+    if (reason === "ambiguous-target")
+      yield* offerCandidates(model, target, { text: false, hint: hintIds.has(label) });
     yield* stop("blocked", reason, unresolvedDetail(label, target, resolved, hintIds.has(label)));
     return undefined;
   });
@@ -743,6 +774,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     if (choice === undefined) return undefined;
     const picked = candidates.find((candidate) => candidate.label === choice);
     if (picked === undefined) {
+      yield* offerCandidates(model, { ...target, hint: undefined }, { text: false, hint: false });
       yield* stop(
         "blocked",
         "ambiguous-target",
@@ -753,14 +785,22 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     return { node: picked.node, chosen: picked.description };
   });
 
-  const targetNotFound = (id: string, target: PreviewTaskTarget, nearest: readonly string[]) =>
-    Effect.sync(() => {
-      (record as Mutable<RunRecord>).missingTarget = {
-        id,
-        target: describeTarget(target),
-        nearest: [...nearest],
-      };
-    }).pipe(
+  const targetNotFound = (
+    model: PageModel,
+    id: string,
+    target: PreviewTaskTarget,
+    nearest: readonly string[],
+  ) =>
+    offerCandidates(model, target, { text: false, hint: false }).pipe(
+      Effect.andThen(
+        Effect.sync(() => {
+          (record as Mutable<RunRecord>).missingTarget = {
+            id,
+            target: describeTarget(target),
+            nearest: [...nearest],
+          };
+        }),
+      ),
       Effect.andThen(
         stop(
           "blocked",
@@ -964,6 +1004,8 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     for (const binding of bindings) {
       const resolved = resolveTarget(model, binding.target);
       if (resolved._tag === "ambiguous" || resolved._tag === "unknown") {
+        if (resolved._tag === "ambiguous")
+          yield* offerCandidates(model, binding.target, { text: false, hint: false });
         yield* stop(
           "blocked",
           resolved._tag === "ambiguous" ? "ambiguous-target" : "snapshot-truncated",
@@ -973,6 +1015,11 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
       }
       if (resolved._tag === "missing") continue;
       if (!CONTROL_ROLES[binding.control].includes(resolved.node.role)) {
+        yield* offerCandidates(model, binding.target, {
+          text: false,
+          hint: false,
+          roles: CONTROL_ROLES[binding.control],
+        });
         yield* stop(
           "blocked",
           "wrong-control",
@@ -1001,6 +1048,8 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         if (hintable(target, resolved)) {
           // Jev picks the element when the step runs, so it is offered as the caller described it.
         } else if (resolved._tag === "ambiguous" || resolved._tag === "unknown") {
+          if (resolved._tag === "ambiguous")
+            yield* offerCandidates(model, target, { text: true, hint: true });
           yield* stop(
             "blocked",
             resolved._tag === "ambiguous" ? "ambiguous-target" : "snapshot-truncated",
@@ -1025,6 +1074,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     if (request.submit !== undefined && !submitDispatched) {
       const resolved = resolveTarget(model, request.submit.target);
       if (resolved._tag === "ambiguous" && !hintable(request.submit.target, resolved)) {
+        yield* offerCandidates(model, request.submit.target, { text: true, hint: true });
         yield* stop(
           "blocked",
           "ambiguous-target",
@@ -1055,6 +1105,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
     if (request.capture !== undefined) {
       const resolved = resolveTarget(model, request.capture.target);
       if (resolved._tag === "ambiguous") {
+        yield* offerCandidates(model, request.capture.target, { text: false, hint: false });
         yield* stop(
           "blocked",
           "ambiguous-target",
@@ -1349,7 +1400,12 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         typeof answer.cause === "object" && answer.cause !== null && "code" in answer.cause
           ? String(answer.cause.code)
           : "failed";
-      yield* stop("blocked", `decision-${code}`, "The decision call failed; it was not retried.");
+      const reason = `decision-${code}`;
+      yield* stop(
+        "blocked",
+        isPreviewTaskReason(reason) ? reason : "decision-failed",
+        "The decision call failed; it was not retried.",
+      );
       return undefined;
     }
     const result = answer.value;
@@ -1701,7 +1757,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         if (resolved._tag === "missing") {
           const absent = evidentAbsence(model, each);
           if (absent !== undefined) {
-            yield* targetNotFound(id, each, absent.nearest);
+            yield* targetNotFound(model, id, each, absent.nearest);
             return undefined;
           }
           problem = "missing";
@@ -1926,7 +1982,7 @@ export const runBrowserTask = Effect.fn("BrowserTaskRunner.run")(function* (inpu
         }));
         const first = absent[0];
         if (first !== undefined && absent.every((entry) => entry.absence !== undefined))
-          return yield* targetNotFound(first.id, first.target, first.absence!.nearest);
+          return yield* targetNotFound(model, first.id, first.target, first.absence!.nearest);
       }
       if (next === "WAIT") {
         yield* waitBriefly;

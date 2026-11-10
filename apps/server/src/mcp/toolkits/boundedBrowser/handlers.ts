@@ -2,6 +2,7 @@ import type { PreviewAutomationSnapshot, PreviewAutomationStatus } from "@t3tool
 import { OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
+import * as BrowserTaskCalls from "../../../browserTasks/BrowserTaskCalls.ts";
 import * as BrowserTaskService from "../../../browserTasks/BrowserTaskService.ts";
 import * as BrowserLogins from "../../../secrets/BrowserLogins.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -29,6 +30,7 @@ export const layer = McpToolAccess.toLayer(
   BoundedBrowserToolkit,
   Effect.gen(function* () {
     const logins = yield* BrowserLogins.BrowserLogins;
+    const calls = yield* Effect.serviceOption(BrowserTaskCalls.BrowserTaskCalls);
     return {
       t3_browser_open: McpToolAccess.asBoundedBrowser(({ url, viewport }) =>
         invokeTargeted<PreviewAutomationStatus>("open", {
@@ -46,7 +48,7 @@ export const layer = McpToolAccess.toLayer(
           Effect.flatMap(BrowserLogins.withLoginKeys(logins)),
         ),
       ),
-      t3_browser_task: McpToolAccess.asBoundedBrowser((request) =>
+      t3_browser_task: McpToolAccess.asRecordedBoundedTask(calls, (request) =>
         Effect.gen(function* () {
           const caller = yield* taskCaller;
           const tasks = yield* BrowserTaskService.BrowserTaskService;
