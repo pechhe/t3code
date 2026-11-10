@@ -243,9 +243,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "delegation",
     title: "Delegation",
     to: "/settings/delegation",
-    searchTerms: [
-      "agent models roles jobs subagents reviewer advisor effort large tasks order policy",
-    ],
+    searchTerms: ["agent models notes roles jobs subagents reviewer advisor effort order policy"],
   },
   {
     id: "delegation-child-permissions",

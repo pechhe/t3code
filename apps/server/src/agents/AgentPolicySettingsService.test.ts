@@ -171,19 +171,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("policy settings"
               lists: { ...f.manifest.lists, workhorse: [{ model: "sol", effort: "unsupported" }] },
             }),
           ).toBe("unsupported-model");
-          // A large-task effort is checked like a list effort.
-          expect(
-            yield* refused({
-              ...f.manifest,
-              roles: {
-                ...f.manifest.roles,
-                "implementation-worker": {
-                  ...f.manifest.roles["implementation-worker"],
-                  large: { model: "sol", effort: "unsupported" },
-                },
-              },
-            }),
-          ).toBe("unsupported-model");
         }),
       );
       expect(yield* fs.readFileString(`${f.root}/roles/policy.json`)).toBe(before);

@@ -20,7 +20,12 @@ const state = vi.hoisted(() => ({
   error: null as string | null,
   save: vi.fn(),
   refresh: vi.fn(),
+  // A new read of the policies, as the real atoms would deliver it.
+  reads: new Set<() => void>(),
 }));
+const publishRead = () => {
+  for (const listener of state.reads) listener();
+};
 const { passthrough } = vi.hoisted(() => ({
   passthrough: ({ children }: { children?: ReactNode }) => children,
 }));
@@ -35,22 +40,32 @@ vi.mock("../../state/server", () => ({
     agentPolicySave: { permissionAtom: () => ({}) },
   },
 }));
-vi.mock("./useAgentPolicies", () => ({
-  useAgentPolicies: (ids: string[]) => ({
-    policies: ids.map((environmentId) => ({
-      environmentId,
-      canEdit: true,
-      data: state.unreadable.has(environmentId)
-        ? null
-        : environmentId === "test-env"
-          ? state.data
-          : (state.extra[environmentId] ?? state.data),
-      error: state.unreadable.has(environmentId) ? "Could not read the policy." : state.error,
-      isPending: false,
-    })),
-    reload: state.refresh,
-  }),
-}));
+vi.mock("./useAgentPolicies", async () => {
+  const { useSyncExternalStore } = await import("react");
+  const subscribe = (listener: () => void) => {
+    state.reads.add(listener);
+    return () => state.reads.delete(listener);
+  };
+  return {
+    useAgentPolicies: (ids: string[]) => {
+      useSyncExternalStore(subscribe, () => state.data);
+      return {
+        policies: ids.map((environmentId) => ({
+          environmentId,
+          canEdit: true,
+          data: state.unreadable.has(environmentId)
+            ? null
+            : environmentId === "test-env"
+              ? state.data
+              : (state.extra[environmentId] ?? state.data),
+          error: state.unreadable.has(environmentId) ? "Could not read the policy." : state.error,
+          isPending: false,
+        })),
+        reload: state.refresh,
+      };
+    },
+  };
+});
 vi.mock("../../state/use-atom-command", () => ({
   useAtomCommand: () => state.save,
 }));
@@ -215,6 +230,41 @@ it("saves a reordered list as soon as it changes, against the loaded revision", 
   expect(state.refresh).toHaveBeenCalledOnce();
 });
 
+it("saves a model note on Enter, and a later read keeps the editor mounted", async () => {
+  reset();
+  await using _screen = await mount();
+  const note = () =>
+    container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="What gpt-test is good at"]',
+    )!;
+  const field = note();
+  await userEvent.type(field, "Careful coder{Enter}");
+  const saved = state.save.mock.calls.at(-1)![0].input.manifest;
+  expect(saved.models.sol.note).toBe("Careful coder");
+  await vi.waitFor(() => expect(text()).not.toContain("Saving…"));
+  // The read that follows a save, or another device's edit, has a new revision.
+  const manifest = saved as AgentPolicySettings["snapshot"]["manifest"];
+  state.data = {
+    ...state.data!,
+    snapshot: {
+      ...state.data!.snapshot,
+      hash: "e".repeat(64),
+      manifest: {
+        ...manifest,
+        lists: { ...manifest.lists, workhorse: [...manifest.lists["workhorse"]!].reverse() },
+      },
+    },
+  };
+  await act(async () => publishRead());
+  expect(note()).toBe(field);
+  expect(field.value).toBe("Careful coder");
+  await click("Move claude-test down");
+  expect(state.save.mock.calls.at(-1)![0].input).toMatchObject({
+    expectedHash: "e".repeat(64),
+    manifest: { lists: { workhorse: manifest.lists["workhorse"] } },
+  });
+});
+
 const withUiVerifier = () => {
   const manifest = state.data!.snapshot.manifest;
   state.data = {
@@ -344,7 +394,7 @@ it("saves one policy to every selected environment against each one's own revisi
   const base = fixture();
   addEnvironment({ ...base, snapshot: { ...base.snapshot, hash: "c".repeat(64) } });
   await using _screen = await mount();
-  expect(text().match(/Implementer/g)).toHaveLength(1);
+  expect(text().match(/Non-UI code changes/g)).toHaveLength(1);
   await click("Move claude-test up");
   expect(
     state.save.mock.calls.map(([call]) => [call.environmentId, call.input.expectedHash]),

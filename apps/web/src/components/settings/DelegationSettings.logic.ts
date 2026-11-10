@@ -2,6 +2,7 @@ import {
   AGENT_ROLE_TITLE_LABEL,
   AgentRole,
   modelMaker,
+  modelNote,
   type AgentListEntry,
   type AgentPolicyManifest,
   type ProviderOptionSelection,
@@ -210,10 +211,12 @@ export function ensureModel(manifest: Manifest, model: CatalogModel): [Manifest,
       binding.driverKind === model.binding.driverKind && binding.model === model.binding.model,
   );
   if (existing) return [manifest, existing[0]];
+  const note = modelNote(manifest, model.binding.model);
+  const binding = note === undefined ? model.binding : { ...model.binding, note };
   const base = `m-${model.binding.model.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}`.slice(0, 60);
   let alias = base;
   for (let suffix = 2; manifest.models[alias] !== undefined; suffix++) alias = `${base}-${suffix}`;
-  return [{ ...manifest, models: { ...manifest.models, [alias]: model.binding } }, alias];
+  return [{ ...manifest, models: { ...manifest.models, [alias]: binding } }, alias];
 }
 
 const withList = (manifest: Manifest, list: string, entries: ReadonlyArray<AgentListEntry>) => ({
@@ -307,6 +310,44 @@ export function setModelOptions(
   };
 }
 
+/** Sets what a model is good at on every alias binding it; an empty note removes it. */
+export function setModelNote(manifest: Manifest, model: string, note: string): Manifest {
+  const text = note.trim();
+  const models = Object.fromEntries(
+    Object.entries(manifest.models).map(([alias, binding]) => {
+      if (binding.model !== model) return [alias, binding];
+      const { note: _previous, ...rest } = binding;
+      return [alias, text === "" ? rest : { ...rest, note: text }];
+    }),
+  );
+  return { ...manifest, models };
+}
+
+/**
+ * Each listed model once, in the order the jobs list them, with the roles that use it. A model
+ * served by several accounts is one model with one note.
+ */
+export function listedModels(
+  manifest: Manifest,
+  jobs: ReadonlyArray<Job>,
+): Array<{ alias: string; model: string; roles: AgentRole[] }> {
+  const models = new Map<string, { alias: string; model: string; roles: AgentRole[] }>();
+  for (const job of jobs)
+    for (const section of job.sections)
+      for (const entry of manifest.lists[section.list] ?? []) {
+        const binding = manifest.models[entry.model];
+        if (binding === undefined) continue;
+        const listed = models.get(binding.model) ?? {
+          alias: entry.model,
+          model: binding.model,
+          roles: [],
+        };
+        for (const role of job.roles) if (!listed.roles.includes(role)) listed.roles.push(role);
+        models.set(binding.model, listed);
+      }
+  return [...models.values()];
+}
+
 export function addEntry(manifest: Manifest, list: string, entry: AgentListEntry) {
   return withList(manifest, list, [...(manifest.lists[list] ?? []), entry]);
 }
@@ -320,13 +361,9 @@ export function removeEntry(manifest: Manifest, list: string, model: string): Ma
   );
   for (const role of AgentRole.literals) {
     if (next.roles[role]?.list !== list) continue;
-    next = withRole(next, role, ({ large, callers, ...policy }) => {
+    next = withRole(next, role, ({ callers, ...policy }) => {
       const kept = Object.entries(callers ?? {}).filter(([, first]) => first !== model);
-      return {
-        ...policy,
-        ...(large === undefined || large.model === model ? {} : { large }),
-        ...(kept.length === 0 ? {} : { callers: Object.fromEntries(kept) }),
-      };
+      return { ...policy, ...(kept.length === 0 ? {} : { callers: Object.fromEntries(kept) }) };
     });
   }
   return next;
@@ -334,8 +371,7 @@ export function removeEntry(manifest: Manifest, list: string, model: string): Ma
 
 /**
  * The alias of `model` in `list`, adding the model to the manifest and to the end of the
- * list when it is not there yet: a large-task or per-agent choice must be one of the job's
- * listed models.
+ * list when it is not there yet: a per-agent choice must be one of the job's listed models.
  */
 export function listModel(
   manifest: Manifest,
@@ -371,11 +407,8 @@ export function replaceEntry(
   );
   for (const role of AgentRole.literals) {
     if (next.roles[role]?.list !== list) continue;
-    next = withRole(next, role, ({ large, callers, ...policy }) => ({
+    next = withRole(next, role, ({ callers, ...policy }) => ({
       ...policy,
-      ...(large === undefined
-        ? {}
-        : { large: large.model === from ? { ...large, model: alias } : large }),
       ...(callers === undefined
         ? {}
         : {
@@ -389,12 +422,6 @@ export function replaceEntry(
     }));
   }
   return next;
-}
-
-export function setLarge(manifest: Manifest, role: AgentRole, large: AgentListEntry | undefined) {
-  return withRole(manifest, role, ({ large: _previous, ...policy }) =>
-    large === undefined ? policy : { ...policy, large },
-  );
 }
 
 export function setCaller(

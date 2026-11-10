@@ -196,6 +196,7 @@ import {
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
+import { withRetiredDemanding } from "../agents/retiredDemanding.ts";
 
 const isManagedAgentError = Schema.is(ManagedAgent.ManagedAgentError);
 
@@ -3505,9 +3506,12 @@ const make = Effect.gen(function* () {
           mode: undefined,
           timeoutMs: undefined,
         }).pipe(Effect.orDie);
-        const requestFingerprint = yield* digest
-          .digest(Digest.sha256, new TextEncoder().encode(fingerprintText))
-          .pipe(Effect.map(Hex.encode), Effect.orDie);
+        const fingerprints = yield* Effect.forEach(withRetiredDemanding(fingerprintText), (text) =>
+          digest
+            .digest(Digest.sha256, new TextEncoder().encode(text))
+            .pipe(Effect.map(Hex.encode), Effect.orDie),
+        );
+        const requestFingerprint = fingerprints[0]!;
         // Managed work compares its binding's fingerprint below; an unmanaged retry compares the
         // fingerprint recorded on the task its first call created.
         if (input.agentTask === undefined && isRetryOfAcceptedDelegation) {
@@ -3541,7 +3545,7 @@ const make = Effect.gen(function* () {
           const prior = existing.thread.agentTask;
           if (
             prior === undefined ||
-            prior.requestFingerprint !== requestFingerprint ||
+            !fingerprints.includes(prior.requestFingerprint) ||
             prior.workId !== input.agentTask?.workId ||
             prior.attemptId !== input.agentTask?.attemptId ||
             prior.role !== input.agentTask?.role ||
@@ -3650,6 +3654,11 @@ const make = Effect.gen(function* () {
             .pipe(Effect.mapError(workError))).tasks.find(
             (t) => t.taskId === deriveIds.delegatedTaskNode({ commandId }),
           )?.binding;
+        // A task saved before `demanding` was retired keeps the fingerprint it was bound with.
+        const boundFingerprint =
+          recordedBinding !== undefined && fingerprints.includes(recordedBinding.requestFingerprint)
+            ? recordedBinding.requestFingerprint
+            : requestFingerprint;
         const isolated = input.agentTask?.workspaceAssignment === "isolated";
         // A pinned reader may use another workspace of the repository, so it is checked
         // against the writers there just as an isolated helper is.
@@ -3712,7 +3721,7 @@ const make = Effect.gen(function* () {
                         runtimeMode,
                         projectId: taskProjectId,
                         request: agentTask,
-                        requestFingerprint,
+                        requestFingerprint: boundFingerprint,
                         ...(workUnit === undefined ? {} : { policyHash: workUnit.policyHash }),
                         ...(recordedBinding === undefined ? {} : { recordedBinding }),
                         providers,
@@ -3984,7 +3993,7 @@ const make = Effect.gen(function* () {
               parentThreadId: scope.thread.threadId,
               parentRunId: parentRun.id,
               parentNodeId,
-              requestFingerprint,
+              requestFingerprint: boundFingerprint,
               ...(prepared === undefined
                 ? {}
                 : {

@@ -27,6 +27,7 @@ import {
   isLeafAgentTask,
   isReviewerRole,
   managedExecution,
+  modelNote,
   readOnlyToolProfile,
   usesPhi,
   type AgentToolProfile,
@@ -139,6 +140,13 @@ type Authority = {
   /** Admission only: ThreadLaunch will allocate the named Spec's workspace before any turn. */
   readonly allocatesWorkspace?: boolean;
 };
+/** Candidate reasons for a model an account can start now, whichever the resolver chose. */
+const RUNNABLE_CANDIDATE_REASONS = new Set([
+  "eligible",
+  "selected",
+  "lower-preference",
+  "overloaded",
+]);
 const decodeExternalSession = Schema.decodeUnknownEffect(
   Schema.fromJsonString(AgentExternalSession),
 );
@@ -154,6 +162,13 @@ export class ManagedAgentService extends Context.Service<
         readonly selection?: Resolver.RequestedModel;
       },
     ) => Effect.Effect<Omit<AgentRolesResult, "environmentId">, ManagedAgentError>;
+    /** One role's selections that can start now, in the order a delegation would try them. */
+    readonly ranked: (
+      input: Omit<Authority, "workspacePath"> & {
+        readonly request: AgentRolesInput;
+        readonly role: AgentTaskRequest["role"];
+      },
+    ) => Effect.Effect<ReadonlyArray<ModelSelection>, ManagedAgentError>;
     /**
      * The chore worker's models in the order its role would try them, for work that only needs
      * text written (a compaction summary), so no workspace, sandbox or browser rule applies.
@@ -540,6 +555,126 @@ const make = Effect.gen(function* () {
     Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })),
   );
   const isolatedLaunches = yield* Semaphore.make(1);
+  /** Only the roles a policy configures; an optional role it leaves out is not offered. */
+  const configuredRoles = (snapshot: AgentPolicySnapshot) =>
+    Object.entries(snapshot.manifest.roles).flatMap(([name, policy]) => {
+      const role = name as AgentTaskRequest["role"];
+      const brief = snapshot.briefs[role];
+      return policy === undefined || brief === undefined ? [] : [{ role, policy, brief }];
+    });
+  /** How one configured role resolves for a discovery request, and its ranked choices. */
+  const discover = Effect.fn("ManagedAgentService.discover")(function* (
+    input: Parameters<ManagedAgentService["Service"]["roles"]>[0],
+    snapshot: AgentPolicySnapshot,
+    role: AgentTaskRequest["role"],
+    policy: ReturnType<typeof configuredRoles>[number]["policy"],
+    brief: ReturnType<typeof configuredRoles>[number]["brief"],
+  ) {
+    const context = yield* execution(
+      {
+        ...input,
+        ...(input.request.runtimeMode === undefined
+          ? {}
+          : { runtimeMode: input.request.runtimeMode }),
+      },
+      {
+        ...input.request,
+        role,
+        workId: "capability-discovery",
+        attemptId: "capability-discovery",
+        workspacePath: "/capability-discovery",
+      },
+      false,
+      policy.sourceAccess === "read-only" || input.request.readOnly === true,
+    );
+    const browser = yield* browserRoute(
+      policy.toolProfile,
+      input.projectId,
+      "discovery",
+      context.request,
+    );
+    const reviewScope = input.request.reviewScope ?? "change";
+    const result = yield* resolver.preview({
+      ...context,
+      snapshot,
+      overloads: yield* currentOverloads,
+      ...(browser === undefined ? {} : { browser }),
+      providers: input.providers,
+      ...(input.selection === undefined ? {} : { selection: input.selection }),
+      ...(input.callerModel === undefined ? {} : { callerModel: input.callerModel }),
+      ...(input.caller === undefined ? {} : { caller: input.caller }),
+      request: {
+        ...context.request,
+        ...(!isReviewerRole(role)
+          ? {}
+          : {
+              review: {
+                scope: reviewScope,
+                baseRevision: "capability-discovery",
+                includedChanges: ["capability-discovery"],
+                specRef: "capability-discovery",
+                specRevision: "capability-discovery",
+                coverage: "complete" as const,
+              },
+            }),
+      },
+    });
+    const usageLimited = result.candidates.filter(
+      (candidate) => candidate.reason === "usage-limited",
+    );
+    const overloaded = result.candidates.filter((candidate) => candidate.until !== undefined);
+    const sourceAccess =
+      input.request.readOnly === true ? ("read-only" as const) : policy.sourceAccess;
+    const toolProfile =
+      input.request.readOnly === true
+        ? readOnlyToolProfile(policy.toolProfile)
+        : policy.toolProfile;
+    const list =
+      snapshot.manifest.lists[
+        isReviewerRole(role) && reviewScope === "spec"
+          ? (policy.specList ?? policy.list)
+          : policy.list
+      ] ?? [];
+    // Out of allowance, or ruled out for this role, is not a model that can start now.
+    const runnable = result.candidates.filter((candidate) =>
+      RUNNABLE_CANDIDATE_REASONS.has(candidate.reason),
+    );
+    const startable = new Set(runnable.map((candidate) => candidate.alias));
+    const entry = {
+      role,
+      briefHash: brief.hash,
+      sourceAccess,
+      permissionClass: sourceAccess === "read-only" ? ("read-only" as const) : ("editor" as const),
+      ...(toolProfile === "phi" || toolProfile === "web-research" ? { toolProfile } : {}),
+      executionRequirement: context.request.executionRequirement,
+      ...(grantsBrowserTasks(role, policy) ? { browserTasks: true } : {}),
+      ...(result.executionBoundary === undefined
+        ? {}
+        : { executionBoundary: result.executionBoundary }),
+      selection: result.selection,
+      refusal: result.refusal,
+      models: list.map(({ model: alias, effort }) => {
+        const { model } = snapshot.manifest.models[alias]!;
+        const note = modelNote(snapshot.manifest, model);
+        return {
+          model,
+          ...(effort === undefined ? {} : { effort }),
+          ...(note === undefined ? {} : { note }),
+          available: startable.has(alias),
+        };
+      }),
+      ...(usageLimited.length === 0 ? {} : { usageLimited }),
+      ...(overloaded.length === 0 ? {} : { overloaded }),
+    };
+    const ranked = result.ranked.filter((selection) =>
+      runnable.some(
+        (candidate) =>
+          candidate.providerInstanceId === selection.instanceId &&
+          candidate.model === selection.model,
+      ),
+    );
+    return { entry, ranked };
+  });
   return ManagedAgentService.of({
     targetProject: Effect.fn("ManagedAgentService.targetProject")(function* ({
       request,
@@ -641,92 +776,17 @@ const make = Effect.gen(function* () {
     ),
     roles: Effect.fn("ManagedAgentService.roles")(function* (input) {
       const snapshot = yield* currentPolicy;
-      // Only the roles this policy configures; an optional role it leaves out is not offered.
-      const configured = Object.entries(snapshot.manifest.roles).flatMap(([name, policy]) => {
-        const role = name as AgentTaskRequest["role"];
-        const brief = snapshot.briefs[role];
-        return policy === undefined || brief === undefined ? [] : [{ role, policy, brief }];
-      });
-      const roles = yield* Effect.forEach(configured, ({ role, policy, brief }) =>
-        Effect.gen(function* () {
-          const context = yield* execution(
-            {
-              ...input,
-              ...(input.request.runtimeMode === undefined
-                ? {}
-                : { runtimeMode: input.request.runtimeMode }),
-            },
-            {
-              ...input.request,
-              role,
-              workId: "capability-discovery",
-              attemptId: "capability-discovery",
-              workspacePath: "/capability-discovery",
-            },
-            false,
-            policy.sourceAccess === "read-only" || input.request.readOnly === true,
-          );
-          const browser = yield* browserRoute(
-            policy.toolProfile,
-            input.projectId,
-            "discovery",
-            context.request,
-          );
-          const result = yield* resolver.preview({
-            ...context,
-            snapshot,
-            overloads: yield* currentOverloads,
-            ...(browser === undefined ? {} : { browser }),
-            providers: input.providers,
-            ...(input.selection === undefined ? {} : { selection: input.selection }),
-            ...(input.callerModel === undefined ? {} : { callerModel: input.callerModel }),
-            ...(input.caller === undefined ? {} : { caller: input.caller }),
-            request: {
-              ...context.request,
-              ...(!isReviewerRole(role)
-                ? {}
-                : {
-                    review: {
-                      scope: input.request.reviewScope ?? "change",
-                      baseRevision: "capability-discovery",
-                      includedChanges: ["capability-discovery"],
-                      specRef: "capability-discovery",
-                      specRevision: "capability-discovery",
-                      coverage: "complete" as const,
-                    },
-                  }),
-            },
-          });
-          const usageLimited = result.candidates.filter(
-            (candidate) => candidate.reason === "usage-limited",
-          );
-          const overloaded = result.candidates.filter((candidate) => candidate.until !== undefined);
-          const sourceAccess =
-            input.request.readOnly === true ? ("read-only" as const) : policy.sourceAccess;
-          const toolProfile =
-            input.request.readOnly === true
-              ? readOnlyToolProfile(policy.toolProfile)
-              : policy.toolProfile;
-          return {
-            role,
-            briefHash: brief.hash,
-            sourceAccess,
-            permissionClass:
-              sourceAccess === "read-only" ? ("read-only" as const) : ("editor" as const),
-            ...(toolProfile === "phi" || toolProfile === "web-research" ? { toolProfile } : {}),
-            executionRequirement: context.request.executionRequirement,
-            ...(grantsBrowserTasks(role, policy) ? { browserTasks: true } : {}),
-            ...(result.executionBoundary === undefined
-              ? {}
-              : { executionBoundary: result.executionBoundary }),
-            selection: result.selection,
-            refusal: result.refusal,
-            ...(usageLimited.length === 0 ? {} : { usageLimited }),
-            ...(overloaded.length === 0 ? {} : { overloaded }),
-          };
-        }),
+      const roles = yield* Effect.forEach(configuredRoles(snapshot), ({ role, policy, brief }) =>
+        discover(input, snapshot, role, policy, brief).pipe(Effect.map(({ entry }) => entry)),
       );
       return { policyHash: snapshot.hash, policyRevision: snapshot.sourceRevision, roles };
+    }),
+    ranked: Effect.fn("ManagedAgentService.ranked")(function* (input) {
+      const snapshot = yield* currentPolicy;
+      const configured = configuredRoles(snapshot).find(({ role }) => role === input.role);
+      if (configured === undefined) return [];
+      const { policy, brief } = configured;
+      return (yield* discover(input, snapshot, input.role, policy, brief)).ranked;
     }),
     rankedTextModels: Effect.fn("ManagedAgentService.rankedTextModels")(function* (input) {
       const snapshot = yield* currentPolicy;

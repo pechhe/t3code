@@ -82,8 +82,8 @@ type ResolutionInput = {
   readonly caller?: ModelSelection;
   readonly selection?: RequestedModel;
   /**
-   * A running trial's assigned model and effort for this task. It replaces the role's list and
-   * its demanding-task model, so a trial can compare what Delegation does not choose today;
+   * A running trial's assigned model and effort for this task. It replaces the role's list, so a
+   * trial can compare what Delegation does not choose today;
    * every account, permission and capability check still applies to it.
    */
   readonly treatment?: ModelSelection;
@@ -107,7 +107,10 @@ export class AgentRoleResolver extends Context.Service<
   AgentRoleResolver,
   {
     readonly resolve: (input: ResolutionInput) => Effect.Effect<ModelSelection, AgentRoleError>;
-    readonly preview: (input: ResolutionInput) => Effect.Effect<AgentPolicyPreview>;
+    /** The resolution without failing, plus every eligible selection in `resolve`'s order. */
+    readonly preview: (
+      input: ResolutionInput,
+    ) => Effect.Effect<AgentPolicyPreview & { readonly ranked: ReadonlyArray<ModelSelection> }>;
     /** Every eligible selection in the order `resolve` would try them. */
     readonly rank: (
       input: ResolutionInput,
@@ -260,13 +263,12 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       .map((model) => model.driverKind),
   );
   const authorDriver = authorDrivers.size === 1 ? [...authorDrivers][0] : undefined;
-  const large = request.demanding && treatment === undefined ? role.large : undefined;
   const eligible: Array<{ selection: ModelSelection; alias: string; provider: ServerProvider }> =
     [];
   for (const entry of list) {
     const alias = entry.model;
     const binding = snapshot.manifest.models[alias]!;
-    const effort = large?.model === alias ? large.effort : entry.effort;
+    const effort = entry.effort;
     // Writers may use any installed provider; readers require declared enforcement.
     if (!readOnly && !specLead && binding.driverKind === "claudeAgent") {
       const refusal = !input.allowTrustedClaudeWriters
@@ -402,7 +404,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     }
     candidates = matching;
   }
-  // The list order, unless the task is large or the asking model has its own first choice.
+  // The list order, unless the asking model has its own first choice.
   const callerFirst =
     input.callerModel === undefined
       ? undefined
@@ -410,9 +412,8 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
           .filter(([, binding]) => binding.model === input.callerModel)
           .map(([alias]) => role.callers?.[alias])
           .find((alias) => alias !== undefined);
-  const first = large?.model ?? callerFirst;
   const position = (alias: string) =>
-    alias === first ? -1 : list.findIndex((entry) => entry.model === alias);
+    alias === callerFirst ? -1 : list.findIndex((entry) => entry.model === alias);
   const otherProvider = (candidate: { readonly provider: ServerProvider }) =>
     reviewer &&
     role.preferOtherAuthorProvider === true &&
@@ -506,6 +507,7 @@ export const layer = Layer.succeed(AgentRoleResolver, {
             selection: null,
             refusal: error.detail === undefined ? error.reason : `${error.reason}: ${error.detail}`,
             candidates: error.candidates ?? [],
+            ranked: [],
           }),
       }),
     ),

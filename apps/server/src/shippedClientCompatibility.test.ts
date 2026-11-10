@@ -81,6 +81,7 @@ function violations(value: unknown, schema: JsonSchema, at: string): ReadonlyArr
 const encodeSettings = Schema.encodeSync(ServerSettings);
 const encodeExperiment = Schema.encodeSync(Experiment);
 const encodeAssignment = Schema.encodeSync(ExperimentAssignment);
+const decodeAssignment = Schema.decodeUnknownSync(ExperimentAssignment);
 
 const forkSettings = {
   ...DEFAULT_SERVER_SETTINGS,
@@ -236,10 +237,7 @@ it.effect("a fork client from before T3-393 reads new trials and their pause and
   Effect.gen(function* () {
     const frozen = yield* loadFrozenExperimentSchemas;
     for (const value of newTrials)
-      assert.deepEqual(
-        violations(encodeExperiment(value), frozen.experiment, value.lever),
-        [],
-      );
+      assert.deepEqual(violations(encodeExperiment(value), frozen.experiment, value.lever), []);
     const assignment: ExperimentAssignment = {
       id: "assignment",
       experimentId: "trial",
@@ -260,17 +258,36 @@ it.effect("a fork client from before T3-393 reads new trials and their pause and
       briefRevision: null,
       provenance: null,
     };
-    assert.deepEqual(
-      violations(encodeAssignment(assignment), frozen.assignment, "a"),
-      [],
-    );
+    assert.deepEqual(violations(encodeAssignment(assignment), frozen.assignment, "a"), []);
+    // A task saved with the retired `demanding` flag reads back without it and still decodes.
+    const saved = decodeAssignment({
+      ...encodeAssignment(assignment),
+      lever: "delegation",
+      variant: newTrials[0]!.variants[1]!,
+      agentTask: {
+        role: "scout",
+        taskClass: "non-ui",
+        workId: "work",
+        attemptId: "attempt",
+        workspacePath: "/repo",
+        demanding: true,
+        readOnly: true,
+        requestFingerprint: "c".repeat(64),
+        policyHash: "d".repeat(64),
+        policyRevision: "policy",
+        briefHash: "e".repeat(64),
+        sourceAccess: "read-only",
+        toolProfile: "source-reader",
+        requested: sol,
+        assigned: sol,
+        effective: sol,
+      },
+    });
+    assert.notProperty(saved.agentTask, "demanding");
+    assert.deepEqual(violations(encodeAssignment(saved), frozen.assignment, "a"), []);
     // The frozen schema still catches what an older client could not read.
     assert.notDeepEqual(
-      violations(
-        { ...encodeExperiment(newTrials[0]!), lever: "council" },
-        frozen.experiment,
-        "x",
-      ),
+      violations({ ...encodeExperiment(newTrials[0]!), lever: "council" }, frozen.experiment, "x"),
       [],
     );
   }).pipe(Effect.provide(NodeServices.layer)),

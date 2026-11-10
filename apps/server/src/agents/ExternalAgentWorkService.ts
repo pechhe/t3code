@@ -52,6 +52,7 @@ import {
 } from "./workspaceIdentity.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { defaultChildMode, exceedsCaller } from "./delegationRuntime.ts";
+import { withRetiredDemanding } from "./retiredDemanding.ts";
 import { managedTaskTitle } from "./taskTitle.ts";
 
 const isManagedAgentError = Schema.is(Managed.ManagedAgentError);
@@ -698,7 +699,8 @@ const make = Effect.gen(function* () {
           timeoutMs: undefined,
           clientRequestId: undefined,
         }).pipe(Effect.orDie);
-        const fingerprint = yield* hash(wire);
+        const fingerprints = yield* Effect.forEach(withRetiredDemanding(wire), hash);
+        const fingerprint = fingerprints[0]!;
         const identity = yield* hash(
           `${session.key}\n${input.agentTask.workId}\n${input.agentTask.attemptId}`,
         );
@@ -708,7 +710,10 @@ const make = Effect.gen(function* () {
           sql<WorkRow>`SELECT * FROM external_agent_work WHERE task_id = ${taskId} OR (session_key = ${session.key} AND request_id = ${input.clientRequestId})`,
         );
         let row = prior[0];
-        if (row !== undefined && (row.task_id !== taskId || row.fingerprint !== fingerprint))
+        if (
+          row !== undefined &&
+          (row.task_id !== taskId || !fingerprints.includes(row.fingerprint))
+        )
           return yield* new ExternalAgentWorkError({ reason: "conflict" });
         if (row?.state === "accepted" || row?.state === "cancelled")
           return yield* status(scope, taskId);
@@ -735,7 +740,6 @@ const make = Effect.gen(function* () {
               original.workspacePath !== input.agentTask.workspacePath ||
               original.workspaceAssignment !== input.agentTask.workspaceAssignment ||
               original.readOnly !== input.agentTask.readOnly ||
-              original.demanding !== input.agentTask.demanding ||
               (input.agentTask.executionRequirement !== undefined &&
                 input.agentTask.executionRequirement !==
                   (original.executionRequirement ?? "sandbox-required")))

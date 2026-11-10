@@ -107,3 +107,30 @@ it("refuses a t3_thread_update whose fields do not fit its action", () => {
     true,
   );
 });
+
+const decodeDelegateTask = Schema.decodeUnknownSync(
+  OrchestratorToolkit.tools.delegate_task.parametersSchema,
+);
+const decodeAgentRoles = Schema.decodeUnknownSync(
+  OrchestratorToolkit.tools.agent_roles.parametersSchema,
+);
+
+it("accepts and drops the retired demanding flag on delegate_task and agent_roles", () => {
+  const delegate = decodeDelegateTask({
+    task: "Build it",
+    agentTask: {
+      role: "implementation-worker",
+      taskClass: "non-ui",
+      workId: "work",
+      attemptId: "1",
+      workspacePath: "/repo",
+      demanding: true,
+    },
+  });
+  expect(delegate.agentTask).not.toHaveProperty("demanding");
+  const roles = decodeAgentRoles({
+    taskClass: "non-ui",
+    demanding: true,
+  });
+  expect(roles).not.toHaveProperty("demanding");
+});

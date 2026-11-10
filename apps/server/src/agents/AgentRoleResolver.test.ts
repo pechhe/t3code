@@ -320,25 +320,15 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
-  it.effect("selects a workhorse with explicit medium and deliberate high effort", () =>
+  it.effect("selects a workhorse at its list effort", () =>
     Effect.gen(function* () {
       expect(yield* resolve(input())).toEqual({
         instanceId: codex.instanceId,
         model: codexModel,
         options: [{ id: "reasoning", value: "medium" }],
       });
-      expect(yield* resolve(input({ request: request({ demanding: true }) }))).toEqual({
-        instanceId: codex.instanceId,
-        model: codexModel,
-        options: [{ id: "reasoning", value: "high" }],
-      });
       const lowOnly = provider("codex", "codex-low", [codexModel], ["low"]);
       expect((yield* refusal(input({ providers: [lowOnly] }))).reason).toBe("no-eligible-model");
-      const mediumOnly = provider("codex", "codex-medium", [codexModel], ["medium"]);
-      expect(
-        (yield* refusal(input({ providers: [mediumOnly], request: request({ demanding: true }) })))
-          .reason,
-      ).toBe("no-eligible-model");
     }),
   );
 
@@ -350,7 +340,6 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         options: [{ id: "reasoning", value: "high" }],
       };
       const assigned = input({
-        request: request({ demanding: true }),
         selection: treatment,
         treatment,
       });
@@ -816,19 +805,24 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
-  it.effect("starts a large task with the role's large-task model at its effort", () =>
+  it.effect("runs a named listed model, and the first listed one when none is named", () =>
     Effect.gen(function* () {
-      const value = (demanding: boolean) =>
-        resolve(input({ request: request({ demanding, readOnly: true }) }));
-      // The list puts Sonnet first; large work goes to Sol at high effort.
-      expect(yield* value(false)).toMatchObject({
+      const value = (selection?: Input["selection"]) =>
+        resolve(
+          input({
+            request: request({ readOnly: true }),
+            ...(selection === undefined ? {} : { selection }),
+          }),
+        );
+      // The policy still names Sol as the retired large-task model; it changes nothing.
+      expect(yield* value()).toMatchObject({
         model: claudeModel,
         options: [{ id: "effort", value: "medium" }],
       });
-      expect(yield* value(true)).toEqual({
+      expect(yield* value({ model: codexModel })).toEqual({
         instanceId: codex.instanceId,
         model: codexModel,
-        options: [{ id: "reasoning", value: "high" }],
+        options: [{ id: "reasoning", value: "medium" }],
       });
     }),
   );

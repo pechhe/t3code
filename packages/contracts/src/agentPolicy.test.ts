@@ -101,8 +101,8 @@ describe("AgentPolicyManifest", () => {
     ]);
     // A restriction on every class narrows the role to its allowed models.
     expect(manifest.lists["browser"]).toEqual([{ model: "haiku", effort: "medium" }]);
-    // The first model with a demanding effort becomes the large-task model.
-    expect(manifest.roles["implementation-worker"].large).toEqual({ model: "sol", effort: "high" });
+    // A retired demanding effort chooses no model.
+    expect(manifest.roles["implementation-worker"]).not.toHaveProperty("large");
     // The reviewer keeps its order; a requirement becomes a preference.
     expect(manifest.lists["reviewer"]?.map((entry) => entry.model)).toEqual(["sonnet", "sol"]);
     expect(manifest.roles["reviewer"]).toMatchObject({
@@ -150,7 +150,6 @@ describe("AgentPolicyManifest", () => {
     expect(merged.lists).toEqual(split.lists);
     expect(merged.roles.reviewer.list).toBe("changes");
     expect(merged.roles.reviewer.specList).toBe("specs");
-    expect(merged.roles.reviewer.large).toBeUndefined();
     expect(merged.roles.reviewer.preferOtherAuthorProvider).toBe(true);
     expect(encodeManifest(merged).roles).not.toHaveProperty("spec-reviewer");
     expect(encodeManifest(merged).roles).not.toHaveProperty("ticket-reviewer");
@@ -223,20 +222,22 @@ describe("AgentPolicyManifest", () => {
       ...current,
       roles: { ...roles, "ticket-reviewer": change, "spec-reviewer": spec },
     });
-    expect(merged.roles.reviewer.large).toEqual(change.large);
+    expect(merged.roles.reviewer).not.toHaveProperty("large");
     expect(merged.roles.reviewer.callers).toEqual(change.callers);
     expect(merged.lists).toEqual(current.lists);
   });
 
-  it("refuses a role whose large-task or caller model is outside its list", () => {
+  it("refuses a role whose caller model is outside its list", () => {
     const manifest = encodeManifest(decodeManifest(legacy));
     const edit = (roleEdit: object) =>
       decodeManifestExit({
         ...manifest,
         roles: { ...manifest.roles, advisor: { ...manifest.roles.advisor, ...roleEdit } },
       });
-    expect(edit({ large: { model: "sonnet", effort: "high" } })._tag).toBe("Success");
-    expect(edit({ large: { model: "haiku", effort: "high" } })._tag).toBe("Failure");
+    // A retired large-task model loads and is ignored, even one outside the list.
+    const retired = edit({ large: { model: "haiku", effort: "high" } });
+    expect(retired._tag).toBe("Success");
+    if (retired._tag === "Success") expect(retired.value.roles.advisor).not.toHaveProperty("large");
     expect(edit({ callers: { sonnet: "opus" } })._tag).toBe("Success");
     expect(edit({ callers: { sonnet: "haiku" } })._tag).toBe("Failure");
     expect(edit({ preferOtherAuthorProvider: true })._tag).toBe("Failure");
@@ -410,19 +411,6 @@ describe("AgentPolicyManifest", () => {
           advisor: (manifest.lists.advisor ?? []).map((entry, index) =>
             index === 0 ? { model: entry.model } : entry,
           ),
-        },
-      })._tag,
-    ).toBe("Failure");
-    // The large-task choice follows the same rule.
-    expect(
-      decodeManifestExit({
-        ...manifest,
-        roles: {
-          ...manifest.roles,
-          advisor: {
-            ...manifest.roles.advisor,
-            large: { model: "haiku" },
-          },
         },
       })._tag,
     ).toBe("Failure");

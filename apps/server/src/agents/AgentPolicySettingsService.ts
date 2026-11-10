@@ -105,10 +105,8 @@ const make = Effect.gen(function* () {
       const options = matching
         .flatMap((model) => model.capabilities?.optionDescriptors ?? [])
         .filter((candidate) => candidate.id === option);
-      const efforts = [
-        ...Object.values(manifest.lists).flat(),
-        ...Object.values(manifest.roles).flatMap((role) => (role.large ? [role.large] : [])),
-      ]
+      const efforts = Object.values(manifest.lists)
+        .flat()
         .filter((entry) => entry.model === alias)
         .map((entry) => entry.effort);
       if (

@@ -4,10 +4,13 @@ import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as ContextRemoteDelegation from "../peer/RemoteDelegation.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
+  OrchestratorMcpDelegateTaskInput,
   ProviderThreadId,
   type ChampionInvestigationBranchAttempt,
   type ChampionFinding,
+  type CommandId,
 } from "@t3tools/contracts";
+import { derive as deriveIds } from "@t3tools/provider-core/server/IdAllocator";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -32,8 +35,11 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Digest from "effect/crypto/Digest";
+import * as Hex from "effect/encoding/Hex";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Managed from "../agents/ManagedAgentService.ts";
+import { withRetiredDemanding } from "../agents/retiredDemanding.ts";
 import {
   snapshot,
   request,
@@ -63,6 +69,9 @@ import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 
 const encodeManifest = Schema.encodeEffect(Schema.fromJsonString(AgentPolicyManifest));
+const encodeDelegateTaskFingerprint = Schema.encodeSync(
+  Schema.fromJsonString(OrchestratorMcpDelegateTaskInput),
+);
 const persistence = ProjectionStore.layer.pipe(Layer.provideMerge(Sqlite.layerMemory));
 const dependencies = Layer.mergeAll(
   Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
@@ -434,6 +443,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           ),
       });
       let championLaunched = false;
+      // Set once a test marks a dispatched task accepted, so a retry of it replays instead.
+      let accepted = false;
       const children = new Map<ThreadId, OrchestrationV2ThreadShell>();
       const childRecords = new Map<ThreadId, OrchestrationV2ThreadProjection>();
       const transport = Layer.mergeAll(
@@ -454,7 +465,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
               return Effect.fail(new Error("captured followup") as never);
             }),
           getReceipt: () => Effect.succeedNone,
-          hasReceipt: () => Effect.succeed(false),
+          hasReceipt: () => Effect.succeed(accepted),
           isProviderInstanceEnabledForProject: () => Effect.succeed(true),
           listProjectThreads: (input) =>
             Effect.succeed(
@@ -769,6 +780,42 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
                 status: "running",
                 result: null,
               } as (typeof parent.subagents)[number],
+            ],
+          };
+        },
+        /** The task the last dispatch created is now accepted, bound with `binding`. */
+        acceptDispatchedTask: (binding: AgentTaskBinding) => {
+          const command = dispatched[dispatched.length - 1] as {
+            readonly commandId: CommandId;
+            readonly agentTask: AgentTaskBinding;
+          };
+          const taskId = deriveIds.delegatedTaskNode({ commandId: command.commandId });
+          const threadId = deriveIds.delegatedTaskThread({ commandId: command.commandId });
+          accepted = true;
+          childRecords.set(threadId, {
+            thread: { ...parent.thread, id: threadId, agentTask: binding },
+            runs: [],
+            messages: [],
+            nodes: [],
+            turnItems: [],
+            providerTurns: [],
+            providerThreads: [],
+            contextTransfers: [],
+            subagents: [],
+            runtimeRequests: [],
+          } as unknown as OrchestrationV2ThreadProjection);
+          parent = {
+            ...parent,
+            subagents: [
+              ...parent.subagents,
+              {
+                id: taskId,
+                threadId: parent.thread.id,
+                origin: "app_owned",
+                childThreadId: threadId,
+                status: "running",
+                result: null,
+              } as unknown as OrchestrationV2ThreadProjection["subagents"][number],
             ],
           };
         },
@@ -1516,6 +1563,42 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
     }).pipe(
       Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
     ),
+  );
+  it.effect(
+    "matches a managed task fingerprinted while the retired demanding flag was recorded",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* harness();
+        const delegated = {
+          task: "Implement the importer",
+          clientRequestId: "demanding-retry",
+          agentTask: request({ workspacePath: h.lead }),
+        };
+        yield* h.delegate(delegated);
+        const first = h.dispatched[0] as { commandId: CommandId; agentTask: AgentTaskBinding };
+        // A task bound before `demanding` was retired kept the fingerprint of text that still held
+        // the flag, which a retry now decodes away before the service hashes it.
+        const fingerprintText = encodeDelegateTaskFingerprint({
+          ...delegated,
+          mode: undefined,
+          timeoutMs: undefined,
+        });
+        const saved = Hex.encode(
+          yield* (yield* Digest.Digest).digest(
+            Digest.sha256,
+            new TextEncoder().encode(withRetiredDemanding(fingerprintText)[1]!),
+          ),
+        );
+        h.acceptDispatchedTask({ ...first.agentTask, requestFingerprint: saved });
+        const retry = yield* h.delegate(delegated).pipe(Effect.flip);
+        expect(h.dispatched).toHaveLength(1);
+        expect(retry).toMatchObject({
+          taskId: deriveIds.delegatedTaskNode({ commandId: first.commandId }),
+          agentTask: { requestFingerprint: saved },
+        });
+      }).pipe(
+        Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+      ),
   );
   it.effect(
     "sends pinned readers and isolated writers to another registered project, never a sharing writer",

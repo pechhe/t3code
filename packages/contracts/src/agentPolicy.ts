@@ -143,6 +143,7 @@ export const usesPhi = (profile: AgentToolProfile | undefined) => profile === "p
 /** The profile a role runs with when a task narrows it to read-only: it loses writing, not Phi. */
 export const readOnlyToolProfile = (profile: AgentToolProfile): AgentToolProfile =>
   profile === "implementation" ? "source-reader" : profile;
+export const MODEL_NOTE_MAX_LENGTH = 160;
 const ModelBinding = Schema.Struct({
   driverKind: ProviderDriverKind,
   model: TrimmedNonEmptyString,
@@ -150,6 +151,8 @@ const ModelBinding = Schema.Struct({
   effortOption: Schema.optional(TrimmedNonEmptyString),
   /** Select options every task on this model carries beside effort, e.g. `serviceTier: "fast"`. */
   options: Schema.optional(Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString)),
+  /** What the model is good at, which a delegating agent reads to choose it for a task. */
+  note: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(MODEL_NOTE_MAX_LENGTH))),
 });
 
 const MAKER_FAMILIES: ReadonlyArray<readonly [string, string]> = [
@@ -216,8 +219,6 @@ const RolePolicy = Schema.Struct({
   sourceAccess: SourceAccess,
   toolProfile: AgentToolProfile,
   taskClasses: Schema.Array(AgentTaskClass).check(Schema.isMinLength(1)),
-  /** A large (`demanding`) task starts with this model, at this effort. */
-  large: Schema.optional(AgentListEntry),
   /** The model alias an asking agent runs, mapped to the model it starts with instead. */
   callers: Schema.optional(Schema.Record(Alias, Alias)),
   /** Reviewer roles: prefer a provider other than the author's. */
@@ -295,8 +296,6 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
     if (role.specList !== undefined && lists[role.specList] === undefined) return false;
     const list = lists[role.list]?.map((entry) => entry.model);
     if (list === undefined || role.brief !== `roles/${name}.md`) return false;
-    if (role.large !== undefined && !list.includes(role.large.model)) return false;
-    if (role.large !== undefined && !hasEffort(role.large)) return false;
     for (const [caller, first] of Object.entries(role.callers ?? {}))
       if (models[caller] === undefined || !list.includes(first)) return false;
     if (role.preferOtherAuthorProvider !== undefined && !isReviewerRole(name as AgentRole))
@@ -401,7 +400,6 @@ const upgradeManifest = (legacy: typeof LegacyManifest.Type): typeof Manifest.En
       (alias) =>
         pool.allow.includes(alias) && role.effort[alias] && restricted?.has(alias) !== false,
     );
-    const large = order.find((alias) => role.effort[alias]!.demanding !== undefined);
     const name = legacyName as AgentRole;
     lists[name] = order.map((model) => ({ model, effort: role.effort[model]!.default }));
     roles[name] = {
@@ -411,9 +409,6 @@ const upgradeManifest = (legacy: typeof LegacyManifest.Type): typeof Manifest.En
       sourceAccess: role.sourceAccess,
       toolProfile: role.toolProfile,
       taskClasses: role.taskClasses,
-      ...(large === undefined
-        ? {}
-        : { large: { model: large, effort: role.effort[large]!.demanding! } }),
       ...(isReviewerRole(name)
         ? { preferOtherAuthorProvider: legacy.reviewer?.requireDifferentProvider ?? false }
         : {}),
@@ -499,6 +494,12 @@ export const AgentPolicyManifest = Schema.Union([
   ),
 ]);
 export type AgentPolicyManifest = typeof AgentPolicyManifest.Type;
+/**
+ * A model's note: one per model, whichever account serves it. Aliases binding the same model
+ * share it; Settings writes it to each, and a hand edit that differs reads as the first.
+ */
+export const modelNote = (manifest: AgentPolicyManifest, model: string) =>
+  Object.values(manifest.models).find((binding) => binding.model === model && binding.note)?.note;
 export const Sha256 = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 const Brief = Schema.Struct({
   hash: Sha256,
@@ -625,7 +626,6 @@ const agentTaskRequestFields = {
   sourceRevision: Schema.optional(TrimmedNonEmptyString),
   /** Required for reviewer roles; absent on records from before typed review scope. */
   review: Schema.optional(AgentReviewRequest),
-  demanding: Schema.optional(Schema.Boolean),
   readOnly: Schema.optional(Schema.Boolean),
   authorModel: Schema.optional(TrimmedNonEmptyString),
 };
@@ -756,7 +756,6 @@ export const AgentRolesInput = Schema.Struct({
   runtimeMode: Schema.optional(RuntimeMode),
   externalSessionKey: Schema.optional(Sha256),
   taskClass: AgentTaskClass,
-  demanding: Schema.optional(Schema.Boolean),
   readOnly: Schema.optional(Schema.Boolean),
   sourceRevision: Schema.optional(TrimmedNonEmptyString),
   /** Check a model within each role, as a delegation's target would choose it. */
@@ -797,6 +796,16 @@ export const AgentRolesResult = Schema.Struct({
       browserTasks: Schema.optional(Schema.Boolean),
       selection: Schema.NullOr(ModelSelection),
       refusal: Schema.NullOr(TrimmedNonEmptyString),
+      /** Every model on the role's list, in list order; name one as `target.model` to use it. */
+      models: Schema.Array(
+        Schema.Struct({
+          model: Schema.String,
+          effort: Schema.optional(Schema.String),
+          note: Schema.optional(Schema.String),
+          /** At least one account can start it now. */
+          available: Schema.Boolean,
+        }),
+      ),
       /** Accounts out of usage, passed over unless every candidate is; absent when none is. */
       usageLimited: Schema.optional(Schema.Array(AgentPolicyCandidate)),
       /** Models in an overload cool-down, passed over while a healthy candidate remains. */

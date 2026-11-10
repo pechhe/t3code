@@ -4,6 +4,7 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import * as FileSystem from "effect/FileSystem";
 import * as ProcessRunner from "../processRunner.ts";
 import * as Managed from "../agents/ManagedAgentService.ts";
+import { engines as decisionEngines } from "../decisions/adapters.ts";
 import * as ProviderOverloads from "../provider/ProviderOverloads.ts";
 import { snapshot as policySnapshot, codex, codexModel } from "../agents/agentPolicy.testkit.ts";
 import * as ChampionHandlers from "../mcp/toolkits/champions/handlers.ts";
@@ -4405,126 +4406,129 @@ describe("a journey check", () => {
     ),
   );
 
-  it.effect("rejects a reproducing candidate its replay puts down to a declared missing service", () =>
-    withFixture((f, service) =>
-      withTarget(
-        [
-          manifest("aaaaaaaa", "commit-1", {
-            missingServices: [
-              { name: "optimiser", what: "plan generation cannot run" },
-            ],
-            shards: [
-              {
-                id: "s1",
-                origin: "http://localhost:1",
-                signInPath: "/dev/agent-login?as=admin&next=/",
-                database: "scratch_0123abcd",
-                container: "shard",
-                locale: "pt-BR",
-                workPaths: ["/board"],
-              },
-            ],
-          }),
-          manifest("bbbbbbbb", "commit-1"),
-        ],
-        (directory) =>
-          Effect.gen(function* () {
-            yield* activate(service, journeysConfig(directory));
-            yield* service.runCheck({ id: config.id });
-            const plan = yield* service.journeysStart(f.caller());
-            assert.deepEqual(plan.missingServices, [
-              { name: "optimiser", what: "plan generation cannot run" },
-            ]);
-            assert.equal(plan.shards[0]?.locale, "pt-BR");
-            assert.deepEqual(plan.shards[0]?.workPaths, ["/board"]);
-            const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
-            const owner = f.caller().threadId;
-            const grant = (yield* policy.forThread(owner))!;
-            const admitted = yield* policy.admitTask({ grant, tabId: "tab-one" });
-            assert.equal(admitted._tag, "admitted");
-            yield* policy.recordTask({
-              grant,
-              tabId: "tab-one",
-              goal: "Generate a plan",
-              startedAt: "2026-11-08T00:00:00.000Z",
-              endedAt: "2026-11-08T00:00:01.000Z",
-              result: {
-                status: "failed",
-                decisions: 2,
-                usage: { usd: 0.01, unreportedCalls: 0 },
-                evidence: { url: `http://localhost:${shardPort}/board` },
-                viewport: { width: 390, height: 844 },
-              } as unknown as PreviewTaskResult,
-              steps: [
+  it.effect(
+    "rejects a reproducing candidate its replay puts down to a declared missing service",
+    () =>
+      withFixture((f, service) =>
+        withTarget(
+          [
+            manifest("aaaaaaaa", "commit-1", {
+              missingServices: [{ name: "optimiser", what: "plan generation cannot run" }],
+              shards: [
                 {
-                  id: "move",
-                  kind: "action",
-                  operation: "drag",
-                  target: { role: "button", name: "Job 1" },
-                  from: { role: "button", name: "Job 1" },
-                  to: { role: "region", name: "Done" },
-                  description: null,
-                  option: null,
-                  value: null,
-                  url: `http://localhost:${shardPort}/board`,
-                  state: "completed",
-                  at: "2026-11-08T00:00:00.500Z" as never,
-                  ms: 40,
+                  id: "s1",
+                  origin: "http://localhost:1",
+                  signInPath: "/dev/agent-login?as=admin&next=/",
+                  database: "scratch_0123abcd",
+                  container: "shard",
+                  locale: "pt-BR",
+                  workPaths: ["/board"],
                 },
               ],
-            });
-            yield* policy.recordTask({
-              grant,
-              tabId: "tab-one",
-              goal: null,
-              startedAt: "2026-11-08T00:00:01.000Z",
-              endedAt: "2026-11-08T00:00:02.000Z",
-              result: {
-                status: "passed",
-                decisions: 1,
-                usage: { usd: 0.01, unreportedCalls: 0 },
-                evidence: { url: `http://localhost:${shardPort}/board` },
-              } as unknown as PreviewTaskResult,
-              steps: [],
-            });
-            const candidate = yield* service.journeyCandidate(f.caller(), {
-              tabId: "tab-one",
-              title: "Plan generation fails",
-              expected: "It produces a candidate",
-              observed: "It errors",
-            });
-            const replay = yield* service.candidateReplay(f.caller(), {
-              candidateId: candidate.candidateId,
-            });
-            assert.include(replay.brief, "390x844");
-            assert.include(replay.brief, "pt-BR");
-            assert.include(replay.brief, "optimiser");
-            assert.include(replay.brief, 'drag the button named "Job 1" to the region named "Done"');
-            f.installReplay(
-              replay.workId,
-              replay.attemptId,
-              `${verdict("reproduced", "Generate plan can't finish.")}\nMISSING: optimiser`,
-              "strong",
-            );
-            const settled = yield* service.candidateSettle(f.caller(), {
-              candidateId: candidate.candidateId,
-            });
-            assert.equal(settled.status, "rejected");
-            assert.include(settled.reason, "optimiser");
-            assert.equal((yield* service.get({ id: config.id })).findings.length, 0);
-            assert.equal((yield* service.get({ id: config.id })).champion.openFindingCount, 0);
-            yield* service.report(f.caller(), {
-              samples: [quietSample],
-              findings: [],
-              summary: "One journey, one missing-service rejection.",
-              journeys: { started: 1, passed: 0, failed: 1, stopped: 0 },
-            });
-            const { record } = yield* service.journeyRecord({ checkId: plan.checkId });
-            assert.equal(record.candidates.rejected, 1);
-            assert.include(record.candidates.rejectionReasons.join(" "), "optimiser");
-          }).pipe(withPolicy),
+            }),
+            manifest("bbbbbbbb", "commit-1"),
+          ],
+          (directory) =>
+            Effect.gen(function* () {
+              yield* activate(service, journeysConfig(directory));
+              yield* service.runCheck({ id: config.id });
+              const plan = yield* service.journeysStart(f.caller());
+              assert.deepEqual(plan.missingServices, [
+                { name: "optimiser", what: "plan generation cannot run" },
+              ]);
+              assert.equal(plan.shards[0]?.locale, "pt-BR");
+              assert.deepEqual(plan.shards[0]?.workPaths, ["/board"]);
+              const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
+              const owner = f.caller().threadId;
+              const grant = (yield* policy.forThread(owner))!;
+              const admitted = yield* policy.admitTask({ grant, tabId: "tab-one" });
+              assert.equal(admitted._tag, "admitted");
+              yield* policy.recordTask({
+                grant,
+                tabId: "tab-one",
+                goal: "Generate a plan",
+                startedAt: "2026-11-08T00:00:00.000Z",
+                endedAt: "2026-11-08T00:00:01.000Z",
+                result: {
+                  status: "failed",
+                  decisions: 2,
+                  usage: { usd: 0.01, unreportedCalls: 0 },
+                  evidence: { url: `http://localhost:${shardPort}/board` },
+                  viewport: { width: 390, height: 844 },
+                } as unknown as PreviewTaskResult,
+                steps: [
+                  {
+                    id: "move",
+                    kind: "action",
+                    operation: "drag",
+                    target: { role: "button", name: "Job 1" },
+                    from: { role: "button", name: "Job 1" },
+                    to: { role: "region", name: "Done" },
+                    description: null,
+                    option: null,
+                    value: null,
+                    url: `http://localhost:${shardPort}/board`,
+                    state: "completed",
+                    at: "2026-11-08T00:00:00.500Z" as never,
+                    ms: 40,
+                  },
+                ],
+              });
+              yield* policy.recordTask({
+                grant,
+                tabId: "tab-one",
+                goal: null,
+                startedAt: "2026-11-08T00:00:01.000Z",
+                endedAt: "2026-11-08T00:00:02.000Z",
+                result: {
+                  status: "passed",
+                  decisions: 1,
+                  usage: { usd: 0.01, unreportedCalls: 0 },
+                  evidence: { url: `http://localhost:${shardPort}/board` },
+                } as unknown as PreviewTaskResult,
+                steps: [],
+              });
+              const candidate = yield* service.journeyCandidate(f.caller(), {
+                tabId: "tab-one",
+                title: "Plan generation fails",
+                expected: "It produces a candidate",
+                observed: "It errors",
+              });
+              const replay = yield* service.candidateReplay(f.caller(), {
+                candidateId: candidate.candidateId,
+              });
+              assert.include(replay.brief, "390x844");
+              assert.include(replay.brief, "pt-BR");
+              assert.include(replay.brief, "optimiser");
+              assert.include(
+                replay.brief,
+                'drag the button named "Job 1" to the region named "Done"',
+              );
+              f.installReplay(
+                replay.workId,
+                replay.attemptId,
+                `${verdict("reproduced", "Generate plan can't finish.")}\nMISSING: optimiser`,
+                "strong",
+              );
+              const settled = yield* service.candidateSettle(f.caller(), {
+                candidateId: candidate.candidateId,
+              });
+              assert.equal(settled.status, "rejected");
+              assert.include(settled.reason, "optimiser");
+              assert.equal((yield* service.get({ id: config.id })).findings.length, 0);
+              assert.equal((yield* service.get({ id: config.id })).champion.openFindingCount, 0);
+              yield* service.report(f.caller(), {
+                samples: [quietSample],
+                findings: [],
+                summary: "One journey, one missing-service rejection.",
+                journeys: { started: 1, passed: 0, failed: 1, stopped: 0 },
+              });
+              const { record } = yield* service.journeyRecord({ checkId: plan.checkId });
+              assert.equal(record.candidates.rejected, 1);
+              assert.include(record.candidates.rejectionReasons.join(" "), "optimiser");
+            }).pipe(withPolicy),
+        ),
       ),
-    ),
   );
 
   it.effect(
@@ -4668,7 +4672,6 @@ describe("a journey check", () => {
               attemptId: replay.attemptId,
               workspacePath: "/repo",
               readOnly: true,
-              demanding: true,
             } as never;
             const guard = (input: { task?: string; followup?: boolean }) =>
               service.guardDelegation({
@@ -4691,6 +4694,56 @@ describe("a journey check", () => {
       ),
     ),
   );
+
+  it.effect("confirms on the first browser model the check does not use itself", () => {
+    const ranked: Array<{ instanceId: typeof instanceId; model: string }> = [];
+    const managed = {
+      ranked: () => Effect.succeed(ranked),
+    } as unknown as Managed.ManagedAgentService["Service"];
+    return withFixture((f, service) =>
+      withTarget(
+        [manifest("aaaaaaaa", "commit-1"), manifest("bbbbbbbb", "commit-1")],
+        (directory) =>
+          Effect.gen(function* () {
+            yield* activate(service, journeysConfig(directory));
+            yield* service.runCheck({ id: config.id });
+            yield* service.journeysStart(f.caller());
+            const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
+            const owner = f.caller().threadId;
+            yield* walk(policy, owner, "tab-one", "/tasks");
+            const { candidateId } = yield* service.journeyCandidate(f.caller(), {
+              tabId: "tab-one",
+              title: "Broken",
+              expected: "Works",
+              observed: "Broken",
+            });
+            const replay = yield* service.candidateReplay(f.caller(), { candidateId });
+            const guard = service.guardDelegation({
+              ownerThreadId: owner,
+              clientRequestId: "replay",
+              task: replay.brief,
+              request: {
+                role: "browser",
+                taskClass: "non-ui",
+                workId: replay.workId,
+                attemptId: replay.attemptId,
+                workspacePath: "/repo",
+                readOnly: true,
+              },
+            });
+            // In delegation order: the check's own model, then Jev and Luna, are passed over.
+            ranked.push(
+              { instanceId, model: config.routineModelSelection.model },
+              { instanceId, model: decisionEngines.jev.model },
+              { instanceId, model: decisionEngines.luna.model },
+            );
+            yield* refusedWith(guard, "none of the models the check itself uses");
+            ranked.push({ instanceId, model: "confirmer" }, { instanceId, model: "later" });
+            assert.deepEqual(yield* guard, { instanceId, model: "confirmer" });
+          }).pipe(withPolicy),
+      ),
+    ).pipe(Effect.provideService(Managed.ManagedAgentService, managed));
+  });
 
   it.effect("holds a check to four open replays, and ends them when it finishes", () =>
     withFixture((f, service) =>

@@ -1,10 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import * as Schema from "effect/Schema";
 import {
   AgentPolicyManifest,
   isReviewerRole,
   modelMaker,
+  MODEL_NOTE_MAX_LENGTH,
+  modelNote,
   type AgentPolicySettings,
   type AgentRole,
   type EnvironmentId,
@@ -21,6 +23,7 @@ import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
 import { Switch } from "../ui/switch";
+import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   addEntry,
@@ -43,8 +46,9 @@ import {
   setCaller,
   setCouncil,
   setEntryEffort,
-  setLarge,
+  setModelNote,
   setModelOptions,
+  listedModels,
   offersFast,
   runsFast,
   setModelFast,
@@ -183,7 +187,8 @@ function ScopedDelegation({
       ) : null}
       {shown ? (
         <PolicyEditor
-          key={shown.data.snapshot.hash}
+          // Keyed by environment, not revision, so a save keeps open jobs, focus and scroll.
+          key={shown.environmentId}
           environmentId={shown.environmentId}
           // A save to "all" must reach all: an unreadable environment would silently keep its old policy.
           unsavedEnvironments={connected.length - editable.length}
@@ -228,15 +233,25 @@ function PolicyEditor({
   const saved = data.snapshot.manifest;
   const [draft, setDraft] = useState<Manifest>(() => editableManifest(saved));
   const [pending, setPending] = useState(false);
-  // Edits made while a save runs queue behind it; each save builds on the revision the last one wrote.
+  // A policy read after a reload or another device's save replaces the draft once nothing is
+  // saving; the read that follows this page's own save already matches it.
+  const [shownPolicy, setShownPolicy] = useState(saved);
+  if (shownPolicy !== saved) {
+    setShownPolicy(saved);
+    if (!pending) setDraft(editableManifest(saved));
+  }
+  // Edits made while a save runs queue behind it; each save builds on the revision the last one
+  // wrote, unless the policy has since changed elsewhere.
   const queue = useRef<{
     next: Manifest | null;
     running: boolean;
     hashes: Map<EnvironmentId, string>;
+    known: Set<string>;
   }>({
     next: null,
     running: false,
     hashes: new Map(targets.map((target) => [target.environmentId, target.hash])),
+    known: new Set(targets.map((target) => target.hash)),
   });
   const save = useAtomCommand(serverEnvironment.agentPolicySave);
   const catalog = catalogModels(data.providers);
@@ -256,12 +271,16 @@ function PolicyEditor({
     ) {
       state.next = null;
       for (const target of targets) {
+        const expectedHash = state.known.has(target.hash)
+          ? (state.hashes.get(target.environmentId) ?? target.hash)
+          : target.hash;
         const result = await save({
           environmentId: target.environmentId,
-          input: { expectedHash: state.hashes.get(target.environmentId) ?? target.hash, manifest },
+          input: { expectedHash, manifest },
         });
         if (result._tag === "Success") {
           state.hashes.set(target.environmentId, result.value.snapshot.hash);
+          state.known.add(result.value.snapshot.hash);
         } else {
           const message = String(squashAtomCommandFailure(result));
           failures.push(targets.length > 1 ? `${target.label}: ${message}` : message);
@@ -291,6 +310,13 @@ function PolicyEditor({
           jobs; a reader job skips them.
         </p>
       ) : null}
+      <ModelsSection
+        environmentId={environmentId}
+        manifest={draft}
+        jobs={jobs}
+        providers={data.providers}
+        onChange={change}
+      />
       <SettingsSection
         id="delegation"
         title="Jobs"
@@ -566,22 +592,10 @@ function JobRow({
   const primaryEntries = manifest.lists[primary.list] ?? [];
   const single = job.roles.length === 1 ? job.roles[0] : undefined;
   const sectioned = job.sections.length > 1;
-  const exceptions = job.roles.flatMap((role) => {
-    const policy = rolePolicy(manifest, role);
-    return [
-      ...(policy.large ? [{ role, kind: "large" as const }] : []),
-      ...Object.keys(policy.callers ?? {}).map((caller) => ({ role, kind: caller })),
-    ];
-  });
-  const largeChoices = [
-    ...new Map(
-      job.roles.flatMap((role) => {
-        const large = rolePolicy(manifest, role).large;
-        return large ? [[`${large.model}:${large.effort ?? ""}`, large] as const] : [];
-      }),
-    ).values(),
-  ];
-  const chip = (alias: string, effort?: string) => {
+  const exceptions = job.roles.flatMap((role) =>
+    Object.keys(rolePolicy(manifest, role).callers ?? {}).map((caller) => ({ role, caller })),
+  );
+  const chip = (alias: string) => {
     const binding = manifest.models[alias];
     return binding ? (
       <ModelLabel
@@ -589,7 +603,6 @@ function JobRow({
         environmentId={environmentId}
         driverKind={binding.driverKind}
         model={binding.model}
-        effort={effort}
       />
     ) : (
       <Badge variant="outline">{alias}</Badge>
@@ -597,7 +610,7 @@ function JobRow({
   };
   const council = job.roles.includes("reviewer") && councilOn(manifest);
   const councilSection = job.sections.at(-1)!;
-  const chips = (section: JobSection, withLarge: boolean) => {
+  const chips = (section: JobSection) => {
     const entries = manifest.lists[section.list] ?? [];
     const reasons = entries.map((entry) =>
       unavailableReason(manifest.models[entry.model], providers),
@@ -618,17 +631,6 @@ function JobRow({
             {chip(entry.model)}
           </span>
         ))}
-        {withLarge
-          ? largeChoices.map((large) => (
-              <span
-                key={`${large.model}:${large.effort ?? ""}`}
-                className="ms-2 flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
-              >
-                large
-                {chip(large.model, large.effort)}
-              </span>
-            ))
-          : null}
         {council && section === councilSection ? (
           <span className="ms-2 text-xs text-muted-foreground">council on</span>
         ) : null}
@@ -637,20 +639,6 @@ function JobRow({
   };
   const actions = (
     <>
-      {single &&
-      single !== "reviewer" &&
-      !rolePolicy(manifest, single).large &&
-      primaryEntries.length > 0 ? (
-        <Button
-          size="xs"
-          variant="ghost-muted"
-          onClick={() =>
-            onChange(setLarge(manifest, single, primaryEntries[primaryEntries.length - 1]))
-          }
-        >
-          Different model for large tasks
-        </Button>
-      ) : null}
       {single && primaryEntries.length > 0 ? (
         <PolicyModelPicker
           environmentId={environmentId}
@@ -705,17 +693,17 @@ function JobRow({
             </p>
             {sectioned ? (
               <div className="flex flex-col gap-1">
-                {job.sections.map((section, index) => (
+                {job.sections.map((section) => (
                   <div key={section.title} className="flex flex-wrap items-center gap-1">
                     <span className="w-28 shrink-0 text-xs text-muted-foreground">
                       {section.title}
                     </span>
-                    {chips(section, index === 0)}
+                    {chips(section)}
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="flex flex-wrap items-center gap-1">{chips(primary, true)}</div>
+              <div className="flex flex-wrap items-center gap-1">{chips(primary)}</div>
             )}
           </div>
           <ChevronRightIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/job:rotate-90" />
@@ -748,12 +736,12 @@ function JobRow({
                 </ListEditor>
               </div>
             ))}
-            {exceptions.map(({ role, kind }) => (
-              <ExceptionLine
-                key={`${role}:${kind}`}
+            {exceptions.map(({ role, caller }) => (
+              <CallerLine
+                key={`${role}:${caller}`}
                 environmentId={environmentId}
                 role={job.roles.length > 1 ? role : undefined}
-                kind={kind}
+                caller={caller}
                 policy={rolePolicy(manifest, role)}
                 catalog={catalog}
                 manifest={manifest}
@@ -835,13 +823,13 @@ const aliasOf = (manifest: Manifest, model: CatalogModel) =>
   )?.[0];
 
 /**
- * A role's exception to its list: a different first model for large tasks, or for one
- * asking agent. Its choice must be listed in the job, so picking another model lists it last.
+ * A role's exception to its list: a different first model when a given agent asks. Its choice
+ * must be listed in the job, so picking another model lists it last.
  */
-function ExceptionLine({
+function CallerLine({
   environmentId,
   role,
-  kind,
+  caller,
   policy,
   catalog,
   manifest,
@@ -849,91 +837,167 @@ function ExceptionLine({
 }: {
   environmentId: EnvironmentId;
   role: AgentRole | undefined;
-  kind: "large" | string;
+  caller: string;
   policy: RolePolicy;
   catalog: ReadonlyArray<CatalogModel>;
   manifest: Manifest;
   onChange: (edit: (manifest: Manifest, role: AgentRole) => Manifest) => void;
 }) {
-  let body: ReactNode;
-  let remove: (manifest: Manifest, role: AgentRole) => Manifest;
-  if (kind === "large" && policy.large) {
-    const large = policy.large;
-    body = (
-      <>
-        <span>Large tasks start on</span>
-        <PolicyModelPicker
-          environmentId={environmentId}
-          catalog={catalog}
-          binding={manifest.models[large.model]}
-          onPick={(model) =>
-            onChange((m, r) => {
-              const effort = effortForModel(model, large.effort);
-              const [next, alias] = listModel(m, policy.list, model, effort);
-              return setLarge(next, r, {
-                model: alias,
-                ...(effort === undefined ? {} : { effort }),
-              });
-            })
-          }
-        />
-        <PolicyEffortPicker
-          environmentId={environmentId}
-          binding={manifest.models[large.model]}
-          effort={large.effort}
-          onChange={(effort) => onChange((m, r) => setLarge(m, r, { ...large, effort }))}
-          onModelOptionsChange={(options) =>
-            onChange((m) => setModelOptions(m, large.model, options))
-          }
-        />
-      </>
-    );
-    remove = (m, r) => setLarge(m, r, undefined);
-  } else {
-    const first = policy.callers?.[kind] ?? "";
-    const caller = manifest.models[kind];
-    body = (
-      <>
-        <span>When</span>
-        {caller ? (
-          <ModelLabel
-            variant="chip"
-            environmentId={environmentId}
-            driverKind={caller.driverKind}
-            model={caller.model}
-          />
-        ) : (
-          <span>{kind}</span>
-        )}
-        <span>asks, start on</span>
-        <PolicyModelPicker
-          environmentId={environmentId}
-          catalog={catalog}
-          binding={manifest.models[first]}
-          onPick={(model) =>
-            onChange((m, r) => {
-              const [next, alias] = listModel(m, policy.list, model, effortForModel(model));
-              return setCaller(next, r, kind, alias);
-            })
-          }
-        />
-      </>
-    );
-    remove = (m, r) => setCaller(m, r, kind, undefined);
-  }
+  const first = policy.callers?.[caller] ?? "";
+  const binding = manifest.models[caller];
   return (
     <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-muted/40 py-1 ps-3 pe-1 text-xs text-muted-foreground">
       {role ? <AgentRoleChip role={role} /> : null}
-      {body}
+      <span>When</span>
+      {binding ? (
+        <ModelLabel
+          variant="chip"
+          environmentId={environmentId}
+          driverKind={binding.driverKind}
+          model={binding.model}
+        />
+      ) : (
+        <span>{caller}</span>
+      )}
+      <span>asks, start on</span>
+      <PolicyModelPicker
+        environmentId={environmentId}
+        catalog={catalog}
+        binding={manifest.models[first]}
+        onPick={(model) =>
+          onChange((m, r) => {
+            const [next, alias] = listModel(m, policy.list, model, effortForModel(model));
+            return setCaller(next, r, caller, alias);
+          })
+        }
+      />
       <Button
         size="icon-xs"
         variant="ghost-muted"
         className="ms-auto"
         aria-label="Remove exception"
-        onClick={() => onChange(remove)}
+        onClick={() => onChange((m, r) => setCaller(m, r, caller, undefined))}
       >
         <XIcon />
       </Button>
+    </div>
+  );
+}
+
+/** Each listed model once, with the note a delegating agent reads to choose it. */
+function ModelsSection({
+  environmentId,
+  manifest,
+  jobs,
+  providers,
+  onChange,
+}: {
+  environmentId: EnvironmentId;
+  manifest: Manifest;
+  jobs: ReadonlyArray<Job>;
+  providers: ReadonlyArray<ServerProvider>;
+  onChange: (manifest: Manifest) => void;
+}) {
+  return (
+    <SettingsSection id="delegation-models" title="Models">
+      <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
+        One note per model, saying what it is good at. Agents read these when they choose a model
+        for a job.
+      </p>
+      {listedModels(manifest, jobs).map(({ alias, model, roles }) => {
+        const binding = manifest.models[alias]!;
+        const name = modelLabel(binding, alias, providers);
+        return (
+          <div
+            key={model}
+            className="grid grid-cols-1 items-center gap-x-4 gap-y-1.5 border-t border-border/60 px-3 py-2.5 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)] sm:px-4"
+          >
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <ModelLabel
+                environmentId={environmentId}
+                driverKind={binding.driverKind}
+                model={binding.model}
+                className="text-sm"
+              />
+              <div className="flex flex-wrap gap-1">
+                {roles.map((role) => (
+                  <AgentRoleChip key={role} role={role} />
+                ))}
+              </div>
+            </div>
+            <NoteField
+              name={name}
+              note={modelNote(manifest, model) ?? ""}
+              onSave={(note) => onChange(setModelNote(manifest, model, note))}
+            />
+          </div>
+        );
+      })}
+    </SettingsSection>
+  );
+}
+
+const NOTE_SAVE_DELAY_MS = 700;
+
+/** A one-line note that saves shortly after typing stops, and at once on Enter or leaving it. */
+function NoteField({
+  name,
+  note,
+  onSave,
+}: {
+  name: string;
+  note: string;
+  onSave: (note: string) => void;
+}) {
+  const [value, setValue] = useState(note);
+  const [focused, setFocused] = useState(false);
+  // A note saved elsewhere replaces this one unless it has unsaved typing.
+  const [shownNote, setShownNote] = useState(note);
+  if (shownNote !== note) {
+    setShownNote(note);
+    if (value.trim() === shownNote) setValue(note);
+  }
+  const unsaved = value.trim() !== note;
+  const save = useEffectEvent((text: string) => onSave(text));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Debounces the save with a timer, so typing is not a policy write per key.
+  useEffect(() => {
+    if (!unsaved) return;
+    const timer = setTimeout(() => save(value), NOTE_SAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [unsaved, value]);
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <div className="relative">
+        <Textarea
+          size="sm"
+          rows={1}
+          maxLength={MODEL_NOTE_MAX_LENGTH}
+          value={value}
+          aria-label={`What ${name} is good at`}
+          placeholder="What is it good at? e.g. Cheap and fast; bounded code"
+          onFocus={() => setFocused(true)}
+          onChange={(event) => setValue(event.target.value.replace(/\n/g, " "))}
+          onBlur={() => {
+            setFocused(false);
+            if (unsaved) onSave(value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            event.currentTarget.blur();
+          }}
+        />
+        {focused ? (
+          <span className="pointer-events-none absolute end-2.5 top-0 flex h-8 items-center text-2xs text-muted-foreground tabular-nums">
+            {value.length}/{MODEL_NOTE_MAX_LENGTH}
+          </span>
+        ) : null}
+      </div>
+      {note === "" && !unsaved ? (
+        <span className="text-xs text-warning-foreground">
+          No note: agents choose {name} by list order alone.
+        </span>
+      ) : null}
     </div>
   );
 }

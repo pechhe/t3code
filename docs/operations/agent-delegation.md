@@ -36,9 +36,10 @@ missing, not replaced by a second model from a maker already sitting; with fewer
 than two makers one reviewer runs. The result's `council` names each member's task
 and the `taskRef` it records its review under; the lead records the round's roster
 in Forge, which then accepts the Spec only when every member's review is clean.
-Any installed provider's models can be listed, not only Codex and Claude. A role may also start large
-(`demanding`) tasks with a different model, and start with a different model
-when a named model asks. Reviewers can prefer a provider other than the author's.
+Any installed provider's models can be listed, not only Codex and Claude. A model
+may carry a `note` saying what it is good at: one note per model, shared by every
+alias that binds it, and edited in Settings → Delegation → Models. A role may start
+with a different model when a named model asks. Reviewers can prefer a provider other than the author's.
 Briefs remain read-only.
 
 Each change in Settings → Delegation saves at once; an edit made while a save runs
@@ -219,11 +220,12 @@ its revision and the role names, or the reason the policy is refused.
 - A role uses the first available model in its list. An account at a usage
   limit is passed over for the next listed model with allowance, and
   `agent_roles` names it in `usageLimited`; only when every candidate is limited
-  does the one resetting soonest serve, and the task continues after the reset. A large (`demanding`) task
-  starts with the role's `large` model, and a caller whose model has a `callers`
-  entry starts with that model instead; the rest of the list follows. A caller
-  may name any listed model with `target.model`. `agent_roles` resolves for the
-  same caller; pass `reviewScope: "spec"` for the Spec list. Without it, discovery
+  does the one resetting soonest serve, and the task continues after the reset. A
+  caller whose model has a `callers` entry starts with that model instead; the
+  rest of the list follows. A caller may name any listed model with
+  `target.model`, which is how a delegating agent picks one: `agent_roles` lists
+  each role's models in order with effort, note and whether one can start now.
+  `agent_roles` resolves for the same caller; pass `reviewScope: "spec"` for the Spec list. Without it, discovery
   shows the change list. Role-based schedules have no review scope and use that
   change default.
 - A follow-up to a task launched on a source revision must state the revision

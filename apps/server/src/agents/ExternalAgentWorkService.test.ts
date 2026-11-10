@@ -10,7 +10,7 @@ import {
   type AgentExternalSession,
   type AgentTaskOutcomeInput,
   type ExperimentDefinition,
-  type OrchestratorMcpDelegateTaskInput,
+  OrchestratorMcpDelegateTaskInput,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
@@ -24,6 +24,10 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as TestClock from "effect/testing/TestClock";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import * as Schema from "effect/Schema";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as Digest from "effect/crypto/Digest";
+import * as Hex from "effect/encoding/Hex";
 import * as AuthSessions from "../persistence/AuthSessions.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ProcessRunner from "../processRunner.ts";
@@ -37,6 +41,7 @@ import * as Experiments from "../experiments/ExperimentService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as External from "./ExternalAgentWorkService.ts";
 import * as Managed from "./ManagedAgentService.ts";
+import { withRetiredDemanding } from "./retiredDemanding.ts";
 import { snapshot, request, codex, claude, changeReview } from "./agentPolicy.testkit.ts";
 
 const localChildId = (task: { readonly childThreadId: ThreadId | null }): ThreadId => {
@@ -64,12 +69,16 @@ interface LaunchState {
   readonly otherProjectThreads?: ReadonlyArray<unknown>;
 }
 
+const encodeSubmission = Schema.encodeSync(Schema.fromJsonString(OrchestratorMcpDelegateTaskInput));
+
 type FixtureEnvironment =
   | ServerSettings.ServerSettingsService
   | AuthSessions.AuthSessionRepository
   | External.ExternalAgentWorkService
   | Experiments.ExperimentService
-  | Managed.ManagedAgentService;
+  | Managed.ManagedAgentService
+  | SqlClient.SqlClient
+  | Digest.Digest;
 
 const processRunner = (state: Ref.Ref<LaunchState>) =>
   Layer.succeed(ProcessRunner.ProcessRunner, {
@@ -598,6 +607,35 @@ it.effect(
           )
           .pipe(Effect.flip);
         expect(reused.reason).toBe("conflict");
+      }),
+    ),
+);
+
+it.effect(
+  "resumes a task first started with the retired demanding flag when retried without it",
+  () =>
+    withFixture((f) =>
+      Effect.gen(function* () {
+        const client = yield* f.issueSession("client-demanding");
+        const session = yield* f.attach(client);
+        const input = f.submitInput(session);
+        const first = yield* f.submit(client, input);
+        // Rewrite the stored fingerprint as a submission that still carried `demanding` hashed it.
+        const wire = encodeSubmission({
+          ...input,
+          clientRequestId: undefined,
+        });
+        const saved = Hex.encode(
+          yield* (yield* Digest.Digest).digest(
+            Digest.sha256,
+            new TextEncoder().encode(withRetiredDemanding(wire)[1]!),
+          ),
+        );
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`UPDATE external_agent_work SET fingerprint = ${saved} WHERE task_id = ${first.taskId}`;
+        const retry = yield* f.submit(client, { ...input, clientRequestId: "request-two" });
+        expect(retry.taskId).toBe(first.taskId);
+        expect((yield* Ref.get(f.state)).calls).toHaveLength(1);
       }),
     ),
 );

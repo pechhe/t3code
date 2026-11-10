@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
-import { AgentPolicyManifest, ServerProvider } from "@t3tools/contracts";
+import { AgentPolicyManifest, ProviderDriverKind, ServerProvider } from "@t3tools/contracts";
 import {
   catalogModels,
   councilIssue,
@@ -22,6 +22,7 @@ import {
   setCaller,
   setCouncil,
   setModelFast,
+  setModelNote,
   setModelOptions,
   splitGroup,
   splitJob,
@@ -80,7 +81,6 @@ const manifest = () =>
       }),
       advisor: role("advisor", {
         brief: "roles/advisor.md",
-        large: { model: "opus", effort: "max" },
         callers: { haiku: "opus" },
       }),
       reviewer: role("workhorse", { brief: "roles/reviewer.md", specList: "workhorse" }),
@@ -249,7 +249,6 @@ describe("delegation settings", () => {
 
   it("removing a model drops the exceptions that named it", () => {
     const next = removeEntry(manifest(), "advisor", "opus");
-    expect(next.roles.advisor.large).toBeUndefined();
     expect(next.roles.advisor.callers).toBeUndefined();
     expect(isValid(next)).toBe(true);
     // Removing the last model leaves a job that cannot be saved.
@@ -274,12 +273,29 @@ describe("delegation settings", () => {
     const alias = next.lists["advisor"]![1]!.model;
     expect(next.models[alias]?.model).toBe("claude-fable");
     expect(next.lists["advisor"]![1]!.effort).toBe("medium");
-    expect(next.roles.advisor.large?.model).toBe(alias);
     expect(next.roles.advisor.callers).toEqual({ haiku: alias });
     expect(isValid(next)).toBe(true);
     // A model already in the list is not listed twice.
     const sol = { ...model!, binding: manifest().models.sol! };
     expect(replaceEntry(manifest(), "advisor", "opus", sol, "high")).toEqual(manifest());
+  });
+
+  it("keeps one note per model, on every alias that binds it", () => {
+    const base = manifest();
+    const twin = { ...base, models: { ...base.models, "opus-pi": { ...base.models.opus! } } };
+    const noted = setModelNote(twin, "claude-opus", "  Strongest; design work ");
+    expect(noted.models.opus!.note).toBe("Strongest; design work");
+    expect(noted.models["opus-pi"]!.note).toBe("Strongest; design work");
+    // The same model on another account is a new alias that inherits the note.
+    const [model] = catalogModels([provider()]);
+    const elsewhere = {
+      ...model!,
+      binding: { ...model!.binding, driverKind: ProviderDriverKind.make("pi") },
+    };
+    const [listed, alias] = ensureModel(noted, elsewhere);
+    expect(alias).not.toBe("opus");
+    expect(listed.models[alias]!.note).toBe("Strongest; design work");
+    expect(setModelNote(noted, "claude-opus", "").models.opus).toEqual(base.models.opus);
   });
 
   it("turns fast on and off for a model without leaving an empty options map", () => {
@@ -333,7 +349,7 @@ describe("delegation settings", () => {
     expect(offersFast(manifest().models["opus"], [tiered])).toBe(false);
   });
 
-  it("lists a large-task or per-agent choice the job did not list yet, last", () => {
+  it("lists a per-agent choice the job did not list yet, last", () => {
     const [model] = catalogModels([provider()]);
     const [next, alias] = listModel(manifest(), "workhorse", model!, "medium");
     expect(alias).toBe("opus");

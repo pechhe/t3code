@@ -1259,9 +1259,11 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
     }),
   );
 
-  it.effect("discovery names the accounts a role passed over for usage", () =>
+  it.effect("discovery lists a role's models, and names the accounts passed over for usage", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
+      const sol = { ...f.manifest.models.sol!, note: "Careful coder" };
+      yield* f.writeManifest({ ...f.manifest, models: { ...f.manifest.models, sol } });
       const claudeOut: ServerProvider = {
         ...claude,
         usageLimits: {
@@ -1289,6 +1291,21 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       expect(reviewer.usageLimited).toContainEqual(
         expect.objectContaining({ model: claudeModel, providerInstanceId: claude.instanceId }),
       );
+      // Every listed model in list order, with its note and whether it can start now.
+      expect(reviewer.models).toEqual([
+        { model: claudeModel, effort: "medium", available: false },
+        { model: codexModel, effort: "medium", note: "Careful coder", available: true },
+      ]);
+      // A choice that must start now, such as a Champion replay, skips the exhausted account.
+      const ranked = yield* f.service
+        .ranked({
+          providers: [codex, claudeOut],
+          ceiling: "full-access",
+          request: { taskClass: "non-ui", sourceRevision },
+          role: "reviewer",
+        })
+        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+      expect(ranked.map((selection) => selection.model)).toEqual([codexModel]);
       const unlimited = yield* f.service
         .roles({
           providers: [codex, claude],

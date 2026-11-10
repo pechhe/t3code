@@ -885,7 +885,7 @@ const make = Effect.gen(function* () {
       "2. Survey before you choose: open your tabs, one per area in the sidebar first, and call t3_browser_snapshot on each. Read the links and buttons inside each page's main content, not the sidebar, then open and snapshot the pages those links lead to as well, so you have seen two levels. Name in each goal the links it should follow, as the snapshot shows them, and spend no journey on a feature that needs a real model, voice or outbound service, since this contained copy has none. Then choose journeys a real person might take and break. At least half must start on, or pass through, a page or control you found only this way, and a page reached only from inside another page gets at least two journeys, since nobody else will go there. No two journeys may share a start and a goal, on any shard: a shard is capacity, not a reason to repeat a path. A shard may carry a locale and workPaths: give each journey that changes data its own workPath, and never run two journeys on the same workPath at once; give a journey on a shard with a locale, such as pt-BR, the goal of reading its screens for English left behind, judged from what the screen shows. Include journeys a real person takes that goal-driven clicking misses: dragging an element between lanes, a phone-width journey opened with a narrow viewport, and a keyboard-only journey of key presses with no clicks, checking which element holds focus. Prefer areas no earlier check covered and areas that recently changed; past coverage is a list to avoid, so never reuse a goal from a learning unless it is a re-test. Every goal is an attack of at least three steps, never a visit, and across the check cover each kind of break: searches and filters given unusual input such as ( [ % or a very long value; a draft started, then a link followed away and back, checking the draft survived; a multi-step flow taken to its very last button, checking that button can be used; empty submits and double submits. Never ask a goal to report: the task's model reads each page for you. Never name or assume a bug you have not seen.",
       "3. Run them all at once, spread evenly across the shards, never one shard at a time: the check is measured on how many overlap. In ONE message issue one t3_browser_open per journey with url = the shard's origin + its signInPath (add next=<path> for where it starts). Then in ONE message issue one t3_browser_task per tab, each with a goal, pageReach: {}, a limit of decisions from the plan, a binding for every value it must type, since a goal cannot type without one, and checks that can pass only at the journey's end, such as text the finished task must show. A task that takes no action counts as testing nothing, so give each goal something to do, never use a bare url check, and do not fall back to scripted steps. A journey that must run at one width opens with t3_browser_open viewport { width, height } and stays at it; its replay will repeat that width. Put the plan's full journeyLimit, every shard's journeys together, in those two messages: a check that started fewer, or started them in smaller batches, has not done its job. One tab is one journey, and more tasks in the same tab continue it. The server records every journey, its clicks and its timing. Your browsers can reach only the shards. Close each tab when its journey ends.",
       "4. A journey that shows an error page, a dead end, lost work or anything a person would call broken is a candidate: call t3_champions_journey_candidate with its tabId, what should have happened and what did. A task that ends with reason page-broken always is: what should have happened comes from its goal, and what did from its detail. That tells nobody. Do not judge whether it is real; a stronger model decides. If a journey only stalled on a limit or a slow page, it is not a candidate.",
-      "5. For every candidate, and for every re-test the plan names, call t3_champions_candidate_replay, and once more for one that settles inconclusive. It starts a fresh database and returns workId, attemptId and a brief. Call delegate_task with agentTask {role: browser, taskClass: non-ui, readOnly: true, demanding: true, browser: {backend: integrated}, workId, attemptId, workspacePath: your workspace} and mode wait, and task = the brief, unchanged; any other task is refused, and so is a follow-up. At most four replays run at once: when a call says so, settle one and go on. When each finishes call t3_champions_candidate_settle: the server reads that agent's verdict itself; what you say about it does not count. Only a confirmed candidate becomes a finding.",
+      "5. For every candidate, and for every re-test the plan names, call t3_champions_candidate_replay, and once more for one that settles inconclusive. It starts a fresh database and returns workId, attemptId and a brief. Call delegate_task with agentTask {role: browser, taskClass: non-ui, readOnly: true, browser: {backend: integrated}, workId, attemptId, workspacePath: your workspace} and mode wait, and task = the brief, unchanged; any other task is refused, and so is a follow-up. At most four replays run at once: when a call says so, settle one and go on. When each finishes call t3_champions_candidate_settle: the server reads that agent's verdict itself; what you say about it does not count. Only a confirmed candidate becomes a finding.",
       "6. Retain what you covered and under which build with t3_champions_record_learning, plainSummary first.",
       "7. Call t3_champions_report with samples for each frozen metric, findings: [] (the server raises findings from confirmed candidates; never file one yourself), journeys: {started, passed, failed, stopped} counted honestly from your results, and a summary. The server compares your counts with its own and marks the check incomplete if they differ or if a shard stopped. Report plainly a check that could not finish, or that found nothing, with the paths it covered.",
       `Open findings, whose steps t3_champions_journeys_start returns as re-tests: ${JSON.stringify(doc.findings.filter((f) => f.status !== "verified" && f.status !== "dismissed").map(({ id, title }) => ({ id, title })))}. Charter: ${encodeCharter(doc.champion.charter)}`,
@@ -2521,11 +2521,10 @@ const make = Effect.gen(function* () {
     if (
       request.role !== "browser" ||
       request.readOnly !== true ||
-      request.demanding !== true ||
       (request.browser !== undefined && request.browser.backend !== "integrated")
     )
       return yield* refuse(
-        "A replay runs as role browser with readOnly true, demanding true and the integrated browser.",
+        "A replay runs as role browser with readOnly true and the integrated browser.",
       );
     if (Option.isNone(managedAgents)) return yield* new ChampionError({ reason: "unavailable" });
     const enabled = yield* Effect.filter(yield* providers.getProviders, (provider) =>
@@ -2535,26 +2534,23 @@ const make = Effect.gen(function* () {
       }),
     );
     const excluded = yield* journeyModels(doc);
-    const result = yield* managedAgents.value
-      .roles({
+    const ranked = yield* managedAgents.value
+      .ranked({
         projectId: doc.champion.projectId,
         providers: enabled,
         ceiling: "full-access",
         request,
+        role: "browser",
       })
       .pipe(Effect.mapError(failure));
-    const selected = result.roles.find((role) => role.role === "browser");
-    if (selected?.selection == null || selected.refusal !== null)
+    const selection = ranked.find((candidate) => !excluded.has(candidate.model));
+    if (selection === undefined)
       return yield* new ChampionError({
         reason: "unavailable",
-        detail: `No model can confirm this candidate: ${selected?.refusal ?? "the browser role has no choice"}.`,
+        detail:
+          "No model can confirm this candidate: a confirmation runs on the first browser-list model that can run and is none of the models the check itself uses (its own model, Jev, Luna or the decision model), and none can run now.",
       });
-    if (excluded.has(selected.selection.model))
-      return yield* new ChampionError({
-        reason: "unavailable",
-        detail: `A confirmation must differ from this check's own model and from Jev, and the browser role's demanding model is ${selected.selection.model}.`,
-      });
-    return selected.selection;
+    return selection;
   });
   const journeysStart: ChampionService["Service"]["journeysStart"] = Effect.fn(
     "ChampionService.journeysStart",

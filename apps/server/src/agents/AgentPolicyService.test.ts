@@ -187,7 +187,7 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       );
       const first = yield* service.snapshot(root);
       expect(first.briefs.reviewer.text).toBe("Spec rubric\n");
-      expect(first.manifest.roles.reviewer.large).toBeUndefined();
+      expect(first.manifest.roles.reviewer).not.toHaveProperty("large");
       expect(first.manifest.roles.reviewer.list).toBe("workhorse");
       expect(first.manifest.roles.reviewer.specList).toBe("advisor");
       expect(first.manifest.lists).toEqual(current.lists);
