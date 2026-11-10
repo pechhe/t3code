@@ -3,32 +3,32 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.9-nightly.20261110.4449",
-      "sha": "eb381a7d4f4475d60fbb1f59efe9f204de59bba8"
-    },
-    "target": {
       "tag": "v0.1.9-nightly.20261110.4452",
       "sha": "822671581383a357c5dc8d3ea9984b408c3e03c6"
+    },
+    "target": {
+      "tag": "v0.1.9-nightly.20261110.4465",
+      "sha": "7171fdd7716b05dc1b4be40c26ac78e8bb35f80c"
     }
   },
   "fork": {
-    "base": "99f36db480a13916652e005917285fadb1e110f6"
+    "base": "413d714937d53014eca23aa736e335028703ca3d"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "83a84542fc98b7e8be7edb9efc1b54a8eaae26fb"
+    "blob": "88a4974e8bec5af30db14f747ac40222a0209d9a"
   },
   "policy": {
     "requiredLandingVerificationSha256": "f57f8da576ea5674b21d79bbc7768f8e0c381aa98726cc2705048b36ea3176a7"
   },
-  "attempt": "v0.1.9-nightly.20261110.4452@1794280173",
-  "reviewedAt": "2026-11-10T03:35:00Z",
+  "attempt": "v0.1.9-nightly.20261110.4465@1794305433",
+  "reviewedAt": "2026-11-10T10:30:21.876Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:f8124cdb-88d4-42f4-89cc-8f582b409794",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:3a480cb0-97df-4add-912a-6eda0b7ec05d",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 15,
+    "upstreamCommits": 31,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
@@ -108,217 +108,181 @@
       "shared-provider-setup"
     ],
     "areas": [
-      "mobile workspace shell and thread header (AdaptiveWorkspaceLayout's `useWorkspacePaneState` split, Android screen header, app bar and toolbar layout at rest, composer model control, provider icons, thread list rows, files route screen, thread inspector navigation)",
-      "mobile dev-client CI and script (`.github/workflows/mobile-dev-client.yml`, `.github/scripts/mobile-preview-comment.cjs`, `scripts/mobile-native-client.ts` dispatching the Blacksmith build, the `test-t3-mobile` skill's description of that wait)",
-      "web new-thread defaults (last used project storage and atom, `resolveDefaultProjectRef`'s `lastUsedProjectKey`, `defaultProjectFallbackReady`, chat route commands, SnapShotCoordinator, Sidebar)",
-      "web background work details (`BackgroundWorkDetails`, `ThreadActivityBanners`' banner item, a pending background task's `command`/`itemId`/`sourceThreadId`, Claude's roster merging each update over the previous one)",
-      "orchestration instructions and WebMCP copy (`orchestrationInstructions.ts` visuals bullet, `preview_evaluate`'s description, `evals/mcp-tool-use/cases/visual-preview.ndjson`)",
-      "preview server tab visibility (`ServerBrowser`'s `isVisible`)",
-      "Antigravity usage and pricing (`antigravityUsageReader` model names from usage metadata and effort prices, `antigravityAuthSupport`'s inherited Crashpad pipe)",
-      "desktop shell external link allowlist (`ElectronShell`'s `APP_LAUNCH_URLS`)",
-      "expanded image and zoomable image scrolling (`ExpandedImageDialog`, `ZoomableImage` pinch and pan)",
-      "mobile EAS preview and production workflow rewrites and the CI runner change (`.github/workflows/mobile-eas-*.yml`, `ci.yml`, `infra/task-cache/README.md`)"
+      "orchestration-v2 middle: PR-link command reduction and the PR-watch restart carry (Orchestrator.ts, PullRequestWatchReactor.ts, packages/contracts/src/threadPullRequest.ts) beside the fork's thread/Forge watches and restructured projector",
+      "orchestration-v2 streaming: the paragraph filter rewritten around held snapshot tracks with an 800ms idle flush (assistantStreaming.ts, RunExecutionService.ts timer, contracts unchanged) beside the fork's opt-in live mode",
+      "orchestration-v2 delivery: delegated-completion wake settlement on a restarted steer, detached-session approval release, provider batch typing (RunExecutionService.ts, EventSink.ts, ProviderSessionManager.ts, ProviderCommitBatch.ts, NotificationMailbox.ts) beside the fork's workflow-json read and browser/read-only task classes",
+      "Claude adapter: MCP elicitation session grants (#33707) and the model catalog path, beside the fork's full-access environment, transcript-resume check, compaction plan and usage records",
+      "preview browser: preview_evaluate replays a parse error with replMode and terminates a timed-out script (ServerBrowserPage.evaluate), and a reloaded desktop re-announces a tab until its attach wait ends (ServerBrowser.desktopRenders); both are decided below, and the fork's Phi backend, preview tab lifetime and managed browser leases keep their own paths",
+      "provider probes: providerProbeEnvironment (MISE_OFFLINE) and parseCliVersionResult across provider-core and every provider package's status/probe path, beside each package's fork capability flags",
+      "ssh: the runner's explicit system/machine archive key and tunnel readiness that excludes ssh's connection time, beside the fork's boot-service ownership wait",
+      "source control and vcs: branch-menu PR status no longer wiped, push target resolution, Forgejo merged-PR lookup with a deleted head branch; beside the fork's landing-driven VCS refresh and checkpoint path helper",
+      "markdown: escaped prose paths scanned once per text node and relative Windows file links, under the fork's per-block markdown rendering",
+      "web and desktop chrome: remote Lineage truncation, PR title centring, snooze footer, mailto copy, database notice, mobile usage selector and app config version, desktop background-agent tab survival"
     ],
     "exclusions": [
       {
-        "what": "upstream's own code inside the 15 incoming commits",
-        "why": "upstream reviewed it; only the merge's conflict resolutions and this reconciliation commit are reviewed here"
+        "what": "upstream docs/user/source-control.md",
+        "why": "upstream documents its own branch-menu fix; no fork entry describes that surface"
       },
       {
-        "what": "the merge's clean auto-merges",
-        "why": "checked every upstream-changed file the fork had also changed (26 of 74) and read each merged result for a semantic clash; ServerBrowser, SnapShotCoordinator, useHandleNewThread, ThreadActivityBanners, ClaudeAdapterV2, antigravityUsageReader, contracts and the mobile shell keep both sides, and the typechecks and suites below cover them"
+        "what": "migrations and dependency manifests",
+        "why": "this update ships no migration and no package.json or pnpm-workspace change, so no numbering or catalog decision was needed"
       },
       {
-        "what": "upstream's mobile EAS preview and production workflow rewrites",
-        "why": "they describe upstream's own release pipeline on Blacksmith; the fork's build requirements are recorded in desktop-fork-build and no fork workflow file was changed by the merge"
-      },
-      {
-        "what": "`evals/mcp-tool-use/cases/visual-preview.ndjson`",
-        "why": "a new eval case costs a real model turn and the copy it covers is asserted by orchestrationInstructions.test.ts; evals/mcp-tool-use is run by #135's routine, not per update"
+        "what": "upstream UI polish with no fork code in the region (CustomSnoozeDialog, ThreadDetailsPrRow, ThreadDetailsControl, DatabaseStorageNotice, mobile navigator and usage route, desktop mailto menu)",
+        "why": "additive upstream fixes on surfaces no fork entry modifies"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "fork-guidance",
-      "upstream": "the visuals bullet now says page tools write only on user request (#26570), and a second always-delivered bullet spells out the `preview_*` usage rules",
+      "entry": "live-response-streaming",
+      "upstream": "upstream #28221 rewrites the paragraph filter into held snapshot tracks with nextIdleFlushAt/takeIdleFlushes and an 800ms idle flush",
       "decision": "adapt",
       "requirements": [
-        "upstream's wording is the base and the fork's rules stay inside its one bullet",
-        "preview rules reach only a thread whose listing carries the preview family",
-        "the `.png`-for-an-image and never-restate-the-page rules survive"
+        "live remains a selectable mode whose snapshots are delivered whole with the 45ms burst cap and none held",
+        "paragraph mode and the plain working row stay upstream's default",
+        "a client that does not announce liveResponseStreaming still gets paragraph"
       ],
       "evidence": [
-        "packages/provider-core/src/server/orchestrationInstructions.ts: the visuals bullet keeps `before your final reply`, the reader-above-the-reply rule and the image rule, with upstream's page-tool sentence",
-        "the preview usage text lives once, in T3_CODE_BROWSER_TOOL_INSTRUCTIONS, now with upstream's `including recording edits`; packages/provider-core/src/server/orchestrationInstructions.test.ts passes"
+        "apps/server/src/orchestration-v2/assistantStreaming.ts: live is an early branch inside upstream's filter object, so nextIdleFlushAt stays null and the idle timer never arms for it",
+        "apps/server/src/orchestration-v2/assistantStreaming.test.ts: the live test drives filter through the returned object; 16 tests pass",
+        "apps/server/src/orchestration-v2/RunExecutionService.ts: upstream's scheduleIdleFlush/flushIdleAssistantText unchanged"
       ]
     },
     {
-      "entry": "session-tool-listings",
-      "upstream": "`preview_evaluate`'s description is shortened for requested WebMCP writes, and a pending background task gains optional `command`, `itemId` and `sourceThreadId`",
-      "decision": "adapt",
-      "requirements": [
-        "the family table, endpoints and child texts are unchanged",
-        "the recorded budgets match the measurement again"
-      ],
-      "evidence": [
-        "apps/server/src/provider/agentContextBudget.json re-measured to 9,801 / 12,263 / 122,092 bytes and AgentContextBudget.test.ts passes",
-        "apps/server/src/shippedClientCompatibility.test.ts passes, so the additive optional fields still decode for a shipped client"
-      ]
-    },
-    {
-      "entry": "mobile-fork-screens",
-      "upstream": "upstream's mobile batch: the workspace pane state split, Android header, app bar and toolbar layout settling at rest, composer model control and provider icon restyling, dev clients built on Blacksmith (#33599, #33611, #33617, #33618)",
-      "decision": "adapt",
-      "requirements": [
-        "the Forge item header and sheet, workflow badge, release approval card, Jujutsu labels, Away key and settings entries stay where the last update put them",
-        "upstream's structure is taken whole, with the fork's header title content re-attached"
-      ],
-      "evidence": [
-        "apps/mobile/src/features/threads/ThreadHeader.tsx keeps `titleContent` inside upstream's split hook import; the conflict was resolved by keeping both",
-        "the mobile typecheck is clean and thread-inspector-navigation.test.tsx, layout.test.ts and filePreview.test.ts pass (121 tests)",
-        "scripts/mobile-native-client.ts still offers `ensure`, so AGENTS.md's instruction is unchanged"
-      ]
-    },
-    {
-      "entry": "no-project-chats",
-      "upstream": "a new thread defaults to the last used project (#6f8c7433: `LAST_USED_PROJECT_STORAGE_KEY`, `lastUsedProjectKey`, `defaultProjectFallbackReady`)",
-      "decision": "adapt",
-      "requirements": [
-        "the sidebar's New thread still starts a No project draft unless shift or a single open project group applies",
-        "the paths that already started in a project now use the remembered one and wait for it to be ready",
-        "the fork's in-place draft retargeting, chip row and palette exclusions are unchanged"
-      ],
-      "evidence": [
-        "apps/web/src/hooks/useHandleNewThread.ts keeps the fork's `retargetDraftId` beside upstream's last-used read; components/Sidebar.tsx still decides with the fork's `shouldCreateNewThreadInCurrentProject`",
-        "useHandleNewThread.test.ts, state/shell.test.ts and Sidebar.browser.test.tsx pass (the merged test keeps the fork's scenario table and adds upstream's required `defaultProjectFallbackReady`)",
-        "the chat route commands keep the fork's gate (shortcuts/chatRouteCommands.ts checks shouldCreateNewThreadInCurrentProject) and chatRouteCommands.test.ts asserts it; that suite needs `using`/`DisposableStack`, so the landing gate runs it on the SlipJay runner (peach-live, Node 24.21.0, where both are available) rather than on this Mac's Node 22"
-      ]
-    },
-    {
-      "entry": "delegated-work-visibility",
-      "upstream": "full command details for background work (#33647): `BackgroundWorkDetails` in the banner, a pending task's command and item ids, Claude's roster merging",
-      "decision": "adapt",
-      "requirements": [
-        "the detail opens over the fork's `backgroundWorkNowItem` with its `BackgroundWorkStrip` link handlers intact",
-        "the subagent panel, its finish rules and the roll-up are unchanged"
-      ],
-      "evidence": [
-        "components/chat/ThreadActivityBanners.tsx takes both upstream's `environmentId` and `BackgroundWorkDetails` and the fork's `handlers`; upstream's new BackgroundWorkDetails.browser.test.tsx passes once it supplies those handlers",
-        "ClaudeAdapterV2.test.ts passes (518 tests across the six server suites run for this update)"
-      ]
-    },
-    {
-      "entry": "preview-browser-lifetime",
-      "upstream": "a tab's visibility is `isVisible(tab)` rather than `viewers.size > 0`, so a desktop-embedded tab counts while the desktop shows it (#23589)",
+      "entry": "thread-watches",
+      "upstream": "upstream #24599 adds awaitingApproval and approvalAnnounced to ThreadPullRequestWatch, carried across a restarted watch and compared in PullRequestWatchReactor",
       "decision": "adopt",
       "requirements": [
-        "the fork's profile-context close, revoked-access and stalled-start bounds are unchanged",
-        "no second lifetime policy is introduced"
+        "the fork's thread and Forge watches are unaffected: ThreadWatchReactor, orchestrationV2PendingBackgroundWork, endedThreadWatches and the composer strip",
+        "PR watches stay upstream's and separate"
       ],
       "evidence": [
-        "apps/server/src/preview/ServerBrowser.ts keeps the fork's context ownership beside upstream's visibility helper; ServerBrowser.test.ts and ServerBrowserContexts.test.ts pass"
+        "packages/contracts/src/threadPullRequest.ts: both fields additive optional, so shipped clients keep decoding the shell",
+        "apps/server/src/orchestration-v2/Orchestrator.ts: the two spreads landed inside the fork's restructured projector",
+        "apps/server/src/orchestration-v2/pullRequestWatch.test.ts and ThreadWatch.test.ts pass (85 tests with the Orchestrator and contracts suites)"
       ]
     },
     {
-      "entry": "snapshot-overlay",
-      "upstream": "SnapShotCoordinator remembers the last used project and holds a capture until that default is ready",
-      "decision": "adapt",
+      "entry": "ssh-launch-respects-boot-service",
+      "upstream": "upstream #33325 names the runner archive by an explicit system/machine key and #33554 makes tunnel readiness exclude ssh's own connect time",
+      "decision": "adopt",
       "requirements": [
-        "the overlay still reuses its conversation until the user ends it and starts a fresh project-less chat otherwise",
-        "the overlay's dock, shortcut, capture pool and conversation state are unchanged"
+        "a user service that owns the default home is still waited for (30s) and adopted, or the launch fails without starting a second server",
+        "a host with no such service still launches its own server"
       ],
       "evidence": [
-        "components/desktop/SnapShotCoordinator.tsx keeps `reusableSnapShotTarget`, `overlay` and `startOverlayDraft` beside upstream's last-used project effect; SnapShotCoordinator.browser.test.ts plus the overlay dock and session suites pass (20 tests)"
+        "packages/ssh/src/tunnel.ts: boot_service_owns_home, wait_for_boot_service, REMOTE_SERVICE_READY_TIMEOUT_MS and the guard before pick_port are unchanged beside upstream's T3_PLATFORM_KEY and waitForTunnelForward",
+        "packages/ssh/src/tunnel.test.ts: the three launch tests and upstream's new host-key test pass (with selfUpdate and markdown suites, 100 tests)"
+      ]
+    },
+    {
+      "entry": "perf-markdown-blocks",
+      "upstream": "upstream #33438 scans each text node once when keeping a prose path escape and #33643 resolves a relative Windows file link",
+      "decision": "adopt",
+      "requirements": [
+        "a message still renders as memoised top-level blocks and a cross-block message still renders whole",
+        "the file-link maps keep their identity while links and code spans are unchanged"
+      ],
+      "evidence": [
+        "packages/shared/src/markdownWindowsPaths.ts: upstream's wordScans WeakMap sits under the fork's block splitting, which creates fresh token objects per parse",
+        "packages/shared/src/markdownWindowsPaths.test.ts and markdownLinks.test.ts pass"
+      ]
+    },
+    {
+      "entry": "claude-full-access-no-prompts",
+      "upstream": "upstream #33707 offers \"Always allow this session\" for MCP elicitation and remembers the grant for the session",
+      "decision": "adopt",
+      "requirements": [
+        "a full-access Claude query still carries CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1 and other modes are unchanged"
+      ],
+      "evidence": [
+        "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts: upstream's mcpElicitationSessionGrants is the CLI ask path, not the permission callback the fork's variable skips",
+        "server typecheck passes with the merged adapter"
       ]
     },
     {
       "entry": "account-pools",
-      "upstream": "Antigravity model names come from the usage metadata and Gemini Flash effort variants are priced (#33661, #13809)",
+      "upstream": "upstream #33448 runs background status probes with MISE_OFFLINE=1 through providerProbeEnvironment, and reports no version from a failed --version run",
       "decision": "adopt",
       "requirements": [
-        "pool routing, capacity-weighted shares and the usage card read the same data as before",
-        "no fork change to the usage sources"
+        "pooled routing, the pre-routing usage refresh, the shared pool config and the MCP credential repair are unchanged",
+        "sessions and user-started commands keep the plain environment"
       ],
       "evidence": [
-        "apps/server/src/provider/Drivers/antigravityUsageReader.ts and its test are upstream's; antigravityUsageReader.test.ts and antigravityAuthSupport.test.ts pass"
+        "packages/provider-core/src/server/snapshotProbe.ts: providerProbeEnvironment and parseCliVersionResult, applied by each provider package's status and probe path",
+        "the fork's session-side Claude history worker is not a status probe and keeps its environment",
+        "provider-core, contracts and server typecheck pass"
       ]
     },
     {
-      "entry": "desktop-fork-build",
-      "upstream": "the desktop shell opens one exact app link, `grokbot://app` (#33663), and its tests cover it beside the editor deep links",
-      "decision": "adapt",
+      "entry": "preview-browser-lifetime",
+      "upstream": "upstream #33666 repeats the tab announce every second while desktopRenders waits for a reloaded renderer to attach",
+      "decision": "adopt",
       "requirements": [
-        "the fork's `activate` choice for opened links is kept",
-        "the no-update-feed build, local signing, screen-picker staging and `T3 Peach` name are unchanged"
+        "the last tab of a profile still closes that profile's Chrome, and the shared browser still retires five minutes after its last context",
+        "a tab still owns its context from acquisition and a context start stays bounded at five seconds"
       ],
       "evidence": [
-        "apps/desktop/src/electron/ElectronShell.ts keeps `shouldActivate` beside upstream's `APP_LAUNCH_URLS`",
-        "the fork base landed the same `{ activate: true }` correction for upstream's two editor deep-link cases (99f36db4), so this merge's reconciliation adds only upstream's new Grok Bot case; ElectronShell.test.ts passes (11 tests)"
+        "apps/server/src/preview/ServerBrowser.ts: the repeat is forked inside Effect.scoped and ends with awaitAttached, so it is bounded by DESKTOP_ATTACH_TIMEOUT (10 s); dropTab, createTab/setUpTab/adoptPopup and ServerBrowserContexts are untouched"
+      ]
+    },
+    {
+      "entry": "phi-browser-backend",
+      "upstream": "upstream #31925 lets preview_evaluate retry an expression with the devtools replMode and terminates a timed-out script",
+      "decision": "adopt",
+      "requirements": [
+        "agent browser still selectable from web and mobile settings, preview tools still route through Phi when it is the backend",
+        "Phi custody, the separate Agents Space and the user lane are unchanged"
+      ],
+      "evidence": [
+        "apps/server/src/preview/ServerBrowserPage.ts: the change is inside evaluate, which ServerBrowser's automation handler calls with a CDP session; PhiBrowser and PhiBrowserProtocol carry no evaluate operation, so a Phi tab never reaches it",
+        "the bounded-task and decision-evaluation callers reach the same function through PreviewAutomationBroker only for a server-browser tab, where the new timeout bound is tighter than before"
       ]
     }
   ],
   "unresolved": [],
   "checks": [
     {
-      "command": "vp i",
+      "command": "vp run --filter t3 --filter @t3tools/ssh --filter @t3tools/shared --filter @t3tools/contracts --filter @t3tools/provider-core typecheck",
       "result": "passed",
-      "note": "lockfile up to date, so the update changed no dependency; installation of the merged set is unchanged"
+      "note": "suggestions only (schemaClassMissingBrand), no errors; catches the merged Orchestrator, assistantStreaming and ssh sources"
     },
     {
-      "command": "vp run --filter t3 --filter @t3tools/contracts --filter @t3tools/mobile --filter @t3tools/provider-core typecheck",
+      "command": "vp run --filter @t3tools/provider-opencode typecheck",
       "result": "passed",
-      "note": "4/4 tasks clean (the effect-tsgo TS377141 suggestions are present on the fork base too)"
+      "note": "after fixing a semantic conflict: the fork's generateCompactionSummary used the removed probe.get where upstream now passes resolve, and the test helper built environment entries without the required sensitive field (that second error was already on the fork base and is fixed here)"
     },
     {
-      "command": "vp run --filter @t3tools/web typecheck",
+      "command": "vp test run apps/server/src/orchestration-v2/assistantStreaming.test.ts",
       "result": "passed",
-      "note": "clean after supplying the fork's `handlers` to upstream's new BackgroundWorkDetails browser test"
+      "note": "16 tests: the reconciled live branch and upstream's idle-flush table"
     },
     {
-      "command": "vp test run apps/server/src/provider/AgentContextBudget.test.ts",
+      "command": "vp test run packages/ssh/src/tunnel.test.ts apps/server/src/cloud/selfUpdate.test.ts packages/shared/src/markdownWindowsPaths.test.ts packages/shared/src/markdownLinks.test.ts",
       "result": "passed",
-      "note": "2 tests; the committed budget now records the re-measured 9,801 / 12,263 / 122,092 bytes"
+      "note": "100 tests, covering the four test conflicts and the markdown reconciliation"
     },
     {
-      "command": "vp test run packages/provider-core/src/server/orchestrationInstructions.test.ts apps/server/src/preview/ServerBrowser.test.ts apps/server/src/preview/ServerBrowserContexts.test.ts apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts apps/server/src/provider/Drivers/antigravityUsageReader.test.ts apps/server/src/provider/antigravityAuthSupport.test.ts",
+      "command": "vp test run apps/server/src/orchestration-v2/pullRequestWatch.test.ts apps/server/src/orchestration-v2/ThreadWatch.test.ts apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts packages/contracts/src/orchestrationV2.test.ts",
       "result": "passed",
-      "note": "518 tests across the six suites the reconciliation touches on the server"
+      "note": "85 tests, covering the Orchestrator projector hunk and the new watch fields"
     },
     {
-      "command": "vp test run apps/server/src/shippedClientCompatibility.test.ts",
+      "command": "vp test run apps/server/src/orchestration-v2/RunExecutionService.test.ts apps/server/src/preview/ServerBrowserPage.test.ts",
       "result": "passed",
-      "note": "the additive optional keys on a pending background task still decode in a shipped client's frozen schema"
-    },
-    {
-      "command": "vp test run (web reconciliation)",
-      "result": "passed",
-      "note": "Sidebar.browser, BackgroundWorkDetails.browser, ExpandedImageDialog.browser, useHandleNewThread, state/shell and SnapShotCoordinator.browser suites, plus the overlay dock and session suites (20 tests)"
-    },
-    {
-      "command": "vp test run apps/mobile/src/features/threads/thread-inspector-navigation.test.tsx apps/mobile/src/lib/layout.test.ts apps/mobile/src/lib/filePreview.test.ts",
-      "result": "passed",
-      "note": "121 tests"
-    },
-    {
-      "command": "vp test run apps/desktop/src/electron/ElectronShell.test.ts",
-      "result": "passed",
-      "note": "11 tests, including upstream's Grok Bot and editor cases asserting the fork's `activate` argument"
-    },
-    {
-      "command": "vp test run apps/web/src/shortcuts/chatRouteCommands.test.ts",
-      "result": "failed",
-      "note": "environmental, not caused by this merge: the file is byte-identical to the upstream tag and uses `using`/`DisposableStack`, which this Mac's Node 22.23.2 lacks while package.json requires 26.12.1 (the fork's own pcmWorklet.test.ts fails the same way on the base). The SlipJay runner that runs the landing gate has Node 24.21.0, where `DisposableStack` is a function and a `using` module runs, so the gate runs this suite there"
+      "note": "110 tests, covering the merged ingestion conflicts and the evaluate/snapshot suites"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
       "result": "passed",
-      "note": "the merged config lists and selects tests; the canonical gate runs on the SlipJay runner at landing"
+      "note": "the gate lists its selection against the merged config"
     },
     {
-      "command": "jj rebase onto t3peach@origin (99f36db4)",
+      "command": "code-review (scope change, reviewer role) on 3f3d7777",
       "result": "passed",
-      "note": "t3peach moved during the review with one commit, `fix(tests): repair three audit failures from the 20261109 upstream merge` (ElectronShell editor cases, a test-landing input rule for mobile plugins, third-party licence overrides); the rebase of the merge and this reconciliation was clean, the ElectronShell case it overlaps now carries both sides, and the receipt's fork base is updated to it"
+      "note": "no blocking findings, two should-fix findings that this commit answers: a missing preview-browser-lifetime decision and a missing phi-browser-backend decision for upstream's evaluate change; both are now dispositions with a record Decision line, and the preview area line no longer claims those surfaces untouched"
     }
   ],
   "result": "reconciled"
