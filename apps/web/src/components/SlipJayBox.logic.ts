@@ -392,6 +392,22 @@ export function resolveReleasesInFlight(
       commitId: operation.commitId ?? "",
       startedAt: operation.startedAt ?? null,
     }));
+  // A release started elsewhere (an agent, the CLI) verifies under the runner's own `confirm`
+  // submitter before any deploy exists; the runner's background pre-verification is not one.
+  for (const operation of overview.serial) {
+    if (
+      operation.status !== "running" ||
+      !(operation.kind === "release" || operation.kind === "verification") ||
+      !operation.submittedBy.endsWith(":confirm") ||
+      deploys.some((deploy) => deploy.repo === operation.repo)
+    )
+      continue;
+    deploys.push({
+      repo: operation.repo,
+      commitId: operation.commitId ?? "",
+      startedAt: operation.startedAt ?? null,
+    });
+  }
   for (const repository of overview.repositories) {
     const attempt = repository.release?.production.latestAttempt;
     if (attempt?.status !== "running" || deploys.some((deploy) => deploy.repo === repository.repo))

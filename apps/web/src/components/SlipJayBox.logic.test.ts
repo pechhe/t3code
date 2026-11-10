@@ -489,6 +489,21 @@ describe("failed releases", () => {
   });
 });
 
+describe("releases started elsewhere", () => {
+  it("counts a running confirm verification as a release in flight, but not background verification", () => {
+    const op = (submittedBy: string) =>
+      landing({ kind: "verification", submittedBy, startedAt: "2026-10-30T12:00:00Z" });
+    expect(
+      resolveReleasesInFlight(overview({ serial: [op("peach-live:confirm")] })).map(
+        (deploy) => deploy.startedAt,
+      ),
+    ).toEqual(["2026-10-30T12:00:00Z"]);
+    expect(resolveReleasesInFlight(overview({ serial: [op("peach-live:background")] }))).toEqual(
+      [],
+    );
+  });
+});
+
 describe("release progress", () => {
   const verifying = release({ waitingOn: { kind: "verification", detail: null } });
 
