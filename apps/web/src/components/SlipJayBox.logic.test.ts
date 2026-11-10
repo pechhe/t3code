@@ -7,7 +7,10 @@ import type {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  advanceReleaseClock,
   resolveBoxFooter,
+  resolveReleaseProgress,
+  resolveReleaseStepTimes,
   createReleaseAnnouncementGate,
   resolveFailedPromotions,
   resolveProductionAges,
@@ -483,5 +486,63 @@ describe("failed releases", () => {
     expect(prompt).toContain("5f0843d");
     expect(prompt).toContain("No pre-verification passed");
     expect(prompt).toContain("Do not start a release yourself");
+  });
+});
+
+describe("release progress", () => {
+  const verifying = release({ waitingOn: { kind: "verification", detail: null } });
+
+  it("places the release in its phase, with the runner's operation and start", () => {
+    const operation = landing({
+      kind: "verification",
+      stage: "waiting-for-budget",
+      startedAt: "2026-10-30T12:00:00Z",
+    });
+    const progress = resolveReleaseProgress("o/r", verifying, overview({ serial: [operation] }));
+    expect(progress.phase).toBe("verification");
+    expect(progress.steps.map((step) => step.state)).toEqual([
+      "done",
+      "done",
+      "current",
+      "pending",
+    ]);
+    expect(progress.operation).toBe(operation);
+    expect(progress.startedAt).toBe("2026-10-30T12:00:00Z");
+  });
+
+  it("is in the deploy phase while a production deploy runs, and fails in the phase that failed", () => {
+    const deploy = landing({ kind: "deploy", environment: "production", stage: "deploying" });
+    expect(resolveReleaseProgress("o/r", verifying, overview({ deploy: [deploy] })).phase).toBe(
+      "deploy",
+    );
+    const failed = release({
+      waitingOn: { kind: "failed", detail: null },
+      images: { commitId: "b42c4213aaaa", status: "failed", at: null, reason: null },
+    });
+    const progress = resolveReleaseProgress("o/r", failed, overview());
+    expect([progress.phase, progress.state]).toEqual(["images", "bad"]);
+    expect(
+      resolveReleaseProgress(
+        "o/r",
+        release({ waitingOn: { kind: "up_to_date", detail: null } }),
+        overview(),
+      ).phase,
+    ).toBeNull();
+  });
+
+  it("times a finished phase to where the next began and the current one to now", () => {
+    const progress = resolveReleaseProgress("o/r", verifying, overview());
+    const clock = advanceReleaseClock(
+      advanceReleaseClock({}, "o/r@x", { ...progress, phase: "audit" }, 1_000),
+      "o/r@x",
+      { ...progress, startedAt: new Date(61_000).toISOString() },
+      70_000,
+    );
+    expect(resolveReleaseStepTimes(progress.steps, clock["o/r@x"], 100_000)).toEqual([
+      null,
+      60_000,
+      39_000,
+      null,
+    ]);
   });
 });

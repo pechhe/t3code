@@ -183,6 +183,148 @@ export function resolveFailedPromotions(
   );
 }
 
+export type ReleasePhase = "images" | "audit" | "verification" | "deploy";
+
+export const RELEASE_PHASE_LABEL: Record<ReleasePhase, string> = {
+  images: "Release images",
+  audit: "Nightly audit",
+  verification: "Verification",
+  deploy: "Production deploy",
+};
+
+/** The phase as the button names it, in a word. */
+export const RELEASE_PHASE_SHORT: Record<ReleasePhase, string> = {
+  images: "Images",
+  audit: "Audit",
+  verification: "Verifying",
+  deploy: "Deploying",
+};
+
+export interface ReleaseProgressStep {
+  phase: ReleasePhase;
+  state: "done" | "current" | "waiting" | "bad" | "pending";
+}
+
+export interface ReleaseProgress {
+  /** The phase the release is in; null once production is up to date. */
+  phase: ReleasePhase | null;
+  state: "current" | "waiting" | "bad" | null;
+  steps: ReleaseProgressStep[];
+  /** The runner's operation in that phase, for its stage and how long it usually takes. */
+  operation: SlipJayRunnerOperation | null;
+  /** When the current phase began, as far as the runner says. */
+  startedAt: string | null;
+}
+
+/** Where a repository's release is among images, audit, verification and deploy. */
+export function resolveReleaseProgress(
+  repo: string,
+  release: SlipJayRunnerRelease,
+  overview: SlipJayRunnerOverview,
+): ReleaseProgress {
+  const phases: ReleasePhase[] = [
+    ...(release.images === null || release.images.status === "none" ? [] : ["images" as const]),
+    ...(release.audit === null ? [] : ["audit" as const]),
+    "verification",
+    "deploy",
+  ];
+  const attempt = release.production.latestAttempt;
+  const operations = [...overview.serial, ...overview.deploy].filter(
+    (operation) => operation.repo === repo && operation.status === "running",
+  );
+  const deployOperation =
+    operations.find(
+      (operation) => operation.kind === "deploy" && operation.environment === "production",
+    ) ?? null;
+  const kind = release.waitingOn.kind;
+  let phase: ReleasePhase | null;
+  let state: ReleaseProgress["state"] = "current";
+  if (deployOperation !== null || attempt?.status === "running" || kind === "deploy") {
+    phase = "deploy";
+  } else if (kind === "images" || kind === "audit" || kind === "verification") {
+    phase = kind;
+  } else if (kind === "approval" || kind === "paused") {
+    phase = "deploy";
+    state = "waiting";
+  } else if (kind === "failed") {
+    state = "bad";
+    phase =
+      attempt?.status === "failed" || attempt?.status === "rolled_back"
+        ? "deploy"
+        : release.images?.status === "failed"
+          ? "images"
+          : "verification";
+  } else {
+    return { phase: null, state: null, steps: [], operation: null, startedAt: null };
+  }
+  const index = phases.indexOf(phase);
+  const operation =
+    phase === "deploy"
+      ? deployOperation
+      : (operations.find((entry) => entry.kind !== "deploy" && entry.kind !== "landing") ?? null);
+  const startedAt =
+    operation?.startedAt ??
+    (phase === "deploy" && attempt?.status === "running" ? attempt.at : null) ??
+    (phase === "images" ? (release.images?.at ?? null) : null);
+  return {
+    phase,
+    state,
+    steps: phases.map((entry, position) => ({
+      phase: entry,
+      state:
+        position < index
+          ? "done"
+          : position === index
+            ? (state ?? "current")
+            : ("pending" as const),
+    })),
+    operation,
+    startedAt,
+  };
+}
+
+/** When each phase of a release was first seen, in ms, by `repo@candidate`. */
+export type ReleasePhaseClock = Readonly<
+  Record<string, Readonly<Partial<Record<ReleasePhase, number>>>>
+>;
+
+export const releaseClockKey = (repo: string, candidate: string | null) =>
+  `${repo}@${candidate ?? ""}`;
+
+/** The clock with this phase's start noted; the same object when nothing changed. */
+export function advanceReleaseClock(
+  clock: ReleasePhaseClock,
+  key: string,
+  progress: ReleaseProgress,
+  now: number,
+): ReleasePhaseClock {
+  if (progress.phase === null) return clock;
+  const known = progress.startedAt === null ? Number.NaN : Date.parse(progress.startedAt);
+  const seen = clock[key]?.[progress.phase];
+  const start = Number.isNaN(known) ? (seen ?? now) : known;
+  if (seen === start) return clock;
+  return { ...clock, [key]: { ...clock[key], [progress.phase]: start } };
+}
+
+/**
+ * How long each phase took or has taken, in ms: a finished phase ends when the next began, and
+ * the current one runs to now. Null for a phase the app did not see start.
+ */
+export function resolveReleaseStepTimes(
+  steps: ReadonlyArray<ReleaseProgressStep>,
+  starts: Readonly<Partial<Record<ReleasePhase, number>>> | undefined,
+  now: number,
+): Array<number | null> {
+  return steps.map((step, index) => {
+    const start = starts?.[step.phase];
+    if (start === undefined || step.state === "pending") return null;
+    if (step.state !== "done") return Math.max(0, now - start);
+    const end = steps.slice(index + 1).find((next) => starts?.[next.phase] !== undefined);
+    const ended = end === undefined ? undefined : starts?.[end.phase];
+    return ended === undefined ? null : Math.max(0, ended - start);
+  });
+}
+
 /** What production runs, in one line; a newer failed or running attempt is only ever a note. */
 export function resolveProductionLine(
   { production: { live, latestAttempt } }: SlipJayRunnerRelease,

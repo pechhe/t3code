@@ -65,6 +65,12 @@ const buttonVariants = cva(
         overlay: "border-transparent bg-black/70 text-white/65 [:hover,[data-pressed]]:bg-black/90",
         secondary:
           "border-transparent bg-secondary text-secondary-foreground [:active,[data-pressed]]:bg-secondary/80 [:hover,[data-pressed]]:bg-secondary/90",
+        "info-outline":
+          "border-info/32 bg-info/8 text-info-foreground shadow-xs/5 [:disabled,:active,[data-pressed]]:shadow-none [:hover,[data-pressed]]:border-info/40 [:hover,[data-pressed]]:bg-info/16 dark:[:hover,[data-pressed]]:bg-info/24",
+        "success-outline":
+          "border-success/32 bg-success/8 text-success-foreground shadow-xs/5 [:disabled,:active,[data-pressed]]:shadow-none [:hover,[data-pressed]]:border-success/40 [:hover,[data-pressed]]:bg-success/16 dark:[:hover,[data-pressed]]:bg-success/24",
+        "slipjay-outline":
+          "border-slipjay/32 bg-slipjay/8 text-slipjay-light shadow-xs/5 [:disabled,:active,[data-pressed]]:shadow-none [:hover,[data-pressed]]:border-slipjay/40 [:hover,[data-pressed]]:bg-slipjay/16 dark:[:hover,[data-pressed]]:bg-slipjay/24",
         "warning-outline":
           "border-warning/32 bg-warning-surface text-warning-foreground shadow-xs/5 [:disabled,:active,[data-pressed]]:shadow-none [:hover,[data-pressed]]:border-warning/40 [:hover,[data-pressed]]:bg-warning/16 dark:[:hover,[data-pressed]]:bg-warning/24",
       },
