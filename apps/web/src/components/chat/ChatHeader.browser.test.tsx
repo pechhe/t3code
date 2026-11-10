@@ -3,6 +3,7 @@ import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 const persisted = vi.hoisted(() => ({ title: "" }));
+const openMenu = vi.hoisted(() => vi.fn());
 vi.mock(import("../../state/session"), async (importOriginal) => ({
   ...(await importOriginal()),
   useEnvironmentScope: () => true,
@@ -17,7 +18,7 @@ vi.mock(import("../../state/use-orchestration-command"), async (importOriginal) 
     }) as never,
 }));
 vi.mock(import("~/hooks/useThreadActionMenu"), () => ({
-  useThreadActionMenu: () => ({ openMenu: () => {}, closeMenu: () => {}, copyThreadId: () => {} }),
+  useThreadActionMenu: () => ({ openMenu, closeMenu: () => {}, copyThreadId: () => {} }),
 }));
 
 import { render } from "../../../test/render";
@@ -71,3 +72,10 @@ it.each(["blur", "Enter"] as const)(
     expect(persisted.title).toBe("My edited title");
   },
 );
+
+it("opens the thread menu from the actions chevron without waiting", async () => {
+  openMenu.mockClear();
+  await using screen = await render(header("New thread"));
+  await screen.getByRole("button", { name: "Thread actions" }).click();
+  expect(openMenu).toHaveBeenCalledOnce();
+});
