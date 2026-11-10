@@ -1,0 +1,3625 @@
+{
+  "schema": "thread-housekeeping-cases-v1",
+  "samplingRule": [
+    "Both machines are read-only snapshots of their live state database (this Mac and peach-box), taken on 10 Nov 2026.",
+    "Project cases: top-level chats (no parent thread, not a delegated task) whose first message has at least 15 characters. Moved: the chat left \"No project\" and its recorded run count at the move is at least 1. Stayed: it is still in \"No project\" with no move. Asked at every turn it spent in \"No project\" up to five.",
+    "Wake cases: a wake is a notification item, or a user message created by a scheduled task, that is the first item of its run (it started a turn). One that is not first steered a turn already running; one whose run holds only that item was dropped without a turn. Both are counted and left out.",
+    "Wake kinds: delegated (delegated_task, subagent), command (background_command, monitor), watch (thread, build_item, landing), timed (scheduled-task message), system (unattended nudge and context notices). Other legacy background_task items are counted and left out.",
+    "Ranking: every candidate is ranked by sha256(\"<machine>:<id>\"), where the id is the thread id (project) or \"<thread id>:<ordinal>\" (wake). Per machine, the held-out set takes the first 35 moved and 55 stayed project chats (all 35 moved on the Mac, all 12 moved and 5 stayed on peach-box, because the pools are that small) and the first 20 wakes of each kind; the tuning set takes the next 6 stayed project chats and the next 5 wakes of each kind."
+  ],
+  "population": {
+    "mac": {
+      "machine": "mac",
+      "noProjectId": "7c0953bc-8c10-4364-8aef-d9ea572a80b3",
+      "topLevelThreads": 1141,
+      "movedFromNoProject": 35,
+      "stayedInNoProject": 180,
+      "project_moved": {
+        "pool": 35,
+        "heldout": 35,
+        "tune": 0,
+        "skippedUnusable": 0
+      },
+      "project_stayed": {
+        "pool": 180,
+        "heldout": 55,
+        "tune": 6,
+        "skippedUnusable": 4
+      },
+      "wakeCounts": {
+        "other": {
+          "total": 176,
+          "steeredRunningTurn": 0,
+          "droppedNoTurn": 1,
+          "judgeable": 175,
+          "bySource": {
+            "background_task": 176
+          }
+        },
+        "delegated": {
+          "total": 2513,
+          "steeredRunningTurn": 235,
+          "droppedNoTurn": 6,
+          "judgeable": 2272,
+          "bySource": {
+            "background_task/subagent": 20,
+            "delegated_task": 2493
+          }
+        },
+        "command": {
+          "total": 1774,
+          "steeredRunningTurn": 0,
+          "droppedNoTurn": 7,
+          "judgeable": 1767,
+          "bySource": {
+            "background_command": 1666,
+            "monitor": 108
+          }
+        },
+        "system": {
+          "total": 2614,
+          "steeredRunningTurn": 1522,
+          "droppedNoTurn": 13,
+          "judgeable": 1079,
+          "bySource": {
+            "system": 2614
+          }
+        },
+        "watch": {
+          "total": 499,
+          "steeredRunningTurn": 0,
+          "droppedNoTurn": 2,
+          "judgeable": 497,
+          "bySource": {
+            "background_task/thread": 330,
+            "build_item": 48,
+            "landing": 121
+          }
+        },
+        "timed": {
+          "total": 655,
+          "steeredRunningTurn": 12,
+          "droppedNoTurn": 1,
+          "judgeable": 642,
+          "bySource": {
+            "scheduled_task": 655
+          }
+        }
+      }
+    },
+    "peach-box": {
+      "machine": "peach-box",
+      "noProjectId": "e829a764-870c-470e-91c8-20c3c67d1c40",
+      "topLevelThreads": 107,
+      "movedFromNoProject": 12,
+      "stayedInNoProject": 5,
+      "project_moved": {
+        "pool": 12,
+        "heldout": 12,
+        "tune": 0,
+        "skippedUnusable": 0
+      },
+      "project_stayed": {
+        "pool": 5,
+        "heldout": 5,
+        "tune": 0,
+        "skippedUnusable": 0
+      },
+      "wakeCounts": {
+        "delegated": {
+          "total": 845,
+          "steeredRunningTurn": 6,
+          "droppedNoTurn": 4,
+          "judgeable": 835,
+          "bySource": {
+            "delegated_task": 845
+          }
+        },
+        "watch": {
+          "total": 186,
+          "steeredRunningTurn": 0,
+          "droppedNoTurn": 0,
+          "judgeable": 186,
+          "bySource": {
+            "background_task/thread": 44,
+            "landing": 92,
+            "build_item": 50
+          }
+        },
+        "system": {
+          "total": 452,
+          "steeredRunningTurn": 0,
+          "droppedNoTurn": 8,
+          "judgeable": 444,
+          "bySource": {
+            "system": 452
+          }
+        },
+        "command": {
+          "total": 472,
+          "steeredRunningTurn": 0,
+          "droppedNoTurn": 0,
+          "judgeable": 472,
+          "bySource": {
+            "background_command": 472
+          }
+        },
+        "other": {
+          "total": 9,
+          "steeredRunningTurn": 0,
+          "droppedNoTurn": 0,
+          "judgeable": 9,
+          "bySource": {
+            "background_task": 9
+          }
+        },
+        "timed": {
+          "total": 32,
+          "steeredRunningTurn": 0,
+          "droppedNoTurn": 0,
+          "judgeable": 32,
+          "bySource": {
+            "scheduled_task": 32
+          }
+        }
+      }
+    }
+  },
+  "replacedTurns": {
+    "command": {
+      "turns": 50,
+      "models": {
+        "claude-sonnet-5-5": 10,
+        "claude-opus-5-5": 40
+      },
+      "wallMsMedian": 45032,
+      "wallMsTotal": 9665036,
+      "itemsMedian": 10,
+      "tokenSpendRecorded": false,
+      "spendUsd": "unknown"
+    },
+    "delegated": {
+      "turns": 50,
+      "models": {
+        "opencode-go/deepseek-v4.1-flash": 4,
+        "claude-opus-5-5": 36,
+        "claude-sonnet-5-5": 5,
+        "gpt-6.1-sol": 2,
+        "claude-fable-5-2": 3
+      },
+      "wallMsMedian": 53005,
+      "wallMsTotal": 14652416,
+      "itemsMedian": 13,
+      "tokenSpendRecorded": false,
+      "spendUsd": "unknown"
+    },
+    "system": {
+      "turns": 50,
+      "models": {
+        "claude-opus-5-5": 35,
+        "claude-sonnet-5-5": 7,
+        "opencode-go/deepseek-v4.1-flash": 5,
+        "opencode-go/crouton-alpha-free": 3
+      },
+      "wallMsMedian": 84711,
+      "wallMsTotal": 18440612,
+      "itemsMedian": 13,
+      "tokenSpendRecorded": false,
+      "spendUsd": "unknown"
+    },
+    "timed": {
+      "turns": 50,
+      "models": {
+        "claude-sonnet-5-5": 6,
+        "opencode-go/deepseek-v4.1-flash": 8,
+        "claude-opus-5-5": 33,
+        "opencode-go/crouton-alpha-free": 1,
+        "gpt-6.1-sol": 1,
+        "gpt-6-luna": 1
+      },
+      "wallMsMedian": 44619,
+      "wallMsTotal": 28442204,
+      "itemsMedian": 7,
+      "tokenSpendRecorded": false,
+      "spendUsd": "unknown"
+    },
+    "watch": {
+      "turns": 50,
+      "models": {
+        "claude-opus-5-5": 35,
+        "claude-sonnet-5-5": 9,
+        "opencode-go/deepseek-v4.1-flash": 6
+      },
+      "wallMsMedian": 33444,
+      "wallMsTotal": 8624391,
+      "itemsMedian": 9,
+      "tokenSpendRecorded": false,
+      "spendUsd": "unknown"
+    }
+  },
+  "digest": "7c34d46b350746478caa823240ce240067600fe8d56386d59cee3bc7683a8319",
+  "projects": [
+    {
+      "caseId": "pr-07515ee0f838",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p3",
+      "agent": "p4",
+      "digest": "d6c1805aa6a603329b6b359e3cf3245a99800e23f672d47497a8de4523fde230"
+    },
+    {
+      "caseId": "pr-0c8d844f1f0b",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "p1",
+      "digest": "d27e02da3adfd9fe83306ce31bcaa4fca56ea3c55f98d5d3106997bf05301811"
+    },
+    {
+      "caseId": "pr-14bf5aa552a2",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 2,
+      "keyword": "none",
+      "agent": "p1",
+      "digest": "f82140524592223a44ce68f18e737da74ed3977004c926623e22ff43995ed7c5"
+    },
+    {
+      "caseId": "pr-1b1ed327803a",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "p1",
+      "digest": "74689ede30c224bf60c2442481d8dec4ade5d44b7677f22d34e80982abcf6322"
+    },
+    {
+      "caseId": "pr-355bf5278285",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 5,
+      "keyword": "none",
+      "agent": "unlisted",
+      "digest": "299ca1c0396ef62862449356660c98ca0073799362fecb8a7c6e12737006931f"
+    },
+    {
+      "caseId": "pr-35b1121098a6",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p2",
+      "agent": "p3",
+      "digest": "ab3cace0b303ac4aa280da70228d929425041fa5ef9c26a53bd11434e14e3814"
+    },
+    {
+      "caseId": "pr-37642bba7453",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "p2",
+      "digest": "16726a1d7a7b3711d07da61953165299e40bfd384fc0ade5e9c5a2c56dbccdd4"
+    },
+    {
+      "caseId": "pr-3d30b14eeb2d",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "p2",
+      "digest": "e3a120fa2c1cc6e93c0927356c35cfba0b7afd8703eb089cf1da1e7895298e3c"
+    },
+    {
+      "caseId": "pr-3dca77ab8df6",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p2",
+      "agent": "p2",
+      "digest": "8dfd94b793f03c61310d6ef6f8c9870949ff6161ee03e47545d796980b21a8b9"
+    },
+    {
+      "caseId": "pr-420c52c12840",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 3,
+      "keyword": "none",
+      "agent": "p2",
+      "digest": "2d3a6118d06469690b8dca5e10c0afe3b410d9b674fa308e586ba51d2a20e0f1"
+    },
+    {
+      "caseId": "pr-49d62bed6ecb",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "p4",
+      "digest": "8b7da3e02aa40e34b3fe223847b6f83579dad1306f5e9cc6c22b7808ad17527c"
+    },
+    {
+      "caseId": "pr-5247e2666ce4",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p2",
+      "agent": "p5",
+      "digest": "8fb80598dda226bd5d4633bf56c372211352d507d06714da8c76623935d8b04d"
+    },
+    {
+      "caseId": "pr-56d19871534f",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 2,
+      "keyword": "none",
+      "agent": "p4",
+      "digest": "0d27c1bf92057f544a2d018f3d16528d3e8b1513a330581f0861c2f741dfea92"
+    },
+    {
+      "caseId": "pr-5986d8a25d7a",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p2",
+      "agent": "p2",
+      "digest": "ec06e515aef95c6454714ef9ef3e9e52a92f18e873425f0555e2e113817a23a2"
+    },
+    {
+      "caseId": "pr-5ebe7080f6d7",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "p1",
+      "digest": "35f9a2f7ecde812ecc6d40335b18e7e5dfc611e335919492ff04f02f6bcc1e44"
+    },
+    {
+      "caseId": "pr-6cff9501bb42",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 4,
+      "keyword": "none",
+      "agent": "p2",
+      "digest": "258bb9f6a78260bf2ee56a193b1d8878580a1944be978b1c0c8d3fe907f63a83"
+    },
+    {
+      "caseId": "pr-6ebbd80064ca",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "p2",
+      "digest": "ce709b017e03677916dc25ea4d08dc6ad989d9907e66691c2030018678e09024"
+    },
+    {
+      "caseId": "pr-702ebf0de31f",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "p3",
+      "digest": "316b4048d9f81c32d0f1af64c375daea486dccbc6916a68373f0e548b376d6e1"
+    },
+    {
+      "caseId": "pr-7ce6778bf4c2",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 2,
+      "keyword": "none",
+      "agent": "p1",
+      "digest": "46e57c82c33933ff73ce2500d59bba8f24fd593c1c6ebf45b8f0786ea3909c5d"
+    },
+    {
+      "caseId": "pr-7de7215c24c1",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "p4",
+      "digest": "3cf5ac5bd81aafc7f756a3a92b3461a913a86babc8f5f662b848e4a6a5973250"
+    },
+    {
+      "caseId": "pr-80727b339103",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "p1",
+      "digest": "6cac84ce40addf247576c11a5e01ae3574004e89a28381bf4e35b9f613c54703"
+    },
+    {
+      "caseId": "pr-8c11a80bd6bc",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "p1",
+      "digest": "f26dbda4a3eeaa28f057fb81ef18f8606a020e83eedf0182a615150e31c2ace0"
+    },
+    {
+      "caseId": "pr-9621584a2678",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 3,
+      "keyword": "none",
+      "agent": "p1",
+      "digest": "986186ae2559dcd154687ff0fbf9f7353b4ee1d5a79e55d155f9f130b51d6a02"
+    },
+    {
+      "caseId": "pr-96d1696313ed",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 5,
+      "keyword": "none",
+      "agent": "p3",
+      "digest": "95c07d2a58b4cf2fa4aae885d54b62271ae89c781d2748bae11343d43dc580ef"
+    },
+    {
+      "caseId": "pr-a67045580d48",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 5,
+      "keyword": "none",
+      "agent": "p1",
+      "digest": "25e02792dfd2af62719f029ec06305dd7065b0fd4f37189226b63c25792762c2"
+    },
+    {
+      "caseId": "pr-aa4889bc543c",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 2,
+      "keyword": "none",
+      "agent": "p1",
+      "digest": "47b75bf2da6616d943ad243007d0952ebd9e15a0eec235540d75fc711cd29681"
+    },
+    {
+      "caseId": "pr-bec3de860f08",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "p2",
+      "digest": "46a8e7cf9a520872c686258fe2d137556a41217e7a6706257320d38738140e16"
+    },
+    {
+      "caseId": "pr-c270fe3b0a66",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 2,
+      "keyword": "p1",
+      "agent": "p2",
+      "digest": "855792ae314a84bd92a916fa6793976f41e32c06a586036e0cef0efbb2f77e97"
+    },
+    {
+      "caseId": "pr-c4a25ef0a344",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "p3",
+      "digest": "3c4d84cffaa4ccbc7b8125471955927ed18195a62d2e875a3aca66b97b9e4fe9"
+    },
+    {
+      "caseId": "pr-ce1050306b6d",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "p2",
+      "digest": "f385124ecfb2600ca2791c441d849d6163b445fa6e743735c84aed1fd7bd9357"
+    },
+    {
+      "caseId": "pr-ce8f435fb0fa",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "p3",
+      "digest": "0130a735596ba568a5627bdf81ce8cf39dea1cc4f52d24b70c65bb532917ac7b"
+    },
+    {
+      "caseId": "pr-d83ba382ed35",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 4,
+      "keyword": "none",
+      "agent": "p4",
+      "digest": "499bbbac9bb604cbd9b76efd7e29f7c4507f47b8d604d8e19d59a1c337a76d87"
+    },
+    {
+      "caseId": "pr-f6062a79ed52",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "p1",
+      "digest": "54dce81db9eff2f483e82d9c41070de4c304cc812b2473895e0b968f49c0c31d"
+    },
+    {
+      "caseId": "pr-f80fb919ecea",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "p2",
+      "digest": "6a9037beaf0508614398d1891ef92d516ac361c0b7c4b2b33e01bb42b5770902"
+    },
+    {
+      "caseId": "pr-fe7c7844600c",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 2,
+      "keyword": "none",
+      "agent": "p1",
+      "digest": "a499e01a231cae29eff9dc725198692f4cefdeb0764a2cbd489f646c3bb846a9"
+    },
+    {
+      "caseId": "pr-01d37d918bbf",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "11e0e7272dd0ef562ed5d1f6a9cc92a278ebadcc26f1ab105ff84f3c317f0a0b"
+    },
+    {
+      "caseId": "pr-041c7dc961e0",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 5,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "1b4e8e63da0f5f067615bba094fdd0fc6b2ae32a7c117f09f161a87d30238cfa"
+    },
+    {
+      "caseId": "pr-06ab73456806",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 5,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "01597c29483da529c941d39bd576534857a4859c449d5ed4457283f310ed733a"
+    },
+    {
+      "caseId": "pr-07971250971f",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 2,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "ef6679b2a20af2807a8adb3b67d39cf29a6ad0471c4ca997a3fb0ff117e6e112"
+    },
+    {
+      "caseId": "pr-087cba23e7a0",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p5",
+      "agent": "none",
+      "digest": "33e02f08f5c80255c59156968328d89c190ff5983f2319d351b26fe5b1c16b07"
+    },
+    {
+      "caseId": "pr-093f6a6f968b",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "f68202b0d6aa04f4a7a22bbf2e5a49637687d703028ea65dca2795eb57d94ee3"
+    },
+    {
+      "caseId": "pr-0af384aa17b9",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 3,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "0e15b95b8a4e5c11f13574671a5eec351ffde45c88d776086b6929ec73543457"
+    },
+    {
+      "caseId": "pr-0d70dc057153",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 4,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "661ac888d8e3fa9737af9e251ec992e2ae1e02c57d3472d20181dd068a2ae9d1"
+    },
+    {
+      "caseId": "pr-0db65eb28ced",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "7fdd7e944e6eaa69c161d056eefcd757f57fa4565b50324ded773c59df5487b6"
+    },
+    {
+      "caseId": "pr-0e8f66099d06",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "ed0984681954f39714419af94e421a741b2b3409633a07e5c65b301d5bac959d"
+    },
+    {
+      "caseId": "pr-0f742bc6b05a",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "5cada2a4af4a14681f6e951d4e26ecf61cc030c92ae89408ecbac5634a5876a7"
+    },
+    {
+      "caseId": "pr-127a695daa41",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 4,
+      "keyword": "p3",
+      "agent": "none",
+      "digest": "fdea01b5c4a9244223292c6dd76311bba6ca59bd41dc9f68ea2ea3075ce4cf4c"
+    },
+    {
+      "caseId": "pr-13b65229542e",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "b60f843ffbc23abe38cdab9b0503426dd794c41f78412eb6ff71baec7204cb95"
+    },
+    {
+      "caseId": "pr-142258fa9f79",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "4c13b460dfba4e82c08f4d52ad2f6ce1298287f7c1931fe1d33ca6a13730b555"
+    },
+    {
+      "caseId": "pr-14aa039f1af4",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "8598524cdf130b2feca06d7cef44c0672f64202f586f97f32c3ed1be488d505f"
+    },
+    {
+      "caseId": "pr-154758ce7aef",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 5,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "c0e0e8bee677bf48216f4b34e72f10566411a57d6ea7aaffa2ed97774f861a54"
+    },
+    {
+      "caseId": "pr-17750bff1da7",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "272eca65116959aa8d92a6db67c9d4b166f3c626d337534a126b56ccb92b0387"
+    },
+    {
+      "caseId": "pr-19861a8db254",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p1",
+      "agent": "none",
+      "digest": "19df4eb26c4ba904256b490ba2d4fb4430828a0b22454c69b366ca94345ff726"
+    },
+    {
+      "caseId": "pr-19e416d2ff67",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "183857cc92e870ffe178eea2ec58ae328af41bd1d5f2db7a9ca91b5a2f447caa"
+    },
+    {
+      "caseId": "pr-1b7098dada26",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 5,
+      "keyword": "p1",
+      "agent": "none",
+      "digest": "e1c9b424322b10359a4e9a7d92bfb567ab94293785d91581db0ddf4f64a198a8"
+    },
+    {
+      "caseId": "pr-1b854dfa2fa2",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "a137da731de9dac8ad7ca9f277c7c16123c95b1684807f531f93adb12c84d97d"
+    },
+    {
+      "caseId": "pr-1dba81cc02af",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "3c2fd4b99e348691fbc60f158ef2bce6def8a4f011c41c615273507c59c4f5da"
+    },
+    {
+      "caseId": "pr-1e49033e5d90",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "e9b235002a563c3ff615431e5e7151b63bfdb7ae4eeb53d33ab1eae507324a30"
+    },
+    {
+      "caseId": "pr-21307581190a",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p3",
+      "agent": "none",
+      "digest": "051f283249a643391083d42f18e70fd22dd7e6220a12b7bb5b149e0a405b903c"
+    },
+    {
+      "caseId": "pr-217959125b14",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "6307b606c717ebb5330247d1621f0ee1f8eb74e9b7d3ba4f77798d5b34102a6e"
+    },
+    {
+      "caseId": "pr-2238ef8a09b2",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "3c0f68ba4cbc4e5b40a28af1f7fed90ce9f28f7b0d5b41112b50aedebb32a5c0"
+    },
+    {
+      "caseId": "pr-229c90a517e0",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "98bf8544401be289b0e402fe6afe02581276a2c7dd64d4cf793ddc0afa6630a2"
+    },
+    {
+      "caseId": "pr-23a006dd897f",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "23de8a7d523429d51a518b5c29ae3ff3fb5a9733a65df8099750176768aa86e6"
+    },
+    {
+      "caseId": "pr-27442bac54fd",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "ca33808eeca2e7fb1ab86adae2b845b4525f4c5be1bbb51b3755b76330184c3b"
+    },
+    {
+      "caseId": "pr-2746f501e38a",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "e28a5ce0af93537efb4e441eef111c960f390eb853bddc527dd9877074d7b944"
+    },
+    {
+      "caseId": "pr-28674c526a66",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "e1c26f99b7a8de97bd6a83e4bb59a8f0dab7d7628b6214a3366373d07bb13d48"
+    },
+    {
+      "caseId": "pr-29b5d8a49b57",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "4b6323925df687beec3d315e8e82d50ee1fdb924c7e4fe016d8491cf389b226a"
+    },
+    {
+      "caseId": "pr-2ce58e368d78",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "03e8aff6860ad339d530cd604101c7d609ae7d15f864bfc4eeddfe5b41ce3597"
+    },
+    {
+      "caseId": "pr-2df9dc4fae27",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "01408b6b08f6520fac364aea74e751cfc3c611a6da6e7b52bfdb53f1a4a1b6bd"
+    },
+    {
+      "caseId": "pr-2facc7478017",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p1",
+      "agent": "none",
+      "digest": "22dbe3c033425651fd477bd2dc60a4099a36174460cb523cb54c38a48272db84"
+    },
+    {
+      "caseId": "pr-30de9088f09f",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p6",
+      "agent": "none",
+      "digest": "dc40e7f6adb99eec7b59c852884b9f9dc2e3969287859b48e8ecbff4cfc0d6cc"
+    },
+    {
+      "caseId": "pr-32f125186f48",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 5,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "201614f6ab4ae30206d2539ef66663720297ce64052d8d526fd7e454b1f16c58"
+    },
+    {
+      "caseId": "pr-369fb4fad8c9",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 4,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "094fbfe4b8ad7cf1f2f66af1079147c356def266bad8367b1b429fe65b34e1e3"
+    },
+    {
+      "caseId": "pr-3759f6d9f142",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "db9bac31dc69777a04e738607496ab58dcb53131bfa80870980f0761876a9df5"
+    },
+    {
+      "caseId": "pr-3f4214c8b719",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "2c04d6302466c912cd0f0d2af841f3dc06a60b30632c9bd6721c81bc26bde1f8"
+    },
+    {
+      "caseId": "pr-3f7f1320504c",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p5",
+      "agent": "none",
+      "digest": "3147827d31f1737ea1f42cf4981d5a8b21167f85b934bf5c20d451440bca7d24"
+    },
+    {
+      "caseId": "pr-3fb208e6571f",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 2,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "b092e87af92bd34fdd15d076472159d091a840c416bdc25334d3bccb1f170fc8"
+    },
+    {
+      "caseId": "pr-3ff4670c548c",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 5,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "b332197f3b0d8e56a484eaa3f15c6ba7b23dd8a775461080a7314acb50e36f80"
+    },
+    {
+      "caseId": "pr-47bf491a99ac",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 2,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "e7e55d61727322d4a064154dadb37bbd5f39cacd1afa2efc427a4ed2e0eb6271"
+    },
+    {
+      "caseId": "pr-4837d89917de",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "52e60902b9a8de7ef0304f74247b529a7bcae134b1915c3e824e8502592f5e1e"
+    },
+    {
+      "caseId": "pr-4b3ba0fe3247",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "bd76281b27f4423de1315723a7765209be94ef1b89471ebe920f3a679659f5a7"
+    },
+    {
+      "caseId": "pr-4bb370a92a92",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 3,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "f784c7a2648b41b891e3bcf167255c24ccb20c838ff38924333a6e4fb9f95538"
+    },
+    {
+      "caseId": "pr-4ce761adbfc6",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "914f08aea63c98f8ebfef98635698f04f51d25f317ac08e4031f4647f62bf35c"
+    },
+    {
+      "caseId": "pr-4df3524430c8",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 2,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "91179adb1e42d87708b9ce34b4e93ab83efd544d9c3bedcf272037340527511c"
+    },
+    {
+      "caseId": "pr-51c95211d3ba",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "07b28549fefea82f9e19e5bee23cd7c7c9d834e1b38a06920d9fcc4eec2d2796"
+    },
+    {
+      "caseId": "pr-533439bb6a50",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p5",
+      "agent": "none",
+      "digest": "d1bb73dfc91115fb7c25806d98ffbb4926e437d429ff7a4a6ca5e8201b346c5a"
+    },
+    {
+      "caseId": "pr-540878a659d8",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "2d8284f63df7182f98cba56098b98821bd03689fc9112af374803b0143bc06cc"
+    },
+    {
+      "caseId": "pr-554cbdbfeaf3",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "none",
+      "digest": "da893f7f47bc5ac9ddfd84191b3786be49808881b5dd227aecb5a119c3af4c1b"
+    },
+    {
+      "caseId": "pr-565669044be8",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "d0b10af9ad4e2f15ea01205ead98aeeb5682e3f601c9c3de25e9977ca7d14b66"
+    },
+    {
+      "caseId": "pr-56a6311459bc",
+      "machine": "mac",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "b20ffac9b5039fa8a7c0418da4d2ba990b3b0468eecf2004aa617dc1f2bb88cc"
+    },
+    {
+      "caseId": "pr-1289df3ab29f",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "p3",
+      "digest": "4f24aa99502036549df98010661595f80ec46fa6e44b2ec930538d9135784506"
+    },
+    {
+      "caseId": "pr-290590d75e1a",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p1",
+      "agent": "p1",
+      "digest": "d5c77d5453bb3013e39a96bd058aa784e8f0a83b86378a2414b2c65f13e93710"
+    },
+    {
+      "caseId": "pr-4591bc5317c7",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "p2",
+      "digest": "5ca316f646bb3fb6260f2451d5ddd350eda540dedbad8d485edeafe91324a608"
+    },
+    {
+      "caseId": "pr-4ddb894c721b",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "unlisted",
+      "digest": "9fd38059b6b44c98654b38efa5312a42dc674db153a49fc433e791c66302a278"
+    },
+    {
+      "caseId": "pr-52acc24af446",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "p2",
+      "digest": "53651caa82f2675ef603b43717f6c9046a87bfcb6dda99349e30fec38c31074d"
+    },
+    {
+      "caseId": "pr-6003332a446a",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "p1",
+      "digest": "cf628bf9b2b8aa368625b78e1e945794ccffa6b368e46109729e7b297f030c5f"
+    },
+    {
+      "caseId": "pr-7b9bb646e021",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p7",
+      "agent": "p2",
+      "digest": "4732d9da870911a364cc038dce546e0172ee4f4c6dff4c13790f2952d35d7aa3"
+    },
+    {
+      "caseId": "pr-8974a9574566",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 2,
+      "keyword": "none",
+      "agent": "p4",
+      "digest": "bef9a68a5574fd0b9b9f9a48f7b2daf37f4f515cdf2cb22f5b0a94d4751a24ee"
+    },
+    {
+      "caseId": "pr-afc2771aa542",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 3,
+      "keyword": "none",
+      "agent": "p2",
+      "digest": "9dbcd4efc01acc24fd21f02106018e3ddbc4745788f7c0ec89479ff403ce577b"
+    },
+    {
+      "caseId": "pr-c7448a632d4b",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p4",
+      "agent": "p2",
+      "digest": "95a54e9d525a7260cad59014ca4c275c82dc6a83cfbecbdf179ebd252af0b321"
+    },
+    {
+      "caseId": "pr-e3118877621b",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 2,
+      "keyword": "none",
+      "agent": "unlisted",
+      "digest": "76af46620c4827a02a1f7200a97af91286ab89a96f8f33b34dbe798f1207a890"
+    },
+    {
+      "caseId": "pr-f083e9fb200d",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "moved",
+      "asks": 1,
+      "keyword": "p2",
+      "agent": "p2",
+      "digest": "369d412652fe2edbd828557747755e7bb0a513730299993648716f4766850f6a"
+    },
+    {
+      "caseId": "pr-08888fd8548f",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 2,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "17b9f9333c79d63bc12d12199dca002d996564382421253aae42028ac6cf5541"
+    },
+    {
+      "caseId": "pr-3343578a5e28",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 2,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "b294d55f321ec019d1f073f33b5e5d83dd4cfe84889f111d83ef0517431b9159"
+    },
+    {
+      "caseId": "pr-37b5ad8062b9",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 4,
+      "keyword": "p7",
+      "agent": "none",
+      "digest": "ebb9464584b8824b7b2f06945423ba177db06931be23b9abfe477bc254c14329"
+    },
+    {
+      "caseId": "pr-9423ddb83cb9",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "ef319404ebdf714654f2a992e2cf9d86b02f00ac9f746acc7f277ee93d4c219b"
+    },
+    {
+      "caseId": "pr-d927d30288dd",
+      "machine": "peach-box",
+      "split": "heldout",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "97f6e43b6797963633b41544d9e38607106f073a99fad4ce008d0b74f35de5f3"
+    },
+    {
+      "caseId": "pr-57d52ed8a63c",
+      "machine": "mac",
+      "split": "tune",
+      "stratum": "stayed",
+      "asks": 2,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "6d9339af6d3a59f56f80683da2cd7a4fcdf1692e949b1c1da0ff78a6673654bb"
+    },
+    {
+      "caseId": "pr-5af3f95892c8",
+      "machine": "mac",
+      "split": "tune",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "0b038f9c2254051443742970544ab055ecb6aefbbebaefcbd2f8e26f0c431b09"
+    },
+    {
+      "caseId": "pr-5bce3d23695f",
+      "machine": "mac",
+      "split": "tune",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "p6",
+      "agent": "none",
+      "digest": "56769c8391aa079fa81906291dff12d92ce30e94b3f757bf90387eac99af1151"
+    },
+    {
+      "caseId": "pr-5c3e2e118c1f",
+      "machine": "mac",
+      "split": "tune",
+      "stratum": "stayed",
+      "asks": 3,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "b882cb8bcb6ecd9cf9280159b6b191b7d36e13805c021245676efb311dd10e5f"
+    },
+    {
+      "caseId": "pr-5c72ad60f21a",
+      "machine": "mac",
+      "split": "tune",
+      "stratum": "stayed",
+      "asks": 1,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "358c05a9ea8c80731533afefe76690089dc5e240ab528a8b847e32c209692b4b"
+    },
+    {
+      "caseId": "pr-5d9470f71738",
+      "machine": "mac",
+      "split": "tune",
+      "stratum": "stayed",
+      "asks": 3,
+      "keyword": "none",
+      "agent": "none",
+      "digest": "197aaf75e5fa5f9d3d40a8172ef09888f427b42edc0b5d36ed70985ffd2c9ee6"
+    }
+  ],
+  "wakes": [
+    {
+      "caseId": "wk-00014b8f8c6b",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "monitor",
+      "outcome": "completed",
+      "digest": "e7a516e7168425cce9978decfeec33980d29fa71f25563a873ef0212976c40ae"
+    },
+    {
+      "caseId": "wk-0005fd764bd5",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "monitor",
+      "outcome": "completed",
+      "digest": "edb2621d24913636170c95218217e19770bf5d72db1af96827e531f1e0b4e7dc"
+    },
+    {
+      "caseId": "wk-0056d41695e3",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "cf48ae6c66291c2aed9ef9484af009ce49efe9676c384ec066e46d37cbe7c4d4"
+    },
+    {
+      "caseId": "wk-005b0c7c0731",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "d1b3e4c55b4d825baf87785de6121665b47f5739d7e36551d2e4be582d3f4f3a"
+    },
+    {
+      "caseId": "wk-005b68fd43be",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "643352e522d47481d591592b1135d18864aaaa1b993aaac068013bc60bfa3f5f"
+    },
+    {
+      "caseId": "wk-008b0c5435b7",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "170af02ff5e131f52779275b7a6c69c65cf79d5ff494238f375a36b66ad96330"
+    },
+    {
+      "caseId": "wk-00ee73df1808",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "d6a410aeadaef8b58866a8a94a18a57e45dec6c386aab3c9a1dab5349efa2dd1"
+    },
+    {
+      "caseId": "wk-01db29ae2c09",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "449a9bf3f52517bf6efcc7cc21647357b2cc7517e13ecb00d56dfd7e3dcebb68"
+    },
+    {
+      "caseId": "wk-01e9ae94ac0f",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "d0fdb4e6f9a081e3fa649901a4b2eec1a80d8cf8575183f7adacc6d6aca0dca6"
+    },
+    {
+      "caseId": "wk-020d03da8368",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "cd0d75addd4bbf554bcc6c1865e68b01ff2dfd7c6bd52e23342d789b9c5e4414"
+    },
+    {
+      "caseId": "wk-0222d7932050",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "de4372341cc78ac0e94f7894b6aa5a0be4c903cc1b51f12b7b9fcc954669689e"
+    },
+    {
+      "caseId": "wk-022786f533a0",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "5f5098dffc8d155f3ca693b9252611c586dce6d22e252d280e4187936ca76bdd"
+    },
+    {
+      "caseId": "wk-022846d7c293",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "a82082bd9a1bacb7b29a6b7d0c5f79e9bf6778398ebd2c252ffb7c40c842011a"
+    },
+    {
+      "caseId": "wk-02325bee5863",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "aa326c9b2a66f66cb35a3d2b4bfac3784624ee259a3ca5dbce61c71a8f715362"
+    },
+    {
+      "caseId": "wk-023e8a7cfb14",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "a70562200e7be1bf75aacd78eb444e8f01e3a566172aaba6f2f38dc46d30d1d0"
+    },
+    {
+      "caseId": "wk-02442470b744",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "monitor",
+      "outcome": "cancelled",
+      "digest": "a62faeaf2fe62b3cc13016cdd6470a781511ba193dc118b3b3ed3baa51c51d20"
+    },
+    {
+      "caseId": "wk-0257135ca6dd",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "3562b18520bc70619ddf715c6196f110c28f819b41a6b4dcc2bff05ea015211a"
+    },
+    {
+      "caseId": "wk-034914569773",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "528ea4c94348c1faf4622f91d82d3ab0a558753c50f562fdc81552fb64c12738"
+    },
+    {
+      "caseId": "wk-034e71ad3041",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "a15a49d6771a056aab3ee713a1c4c24d615770ee14e673d01bd4858896eff854"
+    },
+    {
+      "caseId": "wk-03822104fcd7",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "cancelled",
+      "digest": "6340a0becd7ae1655cc06e798f3e760b0ad3c032595a099ec7acdaa95044a2cb"
+    },
+    {
+      "caseId": "wk-0008919b7fde",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "4d22936ef5b5ee3f2f00971e543cd13063ab48562546725a547d12421e8fa7b3"
+    },
+    {
+      "caseId": "wk-00122d1a4572",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "6c8d7776691cb237deab285b3fa21b10b883a78e29339419f3e22fe8a2c93c18"
+    },
+    {
+      "caseId": "wk-001936b54e5e",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "c2c701a0a0162e0de2e91f118eb43ca1d41ee666067b93dea811682b6fb0b432"
+    },
+    {
+      "caseId": "wk-009dac29eb42",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "95b23a9ffbddff9c114974f6bd704f7994e8ff56e339d153169f064f5edb5a00"
+    },
+    {
+      "caseId": "wk-0114cc142824",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "86fa065e09a9b670cd649391be84e6515d8fc4d13464f4107d8346054e4dae83"
+    },
+    {
+      "caseId": "wk-011575623642",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "8729164f13174f414628c0b2b81e1499311b5c3cdcd41e7e517aa787d81d2f4b"
+    },
+    {
+      "caseId": "wk-01271bbac6d1",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "38bcd1467b9a07e9c7a63f0414f6b8063ed3a5282c5a8345b601ec9182b29012"
+    },
+    {
+      "caseId": "wk-0135b0f9338f",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "b0b88658a26e786a8e794e074bb9e18c4831177b6a9822b455c6ccdfdc26d994"
+    },
+    {
+      "caseId": "wk-014725d4fc1f",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "00264b00d7dd9597adbf4d28a12059fa1761096c8575a7ef8bd7ce4deed6271b"
+    },
+    {
+      "caseId": "wk-014ed1750dd7",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "18da335edfbccc5d5bc47689c90ac0d42ef7d2f906f352bf30751176a84ca727"
+    },
+    {
+      "caseId": "wk-015213789544",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "ffb5392f8a7db86285736a47d0b4bdbc9d6665fb76b502b136d4e2424eb2bb70"
+    },
+    {
+      "caseId": "wk-01561d7368d9",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "15a916861bfcfecd57f68f5c12b85985f28216e26fd69f839b96a279cc64f81f"
+    },
+    {
+      "caseId": "wk-016b31e64091",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "c0bcd4939d2efbfd0760024c2823fc57ab59c5c7a1885912feea0a05b233a86b"
+    },
+    {
+      "caseId": "wk-0187cadbeabe",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "377d7b5373597e6ff4b0085d752784629313f65fb12da90e623880cdaf37d248"
+    },
+    {
+      "caseId": "wk-01b4380beb59",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "a18ec9354424524e8beb283dfcc25578e899415026819b501db349b075f2851b"
+    },
+    {
+      "caseId": "wk-021b5bddc6f2",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "34038e385d5c6072d4eb9d4fcefdf57ae43ad0a4a75979fa872fd996f45d613f"
+    },
+    {
+      "caseId": "wk-023c90d6f81c",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "5cb4bbb6daa5f6ca6a33b7f891907d7d869f8a1c935aba054b39ddcea01873fd"
+    },
+    {
+      "caseId": "wk-027e31ad6b78",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "ae8446faafd7e1404519cd25916c8c8303dfc7fe390bbd6f83ea1483cfadf9f9"
+    },
+    {
+      "caseId": "wk-028df6138d94",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "501f36a9eab2935a137e99df689c77544729e1afad6a163cf1562676d247581d"
+    },
+    {
+      "caseId": "wk-02b3aca38c41",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "ed5f3e488909410d87f3fb7f659b6a65af11ab02cbbce5faa28dc6a3dbd4cdbb"
+    },
+    {
+      "caseId": "wk-00136ee6aa46",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "9099fc65927506e74b933309e8bd8b7c04a451e042c32ba7ad0523e4ddf9f9d1"
+    },
+    {
+      "caseId": "wk-006de7e2ee81",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "74cfb646b160856770c9bbbed4cb976d7d8626ec75775dadad1aa2c711295079"
+    },
+    {
+      "caseId": "wk-0094b7054dcd",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "e58193db01122bfe1661fd5ac797ca742700a4154258859be908926f6cfc1e30"
+    },
+    {
+      "caseId": "wk-01055c15d5e0",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "30ba01057c288ca58aec6181e5492ee37a22f0d939227fc26c92c0b0599c4c2e"
+    },
+    {
+      "caseId": "wk-0131389b38aa",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "37faef5e0052751479a5d8f66988b0be88c3f1917f7e0d259b3fccaac4155f09"
+    },
+    {
+      "caseId": "wk-015980f1c611",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "a1f32c7b34d22eec1f94dd3513b3f303e532721fc5164bed07c3095898105d9f"
+    },
+    {
+      "caseId": "wk-024e0c81f202",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "4169b1e31175e3e1b127bb5eb66fe3f26a529421a1f67979da94f7e3d36b97cf"
+    },
+    {
+      "caseId": "wk-024f7cbb79d2",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "0fc019a2a5067d0dc87b320121d5309730e009b79910a953632c3907ddbeff18"
+    },
+    {
+      "caseId": "wk-02bb4255fd67",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "f06d77fd3600bb4482451744a2f842e14ca21e6510b9948d0bf4326f8c525b61"
+    },
+    {
+      "caseId": "wk-02c72ded13c8",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "256f6e47bf4760f746c8196d44b54ae83a4bded6f5abeb260a462d7ea8f6ab5d"
+    },
+    {
+      "caseId": "wk-032773c8d982",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "a004db2ae65da6a1cbcd98bca4d2c308079a1266417e667232c0624a39c26d97"
+    },
+    {
+      "caseId": "wk-0331056c30db",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "1e86a9483e4bfff5e1797612d67ee6c9f9d90cb7d9d7b92e5f2488a7633e90c6"
+    },
+    {
+      "caseId": "wk-0344d741b022",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "55e2739fca002ea0352ce3132d533ecfb1334ba20aad4a51d44508f0e5648581"
+    },
+    {
+      "caseId": "wk-03836f965057",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "f804bb4f73ce866c16c4cee367f77cf8553be22883f41700237f84c85c7fcc5a"
+    },
+    {
+      "caseId": "wk-0397db909ec6",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "153fd8358b4fff1be0495b4f6646d4264134f1bdade8cbdd1b1b4eaa59cd36d9"
+    },
+    {
+      "caseId": "wk-03b15e643ffa",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "1b6405b784053845d9c8c77a310538fe0d82b7fee41705ebc80710bffda048b4"
+    },
+    {
+      "caseId": "wk-04553e5ea95b",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "7326b416dce10421ae9733e13bdbbb24be4bdd064f27aaf57bcf61b5d4712dfe"
+    },
+    {
+      "caseId": "wk-0477f67f44a2",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "f3bdf13b6ad4a345d9415b3fcb4bbc5cd049bbcad5552db2b8b8052a39b3a0e7"
+    },
+    {
+      "caseId": "wk-05025fae3322",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "f9d69afed34cecce629fc64f8c785329df1e5f0b46851c02e13640e913590e7d"
+    },
+    {
+      "caseId": "wk-0555330a2215",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "5cd6136630af5cc8f3cf6dacd311c1bea5bafec5b02d75f89f9b14e5f1d9b2a4"
+    },
+    {
+      "caseId": "wk-000e6a3a430f",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "a7e4ffa8d7ba26c649621229a57a7d9a4d673dd005cd03a13fb18a0542273e1a"
+    },
+    {
+      "caseId": "wk-003d7b85e5ed",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "0e68cb19a8f1595d6a86fccb9355c3c43d11f567116d5599a5e7f253331828f9"
+    },
+    {
+      "caseId": "wk-00487c47de52",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "f0a1750054736421c3f74fcff58e2f8f6f7549db9747868643dfcfaee489a6fe"
+    },
+    {
+      "caseId": "wk-00dd99fe6edf",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "b41d4cc3b5300e48682908f649541a023cdb04b666c3c7575ad2b288c4932ece"
+    },
+    {
+      "caseId": "wk-012712bfe055",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "4dc17f414d46eb2982c70c389ba8cfc770679aa349d12dbb40daf5bc1aa840b7"
+    },
+    {
+      "caseId": "wk-013b4202d409",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "4f87833c2fb9498f78fb234bf9bb3e9786ff47eaf14b9f1247f6578507ac9e2d"
+    },
+    {
+      "caseId": "wk-014b1d53feff",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "f27d9c3a89a07af1d841f58e4d456d57650a8648ea4c1b07b473470674829e8f"
+    },
+    {
+      "caseId": "wk-0162c5e30501",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "09020501c92a99703d8d7128752a99e0b3bedeea7441688ece5f277e08297f78"
+    },
+    {
+      "caseId": "wk-0199c140c76b",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "f1be851c714947c0f198984c69a987fe5d786f38d49ee42d8ae04f713d32395b"
+    },
+    {
+      "caseId": "wk-019c82276d1d",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "3ab0e62852302777fb1df1473c47a9d71e178a7195e444f2d60ffc6717b692d0"
+    },
+    {
+      "caseId": "wk-01c12386b575",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "0fc85a30c29ba84459ca45b471404376e256b6c3cd28a5508580f2960f4cfd13"
+    },
+    {
+      "caseId": "wk-025e3e3ce898",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "11f68201041088e29f7d6b6ac12c63c1a927df0836c8708d5078b657f13f0886"
+    },
+    {
+      "caseId": "wk-0260b74b1992",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "8540b01f5cbcfabceadf6c7ebb14a5981ebce0f7acbe033714486c87114718a0"
+    },
+    {
+      "caseId": "wk-02ff29f6d24d",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "c0898afd09edd1edba546649ff946d76d79f5094f19a6e12becf390765a0abd9"
+    },
+    {
+      "caseId": "wk-0308a05e9065",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "169b15fc52cae0a2c3d9c2c21c668406b310adf12ce7a480a6e414073828817c"
+    },
+    {
+      "caseId": "wk-0329fbc1aa11",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "a984160e80da83e1cf92859bab7b9ef339773472a260e8786ac72f95b3aa19d5"
+    },
+    {
+      "caseId": "wk-04df81e736ab",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "a3fc15d40e34ec9dceaf61193ca5fe87f6b66c82df3ec42e7d2fdfe254a8019c"
+    },
+    {
+      "caseId": "wk-057eedcdad2d",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "67fbc243f68c32f093a3aa21573df9c85c67aba588b60ab5d222b3e7b547358a"
+    },
+    {
+      "caseId": "wk-05a54e24e7c6",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "2d74a5c902cb716d9bbc7e6bf8f4f8f068a20c69c5d7c6539e5e10025b524e9e"
+    },
+    {
+      "caseId": "wk-05aed8d38503",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "71c2d07d817a8ad7e7d734b5022bf856d59130da4c8b3c7ad8c0185e457af2ab"
+    },
+    {
+      "caseId": "wk-00fb547f3588",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "build_item",
+      "outcome": "completed",
+      "digest": "c99a7deae156eeb0d428a641dc2ddb553a75e4b270c78e37e832cd92f9baab56"
+    },
+    {
+      "caseId": "wk-0266d331fa4a",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "1c52652084c4a24f4ace42ade423a25ff4b5358d4825f6847c0dcb6ffe9e4f20"
+    },
+    {
+      "caseId": "wk-02affd29af6a",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "85f786fb0f529d0e0be97f22337dafd338628b9a04ada2ad449b67202edc67d5"
+    },
+    {
+      "caseId": "wk-03361cd9b2a7",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "build_item",
+      "outcome": "completed",
+      "digest": "18f9072021c5191f0b138c039b4fb62f99f80bc7fa4adb2be047288582df5bdf"
+    },
+    {
+      "caseId": "wk-03553a9e9d47",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "updated",
+      "digest": "d95501dd8f1f5847ca9c7eb1e8fe4fff669e5edb6e3b4ffde973492490784cbf"
+    },
+    {
+      "caseId": "wk-03d918386aee",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "completed",
+      "digest": "f3bd0ae21b70add6fe96eddb9ee9bb655ac2677d3730a311f15b1831f60d22cc"
+    },
+    {
+      "caseId": "wk-0430767a8686",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "updated",
+      "digest": "d82d9428f8fdba395064d286278c4ea9bc73a6d982170dde73217636a405d66e"
+    },
+    {
+      "caseId": "wk-047b7c722d6f",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "ec2ca3a525ea21fb5cf5f6cf63231fc138fa1cda8c2980c3a064b18fe499ca26"
+    },
+    {
+      "caseId": "wk-04a19b6580b8",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "71171f40617b0fde98b7f997a73f61b2b9816b665274a467941317aff565d88e"
+    },
+    {
+      "caseId": "wk-056b74636d8f",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "ccd72c827ab423fe70f1a51d1d251977458422078bdc53e67a78357d782cfc5d"
+    },
+    {
+      "caseId": "wk-058f78232a51",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "cancelled",
+      "digest": "6d11511c686a5114110a35652d9ef84a5732cd08f41b565b60dbacf75568612d"
+    },
+    {
+      "caseId": "wk-0636b34766a1",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "d12f1ef4150b3d53575ede7d84f9f7c7973eaab4670fe8005525d741ee50b5a6"
+    },
+    {
+      "caseId": "wk-06fcae97d851",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "completed",
+      "digest": "3fec8734a274d31dee27c6a1be088816d378edd99e1406f9ef2c39c77ce7b3e9"
+    },
+    {
+      "caseId": "wk-07068150317f",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "build_item",
+      "outcome": "completed",
+      "digest": "39c7d96d99dd7bf383612b767b752f4f067926d2772b5ef682c7006075669cd6"
+    },
+    {
+      "caseId": "wk-0766652bb813",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "fa1da40877b2b444a77b99b2fa3bc3dc19d6d7cf5259bf2c0760d24c33d65166"
+    },
+    {
+      "caseId": "wk-07864e91020f",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "build_item",
+      "outcome": "completed",
+      "digest": "381f63e6a2345f3c081636780c1b84eef88835e60b7018c8ffd10de6c0a4cf15"
+    },
+    {
+      "caseId": "wk-07dd52a12553",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "446465377551e28afe861d90cd470f43f062d8890b1fe442e510738e7ddbacdc"
+    },
+    {
+      "caseId": "wk-07efc788bddc",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "build_item",
+      "outcome": "completed",
+      "digest": "23987ba350a57c9a158e49e76aafc1fd24af33a0fee29038b8a43e2c396489c0"
+    },
+    {
+      "caseId": "wk-08027cd4f074",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "7617d82d5867291f84c523aa76854118610b561b5452d5d0383c7ef3507336a3"
+    },
+    {
+      "caseId": "wk-0835bf9858af",
+      "machine": "mac",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "0549393c3719df46b411c2936675f6980e4c5667fa8000f0ce3bff56f7ac6d74"
+    },
+    {
+      "caseId": "wk-0067f490279c",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "b739549f6cbc6bf63dd7a9cf920235606195d4a515f0812bc1ebeccd2686e30a"
+    },
+    {
+      "caseId": "wk-0144f5889695",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "15fa7676a62c8c2c6b44cfefc7a204e341f8eab2c52611615d848de169791468"
+    },
+    {
+      "caseId": "wk-021fc29ce219",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "d4f0c53a2b22a19bab77989cc6c3428d7a89e7ad46bf8494076c750183d46665"
+    },
+    {
+      "caseId": "wk-02369c29cd6a",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "0e058d4ad90ffd41f3d2cd2a068436df1e3a177e29e7b135048290206aca7965"
+    },
+    {
+      "caseId": "wk-024b05496a2f",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "87122ce1cb3f4f0a5522adbedf59fb3c878b59a9db1bfa8c783980d419e5271a"
+    },
+    {
+      "caseId": "wk-02dd729c5c34",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "55f0d87c299cd19afad29608474715bd7d766a9b0a7c601a9eb03a4d9bf3fbc2"
+    },
+    {
+      "caseId": "wk-03825d277f96",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "7781493ce30d716fcb20cca49b3c0f6a122e5fdd9b019db74a02e8f5dae5c285"
+    },
+    {
+      "caseId": "wk-04deb92bf69e",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "3822f621ff40416a64cd1def62e78e57a071589598bc02c769ac7843f046f366"
+    },
+    {
+      "caseId": "wk-04e480fb0c67",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "297951414f47bae6801288b13172d0f66f2ca26434a685d8324fff28258df901"
+    },
+    {
+      "caseId": "wk-053125ca0d79",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "25005a2bc76330505685a491dcc14e597c7e6b3968e17f9b3e97a581f60852a1"
+    },
+    {
+      "caseId": "wk-05a69b3a054f",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "932040a7f7bbcfc26f3eec2a6e203514c02d9ccffa63e2705c23d40c3bf92092"
+    },
+    {
+      "caseId": "wk-0608beca0b7a",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "ef01bcf5c9ba16fdc90a9658171415621fbb3828b0ccf928df312da0c93e9aae"
+    },
+    {
+      "caseId": "wk-061fa8825579",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "158e57f09a80ca1165d9cd0f153d08fdf21bae62a3a7cce87550601ad2557d92"
+    },
+    {
+      "caseId": "wk-062d891a3302",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "734ca218ff70e928429d288f65aba5efb9beb464bc7edd426b1f510b9a2e2b96"
+    },
+    {
+      "caseId": "wk-0689e5743fb1",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "95a65d0bc6393ae8dad84c141d551a81db18f1eb63925aad2aa392161c71397a"
+    },
+    {
+      "caseId": "wk-080e97cbfa5a",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "68184886c6ffb19f0a3ab709197fca03e2ca6ef5c84c97425d29ffea04d3a025"
+    },
+    {
+      "caseId": "wk-084bfe7012d7",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "efc7e3cd84806c94c28750ca9a856ac08ec1cd246f8227f58d431d303f67fca3"
+    },
+    {
+      "caseId": "wk-08c112868895",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "a2ba54d08096549ea591f09d1b9970c5cb92db03a1ab34f609e534b9c8861288"
+    },
+    {
+      "caseId": "wk-09a1347d58a5",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "3a451798492871663e5841492c65b2448ce2b4034a93faff316641b2859f4423"
+    },
+    {
+      "caseId": "wk-0a01782f8312",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "b11547572f7922194ce2425bf230b27d644d40e8dff0ce2868502d76cd18626a"
+    },
+    {
+      "caseId": "wk-008617a5f173",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "d83ebf7ea61b5a00972e0a3e7232dd92c8f875b6ff665fef261520af3afb4f3d"
+    },
+    {
+      "caseId": "wk-008f1aeb4793",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "9785010d967fe9ee40a58f2358018ff339af96f23a1733eedf712a9c59d125a8"
+    },
+    {
+      "caseId": "wk-009025d807b9",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "a568aadbfa22ae1c57121fac2f0288f893429f636fede02d7dac11227f54455a"
+    },
+    {
+      "caseId": "wk-00c84770f010",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "0db8e740630a0db972ca31b86e5354b1ae08d0ea05369505ac8e4e2363f4af04"
+    },
+    {
+      "caseId": "wk-0103e34110ce",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "123403648763cf9314ae5cbcd961249f08afd26655d0a80b95e9b449aab92076"
+    },
+    {
+      "caseId": "wk-0117360a3895",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "fcebd8c9619600777f3eb614f9827b11bbd86f12068118bba3b6dd70c29e9214"
+    },
+    {
+      "caseId": "wk-01436cf3eb93",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "c8522e0adeb3e5fe569f73c3a919cd08adafb49573436d5d27be6a727883820b"
+    },
+    {
+      "caseId": "wk-02aebb84719d",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "f6c05f232ba71b01e3e373d044a605165ad91e60f5563ed9826f1a5e7b8f55c5"
+    },
+    {
+      "caseId": "wk-02b3d3460069",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "bc72b3cd0f3d66ac924f27fc020823243a04c1b259f3b0cd7a6a6a69819d3a4f"
+    },
+    {
+      "caseId": "wk-02d89e3ce3c3",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "a7025ec0a0fb64688d879d71b49547e7eb3dcaa7da0e47d17fdb8a712a737d86"
+    },
+    {
+      "caseId": "wk-03895328065b",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "f2e2b1a589c144f7106c7f6a3bee9ac7acd0a99a17882f05ed763ecf7ef819bd"
+    },
+    {
+      "caseId": "wk-03b3680ddf29",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "cancelled",
+      "digest": "f2a916bfa10b7399ed450843d6692ddc5af5c49e91a20ddb629044f0b5506934"
+    },
+    {
+      "caseId": "wk-03de545fc21d",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "2603b16a9d394d637bc280776ed5557eca95a444fc90eb78bcb07ae85230df22"
+    },
+    {
+      "caseId": "wk-03e35fccca6d",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "failed",
+      "digest": "a9bd83124f51f87df194af60ec748b4d0c5df0776b842d5e397ab848ddcae99f"
+    },
+    {
+      "caseId": "wk-0452bb0bd539",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "failed",
+      "digest": "506796ac8bb62676388b015c906ad79180c732d72b67b3824ba084bd75d2da18"
+    },
+    {
+      "caseId": "wk-0498e765f331",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "9438ee1ff58fce46dd978a25b0e8863b53f20ab2f826264dd40c1a9eb333dcb0"
+    },
+    {
+      "caseId": "wk-04bfa0e25207",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "77e778bb5eab94370f49089010b2ab89c7de8291b771ce489bf6893a3a041b96"
+    },
+    {
+      "caseId": "wk-04c608e46637",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "bdd41fcb0780a4080074981e8a380fca44bd47cd06e32320e0f95649a91a402e"
+    },
+    {
+      "caseId": "wk-0550f2c9b95f",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "86036e26dbc6aca086994b446df27a94fe625c3868182c7140c1d70d25d7458e"
+    },
+    {
+      "caseId": "wk-056c63ba2ea8",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "2688f2f78edcf98840141f99915d5b7389f5d135d2c9cee1b07139c760bf81d0"
+    },
+    {
+      "caseId": "wk-000a40cad286",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "3a8a4ae04fda446c84e8ad7dce922131b9f026d536fadb40fbfe194abca04310"
+    },
+    {
+      "caseId": "wk-002c707a54d7",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "945214f7102263567fe45c950ee9cdb3e553f6fbd112b8a82cfec61c1f7bfa1a"
+    },
+    {
+      "caseId": "wk-005f53f6650d",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "4cd9a5ed5c52566fcd0db674be4ce6da616b694c6cdd937dff1b70a40685c616"
+    },
+    {
+      "caseId": "wk-00d407fc1533",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "17b78580dae609634b44d66fd350b322ffcac09180f5f0918b8fcd56ce1f743f"
+    },
+    {
+      "caseId": "wk-00fd9a566b3b",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "432ef191de9c9cf8a9278688bf8b11d0e8b938790ecd785d3564802556613d0d"
+    },
+    {
+      "caseId": "wk-0139e6b38744",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "d5ee39d8074e5820983474da892d219672dce890231de6a10102d363e699cd34"
+    },
+    {
+      "caseId": "wk-01d570a238a5",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "bc05f1a0d3772cd6686254f628e69f2a84bf2588bcc29b73d671fe51ef0c4ca9"
+    },
+    {
+      "caseId": "wk-01e903f84875",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "90afae7ec48d767768aa86127364bcb07ab088938076b5dcde7b83ed8b82e511"
+    },
+    {
+      "caseId": "wk-028652bce02a",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "736a1df66071952223965657419845f2c06f98ad958a243f0d5ef95ebf97a0a0"
+    },
+    {
+      "caseId": "wk-02904df65ba4",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "1cfde24e41f33671444b57554f94347c8c2ac6c50c486ad35751040f760ad262"
+    },
+    {
+      "caseId": "wk-03310e28846f",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "8bd78f873e5f60a28dea27b79f3a115cfcf0c2fff33c0a009c2a22ff7fc98716"
+    },
+    {
+      "caseId": "wk-039382ea96a5",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "c8aecd8e807c46b18362f8e13736c46ee2bac6db1aef2c3ae22325c7cfd6a737"
+    },
+    {
+      "caseId": "wk-03da5c8087cd",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "aba4925a9221f1b19c58cc33b3625651e468799423fe1742b93008b3d639b7cb"
+    },
+    {
+      "caseId": "wk-04722b198472",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "33983e6eefc8695a0caa53479f03df4cec2d033219bee553ff42fe4cc70f8b34"
+    },
+    {
+      "caseId": "wk-0580f7f0ff47",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "b4a5a6da4a2c94ec2179bd53a4a6d92e057b045e2fbd55d27f312abe245f421a"
+    },
+    {
+      "caseId": "wk-05df9abd98bf",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "94a5e157333a90fcd5948e80b97a145e26f8ee8f976c96179c3c7c8563514f10"
+    },
+    {
+      "caseId": "wk-065ef34644fe",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "febb408c18f7f71f85b9c74dbf0d175534d79843810d9ba18eb47de5a81fd816"
+    },
+    {
+      "caseId": "wk-0660d6d6ab34",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "cf2127bb25dec6ea18feb21e0da1c385b89b38f34be28839a1297aa119c39833"
+    },
+    {
+      "caseId": "wk-06a71d118cb7",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "3a03f378467f5e698f12e5706df80b7aa8747f01bce3a3af769b0f62df817350"
+    },
+    {
+      "caseId": "wk-06c1e3f1f711",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "de3b6c0ae7a0e0d692aa257acfaa6a164e4104b19be82ab09c0856af7ee9b2d8"
+    },
+    {
+      "caseId": "wk-0222ae7c2c47",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "b42421c9dbfc2c6e87b8fba5cefff7859f0c01bf4f39c73e0a99b193890fde66"
+    },
+    {
+      "caseId": "wk-03d766898cbd",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "4826b6ac91affdcda57398b7ac7632e78ec768575e535158b56e6d33620fe3ec"
+    },
+    {
+      "caseId": "wk-0b24021b68a8",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "681e6ca5882ce220383291740ac55cd6a4a4298e99d0ec6466a85210e2dadc20"
+    },
+    {
+      "caseId": "wk-13361e3c1e8c",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "2e879753c8ce0d3219957f21231077e86467a78f5b89428f9fdb008f415863e0"
+    },
+    {
+      "caseId": "wk-17bcd47c68ce",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "6160b9cab1d6dca157eb5c7f21cafc5efc9cb3f976a926ca8fa23d3b13e0c2ba"
+    },
+    {
+      "caseId": "wk-1915cbd5c756",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "b7d63acba1da257c25b5cc7581a068ff3035bbeed7595391cf1597ca008c1c13"
+    },
+    {
+      "caseId": "wk-204b4389809f",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "99c2045eb2db8c837d71e5b2252da0425ad0a6983f1f60ae5b4f6237403860f1"
+    },
+    {
+      "caseId": "wk-22d66af3f019",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "1df14acd47d5c4ae513fe144319244cc8045201c191241677247c072e011d14b"
+    },
+    {
+      "caseId": "wk-27b55e05c3a4",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "fb8676ad85d0763c9f8fdfdc1421c6150f374208254d92a83c1da2ee57d192c6"
+    },
+    {
+      "caseId": "wk-31b91216b0de",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "c8cdf31c9510474d3b691cb7f79b403eab4c5fc3d152402d2a4c112d39ea5410"
+    },
+    {
+      "caseId": "wk-571deba9a3d6",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "c6d0a116533b60141015c7f86f0ee23f3c91c8ad10b9f288a6a60db57f6b8b0f"
+    },
+    {
+      "caseId": "wk-57ca6969e7d9",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "7ecfd2941c270355344378f220ceb5473d7030c1ff6010c634042900a9eb9a1d"
+    },
+    {
+      "caseId": "wk-5b5404a6a1a3",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "1970b8b9779ac3f7c8699c3414114ddd004bb24ae832826e1f1af521f182b01e"
+    },
+    {
+      "caseId": "wk-60dbcdfe3031",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "c5bcd5f6e828fe21a927e025aabef5be5bddab74cec3b651ac5475a98adf1ce2"
+    },
+    {
+      "caseId": "wk-65eaa349a69f",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "0e426ce5268e33c3d2225078574d121817adcb851f71a8a1fddb079c75c3467e"
+    },
+    {
+      "caseId": "wk-78d2d0577c00",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "0a36b2796691ef4251d6a1bc3a5e1ecc3fd6a858b5891f5147da1fadbebdea29"
+    },
+    {
+      "caseId": "wk-7ae49915ec32",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "343e7eb28a9c1d8173fa20f9f45e52df4e9fd9dd96da555230fa206a28368da4"
+    },
+    {
+      "caseId": "wk-8353482a7bb7",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "e9edbf68cc89abfc74d01a7fd743ee8b68fbab9bdd53000d2830ea075f1c942c"
+    },
+    {
+      "caseId": "wk-8b1b1c1b02f6",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "6a0595983bb2daafcfc7a12121ad294c39f458ea5c6a6f10b80b2e1e2425954a"
+    },
+    {
+      "caseId": "wk-93b33f1acebf",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "f3fbfc5252d54c5208d532856481fbbb3ff7e10998dc42a2d66035c225f39867"
+    },
+    {
+      "caseId": "wk-0058d73ed73f",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "completed",
+      "digest": "1b01817fd37db7b4fcd90d606e9b29c8b2521cac1f0a3bcf0ec81ebc33c3dd78"
+    },
+    {
+      "caseId": "wk-00b44c4c3e98",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "failed",
+      "digest": "2968eccfaa6115cc7b6cd3b1f3010bb38dbfab2be2aa734117d72b82955c776c"
+    },
+    {
+      "caseId": "wk-00e04fc867d6",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "build_item",
+      "outcome": "completed",
+      "digest": "5e31d696effa16e3239552255fa9fd0f0f61ddd08fb1de56f2529cbe31218da9"
+    },
+    {
+      "caseId": "wk-014637f59986",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "331f21e3c0f492519ba78f83c1a984d2da7e1d0487ea6ed4003e049a360397a9"
+    },
+    {
+      "caseId": "wk-016d9485dfd3",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "8e7270536ef17a110aba96e6df20a91938011b7293340e313a2a25d8c2793cf8"
+    },
+    {
+      "caseId": "wk-029dd15a037d",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "build_item",
+      "outcome": "completed",
+      "digest": "cf727d8f6afac488846a5b6f0766d77215e73e9300e418efa9da4b2f81013f38"
+    },
+    {
+      "caseId": "wk-04288d50c831",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "failed",
+      "digest": "c9fe9b20765454b4f65cb89269700babe30427e6b6676d424af142709bccb221"
+    },
+    {
+      "caseId": "wk-04c045b99f06",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "build_item",
+      "outcome": "completed",
+      "digest": "65b23e669b049377fa3e9df73ea1f2dc3e6e059281f2721fe6ce18c570c4181a"
+    },
+    {
+      "caseId": "wk-05ad9e9b13bc",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "failed",
+      "digest": "2b58d5baed81e1c48a580ee431bff1b878aaab08c57aaa0bb52aed5bdcb833a6"
+    },
+    {
+      "caseId": "wk-05eb5ac0dc54",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "completed",
+      "digest": "d7f0b10ebef3f538483cf9ec6eaf968616debc9eb406729ad388d86b873f56d7"
+    },
+    {
+      "caseId": "wk-07f471c17052",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "build_item",
+      "outcome": "completed",
+      "digest": "ee4866347765b4fa8d0c40555430f792033c6f69d73ef48d00d16665040224b1"
+    },
+    {
+      "caseId": "wk-08ed5bb09c9f",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "failed",
+      "digest": "10d86be44e1ee2b754cac813e8a405cd4c65b4760252c19e919a02d8b782bcbd"
+    },
+    {
+      "caseId": "wk-0b5cd66008eb",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "failed",
+      "digest": "3b58c5ea1cab9723aef92943fd28f4b3c0cad2c5441effef82912a600d8f7411"
+    },
+    {
+      "caseId": "wk-0d450662f77b",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "9a9477482258fc5a8cd73c6051e1f3d1935747631a348fa60852174b8819e24a"
+    },
+    {
+      "caseId": "wk-0e09c7704187",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "failed",
+      "digest": "84aae21b707a8f4134357b11d648829843d6b558f2e368a79d9086dc68df2db8"
+    },
+    {
+      "caseId": "wk-11f42c0a7b80",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "failed",
+      "digest": "3e97dacdd472793b9af36ed496f0d157327358e537e7de3bfd58459a9735961a"
+    },
+    {
+      "caseId": "wk-12dfdc619e9b",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "build_item",
+      "outcome": "completed",
+      "digest": "303f76c3423948a976eba6b5958ca363e5f2fb43f2e9274379745a728aea429f"
+    },
+    {
+      "caseId": "wk-14428a299bfb",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "build_item",
+      "outcome": "completed",
+      "digest": "19a832f9bb65bcadd3d26f28da7463ac9ddb67b7ea8ddf2e900ed3111276e3ff"
+    },
+    {
+      "caseId": "wk-1766f1b26404",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "failed",
+      "digest": "a91a56dbc711ae78aeb90a39cdf4f73d7c21228dc8a28c933921d283ad67adb2"
+    },
+    {
+      "caseId": "wk-18297bee7389",
+      "machine": "peach-box",
+      "split": "heldout",
+      "wakeKind": "watch",
+      "source": "build_item",
+      "outcome": "completed",
+      "digest": "2d51fdf4600c9a77a6f26c2ba44f25cf7446f506e0186af488a476fc4e158eb5"
+    },
+    {
+      "caseId": "wk-03bdc12d9a27",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "42e8efeea2ee3753776c22f878f6e2d751d585c4defe14dec2e4e0c6168006c6"
+    },
+    {
+      "caseId": "wk-03c2cd2fa9bb",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "4978172d5a4674a783e2af7ad3f1338142e484662f7bb2bc5d1be64cb3618105"
+    },
+    {
+      "caseId": "wk-03d68edb80b6",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "78d6099abe8beb0d7b070d379a3885ff6502ee4adc8146a7f24d89a246e7667a"
+    },
+    {
+      "caseId": "wk-04231dfda1ca",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "e032ab1b8ed98519699437d00c31cdce1ced0e40b6f268c2324bbbe49cd23163"
+    },
+    {
+      "caseId": "wk-0444f857ae46",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "c4d7ca7dac40f342cfb958eb24dbb6d1bb278b275b6206309a3c7cf0f52f5fa5"
+    },
+    {
+      "caseId": "wk-02bb4d264409",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "dc5f40750028901c0c2fb6dea06e89bebd201be51817a83a06d2384e2ce62e70"
+    },
+    {
+      "caseId": "wk-02bfa31a0f2e",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "4c76fa90f06e276637b6af1409a57221ee394a0f3cdb756938d014880f614c73"
+    },
+    {
+      "caseId": "wk-02caa36b6815",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "16d7bc303a2d34fd4042e797fec140c3b5b0e2cb936c64bc437f4d990c7575f7"
+    },
+    {
+      "caseId": "wk-0302dbb3c816",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "938814feba60b435e7549c8a6db9e6042dbdfe7313485f7ac00747a9cf60b22e"
+    },
+    {
+      "caseId": "wk-0328d62ec9d8",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "ede3bc00658e465ab7d50bb639c150a2565b11d5a4657abaa8f3c73f15d25e67"
+    },
+    {
+      "caseId": "wk-059a73eb4020",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "be2039058107b6c901dc8fc8162f8f57bf68d587503049975f9d5436c629c467"
+    },
+    {
+      "caseId": "wk-05bf95673526",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "d9f1fe81489f7c529ae2f44fa31bcb6ec9773eb8e2f428480c2054b0da9282ba"
+    },
+    {
+      "caseId": "wk-061670bc82f0",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "c421c3625e6f5113a0568e1478d6b27ba225af1d616c9a935a682fea7097c2b6"
+    },
+    {
+      "caseId": "wk-0625ae91945c",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "5bc04d4786816c7db9cf3627e7ae0b636ba8bf5ee0fbca12335c02d79255b5f6"
+    },
+    {
+      "caseId": "wk-06805757ed45",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "20c26f2fb699e263c36008dda06a641f541b584f4b57490f7e02ed9e9725ceae"
+    },
+    {
+      "caseId": "wk-05eb1fd3a32b",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "cd27508206a2b8749a508aee6b484cb1af90eb1cbfb71b9ba91e602803fc4515"
+    },
+    {
+      "caseId": "wk-060029f2ab84",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "5ce346d3f31b9673fd40badac1b7c2a4c72e0bd221b0ecc525b99dce6c71d690"
+    },
+    {
+      "caseId": "wk-074f9148170f",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "e352987e920db01e2e22d0d9b9257d61cafe35337addcc2a665719629a5afeb7"
+    },
+    {
+      "caseId": "wk-075da48fd196",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "0c2e96afacd1a710719399b5060ba051860967b6984a167dc9746116bd2a5c9d"
+    },
+    {
+      "caseId": "wk-086b40785d48",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "210462f178f908c6291aa7bb461d44e23bccffff3b86d61bd9c82056ceb91e8f"
+    },
+    {
+      "caseId": "wk-0941eeaef57c",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "8b54f360e02a82ef23c91c4107fb860879d3a558ba60f52ebd5d341cf36615e2"
+    },
+    {
+      "caseId": "wk-097d59a64045",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "4d3ed4b534e42c1dd5c3177e9b35abb99a8ab152670847e21ef776722c1b23dd"
+    },
+    {
+      "caseId": "wk-0a30da10c468",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "updated",
+      "digest": "c885e3c3e721b3b810c719f5b6bffd0804a2c9835ec05128638d7dca418e7302"
+    },
+    {
+      "caseId": "wk-0ad8aabb2d52",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "e5dc6d5baec7c49b1654948d1775eca18c3eaf910c5d6b92a9f2dd87bf08c76b"
+    },
+    {
+      "caseId": "wk-0b85bbc2c544",
+      "machine": "mac",
+      "split": "tune",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "failed",
+      "digest": "3433080636fbd84bf7db849831011aa1aa35fe77648a8419e6a0382a8c862547"
+    },
+    {
+      "caseId": "wk-0ab1091b0cf7",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "f734ea3121c8ab5eb4a59ac11590df02ce495e8dd41b11338276cf83aa2b6208"
+    },
+    {
+      "caseId": "wk-0b238c7cd016",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "4ca0a0dee0cd0fc7c53765023b0d7f862383d6304cd7485b5ae93ca502da00c8"
+    },
+    {
+      "caseId": "wk-0b550396ec40",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "e0954678dca83c168a8d98194babc0bbe32ba8d2bb5937412f3877a7c281096a"
+    },
+    {
+      "caseId": "wk-0bfd1133522d",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "3d78b433123db0ee66479bb8c80f8207c74b605849e8eeadeb5c527cbaff0fd1"
+    },
+    {
+      "caseId": "wk-0cf9462f3f08",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "command",
+      "source": "background_command",
+      "outcome": "completed",
+      "digest": "8504efca10f88dde7130a4f2c3b3b9bcaa518356e41a1b2f2a92fd3830155570"
+    },
+    {
+      "caseId": "wk-0631e0cfd696",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "failed",
+      "digest": "f0cec5511df7ce78d444e6d4667fa424cfc89ade118c4ea121bc4178c4aa8f6c"
+    },
+    {
+      "caseId": "wk-06cf82323603",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "cancelled",
+      "digest": "36863d52485ef9a55ee01b31218a2baf82dde54e4f37920778f0854395c9ea80"
+    },
+    {
+      "caseId": "wk-06d4238b2be2",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "4a37b785b4c046dcb99be6912b7c55c78f3a45f4cbc2749f08145bec873fe7f5"
+    },
+    {
+      "caseId": "wk-06f9b6016530",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "ac6d09a5cfbb55f1982a53e2ee54666e18bda6570ea1f986e1c94f0df74c7615"
+    },
+    {
+      "caseId": "wk-07047f637d28",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "delegated",
+      "source": "delegated_task",
+      "outcome": "completed",
+      "digest": "6841a19c58b9d83d658f3f5c868decd2a861de817e463d8b37e637ea966ddef1"
+    },
+    {
+      "caseId": "wk-06d292b68273",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "d416c1770576ff1f75a18b201d02c8881ab377bd6400bc1c59f65c20008409b9"
+    },
+    {
+      "caseId": "wk-08cc2703228b",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "ed5ed376c78d36e254b1f24597b2c0519d110edaebe46ab6bd7ef8c719ddae08"
+    },
+    {
+      "caseId": "wk-09b23b28b41b",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "588c4cc66d252439be5ce7e64afac94c1ae3d0abafb6c30c91210b9cea5f06a6"
+    },
+    {
+      "caseId": "wk-09de77372c6a",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "b23e43563fc0c55c69e7e7651885e5efd7b2e0f8924f62523be4e228f86d0e12"
+    },
+    {
+      "caseId": "wk-0ae72be30a46",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "system",
+      "source": "system",
+      "outcome": "updated",
+      "digest": "4dde00e7f0b74dea02adf3ba4978f6afbbe518520d3e149aa647f7ddd88ff0aa"
+    },
+    {
+      "caseId": "wk-94815d024bcb",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "225d67a51167fe7581048f0fc7dfec8df9ff5267c8d2710b3d83c327688acd55"
+    },
+    {
+      "caseId": "wk-94f5e34fff8d",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "705c869af4e5a25816f4927c811ae316b40d5784ccd0daa2c377faa5559ba51e"
+    },
+    {
+      "caseId": "wk-a4807e62f35e",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "f03637cf1724d73fdd7777eb3d04d7ccf7046edec69825738c629dcbd1359de8"
+    },
+    {
+      "caseId": "wk-ada518e85276",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "b835e7a1e17ce31ad3392a51f81e7bc5f64d6f902a25437305c9f56abb582763"
+    },
+    {
+      "caseId": "wk-b18ec760b95e",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "timed",
+      "source": "scheduled_task",
+      "outcome": null,
+      "digest": "06b8b0f956973aea2a15822ea82a31df3f8a0160ead75a7de940ca0b0bbf2488"
+    },
+    {
+      "caseId": "wk-182aa1099d92",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "9f5a75cc3fcef60ea9b2e567fdf1b270f318edaa790cbe96ec60f100ca054e15"
+    },
+    {
+      "caseId": "wk-1aa64e212d0a",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "watch",
+      "source": "build_item",
+      "outcome": "completed",
+      "digest": "05d6fe80860ac06a0741b18a3e640b7827d2744dbc9f8339ecb9f942ad2ef4fb"
+    },
+    {
+      "caseId": "wk-1ca6a391ed8b",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "completed",
+      "digest": "47a6b65317834a6d77fd11772d093778ad39936e955ddcef6c190cd09db33b94"
+    },
+    {
+      "caseId": "wk-1ecce3b6e816",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "watch",
+      "source": "landing",
+      "outcome": "failed",
+      "digest": "285dfff3e01deea818968b3e9cf473403482dc8e3ed335647e12496cf10c5615"
+    },
+    {
+      "caseId": "wk-241759b60d3c",
+      "machine": "peach-box",
+      "split": "tune",
+      "wakeKind": "watch",
+      "source": "background_task",
+      "outcome": "completed",
+      "digest": "440c2718ccb62f2574bed89e7e35df8a351b498e2e19a08fe1da56e8ae28eb92"
+    }
+  ]
+}
