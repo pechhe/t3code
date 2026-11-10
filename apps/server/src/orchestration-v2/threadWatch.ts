@@ -6,6 +6,7 @@ import type {
   OrchestrationV2RuntimeRequest,
   OrchestrationV2ServerCommand,
   OrchestrationV2WatchTarget,
+  OrchestrationV2WatchWaitsOnPerson,
   ForgeWorkItemSummary,
   OrchestrationV2TurnItem,
   ThreadId,
@@ -158,16 +159,21 @@ export function requestPrompt(
   return undefined;
 }
 
-const LABEL: Record<ThreadWatchDecision["kind"], string> = {
+const LABEL: Record<ThreadWatchDecision["kind"] | "unreadable", string> = {
   archived: "Archived or deleted",
+  unreadable: "Gone",
   "needs-input": "Needs input",
   failed: "Failed",
   stopped: "Stopped",
   finished: "Finished",
 };
 
-const OUTCOME: Record<ThreadWatchDecision["kind"], OrchestrationV2Notification["outcome"]> = {
+const OUTCOME: Record<
+  ThreadWatchDecision["kind"] | "unreadable",
+  OrchestrationV2Notification["outcome"]
+> = {
   archived: "cancelled",
+  unreadable: "unknown",
   "needs-input": "updated",
   failed: "failed",
   stopped: "cancelled",
@@ -202,7 +208,8 @@ function quote(text: string, threadId: string): string {
 export function threadWatchWake(input: {
   readonly watch: { readonly threadId: ThreadId };
   readonly title: string;
-  readonly decision: ThreadWatchDecision;
+  /** `unreadable`: the watched thread's row is gone, so it can never report. */
+  readonly decision: ThreadWatchDecision | { readonly kind: "unreadable" };
   /** The result, error or oldest request, in the watched thread's own words. */
   readonly detail: string | undefined;
 }): { readonly text: string; readonly notification: OrchestrationV2Notification } {
@@ -216,6 +223,8 @@ export function threadWatchWake(input: {
     switch (decision.kind) {
       case "archived":
         return `Thread ${link} was archived or deleted before it finished.`;
+      case "unreadable":
+        return `Thread ${link} can no longer be read, so it ended without reporting a result.`;
       case "needs-input": {
         const count = decision.requests.length;
         return `Thread ${link} is waiting for a person: it has ${count === 1 ? "1 pending request" : `${count} pending requests`}. Read and answer one with t3_pending_request_read and t3_pending_request_respond using threadId ${watch.threadId}, or ask the user.${said(`Its oldest request, in that thread's own words:`)}`;
@@ -271,6 +280,30 @@ export function decideBuildWatch(
     return item.status === "landed" || item.status === "accepted" ? "closed" : undefined;
   }
   return item.holds.length === 0 && item.waits.length === 0 ? "unblocked" : undefined;
+}
+
+/**
+ * What only the owner can still do for an `unblocked` watch that has not fired: the item itself
+ * has landed and its acceptance level is the owner's, or its only remaining blockers are holds.
+ * A wait on another item never counts: Forge's wait carries no acceptance level for its blocker,
+ * so whether a person must accept it cannot be told.
+ */
+export function buildWatchWaitsOnPerson(
+  target: Extract<OrchestrationV2WatchTarget, { readonly kind: "build_item" }>,
+  item: ForgeWorkItemSummary,
+): "acceptance" | "hold" | undefined {
+  if (target.until !== "unblocked" || item.status === "dropped" || item.waits.length > 0) {
+    return undefined;
+  }
+  if (item.holds.length === 0) return undefined;
+  return item.status === "landed" && item.acceptanceLevel === "owner" ? "acceptance" : "hold";
+}
+
+export function sameWaitsOnPerson(
+  left: OrchestrationV2WatchWaitsOnPerson | undefined,
+  right: OrchestrationV2WatchWaitsOnPerson | undefined,
+): boolean {
+  return left?.need === right?.need && left?.ref === right?.ref && left?.title === right?.title;
 }
 
 export function buildWatchWake(input: {
@@ -343,9 +376,11 @@ export function landingWatchWake(landing: LandingWakeInput): {
   }
   lines.push(
     "",
-    landing.outcome === "failed"
-      ? `Read the runner log with \`slipjay runner log ${landing.operationId}\`, repair the change in the workspace that submitted it, and land it again from there with \`slipjay land --no-wait\` and a new watch. Only if that workspace is gone, \`slipjay repair ${landing.operationId}\` starts a repair in a new one. T3 Code has stopped watching this landing.`
-      : "T3 Code has stopped watching this landing. If you already saw this result, there is nothing more to do.",
+    landing.outcome === "landed"
+      ? "Nothing needs repairing. T3 Code has stopped watching this landing."
+      : landing.outcome === "failed"
+        ? `Read the runner log with \`slipjay runner log ${landing.operationId}\`, repair the change in the workspace that submitted it, and land it again from there with \`slipjay land --no-wait\` and a new watch. Only if that workspace is gone, \`slipjay repair ${landing.operationId}\` starts a repair in a new one. T3 Code has stopped watching this landing.`
+        : "T3 Code has stopped watching this landing. If you already saw this result, there is nothing more to do.",
   );
   return {
     text: lines.join("\n"),

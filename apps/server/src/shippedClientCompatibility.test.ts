@@ -3,6 +3,7 @@ import {
   Experiment,
   ExperimentAssignment,
   OrchestrationV2ThreadShell,
+  OrchestrationV2ThreadStanding,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -136,6 +137,66 @@ it("a shipped client ignores additive champion owner metadata on an ordinary thr
     champion: { id: "quality", attention: false },
   });
   assert.deepEqual(Object.keys(decoded).toSorted(), ["id", "title"]);
+});
+
+const decodeStanding = Schema.decodeUnknownSync(OrchestrationV2ThreadStanding);
+
+it("a shipped client decodes a stalled thread and one that waits on the owner as threads it knows", () => {
+  const { id, title, status, pendingBackgroundTasks, blockedOnThreadWait } =
+    OrchestrationV2ThreadShell.fields;
+  // What a shipped client reads of a watch: the fork's waitsOnPerson is not among its fields.
+  const shippedWatch = Schema.Struct({
+    id: Schema.String,
+    title: Schema.String,
+    startedAt: Schema.String,
+    target: Schema.Unknown,
+  });
+  const shippedShell = Schema.Struct({
+    id,
+    title,
+    status,
+    pendingBackgroundTasks,
+    blockedOnThreadWait,
+    threadWatches: Schema.optional(Schema.Array(shippedWatch)),
+  });
+  const watch = {
+    id: "thread-watch:1",
+    title: "Ship it",
+    startedAt: "2026-11-10T09:00:00.000Z",
+    target: { kind: "build_item", number: 7, until: "unblocked" },
+  };
+  const stalledWire = {
+    id: "thread-stalled",
+    title: "Lead",
+    status: "completed",
+    blockedOnThreadWait: true,
+    pendingBackgroundTasks: [{ taskId: "task-1", kind: "subagent" }],
+    standing: {
+      state: "stalled",
+      stalled: { childThreadId: "thread-child", title: "Quiet", since: "2026-11-10T08:00:00.000Z" },
+    },
+  };
+  const waitingOnOwnerWire = {
+    id: "thread-owner",
+    title: "Lead",
+    status: "completed",
+    pendingBackgroundTasks: [
+      { taskId: "thread-watch:1", kind: "monitor", awaited: true, watching: watch.target },
+    ],
+    threadWatches: [{ ...watch, waitsOnPerson: { need: "acceptance", title: "Ship it" } }],
+    standing: {
+      state: "needs_you",
+      waitsOnPerson: { kind: "build_item", number: 7, title: "Ship it", need: "acceptance" },
+    },
+  };
+  for (const wire of [stalledWire, waitingOnOwnerWire]) {
+    const decoded = Schema.decodeUnknownSync(shippedShell)(wire);
+    assert.equal(decoded.status, "completed");
+    assert.notProperty(decoded, "standing");
+    // The same wire is what the fork's own clients read.
+    const forkDecoded: unknown = decodeStanding(wire.standing);
+    assert.deepEqual(forkDecoded, wire.standing);
+  }
 });
 
 it("shipped thread shells ignore managed roles and preceding fork clients accept reviewer", () => {

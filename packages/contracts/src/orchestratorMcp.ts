@@ -65,6 +65,7 @@ import {
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
   OrchestrationV2RunStatus,
+  OrchestrationV2ThreadStanding,
   OrchestrationV2TurnItemStatus,
 } from "./orchestrationV2.ts";
 import { ProviderOptionSelection, ProviderOptionSelectionValue } from "./model.ts";
@@ -490,6 +491,8 @@ export const OrchestratorMcpThreadListItem = Schema.Struct({
   snoozedUntil: Schema.NullOr(IsoDateTime),
   parentThreadId: Schema.NullOr(ThreadId),
   relationshipToParent: Schema.NullOr(Schema.Literals(["fork", "subagent"])),
+  /** Where the thread stands now; trust it over `status`, which is only its latest run. */
+  standing: Schema.optional(OrchestrationV2ThreadStanding),
   itemCount: NonNegativeInt,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -617,6 +620,8 @@ export const OrchestratorMcpThreadDetail = Schema.Struct({
   worktreePath: Schema.NullOr(Schema.String),
   parentThreadId: Schema.NullOr(ThreadId),
   relationshipToParent: Schema.NullOr(Schema.Literals(["fork", "subagent"])),
+  /** Where the thread stands now; trust it over `status`, which is only its latest run. */
+  standing: Schema.optional(OrchestrationV2ThreadStanding),
   runCount: NonNegativeInt,
   itemCount: NonNegativeInt,
   pendingRequestCount: NonNegativeInt,
@@ -722,6 +727,8 @@ export const OrchestratorMcpThreadWaitResult = Schema.Struct({
   threadId: ThreadId,
   runId: Schema.NullOr(RunId),
   status: OrchestratorMcpThreadStatus,
+  /** Where the thread stands after the wait: a settled run does not mean it has finished. */
+  standing: Schema.optional(OrchestrationV2ThreadStanding),
   timedOut: Schema.Boolean,
   next: Schema.optional(OrchestratorMcpRunningTaskNext),
   /** With untilDelegatedWorkSettled, once settled: the run whose reply is the thread's result. */

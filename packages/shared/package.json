@@ -427,6 +427,10 @@
       "types": "./src/orchestrationV2PendingBackgroundWork.ts",
       "import": "./src/orchestrationV2PendingBackgroundWork.ts"
     },
+    "./threadStanding": {
+      "types": "./src/threadStanding.ts",
+      "import": "./src/threadStanding.ts"
+    },
     "./hostClassification": {
       "types": "./src/hostClassification.ts",
       "import": "./src/hostClassification.ts"

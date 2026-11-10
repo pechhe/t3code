@@ -46,6 +46,12 @@ interface NotificationState extends ThreadNotificationObservation {
   readonly subagentRequest: PendingSubagentRequest | null;
   readonly thread: EnvironmentThreadShell;
   readonly status: SidebarThreadStatus;
+  /** The Build item a `needs_you` standing waits on its owner for. */
+  readonly waitsOn: {
+    readonly number: number;
+    readonly ref?: string;
+    readonly title?: string;
+  } | null;
 }
 
 type ToastId = ReturnType<typeof toastManager.add>;
@@ -142,7 +148,11 @@ export function startThreadNotifications(
               ? "Thread failed"
               : status === "request"
                 ? "Guest request"
-                : "Input needed";
+                : state.standing === "stalled"
+                  ? "Thread stalled"
+                  : state.waitsOn !== null
+                    ? "Needs you"
+                    : "Input needed";
     if (hasNotificationSound(mode)) {
       void playNotificationSound(kind, () =>
         hasNotificationSound(getClientSettings().notificationMode),
@@ -167,7 +177,7 @@ export function startThreadNotifications(
               <CircleCheckIcon aria-hidden className="size-4 text-success-foreground" />
             ) : status === "approval" ? (
               <ShieldQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
-            ) : status === "limited" ? (
+            ) : status === "limited" || state.standing === "stalled" ? (
               <CircleAlertIcon aria-hidden className="size-4 text-warning-foreground" />
             ) : status === "failed" ? (
               <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
@@ -257,6 +267,7 @@ export function startThreadNotifications(
       const thread = presentThreadShell(environmentId, rawThread, subagentRequest);
       let status = resolveSidebarThreadStatus(thread);
       if (status === "ready" && thread.latestRun?.status === "failed") status = "failed";
+      const standing = rawThread.standing;
       const needsAttention =
         status === "input" ||
         status === "request" ||
@@ -269,6 +280,18 @@ export function startThreadNotifications(
         : null;
       const completedAt = Date.parse(thread.latestRun?.completedAt ?? "");
       const settled = status === "ready" && thread.latestRun?.status === "completed";
+      const waitsOn =
+        standing?.state === "needs_you" && standing.waitsOnPerson !== undefined
+          ? {
+              number: standing.waitsOnPerson.number,
+              ...(standing.waitsOnPerson.ref === undefined
+                ? {}
+                : { ref: standing.waitsOnPerson.ref }),
+              ...(standing.waitsOnPerson.title === undefined
+                ? {}
+                : { title: standing.waitsOnPerson.title }),
+            }
+          : null;
       const state = {
         raw: rawThread,
         subagentRequest,
@@ -278,6 +301,8 @@ export function startThreadNotifications(
         requestId,
         settled,
         completedAt: settled && Number.isFinite(completedAt) ? completedAt : null,
+        ...(standing === undefined ? {} : { standing: standing.state }),
+        waitsOn,
       };
       next.set(thread.id, state);
       changed.push([prior, state]);

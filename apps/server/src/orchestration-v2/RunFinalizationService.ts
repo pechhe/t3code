@@ -56,6 +56,12 @@ export class RunFinalizationService extends Context.Service<
       readonly runId: RunId;
       readonly scopeId: CheckpointScopeId;
     }) => Effect.Effect<void, RunFinalizationError>;
+    /** Completes a run whose capture failed for good, without a checkpoint. */
+    readonly abandonCapture: (input: {
+      readonly threadId: ThreadId;
+      readonly runId: RunId;
+      readonly scopeId: CheckpointScopeId;
+    }) => Effect.Effect<void, RunFinalizationError>;
   }
 >()("t3/orchestration-v2/RunFinalizationService") {}
 
@@ -96,7 +102,15 @@ const make = Effect.gen(function* () {
       );
     }
   });
-  return RunFinalizationService.of({ finalize });
+  const abandonCapture: RunFinalizationService["Service"]["abandonCapture"] = (input) =>
+    checkpointCapture
+      .abandon(input)
+      .pipe(
+        Effect.mapError(
+          (cause) => new RunFinalizationError({ ...input, operation: "capture-checkpoint", cause }),
+        ),
+      );
+  return RunFinalizationService.of({ finalize, abandonCapture });
 });
 
 export const layer = Layer.effect(RunFinalizationService, make);

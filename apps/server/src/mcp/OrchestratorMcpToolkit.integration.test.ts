@@ -716,7 +716,7 @@ describe("orchestrator MCP toolkit", () => {
             status: "completed",
             timedOut: false,
           };
-          expect(wait.structuredContent).toEqual(expectedWait);
+          expect(wait.structuredContent).toMatchObject(expectedWait);
           expect(messageReads).toEqual([]);
           expect(transferReads).toHaveLength(0);
           const settledWait = yield* invoke(

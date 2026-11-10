@@ -205,6 +205,7 @@ import {
   decideThreadWatch,
   queuedThreadWatchWakes,
   requestPrompt,
+  sameWaitsOnPerson,
   threadWatchRefusal,
   threadWatchWake,
   watchedThreadRecords,
@@ -657,6 +658,8 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pull-request-watch.sync":
     case "thread.thread-watch":
     case "thread.thread-watch.fire":
+    case "thread.thread-watch.waits-on-person":
+    case "thread.stalled.set":
     case "thread.arc-run":
     case "thread.arc-run.wake":
     case "thread.workspace-attachment.update":
@@ -3671,6 +3674,73 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
   });
 
+  const dispatchThreadWatchWaitsOnPerson = Effect.fn(
+    "orchestrationV2.dispatch.threadWatchWaitsOnPerson",
+  )(function* (
+    command: Extract<
+      OrchestrationV2ServerCommand,
+      { readonly type: "thread.thread-watch.waits-on-person" }
+    >,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const thread = yield* projectionStore
+      .getThread(command.threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+    const watches = thread.threadWatches ?? [];
+    const watch = watches.find((candidate) => candidate.id === command.watchId);
+    if (watch === undefined || sameWaitsOnPerson(watch.waitsOnPerson, command.waitsOnPerson)) {
+      return;
+    }
+    const { waitsOnPerson: _previous, ...rest } = watch;
+    yield* emitThreadWatches(
+      events,
+      command,
+      thread,
+      watches.map((candidate) =>
+        candidate === watch
+          ? command.waitsOnPerson === undefined
+            ? rest
+            : { ...rest, waitsOnPerson: command.waitsOnPerson }
+          : candidate,
+      ),
+    );
+  });
+
+  const dispatchThreadStalled = Effect.fn("orchestrationV2.dispatch.threadStalled")(function* (
+    command: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.stalled.set" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const thread = yield* projectionStore
+      .getThread(command.threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+    if (thread.deletedAt !== null) return;
+    if (
+      thread.stalled?.childThreadId === command.stalled?.childThreadId &&
+      thread.stalled?.since === command.stalled?.since
+    ) {
+      return;
+    }
+    const { stalled: _previous, ...rest } = thread;
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId: thread.id,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: yield* DateTime.now,
+      payload: command.stalled === undefined ? rest : { ...rest, stalled: command.stalled },
+    });
+  });
+
   // Ending the watch and queueing its wake share one transaction, and the wake's message id comes
   // from the watch, so a crash or a replay cannot lose the wake or send it twice. The decision is
   // made here from stored state, so the reactor only says when to look.
@@ -3702,8 +3772,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (landing === undefined || landing.operationId !== watch.target.operationId) return;
       const remaining = watches.filter((candidate) => candidate !== watch);
       // The thread's own `slipjay land` hands it the verdict, so the watch ends without a wake.
-      // A publication needs nothing from the thread, and a settled thread is not woken either:
-      // a message would unsettle it.
+      // A settled thread is not woken either: a message would unsettle it.
       const records = yield* projectionStore
         .getThreadRecords(command.threadId, ["runs", "turnItems"], {
           turnItemTypes: ["command_execution"],
@@ -3717,11 +3786,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         thread.archivedAt !== null ||
         thread.settledOverride === "settled" ||
         thread.settledAt !== null;
-      if (
-        settled ||
-        landing.outcome === "landed" ||
-        landingVerdictReachesRun(records, landing.operationId)
-      ) {
+      if (settled || landingVerdictReachesRun(records, landing.operationId)) {
         yield* emitThreadWatches(events, command, thread, remaining);
         yield* emitLandingRecord(
           events,
@@ -3739,7 +3804,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           type: "message.dispatch",
           commandId: command.commandId,
           threadId: command.threadId,
-          messageId: MessageId.make(`message:${watch.id}`),
+          messageId: MessageId.make(`message:${thread.id}:${watch.id}`),
           ...landingWatchWake(landing),
           attachments: [],
           dispatchMode: { type: "queue_after_active" },
@@ -3772,7 +3837,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           type: "message.dispatch",
           commandId: command.commandId,
           threadId: command.threadId,
-          messageId: MessageId.make(`message:${watch.id}`),
+          messageId: MessageId.make(`message:${thread.id}:${watch.id}`),
           ...buildWatchWake({
             target: watch.target,
             ref: build.ref,
@@ -3802,7 +3867,48 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             (cause) => new OrchestratorProjectionError({ threadId: watchedThreadId, cause }),
           ),
         );
-    const watched = yield* readWatched(watchedThreadRecords.fields, watchedThreadRecords.filter);
+    const watchedRecords = yield* readWatched(
+      watchedThreadRecords.fields,
+      watchedThreadRecords.filter,
+    ).pipe(Effect.option);
+    if (Option.isNone(watchedRecords)) {
+      // A target whose row is gone can never finish; any other failure may pass, so the watch stays.
+      const gone = yield* projectionStore.getThread(watchedThreadId).pipe(
+        Effect.as(false),
+        Effect.catch((error) =>
+          Effect.succeed(error._tag === "ProjectionStoreThreadNotFoundError"),
+        ),
+      );
+      if (!gone) return;
+      yield* emitThreadWatches(
+        events,
+        command,
+        thread,
+        watches.filter((candidate) => candidate !== watch),
+      );
+      yield* dispatchMessage(
+        {
+          type: "message.dispatch",
+          commandId: command.commandId,
+          threadId: command.threadId,
+          messageId: MessageId.make(`message:${thread.id}:${watch.id}`),
+          ...threadWatchWake({
+            watch: { threadId: watchedThreadId },
+            title: watch.title,
+            decision: { kind: "unreadable" },
+            detail: undefined,
+          }),
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "agent",
+          creationSource: "server",
+        },
+        events,
+        effects,
+      );
+      return;
+    }
+    const watched = watchedRecords.value;
     const decision = decideThreadWatch(watched, yield* DateTime.now);
     if (decision === undefined) return;
     if (
@@ -3851,7 +3957,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         type: "message.dispatch",
         commandId: command.commandId,
         threadId: command.threadId,
-        messageId: MessageId.make(`message:${watch.id}`),
+        messageId: MessageId.make(`message:${thread.id}:${watch.id}`),
         text: wake.text,
         notification: wake.notification,
         attachments: [],
@@ -15340,6 +15446,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.thread-watch.fire":
         yield* mapDispatchError(command)(dispatchThreadWatchFire(command, events, effects));
         break;
+      case "thread.thread-watch.waits-on-person":
+        yield* dispatchThreadWatchWaitsOnPerson(command, events);
+        break;
+      case "thread.stalled.set":
+        yield* dispatchThreadStalled(command, events);
+        break;
       case "thread.arc-run":
         yield* mapDispatchError(command)(dispatchArcRun(command, events));
         break;
@@ -15755,6 +15867,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           command.type === "advisor.idle.close" ||
           command.type === "thread.thread-watch" ||
           command.type === "thread.thread-watch.fire" ||
+          command.type === "thread.thread-watch.waits-on-person" ||
+          command.type === "thread.stalled.set" ||
           command.type === "thread.arc-run" ||
           command.type === "thread.arc-run.wake" ||
           command.type === "thread.background-work.settle" ||
@@ -16166,9 +16280,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         threadIds,
         (threadId) =>
           Effect.gen(function* () {
-            const thread = yield* projectionStore.getThreadShell(threadId);
-            const parentThreadId = thread?.lineage.parentThreadId;
-            if (parentThreadId === undefined || parentThreadId === null) return;
+            // The full row, not the shell: a deleted child is no shell, and its parent still waits.
+            const thread = yield* projectionStore.getThread(threadId);
+            const parentThreadId = thread.lineage.parentThreadId;
+            if (parentThreadId === null) return;
             yield* threadDispatch.withLock(parentThreadId, finalizeAppOwnedSubagent(threadId));
           }).pipe(
             Effect.catchCause((cause) =>

@@ -535,23 +535,36 @@ export const layerExecutor: Layer.Layer<
                     }),
                 ),
               );
-          case "checkpoint.capture":
-            return runFinalization
-              .finalize({
-                threadId: effect.threadId,
-                runId: effect.request.runId,
-                scopeId: effect.request.scopeId,
-              })
-              .pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestrationEffectExecutionError({
-                      effectId: effect.id,
-                      effectType: effect.request.type,
-                      cause,
-                    }),
-                ),
-              );
+          case "checkpoint.capture": {
+            const capture = {
+              threadId: effect.threadId,
+              runId: effect.request.runId,
+              scopeId: effect.request.scopeId,
+            };
+            return runFinalization.finalize(capture).pipe(
+              // The last attempt gives up: a run left waiting would hold its thread in Working.
+              Effect.tapError(() =>
+                willRetry
+                  ? Effect.void
+                  : runFinalization.abandonCapture(capture).pipe(
+                      Effect.catchCause((cause) =>
+                        Effect.logWarning("Could not complete a run without a checkpoint", {
+                          runId: capture.runId,
+                          cause,
+                        }),
+                      ),
+                    ),
+              ),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationEffectExecutionError({
+                    effectId: effect.id,
+                    effectType: effect.request.type,
+                    cause,
+                  }),
+              ),
+            );
+          }
           case "scheduled-tasks.cleanup":
             return resourceCleanup.cleanupScheduledTasks(effect.threadId).pipe(
               Effect.mapError(

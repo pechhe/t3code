@@ -631,10 +631,24 @@ export const OrchestrationV2ThreadArcRun = Schema.Struct({
 });
 export type OrchestrationV2ThreadArcRun = typeof OrchestrationV2ThreadArcRun.Type;
 
+/** What only the owner can still do for a watch: accept a landed item, or clear its holds. */
+export const OrchestrationV2WatchNeed = Schema.Literals(["acceptance", "hold"]);
+export type OrchestrationV2WatchNeed = typeof OrchestrationV2WatchNeed.Type;
+
+/** `ref` and `title` name the Forge item, so a reader need not call Forge to say what it waits on. */
+export const OrchestrationV2WatchWaitsOnPerson = Schema.Struct({
+  need: OrchestrationV2WatchNeed,
+  ref: Schema.optional(TrimmedNonEmptyString),
+  title: Schema.optional(Schema.String),
+});
+export type OrchestrationV2WatchWaitsOnPerson = typeof OrchestrationV2WatchWaitsOnPerson.Type;
+
 const ThreadWatchFields = {
   id: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
   startedAt: IsoDateTime,
+  /** Written with each check of a Forge item: the watch's remaining condition is the owner's to meet. */
+  waitsOnPerson: Schema.optional(OrchestrationV2WatchWaitsOnPerson),
 };
 const TargetedThreadWatch = Schema.Struct({
   ...ThreadWatchFields,
@@ -670,6 +684,33 @@ export const OrchestrationV2EndedThreadWatch = Schema.Struct({
   endedAt: IsoDateTime,
 });
 export type OrchestrationV2EndedThreadWatch = typeof OrchestrationV2EndedThreadWatch.Type;
+
+/** A delegated child whose live run has gone quiet; set on the top-level thread that awaits it. */
+export const OrchestrationV2ThreadStalled = Schema.Struct({
+  childThreadId: ThreadId,
+  title: Schema.String,
+  since: IsoDateTime,
+});
+export type OrchestrationV2ThreadStalled = typeof OrchestrationV2ThreadStalled.Type;
+
+/**
+ * The server's one answer to where a thread stands. Absent from older servers. Shipped clients
+ * ignore it, so the shell's `status` and `pendingBackgroundTasks` stay as they were.
+ */
+export const OrchestrationV2ThreadStanding = Schema.Struct({
+  state: Schema.Literals(["working", "waiting", "stalled", "needs_you", "finished"]),
+  stalled: Schema.optional(OrchestrationV2ThreadStalled),
+  waitsOnPerson: Schema.optional(
+    Schema.Struct({
+      kind: Schema.Literal("build_item"),
+      number: PositiveInt,
+      ref: Schema.optional(TrimmedNonEmptyString),
+      title: Schema.optional(Schema.String),
+      need: OrchestrationV2WatchNeed,
+    }),
+  ),
+});
+export type OrchestrationV2ThreadStanding = typeof OrchestrationV2ThreadStanding.Type;
 
 /**
  * A workspace in another registered project that this thread works in beside its primary
@@ -749,6 +790,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   arcRun: Schema.optional(OrchestrationV2ThreadArcRun),
   threadWatches: Schema.optional(Schema.Array(OrchestrationV2ThreadWatch)),
   endedThreadWatches: Schema.optional(Schema.Array(OrchestrationV2EndedThreadWatch)),
+  stalled: Schema.optional(OrchestrationV2ThreadStalled),
   workspaceAttachments: Schema.optional(Schema.Array(OrchestrationV2WorkspaceAttachment)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
@@ -2614,6 +2656,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
     Schema.NullOr(Schema.Literals(["preparing", "starting", "running", "waiting"])),
   ),
   blockedOnThreadWait: Schema.optional(Schema.Boolean),
+  standing: Schema.optional(OrchestrationV2ThreadStanding),
   status: OrchestrationV2ShellThreadStatus,
   lastError: Schema.optional(Schema.NullOr(Schema.String)),
   lastErrorClass: Schema.optional(Schema.NullOr(OrchestrationV2ProviderFailureClass)),
@@ -4234,6 +4277,24 @@ const OrchestrationV2InternalCommand = Schema.Union([
     specs: OrchestrationV2ThreadArcRun.fields.specs,
     phase: Schema.optional(TrimmedNonEmptyString),
     note: Schema.optional(TrimmedNonEmptyString),
+  }),
+  /**
+   * Records that a watch's remaining condition is the owner's to meet, or clears the record. Changes
+   * nothing once the watch has ended or already says this.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.thread-watch.waits-on-person"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    watchId: TrimmedNonEmptyString,
+    waitsOnPerson: Schema.optional(OrchestrationV2WatchWaitsOnPerson),
+  }),
+  /** Marks the thread as waiting on a stalled delegated child, or clears the mark. */
+  Schema.Struct({
+    type: Schema.Literal("thread.stalled.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    stalled: Schema.optional(OrchestrationV2ThreadStalled),
   }),
   /**
    * Wakes the Arc lead if stored state calls for it, decided under the thread's lock so it cannot

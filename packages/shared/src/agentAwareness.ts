@@ -69,7 +69,7 @@ function buildAgentAwarenessDeepLink(input: {
 export interface ProjectThreadAwarenessV2Input {
   readonly environmentId: EnvironmentId;
   readonly project: Pick<Project, "title">;
-  readonly thread: Partial<Pick<OrchestrationV2ThreadShell, "latestRunId">> &
+  readonly thread: Partial<Pick<OrchestrationV2ThreadShell, "latestRunId" | "standing">> &
     Pick<
       OrchestrationV2ThreadShell,
       | "readOnCompletionRunId"
@@ -152,6 +152,7 @@ function resolveThreadAwarenessPhaseV2(
   // The parent can finish its own turn while a delegated child keeps working,
   // so a child's request outranks the parent's run status.
   if (childAwaitsApproval) return "waiting_for_approval";
+  if (thread.standing !== undefined) return phaseFromStanding(thread, thread.standing.state);
   switch (thread.activityRunStatus ?? thread.status) {
     case "preparing":
     case "starting":
@@ -171,6 +172,28 @@ function resolveThreadAwarenessPhaseV2(
     case "cancelled":
     case "rolled_back":
       return null;
+  }
+}
+
+/** The server's standing decides; no phase is added, so a stalled thread uses the nearest attention one. */
+function phaseFromStanding(
+  thread: ProjectThreadAwarenessV2Input["thread"],
+  state: NonNullable<ProjectThreadAwarenessV2Input["thread"]["standing"]>["state"],
+): AgentAwarenessPhase | null {
+  switch (state) {
+    case "working":
+      return (thread.activityRunStatus ?? thread.status) === "preparing" ||
+        (thread.activityRunStatus ?? thread.status) === "starting"
+        ? "starting"
+        : "running";
+    case "waiting":
+      return "running";
+    case "stalled":
+      return "waiting_for_input";
+    case "needs_you":
+      return thread.status === "failed" ? "failed" : "waiting_for_input";
+    case "finished":
+      return thread.status === "completed" ? "completed" : null;
   }
 }
 

@@ -282,17 +282,22 @@ export function isSubagentDoer(role: AgentRole | undefined): boolean {
 }
 
 /**
- * Delegated subagents that finished since the user last wrote, newest first. They stay visible
- * while the thread has work in progress, and clear once it has settled.
+ * Delegated subagents that finished since the user last wrote or last had the thread open,
+ * newest first. They stay visible while the thread has work in progress, and clear once it has
+ * settled.
  */
 export function finishedPanelSubagents(input: {
   readonly subagents: ReadonlyArray<OrchestrationV2Subagent>;
   readonly liveIds: ReadonlyArray<ThreadId>;
   readonly since: DateTime.Utc | null;
+  /** When the user last had the thread open before this viewing; what finished earlier was seen. */
+  readonly seenAt?: string | undefined;
   readonly parentBusy: boolean;
 }): ReadonlyArray<OrchestrationV2Subagent> {
   if (input.liveIds.length === 0 && !input.parentBusy) return [];
-  const sinceMs = input.since === null ? null : DateTime.toEpochMillis(input.since);
+  const wroteMs = input.since === null ? null : DateTime.toEpochMillis(input.since);
+  const seenMs = input.seenAt === undefined ? Number.NaN : Date.parse(input.seenAt);
+  const sinceMs = Number.isNaN(seenMs) ? wroteMs : Math.max(seenMs, wroteMs ?? seenMs);
   const latestByChild = new Map<ThreadId, OrchestrationV2Subagent>();
   for (const subagent of input.subagents) {
     if (subagent.origin === "app_owned" && subagent.childThreadId !== null) {

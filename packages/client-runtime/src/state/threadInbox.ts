@@ -38,9 +38,20 @@ type WorkingThreadInput = Pick<
   | "interactionMode"
   | "latestRun"
   | "runtime"
+  | "standing"
 >;
 
+/** The server's standing decides where it exists; only an older server leaves it out. */
 export function isThreadWorking(thread: WorkingThreadInput): boolean {
+  if (thread.standing !== undefined) {
+    // Standing cannot see a question below the thread, or any request in a linked environment.
+    if (thread.pendingSubagentRequest != null) return false;
+    return thread.standing.state === "working" || thread.standing.state === "waiting";
+  }
+  return threadRuntimeIsWorking(thread);
+}
+
+function threadRuntimeIsWorking(thread: WorkingThreadInput): boolean {
   if (thread.hasPendingApprovals || thread.hasPendingUserInput) return false;
   if (thread.pendingSubagentRequest != null) return false;
   if (!threadRuntimeIsActive(thread.runtime) && thread.runtime?.status !== "idle") return false;
@@ -226,6 +237,7 @@ export function createInboxReturnTracker() {
               ])
             : null;
         const actionable =
+          thread.standing?.state === "needs_you" ||
           thread.hasPendingApprovals ||
           thread.hasPendingUserInput ||
           thread.pendingSubagentRequest != null ||

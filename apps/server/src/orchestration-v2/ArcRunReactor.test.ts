@@ -29,6 +29,7 @@ import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as ArcRunReactor from "./ArcRunReactor.ts";
 import * as ForgeWatchReactor from "./ForgeWatchReactor.ts";
+import * as StalledChildReactor from "./StalledChildReactor.ts";
 import {
   ARC_RUN_ANSWER,
   ARC_RUN_NO_PROGRESS_CAP,
@@ -58,6 +59,7 @@ const layerTest = Layer.mergeAll(
   ArcRunReactor.layer,
   UnattendedReactor.layer,
   DelegatedTaskQuestionReactor.layer,
+  StalledChildReactor.layer,
 ).pipe(
   Layer.provideMerge(
     Layer.mergeAll(
@@ -994,6 +996,188 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
       assert.equal((yield* wakes(threadId)).length, 3);
       assert.equal((yield* humanMessages).length, humansAtStart);
     }),
+  );
+
+  it.effect(
+    "a quiet child marks its top-level thread stalled, never touches it, and clears when it speaks",
+    () =>
+      Effect.gen(function* () {
+        const reactor = yield* StalledChildReactor.StalledChildReactor;
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const parent = yield* setup("stalled-parent", { arc: false });
+        const task = yield* delegateSpec(parent.threadId, parent.run, "quiet");
+        const childId = task.childThreadId!;
+        const childRun = yield* latestRun(childId);
+        const sink = yield* EventSink.EventSinkV2;
+        const started = yield* DateTime.now;
+        yield* sink.write({
+          events: [
+            {
+              id: EventId.make("event:stalled:running"),
+              type: "run.updated",
+              threadId: childId,
+              runId: childRun.id,
+              occurredAt: started,
+              payload: { ...childRun, status: "running", startedAt: started },
+            },
+          ],
+        });
+        // The parent's own turn ends with the child still working.
+        yield* finish(parent.run);
+        const standing = Effect.map(orchestrator.getThreadShell(parent.threadId), (shell) => shell);
+
+        yield* TestClock.adjust("29 minutes");
+        yield* reactor.sweep;
+        assert.equal((yield* standing)?.standing?.state, "waiting");
+
+        // The server's own bookkeeping on the child is not the provider speaking.
+        yield* orchestrator.dispatch({
+          type: "thread.visit",
+          commandId: CommandId.make("stalled:bookkeeping"),
+          threadId: childId,
+          visitedAt: DateTime.formatIso(yield* DateTime.now),
+        });
+        yield* TestClock.adjust("2 minutes");
+        yield* reactor.sweep;
+        const marked = yield* standing;
+        assert.equal(marked?.standing?.state, "stalled");
+        assert.equal(marked?.standing?.stalled?.childThreadId, childId);
+        assert.equal(DateTime.formatIso(started), marked?.standing?.stalled?.since);
+        assert.equal((yield* latestRun(childId)).status, "running");
+        const marks = Effect.map(
+          Effect.flatMap(ProjectionStore.ProjectionStoreV2, (projections) =>
+            projections.getThread(parent.threadId),
+          ),
+          (thread) => thread.stalled,
+        );
+
+        // A pass with nothing new changes nothing.
+        const before = yield* orchestrator.getThreadEventSequence(parent.threadId);
+        yield* reactor.sweep;
+        assert.equal(yield* orchestrator.getThreadEventSequence(parent.threadId), before);
+
+        // The child produces a provider event: the mark clears.
+        const spoke = yield* DateTime.now;
+        yield* sink.write({
+          events: [
+            {
+              id: EventId.make("event:stalled:spoke"),
+              type: "run.updated",
+              threadId: childId,
+              runId: childRun.id,
+              occurredAt: spoke,
+              payload: { ...childRun, status: "running", startedAt: started },
+            },
+          ],
+        });
+        yield* reactor.sweep;
+        assert.isUndefined(yield* marks);
+        assert.equal((yield* standing)?.standing?.state, "waiting");
+      }),
+  );
+
+  it.effect(
+    "a parent stays working between a child finishing and its result being delivered, in both shell builders",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const projections = yield* ProjectionStore.ProjectionStoreV2;
+        const parent = yield* setup("delivery-gap-parent", { arc: false });
+        const first = yield* delegateSpec(parent.threadId, parent.run, "first");
+        const second = yield* delegateSpec(parent.threadId, parent.run, "second");
+        yield* finish(parent.run);
+        const standings = Effect.gen(function* () {
+          const sql = (yield* orchestrator.getThreadShell(parent.threadId))?.standing?.state;
+          const memory = ProjectionStore.threadShellFromProjection(
+            yield* projections.getThreadProjection(parent.threadId),
+          ).standing?.state;
+          return [sql, memory];
+        });
+        assert.deepEqual(yield* standings, ["waiting", "waiting"]);
+
+        yield* settleTask(first, "completed", "pending");
+        assert.deepEqual(yield* standings, ["working", "working"]);
+
+        // The last child is done and the parent's turn is over, but its result is not delivered.
+        yield* settleTask(second, "completed", "pending");
+        assert.deepEqual(yield* standings, ["working", "working"]);
+
+        yield* settleTask(first, "completed", "acknowledged");
+        assert.deepEqual(yield* standings, ["working", "working"]);
+        yield* settleTask(second, "completed", "acknowledged");
+        assert.deepEqual(yield* standings, ["finished", "finished"]);
+      }),
+  );
+
+  it.effect(
+    "an approval pending on a grandchild makes the top-level thread need the owner until it is answered",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const projections = yield* ProjectionStore.ProjectionStoreV2;
+        const sink = yield* EventSink.EventSinkV2;
+        const parent = yield* setup("grandchild-parent", { arc: false });
+        const child = yield* delegateSpec(parent.threadId, parent.run, "child");
+        const childRun = yield* latestRun(child.childThreadId!);
+        const grandchild = yield* delegateSpec(child.childThreadId!, childRun, "grandchild");
+        const grandId = grandchild.childThreadId!;
+        const grandRun = yield* latestRun(grandId);
+        yield* finish(parent.run);
+        const standings = Effect.gen(function* () {
+          const sql = (yield* orchestrator.getThreadShell(parent.threadId))?.standing?.state;
+          const memory = ProjectionStore.threadShellFromProjection(
+            yield* projections.getThreadProjection(parent.threadId),
+            {
+              descendantApprovalPending: yield* ProjectionStore.hasDescendantApproval(
+                parent.threadId,
+              ),
+            },
+          ).standing?.state;
+          return [sql, memory];
+        });
+        const now = yield* DateTime.now;
+        yield* sink.write({
+          events: [
+            {
+              id: EventId.make("event:grand:running"),
+              type: "run.updated",
+              threadId: grandId,
+              runId: grandRun.id,
+              occurredAt: now,
+              payload: { ...grandRun, status: "running", startedAt: now },
+            },
+          ],
+        });
+        assert.deepEqual(yield* standings, ["waiting", "waiting"]);
+
+        const request = (status: "pending" | "resolved") =>
+          sink.write({
+            events: [
+              {
+                id: EventId.make(`event:grand:request:${status}`),
+                type: "runtime-request.updated",
+                threadId: grandId,
+                runId: grandRun.id,
+                occurredAt: now,
+                payload: {
+                  id: RuntimeRequestId.make("request:grand"),
+                  nodeId: grandRun.rootNodeId!,
+                  providerTurnId: null,
+                  nativeRequestRef: null,
+                  kind: "command",
+                  status,
+                  responseCapability: { type: "message" },
+                  createdAt: now,
+                  resolvedAt: status === "pending" ? null : now,
+                },
+              } as never,
+            ],
+          });
+        yield* request("pending");
+        assert.deepEqual(yield* standings, ["needs_you", "needs_you"]);
+        yield* request("resolved");
+        assert.deepEqual(yield* standings, ["waiting", "waiting"]);
+      }),
   );
 
   it.effect("an open command is not reported at the short threshold", () =>

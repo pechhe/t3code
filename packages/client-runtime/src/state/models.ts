@@ -12,6 +12,7 @@ import type {
   OrchestrationV2ProviderFailureClass,
   OrchestrationV2ThreadProjection,
   OrchestrationV2ThreadShell,
+  OrchestrationV2ThreadStanding,
   PlanId,
   ProjectId,
   ProviderInstanceId,
@@ -162,6 +163,8 @@ export interface EnvironmentThreadShell {
   readonly activeProviderThreadId: OrchestrationV2ThreadShell["activeProviderThreadId"];
   readonly latestRun: ThreadRunSummary | null;
   readonly runtime: ThreadRuntimeSummary | null;
+  /** The server's answer to where the thread stands; absent from older servers. */
+  readonly standing?: OrchestrationV2ThreadStanding;
   readonly blockedOnThreadWait?: boolean;
   readonly latestUserMessageAt: string | null;
   readonly latestUserAuthoredMessageAt?: string | null;
@@ -334,6 +337,7 @@ export function presentThreadShell(
     activeProviderThreadId: thread.activeProviderThreadId,
     latestRun,
     runtime,
+    ...(thread.standing === undefined ? {} : { standing: thread.standing }),
     blockedOnThreadWait: thread.blockedOnThreadWait ?? false,
     latestUserMessageAt: nullableIso(thread.latestUserMessageAt),
     ...(thread.latestUserAuthoredMessageAt === undefined

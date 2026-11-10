@@ -23,6 +23,7 @@ import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQ
 import * as UnattendedReactor from "./orchestration-v2/UnattendedReactor.ts";
 import * as ArcRunReactor from "./orchestration-v2/ArcRunReactor.ts";
 import * as ForgeWatchReactor from "./orchestration-v2/ForgeWatchReactor.ts";
+import * as StalledChildReactor from "./orchestration-v2/StalledChildReactor.ts";
 import * as LandingWatchReactor from "./orchestration-v2/LandingWatchReactor.ts";
 import * as ThreadWatchReactor from "./orchestration-v2/ThreadWatchReactor.ts";
 // Effect wraps this raw Node HTTP server after its startup and write-error guards attach.
@@ -778,6 +779,11 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       yield* (yield* ForgeWatchReactor.ForgeWatchReactor).start();
     }),
   ).pipe(Layer.provide(ForgeWatchReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      yield* (yield* StalledChildReactor.StalledChildReactor).start();
+    }),
+  ).pipe(Layer.provide(StalledChildReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   Layer.effectDiscard(
     Effect.gen(function* () {
       yield* (yield* LandingWatchReactor.LandingWatchReactor).start();

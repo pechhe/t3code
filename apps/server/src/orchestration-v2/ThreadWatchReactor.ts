@@ -11,6 +11,7 @@ import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
@@ -126,12 +127,19 @@ const make = Effect.gen(function* () {
   const evaluate = Effect.fnUntraced(
     function* ({ watcherId, watch }: Watching) {
       if (watch.target.kind !== "thread") return;
-      const watched = yield* projections.getThreadRecords(
-        watch.target.threadId,
-        watchedThreadRecords.fields,
-        watchedThreadRecords.filter,
-      );
-      if (decideThreadWatch(watched, yield* DateTime.now) === undefined) return;
+      const watched = yield* projections
+        .getThreadRecords(
+          watch.target.threadId,
+          watchedThreadRecords.fields,
+          watchedThreadRecords.filter,
+        )
+        .pipe(Effect.option);
+      // The orchestrator confirms the row is gone before it ends the watch.
+      if (
+        Option.isSome(watched) &&
+        decideThreadWatch(watched.value, yield* DateTime.now) === undefined
+      )
+        return;
       const uuid = yield* crypto.uuidV4();
       yield* engine.dispatch({
         type: "thread.thread-watch.fire",

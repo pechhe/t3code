@@ -68,10 +68,53 @@ const make = Effect.gen(function* () {
     return undefined;
   });
 
+  const watchFor = (landing: TrackedLanding, thread: OrchestrationV2AppThread) =>
+    engine.dispatch({
+      type: "thread.thread-watch",
+      commandId: CommandId.make(`server:landing-watch:${landing.operationId}:${thread.id}`),
+      threadId: thread.id,
+      target: { kind: "landing", operationId: landing.operationId },
+      title: landing.spec === undefined ? landing.repo : `Build #${landing.spec}`,
+      watching: true,
+    });
+
+  // The thread whose own `slipjay land` printed the operation, from whichever workspace it ran:
+  // a subagent's command belongs to the thread that owns it. The first command to show the id
+  // submitted it; a later one only names it.
+  const threadThatSubmitted = Effect.fn("LandingWatchReactor.threadThatSubmitted")(function* (
+    landing: TrackedLanding,
+  ) {
+    const rows = yield* sql<{ thread_id: string }>`
+      SELECT thread_id FROM orchestration_v2_projection_turn_items
+      WHERE type = 'command_execution'
+        AND instr(payload_json, ${landing.operationId}) > 0
+        AND json_extract(payload_json, '$.input') LIKE '%slipjay%land%'
+      ORDER BY updated_at ASC`;
+    for (const row of rows) {
+      let thread = yield* projections.getThread(ThreadId.make(row.thread_id));
+      for (
+        let depth = 0;
+        isLeafSubagentThread(thread) && thread.lineage.parentThreadId !== null && depth < 8;
+        depth++
+      ) {
+        thread = yield* projections.getThread(thread.lineage.parentThreadId);
+      }
+      if (threadWatchRefusal(thread) === undefined && !isLeafSubagentThread(thread)) return thread;
+    }
+    return undefined;
+  });
+
   // The workspace may be removed once it lands, so the thread is chosen while the landing is
-  // active. Several threads holding one checkout are ambiguous: none is armed.
+  // active: the thread that ran `slipjay land`, else the one thread holding the submitting
+  // checkout. Several threads holding one checkout are ambiguous: none is armed.
   const arm = Effect.fn("LandingWatchReactor.arm")(function* (landing: TrackedLanding) {
     if (landing.submittedBy === undefined || resolved.has(landing.operationId)) return;
+    const submitter = yield* threadThatSubmitted(landing);
+    if (submitter !== undefined) {
+      yield* watchFor(landing, submitter);
+      resolved.add(landing.operationId);
+      return;
+    }
     const name = submittingWorkspace(landing.submittedBy, host);
     if (name === undefined) {
       resolved.add(landing.operationId);
@@ -102,16 +145,7 @@ const make = Effect.gen(function* () {
         threads.push(thread);
     }
     const [thread] = threads;
-    if (thread !== undefined && threads.length === 1) {
-      yield* engine.dispatch({
-        type: "thread.thread-watch",
-        commandId: CommandId.make(`server:landing-watch:${landing.operationId}:${thread.id}`),
-        threadId: thread.id,
-        target: { kind: "landing", operationId: landing.operationId },
-        title: landing.spec === undefined ? landing.repo : `Build #${landing.spec}`,
-        watching: true,
-      });
-    }
+    if (thread !== undefined && threads.length === 1) yield* watchFor(landing, thread);
     resolved.add(landing.operationId);
   });
 
@@ -130,7 +164,7 @@ const make = Effect.gen(function* () {
       if (ageHours < STALE_WATCH_HOURS) return;
       yield* engine.dispatch({
         type: "thread.thread-watch",
-        commandId: CommandId.make(`server:landing-watch-end:${watch.id}`),
+        commandId: CommandId.make(`server:landing-watch-end:${thread.id}:${watch.id}`),
         threadId: thread.id,
         target: watch.target,
         watching: false,
@@ -138,9 +172,21 @@ const make = Effect.gen(function* () {
       return;
     }
     if (isActive(landing)) return;
+    // T3 arms landing watches only on non-leaf threads, so one on a leaf is a copy its parent's
+    // watch left there; waking the child would cost a turn whose reply returns to the parent.
+    if (isLeafSubagentThread(thread) && watch.id.startsWith("thread-watch:server:landing-watch:")) {
+      yield* engine.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make(`server:landing-watch-end:${thread.id}:${watch.id}`),
+        threadId: thread.id,
+        target: watch.target,
+        watching: false,
+      });
+      return;
+    }
     yield* engine.dispatch({
       type: "thread.thread-watch.fire",
-      commandId: CommandId.make(`server:landing-watch-fire:${watch.id}`),
+      commandId: CommandId.make(`server:landing-watch-fire:${thread.id}:${watch.id}`),
       threadId: thread.id,
       watchId: watch.id,
       landing: {

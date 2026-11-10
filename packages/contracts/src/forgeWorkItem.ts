@@ -52,6 +52,8 @@ export const ForgeWorkItemSummary = Schema.Struct({
   ref: Schema.optionalKey(Schema.NullOr(Schema.String)),
   title: Schema.String,
   status: ForgeItemStatus,
+  /** Who accepts the item once it lands: the owner, or an agent after a clean review. */
+  acceptanceLevel: Schema.optionalKey(Schema.NullOr(Schema.Literals(["owner", "agent"]))),
   holds: Schema.Array(Schema.Struct({ kind: Schema.String, note: Schema.String })),
   waits: Schema.Array(ForgeWorkItemWait),
 });

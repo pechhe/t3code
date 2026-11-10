@@ -35,6 +35,35 @@ function thread(id: string, working: boolean) {
   };
 }
 
+describe("isThreadWorking", () => {
+  it.each([
+    ["working", true],
+    ["waiting", true],
+    ["stalled", false],
+    ["needs_you", false],
+    ["finished", false],
+  ] as const)("reads %s from the server's standing", (state, working) => {
+    expect(isThreadWorking({ ...thread("a", false), standing: { state } })).toBe(working);
+    expect(isThreadWorking({ ...thread("a", true), standing: { state } })).toBe(working);
+  });
+
+  it("leaves Working for a request below the thread that standing cannot see", () => {
+    expect(
+      isThreadWorking({
+        ...thread("a", true),
+        standing: { state: "waiting" },
+        pendingSubagentRequest: "user_input",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps the runtime rules for a server that sends no standing", () => {
+    expect(isThreadWorking(thread("a", true))).toBe(true);
+    expect(isThreadWorking(thread("a", false))).toBe(false);
+    expect(isThreadWorking({ ...thread("a", true), hasPendingApprovals: true })).toBe(false);
+  });
+});
+
 describe("createInboxReturnTracker", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -110,6 +139,7 @@ describe("createInboxReturnTracker", () => {
     { settledOverride: "settled" as const },
     { snoozedUntil: "2026-06-02T00:00:00Z" },
     { activeOrderKey: "manual-order" },
+    { standing: { state: "needs_you" as const } },
   ])("ends a grace immediately for attention or manual placement: %j", (change) => {
     const tracker = createInboxReturnTracker();
     tracker.observe([thread("a", true)]);

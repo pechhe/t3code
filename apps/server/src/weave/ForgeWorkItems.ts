@@ -94,6 +94,7 @@ const BuildRead = Schema.Struct({
   kind: Schema.String,
   title: Schema.String,
   status: Schema.String,
+  acceptanceLevel: Schema.optionalKey(Schema.NullOr(Schema.String)),
   /** The repository the item belongs to; an older Weave omits it. */
   project: Schema.optionalKey(Schema.NullOr(Schema.String)),
   holds: Schema.Array(
@@ -139,6 +140,9 @@ const summaryOf = (
     ...(read.ref === undefined ? {} : { ref: read.ref }),
     title: read.title,
     status: read.status,
+    ...(read.acceptanceLevel === "owner" || read.acceptanceLevel === "agent"
+      ? { acceptanceLevel: read.acceptanceLevel }
+      : {}),
     holds: read.holds
       .filter((hold) => hold.clearedAt === null)
       .map(({ kind, note }) => ({ kind, note })),

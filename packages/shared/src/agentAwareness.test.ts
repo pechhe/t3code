@@ -30,6 +30,7 @@ describe("projectThreadAwarenessV2", () => {
         | "pendingRuntimeRequest"
         | "lineage"
         | "settledOverride"
+        | "standing"
       >
     > = {},
   ) => ({
@@ -161,6 +162,23 @@ describe("projectThreadAwarenessV2", () => {
       });
     },
   );
+
+  it.each([
+    ["a finished child's result not yet delivered", "completed", { state: "working" }, "running"],
+    ["a wait on a machine", "completed", { state: "waiting" }, "running"],
+    ["a stalled child", "running", { state: "stalled" }, "waiting_for_input"],
+    ["a wait on the owner", "completed", { state: "needs_you" }, "waiting_for_input"],
+    ["a failed run", "failed", { state: "needs_you" }, "failed"],
+    ["nothing left", "completed", { state: "finished" }, "completed"],
+    ["a stopped run with nothing left", "interrupted", { state: "finished" }, null],
+  ] as const)("follows the server's standing for %s", (_name, status, standing, phase) => {
+    const state = projectThreadAwarenessV2({
+      environmentId: "env-1" as EnvironmentId,
+      project,
+      thread: v2Thread({ status, standing }),
+    });
+    expect(state?.phase ?? null).toBe(phase);
+  });
 
   it("keeps settled work held open by an awaited monitor", () => {
     expect(

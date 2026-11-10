@@ -214,6 +214,8 @@ export const make = Effect.gen(function* () {
     ) {
       const now = yield* DateTime.now;
       let runs = [] as Array<OrchestrationV2ThreadProjection["runs"][number]>;
+      /** Runs whose turn finished but whose checkpoint capture failed for good. */
+      const capturedNever = new Set<string>();
       for (const run of nonterminalRuns(projection)) {
         if (run.status === "waiting") {
           const checkpointEffects = yield* outbox
@@ -235,6 +237,9 @@ export const make = Effect.gen(function* () {
               (effect.status === "pending" || effect.status === "running"),
           );
           if (hasReplayableCheckpoint) continue;
+          if (checkpointEffects.some((effect) => effect.status === "failed")) {
+            capturedNever.add(run.id);
+          }
         }
         runs.push(run);
       }
@@ -536,7 +541,12 @@ export const make = Effect.gen(function* () {
           runId: run.id,
           providerInstanceId: run.providerInstanceId,
           occurredAt: now,
-          payload: { ...run, status: "cancelled", queuePosition: null, completedAt: now },
+          payload: {
+            ...run,
+            status: capturedNever.has(run.id) ? "completed" : "cancelled",
+            queuePosition: null,
+            completedAt: now,
+          },
         });
         for (const attempt of projection.attempts.filter(
           (candidate) =>

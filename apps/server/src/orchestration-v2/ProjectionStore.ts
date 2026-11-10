@@ -85,6 +85,7 @@ import {
   createOrchestrationV2TurnItemVisibility,
   isOrchestrationV2SupersededInterrupt,
 } from "@t3tools/shared/orchestrationV2Timeline";
+import { deriveThreadStanding } from "@t3tools/shared/threadStanding";
 import {
   deriveBlockedOnThreadWait,
   derivePendingBackgroundWork,
@@ -1084,6 +1085,8 @@ type ShellThreadRow = {
   readonly latest_user_message_at: string | null;
   readonly latest_user_authored_message_at: string | null;
   readonly has_actionable_proposed_plan: number;
+  readonly has_undelivered_delegated_result: number;
+  readonly has_descendant_approval: number;
 };
 
 type ShellRunRow = {
@@ -1604,8 +1607,46 @@ const linkCardStillAsks = (
   latestUserAuthoredMessageAt === null ||
   !DateTime.isGreaterThan(latestUserAuthoredMessageAt, item.startedAt ?? item.updatedAt);
 
+/**
+ * Whether a live delegated thread below this one waits on an approval. The relay's push names the
+ * same wait through `subagentAwaitsApproval`, which leaves questions to the coordinator.
+ */
+const descendantApprovalExists = (
+  sql: SqlClient.SqlClient,
+  threadId: Statement.Fragment,
+) => sql`EXISTS (
+  WITH RECURSIVE below(child_id) AS (
+    SELECT task.child_thread_id FROM orchestration_v2_projection_subagents task
+    WHERE task.thread_id = ${threadId} AND task.origin = 'app_owned' AND task.child_thread_id IS NOT NULL
+    UNION
+    SELECT task.child_thread_id FROM orchestration_v2_projection_subagents task
+    JOIN below ON task.thread_id = below.child_id
+    WHERE task.origin = 'app_owned' AND task.child_thread_id IS NOT NULL
+  )
+  SELECT 1 FROM below
+  JOIN orchestration_v2_projection_runtime_requests request ON request.thread_id = below.child_id
+  WHERE request.status = 'pending' AND request.kind NOT IN ('user_input', 'auth_refresh')
+    AND EXISTS (
+      SELECT 1 FROM orchestration_v2_projection_runs run
+      WHERE run.thread_id = below.child_id
+        AND run.status IN ('preparing', 'starting', 'running', 'waiting')
+    )
+)`;
+
+/** The input `threadShellFromProjection` takes for descendants, read with the same SQL the shell snapshot uses. */
+export const hasDescendantApproval = Effect.fn("ProjectionStore.hasDescendantApproval")(function* (
+  threadId: ThreadId,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* sql<{
+    readonly found: number;
+  }>`SELECT ${descendantApprovalExists(sql, sql`${threadId}`)} AS found`;
+  return rows[0]?.found === 1;
+});
+
 export function threadShellFromProjection(
   projection: OrchestrationV2ThreadProjection,
+  options: { readonly descendantApprovalPending?: boolean } = {},
 ): OrchestrationV2ThreadShell {
   const providerSession =
     projection.providerSessions
@@ -1680,6 +1721,37 @@ export function threadShellFromProjection(
     pullRequests: projection.thread.pullRequests,
     threadWatches: projection.thread.threadWatches,
   });
+  const blockedOnThreadWait = deriveBlockedOnThreadWait({
+    activeRun,
+    turnItems: projection.turnItems,
+  });
+  const standing = deriveThreadStanding({
+    status: latestRun?.status ?? "idle",
+    activeRunId: activeRun?.id ?? null,
+    interactionMode: projection.thread.interactionMode,
+    hasActionableProposedPlan: projection.plans.some(
+      (plan) => plan.kind === "proposed_plan" && plan.status === "active",
+    ),
+    pendingRuntimeRequest,
+    blockedOnThreadWait,
+    pendingReleaseApprovals: releaseApprovalCards(
+      projection.turnItems.filter(
+        (item) => item.type === "release_approval_request" && item.status === "waiting",
+      ),
+    ),
+    pendingGuestMessageCount: pendingGuestMessageCount(projection.thread.guestShare),
+    pendingBackgroundTasks,
+    threadWatches: projection.thread.threadWatches,
+    stalled: projection.thread.stalled,
+    undeliveredDelegatedResult: (projection.subagents ?? []).some(
+      (task) =>
+        task.origin === "app_owned" &&
+        task.status !== "idle" &&
+        (task.completionDelivery?.state === "pending" ||
+          task.completionDelivery?.state === "claimed"),
+    ),
+    descendantApprovalPending: options.descendantApprovalPending === true,
+  });
   return {
     createdBy: projection.thread.createdBy,
     creationSource: projection.thread.creationSource,
@@ -1744,7 +1816,8 @@ export function threadShellFromProjection(
         (item) => item.runId === latestRun.id && item.type === "run_interrupt_request",
       ),
     activeRunId: activeRun?.id ?? null,
-    blockedOnThreadWait: deriveBlockedOnThreadWait({ activeRun, turnItems: projection.turnItems }),
+    blockedOnThreadWait,
+    standing,
     activityRunStatus: activityRun?.status ?? null,
     activityRunStartedAt:
       activityRun === null ? null : orchestrationV2RunWorkStartedAt(activityRun),
@@ -1883,6 +1956,8 @@ type ShellThreadState = {
   readonly latestUserMessageAt: DateTime.Utc | null;
   readonly latestUserAuthoredMessageAt: DateTime.Utc | null;
   readonly hasActionableProposedPlan: boolean;
+  readonly hasUndeliveredDelegatedResult: boolean;
+  readonly hasDescendantApproval: boolean;
   readonly pendingBackgroundTasks: OrchestrationV2ThreadShell["pendingBackgroundTasks"];
   readonly providerInstanceHistory: OrchestrationV2ThreadShell["providerInstanceHistory"];
   readonly goal: OrchestrationV2ThreadShell["goal"];
@@ -1988,10 +2063,31 @@ function visibleItemCountForShell(input: {
   );
 }
 
+function shellStateStanding(state: ShellThreadState) {
+  return deriveThreadStanding({
+    status: state.latestRunStatus,
+    activeRunId: state.activeRunId,
+    interactionMode: state.thread.interactionMode,
+    hasActionableProposedPlan: state.hasActionableProposedPlan,
+    pendingRuntimeRequest: state.pendingRuntimeRequest,
+    blockedOnThreadWait: state.blockedOnThreadWait,
+    pendingReleaseApprovals: state.pendingReleaseApprovals,
+    pendingGuestMessageCount: pendingGuestMessageCount(state.thread.guestShare),
+    lastErrorClass: state.lastErrorClass,
+    pendingBackgroundTasks: state.pendingBackgroundTasks,
+    threadWatches: state.thread.threadWatches,
+    stalled: state.thread.stalled,
+    undeliveredDelegatedResult: state.hasUndeliveredDelegatedResult,
+    descendantApprovalPending: state.hasDescendantApproval,
+  });
+}
+
 function shellFromState(input: {
   readonly state: ShellThreadState;
   readonly visibleItemCount: number;
 }): OrchestrationV2ThreadShell {
+  const { state } = input;
+  const standing = shellStateStanding(state);
   return {
     createdBy: input.state.thread.createdBy,
     creationSource: input.state.thread.creationSource,
@@ -2053,6 +2149,7 @@ function shellFromState(input: {
     latestRunStopRequested: input.state.latestRunStopRequested,
     activeRunId: input.state.activeRunId,
     blockedOnThreadWait: input.state.blockedOnThreadWait,
+    standing,
     activityRunStatus: input.state.activityRunStatus,
     activityRunStartedAt: input.state.activityRunStartedAt,
     status: input.state.latestRunStatus,
@@ -4463,7 +4560,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         })();
         const rows = yield* sql<{ readonly thread_id: string }>`
           SELECT thread_id FROM orchestration_v2_projection_threads
-          WHERE deleted_at IS NULL
+          WHERE (deleted_at IS NULL ${kind === "subagent-results" ? sql`OR 1` : sql``})
             AND thread_id IN (${candidates})
             ${projects?.include === undefined ? sql`` : sql`AND project_id IN (SELECT value FROM json_each(${encodeIdList(projects.include)}))`}
             ${projects?.exclude === undefined ? sql`` : sql`AND project_id NOT IN (SELECT value FROM json_each(${encodeIdList(projects.exclude)}))`}
@@ -6567,7 +6664,16 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 WHERE plan.thread_id = t.thread_id
                   AND plan.kind = 'proposed_plan'
                   AND plan.status = 'active'
-              ) AS has_actionable_proposed_plan
+              ) AS has_actionable_proposed_plan,
+              EXISTS (
+                SELECT 1
+                FROM orchestration_v2_projection_subagents task
+                WHERE task.thread_id = t.thread_id
+                  AND task.status <> 'idle'
+                  AND task.completion_delivery_state IN ('pending', 'claimed')
+                  AND task.origin = 'app_owned'
+              ) AS has_undelivered_delegated_result,
+              ${descendantApprovalExists(sql, sql`t.thread_id`)} AS has_descendant_approval
             FROM orchestration_v2_projection_threads t
             LEFT JOIN orchestration_v2_projection_runs active ON active.run_id = (
               SELECT r.run_id
@@ -7210,6 +7316,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               : DateTime.makeUnsafe(row.latest_user_message_at),
           latestUserAuthoredMessageAt,
           hasActionableProposedPlan: row.has_actionable_proposed_plan === 1,
+          hasUndeliveredDelegatedResult: row.has_undelivered_delegated_result === 1,
+          hasDescendantApproval: row.has_descendant_approval === 1,
           pendingBackgroundTasks,
           providerInstanceHistory: providerInstanceHistoryForShell({
             threadId: thread.id,
@@ -7504,6 +7612,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               latestRunStopRequested: state.latestRunStopRequested,
               pendingRuntimeRequest: state.pendingRuntimeRequest,
               pendingBackgroundTasks: state.pendingBackgroundTasks,
+              standing: shellStateStanding(state),
             })),
           ),
         );

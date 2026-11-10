@@ -139,7 +139,7 @@ function RestoreBranchHarness(props: {
     <>
       {lifecycle.childInputNow?.description}
       {lifecycle.childInputNow?.actions}
-      {lifecycle.workNow?.actions}
+      {lifecycle.renderSubagentPanel(null)}
       <button
         type="button"
         disabled={lifecycle.isRestoringThreadBranch}
@@ -246,10 +246,10 @@ it.each(["Success", "Failure"] as const)(
       />
     );
     await using screen = await render(harness(threadA));
-    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    await page.getByRole("button", { name: "Stop all", exact: true }).click();
     await expect.element(page.getByRole("button", { name: "Stopping..." })).toBeDisabled();
     await screen.rerender(harness(threadB));
-    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    await page.getByRole("button", { name: "Stop all", exact: true }).click();
     await screen.rerender(harness(threadA));
     await expect.element(page.getByRole("button", { name: "Stopping..." })).toBeDisabled();
     completions[0]!(
@@ -260,7 +260,9 @@ it.each(["Success", "Failure"] as const)(
     if (outcome === "Success") {
       await expect.element(page.getByRole("button", { name: "Stopping..." })).toBeDisabled();
     } else {
-      await expect.element(page.getByRole("button", { name: "Stop", exact: true })).toBeEnabled();
+      await expect
+        .element(page.getByRole("button", { name: "Stop all", exact: true }))
+        .toBeEnabled();
     }
     await screen.rerender(harness(threadB));
     await expect.element(page.getByRole("button", { name: "Stopping..." })).toBeDisabled();

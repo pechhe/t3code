@@ -655,7 +655,12 @@ export interface ThreadStatusPill {
     | "Guest Request"
     | "Waiting"
     | "Watching"
-    | "Plan Ready";
+    | "Plan Ready"
+    | "Stalled"
+    | "Needs you"
+    | "Done";
+  /** What a Needs you pill waits on, such as "accept T3-12". */
+  detail?: string;
   colorClass: string;
   dotClass: string;
   pulse: boolean;
@@ -671,6 +676,7 @@ type ThreadStatusInput = Pick<
   | "interactionMode"
   | "latestRun"
   | "runtime"
+  | "standing"
 > & {
   readOnCompletionRunId?: SidebarThreadSummary["readOnCompletionRunId"];
   lastVisitedAt?: string | null | undefined;
@@ -1089,11 +1095,59 @@ export function resolveWorkingStartedAt(
   return resolveThreadWorkingStartedAt(thread);
 }
 
+/** What the server's standing adds to a row whose own status is quiet: one rule for every row. */
+export function threadStandingAttention(
+  standing: ThreadStatusInput["standing"],
+): "needs_you" | "stalled" | null {
+  if (standing?.state === "needs_you")
+    return standing.waitsOnPerson === undefined ? null : "needs_you";
+  return standing?.state === "stalled" ? "stalled" : null;
+}
+
 export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
 }): ThreadStatusPill | null {
   const { thread } = input;
+  const base = resolveRuntimeThreadStatusPill(thread);
+  const standing = thread.standing;
+  if (standing === undefined) return base;
+  // Standing fills the gaps only: an approval, question or failure pill is already more specific.
+  const quiet = base === null || base.label === "Waiting" || base.label === "Watching";
+  const attention = quiet ? threadStandingAttention(standing) : null;
+  if (attention === "needs_you") {
+    const waits = standing.waitsOnPerson;
+    const ref = waits?.ref ?? (waits === undefined ? "" : `#${waits.number}`);
+    return {
+      label: "Needs you",
+      ...(waits === undefined
+        ? {}
+        : { detail: waits.need === "acceptance" ? `accept ${ref}` : `clear holds on ${ref}` }),
+      colorClass: "text-accent-foreground font-semibold",
+      dotClass: "bg-current",
+      pulse: false,
+    };
+  }
+  if (attention === "stalled") {
+    return {
+      label: "Stalled",
+      colorClass: "text-warning-foreground",
+      dotClass: "border border-current",
+      pulse: false,
+    };
+  }
+  if (standing.state === "finished" && base?.label === "Completed") {
+    return {
+      ...base,
+      label: "Done",
+      colorClass: "text-success-foreground",
+      dotClass: "bg-success",
+    };
+  }
+  return base;
+}
 
+/** The pre-standing rules, kept whole for a server that sends no standing. */
+function resolveRuntimeThreadStatusPill(thread: ThreadStatusInput): ThreadStatusPill | null {
   if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
     return {
       label: "Pending Approval",

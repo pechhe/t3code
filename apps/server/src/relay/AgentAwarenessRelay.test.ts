@@ -600,6 +600,53 @@ describe("AgentAwarenessRelay", () => {
     }),
   );
 
+  it.effect(
+    "a parent with two children stays running until the last result is delivered, then completes once",
+    () =>
+      Effect.gen(function* () {
+        const { relay, currentShell, publications } = yield* makeTestRelay();
+        const tick = Effect.fnUntraced(function* (overrides: Partial<OrchestrationV2ThreadShell>) {
+          yield* Ref.set(currentShell, shell({ status: "completed", ...overrides }));
+          yield* relay.publishThread(THREAD_ID);
+          yield* TestClock.adjust("5 seconds");
+          yield* relay.drain;
+        });
+        // Two children running, then the first finishes.
+        yield* tick({ standing: { state: "waiting" } });
+        // The second finishes and the parent's turn ends before its result is delivered.
+        yield* tick({ standing: { state: "working" } });
+        assert.deepEqual(
+          publications.map((publication) => publication.state?.phase),
+          ["running"],
+        );
+        yield* tick({ standing: { state: "finished" } });
+        yield* tick({ standing: { state: "finished" } });
+        assert.deepEqual(
+          publications.map((publication) => publication.state?.phase),
+          ["running", "completed"],
+        );
+      }),
+  );
+
+  it.effect("a stalled thread pushes one attention alert and returns to running", () =>
+    Effect.gen(function* () {
+      const { relay, currentShell, publications } = yield* makeTestRelay();
+      const standing = (state: "working" | "stalled") =>
+        Ref.set(currentShell, shell({ status: "running", standing: { state } })).pipe(
+          Effect.andThen(relay.publishThread(THREAD_ID)),
+          Effect.andThen(relay.drain),
+        );
+      yield* standing("working");
+      yield* standing("stalled");
+      yield* standing("stalled");
+      yield* standing("working");
+      assert.deepEqual(
+        publications.map((publication) => publication.state?.phase),
+        ["running", "waiting_for_input", "running"],
+      );
+    }),
+  );
+
   it.effect("still publishes a completion when the thread settles during the hold", () =>
     Effect.gen(function* () {
       const { relay, currentShell, publications } = yield* makeTestRelay();

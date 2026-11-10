@@ -14,7 +14,12 @@ import { forkParked } from "../serverActivation.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import { ARC_RUN_UNREADABLE_WATCH_MS } from "./arcRun.ts";
-import { decideBuildWatch, threadWatchRefusal } from "./threadWatch.ts";
+import {
+  buildWatchWaitsOnPerson,
+  decideBuildWatch,
+  sameWaitsOnPerson,
+  threadWatchRefusal,
+} from "./threadWatch.ts";
 
 export class ForgeWatchReactor extends Context.Service<
   ForgeWatchReactor,
@@ -66,11 +71,8 @@ const make = Effect.gen(function* () {
             if (cached === undefined || cached.unavailable || cached.item === null) {
               const since = unreadableSince.get(watch.id) ?? passStartedAt;
               unreadableSince.set(watch.id, since);
-              // An Arc run counts this watch as its next trigger, and it may never fire.
-              if (
-                thread.arcRun?.state === "active" &&
-                passStartedAt - since > ARC_RUN_UNREADABLE_WATCH_MS
-              ) {
+              // The thread counts this watch as a wait, and it may never fire.
+              if (passStartedAt - since > ARC_RUN_UNREADABLE_WATCH_MS) {
                 unreadableSince.delete(watch.id);
                 yield* engine.dispatch({
                   type: "thread.thread-watch.fire",
@@ -88,6 +90,26 @@ const make = Effect.gen(function* () {
               continue;
             }
             unreadableSince.delete(watch.id);
+            const need = buildWatchWaitsOnPerson(watch.target, cached.item);
+            const waitsOnPerson =
+              need === undefined
+                ? undefined
+                : {
+                    need,
+                    ...(cached.item.ref == null ? {} : { ref: cached.item.ref }),
+                    ...(cached.item.title.trim() === "" ? {} : { title: cached.item.title.trim() }),
+                  };
+            if (!sameWaitsOnPerson(waitsOnPerson, watch.waitsOnPerson)) {
+              yield* engine.dispatch({
+                type: "thread.thread-watch.waits-on-person",
+                commandId: CommandId.make(
+                  `server:build-watch-person:${watch.id}:${yield* crypto.uuidV4()}`,
+                ),
+                threadId: thread.id,
+                watchId: watch.id,
+                ...(waitsOnPerson === undefined ? {} : { waitsOnPerson }),
+              });
+            }
             if (decideBuildWatch(watch.target, cached.item) === undefined) continue;
             // A cached answer can predate a hold or wait opened outside T3's own connection: wake only
             // on an answer read in this pass.

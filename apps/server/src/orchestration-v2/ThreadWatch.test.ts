@@ -42,6 +42,7 @@ import * as NodeOS from "node:os";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as ServerConfig from "../config.ts";
@@ -707,7 +708,7 @@ it.layer(layerTest)("thread watches", (it) => {
       });
       assert.include(wake?.text, `[Fix the login](t3-thread://v1/${worker})`);
       assert.include(wake?.text, "> Landed abc123.");
-      assert.equal(wake?.id, MessageId.make(`message:${started?.id}`));
+      assert.equal(wake?.id, MessageId.make(`message:${lead}:${started?.id}`));
       assert.lengthOf(yield* watchesOf(lead), 0);
       // The finished watch stays as Lineage history.
       assert.deepEqual(
@@ -959,6 +960,24 @@ it.layer(layerTest)("thread watches", (it) => {
           ["cancelled", "Archived or deleted: Deleting"],
         ],
       );
+    }),
+  );
+
+  it.effect("wakes a watcher whose target thread can no longer be read", () =>
+    Effect.gen(function* () {
+      const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
+      const sql = yield* SqlClient.SqlClient;
+      const lead = yield* createThread("gone-lead");
+      const worker = yield* createThread("gone-worker", "Vanishing");
+      yield* watch(lead, worker);
+      yield* reactor.sweep;
+      assert.lengthOf(yield* wakes(lead), 0);
+      yield* sql`DELETE FROM orchestration_v2_projection_threads WHERE thread_id = ${worker}`;
+      yield* reactor.sweep;
+      const [wake, ...rest] = yield* wakes(lead);
+      assert.lengthOf(rest, 0);
+      assert.include(wake?.text, "can no longer be read");
+      assert.lengthOf(yield* watchesOf(lead), 0);
     }),
   );
 
@@ -1455,6 +1474,82 @@ it.layer(layerTest)("thread watches", (it) => {
     }),
   );
 
+  it.effect("a Forge watch on an unreadable item wakes a thread that is not running an Arc", () =>
+    Effect.gen(function* () {
+      const h = yield* makeForgeHarness;
+      const watcher = yield* createThread("build-unreadable");
+      yield* h.start(watcher, "unblocked");
+      h.state.unreachable = true;
+      yield* h.reactor.sweep;
+      yield* TestClock.adjust("61 minutes");
+      yield* h.reactor.sweep;
+      const [message, ...rest] = yield* h.messages(watcher);
+      assert.lengthOf(rest, 0);
+      assert.include(message?.text, "could not be read");
+      assert.lengthOf(yield* watchesOf(watcher), 0);
+    }),
+  );
+
+  it.effect(
+    "a thread whose only wait is a Forge item landed or held for the owner needs him, naming the item",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeForgeHarness;
+        const engine = yield* Orchestrator.OrchestratorV2;
+        const watcher = yield* createThread("build-waits-on-person");
+        yield* h.start(watcher, "unblocked");
+        const standing = Effect.map(engine.getThreadShell(watcher), (shell) => shell?.standing);
+        yield* h.reactor.sweep;
+        // A blocker still in progress is a machine's to finish.
+        assert.equal((yield* standing)?.state, "waiting");
+
+        // A landed blocker needing acceptance says nothing about who accepts it.
+        h.state.item = {
+          ...h.state.item,
+          waits: [{ number: 1000002, title: "Blocker", status: "landed", required: "accepted" }],
+        };
+        yield* TestClock.adjust("1 minute");
+        yield* h.reactor.sweep;
+        assert.equal((yield* standing)?.state, "waiting");
+
+        h.state.item = { ...h.state.item, waits: [], holds: [{ kind: "owner", note: "Approve" }] };
+        yield* TestClock.adjust("2 minutes");
+        yield* h.reactor.sweep;
+        const held = yield* standing;
+        assert.equal(held?.state, "needs_you");
+        assert.equal(held?.waitsOnPerson?.need, "hold");
+
+        // The item itself has landed and only the owner accepts it.
+        h.state.item = { ...h.state.item, status: "landed", acceptanceLevel: "owner" };
+        yield* TestClock.adjust("4 minutes");
+        yield* h.reactor.sweep;
+        assert.deepEqual(yield* standing, {
+          state: "needs_you",
+          waitsOnPerson: {
+            kind: "build_item",
+            number: 1000001,
+            title: "Publish the candidate",
+            need: "acceptance",
+          },
+        });
+
+        // An agent accepts this one, so a hold is all that waits on a person.
+        h.state.item = { ...h.state.item, acceptanceLevel: "agent" };
+        yield* TestClock.adjust("4 minutes");
+        yield* h.reactor.sweep;
+        assert.equal((yield* standing)?.waitsOnPerson?.need, "hold");
+
+        // A wait on work still in progress takes the verdict back.
+        h.state.item = {
+          ...h.state.item,
+          waits: [{ number: 1000002, title: "Blocker", status: "in_progress", required: "landed" }],
+        };
+        yield* TestClock.adjust("8 minutes");
+        yield* h.reactor.sweep;
+        assert.equal((yield* standing)?.state, "waiting");
+      }),
+  );
+
   it.effect(
     "the Build reactor's own polling wakes on the backed-off cadence without thread events",
     () =>
@@ -1599,7 +1694,7 @@ it.layer(layerTest)("landing watches", (it) => {
       assert.include(wake?.text, "> tests failed");
       assert.include(wake?.text, "repair the change in the workspace that submitted it");
       assert.include(wake?.text, "slipjay repair op_1");
-      assert.equal(wake?.id, MessageId.make(`message:${armed?.id}`));
+      assert.equal(wake?.id, MessageId.make(`message:${thread}:${armed?.id}`));
       assert.lengthOf(yield* watchesOf(thread), 0);
 
       // Another look, a restart's replay or a repeated fire never wakes it twice.
@@ -1641,7 +1736,7 @@ it.layer(layerTest)("landing watches", (it) => {
     }),
   );
 
-  it.effect("a published landing ends its watch without waking the thread", () =>
+  it.effect("a published landing wakes the thread with the published commit", () =>
     Effect.gen(function* () {
       const h = yield* makeLandingHarness;
       const thread = yield* createWorkspaceThread("landing-published", "/workspaces/published");
@@ -1662,7 +1757,12 @@ it.layer(layerTest)("landing watches", (it) => {
       h.finish("op_published", { status: "landed", commitId: "abc1234" });
       yield* h.reactor.sweep;
       assert.lengthOf(yield* watchesOf(thread), 0);
-      assert.lengthOf(yield* h.messages(thread), 0);
+      const [wake, ...rest] = yield* h.messages(thread);
+      assert.lengthOf(rest, 0);
+      assert.equal(wake?.notification?.outcome, "completed");
+      assert.include(wake?.text, "landed");
+      assert.include(wake?.text, "Published commit: abc1234");
+      assert.include(wake?.text, "Nothing needs repairing");
       const { turnItems } = yield* engine.getThreadRecords(thread, ["turnItems"], {
         turnItemTypes: ["notification"],
       });
@@ -1679,7 +1779,8 @@ it.layer(layerTest)("landing watches", (it) => {
             outcome: "updated",
           },
           {
-            runId: null,
+            // The published outcome now starts the wake run that carries it.
+            runId: RunId.make("run:thread:thread%3Alanding-published:ordinal:1"),
             source: {
               kind: "landing",
               operationId: "op_published",
@@ -1691,6 +1792,57 @@ it.layer(layerTest)("landing watches", (it) => {
         ],
       );
     }),
+  );
+
+  it.effect(
+    "a leaf child's inherited copy of the parent's landing watch ends silently while the parent is woken",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeLandingHarness;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const parent = yield* createWorkspaceThread("landing-twin-parent", "/workspaces/twin");
+        h.roots.set("ws-twin", "/workspaces/twin");
+        h.submit("ws-twin", "op_twin");
+        yield* h.reactor.sweep;
+        const armed = yield* watchesOf(parent);
+        const parentThread = yield* ProjectionStore.ProjectionStoreV2.pipe(
+          Effect.flatMap((store) => store.getThread(parent)),
+          Effect.provide(ProjectionStore.layer),
+        );
+        const twin = makeSubagentChildThread({
+          parentThread,
+          childThreadId: ThreadId.make("thread:landing-twin-copy"),
+          parentNodeId: NodeId.make("node:landing-twin"),
+          activeProviderThreadId: null,
+          providerInstanceId: modelSelection.instanceId,
+          modelSelection,
+          title: "landing twin child",
+          now,
+          createdBy: "agent",
+          creationSource: "provider",
+        });
+        // A child made before watches stopped being copied carries the parent's watch, id included.
+        yield* eventSink.write({
+          commandId: CommandId.make("command:seed-twin-watch"),
+          events: [
+            {
+              id: EventId.make("event:seed-twin-watch"),
+              type: "thread.created",
+              threadId: twin.id,
+              providerInstanceId: modelSelection.instanceId,
+              occurredAt: now,
+              payload: { ...twin, threadWatches: armed },
+            },
+          ],
+        });
+        assert.equal((yield* watchesOf(twin.id))[0]?.id, armed[0]?.id);
+        h.finish("op_twin", { status: "failed", reason: "tests failed" });
+        yield* h.reactor.sweep;
+        assert.lengthOf(yield* watchesOf(parent), 0);
+        assert.lengthOf(yield* watchesOf(twin.id), 0);
+        assert.lengthOf(yield* h.messages(parent), 1);
+        assert.lengthOf(yield* h.messages(twin.id), 0);
+      }),
   );
 
   it.effect(
@@ -1745,6 +1897,65 @@ it.layer(layerTest)("landing watches", (it) => {
       assert.lengthOf(yield* watchesOf(first), 0);
       assert.lengthOf(yield* watchesOf(second), 0);
     }),
+  );
+
+  it.effect(
+    "arms the thread that ran `slipjay land`, whatever workspace it landed from or who shares it",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeLandingHarness;
+        const other = yield* createWorkspaceThread("landing-ran-other", "/workspaces/ran-shared");
+        const thread = yield* createWorkspaceThread("landing-ran", "/workspaces/ran-shared");
+        const bystander = yield* createWorkspaceThread("landing-ran-by", "/workspaces/ran-by");
+        // Two threads hold the checkout it landed from, and a third's checkout is unrelated.
+        h.roots.set("ws-ran", "/workspaces/ran-shared");
+        h.submit("ws-ran", "op_ran");
+        // A second workspace the thread allocated itself, which SlipJay cannot place.
+        h.submit("ws-allocated", "op_allocated");
+        const command = (operationId: string) => ({
+          id: TurnItemId.make(`turn-item:ran:${operationId}`),
+          threadId: thread,
+          runId: run(thread, 1, "completed").id,
+          nodeId: rootNodeId,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 1,
+          status: "completed" as const,
+          title: "slipjay land",
+          startedAt: now,
+          completedAt: now,
+          updatedAt: now,
+          type: "command_execution" as const,
+          input: "slipjay land --no-wait",
+          output: `{"ok":true,"verdict":"submitted","operationId":"${operationId}"}`,
+        });
+        yield* seedRun(thread, {
+          status: "completed",
+          extra: ["op_ran", "op_allocated"].map((operationId) => ({
+            id: EventId.make(`event:ran:${operationId}`),
+            type: "turn-item.updated" as const,
+            threadId: thread,
+            runId: command(operationId).runId,
+            nodeId: rootNodeId,
+            providerInstanceId: modelSelection.instanceId,
+            occurredAt: now,
+            payload: command(operationId),
+          })),
+        });
+        yield* h.reactor.sweep;
+        assert.lengthOf(yield* watchesOf(other), 0);
+        assert.lengthOf(yield* watchesOf(bystander), 0);
+        assert.lengthOf(yield* watchesOf(thread), 2);
+        h.finish("op_allocated", { status: "failed", reason: "tests failed" });
+        h.finish("op_ran", { status: "landed", commitId: "abc1234" });
+        yield* h.reactor.sweep;
+        assert.deepEqual(
+          (yield* h.messages(thread)).map((message) => message.notification?.outcome).toSorted(),
+          ["completed", "failed"],
+        );
+      }),
   );
 
   it.effect("keeps looking for the submitting checkout until SlipJay can name it", () =>
@@ -2018,17 +2229,19 @@ it.layer(layerTest)("landing watches", (it) => {
         const commands = [
           "cd /workspaces/no-wait && slipjay land --no-wait --session s1",
           "slipjay land \\\n  --no-wait",
-          "slipjay runner log op_no_wait",
+          "slipjay runner log OP",
           "slipjay watch --json",
         ];
-        for (const [index, input] of commands.entries()) {
+        for (const [index, template] of commands.entries()) {
+          const operationId = `op_no_wait_${index}`;
+          const input = template.replace("OP", operationId);
           const h = yield* makeLandingHarness;
           const thread = yield* createWorkspaceThread(
             `landing-no-wait-${index}`,
             `/workspaces/no-wait-${index}`,
           );
           h.roots.set(`ws-no-wait-${index}`, `/workspaces/no-wait-${index}`);
-          h.submit(`ws-no-wait-${index}`, "op_no_wait");
+          h.submit(`ws-no-wait-${index}`, operationId);
           yield* h.reactor.sweep;
           assert.lengthOf(yield* watchesOf(thread), 1);
           const command = {
@@ -2048,7 +2261,7 @@ it.layer(layerTest)("landing watches", (it) => {
             updatedAt: now,
             type: "command_execution" as const,
             input,
-            output: '{"ok":true,"verdict":"submitted","operationId":"op_no_wait"}',
+            output: '{"ok":true,"verdict":"submitted","operationId":operationId}',
           };
           // The agent's run goes on with its next task after the submission returned.
           yield* seedBusyThread(thread);
@@ -2067,7 +2280,7 @@ it.layer(layerTest)("landing watches", (it) => {
               },
             ],
           });
-          h.finish("op_no_wait", { status: "failed", reason: "tests failed" });
+          h.finish(operationId, { status: "failed", reason: "tests failed" });
           yield* h.reactor.sweep;
           const [wake, ...rest] = yield* h.messages(thread);
           assert.lengthOf(rest, 0, input);

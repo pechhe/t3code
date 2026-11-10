@@ -1,4 +1,5 @@
 import "~/index.css";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ProviderDriverKind, ThreadId, TurnItemId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { expect, it, vi } from "vite-plus/test";
@@ -9,8 +10,8 @@ vi.mock(import("./CommandOutputPanel"), () => ({
 }));
 
 import { render } from "../../../test/render";
-import { backgroundWorkNowItem } from "./ThreadActivityBanners";
-import { ThreadNow } from "./ThreadNow";
+import { presentPendingBackgroundWork } from "@t3tools/client-runtime/state/thread-execution";
+import { WaitRow } from "./WaitingPanelRows";
 
 it("opens full command details for short labels and keeps pending tasks current", async () => {
   const command = "python3 audit.py -j 6\n> scratch/audit.log 2>&1";
@@ -37,25 +38,27 @@ it("opens full command details for short labels and keeps pending tasks current"
     description?: string,
     status: "running" | "completed" = "completed",
     explicitItem = true,
-  ) => (
-    <ThreadNow
-      attention={null}
-      syncPhase={null}
-      goal={null}
-      work={backgroundWorkNowItem({
-        environmentId: EnvironmentId.make("test"),
-        threadId: ThreadId.make("thread"),
-        tasks: [
-          {
-            taskId: "native-task",
-            itemId: explicitItem ? TurnItemId.make("bash-1") : undefined,
-            kind: "command",
-            description,
-            command,
-            awaited: true,
-          },
-        ],
-        turnItems: [
+  ) => {
+    const task = {
+      taskId: "native-task",
+      itemId: explicitItem ? TurnItemId.make("bash-1") : undefined,
+      kind: "command" as const,
+      description,
+      command,
+      awaited: true as const,
+    };
+    const [item] = presentPendingBackgroundWork([task])?.items ?? [];
+    return (
+      <WaitRow
+        wait={{ item: item!, task, awaited: true, startedAtMs: null }}
+        handlers={{
+          threadRef: scopeThreadRef(EnvironmentId.make("test"), ThreadId.make("thread")),
+          onOpenThread: () => undefined,
+          onOpenPullRequest: () => undefined,
+        }}
+        environmentId={EnvironmentId.make("test")}
+        threadId={ThreadId.make("thread")}
+        turnItems={[
           commandItem(status),
           {
             ...commandItem("running"),
@@ -67,19 +70,10 @@ it("opens full command details for short labels and keeps pending tasks current"
             },
             ordinal: 2,
           },
-        ],
-        stopDisabled: false,
-        stopping: false,
-        onStop: async () => undefined,
-        onOpenThread: () => undefined,
-        handlers: {
-          threadRef: null,
-          onOpenThread: () => undefined,
-          onOpenPullRequest: () => undefined,
-        },
-      })}
-    />
-  );
+        ]}
+      />
+    );
+  };
   await using screen = await render(view("Audit"));
   await screen.getByRole("button", { name: "Details", exact: true }).click();
   await vi.waitFor(() => expect(page.getByRole("dialog").element().textContent).toContain(command));

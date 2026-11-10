@@ -61,6 +61,8 @@ export const planThreadDeletion = Effect.fn("ThreadDeletion.planThreadDeletion")
     payload: {
       ...projection.thread,
       deletedAt: projection.thread.deletedAt ?? now,
+      // No reactor settles a deleted thread's watches, and a managed task holds its result for them.
+      threadWatches: [],
       titleRegeneration: null,
       updatedAt: now,
     },

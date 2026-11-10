@@ -628,7 +628,8 @@ it.effect("recovers terminal subagent results until their cross-thread transfer 
       }
       children.push(child);
     }
-    const terminalChildren = new Set([children[0]!, children[1]!, children[4]!]);
+    // A deleted child is recovered too: its parent is told it ended without reporting.
+    const terminalChildren = new Set([children[0]!, children[1]!, children[2]!, children[4]!]);
     assert.deepEqual(
       new Set(yield* projections.getRecoveryThreadIds("subagent-results")),
       terminalChildren,
@@ -664,7 +665,7 @@ it.effect("recovers terminal subagent results until their cross-thread transfer 
     assert.isDefined(archivedChild);
     assert.deepEqual(
       new Set(yield* projections.getRecoveryThreadIds("subagent-results")),
-      new Set([archivedChild, children[4]!]),
+      new Set([archivedChild, children[2]!, children[4]!]),
     );
     assert.deepEqual(yield* projections.getUnreadableThreadIds(), []);
     yield* sql`

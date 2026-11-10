@@ -144,6 +144,101 @@ describe("createThreadNotificationGate", () => {
   });
 });
 
+describe("createThreadNotificationGate with the server's standing", () => {
+  const standing = (
+    state: NonNullable<ThreadNotificationObservation["standing"]>,
+    attention: string | null = null,
+  ): ThreadNotificationObservation => ({
+    attention,
+    settled: false,
+    completedAt: null,
+    requestId: null,
+    standing: state,
+  });
+
+  function heldHarness() {
+    const notify = vi.fn();
+    const holds = new Set<() => void>();
+    const gate = createThreadNotificationGate<string>(notify, (fire) => {
+      holds.add(fire);
+      return () => holds.delete(fire);
+    });
+    let prior: ThreadNotificationObservation | undefined;
+    const observe = (next: ThreadNotificationObservation, options = visible) => {
+      gate.observe("thread", prior, next, options);
+      prior = next;
+    };
+    const elapse = () => {
+      for (const fire of Array.from(holds)) {
+        holds.delete(fire);
+        fire();
+      }
+    };
+    return { notify, observe, elapse };
+  }
+
+  it("stays silent while a child finishes and notifies once when the thread has held finished", () => {
+    const { notify, observe, elapse } = heldHarness();
+    observe(standing("working"));
+    observe(standing("waiting"));
+    observe(standing("working"));
+    elapse();
+    expect(notify).not.toHaveBeenCalled();
+    observe(standing("finished"));
+    expect(notify).not.toHaveBeenCalled();
+    elapse();
+    observe(standing("finished"));
+    elapse();
+    expect(notify.mock.calls).toEqual([["thread", "completion"]]);
+  });
+
+  it("drops a finished notification when a wake starts inside the hold", () => {
+    const { notify, observe, elapse } = heldHarness();
+    observe(standing("working"));
+    observe(standing("finished"));
+    observe(standing("working"));
+    elapse();
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("notifies each time a thread stalls or needs you, and each new question", () => {
+    const { notify, observe } = heldHarness();
+    observe(standing("working"));
+    observe(standing("stalled"));
+    observe(standing("stalled"));
+    observe(standing("working"));
+    observe(standing("stalled"));
+    observe(standing("needs_you", "run-1:approval"));
+    observe(standing("needs_you", "run-1:approval"));
+    observe(standing("needs_you", "run-1:input"));
+    expect(notify.mock.calls).toEqual([
+      ["thread", "input"],
+      ["thread", "input"],
+      ["thread", "input"],
+      ["thread", "input"],
+    ]);
+  });
+
+  it("notifies a child's question the standing cannot see", () => {
+    const { notify, observe } = heldHarness();
+    observe(standing("waiting"));
+    observe(standing("waiting", "child:input"));
+    observe(standing("waiting", "child:input"));
+    expect(notify.mock.calls).toEqual([["thread", "input"]]);
+  });
+
+  it("never notifies a thread first seen finished, archived or quiet", () => {
+    const { notify, observe, elapse } = heldHarness();
+    observe(standing("finished"));
+    observe(standing("working"));
+    observe(standing("finished"), { archived: false, quiet: true });
+    observe(standing("working"), { archived: true, quiet: false });
+    observe(standing("finished"), { archived: true, quiet: false });
+    elapse();
+    expect(notify).not.toHaveBeenCalled();
+  });
+});
+
 describe("quiet thread completions", () => {
   const runId = RunId.make("sweep");
   const report = {

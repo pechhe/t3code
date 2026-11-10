@@ -1,5 +1,8 @@
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentThreadShell, ThreadStructure } from "@t3tools/client-runtime/state/shell";
+import { presentPendingBackgroundWork } from "@t3tools/client-runtime/state/thread-execution";
+import { threadWatchTaskId } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import * as DateTime from "effect/DateTime";
 import type { Dispatch } from "react";
 import type { ComposerThreadTarget } from "../../composerDraftStore";
 import type { ComposerHandleRef } from "../../composerHandleContext";
@@ -23,6 +26,7 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
   OrchestrationV2Subagent,
+  OrchestrationV2PendingBackgroundTask,
 } from "@t3tools/contracts";
 import {
   effectiveSnoozed,
@@ -71,15 +75,11 @@ import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { readEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
-import {
-  backgroundWorkNowItem,
-  childInputNowItem,
-  goalNowItem,
-  runStopNowItem,
-} from "./ThreadActivityBanners";
+import { childInputNowItem, goalNowItem, runStopNowItem } from "./ThreadActivityBanners";
 import { Button } from "../ui/button";
 import { finishedPanelSubagents } from "@t3tools/client-runtime/state/threads";
 import { SubagentPanel, type SubagentPanelRequest } from "./SubagentPanel";
+import type { PanelWait } from "./SubagentPanel.logic";
 import { useForceStopThread } from "./useForceStopThread";
 import { useAtomValue } from "@effect/atom-react";
 import type { RunStopPresentation } from "@t3tools/client-runtime/state/thread-execution";
@@ -115,8 +115,8 @@ interface ThreadLifecycleInput {
   readonly serverConfig: EnvironmentServerConfig | null;
   readonly runtimeMode: RuntimeMode;
   readonly isWorking: boolean;
-  readonly pendingBackgroundTasks: Parameters<typeof backgroundWorkNowItem>[0]["tasks"];
-  readonly turnItems: Parameters<typeof backgroundWorkNowItem>[0]["turnItems"];
+  readonly pendingBackgroundTasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
+  readonly turnItems: ThreadStructure["turnItems"];
   readonly subagents: ReadonlyArray<OrchestrationV2Subagent>;
   readonly activePendingApproval: PendingThreadRequests["activePendingApproval"];
   readonly activePendingUserInput: PendingThreadRequests["activePendingUserInput"];
@@ -613,44 +613,79 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
           onForceStop: () => void forceStop.forceStopThread(activeThread.id, runStop.runId),
         })
       : null;
-  const backgroundWorkNow = activeThread
-    ? backgroundWorkNowItem({
-        environmentId,
-        threadId: activeThread.id,
-        tasks: activeBackgroundTasks.filter(
-          (task) =>
-            task.kind !== "subagent" ||
-            task.childThreadId === undefined ||
-            !liveSubagentIds.includes(task.childThreadId),
-        ),
-        turnItems,
-        stopDisabled: !canOperateThread || isStoppingBackgroundWork,
-        stopping: isStoppingBackgroundWork,
-        onStop: handleStopBackgroundWorkStable,
-        onOpenThread: onOpenRelatedThreadStable,
-        handlers: {
-          threadRef: activeThreadRef,
-          onOpenThread: onOpenRelatedThreadStable,
-          onOpenPullRequest: openChangeRequestLink,
-        },
-      })
-    : null;
+  // Whatever the thread waits on that the panel has no subagent row for: watches, commands,
+  // monitors and any agent without a shell. Nothing is dropped, so every wait shows once.
+  const panelWaits: ReadonlyArray<PanelWait> = (() => {
+    const tasks = activeBackgroundTasks.filter(
+      (task) =>
+        task.kind !== "subagent" ||
+        task.childThreadId === undefined ||
+        !liveSubagentIds.includes(task.childThreadId),
+    );
+    const items = presentPendingBackgroundWork(tasks)?.items ?? [];
+    return items.map((item) => {
+      const task = tasks.find((candidate) => candidate.taskId === item.taskId);
+      // Same key derivePendingBackgroundWork gives turn-item tasks.
+      const turnItem = turnItems.findLast(
+        (candidate) => (candidate.nativeItemRef?.nativeId || candidate.id) === item.taskId,
+      );
+      const watchStartedAt = activeThreadShell?.source.threadWatches?.find(
+        (watch) => threadWatchTaskId(watch.id) === item.taskId,
+      )?.startedAt;
+      return {
+        item,
+        task,
+        awaited: task?.awaited === true,
+        startedAtMs:
+          turnItem?.startedAt != null
+            ? DateTime.toEpochMillis(turnItem.startedAt)
+            : watchStartedAt != null
+              ? Date.parse(watchStartedAt)
+              : null,
+      };
+    });
+  })();
+  // The visit before this viewing: subagents that finished earlier were already seen, so the
+  // panel shows a finished row once and not on every return to the thread.
+  const [priorVisit, setPriorVisit] = useState({
+    key: activeThreadKey,
+    at: activeThreadLastVisitedAt,
+  });
+  if (priorVisit.key !== activeThreadKey) {
+    setPriorVisit({ key: activeThreadKey, at: activeThreadLastVisitedAt });
+  }
   const finishedSubagents = finishedPanelSubagents({
     subagents,
     liveIds: liveSubagentIds,
+    seenAt: priorVisit.key === activeThreadKey ? priorVisit.at : activeThreadLastVisitedAt,
     since:
       activeThreadShell?.source.latestUserAuthoredMessageAt ??
       activeThreadShell?.source.latestUserMessageAt ??
       null,
     parentBusy: isWorking,
   });
+  const panelStanding = activeThreadShell?.source.standing;
+  const panelThreadWatches = activeThreadShell?.source.threadWatches;
   const renderSubagentPanel = (request: SubagentPanelRequest | null) =>
-    activeThreadRef !== null && (liveSubagentIds.length > 0 || finishedSubagents.length > 0) ? (
+    activeThreadRef !== null &&
+    (liveSubagentIds.length > 0 ||
+      finishedSubagents.length > 0 ||
+      panelWaits.length > 0 ||
+      panelStanding?.waitsOnPerson !== undefined) ? (
       <SubagentPanel
         threadRef={activeThreadRef}
         subagentIds={liveSubagentIds}
         subagents={subagents}
         finished={finishedSubagents}
+        waits={panelWaits}
+        standing={panelStanding}
+        threadWatches={panelThreadWatches}
+        waitHandlers={{
+          threadRef: activeThreadRef,
+          onOpenThread: onOpenRelatedThreadStable,
+          onOpenPullRequest: openChangeRequestLink,
+        }}
+        turnItems={turnItems}
         canOperate={canOperateThread}
         onOpenThread={onOpenRelatedThreadStable}
         request={request}
@@ -751,7 +786,8 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     activeBranchMismatchKey,
     // A Stop that went unanswered needs the user; one in progress is the thread's work.
     attentionNow: runStop?.state === "unresponsive" ? runStopNow : childInputNow,
-    workNow: runStop?.state === "stopping" ? runStopNow : backgroundWorkNow,
+    // Background work is rows of the subagent panel, not a line here.
+    workNow: runStop?.state === "stopping" ? runStopNow : null,
     childInputNow,
     goalNow,
     liveSubagentIds,

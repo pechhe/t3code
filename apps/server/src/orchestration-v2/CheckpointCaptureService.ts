@@ -38,6 +38,15 @@ export interface CheckpointCaptureServiceV2Shape {
     readonly runId: RunId;
     readonly scopeId: CheckpointScopeId;
   }) => Effect.Effect<void, CheckpointCaptureExecutionError>;
+  /**
+   * Completes a run whose capture failed for good, without a checkpoint: its turn finished, so it
+   * is neither failed nor left holding its thread.
+   */
+  readonly abandon: (input: {
+    readonly threadId: ThreadId;
+    readonly runId: RunId;
+    readonly scopeId: CheckpointScopeId;
+  }) => Effect.Effect<void, CheckpointCaptureExecutionError>;
 }
 
 export class CheckpointCaptureServiceV2 extends Context.Service<
@@ -236,7 +245,67 @@ export const layer: Layer.Layer<
       });
     });
 
+    const abandon = Effect.fn("orchestrationV2.checkpointCapture.abandon")(function* (input: {
+      readonly threadId: ThreadId;
+      readonly runId: RunId;
+      readonly scopeId: CheckpointScopeId;
+    }) {
+      const { runs, nodes } = yield* projections.getThreadRecords(input.threadId, [
+        "runs",
+        "nodes",
+      ]);
+      const run = runs.find((candidate) => candidate.id === input.runId);
+      if (run === undefined || run.status !== "waiting") return;
+      const rootNode = nodes.find((candidate) => candidate.id === run.rootNodeId);
+      yield* Effect.logWarning("Completing a run without a checkpoint: capture failed for good", {
+        threadId: input.threadId,
+        runId: input.runId,
+      });
+      const completedAt = yield* DateTime.now;
+      const commandId = CommandId.make(`command:effect:checkpoint.abandon:${run.id}`);
+      // Omit delegatedCompletion to preserve cohort writes made after the run entered waiting.
+      const { delegatedCompletion: _delegatedCompletion, ...runWithoutDelegatedCompletion } = run;
+      yield* eventSink.commitCommand({
+        commandId,
+        threadId: input.threadId,
+        commandType: "checkpoint.capture",
+        acceptedAt: completedAt,
+        effects: [],
+        events: [
+          {
+            id: yield* ids.allocate.event({ threadId: input.threadId, commandId }),
+            type: "run.updated",
+            threadId: input.threadId,
+            runId: run.id,
+            ...(rootNode === undefined ? {} : { nodeId: rootNode.id }),
+            providerInstanceId: run.providerInstanceId,
+            occurredAt: completedAt,
+            payload: { ...runWithoutDelegatedCompletion, status: "completed", completedAt },
+          },
+          ...(rootNode === undefined
+            ? []
+            : [
+                {
+                  id: yield* ids.allocate.event({ threadId: input.threadId, commandId }),
+                  type: "node.updated" as const,
+                  threadId: input.threadId,
+                  runId: run.id,
+                  nodeId: rootNode.id,
+                  providerInstanceId: run.providerInstanceId,
+                  occurredAt: completedAt,
+                  payload: { ...rootNode, status: "completed" as const, completedAt },
+                },
+              ]),
+        ],
+      });
+    });
+
     return CheckpointCaptureServiceV2.of({
+      abandon: Effect.fn("CheckpointCaptureServiceV2.abandon")(function (input) {
+        return abandon(input).pipe(
+          Effect.mapError((cause) => new CheckpointCaptureExecutionError({ ...input, cause })),
+        );
+      }),
       execute: Effect.fn("CheckpointCaptureServiceV2.execute")(function (input) {
         return execute(input).pipe(
           Effect.mapError((cause) =>

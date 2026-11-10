@@ -3,7 +3,7 @@ import { EnvironmentId, ProjectId, ThreadId } from "./baseSchemas.ts";
 import { HostResourcesSnapshot } from "./resourceTelemetry.ts";
 import { SlipJayRunnerOperation } from "./git.ts";
 import { ReleaseVerificationStatus } from "./releaseApproval.ts";
-import { OrchestrationV2ThreadWorkflow } from "./orchestrationV2.ts";
+import { OrchestrationV2ThreadStanding, OrchestrationV2ThreadWorkflow } from "./orchestrationV2.ts";
 
 export const FleetSummaryInput = Schema.Struct({
   /** Opaque cursor returned by the previous sweep; omit for a full snapshot. */
@@ -50,6 +50,8 @@ const ThreadFields = {
       observedAt: Schema.NullOr(Schema.String),
     }),
   ),
+  /** The server's answer to where the thread stands; `runState` is only its run. */
+  standing: Schema.optionalKey(OrchestrationV2ThreadStanding),
   runState: Schema.Literals(["running", "queued", "idle", "waiting_on_person"]),
   pendingRequestCount: Schema.Number,
   lastActivityAt: Schema.String,

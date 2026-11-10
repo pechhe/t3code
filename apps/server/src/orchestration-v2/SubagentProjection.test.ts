@@ -159,7 +159,7 @@ it("a subagent child does not inherit its parent's Arc run", () => {
   assert.isUndefined(childThread.arcRun);
 });
 
-it("a delegated child does not inherit its parent's thread watches", () => {
+it("a delegated child does not inherit its parent's thread watches or stalled mark", () => {
   const watchedThreadId = ThreadId.make("thread:subagent-watched-worker");
   const parentThread: OrchestrationV2AppThread = {
     ...makeParentThread(),
@@ -178,6 +178,11 @@ it("a delegated child does not inherit its parent's thread watches", () => {
         endedAt: DateTime.formatIso(snoozedAt),
       },
     ],
+    stalled: {
+      childThreadId: ThreadId.make("thread:subagent-quiet-worker"),
+      title: "Quiet worker",
+      since: DateTime.formatIso(snoozedAt),
+    },
   };
   const childThread = makeSubagentChildThread({
     parentThread,
@@ -194,6 +199,7 @@ it("a delegated child does not inherit its parent's thread watches", () => {
   assert.lengthOf(parentThread.threadWatches ?? [], 1);
   assert.isUndefined(childThread.threadWatches);
   assert.isUndefined(childThread.endedThreadWatches);
+  assert.isUndefined(childThread.stalled);
 });
 
 it.effect.each(["provider", "mcp"] as const)(

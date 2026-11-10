@@ -88,6 +88,7 @@ function layerExecutorFor(input: {
   readonly interrupt?: ProviderTurnControlService.ProviderTurnControlServiceV2Shape["interrupt"];
   readonly rollback?: CheckpointRollbackService.CheckpointRollbackServiceV2Shape["execute"];
   readonly respond?: RuntimeRequestService.RuntimeRequestServiceV2["Service"]["respond"];
+  readonly finalize?: RunFinalizationService.RunFinalizationService["Service"]["finalize"];
 }) {
   const record = (event: string) => Ref.update(input.events, (events) => [...events, event]);
   const layerDependencies = Layer.mergeAll(
@@ -140,7 +141,10 @@ function layerExecutorFor(input: {
     ),
     Layer.succeed(
       RunFinalizationService.RunFinalizationService,
-      RunFinalizationService.RunFinalizationService.of({ finalize: () => Effect.void }),
+      RunFinalizationService.RunFinalizationService.of({
+        finalize: input.finalize ?? (() => Effect.void),
+        abandonCapture: () => record("abandon-capture"),
+      }),
     ),
     Layer.succeed(
       CheckpointRollbackService.CheckpointRollbackServiceV2,
@@ -221,6 +225,47 @@ it.effect.each([
     }).pipe(Effect.provide(layer));
     assert.deepEqual(yield* Ref.get(events), dispatched);
   }),
+);
+
+it.effect.each([
+  { willRetry: true, expected: [] as ReadonlyArray<string> },
+  { willRetry: false, expected: ["abandon-capture"] },
+])(
+  "completes a run without a checkpoint only once its capture attempts are spent (retry left: $willRetry)",
+  ({ willRetry, expected }) =>
+    Effect.gen(function* () {
+      const now = yield* DateTime.now;
+      const events = yield* Ref.make<ReadonlyArray<string>>([]);
+      const layer = layerExecutorFor({
+        events,
+        finalize: (capture) =>
+          Effect.fail(
+            new RunFinalizationService.RunFinalizationError({
+              ...capture,
+              operation: "capture-checkpoint",
+              cause: "git is gone",
+            }),
+          ),
+      });
+      const exit = yield* Effect.gen(function* () {
+        const executor = yield* EffectWorker.OrchestrationEffectExecutorV2;
+        return yield* executor
+          .execute(
+            {
+              ...restartEffect(now, { type: "detach" }),
+              request: {
+                type: "checkpoint.capture",
+                runId,
+                scopeId: CheckpointScopeId.make("scope:capture-gives-up"),
+              },
+            },
+            { willRetry },
+          )
+          .pipe(Effect.exit);
+      }).pipe(Effect.provide(layer));
+      assert.equal(exit._tag, "Failure");
+      assert.deepEqual(yield* Ref.get(events), expected);
+    }),
 );
 
 const lockedIndexMessage =

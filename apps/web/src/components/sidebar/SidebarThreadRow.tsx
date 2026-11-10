@@ -93,6 +93,7 @@ import {
   type SidebarDropVerb,
   resolveSidebarThreadStatus,
   resolveThreadLastVisitedAt,
+  threadStandingAttention,
   shouldRecedeSidebarThread,
   resolveWorkingStartedAt,
   useRetainedValue,
@@ -749,13 +750,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   // Background work always recedes when it is not selected: an unread parent
   // completion must not pull a still-working thread back into the foreground.
   // Ready and action-required rows keep their unread and wake prominence.
-  const shouldRecede = shouldRecedeSidebarThread({
-    status,
-    isUnread,
-    isWoke,
-    isActive: props.isActive,
-    isSelected,
-  });
+  // Standing adds a stalled child and an owner-only wait; a more specific status still wins.
+  const standingAttention =
+    status === "waiting" || status === "ready" ? threadStandingAttention(thread.standing) : null;
+  const shouldRecede =
+    standingAttention === null &&
+    shouldRecedeSidebarThread({
+      status,
+      isUnread,
+      isWoke,
+      isActive: props.isActive,
+      isSelected,
+    });
   const topStatus =
     status === "preparing" || status === "working"
       ? {
@@ -768,64 +774,78 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           icon: "working" as const,
           className: "text-info-foreground",
         }
-      : status === "waiting" && subagentActivity !== null
+      : standingAttention === "needs_you"
         ? {
-            label: subagentActivityLabel(subagentActivity),
-            icon:
-              subagentActivity.status === "working" ? ("working" as const) : ("waiting" as const),
-            className: SUBAGENT_STATUS_PRESENTATION[subagentActivity.status].className,
+            label: "Needs you",
+            icon: "input" as const,
+            className: "text-indigo-600 dark:text-indigo-300",
           }
-        : status === "waiting"
+        : standingAttention === "stalled"
           ? {
-              label: backgroundWorkIsOnlyWatches(thread.pendingBackgroundTasks ?? [])
-                ? "Watching"
-                : "Waiting",
+              label: "Stalled",
               icon: "waiting" as const,
-              className: "text-muted-foreground",
+              className: "text-warning-foreground",
             }
-          : status === "approval"
+          : status === "waiting" && subagentActivity !== null
             ? {
-                label: delegatedRequestLabel ?? "Approval",
-                icon: "approval" as const,
-                className: "text-warning-foreground",
+                label: subagentActivityLabel(subagentActivity),
+                icon:
+                  subagentActivity.status === "working"
+                    ? ("working" as const)
+                    : ("waiting" as const),
+                className: SUBAGENT_STATUS_PRESENTATION[subagentActivity.status].className,
               }
-            : status === "input"
+            : status === "waiting"
               ? {
-                  label: delegatedRequestLabel ?? "Input",
-                  icon: "input" as const,
-                  className: "text-indigo-600 dark:text-indigo-300",
+                  label: backgroundWorkIsOnlyWatches(thread.pendingBackgroundTasks ?? [])
+                    ? "Watching"
+                    : "Waiting",
+                  icon: "waiting" as const,
+                  className: "text-muted-foreground",
                 }
-              : status === "request"
+              : status === "approval"
                 ? {
-                    label: "Request",
-                    icon: "request" as const,
-                    className: "text-guest-foreground",
+                    label: delegatedRequestLabel ?? "Approval",
+                    icon: "approval" as const,
+                    className: "text-warning-foreground",
                   }
-                : status === "limited"
+                : status === "input"
                   ? {
-                      label: "Limited",
-                      icon: "failed" as const,
-                      className: "text-warning-foreground",
+                      label: delegatedRequestLabel ?? "Input",
+                      icon: "input" as const,
+                      className: "text-indigo-600 dark:text-indigo-300",
                     }
-                  : status === "failed"
+                  : status === "request"
                     ? {
-                        label: "Failed",
-                        icon: "failed" as const,
-                        className: "text-error-foreground",
+                        label: "Request",
+                        icon: "request" as const,
+                        className: "text-guest-foreground",
                       }
-                    : isWoke
+                    : status === "limited"
                       ? {
-                          label: "Woke",
-                          icon: "woke" as const,
+                          label: "Limited",
+                          icon: "failed" as const,
                           className: "text-warning-foreground",
                         }
-                      : isUnread
+                      : status === "failed"
                         ? {
-                            label: "Done",
-                            icon: "done" as const,
-                            className: "text-success",
+                            label: "Failed",
+                            icon: "failed" as const,
+                            className: "text-error-foreground",
                           }
-                        : null;
+                        : isWoke
+                          ? {
+                              label: "Woke",
+                              icon: "woke" as const,
+                              className: "text-warning-foreground",
+                            }
+                          : isUnread
+                            ? {
+                                label: "Done",
+                                icon: "done" as const,
+                                className: "text-success",
+                              }
+                            : null;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({

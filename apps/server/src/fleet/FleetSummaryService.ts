@@ -234,6 +234,7 @@ const make = Effect.gen(function* () {
                   : thread.activeRunId !== null || thread.activityRunStatus != null
                     ? ("running" as const)
                     : ("idle" as const),
+            ...(thread.standing === undefined ? {} : { standing: thread.standing }),
             pendingRequestCount,
             lastActivityAt: DateTime.formatIso(DateTime.makeUnsafe(Math.max(...times))),
             watches: [

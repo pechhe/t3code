@@ -812,6 +812,83 @@ describe("OrchestratorMcpService", () => {
     }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(RemoteDelegation.RemoteDelegation)({})))),
   );
 
+  it.effect("lists, reads and waits on a thread with the standing the server sent", () =>
+    Effect.gen(function* () {
+      const environmentId = EnvironmentId.make("environment:mcp-standing");
+      const states = ["working", "waiting", "stalled", "needs_you", "finished"] as const;
+      const shells = states.map((state) => ({
+        ...liveThreadShell(ThreadId.make(`thread:mcp-standing-${state}`), { activeRunId: null }),
+        status: "completed" as const,
+        standing: { state },
+      }));
+      const byId = new Map(shells.map((shell) => [shell.id, shell]));
+      const layerDependencies = Layer.mergeAll(
+        Layer.merge(
+          Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+          Layer.mock(Experiments.ExperimentService)({
+            assignForTask: () => Effect.succeed([]),
+            assignments: () => Effect.succeed([]),
+          }),
+        ),
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadShell: (threadId) => Effect.succeed(byId.get(threadId) ?? null),
+          listProjectThreads: () => Effect.succeed(shells),
+          getProjectThreadRecords: (input) =>
+            Effect.succeed(idleThreadProjection(byId.get(input.threadId)!)),
+          getThreadRecords: (threadId) =>
+            Effect.succeed(idleThreadProjection(byId.get(threadId)!) as never),
+          getTimelinePage: () =>
+            Effect.succeed({ items: [], nextPosition: null, hasMore: false } as never),
+          waitForThread: (input) =>
+            Effect.succeed({
+              threadId: input.threadId,
+              run: {
+                id: RunId.make("run:mcp-standing"),
+                ordinal: 1,
+                status: "completed",
+              } as never,
+              timedOut: false,
+            }),
+        }),
+        ServerSettings.layerTest(),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+          list: () => Effect.succeed([]),
+        }),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+        Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+      );
+      const caller: McpInvocationScope = {
+        environmentId,
+        requestNamespace: "client:mcp-standing",
+        thread: undefined,
+        client: { sessionId: "oauth-standing", label: "client", access: "full-access" },
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 1,
+      };
+
+      yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        const listed = yield* service.listThreads(caller, { allProjects: true });
+        for (const shell of shells) {
+          const read = yield* service.readThread(caller, { threadId: shell.id } as never);
+          const waited = yield* service.waitForThread(caller, { threadId: shell.id });
+          assert.deepEqual(read.thread.standing, shell.standing);
+          assert.deepEqual(waited.standing, shell.standing);
+          assert.deepEqual(
+            listed.threads.find((thread) => thread.threadId === shell.id)?.standing,
+            shell.standing,
+          );
+          // A settled run alone never reads as the thread being done.
+          assert.equal(waited.status, "completed");
+        }
+      }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
+    }),
+  );
+
   it.effect("lets the thread that owns a running managed task steer it, and refuses others", () =>
     Effect.gen(function* () {
       const parentId = ThreadId.make("thread:managed-steer-parent");

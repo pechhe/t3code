@@ -806,6 +806,24 @@ describe("subagent live state", () => {
       expect(ids(finished)).toEqual(["newer", "older"]);
     });
 
+    it("drops what finished before the user last had the thread open", () => {
+      const subagents = [
+        record("seen", "completed", "2026-11-04T12:01:00.000Z"),
+        record("unseen", "completed", "2026-11-04T12:10:00.000Z"),
+      ];
+      const input = { subagents, liveIds: live, since, parentBusy: false };
+      expect(ids(finishedPanelSubagents({ ...input, seenAt: "2026-11-04T12:05:00.000Z" }))).toEqual(
+        ["unseen"],
+      );
+      expect(ids(finishedPanelSubagents({ ...input, seenAt: "2026-11-04T11:00:00.000Z" }))).toEqual(
+        ["unseen", "seen"],
+      );
+      expect(ids(finishedPanelSubagents({ ...input, seenAt: undefined }))).toEqual([
+        "unseen",
+        "seen",
+      ]);
+    });
+
     it("judges a child by its latest record", () => {
       const finished = finishedPanelSubagents({
         subagents: [

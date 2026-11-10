@@ -3721,7 +3721,8 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
       // The window read must not grow with history below the newest visible rows. VM steps are
       // deterministic; reading the whole history here cost 65% more steps.
       const copyPath = "file:/thread-window-steps?vfs=memdb";
-      {
+      // StatementSync.stat arrived in Node 26; the landing host still runs Node 24.
+      if ("stat" in NodeSqlite.StatementSync.prototype) {
         using copy = new NodeSqlite.DatabaseSync(copyPath);
         yield* sql`VACUUM INTO ${copyPath}`;
         assert.isNotEmpty(windowStatements);

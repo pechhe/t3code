@@ -1,16 +1,19 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import { isSubagentDoer } from "@t3tools/client-runtime/state/threads";
 import {
   agentTaskTopic,
   type OrchestrationV2Subagent,
+  type OrchestrationV2ThreadStanding,
+  type OrchestrationV2ThreadWatch,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import { ChevronRightIcon } from "lucide-react";
-import { useState, type ComponentProps, type ReactNode } from "react";
+import { Fragment, useState, type ComponentProps, type ReactNode } from "react";
 
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { cn } from "~/lib/utils";
@@ -34,7 +37,22 @@ import {
   SUBAGENT_STATUS_PRESENTATION,
   subagentFinishedOutcome,
 } from "./subagentStatusPresentation";
+import {
+  panelRowThreadIds,
+  panelSummaryParts,
+  panelWaitKind,
+  panelWaitsOnYou,
+  stalledChildWithoutRow,
+  type PanelWait,
+} from "./SubagentPanel.logic";
 import { useSettledFinished } from "./useSettledFinished";
+import {
+  PanelSubheading,
+  StalledStatus,
+  WaitRow,
+  WaitsOnYouRow,
+  type PanelLinkHandlers,
+} from "./WaitingPanelRows";
 import { subagentSummaryLine } from "./V2LifecycleRow.logic";
 
 const COLLAPSED_STORAGE_KEY = "t3code:subagent-panel-collapsed";
@@ -42,7 +60,7 @@ const FINISHED_OPEN_STORAGE_KEY = "t3code:subagent-panel-finished-open";
 const HOVER_CARD_DELAY_MS = 200;
 
 /** A subagent's live status and how long its run has gone, read from its shell alone. */
-export function SubagentStatusText({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
+function SubagentStatusText({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   const status = useSubagentStatus(threadRef);
   const startedAt = useThreadShell(threadRef)?.source.activityRunStartedAt ?? null;
   if (status === null) return null;
@@ -113,6 +131,8 @@ function SubagentRow(props: {
   readonly canOperate: boolean;
   readonly onOpenThread: (threadId: ThreadId) => void;
   readonly request: SubagentPanelRequest | null;
+  /** Set when the server reports this child's live run as quiet. */
+  readonly stalledSince: string | null;
 }) {
   const { threadRef, request } = props;
   const shell = useThreadShell(threadRef);
@@ -164,7 +184,11 @@ function SubagentRow(props: {
             totalTokens={props.subagent?.totalTokens}
           />
         ) : null}
-        <SubagentStatusText threadRef={threadRef} />
+        {props.stalledSince === null ? (
+          <SubagentStatusText threadRef={threadRef} />
+        ) : (
+          <StalledStatus since={props.stalledSince} />
+        )}
         <ChevronRightIcon
           aria-hidden
           className="size-3.5 flex-none text-muted-foreground/60 group-hover/subagent:text-foreground"
@@ -223,24 +247,58 @@ function PanelSummary({
   threadRef,
   subagentIds,
   recentCount,
+  stalledChildId,
+  extraSubagents,
+  extraWorking,
+  watches,
+  commands,
+  hasStanding,
 }: {
   readonly threadRef: ScopedThreadRef;
   readonly subagentIds: ReadonlyArray<ThreadId>;
   readonly recentCount: number;
+  readonly stalledChildId: ThreadId | null;
+  readonly extraSubagents: number;
+  /** Agents with no shell of their own that are not the stalled one. */
+  readonly extraWorking: number;
+  readonly watches: number;
+  readonly commands: number;
+  readonly hasStanding: boolean;
 }) {
-  const working = useAtomValue(
+  const shellWorking = useAtomValue(
     environmentThreadShells.subagentLiveStateAtom(threadRef.environmentId),
-    (state) => subagentIds.filter((id) => state.statuses.get(id) === "working").length,
+    (state) =>
+      subagentIds.filter((id) => id !== stalledChildId && state.statuses.get(id) === "working")
+        .length,
   );
+  const working = shellWorking + extraWorking;
+  const parts = panelSummaryParts({
+    subagents: subagentIds.length + recentCount + extraSubagents,
+    working,
+    stalled: stalledChildId === null ? 0 : 1,
+    watches,
+    commands,
+    hasStanding,
+  });
   return (
     <>
-      {subagentIds.length + recentCount} subagents
-      {working > 0 ? (
-        <>
-          <ComposerBanner.Separator />
-          <span className="font-normal text-muted-foreground">{working} working</span>
-        </>
-      ) : null}
+      {parts.map((part, index) => (
+        <Fragment key={part.text}>
+          {index > 0 ? <ComposerBanner.Separator /> : null}
+          {part.tone === "default" ? (
+            part.text
+          ) : (
+            <span
+              className={cn(
+                "font-normal",
+                part.tone === "stalled" ? "text-warning-foreground" : "text-muted-foreground",
+              )}
+            >
+              {part.text}
+            </span>
+          )}
+        </Fragment>
+      ))}
     </>
   );
 }
@@ -371,14 +429,22 @@ export interface SubagentPanelRequest {
 }
 
 /**
- * A thread's delegated subagents pinned just above the composer as one solid panel. A request
- * opens in its asker's row, last so that it sits against the composer that answers it.
+ * Everything a thread waits on, pinned just above the composer as one solid panel: its delegated
+ * subagents (leads first), then its watches and awaited commands, then anything only the person
+ * can do. A request opens in its asker's row, last so that it sits against the composer that
+ * answers it.
  */
 export function SubagentPanel(props: {
   readonly threadRef: ScopedThreadRef;
   readonly subagentIds: ReadonlyArray<ThreadId>;
   readonly subagents: ReadonlyArray<OrchestrationV2Subagent>;
   readonly finished: ReadonlyArray<OrchestrationV2Subagent>;
+  /** Watches, commands, monitors and agents with no row of their own. */
+  readonly waits: ReadonlyArray<PanelWait>;
+  readonly standing: OrchestrationV2ThreadStanding | undefined;
+  readonly threadWatches: ReadonlyArray<OrchestrationV2ThreadWatch> | undefined;
+  readonly waitHandlers: PanelLinkHandlers;
+  readonly turnItems: ThreadStructure["turnItems"];
   readonly canOperate: boolean;
   readonly onOpenThread: (threadId: ThreadId) => void;
   readonly request: SubagentPanelRequest | null;
@@ -389,13 +455,31 @@ export function SubagentPanel(props: {
     subagentIds,
     subagents,
     finished,
+    waits,
+    standing,
+    threadWatches,
+    waitHandlers,
+    turnItems,
     canOperate,
     onOpenThread,
     request,
     stopAll,
   } = props;
   const [collapsed, setCollapsed] = useLocalStorage(COLLAPSED_STORAGE_KEY, false, Schema.Boolean);
-  const header = subagentIds.length + finished.length > 1;
+  const stalled = standing?.stalled;
+  const agentWaits = waits.filter((wait) => panelWaitKind(wait.item.group) === "agent");
+  const stalledRowless = stalledChildWithoutRow(
+    stalled,
+    panelRowThreadIds(subagentIds, agentWaits),
+  );
+  const watchWaits = waits.filter((wait) => panelWaitKind(wait.item.group) !== "agent");
+  const watches = watchWaits.filter((wait) => panelWaitKind(wait.item.group) === "watch").length;
+  const waitsOnYou = panelWaitsOnYou({ standing, threadWatches });
+  const subagentRows =
+    subagentIds.length + finished.length + agentWaits.length + (stalledRowless === null ? 0 : 1);
+  // A stall always has its header, so a lone stalled child still ends it in the amber count.
+  const header =
+    subagentRows + watchWaits.length > 1 || watchWaits.length > 0 || stalled !== undefined;
   const open = !(header && collapsed);
   const settledIds = useSettledFinished(
     threadRef,
@@ -415,8 +499,27 @@ export function SubagentPanel(props: {
       canOperate={canOperate}
       onOpenThread={onOpenThread}
       request={threadId === askingRow ? request : null}
+      stalledSince={stalled?.childThreadId === threadId ? stalled.since : null}
     />
   );
+  const waitRow = (wait: PanelWait) => (
+    <WaitRow
+      key={wait.item.taskId}
+      wait={wait}
+      handlers={waitHandlers}
+      environmentId={threadRef.environmentId}
+      threadId={threadRef.threadId}
+      turnItems={turnItems}
+      stalledSince={
+        stalled !== undefined && stalled.childThreadId === wait.item.childThreadId
+          ? stalled.since
+          : null
+      }
+    />
+  );
+  const hasSubagentRows =
+    quiet.length > 0 || recentCount > 0 || agentWaits.length > 0 || stalledRowless !== null;
+  const sectioned = hasSubagentRows && watchWaits.length > 0;
   return (
     <div
       data-subagent-panel="true"
@@ -428,7 +531,7 @@ export function SubagentPanel(props: {
             size="icon-xs"
             variant="ghost"
             aria-expanded={open}
-            aria-label={open ? "Collapse subagents" : "Show subagents"}
+            aria-label={open ? "Collapse waiting list" : "Show waiting list"}
             onClick={() => setCollapsed((current) => !current)}
           >
             <ChevronRightIcon
@@ -440,33 +543,53 @@ export function SubagentPanel(props: {
               threadRef={threadRef}
               subagentIds={subagentIds}
               recentCount={recentCount}
+              stalledChildId={stalled?.childThreadId ?? null}
+              extraSubagents={agentWaits.length + (stalledRowless === null ? 0 : 1)}
+              extraWorking={
+                agentWaits.filter((wait) => wait.item.childThreadId !== stalled?.childThreadId)
+                  .length
+              }
+              watches={watches}
+              commands={watchWaits.length - watches}
+              hasStanding={standing !== undefined}
             />
           </span>
           <span className="ms-auto flex flex-none items-center gap-0.5 font-normal">{stopAll}</span>
         </div>
       ) : null}
       <Reveal open={open}>
-        {quiet.length > 0 || recentCount > 0 ? (
-          <div
-            className={cn(
-              "grid max-h-[min(15rem,35dvh)] grid-cols-[minmax(0,1fr)] overflow-y-auto",
-              header && "border-t border-border/70",
-            )}
-          >
-            {quiet.map(row)}
-            {finished.map((subagent) =>
-              subagent.childThreadId === null ? null : (
-                <Reveal key={subagent.childThreadId} open={!isSettled(subagent)}>
-                  <div className={cn((quiet.length > 0 || !header) && "border-t border-border/70")}>
-                    <FinishedSubagentRow
-                      threadRef={scopeThreadRef(threadRef.environmentId, subagent.childThreadId)}
-                      subagent={subagent}
-                      onOpenThread={onOpenThread}
-                    />
-                  </div>
-                </Reveal>
-              ),
-            )}
+        {hasSubagentRows ? (
+          <div className={cn(header && "border-t border-border/70")}>
+            {sectioned ? <PanelSubheading count={subagentRows}>Subagents</PanelSubheading> : null}
+            <div className="grid max-h-[min(15rem,35dvh)] grid-cols-[minmax(0,1fr)] overflow-y-auto">
+              {quiet.map(row)}
+              {stalledRowless === null ? null : (
+                <StalledChildRow
+                  title={stalledRowless.title}
+                  since={stalledRowless.since}
+                  onOpen={() => onOpenThread(stalledRowless.childThreadId)}
+                />
+              )}
+              {agentWaits.map(waitRow)}
+              {finished.map((subagent) =>
+                subagent.childThreadId === null ? null : (
+                  <Reveal key={subagent.childThreadId} open={!isSettled(subagent)}>
+                    <div
+                      className={cn(
+                        (quiet.length > 0 || agentWaits.length > 0 || stalledRowless !== null) &&
+                          "border-t border-border/70",
+                      )}
+                    >
+                      <FinishedSubagentRow
+                        threadRef={scopeThreadRef(threadRef.environmentId, subagent.childThreadId)}
+                        subagent={subagent}
+                        onOpenThread={onOpenThread}
+                      />
+                    </div>
+                  </Reveal>
+                ),
+              )}
+            </div>
           </div>
         ) : null}
         <FinishedSubagents
@@ -474,17 +597,57 @@ export function SubagentPanel(props: {
           settled={finished.filter(isSettled)}
           onOpenThread={onOpenThread}
         />
+        {watchWaits.length > 0 ? (
+          <div
+            className={cn(
+              (header || hasSubagentRows || finished.some(isSettled)) &&
+                "border-t border-border/70",
+            )}
+          >
+            {sectioned ? (
+              <PanelSubheading count={watchWaits.length}>Watching &amp; commands</PanelSubheading>
+            ) : null}
+            <div className="grid max-h-[min(10rem,25dvh)] grid-cols-[minmax(0,1fr)] overflow-y-auto">
+              {watchWaits.map(waitRow)}
+            </div>
+          </div>
+        ) : null}
       </Reveal>
+      {waitsOnYou === null ? null : (
+        <div className={cn((header || hasSubagentRows) && "border-t border-border/70")}>
+          <WaitsOnYouRow threadRef={threadRef} waits={waitsOnYou} />
+        </div>
+      )}
       {askingRow === undefined ? null : (
         <div
           className={cn(
             "grid grid-cols-[minmax(0,1fr)]",
-            (header || quiet.length > 0) && "border-t border-border/70",
+            (header || quiet.length > 0 || waitsOnYou !== null) && "border-t border-border/70",
           )}
         >
           {row(askingRow)}
         </div>
       )}
+    </div>
+  );
+}
+
+/** A stalled child the panel has no live row for, so the header's count has somewhere to point. */
+function StalledChildRow(props: {
+  readonly title: string;
+  readonly since: string;
+  readonly onOpen: () => void;
+}) {
+  return (
+    <div className="group/subagent relative flex min-w-0 items-center gap-2 px-3 py-2 not-first:border-t not-first:border-border/70">
+      <SubagentRowLink aria-label={`Open ${props.title}`} onClick={props.onOpen}>
+        <span className="font-normal text-foreground/80">{props.title}</span>
+      </SubagentRowLink>
+      <StalledStatus since={props.since} />
+      <ChevronRightIcon
+        aria-hidden
+        className="size-3.5 flex-none text-muted-foreground/60 group-hover/subagent:text-foreground"
+      />
     </div>
   );
 }

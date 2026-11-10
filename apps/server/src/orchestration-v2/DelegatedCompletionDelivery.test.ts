@@ -4910,6 +4910,111 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
   );
 
   it.effect(
+    "closes a managed child's open task on the next sweep once its last watch has ended",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const sink = yield* EventSink.EventSinkV2;
+        const threadId = ThreadId.make("watch-held-parent");
+        const parent = yield* seedLingeringParent(threadId, ProjectId.make("watch-held-project"));
+        const child = yield* seedDelegatedChild({
+          parentThreadId: threadId,
+          projectId: ProjectId.make("watch-held-project"),
+          parentRunId: parent.runId,
+          parentNodeId: parent.rootNodeId,
+          name: "watch-held-child",
+          now: parent.now,
+        });
+        const childThread = (yield* orchestrator.getThreadProjection(child.childThreadId)).thread;
+        const withWatches = (threadWatches: NonNullable<typeof childThread.threadWatches>) => ({
+          id: EventId.make(`event:watch-held-child:watches:${threadWatches.length}`),
+          type: "thread.metadata-updated" as const,
+          threadId: child.childThreadId,
+          providerInstanceId: modelSelection.instanceId,
+          occurredAt: parent.now,
+          payload: { ...childThread, threadWatches },
+        });
+        // The run ended and the record was left open by writing events directly.
+        yield* sink.write({
+          events: [
+            withWatches([
+              {
+                id: "thread-watch:server:landing-watch:op_1:thread:parent",
+                target: { kind: "landing", operationId: "op_1" },
+                title: "Build #1",
+                startedAt: DateTime.formatIso(parent.now),
+              },
+            ]),
+            childEnded(child, parent.now),
+          ],
+        });
+        yield* orchestrator.sweepDelegatedTaskResults;
+        const open = (yield* orchestrator.getThreadProjection(threadId)).subagents.find(
+          (task) => task.id === child.taskId,
+        );
+        assert.equal(open?.status, "running");
+
+        yield* sink.write({ events: [withWatches([])] });
+        yield* orchestrator.sweepDelegatedTaskResults;
+        const closed = (yield* orchestrator.getThreadProjection(threadId)).subagents.find(
+          (task) => task.id === child.taskId,
+        );
+        assert.equal(closed?.status, "completed");
+        assert.isNotNull(closed?.completionDelivery);
+      }),
+  );
+
+  it.effect("stops a parent waiting on a managed child whose thread was deleted", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("deleted-child-parent");
+      const parent = yield* seedLingeringParent(threadId, ProjectId.make("deleted-child-project"));
+      const child = yield* seedDelegatedChild({
+        parentThreadId: threadId,
+        projectId: ProjectId.make("deleted-child-project"),
+        parentRunId: parent.runId,
+        parentNodeId: parent.rootNodeId,
+        name: "deleted-child",
+        now: parent.now,
+      });
+      const childThread = (yield* orchestrator.getThreadProjection(child.childThreadId)).thread;
+      yield* (yield* EventSink.EventSinkV2).write({
+        events: [
+          {
+            id: EventId.make("event:deleted-child:watch"),
+            type: "thread.metadata-updated",
+            threadId: child.childThreadId,
+            providerInstanceId: modelSelection.instanceId,
+            occurredAt: parent.now,
+            payload: {
+              ...childThread,
+              threadWatches: [
+                {
+                  id: "thread-watch:server:landing-watch:op_1:thread:parent",
+                  target: { kind: "landing", operationId: "op_1" },
+                  title: "Build #1",
+                  startedAt: DateTime.formatIso(parent.now),
+                },
+              ],
+            },
+          },
+        ],
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make("command:delete-deleted-child"),
+        threadId: child.childThreadId,
+      });
+      yield* orchestrator.sweepDelegatedTaskResults;
+      const closed = (yield* orchestrator.getThreadProjection(threadId)).subagents.find(
+        (task) => task.id === child.taskId,
+      );
+      assert.notEqual(closed?.status, "running");
+      assert.isNotNull(closed?.completionDelivery);
+    }),
+  );
+
+  it.effect(
     "publishes at once for a command the managed child did not await, naming it abandoned",
     () =>
       Effect.gen(function* () {

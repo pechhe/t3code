@@ -57,6 +57,11 @@ export function turnItemUpdateCanEndBackgroundWork(
 }
 
 const THREAD_WATCH_TASK_PREFIX = "thread-watch:";
+
+/** The pending-task id a thread watch is listed under. */
+export function threadWatchTaskId(watchId: string): string {
+  return `${THREAD_WATCH_TASK_PREFIX}${watchId}`;
+}
 const PULL_REQUEST_WATCH_TASK_PREFIX = "pull-request-watch:";
 
 /**
@@ -401,7 +406,7 @@ function watchTasks(input: {
   return [
     ...pullRequestWatchTasks(input.pullRequests),
     ...(input.threadWatches ?? []).map((watch) => ({
-      taskId: `${THREAD_WATCH_TASK_PREFIX}${watch.id}`,
+      taskId: threadWatchTaskId(watch.id),
       description:
         watch.target.kind === "thread"
           ? `Watching thread ${watch.title}`

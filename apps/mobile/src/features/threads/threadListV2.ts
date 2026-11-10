@@ -75,7 +75,9 @@ export type ThreadListV2Status =
   | "waiting"
   | "failed"
   | "limited"
-  | "ready";
+  | "ready"
+  | "stalled"
+  | "needs_you";
 export type ThreadListV2SwipeAction = "archive" | "settle" | "unsettle" | "snooze" | "unsnooze";
 
 /**
@@ -255,6 +257,27 @@ export function resolveThreadListV2WokeAt(
 }
 
 export function resolveThreadListV2Status(
+  thread: Pick<
+    EnvironmentThreadShell,
+    | "hasPendingApprovals"
+    | "hasPendingUserInput"
+    | "pendingSubagentRequest"
+    | "pendingGuestMessageCount"
+    | "runtime"
+    | "blockedOnThreadWait"
+    | "standing"
+  >,
+): ThreadListV2Status {
+  const standing = thread.standing;
+  if (standing !== undefined) {
+    if (standing.state === "stalled") return "stalled";
+    if (standing.state === "needs_you" && standing.waitsOnPerson !== undefined) return "needs_you";
+  }
+  return resolveRuntimeThreadListV2Status(thread);
+}
+
+/** The pre-standing rules, kept whole for a server that sends no standing. */
+function resolveRuntimeThreadListV2Status(
   thread: Pick<
     EnvironmentThreadShell,
     | "hasPendingApprovals"

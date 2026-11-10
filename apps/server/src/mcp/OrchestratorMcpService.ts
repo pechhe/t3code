@@ -976,6 +976,7 @@ function listItemFromShell(
     createdBy: shell.createdBy,
     creationSource: shell.creationSource,
     status: shell.activityRunStatus ?? shell.status,
+    ...(shell.standing === undefined ? {} : { standing: shell.standing }),
     latestRunId: shell.latestRunId,
     providerInstanceId: shell.modelSelection.instanceId,
     model: shell.modelSelection.model,
@@ -1010,6 +1011,7 @@ function threadDetail(
     createdBy: projection.thread.createdBy,
     creationSource: projection.thread.creationSource,
     status: active?.status ?? latest?.status ?? "idle",
+    ...(shell.standing === undefined ? {} : { standing: shell.standing }),
     latestRunId: latest?.id ?? null,
     activeRunId: active?.id ?? null,
     providerInstanceId: projection.thread.modelSelection.instanceId,
@@ -4879,10 +4881,18 @@ const make = Effect.gen(function* () {
         : [];
       const wakesCaller =
         ownedTask && !childRequests.some((request) => request.status === "pending");
+      // A thread waiting on itself is running by definition, so its own standing is not read.
+      const standing =
+        scope.thread?.threadId === input.threadId
+          ? undefined
+          : (yield* threadManagement
+              .getThreadShell(input.threadId)
+              .pipe(Effect.mapError(threadManagementFailure)))?.standing;
       return {
         threadId: input.threadId,
         runId: result.run?.id ?? null,
         status,
+        ...(standing === undefined ? {} : { standing }),
         timedOut: result.timedOut,
         ...(wakesCaller ? { next: ORCHESTRATOR_MCP_RUNNING_TASK_NEXT } : {}),
         ...(result.resultRun === undefined

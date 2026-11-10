@@ -359,64 +359,76 @@ it.effect(
   },
 );
 
-it.effect("cancels a stale waiting run when no checkpoint capture can finish it", () => {
-  const threadId = ThreadId.make("thread_stale_waiting");
-  const runId = RunId.make("run_stale_waiting");
-  let committedInput: Parameters<EventSink.EventSinkV2["Service"]["commitCommand"]>[0] | null =
-    null;
-  const projection = {
-    thread: { id: threadId },
-    runtimeRequests: [],
-    providerSessions: [],
-    providerThreads: [],
-    providerTurns: [],
-    runs: [
-      {
-        id: runId,
-        status: "waiting",
-        providerInstanceId: ProviderInstanceId.make("codex"),
-      },
+it.effect.each([
+  { name: "cancels", effects: [], expected: "cancelled" },
+  {
+    name: "completes without a checkpoint",
+    effects: [
+      { request: { type: "checkpoint.capture", runId: "run_stale_waiting" }, status: "failed" },
     ],
-    attempts: [],
-    nodes: [],
-    subagents: [],
-    messages: [],
-    turnItems: [],
-  } as unknown as OrchestrationV2ThreadProjection;
-  const layer = ProviderRuntimeRecovery.layer.pipe(
-    Layer.provide(ServerSettings.layerTest()),
-    Layer.provide(
-      Layer.mergeAll(
-        Layer.mock(ProjectionStore.ProjectionStoreV2)({
-          getRecoveryThreadIds: () => Effect.succeed([threadId]),
-          getRuntimeRecoveryProjection: () => Effect.succeed(projection),
-        }),
-        Layer.mock(EventSink.EventSinkV2)({
-          commitCommand: (input) => {
-            committedInput = input;
-            return Effect.succeed({ committed: true, cancelledEffectCount: 0 } as never);
-          },
-        }),
-        IdAllocator.layer,
-        Layer.mock(EffectWorker.OrchestrationEffectWorkerV2)({
-          runRecoveryOnce: Effect.succeed(false),
-        }),
-        Layer.mock(EffectOutbox.EffectOutboxV2)({
-          listByCommandId: () => Effect.succeed([]),
-          reconcileAfterProcessLoss: Effect.succeed({ requeued: 0, cancelled: 0 }),
-        }),
+    expected: "completed",
+  },
+])(
+  "$name a stale waiting run when no checkpoint capture can finish it",
+  ({ effects, expected }) => {
+    const threadId = ThreadId.make("thread_stale_waiting");
+    const runId = RunId.make("run_stale_waiting");
+    let committedInput: Parameters<EventSink.EventSinkV2["Service"]["commitCommand"]>[0] | null =
+      null;
+    const projection = {
+      thread: { id: threadId },
+      runtimeRequests: [],
+      providerSessions: [],
+      providerThreads: [],
+      providerTurns: [],
+      runs: [
+        {
+          id: runId,
+          status: "waiting",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+        },
+      ],
+      attempts: [],
+      nodes: [],
+      subagents: [],
+      messages: [],
+      turnItems: [],
+    } as unknown as OrchestrationV2ThreadProjection;
+    const layer = ProviderRuntimeRecovery.layer.pipe(
+      Layer.provide(ServerSettings.layerTest()),
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.mock(ProjectionStore.ProjectionStoreV2)({
+            getRecoveryThreadIds: () => Effect.succeed([threadId]),
+            getRuntimeRecoveryProjection: () => Effect.succeed(projection),
+          }),
+          Layer.mock(EventSink.EventSinkV2)({
+            commitCommand: (input) => {
+              committedInput = input;
+              return Effect.succeed({ committed: true, cancelledEffectCount: 0 } as never);
+            },
+          }),
+          IdAllocator.layer,
+          Layer.mock(EffectWorker.OrchestrationEffectWorkerV2)({
+            runRecoveryOnce: Effect.succeed(false),
+          }),
+          Layer.mock(EffectOutbox.EffectOutboxV2)({
+            listByCommandId: () => Effect.succeed(effects as never),
+            reconcileAfterProcessLoss: Effect.succeed({ requeued: 0, cancelled: 0 }),
+          }),
+        ),
       ),
-    ),
-  );
+    );
 
-  return Effect.gen(function* () {
-    const summary =
-      yield* (yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService).reconcile("startup");
-    assert.equal(summary.terminalizedRuns, 1);
-    const runEvent = committedInput?.events.find((event) => event.type === "run.updated");
-    assert.equal(runEvent?.type === "run.updated" ? runEvent.payload.status : null, "cancelled");
-  }).pipe(Effect.provide(layer));
-});
+    return Effect.gen(function* () {
+      const summary =
+        yield* (yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService).reconcile("startup");
+      assert.equal(summary.terminalizedRuns, 1);
+      const runEvent = committedInput?.events.find((event) => event.type === "run.updated");
+      assert.equal(runEvent?.type === "run.updated" ? runEvent.payload.status : null, expected);
+    }).pipe(Effect.provide(layer));
+  },
+);
 
 it.effect("keeps a release approval card open when its run is recovered", () => {
   const threadId = ThreadId.make("thread_release_recovery");
