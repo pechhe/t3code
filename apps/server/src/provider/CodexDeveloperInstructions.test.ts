@@ -57,24 +57,17 @@ describe("Codex runtime context", () => {
 });
 
 describe("Codex orchestration context", () => {
-  it("names the native subagent path only without a role policy, and delegate_task for the rest", () => {
+  it("delegates by role with delegate_task and names no native subagent path", () => {
     const orchestration = Object.entries(buildCodexAdditionalContext({ model: "gpt-6.1-sol" }))
       .filter(([key]) => key.startsWith("t3_code_orchestration_"))
       .map(([, entry]) => entry.value)
       .join("\n");
 
-    NodeAssert.ok(orchestration.includes("use your native tool when the child uses your provider"));
-    NodeAssert.ok(orchestration.includes("`run_in_background:false`"));
-    NodeAssert.ok(orchestration.includes("A native type running another provider's model"));
-    // The fork's role policy wins over the native path.
-    NodeAssert.ok(
-      orchestration.includes(
-        "with a configured role policy, delegate by role even if the user names a model",
-      ),
-    );
-    NodeAssert.ok(
-      orchestration.includes("Send each later review round to the same reviewer"),
-    );
+    NodeAssert.ok(orchestration.includes("Delegate by role, not by model"));
+    NodeAssert.ok(orchestration.includes("even if the user names a model"));
+    NodeAssert.ok(!orchestration.includes("use your native tool"));
+    NodeAssert.ok(!orchestration.includes("run_in_background:false"));
+    NodeAssert.ok(orchestration.includes("Send each later review round to the same reviewer"));
     NodeAssert.ok(
       orchestration.includes(
         "Do not use `t3_thread_send` on `childThreadId` to continue a delegated review.",
