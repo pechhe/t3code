@@ -1,3 +1,4 @@
+import { liveParkedWaitWoke } from "./parkedWait.ts";
 import type { ProjectThreadAwarenessV2Input } from "@t3tools/shared/agentAwareness";
 import { pendingGuestMessageCount } from "@t3tools/contracts";
 import { applyThreadPullRequestLinkUpdate } from "../sourceControl/threadPullRequests.ts";
@@ -1782,6 +1783,15 @@ export function threadShellFromProjection(
     ...(projection.thread.endedThreadWatches === undefined
       ? {}
       : { endedThreadWatches: projection.thread.endedThreadWatches }),
+    ...(projection.thread.parkedWaits === undefined
+      ? {}
+      : { parkedWaits: projection.thread.parkedWaits }),
+    ...(projection.thread.parkedWaitGaveUp === undefined
+      ? {}
+      : { parkedWaitGaveUp: projection.thread.parkedWaitGaveUp }),
+    ...((woke) => (woke === undefined ? {} : { parkedWaitWoke: woke }))(
+      liveParkedWaitWoke(projection.thread.parkedWaitWoke, latestRun ?? null),
+    ),
     ...(projection.thread.workspaceAttachments === undefined
       ? {}
       : { workspaceAttachments: projection.thread.workspaceAttachments }),
@@ -2118,6 +2128,20 @@ function shellFromState(input: {
     ...(input.state.thread.endedThreadWatches === undefined
       ? {}
       : { endedThreadWatches: input.state.thread.endedThreadWatches }),
+    ...(input.state.thread.parkedWaits === undefined
+      ? {}
+      : { parkedWaits: input.state.thread.parkedWaits }),
+    ...(input.state.thread.parkedWaitGaveUp === undefined
+      ? {}
+      : { parkedWaitGaveUp: input.state.thread.parkedWaitGaveUp }),
+    ...((woke) => (woke === undefined ? {} : { parkedWaitWoke: woke }))(
+      liveParkedWaitWoke(
+        input.state.thread.parkedWaitWoke,
+        input.state.latestRunId === null
+          ? null
+          : { id: input.state.latestRunId, status: input.state.latestRunStatus },
+      ),
+    ),
     ...(input.state.thread.workspaceAttachments === undefined
       ? {}
       : { workspaceAttachments: input.state.thread.workspaceAttachments }),

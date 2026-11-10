@@ -41,6 +41,7 @@ import {
 import type { TimestampFormat } from "@t3tools/contracts/settings";
 import {
   AlarmClockIcon,
+  AnchorIcon,
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
   CheckIcon,
@@ -567,6 +568,8 @@ type SidebarThreadRowProps = {
   dragOverPinned: boolean;
   sweepAction: SidebarSweepAction | null;
   snoozeWakeLabelText: string | null;
+  /** What a parked thread wakes on, or what just woke it; a quiet line under the title. */
+  parkedSubtitle: string | null;
   wokeAt: string | null;
   isActive: boolean;
   // Set on the active row only; scrolls it into view when a reveal is owed.
@@ -741,6 +744,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     (subagentActivity.status === "approval" || subagentActivity.status === "input")
       ? subagentActivityLabel(subagentActivity)
       : null;
+  // What a parked thread wakes on, under its title; it reads Done until opened, then shelves.
+  const isParked = (thread.parkedWaits?.length ?? 0) > 0;
+  const parkedSubtitle = props.parkedSubtitle;
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
   const isWoke =
@@ -752,7 +758,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   // Ready and action-required rows keep their unread and wake prominence.
   // Standing adds a stalled child and an owner-only wait; a more specific status still wins.
   const standingAttention =
-    status === "waiting" || status === "ready" ? threadStandingAttention(thread.standing) : null;
+    status === "waiting" || status === "ready"
+      ? threadStandingAttention(thread.standing, thread.parkedWaitGaveUp)
+      : null;
   const shouldRecede =
     standingAttention === null &&
     shouldRecedeSidebarThread({
@@ -780,72 +788,78 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             icon: "input" as const,
             className: "text-indigo-600 dark:text-indigo-300",
           }
-        : standingAttention === "stalled"
+        : standingAttention === "gave_up"
           ? {
-              label: "Stalled",
+              label: "Parked wait gave up",
               icon: "waiting" as const,
               className: "text-warning-foreground",
             }
-          : status === "waiting" && subagentActivity !== null
+          : standingAttention === "stalled"
             ? {
-                label: subagentActivityLabel(subagentActivity),
-                icon:
-                  subagentActivity.status === "working"
-                    ? ("working" as const)
-                    : ("waiting" as const),
-                className: SUBAGENT_STATUS_PRESENTATION[subagentActivity.status].className,
+                label: "Stalled",
+                icon: "waiting" as const,
+                className: "text-warning-foreground",
               }
-            : status === "waiting"
+            : status === "waiting" && subagentActivity !== null
               ? {
-                  label: backgroundWorkIsOnlyWatches(thread.pendingBackgroundTasks ?? [])
-                    ? "Watching"
-                    : "Waiting",
-                  icon: "waiting" as const,
-                  className: "text-muted-foreground",
+                  label: subagentActivityLabel(subagentActivity),
+                  icon:
+                    subagentActivity.status === "working"
+                      ? ("working" as const)
+                      : ("waiting" as const),
+                  className: SUBAGENT_STATUS_PRESENTATION[subagentActivity.status].className,
                 }
-              : status === "approval"
+              : status === "waiting"
                 ? {
-                    label: delegatedRequestLabel ?? "Approval",
-                    icon: "approval" as const,
-                    className: "text-warning-foreground",
+                    label: backgroundWorkIsOnlyWatches(thread.pendingBackgroundTasks ?? [])
+                      ? "Watching"
+                      : "Waiting",
+                    icon: "waiting" as const,
+                    className: "text-muted-foreground",
                   }
-                : status === "input"
+                : status === "approval"
                   ? {
-                      label: delegatedRequestLabel ?? "Input",
-                      icon: "input" as const,
-                      className: "text-indigo-600 dark:text-indigo-300",
+                      label: delegatedRequestLabel ?? "Approval",
+                      icon: "approval" as const,
+                      className: "text-warning-foreground",
                     }
-                  : status === "request"
+                  : status === "input"
                     ? {
-                        label: "Request",
-                        icon: "request" as const,
-                        className: "text-guest-foreground",
+                        label: delegatedRequestLabel ?? "Input",
+                        icon: "input" as const,
+                        className: "text-indigo-600 dark:text-indigo-300",
                       }
-                    : status === "limited"
+                    : status === "request"
                       ? {
-                          label: "Limited",
-                          icon: "failed" as const,
-                          className: "text-warning-foreground",
+                          label: "Request",
+                          icon: "request" as const,
+                          className: "text-guest-foreground",
                         }
-                      : status === "failed"
+                      : status === "limited"
                         ? {
-                            label: "Failed",
+                            label: "Limited",
                             icon: "failed" as const,
-                            className: "text-error-foreground",
+                            className: "text-warning-foreground",
                           }
-                        : isWoke
+                        : status === "failed"
                           ? {
-                              label: "Woke",
-                              icon: "woke" as const,
-                              className: "text-warning-foreground",
+                              label: "Failed",
+                              icon: "failed" as const,
+                              className: "text-error-foreground",
                             }
-                          : isUnread
+                          : isWoke
                             ? {
-                                label: "Done",
-                                icon: "done" as const,
-                                className: "text-success",
+                                label: "Woke",
+                                icon: "woke" as const,
+                                className: "text-warning-foreground",
                               }
-                            : null;
+                            : isUnread
+                              ? {
+                                  label: "Done",
+                                  icon: "done" as const,
+                                  className: "text-success",
+                                }
+                              : null;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
@@ -1254,9 +1268,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     </span>
   ) : null;
 
+  const subtitleLine =
+    parkedSubtitle === null ? null : (
+      <div className="mt-0.5 min-w-0 truncate text-xs text-secondary-label">{parkedSubtitle}</div>
+    );
   if (variant !== "card") {
     const multiline = variant === "folder-multiline";
     const inFolder = variant === "folder" || multiline;
+    // A subtitle makes a slim row two lines tall, like the multiline folder row.
+    const twoLine = multiline || subtitleLine !== null;
     return (
       <li
         data-thread-item={threadKey}
@@ -1264,7 +1284,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         {...(fileDropHandlers ?? {})}
         className={cn(
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_--spacing(9)]",
-          metaLine !== null && multiline && "[contain-intrinsic-size:auto_--spacing(13.5)]",
+          (metaLine !== null || subtitleLine !== null) &&
+            twoLine &&
+            "[contain-intrinsic-size:auto_--spacing(13.5)]",
           sortable?.isDragging && "relative z-20",
         )}
       >
@@ -1283,7 +1305,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 aria-busy={isRegeneratingTitle || undefined}
                 className={cn(
                   rowSurfaceClassName,
-                  multiline
+                  twoLine
                     ? "flex flex-col justify-center px-2.5 py-1.5"
                     : "flex h-9 items-center gap-2.5 px-2.5",
                   // Lines titles up with the folder name, past its chevron and icon.
@@ -1297,7 +1319,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             }
           >
             {/* `contents` keeps one-line rows a single flex row. */}
-            <div className={multiline ? "flex h-6 min-w-0 items-center gap-2.5" : "contents"}>
+            <div className={twoLine ? "flex h-6 min-w-0 items-center gap-2.5" : "contents"}>
               {accessibleTitle}
               {inFolder ? null : (
                 <span
@@ -1339,9 +1361,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     )}
                   >
                     {variantAction === "unsnooze" && props.snoozeWakeLabelText !== null ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-info-foreground tabular-nums">
-                        {/* The clock tells a wake time from an age at a glance. */}
-                        <AlarmClockIcon aria-hidden className="size-3" />
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 text-xs tabular-nums",
+                          !isParked ? "text-info-foreground" : "text-muted-foreground",
+                        )}
+                      >
+                        {/* The clock tells a wake time from an age at a glance; the anchor, a parked wait. */}
+                        {!isParked ? (
+                          <AlarmClockIcon aria-hidden className="size-3" />
+                        ) : (
+                          <AnchorIcon aria-hidden className="size-3" />
+                        )}
                         {props.snoozeWakeLabelText}
                       </span>
                     ) : (inFolder ? isWokeStatus : isWoke) ? (
@@ -1385,7 +1416,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     )}
                   </span>
                   {variantAction === "unsnooze" ? (
-                    !props.snoozeSupported ? null : (
+                    // A parked thread's way out is Cancel on its panel row, not Wake.
+                    !props.snoozeSupported || isParked ? null : (
                       <button
                         type="button"
                         aria-label="Wake thread now"
@@ -1445,7 +1477,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               )}
               {props.sweepAction !== null ? dragDestination : null}
             </div>
-            {multiline ? metaLine : null}
+            {subtitleLine ?? (multiline ? metaLine : null)}
           </TooltipTrigger>
           {detailsTooltip}
         </Tooltip>
@@ -1676,6 +1708,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               ) : null}
               {titleLineIcons}
             </div>
+            {subtitleLine}
             {metaLine}
           </div>
         </TooltipTrigger>

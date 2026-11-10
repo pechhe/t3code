@@ -1353,7 +1353,72 @@ export const layer = Layer.effect(
       ),
     );
 
-    yield* scheduler.register("scheduled-tasks", runDueTasks());
+    /**
+     * A one-off check-back that continues its own thread under the default role is a time wait
+     * the thread parks on (T3-567). Anything else keeps its settings and stays a scheduled task.
+     */
+    const isConvertibleCheckBack = (task: ScheduledTask) =>
+      task.enabled &&
+      task.schedule.type === "once" &&
+      task.threadId !== null &&
+      task.nextRunAt !== null &&
+      task.lastRunStatus !== "running" &&
+      scheduledTaskThreadMode(task) === "continue" &&
+      // The default role only resolves the thread's usual model; a saved model or another role
+      // is an override the wait cannot carry.
+      task.agentRole === DEFAULT_SCHEDULED_TASK_ROLE;
+
+    /**
+     * Dispatches the time-parked wait under a command id fixed by the task, then removes the task.
+     * A failed dispatch leaves the task untouched; a crash between the two repeats the same
+     * command, which the engine answers from its receipt, so the wait is never made twice.
+     */
+    const convertCheckBack = (task: ScheduledTask, threadId: ThreadId, at: string) =>
+      threadManagement
+        .dispatch({
+          type: "thread.thread-watch",
+          commandId: CommandId.make(`server:check-back-conversion:${task.id}`),
+          threadId,
+          watching: true,
+          target: { kind: "time", at },
+          park: { note: task.prompt },
+          title: task.title,
+        })
+        .pipe(Effect.andThen(deleteRow(task.id)));
+
+    const convertCheckBacks = Effect.gen(function* () {
+      const rows = yield* selectAllRows();
+      let converted = 0;
+      for (const row of rows) {
+        if (row.purpose !== "check_back") continue;
+        const decoded = yield* Effect.result(decodeRow(row));
+        if (!Result.isSuccess(decoded)) continue;
+        const task = decoded.success;
+        if (!isConvertibleCheckBack(task) || task.threadId === null || task.nextRunAt === null) {
+          continue;
+        }
+        yield* convertCheckBack(task, task.threadId, task.nextRunAt).pipe(
+          Effect.tap(() => Effect.sync(() => void (converted += 1))),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Could not turn a check-back into a parked wait", {
+              taskId: task.id,
+              cause,
+            }),
+          ),
+        );
+      }
+      if (converted > 0) yield* notifyChanged;
+    }).pipe(
+      Effect.catchCause((cause) => Effect.logWarning("Could not convert check-backs", { cause })),
+    );
+
+    // Converting first, in the same serialized run, keeps a due check-back from both running and
+    // parking. Only the first run at each start converts.
+    const conversionDone = yield* Ref.make(false);
+    const convertOnce = Ref.getAndSet(conversionDone, true).pipe(
+      Effect.flatMap((done) => (done ? Effect.void : convertCheckBacks)),
+    );
+    yield* scheduler.register("scheduled-tasks", convertOnce.pipe(Effect.andThen(runDueTasks())));
 
     const list: ScheduledTaskService["Service"]["list"] = () =>
       listRows().pipe(

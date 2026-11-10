@@ -417,6 +417,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             wokeAt={item.item.wokeAt}
             snoozePresetMinute={item.snoozePresetMinute ?? ""}
             snoozeWakeLabelText={item.snoozeWakeLabelText}
+            parkedSubtitle={item.parkedSubtitle}
             timeLabel={item.timeLabel}
             project={projectByKey.get(scopeKey) ?? null}
             providerInstance={resolveProviderInstance(thread)}

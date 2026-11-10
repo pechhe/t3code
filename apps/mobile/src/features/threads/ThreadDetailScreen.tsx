@@ -19,6 +19,7 @@ import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import {
   effectiveSnoozed,
+  threadParkedOnShelf,
   threadWokeAt,
   isThreadWokeUnseen,
   snoozeWakeLabel,
@@ -649,7 +650,10 @@ function ThreadDetailBody(
     }, []),
   );
   const configLoaded = props.serverConfig !== null;
-  const snoozed = configLoaded && effectiveSnoozed(props.selectedThread, { now: lifecycleNow });
+  const snoozed =
+    configLoaded &&
+    effectiveSnoozed(props.selectedThread, { now: lifecycleNow }) &&
+    !threadParkedOnShelf(props.selectedThread);
   const snoozedUntil = props.selectedThread.snoozedUntil;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- arms a timer that refreshes the lifecycle clock when the thread's snooze expires
   useEffect(() => {

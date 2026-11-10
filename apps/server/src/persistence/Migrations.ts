@@ -120,6 +120,7 @@ import Migration0114 from "./Migrations/114_ChampionJourneys.ts";
 import Migration0115 from "./Migrations/115_ScheduledTaskPurpose.ts";
 import Migration0116 from "./Migrations/116_BrowserTaskCalls.ts";
 import Migration0117 from "./Migrations/117_DelegationModelShadow.ts";
+import Migration0118 from "./Migrations/118_ParkedWaitsIndex.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -240,6 +241,7 @@ const migrationEntries = [
   [115, "ScheduledTaskPurpose", Migration0115],
   [116, "BrowserTaskCalls", Migration0116],
   [117, "DelegationModelShadow", Migration0117],
+  [118, "ParkedWaitsIndex", Migration0118],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

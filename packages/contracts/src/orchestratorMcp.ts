@@ -61,7 +61,7 @@ import { secretRequestPageUrl } from "./secretRequest.ts";
 import { hasOnlyPairedSurrogates } from "./threadMetadataMcp.ts";
 import { ThreadTitleRegeneration } from "./threadTitle.ts";
 import {
-  OrchestrationV2WatchTarget,
+  OrchestrationV2ParkedWaitTarget,
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
   OrchestrationV2RunStatus,
@@ -751,16 +751,36 @@ export const OrchestratorMcpThreadWatchInput = Schema.Struct({
     }),
     /** A SlipJay landing, by the operation id `slipjay land --no-wait` prints. */
     Schema.Struct({ kind: Schema.Literal("landing"), operationId: TrimmedNonEmptyString }),
+    /** A published commit reaching Production; parked only. */
+    Schema.Struct({
+      kind: Schema.Literal("production"),
+      commitId: TrimmedNonEmptyString,
+      projectId: Schema.optional(ProjectId),
+    }),
+    /** A time; parked only. */
+    Schema.Struct({ kind: Schema.Literal("time"), at: IsoDateTime }),
   ]),
+  park: Schema.optional(
+    Schema.Struct({
+      /** When you expect the event; T3 gives up at twice this. Required except for a time. */
+      expectedMinutes: Schema.optional(PositiveInt),
+      /** What to do on waking; the wake quotes it back. */
+      note: Schema.optional(Schema.String.check(Schema.isMaxLength(4000))),
+    }),
+  ),
 });
 export type OrchestratorMcpThreadWatchInput = typeof OrchestratorMcpThreadWatchInput.Type;
 
 export const OrchestratorMcpThreadWatchResult = Schema.Struct({
-  target: OrchestrationV2WatchTarget,
+  target: OrchestrationV2ParkedWaitTarget,
   /** For a Build item, how to name it: its ref such as `YS-12` when known, else `#<number>`. */
   label: Schema.optional(Schema.String),
   watching: Schema.Boolean,
   wasWatching: Schema.Boolean,
+  /** The wait is parked: this thread is finished until it wakes. */
+  parked: Schema.optional(Schema.Boolean),
+  /** When a parked wait on an event gives up and wakes you. */
+  givesUpAt: Schema.optional(IsoDateTime),
 });
 export type OrchestratorMcpThreadWatchResult = typeof OrchestratorMcpThreadWatchResult.Type;
 
@@ -954,7 +974,7 @@ export type OrchestratorMcpCapabilitiesResult = typeof OrchestratorMcpCapabiliti
 
 const OrchestratorMcpScheduledTaskPurpose = ScheduledTaskPurpose.annotate({
   description:
-    "check_back: a reminder that ends once it has its answer, even if it repeats until then, such as looking again when evidence has built up. long_running: ongoing work with no end, such as a weekly routine. Independent of where runs post.",
+    "long_running: ongoing or repeating work, such as a weekly routine. check_back is refused: park with `watch`.",
 });
 
 export const OrchestratorMcpScheduleTaskInput = Schema.Struct({

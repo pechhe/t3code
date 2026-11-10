@@ -73,6 +73,8 @@ export function makeSubagentChildThread(input: {
     arcRun: _parentArcRun,
     threadWatches: _parentThreadWatches,
     endedThreadWatches: _parentEndedThreadWatches,
+    parkedWaits: _parentParkedWaits,
+    parkedWaitGaveUp: _parentParkedWaitGaveUp,
     stalled: _parentStalled,
     ...parentThread
   } = input.parentThread;

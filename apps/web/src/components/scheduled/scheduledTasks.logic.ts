@@ -12,7 +12,6 @@ import {
   isWebhookDedupeTemplate,
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
   ScheduledTaskId,
-  scheduledTaskPurpose,
   type AgentPolicyManifest,
   type AgentRole,
   type OrchestrationV2ThreadLaunchWorkspaceStrategy,
@@ -82,11 +81,6 @@ export function groupScheduledTasks(
     })
     .toSorted((a, b) => a.lead.title.localeCompare(b.lead.title) || a.key.localeCompare(b.key));
 }
-
-export type TaskPurposeFilter = "all" | ScheduledTaskPurpose;
-
-export const matchesTaskPurpose = (group: ScheduledTaskGroup, filter: TaskPurposeFilter) =>
-  filter === "all" || scheduledTaskPurpose(group.lead) === filter;
 
 export type GroupStatus = "running" | "failed" | "paused" | "ready";
 

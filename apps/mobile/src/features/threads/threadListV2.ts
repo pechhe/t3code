@@ -1,6 +1,9 @@
 import {
   canSnooze,
   effectiveSnoozed,
+  parkedThreadSubtitle,
+  parkedWaitTimeLeft,
+  snoozeShelfEndsAt,
   hasQueuedTurnStart,
   pickSnoozePreset,
   QUEUED_TURN_START_GRACE_MS,
@@ -402,6 +405,8 @@ export interface ThreadListV2ThreadListItem {
   readonly key: string;
   readonly item: ThreadListV2Item;
   readonly snoozeWakeLabelText: string | undefined;
+  /** What a parked thread wakes on, under its title. */
+  readonly parkedSubtitle: string | undefined;
   readonly timeLabel: string;
   readonly snoozePresetMinute: string | undefined;
   readonly showTrailingDivider: boolean;
@@ -479,6 +484,7 @@ export function threadListV2ListItemsAreEqual(
         previous.item.pinned === item.item.pinned &&
         previous.item.wokeAt === item.item.wokeAt &&
         previous.snoozeWakeLabelText === item.snoozeWakeLabelText &&
+        previous.parkedSubtitle === item.parkedSubtitle &&
         previous.timeLabel === item.timeLabel &&
         previous.snoozePresetMinute === item.snoozePresetMinute &&
         previous.showTrailingDivider === item.showTrailingDivider &&
@@ -558,9 +564,20 @@ export function buildThreadListV2ListItems(input: {
 }): ThreadListV2ListItem[] {
   const queuedThreadKeys = input.queuedThreadKeys?.size ? input.queuedThreadKeys : undefined;
   const threadItems = input.items.map((item): ThreadListV2ListItem => {
+    const parked = (item.thread.parkedWaits?.length ?? 0) > 0;
     const snoozeWakeLabelText =
-      item.snoozed && item.thread.snoozedUntil != null && input.snoozeLabelNow !== undefined
-        ? snoozeWakeLabel(item.thread.snoozedUntil, { now: input.snoozeLabelNow })
+      item.snoozed && input.snoozeLabelNow !== undefined
+        ? parked
+          ? (parkedWaitTimeLeft(item.thread.parkedWaits, Date.parse(input.snoozeLabelNow)) ??
+            undefined)
+          : item.thread.snoozedUntil != null
+            ? snoozeWakeLabel(item.thread.snoozedUntil, { now: input.snoozeLabelNow })
+            : undefined
+        : undefined;
+    const parkedSubtitle =
+      item.snoozed && parked && input.snoozeLabelNow !== undefined
+        ? (parkedThreadSubtitle(item.thread.parkedWaits, Date.parse(input.snoozeLabelNow)) ??
+          undefined)
         : undefined;
     // Put the clock on items so recycler equality limits ticks to rows displaying snooze preset times.
     const snoozePresetMinute =
@@ -579,6 +596,7 @@ export function buildThreadListV2ListItems(input: {
       key: `v2-thread:${item.thread.environmentId}:${item.thread.id}`,
       item,
       snoozeWakeLabelText,
+      parkedSubtitle,
       timeLabel: resolveThreadListV2ItemTimeLabel(item, snoozeWakeLabelText !== undefined),
       snoozePresetMinute,
       showTrailingDivider: false,
@@ -825,7 +843,8 @@ export function buildThreadListV2Items(input: {
   const orderedWorking = sortWorkingThreadsBySend(working);
   const orderedSnoozed = [...snoozed].sort(
     (left, right) =>
-      parseTimestampMs(left.snoozedUntil ?? "") - parseTimestampMs(right.snoozedUntil ?? ""),
+      parseTimestampMs(snoozeShelfEndsAt(left) ?? "") -
+      parseTimestampMs(snoozeShelfEndsAt(right) ?? ""),
   );
   const selectedThreadKey = input.selectedThreadKey ?? null;
   const visibleWorking =

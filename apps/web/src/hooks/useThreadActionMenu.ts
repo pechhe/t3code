@@ -7,7 +7,11 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
+import {
+  canSnooze,
+  effectiveSnoozed,
+  threadParkedOnShelf,
+} from "@t3tools/client-runtime/state/thread-settled";
 import {
   isDelegatedTaskThread,
   AuthOrchestrationOperateScope,
@@ -180,7 +184,10 @@ export function useThreadActionMenu(input: {
         isPinned: thread.pinnedAt != null,
         isSettled: supports.settlement && thread.settledOverride === "settled",
         autoSettleEnabled: thread.autoSettleDisabledAt == null,
-        isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
+        isSnoozed:
+          supports.snooze &&
+          effectiveSnoozed(thread, { now: now.toISOString() }) &&
+          !threadParkedOnShelf(thread),
         canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
         isRegeneratingTitle,
         isRunning: !threadRuntimeCanArchive(thread.runtime),

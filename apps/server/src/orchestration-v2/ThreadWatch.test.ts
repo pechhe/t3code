@@ -11,6 +11,7 @@ import {
   type ModelSelection,
   NodeId,
   type OrchestrationV2DomainEvent,
+  type OrchestrationV2ParkedWaitTarget,
   type OrchestrationV2Run,
   ProjectId,
   ProviderDriverKind,
@@ -31,6 +32,7 @@ import {
   type AgentTaskBinding,
   OrchestrationV2ThreadWatch,
   type ForgeWorkItemSummary,
+  type SlipJayRunnerOverview,
 } from "@t3tools/contracts";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as WeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
@@ -40,6 +42,7 @@ import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import type { TrackedLanding } from "../project/slipJayLandingState.ts";
 import * as NodeOS from "node:os";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -2311,6 +2314,630 @@ it.layer(layerTest)("landing watches", (it) => {
       assert.lengthOf(yield* watchesOf(thread), 0);
       yield* h.reactor.sweep;
       assert.lengthOf(yield* h.messages(thread), 1);
+    }),
+  );
+});
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+/** Parks `threadId` and feeds the stored events to the reactors, as their event streams would. */
+const parkOn = (
+  threadId: ThreadId,
+  target: OrchestrationV2ParkedWaitTarget,
+  park: { readonly expectedMs?: number; readonly note?: string },
+  reactors: ReadonlyArray<{
+    readonly handle: (event: OrchestrationV2DomainEvent) => Effect.Effect<void>;
+  }> = [],
+) =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const result = yield* orchestrator.dispatch({
+      type: "thread.thread-watch",
+      commandId: CommandId.make(`command:park:${(watchCommands += 1)}`),
+      threadId,
+      target,
+      watching: true,
+      park,
+    });
+    yield* observe(result.storedEvents);
+    for (const reactor of reactors) {
+      for (const stored of result.storedEvents) yield* reactor.handle(stored.event);
+    }
+  });
+
+const parkedOf = (threadId: ThreadId) =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    return (yield* orchestrator.getThreadShell(threadId))?.parkedWaits ?? [];
+  });
+
+/** Wakes of parked waits, whatever their source: their ids name the wait. */
+const parkedWakes = (threadId: ThreadId) =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const { messages } = yield* orchestrator.getThreadRecords(threadId, ["messages"]);
+    return messages.filter((message) => message.id.startsWith(`message:${threadId}:parked-wait:`));
+  });
+
+/** Resolves once `threadId` has a parked wake: the deadline timer runs on its own fiber. */
+const awaitParkedWake = (threadId: ThreadId) =>
+  Effect.gen(function* () {
+    const engine = yield* Orchestrator.OrchestratorV2;
+    return yield* engine.streamDomainEvents.pipe(
+      Stream.filter(
+        (event) =>
+          event.threadId === threadId &&
+          event.type === "message.updated" &&
+          event.payload.id.startsWith(`message:${threadId}:parked-wait:`),
+      ),
+      Stream.take(1),
+      Stream.runCollect,
+      Effect.forkScoped,
+    );
+  });
+
+const git = (cwd: string, ...args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const vcs = yield* VcsProcess.VcsProcess;
+    const result = yield* vcs.run({
+      operation: "test.git",
+      command: "git",
+      cwd,
+      args: ["-c", "user.name=T3", "-c", "user.email=t3@example.com", ...args],
+      timeoutMs: 10_000,
+    });
+    return result.stdout.trim();
+  }).pipe(Effect.provide(VcsProcess.layer));
+
+/** A real repository: root, then a, then b on main; `unrelated` shares no history with them. */
+const makeRepository = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* fs.makeTempDirectoryScoped({ prefix: "t3-parked-production-" });
+  yield* git(path, "init", "-q", "-b", "main");
+  const commit = (message: string) =>
+    git(path, "commit", "-q", "--allow-empty", "-m", message).pipe(
+      Effect.andThen(git(path, "rev-parse", "HEAD")),
+    );
+  const root = yield* commit("root");
+  const a = yield* commit("a");
+  const b = yield* commit("b");
+  yield* git(path, "checkout", "-q", "--orphan", "other");
+  const unrelated = yield* commit("unrelated");
+  return { path, root, a, b, unrelated };
+});
+
+const serving = (commitId: string | null, connected = true): SlipJayRunnerOverview =>
+  ({
+    connected,
+    paused: false,
+    serial: [],
+    deploy: [],
+    deploys: [],
+    repositories: [
+      {
+        repo: "pechhe/t3code",
+        screeningLanes: 0,
+        today: { landed: 0, failedScreens: 0 },
+        release: {
+          integrationBranch: "main",
+          candidate: null,
+          stagingSkipped: true,
+          production: {
+            live:
+              commitId === null
+                ? null
+                : { commitId, deployedAt: "2026-11-10T09:00:00.000Z", healthy: true },
+            latestAttempt: null,
+          },
+          images: null,
+          audit: null,
+          waitingOn: { kind: "up_to_date", detail: null },
+        },
+      },
+    ],
+  }) satisfies SlipJayRunnerOverview;
+
+const makeProductionHarness = Effect.gen(function* () {
+  const runner = { current: serving(null) };
+  const slipJay = Layer.mock(SlipJayLandings.SlipJayLandings)({
+    landings: Effect.succeed([]),
+    follow: Effect.void,
+    changes: Stream.empty,
+    runner: Stream.fromEffect(Effect.sync(() => runner.current)),
+    repositoryOf: () => Effect.succeed("pechhe/t3code"),
+    workspaceRoot: () => Effect.undefined,
+  });
+  const reactor = yield* Effect.service(LandingWatchReactor.LandingWatchReactor).pipe(
+    Effect.provide(
+      LandingWatchReactor.layer.pipe(Layer.provide(ProjectionStore.layer), Layer.provide(slipJay)),
+    ),
+  );
+  return { runner, reactor };
+});
+
+const createProject = (name: string, workspaceRoot: string) =>
+  Effect.gen(function* () {
+    const projects = yield* ProjectService.ProjectService;
+    const projectId = ProjectId.make(`project:${name}`);
+    yield* projects.create({
+      commandId: CommandId.make(`command:project:${name}`),
+      projectId,
+      title: name,
+      workspaceRoot,
+    });
+    return projectId;
+  });
+
+const createProjectThread = (projectId: ProjectId, name: string) =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const threadId = ThreadId.make(`thread:${name}`);
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      createdBy: "user",
+      creationSource: "web",
+      commandId: CommandId.make(`command:create:${name}`),
+      threadId,
+      projectId,
+      title: name,
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+    });
+    return threadId;
+  });
+
+it.layer(layerTest)("parked waits", (it) => {
+  it.effect("a parked thread is finished, holds no watch, and wakes on its thread target", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const lead = yield* createThread("park-thread-lead");
+      const worker = yield* createThread("park-thread-worker", "Fix the login");
+      yield* seedRun(lead, { status: "completed", text: "Parked on the worker." });
+      yield* parkOn(
+        lead,
+        { kind: "thread", threadId: worker },
+        { expectedMs: HOUR_MS, note: "Review the fix." },
+      );
+      const shell = yield* orchestrator.getThreadShell(lead);
+      assert.equal(shell?.standing?.state, "finished");
+      assert.isUndefined(shell?.threadWatches);
+      assert.lengthOf(shell?.pendingBackgroundTasks ?? [], 0);
+      assert.deepEqual(
+        shell?.parkedWaits?.map((wait) => wait.target),
+        [{ kind: "thread", threadId: worker }],
+      );
+
+      yield* observe(yield* seedRun(worker, { status: "completed", text: "Landed abc123." }));
+      const [wake, ...rest] = yield* wakes(lead);
+      assert.lengthOf(rest, 0);
+      assert.equal(wake?.notification?.summary, "Finished: Fix the login");
+      assert.include(wake?.text, "> Landed abc123.");
+      assert.include(wake?.text, "> Review the fix.");
+      assert.lengthOf(yield* parkedOf(lead), 0);
+    }),
+  );
+
+  it.effect(
+    "wakes a Production wait once Production serves its commit or a descendant, decided in git",
+    () =>
+      // git runs as a real subprocess, so its timeouts need the live clock.
+      TestClock.withLive(
+        Effect.gen(function* () {
+          const repo = yield* makeRepository;
+          const h = yield* makeProductionHarness;
+          const projectId = yield* createProject("park-production", repo.path);
+          const thread = yield* createProjectThread(projectId, "park-production");
+          const notes = (threadId: ThreadId) =>
+            parkedWakes(threadId).pipe(
+              Effect.map((messages) =>
+                messages.filter((message) =>
+                  message.notification?.summary.includes("reached Production"),
+                ),
+              ),
+            );
+
+          h.runner.current = serving(repo.unrelated);
+          yield* parkOn(
+            thread,
+            { kind: "production", commitId: repo.a },
+            { expectedMs: DAY_MS, note: "Tell Henry it is live." },
+            [h.reactor],
+          );
+          assert.lengthOf(yield* notes(thread), 0);
+          const [unrelated] = yield* parkedOf(thread);
+          assert.include(unrelated?.lastKnown, `served ${repo.unrelated}, which does not include`);
+
+          h.runner.current = serving(repo.root);
+          yield* h.reactor.sweep;
+          assert.lengthOf(yield* notes(thread), 0);
+
+          h.runner.current = serving(repo.b);
+          yield* h.reactor.sweep;
+          yield* h.reactor.sweep;
+          const [wake, ...rest] = yield* notes(thread);
+          assert.lengthOf(rest, 0);
+          assert.include(wake?.text, `Commit ${repo.a} has reached Production in pechhe/t3code`);
+          assert.include(wake?.text, `serves ${repo.b}, which includes it`);
+          assert.include(wake?.text, "> Tell Henry it is live.");
+          assert.deepEqual(wake?.notification, {
+            source: { kind: "system" },
+            outcome: "completed",
+            summary: `commit ${repo.a.slice(0, 7)} reached Production`,
+            parked: "woke",
+          });
+          assert.lengthOf(yield* parkedOf(thread), 0);
+
+          // Already served when parking: it wakes at once, without waiting for a sweep.
+          const served = yield* createProjectThread(projectId, "park-production-served");
+          yield* parkOn(
+            served,
+            { kind: "production", commitId: repo.root },
+            { expectedMs: DAY_MS },
+            [h.reactor],
+          );
+          assert.lengthOf(yield* notes(served), 1);
+
+          // A commit no checkout holds cannot be decided: the wait stays, saying so.
+          const unknown = yield* createProjectThread(projectId, "park-production-unknown");
+          yield* parkOn(
+            unknown,
+            { kind: "production", commitId: "0123456789abcdef0123456789abcdef01234567" },
+            { expectedMs: DAY_MS },
+            [h.reactor],
+          );
+          assert.lengthOf(yield* notes(unknown), 0);
+          const [undecided] = yield* parkedOf(unknown);
+          assert.include(undecided?.lastKnown, "could not decide");
+
+          h.runner.current = serving(repo.b, false);
+          yield* h.reactor.sweep;
+          assert.include(
+            (yield* parkedOf(unknown))[0]?.lastKnown,
+            "could not reach the SlipJay runner",
+          );
+        }),
+      ),
+  );
+
+  it.effect("an event wait gives up once at twice its expected time, with what T3 last knew", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const h = yield* makeLandingHarness;
+      const thread = yield* createWorkspaceThread("park-give-up", "/workspaces/park-give-up");
+      h.submit("ws-unknown", "op_slow");
+      yield* parkOn(
+        thread,
+        { kind: "landing", operationId: "op_slow" },
+        { expectedMs: DAY_MS, note: "Repair it if it failed." },
+      );
+      yield* h.reactor.sweep;
+      assert.equal(
+        (yield* parkedOf(thread))[0]?.lastKnown,
+        "Landing op_slow was still running, at verifying.",
+      );
+      assert.lengthOf(yield* watchesOf(thread), 0);
+
+      const woken = yield* awaitParkedWake(thread);
+      yield* TestClock.adjust("23 hours");
+      yield* TestClock.adjust("24 hours");
+      assert.lengthOf(yield* parkedWakes(thread), 0);
+      yield* TestClock.adjust("1 hour");
+      yield* Fiber.join(woken);
+      const [wake, ...rest] = yield* parkedWakes(thread);
+      assert.lengthOf(rest, 0);
+      assert.include(wake?.text, "T3 Code gave up waiting for Landing op_slow");
+      assert.include(wake?.text, "What T3 Code last knew: Landing op_slow was still running");
+      assert.include(wake?.text, "> Repair it if it failed.");
+      assert.deepEqual(wake?.notification, {
+        source: { kind: "landing", operationId: "op_slow" },
+        outcome: "unknown",
+        summary: "Gave up waiting for Landing op_slow",
+        parked: "gave_up",
+      });
+      assert.isUndefined((yield* orchestrator.getThreadShell(thread))?.parkedWaitWoke);
+      assert.lengthOf(yield* parkedOf(thread), 0);
+      assert.equal(
+        (yield* orchestrator.getThreadShell(thread))?.parkedWaitGaveUp?.title,
+        "Landing op_slow",
+      );
+
+      yield* h.reactor.sweep;
+      yield* TestClock.adjust("2 days");
+      assert.lengthOf(yield* parkedWakes(thread), 1);
+
+      // The owner's next message clears the flag.
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("command:park-give-up-reply"),
+        threadId: thread,
+        messageId: MessageId.make("message:park-give-up-reply"),
+        text: "Thanks.",
+        attachments: [],
+        dispatchMode: { type: "queue_after_active" },
+      });
+      assert.isUndefined((yield* orchestrator.getThreadShell(thread))?.parkedWaitGaveUp);
+    }),
+  );
+
+  it.effect(
+    "a check-back conversion parks an idle or settled thread once, and a past time wakes at once",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
+        const idle = yield* createThread("check-back-idle");
+        const settled = yield* createThread("check-back-settled");
+        yield* orchestrator.dispatch({
+          type: "thread.settle",
+          commandId: CommandId.make("command:check-back-settle"),
+          threadId: settled,
+        });
+        const later = DateTime.formatIso(DateTime.add(yield* DateTime.now, { hours: 1 }));
+        const convert = (threadId: ThreadId, at: string) =>
+          orchestrator.dispatch({
+            type: "thread.thread-watch",
+            commandId: CommandId.make(`server:check-back-conversion:task-${threadId}`),
+            threadId,
+            target: { kind: "time", at },
+            watching: true,
+            park: { note: "Check the nightly build." },
+          });
+        for (const threadId of [idle, settled]) {
+          const first = yield* convert(threadId, later);
+          for (const stored of first.storedEvents) yield* reactor.handle(stored.event);
+          // A repeated command id is answered from its receipt and parks nothing more.
+          yield* convert(threadId, later);
+          const waits = yield* parkedOf(threadId);
+          assert.lengthOf(waits, 1);
+          assert.equal(waits[0]?.note, "Check the nightly build.");
+          assert.equal(waits[0]?.title, "check the nightly build");
+        }
+        assert.equal((yield* orchestrator.getThreadShell(settled))?.settledOverride, "settled");
+
+        const overdue = yield* createThread("check-back-overdue");
+        const past = DateTime.formatIso(DateTime.subtract(yield* DateTime.now, { hours: 1 }));
+        const parked = yield* convert(overdue, past);
+        // The timer starts as the reactor indexes the wait and fires at once; a moment of test
+        // time lets its dispatch finish, and moves no deadline that is not already due.
+        for (const stored of parked.storedEvents) yield* reactor.handle(stored.event);
+        yield* TestClock.adjust("1 second");
+        assert.lengthOf(yield* parkedWakes(overdue), 1);
+        assert.lengthOf(yield* parkedOf(overdue), 0);
+      }),
+  );
+
+  it.effect("a time wait wakes once at its time", () =>
+    Effect.gen(function* () {
+      const thread = yield* createThread("park-time");
+      const at = DateTime.formatIso(DateTime.add(yield* DateTime.now, { hours: 3 }));
+      yield* parkOn(thread, { kind: "time", at }, { note: "Check the nightly." });
+      const [wait] = yield* parkedOf(thread);
+      assert.isUndefined(wait?.givesUpAt);
+      const woken = yield* awaitParkedWake(thread);
+      yield* TestClock.adjust("179 minutes");
+      assert.lengthOf(yield* parkedWakes(thread), 0);
+      yield* TestClock.adjust("1 minute");
+      yield* Fiber.join(woken);
+      const [wake, ...rest] = yield* parkedWakes(thread);
+      assert.lengthOf(rest, 0);
+      assert.include(wake?.text, `It is ${at}`);
+      assert.include(wake?.text, "> Check the nightly.");
+      assert.equal(wait?.title, "check the nightly");
+      assert.deepEqual(wake?.notification, {
+        source: { kind: "system" },
+        outcome: "completed",
+        summary: "Woke to check the nightly",
+        parked: "woke",
+      });
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      // The sidebar says what woke the thread while the wake's turn has not finished.
+      const woke = (yield* orchestrator.getThreadShell(thread))?.parkedWaitWoke;
+      assert.equal(woke?.title, "check the nightly");
+      assert.equal(woke?.runId, (yield* orchestrator.getThreadShell(thread))?.latestRunId);
+      const { runs } = yield* orchestrator.getThreadRecords(thread, ["runs"]);
+      const wakeRun = runs.find((run) => run.userMessageId === wake?.id)!;
+      yield* (yield* EventSink.EventSinkV2).write({
+        commandId: CommandId.make("command:park-time-finished"),
+        events: [
+          {
+            id: EventId.make("event:park-time-finished"),
+            type: "run.updated",
+            threadId: thread,
+            runId: wakeRun.id,
+            occurredAt: now,
+            payload: { ...wakeRun, status: "completed", completedAt: now },
+          },
+        ],
+      });
+      assert.isUndefined((yield* orchestrator.getThreadShell(thread))?.parkedWaitWoke);
+      yield* TestClock.adjust("1 day");
+      assert.lengthOf(yield* parkedWakes(thread), 1);
+    }),
+  );
+
+  it.effect(
+    "settling keeps a parked wait and drops a held one; the wake unsettles and starts a turn",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const worker = yield* createThread("park-settle-worker");
+        for (const settle of ["hand", "auto"] as const) {
+          const thread = yield* createThread(`park-settle-${settle}`);
+          yield* seedRun(thread, { status: "completed", text: "Parked." });
+          const at = DateTime.formatIso(DateTime.add(yield* DateTime.now, { hours: 1 }));
+          yield* parkOn(thread, { kind: "time", at }, {});
+          assert.equal((yield* parkedOf(thread))[0]?.title, "check back");
+          yield* watch(thread, worker);
+          assert.lengthOf(yield* watchesOf(thread), 1);
+          if (settle === "hand") {
+            yield* orchestrator.dispatch({
+              type: "thread.settle",
+              commandId: CommandId.make(`command:park-settle-${settle}`),
+              threadId: thread,
+            });
+          } else {
+            const current = yield* orchestrator.getThreadShell(thread);
+            yield* orchestrator.dispatch({
+              type: "thread.auto-settle",
+              commandId: CommandId.make(`command:park-settle-${settle}`),
+              threadId: thread,
+              snapshotAt: current!.updatedAt,
+            });
+          }
+          const settled = yield* orchestrator.getThreadShell(thread);
+          assert.equal(settled?.settledOverride, "settled", settle);
+          assert.lengthOf(yield* watchesOf(thread), 0, settle);
+          assert.lengthOf(yield* parkedOf(thread), 1, settle);
+
+          const woken = yield* awaitParkedWake(thread);
+          yield* TestClock.adjust("1 hour");
+          const [wake] = Array.from(yield* Fiber.join(woken));
+          const after = yield* orchestrator.getThreadShell(thread);
+          assert.isNull(after?.settledOverride ?? null, settle);
+          const { runs } = yield* orchestrator.getThreadRecords(thread, ["runs"]);
+          assert.isDefined(
+            runs.find(
+              (run) => wake?.type === "message.updated" && run.userMessageId === wake.payload.id,
+            ),
+            settle,
+          );
+        }
+      }),
+  );
+
+  it.effect("archiving ends a parked wait with no wake; a restart re-arms the others", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const archived = yield* createThread("park-archived");
+      const restarted = yield* createThread("park-restarted");
+      const at = DateTime.formatIso(DateTime.add(yield* DateTime.now, { hours: 2 }));
+      yield* parkOn(archived, { kind: "time", at }, {});
+      yield* orchestrator.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("command:park-archive"),
+        threadId: archived,
+      });
+      assert.lengthOf(yield* parkedOf(archived), 0);
+
+      // Parked while no reactor saw it, as across a restart: the new reactor's first sweep arms it.
+      yield* orchestrator.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make("command:park-before-restart"),
+        threadId: restarted,
+        target: { kind: "time", at },
+        watching: true,
+        park: {},
+      });
+      const fresh = yield* Effect.service(ThreadWatchReactor.ThreadWatchReactor).pipe(
+        Effect.provide(ThreadWatchReactor.layer.pipe(Layer.provide(ProjectionStore.layer))),
+      );
+      yield* fresh.sweep;
+      const woken = yield* awaitParkedWake(restarted);
+      yield* TestClock.adjust("2 hours");
+      yield* Fiber.join(woken);
+      assert.lengthOf(yield* parkedWakes(restarted), 1);
+      assert.lengthOf(yield* parkedWakes(archived), 0);
+    }),
+  );
+
+  it.effect("unwatch cancels a parked wait by target or by id, and refuses an unparked time", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const thread = yield* createThread("park-cancel");
+      const at = DateTime.formatIso(DateTime.add(yield* DateTime.now, { hours: 1 }));
+      const unparked = yield* orchestrator
+        .dispatch({
+          type: "thread.thread-watch",
+          commandId: CommandId.make("command:park-unparked-time"),
+          threadId: thread,
+          target: { kind: "time", at },
+          watching: true,
+        })
+        .pipe(Effect.exit);
+      assert.isTrue(unparked._tag === "Failure");
+      const noExpectation = yield* orchestrator
+        .dispatch({
+          type: "thread.thread-watch",
+          commandId: CommandId.make("command:park-no-expectation"),
+          threadId: thread,
+          target: { kind: "landing", operationId: "op_x" },
+          watching: true,
+          park: {},
+        })
+        .pipe(Effect.exit);
+      assert.isTrue(noExpectation._tag === "Failure");
+
+      yield* parkOn(thread, { kind: "time", at }, {});
+      yield* orchestrator.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make("command:park-cancel-target"),
+        threadId: thread,
+        target: { kind: "time", at },
+        watching: false,
+      });
+      assert.lengthOf(yield* parkedOf(thread), 0);
+
+      yield* parkOn(thread, { kind: "landing", operationId: "op_x" }, { expectedMs: HOUR_MS });
+      const [wait] = yield* parkedOf(thread);
+      yield* orchestrator.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make("command:park-cancel-id"),
+        threadId: thread,
+        watchId: wait!.id,
+        watching: false,
+      });
+      assert.lengthOf(yield* parkedOf(thread), 0);
+      yield* TestClock.adjust("1 day");
+      assert.lengthOf(yield* parkedWakes(thread), 0);
+    }),
+  );
+
+  it.effect("Build item and landing parked waits wake as their held watches do", () =>
+    Effect.gen(function* () {
+      const forge = yield* makeForgeHarness;
+      const buildThread = yield* createThread("park-build");
+      yield* parkOn(
+        buildThread,
+        { kind: "build_item", number: 1000001, until: "unblocked" },
+        { expectedMs: DAY_MS, note: "Start the next step." },
+      );
+      yield* forge.reactor.sweep;
+      assert.lengthOf(yield* forge.messages(buildThread), 0);
+      assert.include((yield* parkedOf(buildThread))[0]?.lastKnown, "with 1 open waits");
+      forge.state.item = { ...forge.state.item, waits: [] };
+      yield* TestClock.adjust("1 minute");
+      yield* forge.reactor.sweep;
+      const [built, ...moreBuilt] = yield* forge.messages(buildThread);
+      assert.lengthOf(moreBuilt, 0);
+      assert.include(built?.text, "is unblocked");
+      assert.include(built?.text, "> Start the next step.");
+
+      const landing = yield* makeLandingHarness;
+      const landingThread = yield* createWorkspaceThread(
+        "park-landing",
+        "/workspaces/park-landing",
+      );
+      landing.submit("ws-park-landing", "op_parked");
+      yield* parkOn(
+        landingThread,
+        { kind: "landing", operationId: "op_parked" },
+        {
+          expectedMs: HOUR_MS,
+        },
+      );
+      landing.finish("op_parked", { status: "landed", commitId: "abc1234" });
+      yield* landing.reactor.sweep;
+      yield* landing.reactor.sweep;
+      const [landed, ...moreLanded] = yield* landing.messages(landingThread);
+      assert.lengthOf(moreLanded, 0);
+      assert.include(landed?.text, "Published commit: abc1234");
+      assert.lengthOf(yield* parkedOf(landingThread), 0);
     }),
   );
 });

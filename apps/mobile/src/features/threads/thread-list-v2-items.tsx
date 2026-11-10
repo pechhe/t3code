@@ -663,6 +663,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly pinned?: boolean;
   readonly wokeAt: string | null;
   readonly snoozeWakeLabelText?: string;
+  readonly parkedSubtitle?: string;
   readonly timeLabel: string;
   readonly snoozePresetMinute: string;
   readonly project: EnvironmentProject | null;
@@ -743,7 +744,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     onMoveThread,
   } = props;
   const navigation = useNavigation();
-  const snoozedRow = props.snoozed === true;
+  // A parked thread sits in the snoozed list, but its way out is not Wake.
+  const parkedRow = (thread.parkedWaits?.length ?? 0) > 0;
+  const snoozedRow = props.snoozed === true && !parkedRow;
+  const shelvedRow = props.snoozed === true;
   const pinnedRow = props.pinned === true;
   const dormant = useSwipeRowDormant(props.activationKey);
 
@@ -1572,6 +1576,19 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
                 {providerNameLabel}
               </Text>
             ) : null}
+            {props.parkedSubtitle !== undefined ? (
+              <Text
+                className={cn(
+                  "text-xs",
+                  selected
+                    ? selectedThreadRowColors.mutedForegroundClassName
+                    : rowAppearance.tertiaryForegroundClassName,
+                )}
+                numberOfLines={1}
+              >
+                {props.parkedSubtitle}
+              </Text>
+            ) : null}
             {props.searchMatch ? (
               <ThreadSearchMatchExcerpt
                 sidebar={sidebarPane}
@@ -1587,13 +1604,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               "text-sm tabular-nums",
               selected
                 ? selectedThreadRowColors.mutedForegroundClassName
-                : snoozedRow
+                : shelvedRow
                   ? rowAppearance.mutedForegroundClassName
                   : rowAppearance.tertiaryForegroundClassName,
             )}
             style={{ fontFamily: MONO_FONT }}
           >
-            {snoozedRow && props.snoozeWakeLabelText !== undefined
+            {shelvedRow && props.snoozeWakeLabelText !== undefined
               ? props.snoozeWakeLabelText
               : timeLabel}
           </Text>

@@ -186,6 +186,112 @@ it("a shipped client decodes a task its parent's Stop paused as an interrupted t
   assert.notProperty(decoded, "pausedByParentStop");
 });
 
+// Frozen from the upstream thread shell (fork/shipped-client/thread-shell.schema.json, upstream
+// pingdotgg/t3code 20c3dd3689, v0.1.9-nightly.20261110.4478). Upstream's shell has no watches or
+// parked waits at all, so a shipped client ignores those keys; the schema is what it requires.
+// To refresh it, extract that release's packages/contracts and write
+// JSON.stringify(Schema.toJsonSchemaDocument(Schema.toEncoded(OrchestrationV2ThreadShell))).
+const loadShippedThreadShellSchema = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const text = yield* fs.readFileString(
+    new URL("../../../fork/shipped-client/thread-shell.schema.json", import.meta.url).pathname,
+  );
+  const schema: JsonSchema = JSON.parse(text).schema;
+  return schema;
+});
+
+const forkThreadShell = (extra: Record<string, unknown>) => ({
+  createdBy: "agent",
+  creationSource: "mcp",
+  id: "thread-lead",
+  projectId: "project-1",
+  title: "Lead",
+  providerInstanceId: "codex",
+  modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
+  runtimeMode: "full-access",
+  interactionMode: "default",
+  branch: null,
+  worktreePath: null,
+  lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: "thread-lead" },
+  forkedFrom: null,
+  activeProviderThreadId: null,
+  latestRunId: "run-1",
+  activeRunId: null,
+  status: "completed",
+  pendingRuntimeRequest: null,
+  latestVisibleMessage: null,
+  latestUserMessageAt: "2026-11-10T09:00:00.000Z",
+  hasActionableProposedPlan: false,
+  pendingBackgroundTasks: [],
+  itemCount: 4,
+  visibleItemCount: 4,
+  createdAt: "2026-11-10T08:00:00.000Z",
+  updatedAt: "2026-11-10T09:00:00.000Z",
+  archivedAt: null,
+  settledOverride: null,
+  settledAt: null,
+  deletedAt: null,
+  standing: { state: "finished" },
+  parkedWaitGaveUp: { title: "Earlier wait", at: "2026-11-09T09:00:00.000Z" },
+  parkedWaitWoke: { title: "Earlier wake", at: "2026-11-09T10:00:00.000Z" },
+  ...extra,
+});
+
+const forkShellJson = Schema.toCodecJson(OrchestrationV2ThreadShell);
+
+const decodeForkShell = Schema.decodeUnknownSync(forkShellJson);
+
+const encodeForkShell = (extra: Record<string, unknown>) =>
+  JSON.parse(
+    JSON.stringify(
+      Schema.encodeSync(forkShellJson)(
+        decodeForkShell(forkThreadShell(extra)),
+      ),
+    ),
+  );
+
+it.effect(
+  "a shipped client decodes threads parked on Production and on a time as finished threads",
+  () =>
+    Effect.gen(function* () {
+      const shipped = yield* loadShippedThreadShellSchema;
+      const parked = [
+        {
+          id: "parked-wait:production",
+          title: "Commit abc1234 reaching Production",
+          startedAt: "2026-11-10T09:00:00.000Z",
+          target: { kind: "production" as const, commitId: "abc1234" },
+          expectedAt: "2026-11-11T09:00:00.000Z",
+          givesUpAt: "2026-11-12T09:00:00.000Z",
+          note: "Check the release notes.",
+        },
+        {
+          id: "parked-wait:time",
+          title: "Until 2026-11-11T09:00:00.000Z",
+          startedAt: "2026-11-10T09:00:00.000Z",
+          target: { kind: "time" as const, at: "2026-11-11T09:00:00.000Z" },
+        },
+      ];
+      for (const wait of parked) {
+        const sent = encodeForkShell({ parkedWaits: [wait] });
+        assert.deepEqual(sent.parkedWaits, [wait]);
+        assert.deepEqual(violations(sent, shipped, wait.target.kind), []);
+        // The fork's own decoding keeps the wait.
+        assert.deepEqual(decodeForkShell(sent).parkedWaits, [wait]);
+      }
+      // Upstream's shell has no threadWatches, so parked waits travel in their own field and the
+      // fork never puts a parked target in threadWatches.
+      assert.notProperty(shipped.properties ?? {}, "threadWatches");
+      assert.notProperty(shipped.properties ?? {}, "parkedWaits");
+      const wire = encodeForkShell({ parkedWaits: [parked[0]] });
+      assert.notProperty(wire, "threadWatches");
+      // The frozen schema still catches a shell a shipped client could not read.
+      const { status: _status, ...withoutStatus } = wire;
+      assert.notDeepEqual(violations(withoutStatus, shipped, "shell"), []);
+      assert.notDeepEqual(violations({ ...wire, status: "parked" }, shipped, "shell"), []);
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 const decodeStanding = Schema.decodeUnknownSync(OrchestrationV2ThreadStanding);
 
 it("a shipped client decodes a stalled thread and one that waits on the owner as threads it knows", () => {

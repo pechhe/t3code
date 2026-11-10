@@ -81,7 +81,7 @@ export const UnansweredMoveRecheck = Context.Reference<Duration.Duration>(
 export const moveBlocker = (
   thread: Pick<
     OrchestrationV2AppThread,
-    "agentTask" | "lineage" | "threadWatches" | "pullRequests" | "arcRun"
+    "agentTask" | "lineage" | "threadWatches" | "parkedWaits" | "pullRequests" | "arcRun"
   >,
   shell: Pick<OrchestrationV2ThreadShell, "pendingBackgroundTasks"> | null,
 ): string | null => {
@@ -98,6 +98,7 @@ export const moveBlocker = (
         : `background ${task.kind} ${task.description ?? task.taskId}`,
     ),
     ...(thread.threadWatches ?? []).map((watch) => `watch "${watch.title}"`),
+    ...(thread.parkedWaits ?? []).map((wait) => `parked wait "${wait.title}"`),
     ...(thread.pullRequests ?? [])
       .filter((pullRequest) => pullRequest.watch !== undefined)
       .map((pullRequest) => `watch on pull request #${pullRequest.number}`),

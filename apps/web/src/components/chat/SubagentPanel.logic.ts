@@ -38,13 +38,15 @@ export interface PanelSummaryCounts {
   readonly stalled: number;
   readonly watches: number;
   readonly commands: number;
+  /** Waits that do not hold the thread; never counted as working. */
+  readonly parked?: number;
   /** The server answered where the thread stands; older servers keep today's wording. */
   readonly hasStanding: boolean;
 }
 
 export interface PanelSummaryPart {
   readonly text: string;
-  readonly tone: "default" | "quiet" | "stalled";
+  readonly tone: "default" | "quiet" | "stalled" | "parked";
 }
 
 const plural = (count: number, one: string, many = `${one}s`) =>
@@ -68,6 +70,7 @@ export function panelSummaryParts(counts: PanelSummaryCounts): ReadonlyArray<Pan
   if (counts.watches > 0)
     parts.push({ text: plural(counts.watches, "watch", "watches"), tone: "quiet" });
   if (counts.commands > 0) parts.push({ text: plural(counts.commands, "command"), tone: "quiet" });
+  if ((counts.parked ?? 0) > 0) parts.push({ text: `${counts.parked} parked`, tone: "parked" });
   return parts.map((part, index) =>
     index === 0 && part.tone === "quiet" ? { ...part, tone: "default" } : part,
   );

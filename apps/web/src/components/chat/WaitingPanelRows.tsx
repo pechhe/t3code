@@ -1,16 +1,31 @@
 import type { PendingBackgroundWorkItem } from "@t3tools/client-runtime/state/thread-execution";
 import { threadShellRelationshipStatus } from "@t3tools/client-runtime/state/thread-relationships";
-import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import {
+  parkedWaitFacts,
+  parkedWaitKindLabel,
+  parkedWaitWakesOn,
+  type ParkedWaitKindLabel,
+} from "@t3tools/client-runtime/state/thread-settled";
+import type {
+  EnvironmentId,
+  OrchestrationV2ParkedWait,
+  ScopedThreadRef,
+  ThreadId,
+} from "@t3tools/contracts";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import {
+  AnchorIcon,
   ChevronRightIcon,
   CircleDashedIcon,
+  ClockIcon,
   EyeIcon,
+  FlagIcon,
+  MessageSquareIcon,
   TerminalIcon,
   UserIcon,
   type LucideIcon,
 } from "lucide-react";
-import type { MouseEvent, ReactNode } from "react";
+import { Fragment, type MouseEvent, type ReactNode } from "react";
 
 import { tickTextContent } from "~/lib/tickTextContent";
 import { forgeWorkItems } from "~/state/forgeWorkItems";
@@ -312,10 +327,72 @@ export function WaitsOnYouRow(props: {
   );
 }
 
+const PARKED_KIND_ICON: Record<ParkedWaitKindLabel, LucideIcon> = {
+  Release: FlagIcon,
+  Time: ClockIcon,
+  Thread: MessageSquareIcon,
+  Forge: FlagIcon,
+  Landing: FlagIcon,
+};
+
+/**
+ * A wait the thread is parked on. Nothing here reads as working: no spinner, no status colour.
+ * The times are read at `nowMs`, which the caller moves on a coarse clock.
+ */
+export function ParkedWaitRow(props: {
+  readonly wait: OrchestrationV2ParkedWait;
+  readonly threadRef: ScopedThreadRef;
+  readonly nowMs: number;
+  readonly canOperate: boolean;
+}) {
+  const { wait, threadRef, nowMs } = props;
+  const endWait = useAtomCommand(threadEnvironment.endWait, { reportFailure: true });
+  const kind = parkedWaitKindLabel(wait);
+  return (
+    <div
+      data-parked-wait={wait.id}
+      className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-2 not-first:border-t not-first:border-border/70"
+    >
+      <PanelKindLabel icon={PARKED_KIND_ICON[kind]}>{kind}</PanelKindLabel>
+      <span className="min-w-0 flex-1 basis-48 truncate font-medium text-foreground">
+        {parkedWaitWakesOn(wait, nowMs)}
+      </span>
+      <span className="flex min-w-0 flex-none items-center gap-1.5 text-muted-foreground tabular-nums">
+        {parkedWaitFacts(wait, nowMs).map((fact, index) => (
+          <Fragment key={fact}>
+            {index > 0 ? <span aria-hidden>·</span> : null}
+            <span>{fact}</span>
+          </Fragment>
+        ))}
+      </span>
+      <span className="flex w-[3.25rem] flex-none justify-center">
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={!props.canOperate}
+          onClick={() =>
+            void endWait({
+              environmentId: threadRef.environmentId,
+              input: { threadId: threadRef.threadId, watchId: wait.id },
+            })
+          }
+        >
+          Cancel
+        </Button>
+      </span>
+    </div>
+  );
+}
+
 /** A quiet mono sub-heading over one section of the panel. */
-export function PanelSubheading(props: { readonly children: ReactNode; readonly count: number }) {
+export function PanelSubheading(props: {
+  readonly children: ReactNode;
+  readonly count: number;
+  readonly parked?: boolean;
+}) {
   return (
     <div className="flex items-center gap-1.5 px-3 pt-2 pb-0.5 font-mono text-3xs tracking-wide text-muted-foreground uppercase">
+      {props.parked === true ? <AnchorIcon aria-hidden className="size-3" /> : null}
       {props.children}
       <span className="tabular-nums">{props.count}</span>
     </div>

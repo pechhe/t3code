@@ -1258,6 +1258,21 @@ export const watchThreadPullRequest = Effect.fn("EnvironmentCommands.watchThread
     });
   },
 );
+/** Ends one held or parked wait of the thread by its id: a parked row's Cancel. */
+export interface EndThreadWaitInput extends ThreadCommandInput {
+  readonly watchId: string;
+}
+export const endThreadWait = Effect.fn("EnvironmentCommands.endThreadWait")(function* (
+  input: EndThreadWaitInput,
+) {
+  return yield* dispatch({
+    type: "thread.thread-watch",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    watching: false,
+    watchId: input.watchId,
+  });
+});
 export const unlinkThreadPullRequest = Effect.fn("EnvironmentCommands.unlinkThreadPullRequest")(
   function* (input: UnlinkThreadPullRequestInput) {
     return yield* dispatch({

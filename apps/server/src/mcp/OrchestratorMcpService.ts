@@ -107,7 +107,7 @@ import {
   modelMaker,
   type OrchestratorMcpReviewCouncil,
   type AgentReviewRequest,
-  type OrchestrationV2WatchTarget,
+  type OrchestrationV2ParkedWaitTarget,
   READ_ONLY_ROLES,
   isOrchestrationV2WorkActive,
   latestProviderTurnForAttempt,
@@ -159,6 +159,8 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
 import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as SlipJayLandings from "../project/SlipJayLandings.ts";
+import { parkedWaitTargetsEqual } from "../orchestration-v2/parkedWait.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import { followupBinding, followupPrompt } from "../agents/followup.ts";
 import { managedTaskTitle } from "../agents/taskTitle.ts";
@@ -1234,6 +1236,7 @@ const make = Effect.gen(function* () {
   const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const remoteDelegation = yield* RemoteDelegation.RemoteDelegation;
+  const slipJay = yield* Effect.serviceOption(SlipJayLandings.SlipJayLandings);
 
   const requireProject = (projectId: ProjectId) =>
     projects.getById(projectId).pipe(
@@ -1248,6 +1251,61 @@ const make = Effect.gen(function* () {
         }),
       ),
     );
+
+  /** Why T3 cannot tell when `target` reaches Production, if it cannot. */
+  const productionRefusal = Effect.fn("OrchestratorMcpService.productionRefusal")(function* (
+    watcher: { readonly projectId: ProjectId; readonly worktreePath: string | null },
+    target: Extract<OrchestrationV2ParkedWaitTarget, { readonly kind: "production" }>,
+  ) {
+    if (!/^[0-9a-f]{7,64}$/i.test(target.commitId)) {
+      return "Name the published commit by its hexadecimal id.";
+    }
+    if (Option.isNone(slipJay)) {
+      return "T3 follows no SlipJay runner here, so it cannot tell when a commit reaches Production.";
+    }
+    const projectId = target.projectId ?? watcher.projectId;
+    const project = yield* requireProject(projectId);
+    const checkouts = [
+      ...(projectId === watcher.projectId && watcher.worktreePath !== null
+        ? [watcher.worktreePath]
+        : []),
+      project.workspaceRoot,
+    ];
+    let repository: string | null = null;
+    for (const checkout of checkouts) {
+      repository = yield* slipJay.value.repositoryOf(checkout);
+      if (repository !== null) break;
+    }
+    if (repository === null) {
+      return `Project ${projectId} is not a SlipJay repository, so T3 receives no Production state for it.`;
+    }
+    const overview = Option.getOrUndefined(yield* Stream.runHead(slipJay.value.runner));
+    const known = overview?.repositories.find((entry) => entry.repo === repository);
+    if (known?.release == null) {
+      return `T3 receives no release state for ${repository} from the SlipJay runner${
+        overview?.connected === true ? "" : ", which it is not connected to now"
+      }, so it cannot tell when a commit reaches Production there.`;
+    }
+    return undefined;
+  });
+
+  /** The Build item a landing published `commitId` for, as clients name it; else none. */
+  const productionSubject = Effect.fn("OrchestratorMcpService.productionSubject")(function* (
+    threadId: ThreadId,
+    commitId: string,
+  ) {
+    if (Option.isNone(slipJay)) return undefined;
+    const landings = yield* slipJay.value.landings;
+    const spec = landings.find(
+      (landing) =>
+        landing.commitId !== undefined &&
+        (landing.commitId.startsWith(commitId) || commitId.startsWith(landing.commitId)),
+    )?.spec;
+    if (spec === undefined) return undefined;
+    const found = yield* forgeWorkItems.mentions({ threadId, numbers: [spec] }).pipe(Effect.option);
+    const ref = Option.getOrUndefined(found)?.items.find((view) => view.number === spec)?.item?.ref;
+    return ref ?? `Build #${spec}`;
+  });
 
   const listProjects = projects
     .listShells()
@@ -4949,8 +5007,9 @@ const make = Effect.gen(function* () {
           }
           return yield* resolveNumber(reference);
         });
-        const target: OrchestrationV2WatchTarget =
-          named.kind === "thread" || named.kind === "landing"
+        const parking = watching && input.park !== undefined;
+        const target: OrchestrationV2ParkedWaitTarget =
+          named.kind !== "build_item"
             ? named
             : {
                 kind: "build_item",
@@ -4962,18 +5021,41 @@ const make = Effect.gen(function* () {
                       ? yield* resolveNumber(named.number)
                       : yield* unwatchNumber(named.number),
               };
-        const wasWatching = (watcher.threadWatches ?? []).some((watch) =>
-          watchTargetsEqual(watch.target, target),
-        );
+        const wasWatching =
+          (target.kind !== "production" &&
+            target.kind !== "time" &&
+            (watcher.threadWatches ?? []).some((watch) =>
+              watchTargetsEqual(watch.target, target),
+            )) ||
+          (watcher.parkedWaits ?? []).some((wait) => parkedWaitTargetsEqual(wait.target, target));
         let title: string | undefined;
         let label: string | undefined;
         if (watching) {
+          if (!parking && (target.kind === "production" || target.kind === "time")) {
+            return yield* failure(
+              "invalid_request",
+              "A Production or time target must be parked: pass `park`.",
+            );
+          }
+          if (parking && target.kind !== "time" && input.park?.expectedMinutes === undefined) {
+            return yield* failure(
+              "invalid_request",
+              "Parking on an event needs `park.expectedMinutes`: when you expect it. T3 gives up and wakes you at twice that.",
+            );
+          }
           const refusal = threadWatchRefusal(
             watcher,
             target.kind === "thread" ? target.threadId : undefined,
+            { parked: parking },
           );
           if (refusal !== undefined) return yield* failure("invalid_request", refusal);
-          if (target.kind === "landing") {
+          if (target.kind === "production") {
+            const refusalOfProduction = yield* productionRefusal(watcher, target);
+            if (refusalOfProduction !== undefined) {
+              return yield* failure("invalid_request", refusalOfProduction);
+            }
+            title = yield* productionSubject(watcher.id, target.commitId);
+          } else if (target.kind === "landing") {
             title = `Landing ${target.operationId}`;
           } else if (target.kind === "thread") {
             const watched = yield* threadManagement
@@ -4985,7 +5067,7 @@ const make = Effect.gen(function* () {
                 `Thread ${target.threadId} is not in this environment. A thread can watch only threads in its own environment.`,
               );
             }
-          } else {
+          } else if (target.kind === "build_item") {
             const connection = yield* forgeWorkItems.connected.pipe(
               Effect.mapError((error) => failure("invalid_request", error.message)),
             );
@@ -5006,6 +5088,8 @@ const make = Effect.gen(function* () {
                 `Build ${label} is not a Spec or Ticket T3's Weave can see.`,
               );
             title = view?.item?.title.trim() || `Build #${target.number}`;
+            // A parked wait's title is a subject clients set in "{title} is unblocked".
+            if (parking && view?.item?.ref != null) title = view.item.ref;
           }
         }
         yield* threadManagement
@@ -5020,6 +5104,16 @@ const make = Effect.gen(function* () {
             target,
             ...(title === undefined ? {} : { title }),
             watching,
+            ...(parking && input.park !== undefined
+              ? {
+                  park: {
+                    ...(target.kind === "time" || input.park.expectedMinutes === undefined
+                      ? {}
+                      : { expectedMs: input.park.expectedMinutes * 60_000 }),
+                    ...(input.park.note === undefined ? {} : { note: input.park.note }),
+                  },
+                }
+              : {}),
           })
           .pipe(
             Effect.mapError((error) =>
@@ -5028,7 +5122,23 @@ const make = Effect.gen(function* () {
                 : failure("orchestration_error", `Unable to update watch: ${errorMessage(error)}`),
             ),
           );
-        return { target, ...(label === undefined ? {} : { label }), watching, wasWatching };
+        if (!parking) {
+          return { target, ...(label === undefined ? {} : { label }), watching, wasWatching };
+        }
+        const after = yield* threadManagement
+          .getThreadShell(watcher.id)
+          .pipe(Effect.mapError(threadManagementFailure));
+        const parked = after?.parkedWaits?.find((wait) =>
+          parkedWaitTargetsEqual(wait.target, target),
+        );
+        return {
+          target,
+          ...(label === undefined ? {} : { label }),
+          watching,
+          wasWatching,
+          parked: true,
+          ...(parked?.givesUpAt === undefined ? {} : { givesUpAt: parked.givesUpAt }),
+        };
       },
     ),
     interruptThread: Effect.fn("OrchestratorMcpService.interruptThread")(function* (scope, input) {

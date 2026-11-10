@@ -249,3 +249,28 @@ export function remarkThoughtPreview(fallback: string) {
 
 export const THOUGHT_PREVIEW_PLUGINS: PluggableList = [[remarkThoughtPreview, "Thought"]];
 export const THINKING_PREVIEW_PLUGINS: PluggableList = [[remarkThoughtPreview, "Thinking"]];
+
+export interface ParkedWaitDivider {
+  readonly label: string;
+  /** The sentence the wake carries: what happened, or what T3 last knew. */
+  readonly detail: string;
+  readonly tone: "neutral" | "warning";
+}
+
+/**
+ * A wake or give-up from a parked wait renders as a quiet divider, not a message. The server
+ * marks the notification with `parked: "woke" | "gave_up"`; until it does, every notification
+ * renders as before.
+ */
+export function parkedWaitDivider(notification: {
+  readonly summary: string;
+}): ParkedWaitDivider | null {
+  const marker = "parked" in notification ? notification.parked : undefined;
+  if (marker === "woke") {
+    return { label: "Woken by a parked wait", detail: notification.summary, tone: "neutral" };
+  }
+  if (marker === "gave_up") {
+    return { label: "Parked wait gave up", detail: notification.summary, tone: "warning" };
+  }
+  return null;
+}

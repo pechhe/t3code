@@ -45,6 +45,15 @@ describe("panel header", () => {
     );
   });
 
+  it("counts parked waits quietly, never as the thread working", () => {
+    expect(panelSummaryParts({ ...counts, parked: 2 })).toEqual([
+      { text: "2 parked", tone: "parked" },
+    ]);
+    expect(words({ ...counts, subagents: 1, working: 1, commands: 1, parked: 1 })).toBe(
+      "1 subagent working · 1 command · 1 parked",
+    );
+  });
+
   it("keeps today's wording when the server sends no standing", () => {
     expect(words({ ...counts, hasStanding: false, subagents: 3, working: 2, watches: 1 })).toBe(
       "3 subagents · 2 working · 1 watch",

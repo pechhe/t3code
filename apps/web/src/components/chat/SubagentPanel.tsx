@@ -7,6 +7,7 @@ import {
   agentTaskTopic,
   type OrchestrationV2Subagent,
   type OrchestrationV2ThreadStanding,
+  type OrchestrationV2ParkedWait,
   type OrchestrationV2ThreadWatch,
   type ScopedThreadRef,
   type ThreadId,
@@ -49,6 +50,7 @@ import {
 import { useSettledFinished } from "./useSettledFinished";
 import {
   PanelSubheading,
+  ParkedWaitRow,
   StalledStatus,
   WaitRow,
   WaitsOnYouRow,
@@ -253,6 +255,7 @@ function PanelSummary({
   extraWorking,
   watches,
   commands,
+  parked,
   hasStanding,
 }: {
   readonly threadRef: ScopedThreadRef;
@@ -264,6 +267,7 @@ function PanelSummary({
   readonly extraWorking: number;
   readonly watches: number;
   readonly commands: number;
+  readonly parked: number;
   readonly hasStanding: boolean;
 }) {
   const shellWorking = useAtomValue(
@@ -279,6 +283,7 @@ function PanelSummary({
     stalled: stalledChildId === null ? 0 : 1,
     watches,
     commands,
+    parked,
     hasStanding,
   });
   return (
@@ -450,6 +455,10 @@ export function SubagentPanel(props: {
   readonly onOpenThread: (threadId: ThreadId) => void;
   readonly request: SubagentPanelRequest | null;
   readonly stopAll: ReactNode;
+  /** Waits the thread is parked on; they hold nothing and Stop all leaves them alone. */
+  readonly parkedWaits: ReadonlyArray<OrchestrationV2ParkedWait>;
+  /** The coarse clock the parked rows' times read. */
+  readonly nowMs: number;
 }) {
   const {
     threadRef,
@@ -465,6 +474,8 @@ export function SubagentPanel(props: {
     onOpenThread,
     request,
     stopAll,
+    parkedWaits,
+    nowMs,
   } = props;
   const [collapsed, setCollapsed] = useLocalStorage(COLLAPSED_STORAGE_KEY, false, Schema.Boolean);
   const stalled = standing?.stalled;
@@ -480,7 +491,10 @@ export function SubagentPanel(props: {
     subagentIds.length + finished.length + agentWaits.length + (stalledRowless === null ? 0 : 1);
   // A stall always has its header, so a lone stalled child still ends it in the amber count.
   const header =
-    subagentRows + watchWaits.length > 1 || watchWaits.length > 0 || stalled !== undefined;
+    subagentRows + watchWaits.length > 1 ||
+    watchWaits.length > 0 ||
+    parkedWaits.length > 0 ||
+    stalled !== undefined;
   const open = !(header && collapsed);
   const settledIds = useSettledFinished(
     threadRef,
@@ -520,7 +534,10 @@ export function SubagentPanel(props: {
   );
   const hasSubagentRows =
     quiet.length > 0 || recentCount > 0 || agentWaits.length > 0 || stalledRowless !== null;
-  const sectioned = hasSubagentRows && watchWaits.length > 0;
+  const sectioned =
+    [hasSubagentRows, watchWaits.length > 0, parkedWaits.length > 0].filter(Boolean).length > 1;
+  // A parked-only panel has nothing for Stop all to stop.
+  const stoppable = hasSubagentRows || watchWaits.length > 0;
   return (
     <div
       data-subagent-panel="true"
@@ -552,10 +569,13 @@ export function SubagentPanel(props: {
               }
               watches={watches}
               commands={watchWaits.length - watches}
+              parked={parkedWaits.length}
               hasStanding={standing !== undefined}
             />
           </span>
-          <span className="ms-auto flex flex-none items-center gap-0.5 font-normal">{stopAll}</span>
+          <span className="ms-auto flex flex-none items-center gap-0.5 font-normal">
+            {stoppable ? stopAll : null}
+          </span>
         </div>
       ) : null}
       <Reveal open={open}>
@@ -610,6 +630,29 @@ export function SubagentPanel(props: {
             ) : null}
             <div className="grid max-h-[min(10rem,25dvh)] grid-cols-[minmax(0,1fr)] overflow-y-auto">
               {watchWaits.map(waitRow)}
+            </div>
+          </div>
+        ) : null}
+        {parkedWaits.length > 0 ? (
+          <div
+            className={cn(
+              (header || hasSubagentRows || watchWaits.length > 0 || finished.some(isSettled)) &&
+                "border-t border-border/70",
+            )}
+          >
+            <PanelSubheading parked count={parkedWaits.length}>
+              Parked
+            </PanelSubheading>
+            <div className="grid max-h-[min(10rem,25dvh)] grid-cols-[minmax(0,1fr)] overflow-y-auto">
+              {parkedWaits.map((wait) => (
+                <ParkedWaitRow
+                  key={wait.id}
+                  wait={wait}
+                  threadRef={threadRef}
+                  nowMs={nowMs}
+                  canOperate={canOperate}
+                />
+              ))}
             </div>
           </div>
         ) : null}

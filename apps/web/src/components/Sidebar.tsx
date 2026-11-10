@@ -31,6 +31,9 @@ import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-
 import {
   canSnooze,
   effectiveSnoozed,
+  parkedThreadSubtitle,
+  parkedWaitTimeLeft,
+  snoozeShelfEndsAt,
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
 import {
@@ -714,8 +717,8 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     workingThreads: sortWorkingThreadsBySend(working),
     snoozedThreads: snoozed.toSorted(
       (left, right) =>
-        firstValidTimestampMs(left.snoozedUntil ?? null) -
-        firstValidTimestampMs(right.snoozedUntil ?? null),
+        firstValidTimestampMs(snoozeShelfEndsAt(left)) -
+        firstValidTimestampMs(snoozeShelfEndsAt(right)),
     ),
     settledThreads: sortSettledThreads(settled),
     visibleThreads: visible,
@@ -3449,12 +3452,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               actionSweep?.keys.has(threadKey) ? actionSweep.action : null
                             }
                             snoozeWakeLabelText={
-                              section === "snoozed" && thread.snoozedUntil != null
-                                ? snoozeWakeLabel(thread.snoozedUntil, {
-                                    now: new Date().toISOString(),
-                                  })
-                                : null
+                              section !== "snoozed"
+                                ? null
+                                : (thread.parkedWaits?.length ?? 0) > 0
+                                  ? parkedWaitTimeLeft(thread.parkedWaits, Date.parse(snoozeNow))
+                                  : thread.snoozedUntil != null
+                                    ? snoozeWakeLabel(thread.snoozedUntil, {
+                                        now: new Date().toISOString(),
+                                      })
+                                    : null
                             }
+                            parkedSubtitle={parkedThreadSubtitle(
+                              thread.parkedWaits,
+                              Date.parse(snoozeNow),
+                            )}
                             wokeAt={threadWokeAt(thread, { now: snoozeNow })}
                             isActive={routeRowThreadKey === threadKey}
                             revealRef={

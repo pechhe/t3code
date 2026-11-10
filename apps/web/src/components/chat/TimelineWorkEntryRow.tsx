@@ -36,7 +36,7 @@ import {
 } from "../../session-logic";
 import ChatMarkdown from "../ChatMarkdown";
 import { ChatMarkdownAssetImage } from "./ChatMarkdownMedia";
-import { ChevronRightIcon, CircleAlertIcon, XIcon, RotateCcwIcon } from "lucide-react";
+import { ChevronRightIcon, CircleAlertIcon, ClockIcon, XIcon, RotateCcwIcon } from "lucide-react";
 import { Button, InlineButton } from "../ui/button";
 import { useAssetUrls } from "../../assets/assetUrls";
 import { useThreadShell } from "../../state/entities";
@@ -48,7 +48,8 @@ import {
   workEntryReadOutput,
 } from "./MessagesTimeline.logic";
 import { cn } from "~/lib/utils";
-import { formatUpcomingTimestamp } from "../../timestampFormat";
+import { formatShortTimestamp, formatUpcomingTimestamp } from "../../timestampFormat";
+import { TimelineSystemDivider } from "./TimelineSystemDivider";
 import { FetchedToolOutput, V2ItemInspector } from "./V2ItemInspector";
 import { SubagentReturnChip } from "./V2LifecycleRow";
 import { LandingRecordChip } from "./LandingRecordChip";
@@ -72,6 +73,8 @@ import {
   workEntryIconName,
   THINKING_PREVIEW_PLUGINS,
   THOUGHT_PREVIEW_PLUGINS,
+  parkedWaitDivider,
+  type ParkedWaitDivider,
 } from "./TimelineWorkEntryRow.logic";
 
 export function useThreadReadTarget(entry: TimelineWorkEntry, environmentId: EnvironmentId) {
@@ -168,9 +171,32 @@ export function WakeDivider() {
   );
 }
 
+function ParkedWaitDividerRow(props: {
+  readonly divider: ParkedWaitDivider;
+  readonly createdAt: string;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const { divider } = props;
+  return (
+    <div data-parked-wait-divider={divider.tone}>
+      <TimelineSystemDivider
+        label={divider.label}
+        detail={`${divider.detail} · ${formatShortTimestamp(props.createdAt, ctx.timestampFormat)}`}
+        tone={divider.tone}
+        icon={ClockIcon}
+        wrapDetail
+      />
+    </div>
+  );
+}
+
 const SubagentReturnChips = memo(function SubagentReturnChips(props: WorkEntryRowProps) {
   const item = props.workEntry.projectedItem?.item;
   if (item?.type !== "notification") return <WorkEntryLogRow {...props} />;
+  const parkedDivider = parkedWaitDivider(item);
+  if (parkedDivider !== null) {
+    return <ParkedWaitDividerRow divider={parkedDivider} createdAt={props.workEntry.createdAt} />;
+  }
   if (item.source.kind === "landing")
     return (
       <LandingRecordChip

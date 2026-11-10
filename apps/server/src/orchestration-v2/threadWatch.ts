@@ -38,7 +38,8 @@ export type ThreadWatchDecision =
 
 /**
  * Why `watcher` cannot start a watch on `watchedThreadId`, if it cannot. A subagent reports to its
- * parent thread, which owns what it waits on.
+ * parent thread, which owns what it waits on. A parked wait outlives settling, so only archiving
+ * refuses one.
  */
 export function threadWatchRefusal(
   watcher: Pick<
@@ -46,9 +47,15 @@ export function threadWatchRefusal(
     "id" | "lineage" | "agentTask" | "archivedAt" | "settledOverride" | "settledAt" | "deletedAt"
   >,
   watchedThreadId?: string,
+  options?: { readonly parked?: boolean },
 ): string | undefined {
   if (watcher.deletedAt !== null) return `Thread ${watcher.id} is deleted.`;
   if (watchedThreadId === watcher.id) return "A thread cannot watch itself.";
+  if (options?.parked === true) {
+    return watcher.archivedAt === null
+      ? undefined
+      : `Thread ${watcher.id} is archived and cannot park. Unarchive it first.`;
+  }
   if (
     watcher.archivedAt !== null ||
     watcher.settledOverride === "settled" ||

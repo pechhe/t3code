@@ -77,7 +77,6 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Toggle } from "../ui/toggle";
-import { ToggleGroup } from "../ui/toggle-group";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { isElectron } from "../../env";
@@ -110,14 +109,12 @@ import {
   roleModelSummary,
   scheduleDraftOf,
   scheduledTaskDestinationThreads,
-  matchesTaskPurpose,
   soonestRunAt,
   timedScheduleOf,
   unbindDraftFromThread,
   webhookDraftErrors,
   webhookDraftOf,
   webhookScheduleOf,
-  type TaskPurposeFilter,
   type WebhookDraft,
   workspaceChoiceOf,
 } from "./scheduledTasks.logic";
@@ -136,17 +133,6 @@ const WORKSPACE_LABELS: Record<WorkspaceChoice, string> = {
   fresh: "a fresh workspace",
   checkout: "the project checkout",
 };
-const PURPOSE_LABELS: Record<ScheduledTaskPurpose, string> = {
-  check_back: "Check-back",
-  long_running: "Long-running",
-};
-
-const PURPOSE_FILTERS = [
-  { value: "all", label: "All" },
-  { value: "check_back", label: "Check-backs" },
-  { value: "long_running", label: "Long-running" },
-] as const satisfies readonly { value: TaskPurposeFilter; label: string }[];
-
 const THREAD_MODE_LABELS: Record<ScheduledTaskThreadMode, string> = {
   new_thread: "a new thread each run",
   continue: "one thread, carrying on",
@@ -274,13 +260,12 @@ export function ScheduledTasksPage(props: {
   readonly taskId?: string | undefined;
 }) {
   const sources = useAllScheduledTasks();
-  const [purposeFilter, setPurposeFilter] = useState<TaskPurposeFilter>("all");
   const allGroups = groupScheduledTasks(
     sources.flatMap((source) =>
       source.tasks === null ? [] : [{ environmentId: source.environmentId, tasks: source.tasks }],
     ),
   );
-  const groups = allGroups.filter((group) => matchesTaskPurpose(group, purposeFilter));
+  const groups = allGroups;
   const linkedKey = allGroups.find((group) =>
     group.members.some(
       (member) =>
@@ -339,28 +324,6 @@ export function ScheduledTasksPage(props: {
       </WorkspacePageHeader>
       <div className="flex min-h-0 flex-1">
         <div className="flex w-84 shrink-0 flex-col border-e">
-          <ToggleGroup
-            aria-label="Filter tasks"
-            className="mx-3 mt-3 mb-2"
-            value={[purposeFilter]}
-            onValueChange={(next) => {
-              const value = next[0];
-              if (value === "all" || value === "check_back" || value === "long_running") {
-                setPurposeFilter(value);
-              }
-            }}
-          >
-            {PURPOSE_FILTERS.map((filter) => (
-              <Toggle key={filter.value} value={filter.value}>
-                {filter.label}
-                {loading ? null : (
-                  <span className="text-muted-foreground text-xs tabular-nums">
-                    {allGroups.filter((group) => matchesTaskPurpose(group, filter.value)).length}
-                  </span>
-                )}
-              </Toggle>
-            ))}
-          </ToggleGroup>
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
             {errors.map((source) => (
               <p key={source.environmentId} className="px-2 py-1 text-destructive text-xs">
@@ -368,11 +331,6 @@ export function ScheduledTasksPage(props: {
               </p>
             ))}
             {loading ? <p className="px-2 py-1 text-muted-foreground text-xs">Loading…</p> : null}
-            {!loading && groups.length === 0 && allGroups.length > 0 ? (
-              <p className="px-2 py-1 text-muted-foreground text-xs">
-                {purposeFilter === "check_back" ? "No check-backs." : "No long-running tasks."}
-              </p>
-            ) : null}
             {groups.map((group) => (
               <TaskListItem
                 key={group.key}
@@ -744,18 +702,6 @@ function TaskDetail(props: {
       </div>
 
       <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
-        <Select value={draft.purpose} onValueChange={(purpose) => purpose && update({ purpose })}>
-          <SelectTrigger size="xs" variant="ghost" aria-label="What this task is">
-            <SelectValue>{PURPOSE_LABELS[draft.purpose]}</SelectValue>
-          </SelectTrigger>
-          <SelectPopup>
-            {(Object.keys(PURPOSE_LABELS) as ScheduledTaskPurpose[]).map((purpose) => (
-              <SelectItem key={purpose} value={purpose}>
-                {PURPOSE_LABELS[purpose]}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
         <Select
           value={draft.kind}
           onValueChange={(kind) => {

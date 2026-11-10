@@ -658,6 +658,7 @@ export interface ThreadStatusPill {
     | "Plan Ready"
     | "Stalled"
     | "Needs you"
+    | "Parked wait gave up"
     | "Done";
   /** What a Needs you pill waits on, such as "accept T3-12". */
   detail?: string;
@@ -677,6 +678,7 @@ type ThreadStatusInput = Pick<
   | "latestRun"
   | "runtime"
   | "standing"
+  | "parkedWaitGaveUp"
 > & {
   readOnCompletionRunId?: SidebarThreadSummary["readOnCompletionRunId"];
   lastVisitedAt?: string | null | undefined;
@@ -1098,9 +1100,12 @@ export function resolveWorkingStartedAt(
 /** What the server's standing adds to a row whose own status is quiet: one rule for every row. */
 export function threadStandingAttention(
   standing: ThreadStatusInput["standing"],
-): "needs_you" | "stalled" | null {
-  if (standing?.state === "needs_you")
-    return standing.waitsOnPerson === undefined ? null : "needs_you";
+  parkedWaitGaveUp?: ThreadStatusInput["parkedWaitGaveUp"],
+): "needs_you" | "gave_up" | "stalled" | null {
+  if (standing?.state === "needs_you" && standing.waitsOnPerson !== undefined) return "needs_you";
+  // A wait that gave up is the owner's to look at, whatever the server's standing says.
+  if (parkedWaitGaveUp !== undefined) return "gave_up";
+  if (standing?.state === "needs_you") return null;
   return standing?.state === "stalled" ? "stalled" : null;
 }
 
@@ -1110,10 +1115,23 @@ export function resolveThreadStatusPill(input: {
   const { thread } = input;
   const base = resolveRuntimeThreadStatusPill(thread);
   const standing = thread.standing;
-  if (standing === undefined) return base;
+  if (standing === undefined && thread.parkedWaitGaveUp === undefined) return base;
   // Standing fills the gaps only: an approval, question or failure pill is already more specific.
-  const quiet = base === null || base.label === "Waiting" || base.label === "Watching";
-  const attention = quiet ? threadStandingAttention(standing) : null;
+  const quiet =
+    base === null ||
+    base.label === "Waiting" ||
+    base.label === "Watching" ||
+    (thread.parkedWaitGaveUp !== undefined && base.label === "Completed");
+  const attention = quiet ? threadStandingAttention(standing, thread.parkedWaitGaveUp) : null;
+  if (attention === "gave_up") {
+    return {
+      label: "Parked wait gave up",
+      colorClass: "text-warning-foreground",
+      dotClass: "border border-current",
+      pulse: false,
+    };
+  }
+  if (standing === undefined) return base;
   if (attention === "needs_you") {
     const waits = standing.waitsOnPerson;
     const ref = waits?.ref ?? (waits === undefined ? "" : `#${waits.number}`);

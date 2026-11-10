@@ -104,12 +104,20 @@ it.effect("schedule_task needs a label to create a task and leaves it alone on a
       expect(yield* call({ prompt: "Look again", schedule })).toContain("`purpose`");
       expect(created).toEqual([]);
 
-      yield* call({ prompt: "Look again", schedule, purpose: "check_back" });
-      expect(created).toMatchObject([{ purpose: "check_back" }]);
+      // A look-again is a wait the thread parks on, not a scheduled task.
+      expect(yield* call({ prompt: "Look again", schedule, purpose: "check_back" })).toContain(
+        "park this thread with `watch`",
+      );
+      expect(created).toEqual([]);
+      yield* call({ prompt: "Weekly review", schedule, purpose: "long_running" });
+      expect(created).toMatchObject([{ purpose: "long_running" }]);
 
       const scheduledTaskId = ScheduledTaskId.make("task:1");
       yield* call({ scheduledTaskId, enabled: false });
       yield* call({ scheduledTaskId, purpose: "long_running" });
+      expect(yield* call({ scheduledTaskId, purpose: "check_back" })).toContain(
+        "park this thread with `watch`",
+      );
       expect(updated).toEqual([
         { scheduledTaskId, enabled: false },
         { scheduledTaskId, purpose: "long_running" },

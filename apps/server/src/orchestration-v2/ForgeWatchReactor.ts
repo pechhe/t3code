@@ -14,6 +14,7 @@ import { forkParked } from "../serverActivation.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import { ARC_RUN_UNREADABLE_WATCH_MS } from "./arcRun.ts";
+import { threadsWithWaits } from "./parkedWait.ts";
 import {
   buildWatchWaitsOnPerson,
   decideBuildWatch,
@@ -43,19 +44,34 @@ const make = Effect.gen(function* () {
   // ForgeWorkItems shares its summary cache across all watchers and client reads.
   const sweep = serial.withPermits(1)(
     Effect.gen(function* () {
-      const rows = yield* sql<{ thread_id: string }>`
-        SELECT thread_id FROM orchestration_v2_projection_threads
-          INDEXED BY orchestration_v2_projection_threads_watching_idx
-        WHERE deleted_at IS NULL
-          AND json_array_length(payload_json, '$.threadWatches') > 0`;
+      const rows = yield* threadsWithWaits(sql);
       for (const row of rows) {
         yield* Effect.gen(function* () {
           const thread = yield* projections.getThread(ThreadId.make(row.thread_id));
-          if (threadWatchRefusal(thread) !== undefined) return;
-          const watches = (thread.threadWatches ?? []).filter(
-            (watch) => watch.target.kind === "build_item",
-          );
+          // A parked wait survives settling; a held watch does not.
+          const watches = [
+            ...(threadWatchRefusal(thread) === undefined ? (thread.threadWatches ?? []) : []),
+            ...(threadWatchRefusal(thread, undefined, { parked: true }) === undefined
+              ? (thread.parkedWaits ?? [])
+              : []),
+          ].filter((watch) => watch.target.kind === "build_item");
           if (watches.length === 0) return;
+          const parkedIds = new Set((thread.parkedWaits ?? []).map((wait) => wait.id));
+          // A parked wait never fires on an unreadable item: it records what it saw and gives up.
+          const recordLastKnown = Effect.fn("ForgeWatchReactor.recordLastKnown")(function* (
+            watchId: string,
+            lastKnown: string,
+          ) {
+            const wait = thread.parkedWaits?.find((candidate) => candidate.id === watchId);
+            if (wait === undefined || wait.lastKnown === lastKnown) return;
+            yield* engine.dispatch({
+              type: "thread.thread-watch.fire",
+              commandId: CommandId.make(`server:build-watch-known:${yield* crypto.uuidV4()}`),
+              threadId: thread.id,
+              watchId,
+              lastKnown,
+            });
+          });
           const passStartedAt = yield* Clock.currentTimeMillis;
           const result = yield* build.mentions({
             threadId: thread.id,
@@ -69,6 +85,10 @@ const make = Effect.gen(function* () {
             const number = watch.target.number;
             const cached = result.items.find((item) => item.number === number);
             if (cached === undefined || cached.unavailable || cached.item === null) {
+              if (parkedIds.has(watch.id)) {
+                yield* recordLastKnown(watch.id, `T3 could not read Build #${number} from Weave.`);
+                continue;
+              }
               const since = unreadableSince.get(watch.id) ?? passStartedAt;
               unreadableSince.set(watch.id, since);
               // The thread counts this watch as a wait, and it may never fire.
@@ -90,7 +110,20 @@ const make = Effect.gen(function* () {
               continue;
             }
             unreadableSince.delete(watch.id);
-            const need = buildWatchWaitsOnPerson(watch.target, cached.item);
+            if (
+              parkedIds.has(watch.id) &&
+              decideBuildWatch(watch.target, cached.item) === undefined
+            ) {
+              const item = cached.item;
+              yield* recordLastKnown(
+                watch.id,
+                `Build ${item.ref ?? `#${number}`} was ${item.status}, with ${item.waits.length} open waits and ${item.holds.length} holds.`,
+              );
+              continue;
+            }
+            const held = thread.threadWatches?.find((candidate) => candidate.id === watch.id);
+            const need =
+              held === undefined ? undefined : buildWatchWaitsOnPerson(watch.target, cached.item);
             const waitsOnPerson =
               need === undefined
                 ? undefined
@@ -99,7 +132,7 @@ const make = Effect.gen(function* () {
                     ...(cached.item.ref == null ? {} : { ref: cached.item.ref }),
                     ...(cached.item.title.trim() === "" ? {} : { title: cached.item.title.trim() }),
                   };
-            if (!sameWaitsOnPerson(waitsOnPerson, watch.waitsOnPerson)) {
+            if (held !== undefined && !sameWaitsOnPerson(waitsOnPerson, held.waitsOnPerson)) {
               yield* engine.dispatch({
                 type: "thread.thread-watch.waits-on-person",
                 commandId: CommandId.make(

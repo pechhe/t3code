@@ -13,7 +13,6 @@ import type {
   EnvironmentId,
   ProjectId,
   ScheduledTask,
-  ScheduledTaskPurpose,
   ScheduledTaskThreadMode,
   ScheduledTaskUpsertInput,
 } from "@t3tools/contracts";
@@ -111,11 +110,6 @@ const DAYS = [
   { index: 6, label: "Sat" },
   { index: 0, label: "Sun" },
 ] as const;
-
-const PURPOSE_LABELS: Record<ScheduledTaskPurpose, string> = {
-  check_back: "Check-back",
-  long_running: "Long-running",
-};
 
 const THREAD_MODE_LABELS: Record<ScheduledTaskThreadMode, string> = {
   new_thread: "New thread each run",
@@ -864,21 +858,6 @@ function TaskForm({
             onChange={(title) => setDraft({ ...draft, title })}
           />
           {promptField}
-          <SelectRow
-            label="Kind"
-            borderTop
-            value={PURPOSE_LABELS[draft.purpose]}
-            actions={(Object.keys(PURPOSE_LABELS) as ScheduledTaskPurpose[]).map((purpose) => ({
-              id: purpose,
-              title: PURPOSE_LABELS[purpose],
-              state: draft.purpose === purpose ? "on" : undefined,
-            }))}
-            onSelect={(id) => {
-              if (id === "check_back" || id === "long_running") {
-                setDraft({ ...draft, purpose: id });
-              }
-            }}
-          />
         </SettingsSection>
 
         <SettingsSection title="Context">

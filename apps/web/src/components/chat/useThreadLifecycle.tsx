@@ -25,11 +25,13 @@ import {
   type ThreadId,
   ProviderInteractionMode,
   RuntimeMode,
+  OrchestrationV2ParkedWait,
   OrchestrationV2Subagent,
   OrchestrationV2PendingBackgroundTask,
 } from "@t3tools/contracts";
 import {
   effectiveSnoozed,
+  threadParkedOnShelf,
   snoozeWakeLabel,
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
@@ -88,6 +90,8 @@ import { environmentThreadDetails } from "../../state/threads";
 import { openSideChatTab } from "../../lib/sideChatPane";
 import type { useLocalDispatchState } from "./useLocalDispatchState";
 const RELATED_THREAD_SHELL_WAIT_MS = 1_000;
+const NO_PARKED_WAITS: ReadonlyArray<OrchestrationV2ParkedWait> = Object.freeze([]);
+
 const NO_RUN_STOP_ATOM = Atom.make<RunStopPresentation | null>(null).pipe(
   Atom.withLabel("web-thread-run-stop:empty"),
 );
@@ -213,7 +217,9 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   const activeThreadSnoozed =
     activeThreadShell !== null &&
     serverConfigLoaded &&
-    effectiveSnoozed(activeThreadShell, { now: snoozeClock });
+    effectiveSnoozed(activeThreadShell, { now: snoozeClock }) &&
+    // A parked thread is not woken from here: its panel row has Cancel.
+    !threadParkedOnShelf(activeThreadShell);
   const activeThreadWokeAt =
     activeThreadShell !== null && serverConfigLoaded
       ? threadWokeAt(activeThreadShell, { now: snoozeClock })
@@ -666,11 +672,13 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   });
   const panelStanding = activeThreadShell?.source.standing;
   const panelThreadWatches = activeThreadShell?.source.threadWatches;
+  const panelParkedWaits = activeThreadShell?.source.parkedWaits ?? NO_PARKED_WAITS;
   const renderSubagentPanel = (request: SubagentPanelRequest | null) =>
     activeThreadRef !== null &&
     (liveSubagentIds.length > 0 ||
       finishedSubagents.length > 0 ||
       panelWaits.length > 0 ||
+      panelParkedWaits.length > 0 ||
       panelStanding?.waitsOnPerson !== undefined) ? (
       <SubagentPanel
         threadRef={activeThreadRef}
@@ -680,6 +688,8 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         waits={panelWaits}
         standing={panelStanding}
         threadWatches={panelThreadWatches}
+        parkedWaits={panelParkedWaits}
+        nowMs={Date.parse(`${nowMinute}:00.000Z`)}
         waitHandlers={{
           threadRef: activeThreadRef,
           onOpenThread: onOpenRelatedThreadStable,

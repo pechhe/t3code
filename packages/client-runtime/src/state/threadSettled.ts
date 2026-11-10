@@ -2,6 +2,8 @@
 import * as DateTime from "effect/DateTime";
 import { DEFAULT_SNOOZE_PRESETS, type SnoozePresetSetting } from "@t3tools/contracts/settings";
 
+import type { OrchestrationV2ParkedWait } from "@t3tools/contracts";
+
 import type { EnvironmentThreadShell, PendingSubagentRequest } from "./models.ts";
 
 interface SettlementRunLike {
@@ -77,6 +79,9 @@ export interface ThreadSnoozeShell extends QueuedThreadShell {
   readonly pendingUserInputAt?: string | null;
   readonly pendingSubagentRequest?: PendingSubagentRequest | null;
   readonly pendingGuestMessageCount?: number;
+  /** What the thread is parked on; a seen, parked thread sits in the Snoozed shelf. */
+  readonly parkedWaits?: ReadonlyArray<OrchestrationV2ParkedWait> | undefined;
+  readonly lastVisitedAt?: string | null | undefined;
 }
 
 function pendingQuestionAt(shell: ThreadSnoozeShell): string | null {
@@ -154,10 +159,31 @@ export function canSnooze(
   return true;
 }
 
+const ACTIVE_RUN_STATUSES = new Set(["preparing", "queued", "starting", "running", "waiting"]);
+
+/**
+ * A parked thread reads Done until it is opened, then joins the Snoozed shelf until its wait ends.
+ * Derived from the server's `parkedWaits`, never by writing `snoozedUntil`. A request for the
+ * person, a fresh failure or a running turn keeps it where it is.
+ */
+export function threadParkedOnShelf(shell: ThreadSnoozeShell): boolean {
+  if ((shell.parkedWaits?.length ?? 0) === 0) return false;
+  const runtime = shell.runtime ?? shell.session ?? null;
+  if (runtime !== null && ACTIVE_RUN_STATUSES.has(runtime.status)) return false;
+  if (shell.lastVisitedAt == null) return false;
+  const completedAt = Date.parse((shell.latestRun ?? shell.latestTurn)?.completedAt ?? "");
+  const visitedAt = Date.parse(shell.lastVisitedAt);
+  if (Number.isNaN(visitedAt) || (!Number.isNaN(completedAt) && completedAt > visitedAt)) {
+    return false;
+  }
+  return !threadRaisedHandWhileSnoozed(shell);
+}
+
 export function effectiveSnoozed(
   shell: ThreadSnoozeShell,
   options: { readonly now: string },
 ): boolean {
+  if (threadParkedOnShelf(shell)) return true;
   if (shell.snoozedUntil == null) return false;
   const wakeAtMs = Date.parse(shell.snoozedUntil);
   if (Number.isNaN(wakeAtMs)) return false;
@@ -197,6 +223,128 @@ export function threadWokeAt(
 }
 
 const HOUR_MS = 60 * 60 * 1_000;
+
+/** When a parked wait ends by itself: it gives up, or a time wait wakes. */
+function parkedWaitEndsAt(wait: OrchestrationV2ParkedWait): string | null {
+  return wait.givesUpAt ?? (wait.target.kind === "time" ? wait.target.at : null);
+}
+
+/** The wait that ends first: what the shelf and the sort show for a thread parked on several. */
+function nextParkedWait(
+  waits: ReadonlyArray<OrchestrationV2ParkedWait> | undefined,
+): OrchestrationV2ParkedWait | null {
+  let next: OrchestrationV2ParkedWait | null = null;
+  let nextMs = Number.POSITIVE_INFINITY;
+  for (const wait of waits ?? []) {
+    const endsAt = parkedWaitEndsAt(wait);
+    const endsMs = endsAt === null ? Number.POSITIVE_INFINITY : Date.parse(endsAt);
+    if (next === null || endsMs < nextMs) {
+      next = wait;
+      nextMs = Number.isNaN(endsMs) ? Number.POSITIVE_INFINITY : endsMs;
+    }
+  }
+  return next;
+}
+
+/** Whole minutes, hours or days, rounded up to the unit a person reads: "20m", "2h", "3d". */
+function formatParkedSpan(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+function formatParkedSpanLong(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 60) return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return hours === 1 ? "1 hour" : `${hours} hours`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "1 day" : `${days} days`;
+}
+
+/** "Thu 14:00" within the coming week, a date beyond it. */
+function formatParkedMoment(iso: string, nowMs: number): string {
+  const atMs = Date.parse(iso);
+  if (Number.isNaN(atMs)) return iso;
+  const time = { hour: "2-digit", minute: "2-digit", hour12: false } as const;
+  const options: Intl.DateTimeFormatOptions =
+    Math.abs(atMs - nowMs) < 6 * DAY_MS
+      ? { weekday: "short", ...time }
+      : { month: "short", day: "numeric", ...time };
+  return new Intl.DateTimeFormat(undefined, options).format(atMs);
+}
+
+export type ParkedWaitKindLabel = "Release" | "Time" | "Thread" | "Forge" | "Landing";
+
+export function parkedWaitKindLabel(wait: OrchestrationV2ParkedWait): ParkedWaitKindLabel {
+  switch (wait.target.kind) {
+    case "production":
+      return "Release";
+    case "time":
+      return "Time";
+    case "thread":
+      return "Thread";
+    case "build_item":
+      return "Forge";
+    case "landing":
+      return "Landing";
+  }
+}
+
+/**
+ * What the wait wakes on, in a sentence. `title` names the subject (such as a ticket key or
+ * a build number); a time wait names its moment and what to do then.
+ */
+export function parkedWaitWakesOn(wait: OrchestrationV2ParkedWait, nowMs: number): string {
+  switch (wait.target.kind) {
+    case "production":
+      return `Wakes when ${wait.title} reaches Production`;
+    case "time":
+      return `Wakes ${formatParkedMoment(wait.target.at, nowMs)} to ${wait.title}`;
+    case "thread":
+      return `Wakes when ${wait.title} finishes`;
+    case "build_item":
+      return wait.target.until === "unblocked"
+        ? `Wakes when ${wait.title} is unblocked`
+        : `Wakes when ${wait.title} is landed or accepted`;
+    case "landing":
+      return `Wakes when the landing of ${wait.title} has an outcome`;
+  }
+}
+
+/** The panel's quiet facts: "Parked 2h", "expected within 1 day", "gives up Thu 14:00". */
+export function parkedWaitFacts(wait: OrchestrationV2ParkedWait, nowMs: number): string[] {
+  const startedMs = Date.parse(wait.startedAt);
+  const facts = [`Parked ${formatParkedSpan(Math.max(0, nowMs - startedMs))}`];
+  if (wait.target.kind === "time") {
+    const atMs = Date.parse(wait.target.at);
+    facts.push(atMs > nowMs ? `in ${formatParkedSpan(atMs - nowMs)}` : "waking now");
+    return facts;
+  }
+  if (wait.expectedAt !== undefined) {
+    facts.push(`expected within ${formatParkedSpanLong(Date.parse(wait.expectedAt) - startedMs)}`);
+  }
+  if (wait.givesUpAt !== undefined) {
+    facts.push(`gives up ${formatParkedMoment(wait.givesUpAt, nowMs)}`);
+  }
+  return facts;
+}
+
+/** The sidebar's time slot for a parked thread: "gives up in 22h", or "in 18h" for a time wait. */
+export function parkedWaitTimeLeft(
+  waits: ReadonlyArray<OrchestrationV2ParkedWait> | undefined,
+  nowMs: number,
+): string | null {
+  const wait = nextParkedWait(waits);
+  const endsAt = wait === null ? null : parkedWaitEndsAt(wait);
+  if (wait === null || endsAt === null) return null;
+  const left = Date.parse(endsAt) - nowMs;
+  if (Number.isNaN(left)) return null;
+  const span = left <= 0 ? "now" : `in ${formatParkedSpan(left)}`;
+  return wait.target.kind === "time" ? span : `gives up ${span}`;
+}
 
 const WEEKDAY_INDEX = {
   sunday: 0,
@@ -410,4 +558,19 @@ export function isThreadWokeUnseen(input: {
     .map((value) => (value ? Date.parse(value) : NaN))
     .filter((ms) => !Number.isNaN(ms));
   return seenAt.every((ms) => ms < wokeAtMs);
+}
+
+/** The line under a parked thread's title: what it wakes on, for the soonest-ending wait. */
+export function parkedThreadSubtitle(
+  waits: ReadonlyArray<OrchestrationV2ParkedWait> | undefined,
+  nowMs: number,
+): string | null {
+  const wait = nextParkedWait(waits);
+  return wait === null ? null : parkedWaitWakesOn(wait, nowMs);
+}
+
+/** When a thread leaves the Snoozed shelf by itself: its snooze ends, or its parked wait does. */
+export function snoozeShelfEndsAt(shell: ThreadSnoozeShell): string | null {
+  const parked = nextParkedWait(shell.parkedWaits);
+  return parked === null ? (shell.snoozedUntil ?? null) : parkedWaitEndsAt(parked);
 }

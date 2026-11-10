@@ -40,6 +40,7 @@ import {
   type ThreadPullRequestLink,
   type OrchestrationV2ThreadArcRun,
   type OrchestrationV2ThreadWatch,
+  type OrchestrationV2ParkedWait,
   type OrchestrationV2Notification,
   type OrchestrationV2WorkspaceAttachment,
   type ThreadPullRequestWatch,
@@ -215,6 +216,15 @@ import {
   threadWatchWake,
   watchedThreadRecords,
 } from "./threadWatch.ts";
+import {
+  gaveUpWake,
+  parkedWaitTargetsEqual,
+  parkedWaitTitle,
+  productionWake,
+  timeWake,
+  withParkedNote,
+  withParkedWaits,
+} from "./parkedWait.ts";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as RunExecutionService from "./RunExecutionService.ts";
@@ -3631,10 +3641,59 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       (command.watchedThreadId === undefined
         ? undefined
         : { kind: "thread" as const, threadId: command.watchedThreadId });
-    if (target === undefined) return yield* refuse("A watch target is required.");
     const watches = thread.threadWatches ?? [];
-    const existing = watches.find((watch) => watchTargetsEqual(watch.target, target));
+    const parked = thread.parkedWaits ?? [];
+    const now = yield* DateTime.now;
+    const emitWaits = (
+      nextWatches: ReadonlyArray<OrchestrationV2ThreadWatch>,
+      nextParked: ReadonlyArray<OrchestrationV2ParkedWait>,
+      gaveUp?: null,
+    ) =>
+      emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: thread.id,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: now,
+        payload: withParkedWaits(withThreadWatches(thread, nextWatches, now), nextParked, gaveUp),
+      });
+    const cancelQueuedWakes = (runs: ReadonlyArray<{ readonly id: RunId }>) =>
+      Effect.forEach(
+        runs,
+        (run) =>
+          dispatchQueuedRunCancel(
+            {
+              type: "queued-run.cancel",
+              commandId: command.commandId,
+              threadId: command.threadId,
+              runId: run.id,
+            },
+            events,
+          ),
+        { discard: true },
+      );
     if (!command.watching) {
+      if (target === undefined && command.watchId === undefined) {
+        return yield* refuse("A watch target or watch id is required.");
+      }
+      const heldTarget =
+        target === undefined || target.kind === "production" || target.kind === "time"
+          ? undefined
+          : target;
+      const endedWatch =
+        command.watchId !== undefined
+          ? watches.find((watch) => watch.id === command.watchId)
+          : heldTarget === undefined
+            ? undefined
+            : watches.find((watch) => watchTargetsEqual(watch.target, heldTarget));
+      const endedParked =
+        command.watchId !== undefined
+          ? parked.find((wait) => wait.id === command.watchId)
+          : target === undefined
+            ? undefined
+            : parked.find((wait) => parkedWaitTargetsEqual(wait.target, target));
       const watcher = yield* projectionStore
         .getThreadRecords(command.threadId, ["runs", "messages"], {
           turnItemTypes: [],
@@ -3645,47 +3704,87 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
           ),
         );
-      for (const run of queuedThreadWatchWakes(watcher, target)) {
-        yield* dispatchQueuedRunCancel(
-          {
-            type: "queued-run.cancel",
-            commandId: command.commandId,
-            threadId: command.threadId,
-            runId: run.id,
-          },
-          events,
+      const queuedTarget = heldTarget ?? endedWatch?.target;
+      if (queuedTarget !== undefined) {
+        yield* cancelQueuedWakes(queuedThreadWatchWakes(watcher, queuedTarget));
+      }
+      if (endedParked !== undefined) {
+        const wakeId = MessageId.make(`message:${thread.id}:${endedParked.id}`);
+        yield* cancelQueuedWakes(
+          watcher.runs.filter((run) => run.status === "queued" && run.userMessageId === wakeId),
         );
       }
-      if (existing === undefined) return;
-      return yield* emitThreadWatches(
-        events,
-        command,
-        thread,
-        watches.filter((watch) => watch !== existing),
+      if (endedWatch === undefined && endedParked === undefined) return;
+      return yield* emitWaits(
+        watches.filter((watch) => watch !== endedWatch),
+        parked.filter((wait) => wait !== endedParked),
       );
+    }
+    if (target === undefined) return yield* refuse("A watch target is required.");
+    const park = command.park;
+    if (park === undefined && (target.kind === "production" || target.kind === "time")) {
+      return yield* refuse("A Production or time wait must be parked.");
     }
     const refusal = threadWatchRefusal(
       thread,
       target.kind === "thread" ? target.threadId : undefined,
+      { parked: park !== undefined },
     );
     if (refusal !== undefined) return yield* refuse(refusal);
-    if (existing !== undefined) return;
     const watched = target.kind === "thread" ? yield* readThread(target.threadId) : undefined;
     if (watched !== undefined && watched.deletedAt !== null) {
       return yield* refuse(`Thread ${watched.id} is deleted.`);
     }
-    const watch: OrchestrationV2ThreadWatch = {
-      id: `thread-watch:${command.commandId}`,
-      target,
-      title:
-        watched?.title ??
-        command.title ??
-        (target.kind === "landing"
-          ? `Landing ${target.operationId}`
-          : `Build #${target.kind === "build_item" ? target.number : ""}`),
-      startedAt: DateTime.formatIso(yield* DateTime.now),
-    };
-    yield* emitThreadWatches(events, command, thread, [...watches, watch]);
+    const title =
+      watched?.title ??
+      command.title ??
+      (park === undefined ? undefined : parkedWaitTitle(target, park.note)) ??
+      (target.kind === "landing"
+        ? `Landing ${target.operationId}`
+        : `Build #${target.kind === "build_item" ? target.number : ""}`);
+    const startedAt = DateTime.formatIso(now);
+    if (park !== undefined) {
+      if (target.kind !== "time" && park.expectedMs === undefined) {
+        return yield* refuse(
+          "A parked wait on an event needs its expected time, so it can give up at twice that.",
+        );
+      }
+      const expected =
+        target.kind === "time" || park.expectedMs === undefined
+          ? {}
+          : {
+              expectedAt: DateTime.formatIso(DateTime.add(now, { milliseconds: park.expectedMs })),
+              givesUpAt: DateTime.formatIso(
+                DateTime.add(now, { milliseconds: 2 * park.expectedMs }),
+              ),
+            };
+      const wait: OrchestrationV2ParkedWait = {
+        id: `parked-wait:${command.commandId}`,
+        title,
+        startedAt,
+        target,
+        ...expected,
+        ...(park.note === undefined || park.note.trim() === "" ? {} : { note: park.note }),
+      };
+      // Parking on what this thread holds a watch on turns that hold into the park.
+      yield* emitWaits(
+        watches.filter((watch) => !parkedWaitTargetsEqual(watch.target, target)),
+        [...parked.filter((other) => !parkedWaitTargetsEqual(other.target, target)), wait],
+        null,
+      );
+    } else {
+      if (target.kind === "production" || target.kind === "time") return;
+      // A parked wait already wakes the thread for this target.
+      if (parked.some((wait) => parkedWaitTargetsEqual(wait.target, target))) return;
+      if (watches.some((watch) => watchTargetsEqual(watch.target, target))) return;
+      const watch: OrchestrationV2ThreadWatch = {
+        id: `thread-watch:${command.commandId}`,
+        target,
+        title,
+        startedAt,
+      };
+      yield* emitThreadWatches(events, command, thread, [...watches, watch]);
+    }
     if (target.kind === "landing") {
       yield* emitLandingRecord(events, command, thread, target.operationId, "started", {
         source: target,
@@ -3826,7 +3925,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       );
     const watches = thread.threadWatches ?? [];
     const watch = watches.find((candidate) => candidate.id === command.watchId);
-    if (watch === undefined || thread.deletedAt !== null) {
+    const parkedWait = (thread.parkedWaits ?? []).find(
+      (candidate) => candidate.id === command.watchId,
+    );
+    if ((watch === undefined && parkedWait === undefined) || thread.deletedAt !== null) {
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
@@ -3835,6 +3937,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     // The watch stays, so its next check after the owner resumes the run still fires it.
     if (isArcRunHeld(thread.arcRun)) return;
+    if (watch === undefined) {
+      return yield* fireParkedWait(command, thread, parkedWait!, events, effects);
+    }
     if (watch.target.kind === "landing") {
       const landing = command.landing;
       if (landing === undefined || landing.operationId !== watch.target.operationId) return;
@@ -3923,7 +4028,39 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       );
       return;
     }
-    const watchedThreadId = watch.target.threadId;
+    const wake = yield* threadTargetWake(watch.target.threadId, watch.title);
+    if (wake === undefined) return;
+    yield* emitThreadWatches(
+      events,
+      command,
+      thread,
+      watches.filter((candidate) => candidate !== watch),
+    );
+    yield* dispatchMessage(
+      {
+        type: "message.dispatch",
+        commandId: command.commandId,
+        threadId: command.threadId,
+        messageId: MessageId.make(`message:${thread.id}:${watch.id}`),
+        ...wake,
+        attachments: [],
+        dispatchMode: { type: "queue_after_active" },
+        createdBy: "agent",
+        creationSource: "server",
+      },
+      events,
+      effects,
+    );
+  });
+
+  /**
+   * The wake a watch on `watchedThreadId` sends now, decided from stored state; none while that
+   * thread still works or its read failed for a reason that may pass.
+   */
+  const threadTargetWake = Effect.fn("Orchestrator.threadTargetWake")(function* (
+    watchedThreadId: ThreadId,
+    title: string,
+  ) {
     const readWatched = <K extends ProjectionRecordField>(
       keys: ReadonlyArray<K>,
       filter: ProjectionRecordFilter,
@@ -3947,38 +4084,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           Effect.succeed(error._tag === "ProjectionStoreThreadNotFoundError"),
         ),
       );
-      if (!gone) return;
-      yield* emitThreadWatches(
-        events,
-        command,
-        thread,
-        watches.filter((candidate) => candidate !== watch),
-      );
-      yield* dispatchMessage(
-        {
-          type: "message.dispatch",
-          commandId: command.commandId,
-          threadId: command.threadId,
-          messageId: MessageId.make(`message:${thread.id}:${watch.id}`),
-          ...threadWatchWake({
-            watch: { threadId: watchedThreadId },
-            title: watch.title,
-            decision: { kind: "unreadable" },
-            detail: undefined,
-          }),
-          attachments: [],
-          dispatchMode: { type: "queue_after_active" },
-          createdBy: "agent",
-          creationSource: "server",
-        },
-        events,
-        effects,
-      );
-      return;
+      if (!gone) return undefined;
+      return threadWatchWake({
+        watch: { threadId: watchedThreadId },
+        title,
+        decision: { kind: "unreadable" },
+        detail: undefined,
+      });
     }
     const watched = watchedRecords.value;
     const decision = decideThreadWatch(watched, yield* DateTime.now);
-    if (decision === undefined) return;
+    if (decision === undefined) return undefined;
     if (
       decision.kind !== "archived" &&
       decision.kind !== "needs-input" &&
@@ -3988,7 +4104,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ),
       ))
     ) {
-      return;
+      return undefined;
     }
     let detail: string | undefined;
     if (decision.kind === "needs-input") {
@@ -4008,34 +4124,168 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const result = subagentResultForRun(records, decision.resultRun);
       detail = result.messageId === null && result.turnItemId === null ? undefined : result.text;
     }
-    const wake = threadWatchWake({
+    return threadWatchWake({
       watch: { threadId: watchedThreadId },
       title: watched.thread.title,
       decision,
       detail,
     });
-    yield* emitThreadWatches(
+  });
+
+  // A parked wait wakes on its target, at its time, or once when it gives up. Its wake unsettles a
+  // settled thread, since parking promised to come back to it.
+  const fireParkedWait = Effect.fn("Orchestrator.fireParkedWait")(function* (
+    command: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.thread-watch.fire" }>,
+    thread: OrchestrationV2AppThread,
+    wait: OrchestrationV2ParkedWait,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+  ) {
+    const now = yield* DateTime.now;
+    const nowMs = DateTime.toEpochMillis(now);
+    const parked = thread.parkedWaits ?? [];
+    const remaining = parked.filter((candidate) => candidate !== wait);
+    const target = wait.target;
+    let wake:
+      | { readonly text: string; readonly notification: OrchestrationV2Notification }
+      | undefined;
+    switch (target.kind) {
+      case "time":
+        if (nowMs >= Date.parse(target.at)) wake = timeWake({ title: wait.title, at: target.at });
+        break;
+      case "production":
+        if (command.production !== undefined) {
+          wake = productionWake({
+            title: wait.title,
+            commitId: target.commitId,
+            repository: command.production.repository,
+            servedCommitId: command.production.servedCommitId,
+          });
+        }
+        break;
+      case "build_item": {
+        const build = command.build;
+        if (
+          build !== undefined &&
+          build.number === target.number &&
+          (build.condition === "dropped" || build.condition === target.until)
+        ) {
+          wake = buildWatchWake({
+            target,
+            ref: build.ref,
+            title: build.title,
+            url: build.url,
+            condition: build.condition,
+          });
+        }
+        break;
+      }
+      case "landing": {
+        const landing = command.landing;
+        if (landing === undefined || landing.operationId !== target.operationId) break;
+        const records = yield* projectionStore
+          .getThreadRecords(thread.id, ["runs", "turnItems"], {
+            turnItemTypes: ["command_execution"],
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) => new OrchestratorProjectionError({ threadId: thread.id, cause }),
+            ),
+          );
+        // The thread's own running `slipjay land` hands it the verdict.
+        if (landingVerdictReachesRun(records, landing.operationId)) {
+          yield* emitParkedWaits(events, command, thread, remaining);
+          yield* emitLandingRecord(
+            events,
+            command,
+            thread,
+            landing.operationId,
+            "finished",
+            landingWatchWake(landing).notification,
+          );
+          return;
+        }
+        wake = landingWatchWake(landing);
+        break;
+      }
+      case "thread":
+        wake = yield* threadTargetWake(target.threadId, wait.title);
+        break;
+    }
+    let gaveUp: OrchestrationV2AppThread["parkedWaitGaveUp"] | undefined;
+    if (wake === undefined && wait.givesUpAt !== undefined && nowMs >= Date.parse(wait.givesUpAt)) {
+      wake = gaveUpWake(wait, command.lastKnown ?? wait.lastKnown);
+      gaveUp = { title: wait.title, at: DateTime.formatIso(now) };
+    }
+    if (wake === undefined) {
+      if (command.lastKnown === undefined || command.lastKnown === wait.lastKnown) return;
+      yield* emitParkedWaits(
+        events,
+        command,
+        thread,
+        parked.map((candidate) =>
+          candidate === wait ? { ...wait, lastKnown: command.lastKnown! } : candidate,
+        ),
+      );
+      return;
+    }
+    const { parkedWaitWoke: _previousWoke, ...unwoken } = thread;
+    yield* emitParkedWaits(events, command, unwoken, remaining, gaveUp);
+    const messageId = MessageId.make(`message:${thread.id}:${wait.id}`);
+    const wakeMessage = {
+      type: "message.dispatch" as const,
+      commandId: command.commandId,
+      threadId: command.threadId,
+      messageId,
+      ...withParkedNote(wake, wait.note, gaveUp === undefined ? "woke" : "gave_up"),
+      attachments: [],
+      dispatchMode: { type: "queue_after_active" as const },
+      createdBy: "agent" as const,
+      creationSource: "server" as const,
+    };
+    yield* dispatchMessage(wakeMessage, events, effects);
+    // A delegated child's result went back when it parked, so its woken turn is a follow-up.
+    yield* recordSubagentFollowup(wakeMessage, events).pipe(mapDispatchError(command));
+    if (gaveUp !== undefined) return;
+    // Recorded after the wake, so it names the run the wake started and the thread it unsettled.
+    const woken = yield* getProjectionWithPendingEvents(thread.id, events);
+    const runId = woken.runs.find((run) => run.userMessageId === messageId)?.id;
+    yield* emit(
       events,
       command,
-      thread,
-      watches.filter((candidate) => candidate !== watch),
-    );
-    yield* dispatchMessage(
-      {
-        type: "message.dispatch",
-        commandId: command.commandId,
-        threadId: command.threadId,
-        messageId: MessageId.make(`message:${thread.id}:${watch.id}`),
-        text: wake.text,
-        notification: wake.notification,
-        attachments: [],
-        dispatchMode: { type: "queue_after_active" },
-        createdBy: "agent",
-        creationSource: "server",
+    )({
+      type: "thread.metadata-updated",
+      threadId: thread.id,
+      providerInstanceId: woken.thread.providerInstanceId,
+      occurredAt: now,
+      payload: {
+        ...woken.thread,
+        parkedWaitWoke: {
+          title: wait.title,
+          at: DateTime.formatIso(now),
+          ...(runId === undefined ? {} : { runId }),
+        },
       },
+    });
+  });
+
+  const emitParkedWaits = Effect.fn("Orchestrator.emitParkedWaits")(function* (
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    command: OrchestrationV2ServerCommand,
+    thread: OrchestrationV2AppThread,
+    waits: ReadonlyArray<OrchestrationV2ParkedWait>,
+    gaveUp?: OrchestrationV2AppThread["parkedWaitGaveUp"],
+  ) {
+    yield* emit(
       events,
-      effects,
-    );
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId: thread.id,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: yield* DateTime.now,
+      payload: withParkedWaits(thread, waits, gaveUp),
+    });
   });
 
   const dispatchArcRun = Effect.fn("orchestrationV2.dispatch.arcRun")(function* (
@@ -5112,7 +5362,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             return projectMoveThread!;
           case "thread.archive":
             return {
-              ...withoutArcRun(withThreadWatches(thread, [], now)),
+              // Archiving ends every wait, parked ones too, without a wake.
+              ...withParkedWaits(withoutArcRun(withThreadWatches(thread, [], now)), []),
               archivedAt: now,
               titleRegeneration: null,
               guestShare: null,
@@ -7325,6 +7576,25 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         providerInstanceId: thread.providerInstanceId,
         occurredAt: now,
         payload: thread,
+      });
+      projection = applyToProjection(projection, event);
+    }
+    if (
+      (projection.thread.parkedWaitGaveUp !== undefined ||
+        projection.thread.parkedWaitWoke !== undefined) &&
+      command.createdBy === "user"
+    ) {
+      const now = yield* DateTime.now;
+      const { parkedWaitWoke: _woke, ...unwoken } = projection.thread;
+      const event = yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        providerInstanceId: projection.thread.providerInstanceId,
+        occurredAt: now,
+        payload: withParkedWaits(unwoken, projection.thread.parkedWaits ?? [], null),
       });
       projection = applyToProjection(projection, event);
     }

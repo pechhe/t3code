@@ -13,7 +13,6 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/model
 import {
   chosenThreadId,
   groupScheduledTasks,
-  matchesTaskPurpose,
   markGroupFailuresSeen,
   moveDraftToThread,
   planGroupSave,
@@ -29,7 +28,6 @@ import {
   workspaceChoiceOf,
   workspaceStrategyFor,
   type GroupDraftFields,
-  type TaskPurposeFilter,
   type ProjectChoice,
 } from "./scheduledTasks.logic";
 
@@ -104,29 +102,6 @@ describe("groupScheduledTasks", () => {
       ["Alone", 1],
       ["New", 2],
     ]);
-  });
-
-  it("filters by why a task exists, whichever thread it runs in", () => {
-    const groups = groupScheduledTasks([
-      {
-        environmentId: mac,
-        tasks: [
-          task({
-            id: "a",
-            title: "Look again",
-            threadId: ThreadId.make("t"),
-            purpose: "check_back",
-          }),
-          task({ id: "b", title: "Weekly", threadId: ThreadId.make("t"), purpose: "long_running" }),
-          task({ id: "c", title: "Unlabelled", threadId: null }),
-        ],
-      },
-    ]);
-    const titles = (filter: TaskPurposeFilter) =>
-      groups.filter((group) => matchesTaskPurpose(group, filter)).map((group) => group.lead.title);
-    expect(titles("all")).toEqual(["Look again", "Unlabelled", "Weekly"]);
-    expect(titles("check_back")).toEqual(["Look again"]);
-    expect(titles("long_running")).toEqual(["Unlabelled", "Weekly"]);
   });
 });
 

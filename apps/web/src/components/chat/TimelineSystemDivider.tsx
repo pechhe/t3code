@@ -7,7 +7,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 export function TimelineSystemDivider(props: {
   readonly label: string;
   readonly detail?: ReactNode | null;
-  readonly tone?: "neutral" | "danger";
+  readonly tone?: "neutral" | "danger" | "warning";
   readonly icon?: LucideIcon;
   readonly showDetailSeparator?: boolean;
   readonly wrapDetail?: boolean;
@@ -39,6 +39,7 @@ export function TimelineSystemDivider(props: {
       className={cn(
         "flex min-w-0 items-center gap-2 py-2 text-2xs text-muted-foreground",
         props.tone === "danger" && "text-destructive",
+        props.tone === "warning" && "text-warning-foreground",
       )}
     >
       <span aria-hidden="true" className="h-px flex-1 bg-border/70" />

@@ -158,7 +158,11 @@ export function isAutoSettlementCandidate(
   return !isSnoozed(thread, nowMs);
 }
 
-/** Match client effectiveSnoozed so agents and sidebar agree. */
+/**
+ * Match client effectiveSnoozed's snooze timer so agents and sidebar agree. The client also shelves
+ * a seen, parked thread as snoozed; that rule is left out on purpose, because a parked wait never
+ * stops a thread being settled and survives settling.
+ */
 export function isSnoozed(
   thread: Pick<
     ProjectionStore.ProjectionSettlementCandidate,

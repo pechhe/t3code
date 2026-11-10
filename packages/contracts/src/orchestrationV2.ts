@@ -603,6 +603,62 @@ export const OrchestrationV2WatchTarget = Schema.Union([
 export type OrchestrationV2WatchTarget = typeof OrchestrationV2WatchTarget.Type;
 
 /**
+ * What a parked wait may wake on. Wider than a watch's target; shipped clients decode watches
+ * strictly, so the Production and time targets exist only here.
+ */
+export const OrchestrationV2ParkedWaitTarget = Schema.Union([
+  ...OrchestrationV2WatchTarget.members,
+  /** The commit Production serves is `commitId` or a descendant of it. */
+  Schema.Struct({
+    kind: Schema.Literal("production"),
+    commitId: TrimmedNonEmptyString,
+    /** Absent means the thread's own project. */
+    projectId: Schema.optional(ProjectId),
+  }),
+  Schema.Struct({ kind: Schema.Literal("time"), at: IsoDateTime }),
+]);
+export type OrchestrationV2ParkedWaitTarget = typeof OrchestrationV2ParkedWaitTarget.Type;
+
+/**
+ * A wait that does not hold its thread: the thread is finished for every reader until the wait
+ * wakes it. It survives settling and holds back no delegated result.
+ */
+export const OrchestrationV2ParkedWait = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  title: TrimmedNonEmptyString,
+  startedAt: IsoDateTime,
+  target: OrchestrationV2ParkedWaitTarget,
+  /** When the agent expects the event. Absent for a time target. */
+  expectedAt: Schema.optional(IsoDateTime),
+  /** Twice the expected time: the wait ends then and wakes the thread once. Absent for a time target. */
+  givesUpAt: Schema.optional(IsoDateTime),
+  /** What the agent told itself to do on waking; the wake carries it. */
+  note: Schema.optional(Schema.String),
+  /** What T3 last knew about the target, for the give-up message. */
+  lastKnown: Schema.optional(Schema.String),
+});
+export type OrchestrationV2ParkedWait = typeof OrchestrationV2ParkedWait.Type;
+
+/** A parked wait that gave up; set until the owner next writes to the thread or it parks again. */
+export const OrchestrationV2ParkedWaitGaveUp = Schema.Struct({
+  title: TrimmedNonEmptyString,
+  at: IsoDateTime,
+});
+export type OrchestrationV2ParkedWaitGaveUp = typeof OrchestrationV2ParkedWaitGaveUp.Type;
+
+/**
+ * The parked wait whose wake started the thread's current turn. Shells carry it only while that
+ * turn has not finished; the owner writing to the thread clears it.
+ */
+export const OrchestrationV2ParkedWaitWoke = Schema.Struct({
+  title: TrimmedNonEmptyString,
+  at: IsoDateTime,
+  /** The wake's run, so a later turn does not claim it. */
+  runId: Schema.optional(RunId),
+});
+export type OrchestrationV2ParkedWaitWoke = typeof OrchestrationV2ParkedWaitWoke.Type;
+
+/**
  * A thread's responsibility for an Arc, which outlasts its turns and is independent of Away. T3
  * holds only execution state here: the Arc's outcome and decisions stay in Forge.
  */
@@ -790,6 +846,9 @@ export const OrchestrationV2AppThread = Schema.Struct({
   arcRun: Schema.optional(OrchestrationV2ThreadArcRun),
   threadWatches: Schema.optional(Schema.Array(OrchestrationV2ThreadWatch)),
   endedThreadWatches: Schema.optional(Schema.Array(OrchestrationV2EndedThreadWatch)),
+  parkedWaits: Schema.optional(Schema.Array(OrchestrationV2ParkedWait)),
+  parkedWaitGaveUp: Schema.optional(OrchestrationV2ParkedWaitGaveUp),
+  parkedWaitWoke: Schema.optional(OrchestrationV2ParkedWaitWoke),
   stalled: Schema.optional(OrchestrationV2ThreadStalled),
   workspaceAttachments: Schema.optional(Schema.Array(OrchestrationV2WorkspaceAttachment)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
@@ -1785,6 +1844,8 @@ export const OrchestrationV2Notification = Schema.Struct({
   outcome: Schema.Literals(["completed", "failed", "cancelled", "updated", "unknown"]),
   summary: TrimmedNonEmptyString,
   detail: Schema.optional(Schema.String),
+  /** The wake of a parked wait: it woke on its target or time, or gave up. */
+  parked: Schema.optional(Schema.Literals(["woke", "gave_up"])),
 });
 export type OrchestrationV2Notification = typeof OrchestrationV2Notification.Type;
 
@@ -2642,6 +2703,9 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   threadWatches: Schema.optional(Schema.Array(OrchestrationV2ThreadWatch)),
   endedThreadWatches: Schema.optional(Schema.Array(OrchestrationV2EndedThreadWatch)),
+  parkedWaits: Schema.optional(Schema.Array(OrchestrationV2ParkedWait)),
+  parkedWaitGaveUp: Schema.optional(OrchestrationV2ParkedWaitGaveUp),
+  parkedWaitWoke: Schema.optional(OrchestrationV2ParkedWaitWoke),
   workspaceAttachments: Schema.optional(Schema.Array(OrchestrationV2WorkspaceAttachment)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   lineage: OrchestrationV2AppThreadLineage,
@@ -3738,9 +3802,19 @@ export const OrchestrationV2Command = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     watchedThreadId: Schema.optional(ThreadId),
-    target: Schema.optional(OrchestrationV2WatchTarget),
+    target: Schema.optional(OrchestrationV2ParkedWaitTarget),
     title: Schema.optional(TrimmedNonEmptyString),
     watching: Schema.Boolean,
+    /** Present: the wait is parked, not held. Required for a Production or time target. */
+    park: Schema.optional(
+      Schema.Struct({
+        /** How long the agent expects the event to take; the wait gives up at twice this. */
+        expectedMs: Schema.optional(PositiveInt),
+        note: Schema.optional(Schema.String),
+      }),
+    ),
+    /** With `watching: false`, ends this held or parked wait by id instead of by target. */
+    watchId: Schema.optional(TrimmedNonEmptyString),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request.watch"),
@@ -4353,6 +4427,15 @@ const OrchestrationV2InternalCommand = Schema.Union([
         spec: Schema.optional(PositiveInt),
       }),
     ),
+    /** A parked Production wait: Production in `repository` serves `servedCommitId`, which includes its commit. */
+    production: Schema.optional(
+      Schema.Struct({
+        repository: TrimmedNonEmptyString,
+        servedCommitId: TrimmedNonEmptyString,
+      }),
+    ),
+    /** A parked wait whose target has not happened: what T3 now knows of it, for its give-up wake. */
+    lastKnown: Schema.optional(TrimmedNonEmptyString),
   }),
   /**
    * Attaches a workspace in another project, marks one released, or removes one. The workspace

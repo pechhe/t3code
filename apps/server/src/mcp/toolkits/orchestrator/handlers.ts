@@ -20,6 +20,12 @@ import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
 
 const decodeScheduledTaskSchedule = Schema.decodeUnknownEffect(OrchestratorMcpSchedule);
+/** A check-back is a wait the thread parks on, not a scheduled task (T3-567). */
+const refuseCheckBack = new OrchestratorMcpFailure({
+  code: "invalid_request",
+  message:
+    "Scheduled tasks can no longer be check-backs. To look again later, park this thread with `watch`: `watching: true`, a `target` of `{kind:'time', at}` (or the event itself, such as a Production release), and `park` (with `expectedMs` for an event, and a `note` to yourself). T3 wakes the thread then. Use `schedule_task` with purpose `long_running` only for work that repeats or runs without this thread.",
+});
 const decodeAgentTask = Schema.decodeUnknownEffect(AgentTaskRequest);
 
 export const handlers = {
@@ -138,6 +144,7 @@ export const handlers = {
               message: "A new scheduled task needs `prompt`, `schedule` and `purpose`.",
             });
           }
+          if (purpose === "check_back") return yield* refuseCheckBack;
           const scope = yield* McpInvocationContext.McpInvocationContext;
           const service = yield* OrchestratorMcpService.OrchestratorMcpService;
           return yield* service.scheduleTask(scope, {
@@ -161,6 +168,7 @@ export const handlers = {
     McpToolAccess.writes(({ scheduledTaskId, schedule, ...rest }) =>
       Effect.gen(function* () {
         if (scheduledTaskId === undefined) return yield* Effect.die("unreachable");
+        if (rest.purpose === "check_back") return yield* refuseCheckBack;
         // Changing a schedule shapes a run that starts later, so it obeys the delegation limit too.
         const { threads, caller } = yield* loadCaller();
         if (caller !== undefined) yield* assertBelowDelegationLimit(threads, caller);

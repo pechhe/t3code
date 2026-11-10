@@ -1,6 +1,6 @@
 // @effect-diagnostics globalDate:off -- Tests exercise local calendar snooze boundaries.
 import * as DateTime from "effect/DateTime";
-import { RuntimeRequestId } from "@t3tools/contracts";
+import { RuntimeRequestId, type OrchestrationV2ParkedWait } from "@t3tools/contracts";
 import { ThreadId } from "@t3tools/contracts";
 import { TurnId } from "@t3tools/contracts";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
@@ -10,6 +10,11 @@ import {
   canSnooze,
   effectiveSnoozed,
   hasQueuedTurnStart,
+  parkedWaitFacts,
+  parkedWaitTimeLeft,
+  parkedWaitWakesOn,
+  snoozeShelfEndsAt,
+  threadParkedOnShelf,
   pickSnoozePreset,
   resolveSnoozePresets,
   threadRaisedHandWhileSnoozed,
@@ -502,4 +507,70 @@ it("dismisses a wake at its timestamp without hiding a later wake", () => {
   expect(isThreadWokeUnseen(state)).toBe(true);
   expect(isThreadWokeUnseen({ ...state, lastVisitedAt: firstWake })).toBe(false);
   expect(isThreadWokeUnseen({ ...state, lastVisitedAt: firstWake, wokeAt: NOW })).toBe(true);
+});
+
+describe("parked waits", () => {
+  const STARTED = "2026-04-10T10:00:00.000Z";
+  const GIVES_UP = "2026-04-11T10:00:00.000Z";
+  const production = {
+    id: "w1",
+    title: "YS-1256",
+    startedAt: STARTED,
+    target: { kind: "production", commitId: "c8556cc" },
+    expectedAt: "2026-04-10T22:00:00.000Z",
+    givesUpAt: GIVES_UP,
+  } as unknown as OrchestrationV2ParkedWait;
+  const timeWait = {
+    id: "w2",
+    title: "check search latency",
+    startedAt: STARTED,
+    target: { kind: "time", at: "2026-04-11T06:00:00.000Z" },
+  } as unknown as OrchestrationV2ParkedWait;
+  const parkedShell = (input: {
+    readonly lastVisitedAt?: string | null;
+    readonly turnCompletedAt?: string | null;
+    readonly waits?: ReadonlyArray<OrchestrationV2ParkedWait>;
+    readonly sessionStatus?: "running" | "ready";
+  }): ThreadSnoozeShell => ({
+    ...makeShell({
+      turnCompletedAt: input.turnCompletedAt ?? STARTED,
+      ...(input.sessionStatus === undefined ? {} : { sessionStatus: input.sessionStatus }),
+    }),
+    parkedWaits: input.waits ?? [production],
+    lastVisitedAt: input.lastVisitedAt ?? null,
+  });
+
+  it("reads Done until the thread is opened, then shelves it without a snooze time", () => {
+    expect(threadParkedOnShelf(parkedShell({}))).toBe(false);
+    expect(threadParkedOnShelf(parkedShell({ lastVisitedAt: "2026-04-10T09:00:00.000Z" }))).toBe(
+      false,
+    );
+    const seen = parkedShell({ lastVisitedAt: "2026-04-10T10:05:00.000Z" });
+    expect(seen.snoozedUntil).toBeNull();
+    expect(effectiveSnoozed(seen, { now: NOW })).toBe(true);
+    expect(effectiveSnoozed({ ...seen, parkedWaits: [] }, { now: NOW })).toBe(false);
+  });
+
+  it("keeps a thread that is running or asking for you out of the shelf", () => {
+    const seen = { lastVisitedAt: "2026-04-10T10:05:00.000Z" };
+    expect(threadParkedOnShelf(parkedShell({ ...seen, sessionStatus: "running" }))).toBe(false);
+    expect(threadParkedOnShelf({ ...parkedShell(seen), hasPendingApprovals: true })).toBe(false);
+  });
+
+  it("names what it wakes on and how long is left", () => {
+    expect(parkedWaitWakesOn(production, Date.parse(NOW))).toBe(
+      "Wakes when YS-1256 reaches Production",
+    );
+    expect(parkedWaitTimeLeft([production], Date.parse(NOW))).toBe("gives up in 22h");
+    expect(parkedWaitTimeLeft([timeWait], Date.parse(NOW))).toBe("in 18h");
+    expect(parkedWaitTimeLeft([production, timeWait], Date.parse(NOW))).toBe("in 18h");
+    expect(snoozeShelfEndsAt({ ...makeShell({}), parkedWaits: [production, timeWait] })).toBe(
+      "2026-04-11T06:00:00.000Z",
+    );
+    expect(parkedWaitFacts(production, Date.parse(NOW))).toEqual([
+      "Parked 2h",
+      "expected within 12 hours",
+      expect.stringMatching(/^gives up /),
+    ]);
+  });
 });

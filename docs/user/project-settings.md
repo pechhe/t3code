@@ -194,9 +194,12 @@ the editor says so.
   what it is good at. A task saved under an old role name still runs as the
   implementer.
 
-Filter the list to **Check-backs**, reminders that end once they have their answer, or
-**Long-running** work with no end. Agents label a task when they create it; if one is
-wrong, change it at the start of the editor. The label does not affect where runs post.
+Every task here is a long-running routine. A one-off look-again an agent used to
+file as a check-back is now a wait its thread parks on: the thread finishes, and
+T3 wakes it at that time. At start, T3 turns each enabled one-off check-back that
+continues its own thread under the default role into such a wait. Repeating,
+webhook, new-thread, fresh-session, overridden and disabled check-backs stay here,
+unchanged.
 
 The Scheduled icon shows a dot while a task runs and a count of failed runs you
 have not opened yet; its tooltip gives the next run time.

@@ -2726,6 +2726,178 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
       }),
     );
 
+    it.effect(
+      "a managed child that parks returns its result at once, and its wake's reply later",
+      () =>
+        Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const eventSink = yield* EventSink.EventSinkV2;
+          const requests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
+          const now = yield* DateTime.now;
+          const parentThreadId = ThreadId.make("thread:parked-child-parent");
+          const projectId = ProjectId.make("project:parked-child");
+          const parentRunId = RunId.make("run:parked-child-parent");
+          const rootNodeId = NodeId.make("node:parked-child-parent");
+          yield* seedParentWithTerminalTask({
+            threadId: parentThreadId,
+            projectId,
+            runId: parentRunId,
+            rootNodeId,
+            taskId: NodeId.make("node:parked-child-seed"),
+            deliveryState: "acknowledged",
+            now,
+          });
+          const child = yield* seedRestartCancelledChild({
+            parentThreadId,
+            projectId,
+            parentRunId,
+            rootNodeId,
+            name: "parked-child",
+            completionWake: "always",
+            continuationPending: false,
+            runStatus: "completed",
+            now,
+          });
+          // A managed task: a held watch here would keep its result back.
+          const { thread } = yield* orchestrator.getThreadProjection(child.childThreadId);
+          yield* eventSink.write({
+            commandId: reconcileCommandId("parked-child-managed"),
+            events: [
+              {
+                id: EventId.make("event:parked-child-managed"),
+                type: "thread.metadata-updated",
+                threadId: thread.id,
+                occurredAt: now,
+                payload: {
+                  ...thread,
+                  agentTask: {
+                    role: "ui-verifier",
+                    taskClass: "ui",
+                    workId: "parked-child-work",
+                    attemptId: "1",
+                    workspacePath: "/fixture/parked-child",
+                    sourceRevision: "revision-two",
+                    requestFingerprint: "a".repeat(64),
+                    policyHash: "b".repeat(64),
+                    policyRevision: "test",
+                    briefHash: "c".repeat(64),
+                    sourceAccess: "read-only",
+                    toolProfile: "phi",
+                    requested: thread.modelSelection,
+                    assigned: null,
+                    effective: thread.modelSelection,
+                  },
+                },
+              },
+            ],
+          });
+          yield* orchestrator.dispatch({
+            type: "thread.thread-watch",
+            commandId: CommandId.make("command:parked-child-park"),
+            threadId: child.childThreadId,
+            target: { kind: "time", at: DateTime.formatIso(DateTime.add(now, { hours: 1 })) },
+            watching: true,
+            park: { note: "Report the release." },
+          });
+          const [wait] =
+            (yield* orchestrator.getThreadShell(child.childThreadId))?.parkedWaits ?? [];
+          assert.isDefined(wait);
+
+          yield* orchestrator.recoverDelegatedTasks;
+          let firstWake = yield* requests.take;
+          while (firstWake.threadId !== parentThreadId) firstWake = yield* requests.take;
+          const original = (yield* orchestrator.getThreadProjection(parentThreadId)).subagents.find(
+            (task) => task.id === child.taskId,
+          )!;
+          assert.equal(original.status, "completed");
+          yield* orchestrator.dispatch({
+            type: "delegated_task.completion-delivery.acknowledge",
+            commandId: CommandId.make("command:parked-child-ack"),
+            parentThreadId,
+            taskId: child.taskId,
+            observedByRunId: parentRunId,
+          });
+          const parentRun = (yield* orchestrator.getThreadProjection(parentThreadId)).runs.find(
+            (run) => run.id === parentRunId,
+          )!;
+          yield* eventSink.write({
+            commandId: reconcileCommandId("parked-child-parent-finished"),
+            events: [
+              {
+                id: EventId.make("event:parked-child-parent-finished"),
+                type: "run.updated",
+                threadId: parentThreadId,
+                runId: parentRunId,
+                occurredAt: now,
+                payload: { ...parentRun, status: "completed", completedAt: now },
+              },
+            ],
+          });
+
+          // The deadline timer's fire, at the wait's time.
+          yield* TestClock.adjust("1 hour");
+          yield* orchestrator.dispatch({
+            type: "thread.thread-watch.fire",
+            commandId: CommandId.make("command:parked-child-fire"),
+            threadId: child.childThreadId,
+            watchId: wait!.id,
+          });
+          const wakeMessageId = MessageId.make(`message:${child.childThreadId}:${wait!.id}`);
+          const run = (yield* orchestrator.getThreadProjection(child.childThreadId)).runs.find(
+            (row) => row.userMessageId === wakeMessageId,
+          )!;
+          assert.isDefined(run.delegatedTaskId);
+          yield* eventSink.write({
+            commandId: reconcileCommandId("parked-child-wake-finished"),
+            events: [
+              {
+                id: EventId.make("event:parked-child-wake-result"),
+                type: "message.updated",
+                threadId: child.childThreadId,
+                runId: run.id,
+                occurredAt: now,
+                payload: {
+                  id: MessageId.make("message:parked-child-wake-result"),
+                  threadId: child.childThreadId,
+                  runId: run.id,
+                  nodeId: null,
+                  role: "assistant",
+                  text: "The release is live.",
+                  attachments: [],
+                  streaming: false,
+                  createdBy: "agent",
+                  creationSource: "server",
+                  createdAt: now,
+                  updatedAt: now,
+                },
+              },
+              {
+                id: EventId.make("event:parked-child-wake-finished"),
+                type: "run.updated",
+                threadId: child.childThreadId,
+                runId: run.id,
+                occurredAt: now,
+                payload: { ...run, status: "completed", startedAt: now, completedAt: now },
+              },
+            ],
+          });
+          yield* orchestrator.recoverDelegatedTasks;
+          const followup = (yield* orchestrator.getThreadProjection(parentThreadId)).subagents.find(
+            (task) => task.id === run.delegatedTaskId,
+          )!;
+          assert.equal(followup.result, "The release is live.");
+          assert.equal(followup.completionDelivery?.state, "claimed");
+          let wake = yield* requests.take;
+          while (
+            wake.threadId !== parentThreadId ||
+            wake.delegatedCompletion?.messageId === firstWake.delegatedCompletion?.messageId
+          ) {
+            wake = yield* requests.take;
+          }
+          assert.equal(wake.delegatedCompletion?.parentRunId, parentRunId);
+        }),
+    );
+
     const outcomes = [
       "completed",
       "failed",

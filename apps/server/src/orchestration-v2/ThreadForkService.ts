@@ -114,6 +114,8 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
         arcRun: _sourceArcRun,
         threadWatches: _sourceThreadWatches,
         endedThreadWatches: _sourceEndedThreadWatches,
+        parkedWaits: _sourceParkedWaits,
+        parkedWaitGaveUp: _sourceParkedWaitGaveUp,
         ...sourceThread
       } = input.sourceProjection.thread;
       const targetThread: OrchestrationV2AppThread = {

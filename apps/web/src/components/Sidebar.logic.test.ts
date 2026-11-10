@@ -482,6 +482,22 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Waiting" });
   });
 
+  it("puts a thread whose parked wait gave up in Active with its own pill", () => {
+    const idle = { ...baseThread.runtime, status: "idle" as const, activeRunId: null };
+    const gaveUp = { title: "YS-1256", at: "2026-03-09T10:00:00.000Z" };
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...baseThread, runtime: idle, parkedWaitGaveUp: gaveUp },
+      }),
+    ).toMatchObject({ label: "Parked wait gave up", colorClass: "text-warning-foreground" });
+    // A request for the person is more specific than the give-up.
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...baseThread, hasPendingApprovals: true, parkedWaitGaveUp: gaveUp },
+      }),
+    ).toMatchObject({ label: "Pending Approval" });
+  });
+
   it("shows plan ready when a settled plan turn has a proposed plan ready for follow-up", () => {
     expect(
       resolveThreadStatusPill({

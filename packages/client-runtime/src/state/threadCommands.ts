@@ -70,7 +70,9 @@ import {
   updateThreadMetadata,
   visitThread,
   watchThreadPullRequest,
+  endThreadWait,
 } from "../operations/commands.ts";
+import type { EndThreadWaitInput } from "../operations/commands.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ThreadHistoryController from "./threadHistoryController.ts";
@@ -121,6 +123,7 @@ export type {
   UpdateThreadMetadataInput,
   VisitThreadInput,
   WatchThreadPullRequestInput,
+  EndThreadWaitInput,
 } from "../operations/commands.ts";
 
 export function createThreadEnvironmentAtoms<R, E>(
@@ -309,6 +312,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     watchPullRequest: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:watch-pull-request",
       execute: watchThreadPullRequest,
+      scheduler,
+      concurrency,
+    }),
+    endWait: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:end-wait",
+      execute: (input: EndThreadWaitInput) => endThreadWait(input),
       scheduler,
       concurrency,
     }),

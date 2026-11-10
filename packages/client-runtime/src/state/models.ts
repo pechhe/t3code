@@ -166,6 +166,10 @@ export interface EnvironmentThreadShell {
   /** The server's answer to where the thread stands; absent from older servers. */
   readonly standing?: OrchestrationV2ThreadStanding;
   readonly blockedOnThreadWait?: boolean;
+  /** What the thread is parked on. Never part of the thread's working or waiting state. */
+  readonly parkedWaits?: OrchestrationV2ThreadShell["parkedWaits"];
+  /** The last parked wait that gave up, until the owner next writes to the thread. */
+  readonly parkedWaitGaveUp?: OrchestrationV2ThreadShell["parkedWaitGaveUp"];
   readonly latestUserMessageAt: string | null;
   readonly latestUserAuthoredMessageAt?: string | null;
   readonly hasPendingApprovals: boolean;
@@ -339,6 +343,8 @@ export function presentThreadShell(
     runtime,
     ...(thread.standing === undefined ? {} : { standing: thread.standing }),
     blockedOnThreadWait: thread.blockedOnThreadWait ?? false,
+    ...(thread.parkedWaits === undefined ? {} : { parkedWaits: thread.parkedWaits }),
+    ...(thread.parkedWaitGaveUp === undefined ? {} : { parkedWaitGaveUp: thread.parkedWaitGaveUp }),
     latestUserMessageAt: nullableIso(thread.latestUserMessageAt),
     ...(thread.latestUserAuthoredMessageAt === undefined
       ? {}

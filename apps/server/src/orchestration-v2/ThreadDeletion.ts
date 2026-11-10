@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect";
 
 import type { PendingOrchestrationEffectV2 } from "./EffectOutbox.ts";
 import type * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import { withParkedWaits } from "./parkedWait.ts";
 
 export interface ThreadDeletionPlan {
   readonly events: ReadonlyArray<OrchestrationV2DomainEvent>;
@@ -59,7 +60,7 @@ export const planThreadDeletion = Effect.fn("ThreadDeletion.planThreadDeletion")
     providerInstanceId: projection.thread.providerInstanceId,
     occurredAt: now,
     payload: {
-      ...projection.thread,
+      ...withParkedWaits(projection.thread, []),
       deletedAt: projection.thread.deletedAt ?? now,
       // No reactor settles a deleted thread's watches, and a managed task holds its result for them.
       threadWatches: [],
