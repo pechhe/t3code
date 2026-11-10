@@ -38,7 +38,7 @@ const scout: Row = {
   models: ["deepseek"],
 };
 const worker: Row = {
-  role: "chore-worker",
+  role: "implementer",
   sourceAccess: "scoped-write",
   refusal: null,
   models: ["deepseek"],
@@ -171,7 +171,7 @@ it.effect("resolves a linked reader in the project's own checkout, under the cal
 
 it.effect("gives a linked writer a workspace allocated here, never the caller's", () =>
   Effect.gen(function* () {
-    const { admitted, seen } = yield* admit({ request: { role: "chore-worker" } });
+    const { admitted, seen } = yield* admit({ request: { role: "implementer" } });
     expect(admitted?.workspaceStrategy).toEqual({
       type: "existing_worktree",
       worktreePath: allocated,
@@ -185,7 +185,7 @@ it.effect("gives a linked writer a workspace allocated here, never the caller's"
 it.effect("gives the workspace back when the resolver refuses after allocating it", () =>
   Effect.gen(function* () {
     const { refused, seen } = yield* admit({
-      request: { role: "chore-worker" },
+      request: { role: "implementer" },
       prepareFails: "the role's sandbox is unavailable",
     });
     expect(refused).toContain("sandbox is unavailable");
@@ -200,14 +200,14 @@ it.effect("refuses before allocating anything, naming the cause", () =>
       [{ request: { role: "lead" } }, "own environment"],
       [{ request: { role: "advisor" } }, "has no `advisor` role"],
       [
-        { request: { role: "chore-worker", selection: { model: "claude-fable" } } },
+        { request: { role: "implementer", selection: { model: "claude-fable" } } },
         "claude-fable is not on this environment's list",
       ],
       [
-        { request: { role: "chore-worker" }, rows: [{ ...worker, refusal: "usage-limited" }] },
-        "cannot start `chore-worker` now: usage-limited",
+        { request: { role: "implementer" }, rows: [{ ...worker, refusal: "usage-limited" }] },
+        "cannot start `implementer` now: usage-limited",
       ],
-      [{ request: { role: "chore-worker" }, slipjay: false }, "only in a SlipJay project"],
+      [{ request: { role: "implementer" }, slipjay: false }, "only in a SlipJay project"],
     ] as const;
     for (const [input, message] of cases) {
       const { refused, seen } = yield* admit(input as Parameters<typeof admit>[0]);

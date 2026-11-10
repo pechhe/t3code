@@ -31,16 +31,13 @@ const shells = new Map([
     leadThread,
     { ...liveThreadShell(leadThread), title: "Spec lead", agentTask: { role: "lead" } as never },
   ],
-  [
-    workerThread,
-    { ...liveThreadShell(workerThread), agentTask: { role: "implementation-worker" } as never },
-  ],
+  [workerThread, { ...liveThreadShell(workerThread), agentTask: { role: "implementer" } as never }],
   [otherThread, { ...liveThreadShell(otherThread), title: "Other" }],
   [
     deepThread,
     {
       ...liveThreadShell(deepThread),
-      agentTask: { role: "implementation-worker" } as never,
+      agentTask: { role: "implementer" } as never,
       lineage: { parentThreadId: workerThread, relationshipToParent: "subagent" } as never,
     },
   ],

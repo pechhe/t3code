@@ -160,9 +160,10 @@ function fixture(): AgentPolicySettings {
       fast: [{ model: "sol", effort: "low" }],
     },
     roles: {
-      "chore-worker": role("chore-worker", "fast", writer),
-      "implementation-worker": role("implementation-worker", "workhorse", writer),
-      "ui-worker": role("ui-worker", "workhorse", { ...writer, taskClasses: ["ui"] }),
+      implementer: role("implementer", "workhorse", {
+        ...writer,
+        taskClasses: ["non-ui", "ui", "mixed"],
+      }),
       browser: role("browser", "fast", { toolProfile: "phi" }),
       advisor: role("advisor", "workhorse"),
       reviewer: { ...role("reviewer", "workhorse"), specList: "workhorse" },
@@ -333,7 +334,7 @@ it("reports a stale save, reloads the current policy and does not retry", async 
 it("a job without models is not saved, and discarding restores it", async () => {
   reset();
   await using _screen = await mount();
-  // The chore job's list holds only gpt-test; the shared workhorse list keeps a model.
+  // The browser job's list holds only gpt-test; the shared workhorse list keeps a model.
   await userEvent.click(buttons("Remove gpt-test").at(-1)!);
   expect(state.save).not.toHaveBeenCalled();
   expect(text()).toContain("Every list needs at least one model");
@@ -394,7 +395,7 @@ it("saves one policy to every selected environment against each one's own revisi
   const base = fixture();
   addEnvironment({ ...base, snapshot: { ...base.snapshot, hash: "c".repeat(64) } });
   await using _screen = await mount();
-  expect(text().match(/Non-UI code changes/g)).toHaveLength(1);
+  expect(text().match(/Code and UI changes/g)).toHaveLength(1);
   await click("Move claude-test up");
   expect(
     state.save.mock.calls.map(([call]) => [call.environmentId, call.input.expectedHash]),
@@ -577,4 +578,22 @@ it("turning the council Off removes the key from what is saved", async () => {
   await act(async () => councilSwitch().click());
   const saved = state.save.mock.calls[0]![0].input.manifest;
   expect("council" in saved.roles.reviewer).toBe(false);
+});
+
+it("says a save was not pushed when agent-config could not publish it", async () => {
+  reset();
+  state.save.mockResolvedValue(
+    AsyncResult.success({ ...state.data!, publish: { pushed: false, detail: "not on main" } }),
+  );
+  await using _screen = await mount();
+  await click("Move claude-test up");
+  await vi.waitFor(() =>
+    expect(text()).toContain("Saved, but not pushed to agent-config: not on main."),
+  );
+  // A save that did reach the remote clears the notice.
+  state.save.mockResolvedValue(
+    AsyncResult.success({ ...state.data!, publish: { pushed: true, detail: null } }),
+  );
+  await click("Move claude-test down");
+  await vi.waitFor(() => expect(text()).not.toContain("not pushed to agent-config"));
 });

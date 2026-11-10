@@ -13,7 +13,10 @@ import {
   AgentPolicyManifest,
   AgentPolicyManifestEdit,
   AgentPolicySnapshot,
+  type AgentPolicyPublish,
 } from "@t3tools/contracts";
+import * as AgentConfigCheckout from "./AgentConfigCheckout.ts";
+import * as Processes from "../processRunner.ts";
 
 export class AgentPolicyLoadError extends Schema.TaggedError<AgentPolicyLoadError>()(
   "AgentPolicyLoadError",
@@ -85,7 +88,10 @@ export class AgentPolicyService extends Context.Service<
     readonly save: (
       sourceRoot: string,
       edit: { readonly expectedHash: string; readonly manifest: unknown },
-    ) => Effect.Effect<AgentPolicySnapshot, AgentPolicyLoadError | AgentPolicySaveError>;
+    ) => Effect.Effect<
+      { readonly snapshot: AgentPolicySnapshot; readonly publish: AgentPolicyPublish },
+      AgentPolicyLoadError | AgentPolicySaveError
+    >;
   }
 >()("t3/agents/AgentPolicyService") {}
 
@@ -106,6 +112,10 @@ const withoutRetiredRole = (manifest: unknown): unknown => {
   return { ...manifest, roles: kept };
 };
 const manifestPath = "roles/policy.json";
+const PREVIOUS_BRIEFS: Readonly<Record<string, string>> = {
+  reviewer: "roles/spec-reviewer.md",
+  implementer: "roles/implementation-worker.md",
+};
 function freeze<A>(value: A): A {
   if (value !== null && typeof value === "object") {
     for (const child of Object.values(value)) freeze(child);
@@ -118,6 +128,7 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const crypto = yield* Digest.Digest;
+  const processes = yield* Processes.ProcessRunner;
   const edits = yield* Semaphore.make(1);
   const hash = (text: string) =>
     crypto
@@ -173,8 +184,10 @@ const make = Effect.gen(function* () {
     );
     const entries = yield* Effect.forEach(Object.entries(manifest.roles), ([role, policy]) =>
       Effect.gen(function* () {
+        // A checkout from before a role merge keeps the merged role's brief under its old name.
+        const previousBrief = PREVIOUS_BRIEFS[role];
         const briefPath =
-          role === "reviewer" &&
+          previousBrief !== undefined &&
           !(yield* fs
             .exists(path.join(root, policy.brief))
             .pipe(
@@ -182,7 +195,7 @@ const make = Effect.gen(function* () {
                 (cause) => new AgentPolicyLoadError({ reason: "read", path: policy.brief, cause }),
               ),
             ))
-            ? "roles/spec-reviewer.md"
+            ? previousBrief
             : policy.brief;
         const text = yield* read(root, briefPath);
         return [role, { hash: yield* hash(text), text }] as const;
@@ -297,7 +310,12 @@ const make = Effect.gen(function* () {
               Effect.mapError((cause) => new AgentPolicySaveError({ reason: "write", cause })),
               Effect.uninterruptible,
             );
-            return next;
+            // Still under the lock: publish the one file so the checkout's other users see it.
+            // A checkout that cannot publish leaves the save alone and only reports why.
+            const publish = yield* AgentConfigCheckout.publishPolicy(root, revision).pipe(
+              Effect.provideService(Processes.ProcessRunner, processes),
+            );
+            return { snapshot: next, publish };
           }),
         );
       },
@@ -306,4 +324,4 @@ const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(AgentPolicyService, make);
+export const layer = Layer.effect(AgentPolicyService, make).pipe(Layer.provide(Processes.layer));

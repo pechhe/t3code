@@ -493,7 +493,7 @@ function makeLocalCommandHarness(input: {
             : "feature/restore",
       worktreePath: input.worktreePath ?? null,
       lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
-      ...(input.delegated === true ? { agentTask: { role: "implementation-worker" } } : {}),
+      ...(input.delegated === true ? { agentTask: { role: "implementer" } } : {}),
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
       ...(input.previousNativeSession

@@ -158,7 +158,7 @@ const LINKED_THREAD_MODE_LABELS: Record<Exclude<ScheduledTaskThreadMode, "new_th
   fresh_session: "starts a fresh session",
 };
 const ROLE_OPTIONS = AgentRole.literals;
-const DEFAULT_ROLE: AgentRole = "implementation-worker";
+const DEFAULT_ROLE: AgentRole = "implementer";
 
 const scheduledTaskCreatePermissionsAtom = environmentAtomList(
   "web-scheduled-task-create-permissions",

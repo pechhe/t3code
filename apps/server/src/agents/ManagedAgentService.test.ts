@@ -147,11 +147,11 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         const settings = yield* Settings.ServerSettingsService;
         const writer = request({
           workspacePath: f.workspacePath,
-          role: "ui-worker",
+          role: "implementer",
           taskClass: "ui",
         });
         const prepare = (overrides: Partial<Parameters<typeof f.prepare>[0]> = {}) =>
-          f.prepare({ request: writer, ...overrides });
+          f.prepare({ request: writer, providers: [claude], ...overrides });
         expect((yield* prepare().pipe(Effect.flip)).message).toContain("trusted-claude-disabled");
         yield* settings.updateSettings({ delegation: { allowTrustedClaudeWriters: true } });
         const accepted = yield* prepare();
@@ -267,7 +267,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         const roles = yield* f.service
           .roles({ ...f.prepareInput, request: { taskClass: "ui" } })
           .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
-        const ui = roles.roles.find((role) => role.role === "ui-worker")!;
+        const ui = roles.roles.find((role) => role.role === "implementer")!;
         expect(ui.executionBoundary).toBe("trusted-host-access");
         expect(ui.executionRequirement).toBe("trusted-host-allowed");
         const writer = yield* f.prepare({
@@ -472,6 +472,21 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
   );
 
   it.effect(
+    "tells a UI or mixed implementer task, and only that, to check its work in a browser",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        for (const taskClass of ["non-ui", "ui", "mixed"] as const) {
+          const prepared = yield* f.prepare({
+            request: request({ workspacePath: f.workspacePath, taskClass }),
+          });
+          expect(prepared.binding.role).toBe("implementer");
+          expect(prepared.brief.includes(Managed.UI_TASK_INSTRUCTION)).toBe(taskClass !== "non-ui");
+        }
+      }),
+  );
+
+  it.effect(
     "persists original policy and brief bytes across edits without rewriting accepted treatment",
     () =>
       Effect.gen(function* () {
@@ -479,9 +494,9 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         const accepted = yield* f.prepare();
         const store = yield* Store.AgentPolicyStore;
         const original = yield* store.get(accepted.binding.policyHash);
-        expect(original.briefs["implementation-worker"].text).toBe(accepted.brief);
+        expect(original.briefs["implementer"].text).toBe(accepted.brief);
         yield* f.fs.writeFileString(
-          `${f.policyRoot}/roles/implementation-worker.md`,
+          `${f.policyRoot}/roles/implementer.md`,
           "Revised instructions\n",
         );
         const policy = yield* Policy.AgentPolicyService;
@@ -490,8 +505,8 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         yield* f.validate(accepted.binding);
         const retained = yield* store.get(accepted.binding.policyHash);
         expect(retained).toEqual(original);
-        expect(retained.briefs["implementation-worker"].hash).toBe(accepted.binding.briefHash);
-        expect(retained.briefs["implementation-worker"].text).toBe(accepted.brief);
+        expect(retained.briefs["implementer"].hash).toBe(accepted.binding.briefHash);
+        expect(retained.briefs["implementer"].text).toBe(accepted.brief);
       }),
   );
 
@@ -511,8 +526,8 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         ...f.manifest,
         roles: {
           ...f.manifest.roles,
-          "implementation-worker": {
-            ...f.manifest.roles["implementation-worker"],
+          implementer: {
+            ...f.manifest.roles["implementer"],
             sourceAccess: "read-only",
           },
         },
@@ -651,7 +666,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       const f = yield* fixture;
       const original = yield* f.prepare();
       yield* f.fs.writeFileString(
-        `${f.policyRoot}/roles/implementation-worker.md`,
+        `${f.policyRoot}/roles/implementer.md`,
         "Changed after accepted dispatch\n",
       );
       // The binding as persisted, decoded by today's schema, still resumes (T3-532 kept its shape).
@@ -1479,7 +1494,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
             ...f.manifest,
             roles: {
               ...f.manifest.roles,
-              "ui-worker": { ...f.manifest.roles["ui-worker"], toolProfile: "implementation-phi" },
+              implementer: { ...f.manifest.roles.implementer, toolProfile: "implementation-phi" },
             },
           }),
         );
@@ -1489,7 +1504,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           f
             .prepare({
               request: {
-                ...request({ role: "ui-worker", taskClass: "ui", readOnly }),
+                ...request({ role: "implementer", taskClass: "ui", readOnly }),
                 workspacePath: f.workspacePath,
               },
             })
@@ -1506,9 +1521,11 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           toolProfile: "source-reader",
           browserTasks: true,
         });
-        // A task bound while the profile drove Phi, even one that selected Phi, resumes the same way.
+        // A UI worker bound while its profile drove Phi, even one that selected Phi, resumes as
+        // an implementer the same way.
         const stored = yield* decodeBinding({
           ...(yield* encodeBinding(writer.binding)),
+          role: "ui-worker",
           toolProfile: "implementation-phi",
           browserTasks: undefined,
           browser: { backend: "phi" },
@@ -1517,7 +1534,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         const resumed = yield* f
           .prepare({
             request: request({
-              role: "ui-worker",
+              role: "implementer",
               taskClass: "ui",
               workspacePath: f.workspacePath,
             }),

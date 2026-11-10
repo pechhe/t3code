@@ -56,9 +56,7 @@ const EMPTY_THREAD_REFS_BY_PROJECT: ReadonlyMap<
 // parent is no longer waiting on the answer, so it stops counting as input.
 // The activity run stays set when a follow-up is queued behind a blocked run;
 // older servers omit it, so fall back to the latest run's status.
-const isChildRunLive = (
-  thread: Pick<OrchestrationV2ThreadShell, "activityRunStatus" | "status">,
-) =>
+const isChildRunLive = (thread: Pick<OrchestrationV2ThreadShell, "activityRunStatus" | "status">) =>
   thread.activityRunStatus !== undefined
     ? thread.activityRunStatus !== null
     : thread.status === "preparing" ||
@@ -280,13 +278,7 @@ export function directSubagentUnder(
 
 /** Roles that carry the work and report progress worth reading; the rest answer and finish. */
 export function isSubagentDoer(role: AgentRole | undefined): boolean {
-  return (
-    role === undefined ||
-    role === "lead" ||
-    role === "implementation-worker" ||
-    role === "ui-worker" ||
-    role === "chore-worker"
-  );
+  return role === undefined || role === "lead" || role === "implementer";
 }
 
 /**
@@ -351,7 +343,7 @@ function subagentActivityNoun(role: AgentRole | null): string {
       return "Agent";
     case "lead":
       return "Lead";
-    case "implementation-worker":
+    case "implementer":
       return "Implementer";
     case "reviewer":
       return "Reviewer";

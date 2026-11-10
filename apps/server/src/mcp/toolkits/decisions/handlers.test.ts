@@ -99,8 +99,7 @@ it.effect("denies stale thread invocations", () =>
 );
 it.effect.each([
   scope(),
-  scope("implementation", "implementation-worker"),
-  scope("implementation", "ui-worker"),
+  scope("implementation", "implementer"),
   scope("phi", "browser"),
   scope("phi", "ui-verifier"),
 ])("authorizes ordinary and managed implementation/browser calls", (invocation) =>
@@ -119,7 +118,7 @@ it("explicitly assigns discovery to decision, excluding source-only and research
     expect(isToolListedForSession("t3_decide", { toolProfile, agentRole })).toBe(false);
   }
   for (const [toolProfile, agentRole] of [
-    ["implementation", "implementation-worker"],
+    ["implementation", "implementer"],
     ["phi", "browser"],
   ] as const) {
     expect(isToolListedForSession("t3_decide", { toolProfile, agentRole })).toBe(true);

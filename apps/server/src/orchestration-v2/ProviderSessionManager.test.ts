@@ -2888,12 +2888,12 @@ it.effect("keeps a granted leaf's bounded credential across re-attach with devic
 );
 
 it.effect(
-  "gives a granted UI worker bounded tasks and never Phi, whatever its project allows",
+  "gives a granted implementer bounded tasks and never Phi, whatever its project allows",
   () =>
     Effect.gen(function* () {
       const parent = ThreadId.make("thread-bounded-ui-parent");
       const uiWorker = {
-        role: "ui-worker" as const,
+        role: "implementer" as const,
         sourceAccess: "scoped-write" as const,
         toolProfile: "implementation" as const,
         browserTasks: true as const,

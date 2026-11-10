@@ -178,7 +178,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
           ...original.manifest,
           models: {
             ...original.manifest.models,
-            luna: { ...original.manifest.models.luna!, options: { serviceTier: "fast" } },
+            sol: { ...original.manifest.models.sol!, options: { serviceTier: "fast" } },
           },
         },
       };
@@ -207,7 +207,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
           input({
             snapshot: withFast,
             providers,
-            request: request({ role: "chore-worker" }),
+            request: request({ role: "implementer" }),
           }),
         );
       expect((yield* chore([offering])).options).toEqual([
@@ -362,16 +362,18 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
-  it.effect("keeps roles inside their lists and rejects UI implementation classification", () =>
+  it.effect("keeps roles inside their lists and task classes", () =>
     Effect.gen(function* () {
       expect(
         (yield* refusal(
           input({ providers: [provider("codex", "advisor-only", ["gpt-astra-test"])] }),
         )).reason,
       ).toBe("no-eligible-model");
-      expect((yield* refusal(input({ request: request({ taskClass: "ui" }) }))).reason).toBe(
-        "classification",
-      );
+      // The policy's fixture browser role takes only UI work.
+      expect(
+        (yield* refusal(input({ request: request({ role: "browser", taskClass: "non-ui" }) })))
+          .reason,
+      ).toBe("classification");
     }),
   );
 
@@ -557,7 +559,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       }),
   );
 
-  it.effect("lets a reviewer's listed model take UI and mixed work", () =>
+  it.effect("lets a reviewer's or implementer's listed model take UI and mixed work", () =>
     Effect.gen(function* () {
       const reviews = [
         { role: "reviewer", review: changeReview },
@@ -590,22 +592,21 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
           ).toBe(codexModel);
         }
       }
-      // UI implementation still follows ui-worker's own list, which lists no Codex model.
-      const uiWork = input({
-        providers: [codex],
-        request: request({ role: "ui-worker", taskClass: "ui" }),
-      });
-      expect((yield* refusal(uiWork)).reason).toBe("no-eligible-model");
-      expect(
-        (yield* refusal({
-          ...uiWork,
-          selection: {
-            instanceId: codex.instanceId,
-            model: codexModel,
-            options: [{ id: "reasoning", value: "medium" }],
-          },
-        })).reason,
-      ).toBe("selection-denied");
+      // No model is held back from UI work: the implementer runs it on any model its list names.
+      for (const taskClass of ["ui", "mixed"] as const) {
+        const uiWork = input({ providers: [codex], request: request({ taskClass }) });
+        expect((yield* resolve(uiWork)).model).toBe(codexModel);
+        expect(
+          (yield* resolve({
+            ...uiWork,
+            selection: {
+              instanceId: codex.instanceId,
+              model: codexModel,
+              options: [{ id: "reasoning", value: "medium" }],
+            },
+          })).model,
+        ).toBe(codexModel);
+      }
     }),
   );
 
@@ -727,12 +728,12 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       }),
   );
 
-  it.effect("starts a UI worker with no browser route and refuses a browser selection for it", () =>
+  it.effect("starts a UI implementer with no browser route and refuses a browser selection", () =>
     Effect.gen(function* () {
       const base = input({
         providers: [claude],
         allowTrustedClaudeWriters: true,
-        request: request({ role: "ui-worker", taskClass: "ui" }),
+        request: request({ taskClass: "ui" }),
       });
       expect((yield* resolve(base)).instanceId).toBe(claude.instanceId);
       for (const backend of ["integrated", "phi"] as const) {

@@ -39,7 +39,7 @@ import * as Digest from "effect/crypto/Digest";
 import * as Hex from "effect/encoding/Hex";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Managed from "../agents/ManagedAgentService.ts";
-import { withRetiredDemanding } from "../agents/retiredDemanding.ts";
+import { withRetiredFields } from "../agents/retiredRequestFields.ts";
 import {
   snapshot,
   request,
@@ -250,7 +250,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
               role: "review",
               clientRequestId: "chore-attempt",
               agentTask: request({
-                role: "chore-worker",
+                role: "implementer",
                 taskClass: "non-ui",
                 workId: "chore-work",
                 workspacePath: root,
@@ -1387,7 +1387,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       });
       expect(child.dispatched).toHaveLength(1);
       const leaf = yield* harness(undefined, true, {
-        parentTask: { role: "implementation-worker" },
+        parentTask: { role: "implementer" },
       });
       const leafAttempt = yield* leaf.delegate({
         task: "Implement the importer",
@@ -1399,7 +1399,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       // Two delegations below a top-level thread: refused with what to do, counted from lineage.
       const deepWorker = { task: "Implement", clientRequestId: "deep-worker" };
       const twoDeep = {
-        parentTask: { role: "implementation-worker" },
+        parentTask: { role: "implementer" },
         parentLineage: { parentThreadId: "spec-lead", relationshipToParent: "subagent" },
         ancestors: [
           {
@@ -1586,7 +1586,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         const saved = Hex.encode(
           yield* (yield* Digest.Digest).digest(
             Digest.sha256,
-            new TextEncoder().encode(withRetiredDemanding(fingerprintText)[1]!),
+            new TextEncoder().encode(withRetiredFields(fingerprintText)[1]!),
           ),
         );
         h.acceptDispatchedTask({ ...first.agentTask, requestFingerprint: saved });

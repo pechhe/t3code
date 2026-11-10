@@ -1,6 +1,7 @@
 import * as Champions from "./champions/ChampionService.ts";
 import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
+import { rpcSerializationForClient } from "./clientRoleSerialization.ts";
 import * as ExperimentResults from "./experiments/ExperimentResults.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
 import * as ManagedAgent from "./agents/ManagedAgentService.ts";
@@ -66,6 +67,7 @@ import {
   ORCHESTRATION_PROTOCOL_QUERY_PARAM,
   CLIENT_CAPABILITIES_QUERY_PARAM,
   SETTINGS_SECRET_REFERENCES_CAPABILITY,
+  IMPLEMENTER_ROLE_CAPABILITY,
   ORCHESTRATION_PROTOCOL_VERSION,
   OrchestrationV2DispatchCommandError,
   OrchestrationV2GetShellSnapshotError,
@@ -826,9 +828,14 @@ export function clientThreadLaunchInput(
   };
 }
 
+function readClientCapabilities(url: URL) {
+  return url.searchParams.get(CLIENT_CAPABILITIES_QUERY_PARAM)?.split(",") ?? [];
+}
+
 function readSettingsClient(url: URL) {
-  const capabilities = url.searchParams.get(CLIENT_CAPABILITIES_QUERY_PARAM)?.split(",") ?? [];
-  return { secretReferences: capabilities.includes(SETTINGS_SECRET_REFERENCES_CAPABILITY) };
+  return {
+    secretReferences: readClientCapabilities(url).includes(SETTINGS_SECRET_REFERENCES_CAPABILITY),
+  };
 }
 
 function shouldUseBoundedThreadSnapshot(input: {
@@ -3976,7 +3983,14 @@ export const layer = Layer.unwrap(
               layerWsChampionsRpc,
               layerWsThreadControlRpc,
             ).pipe(
-              Layer.provideMerge(RpcSerialization.layerJson),
+              Layer.provideMerge(
+                Layer.succeed(
+                  RpcSerialization.RpcSerialization,
+                  rpcSerializationForClient(
+                    readClientCapabilities(url.value).includes(IMPLEMENTER_ROLE_CAPABILITY),
+                  ),
+                ),
+              ),
               // Handler-context reporters see only request defects, not server-wide defects.
               Layer.provide(DefectReporter.layer),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),

@@ -270,7 +270,7 @@ it.effect(
             ...child.thread,
             agentTask: {
               ...binding,
-              role: "implementation-worker",
+              role: "implementer",
               sourceAccess: "scoped-write",
               toolProfile: "implementation",
             },

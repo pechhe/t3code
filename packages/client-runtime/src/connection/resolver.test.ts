@@ -203,7 +203,7 @@ describe("ConnectionResolver", () => {
         label: "Primary",
         httpBaseUrl: "http://127.0.0.1:3777",
         socketUrl:
-          "ws://127.0.0.1:3777/ws?clientSurface=web&clientDeviceType=desktop&connectionMethod=direct&orchestrationProtocol=2&liveResponseStreaming=1&clientCapabilities=settingsSecretReferences",
+          "ws://127.0.0.1:3777/ws?clientSurface=web&clientDeviceType=desktop&connectionMethod=direct&orchestrationProtocol=2&liveResponseStreaming=1&clientCapabilities=settingsSecretReferences%2CimplementerRole",
         httpAuthorization: null,
         target,
       });
@@ -242,7 +242,7 @@ describe("ConnectionResolver", () => {
 
       expect(yield* broker.prepare(catalogEntry(target))).toMatchObject({
         socketUrl:
-          "ws://127.0.0.1:3777/ws?wsTicket=desktop&orchestrationProtocol=2&liveResponseStreaming=1&clientCapabilities=settingsSecretReferences",
+          "ws://127.0.0.1:3777/ws?wsTicket=desktop&orchestrationProtocol=2&liveResponseStreaming=1&clientCapabilities=settingsSecretReferences%2CimplementerRole",
         httpAuthorization: { _tag: "Bearer", token: "desktop-bearer" },
         target,
       });

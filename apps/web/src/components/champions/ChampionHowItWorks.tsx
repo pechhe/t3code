@@ -132,7 +132,7 @@ export function HowChampionsWorkDialog() {
             <dd>
               On its schedule, or when you press Check now, it measures each metric and asks what
               most holds back its goal. Checks run on a cheap role, usually{" "}
-              <AgentRoleChip role="chore-worker" />.
+              <AgentRoleChip role="implementer" />.
             </dd>
             <dt className="text-muted-foreground">Harder work</dt>
             <dd>

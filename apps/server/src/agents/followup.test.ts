@@ -36,7 +36,7 @@ it("a pinned task refuses a follow-up that states no revision", () => {
 });
 
 it("a worker's earlier follow-up revision does not pin it", () => {
-  const worker = { ...binding(), role: "implementation-worker" as const };
+  const worker = { ...binding(), role: "implementer" as const };
   expect(followupBinding(worker, {}, "one")).toBe(worker);
 });
 

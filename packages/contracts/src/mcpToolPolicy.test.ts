@@ -8,7 +8,7 @@ import {
 } from "./mcpToolPolicy.ts";
 
 const reader = { toolProfile: "source-reader", agentRole: "reviewer", readOnly: true } as const;
-const worker = { toolProfile: "implementation", agentRole: "implementation-worker" } as const;
+const worker = { toolProfile: "implementation", agentRole: "implementer" } as const;
 
 describe("permission classes", () => {
   it("gives every editor one endpoint and a read-only task the reader endpoint", () => {

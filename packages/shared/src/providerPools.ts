@@ -190,10 +190,6 @@ const bySpendUrgency =
     return urgencyA.tier - urgencyB.tier || urgencyA.deadlineMs - urgencyB.deadlineMs || 0;
   };
 
-/** Order accounts for a pooled turn so the least allowance goes unused: by `spendUrgency`. */
-export const compareByUsageReset = (nowMs: number, limitPercent = 100) =>
-  byAllowance(nowMs, () => limitPercent, bySpendUrgency(nowMs));
-
 /** The pool an account belongs to, if any. */
 export const poolOf = (
   pools: ReadonlyArray<PoolRoute>,

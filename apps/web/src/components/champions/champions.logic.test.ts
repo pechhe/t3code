@@ -25,6 +25,7 @@ import {
   championDecisionBindingChanged,
   championMachineGap,
   championRecentRuns,
+  championRoleTaskClass,
   championsNeedingAttention,
   metricChange,
   metricIsOffTarget,
@@ -614,20 +615,25 @@ describe("champion class choices", () => {
     roles,
   });
   const nonUi = result([
-    { role: "chore-worker", selection: model("light"), refusal: null },
+    { role: "implementer", selection: model("light"), refusal: null },
     { role: "advisor", selection: null, refusal: "No eligible model." },
     { role: "reviewer", selection: model("review"), refusal: null },
-    { role: "ui-worker", selection: null, refusal: "Not a non-UI role." },
+    { role: "researcher", selection: model("search"), refusal: null },
+    { role: "scout", selection: null, refusal: "Not a non-UI role." },
   ]);
-  const ui = result([{ role: "ui-worker", selection: model("design"), refusal: null }]);
 
-  it("offers only roles the server can run, reading a UI role from its own classification", () => {
+  it("offers only the roles the server can run, and the implementer first", () => {
     const options = championClassOptions(
-      { role: "chore-worker", taskClass: "non-ui" },
-      { "non-ui": nonUi, ui, mixed: null },
+      { role: "implementer", taskClass: "non-ui" },
+      { "non-ui": nonUi, ui: null, mixed: null },
     );
-    expect(options.map((option) => option.role)).toEqual(["chore-worker", "ui-worker"]);
-    expect(options[1]?.selection?.model).toBe("design");
+    expect(options.map((option) => option.role)).toEqual(["implementer", "researcher"]);
+    expect(options[0]?.selection?.model).toBe("light");
+  });
+
+  it("runs a champion's checks as non-UI work whichever role it names", () => {
+    expect(championRoleTaskClass("implementer")).toBe("non-ui");
+    expect(championRoleTaskClass("advisor")).toBe("non-ui");
   });
 
   it("keeps a saved refused role visible with its reason instead of swapping it", () => {
@@ -638,18 +644,20 @@ describe("champion class choices", () => {
       refusal: "No eligible model.",
     });
     expect(
-      championClassOptions(saved, { "non-ui": nonUi, ui, mixed: null }).map(({ role }) => role),
+      championClassOptions(saved, { "non-ui": nonUi, ui: null, mixed: null }).map(
+        ({ role }) => role,
+      ),
     ).toContain("advisor");
   });
 
   it("carries a policy-wide refusal without inventing a selection", () => {
     expect(
       resolveChampionClass(
-        { role: "chore-worker", taskClass: "non-ui" },
+        { role: "implementer", taskClass: "non-ui" },
         result([], "Agent class policy is unavailable on this machine."),
       ),
     ).toEqual({
-      role: "chore-worker",
+      role: "implementer",
       selection: null,
       refusal: "Agent class policy is unavailable on this machine.",
     });

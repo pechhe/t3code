@@ -290,13 +290,20 @@ export const findingEvidence = (input: {
   readonly steps: string;
   readonly clicks: string;
   readonly model: string;
+  /** False when the replay's model is one the check itself uses. */
+  readonly independent: boolean;
   readonly reason: string;
   /** What the replay did: a journey can be judged broken before it takes the step that shows the bug. */
   readonly reproduction: string | null;
   readonly screenshot: string;
 }) => {
   const seen = cut(`${input.observed} Expected: ${input.expected}`, 2000);
-  const confirmed = cut(`Confirmed in isolation by ${input.model}: ${input.reason}`, 1500);
+  const confirmed = cut(
+    input.independent
+      ? `Confirmed in isolation by ${input.model}: ${input.reason}`
+      : `Confirmed in isolation by ${input.model}, a model this check itself uses, so not independently: ${input.reason}`,
+    1500,
+  );
   const shot = `Screenshot: ${input.screenshot}`;
   const followed =
     input.reproduction === null

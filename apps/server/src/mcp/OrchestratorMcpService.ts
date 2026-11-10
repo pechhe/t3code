@@ -197,7 +197,7 @@ import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import { revalidateLinkedRole } from "../peer/LinkedRoleAdmission.ts";
-import { withRetiredDemanding } from "../agents/retiredDemanding.ts";
+import { withRetiredFields } from "../agents/retiredRequestFields.ts";
 import { sharesPoolWith } from "@t3tools/shared/providerPools";
 
 const isManagedAgentError = Schema.is(ManagedAgent.ManagedAgentError);
@@ -3514,7 +3514,7 @@ const make = Effect.gen(function* () {
           mode: undefined,
           timeoutMs: undefined,
         }).pipe(Effect.orDie);
-        const fingerprints = yield* Effect.forEach(withRetiredDemanding(fingerprintText), (text) =>
+        const fingerprints = yield* Effect.forEach(withRetiredFields(fingerprintText), (text) =>
           digest
             .digest(Digest.sha256, new TextEncoder().encode(text))
             .pipe(Effect.map(Hex.encode), Effect.orDie),

@@ -32,22 +32,18 @@ export function editableManifest(manifest: Manifest): Manifest {
 /** The jobs in the order the page lists them; roles sharing a list appear together. */
 const ROLE_ORDER: ReadonlyArray<AgentRole> = [
   "lead",
-  "implementation-worker",
-  "ui-worker",
+  "implementer",
   "reviewer",
   "advisor",
-  "chore-worker",
   "browser",
   "researcher",
   "scout",
 ];
 
 export const ROLE_DESCRIPTIONS: Record<AgentRole, string> = {
-  "implementation-worker": "Non-UI code changes",
-  "ui-worker": "UI changes",
+  implementer: "Code and UI changes",
   reviewer: "Reviews a change or a Spec before it lands",
   advisor: "Second opinion",
-  "chore-worker": "Mechanical edits",
   browser: "Drives web pages",
   "ui-verifier": "Checks the running app",
   researcher: "Researches docs and the web",

@@ -23,6 +23,12 @@ export const AgentPolicyCompactionModel = Schema.Struct({
   selection: Schema.NullOr(ModelSelection),
 });
 export type AgentPolicyCompactionModel = typeof AgentPolicyCompactionModel.Type;
+/** Whether a saved policy also reached the shared checkout's remote, or why it did not. */
+export const AgentPolicyPublish = Schema.Struct({
+  pushed: Schema.Boolean,
+  detail: Schema.NullOr(Schema.String),
+});
+export type AgentPolicyPublish = typeof AgentPolicyPublish.Type;
 export const AgentPolicySettings = Schema.Struct({
   snapshot: AgentPolicySnapshot,
   sourceRoot: Schema.String,
@@ -37,6 +43,8 @@ export const AgentPolicySettings = Schema.Struct({
     }),
   ),
   providers: Schema.Array(ServerProvider),
+  /** Set by a save; absent from a read and from older servers. */
+  publish: Schema.optional(AgentPolicyPublish),
 });
 export type AgentPolicySettings = typeof AgentPolicySettings.Type;
 export const AgentPolicySaveInput = Schema.Struct({

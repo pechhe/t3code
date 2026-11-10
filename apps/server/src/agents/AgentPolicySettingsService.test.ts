@@ -103,6 +103,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("policy settings"
         }),
       );
       expect(result.saved.snapshot.hash).not.toBe(result.first.snapshot.hash);
+      // The result also says whether the file reached the shared checkout's remote.
+      expect(result.saved.publish).toEqual({ pushed: false, detail: "not a git checkout" });
       expect(result.saved.snapshot.manifest.lists["workhorse"]?.map((e) => e.model)).toEqual([
         "sol",
         "sonnet",

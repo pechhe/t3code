@@ -129,7 +129,7 @@ describe("captureRunSetup", () => {
           { name: "local", source: "repository", sha256: yield* sha256("local") },
         ],
       );
-      // Not a jj checkout: the revision is unknown, not guessed.
+      // Not a git checkout: the revision is unknown, not guessed.
       assert.deepEqual(record.agentConfig, {
         root,
         revision: null,

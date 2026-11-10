@@ -125,7 +125,7 @@ it.effect("recognises the roles whose own listing drives a browser", () =>
       ["ui-verifier", "phi", true],
       ["reviewer", "source-reader", false],
       ["scout", "source-reader", false],
-      ["implementation-worker", "implementation", false],
+      ["implementer", "implementation", false],
     ] as const) {
       expect(drivesOwnBrowser(callerFor({ role, toolProfile }))).toBe(expected);
     }

@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import { EnvironmentId, IsoDateTime, ProjectId } from "./baseSchemas.ts";
-import { AgentRole } from "./agentPolicy.ts";
+import { StoredAgentRole } from "./agentPolicy.ts";
 import {
   ChampionId,
   ChampionLabel,
@@ -86,7 +86,7 @@ export const ChampionLearningForwardedFrom = Schema.Struct({
   environmentId: EnvironmentId,
   threadId: ChampionLabel,
   threadTitle: Schema.NullOr(ChampionLabel),
-  role: Schema.NullOr(AgentRole),
+  role: Schema.NullOr(StoredAgentRole),
 });
 export type ChampionLearningForwardedFrom = typeof ChampionLearningForwardedFrom.Type;
 export const ChampionLearningContributeInput = ChampionLearningRecordInput;

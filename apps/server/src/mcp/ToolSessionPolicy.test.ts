@@ -98,7 +98,7 @@ const session = (
 // higher ceiling states the new number and what bought it.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
   ["editor", undefined, 140_000],
-  ["editor worker", session("implementation", "implementation-worker"), 140_000],
+  ["editor worker", session("implementation", "implementer"), 140_000],
   ["reader", session("source-reader", "reviewer"), 40_000],
   ["browser", session("phi", "browser"), 34_900],
   ["researcher", session("web-research", "researcher"), 19_500],
@@ -136,7 +136,7 @@ const toolsNamedIn = (text: string) =>
 const instructionCases: ReadonlyArray<[string, SessionToolProfile | undefined]> = [
   ["ordinary", undefined],
   ["delegated browser", session("phi", "browser")],
-  ["delegated implementation-worker", session("implementation", "implementation-worker")],
+  ["delegated implementation-worker", session("implementation", "implementer")],
   ["delegated researcher", session("web-research", "researcher")],
   ["delegated scout", session("source-reader", "scout")],
   ["delegated reviewer", session("source-reader", "reviewer")],
@@ -209,7 +209,7 @@ it("tells a managed browser task about preview and devices, and that listing is 
 
 it("lists every editor the same tools, whatever its role", () => {
   const ordinary = names(undefined);
-  for (const role of ["implementation-worker", "chore-worker", "ui-worker", "lead"] as const)
+  for (const role of ["implementer", "lead"] as const)
     expect(names(session("implementation", role))).toEqual(ordinary);
   for (const name of [
     "delegate_task",
@@ -258,9 +258,9 @@ it("keeps a read-only agent to the closed list, and every name on it real", () =
   ])
     expect(isToolListedForSession(refused, reader), refused).toBe(false);
   // The class comes from the task's recorded access, so a narrowed writer lists the same.
-  expect(
-    names({ toolProfile: "source-reader", agentRole: "chore-worker", readOnly: true }),
-  ).toEqual(names(reader));
+  expect(names({ toolProfile: "source-reader", agentRole: "implementer", readOnly: true })).toEqual(
+    names(reader),
+  );
 });
 
 it("keeps browser agents and researchers off threads and delegation", () => {
@@ -289,7 +289,7 @@ it("hands all three harnesses the same session endpoint", () => {
   for (const profile of [
     undefined,
     session("phi", "browser"),
-    session("implementation", "chore-worker"),
+    session("implementation", "implementer"),
   ]) {
     const key = sessionEndpointKey(profile);
     const endpoint = `http://127.0.0.1:43123${SESSION_TOOL_ENDPOINTS[key].path}`;

@@ -90,6 +90,11 @@ export const JourneyCandidate = Schema.Struct({
   viewport: Schema.optional(
     Schema.NullOr(Schema.Struct({ width: Schema.Number, height: Schema.Number })),
   ),
+  /**
+   * False when the replay ran on a model the check itself uses, because no other could run:
+   * its verdict stands, but is not independent. Absent means independent.
+   */
+  independent: Schema.optional(Schema.Boolean),
   /** What the confirming replay did, which a re-test repeats. */
   reproduction: Schema.optional(Schema.String),
   replay: Schema.NullOr(

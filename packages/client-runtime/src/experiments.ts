@@ -107,14 +107,7 @@ const INSTRUCTION_REVISION = "added-text";
 const TODAYS_INSTRUCTIONS = "Today's instructions";
 
 export type TrialKind = "model" | "text" | "approach";
-export type TrialJob =
-  | "reviewer-change"
-  | "reviewer-spec"
-  | "implementation-worker"
-  | "ui-worker"
-  | "scout"
-  | "researcher"
-  | "chore-worker";
+export type TrialJob = "reviewer-change" | "reviewer-spec" | "implementer" | "scout" | "researcher";
 
 export const TRIAL_KINDS: Readonly<Record<TrialKind, { name: string; description: string }>> = {
   model: {
@@ -155,13 +148,12 @@ export const TRIAL_JOBS: Readonly<Record<TrialJob, TrialJobInfo>> = {
     unit: "Spec",
     subject: "Spec reviews",
   },
-  "implementation-worker": {
+  implementer: {
     name: "Implementer",
-    role: "implementation-worker",
+    role: "implementer",
     unit: "task",
     subject: "Implementer tasks",
   },
-  "ui-worker": { name: "UI worker", role: "ui-worker", unit: "task", subject: "UI worker tasks" },
   scout: {
     name: "Scout",
     role: "scout",
@@ -174,12 +166,6 @@ export const TRIAL_JOBS: Readonly<Record<TrialJob, TrialJobInfo>> = {
     role: "researcher",
     unit: "task",
     subject: "Researcher tasks",
-  },
-  "chore-worker": {
-    name: "Chore worker",
-    role: "chore-worker",
-    unit: "task",
-    subject: "Chore worker tasks",
   },
 };
 
@@ -703,7 +689,7 @@ const jobOfExperiment = (experiment: Pick<Experiment, "eligibility">): TrialJob 
   return (
     (Object.entries(TRIAL_JOBS).find(([, job]) => job.role === role)?.[0] as
       | TrialJob
-      | undefined) ?? "implementation-worker"
+      | undefined) ?? "implementer"
   );
 };
 

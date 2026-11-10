@@ -1498,7 +1498,7 @@ const seedDelegatedChild = (input: {
             projectId: input.projectId,
             title: input.name,
             agentTask: {
-              role: "ui-worker",
+              role: "implementer",
               taskClass: "ui",
               workId: input.name,
               attemptId: "1",

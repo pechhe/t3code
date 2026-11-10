@@ -41,7 +41,7 @@ import * as Experiments from "../experiments/ExperimentService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as External from "./ExternalAgentWorkService.ts";
 import * as Managed from "./ManagedAgentService.ts";
-import { withRetiredDemanding } from "./retiredDemanding.ts";
+import { withRetiredFields } from "./retiredRequestFields.ts";
 import { snapshot, request, codex, claude, changeReview } from "./agentPolicy.testkit.ts";
 
 const localChildId = (task: { readonly childThreadId: ThreadId | null }): ThreadId => {
@@ -628,7 +628,7 @@ it.effect(
         const saved = Hex.encode(
           yield* (yield* Digest.Digest).digest(
             Digest.sha256,
-            new TextEncoder().encode(withRetiredDemanding(wire)[1]!),
+            new TextEncoder().encode(withRetiredFields(wire)[1]!),
           ),
         );
         const sql = yield* SqlClient.SqlClient;
@@ -1453,7 +1453,7 @@ it.effect("continues an external worker with a correction in its conversation", 
         clientRequestId: "worker-open",
         task: "Implement the change",
         agentTask: request({
-          role: "implementation-worker",
+          role: "implementer",
           workId: "worker-work",
           workspacePath: fixture.workspacePath,
         }),

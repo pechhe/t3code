@@ -8,9 +8,7 @@ import { ModelSelection } from "./modelSelection.ts";
 import { ProviderOptionSelections } from "./model.ts";
 
 export const AgentRole = Schema.Literals([
-  "chore-worker",
-  "implementation-worker",
-  "ui-worker",
+  "implementer",
   "browser",
   "ui-verifier",
   "advisor",
@@ -20,11 +18,20 @@ export const AgentRole = Schema.Literals([
   "lead",
 ]);
 export type AgentRole = typeof AgentRole.Type;
+/**
+ * The three writing roles `implementer` replaced. Saved policies, snapshots, tasks and records
+ * still carry them, and callers may still pass them; each reads as `implementer`, task class kept.
+ */
+export const RetiredWriterRole = Schema.Literals([
+  "chore-worker",
+  "implementation-worker",
+  "ui-worker",
+]);
+export type RetiredWriterRole = typeof RetiredWriterRole.Type;
+export const isRetiredWriterRole = Schema.is(RetiredWriterRole);
 /** How a managed task's thread title names its role: `<label> · <topic>`. */
 export const AGENT_ROLE_TITLE_LABEL = {
-  "chore-worker": "Chore worker",
-  "implementation-worker": "Implementation worker",
-  "ui-worker": "UI worker",
+  implementer: "Implementer",
   browser: "Browser",
   "ui-verifier": "UI verifier",
   advisor: "Advisor",
@@ -83,12 +90,7 @@ export const isReviewerRole = (role: AgentRole) => role === "reviewer";
  * The managed roles a policy may grant bounded browser tasks: the writers and the independent
  * reviewer. Consulting roles never get them, and the browser roles keep their own endpoint.
  */
-export const BOUNDED_BROWSER_ROLES: ReadonlySet<AgentRole> = new Set([
-  "chore-worker",
-  "implementation-worker",
-  "ui-worker",
-  "reviewer",
-]);
+export const BOUNDED_BROWSER_ROLES: ReadonlySet<AgentRole> = new Set(["implementer", "reviewer"]);
 /** Whether a role's policy grants its tasks bounded browser tasks; recorded on the binding. */
 export const grantsBrowserTasks = (
   role: AgentRole,
@@ -102,9 +104,7 @@ export const isConsultingRole = (role: AgentRole) =>
  * canonical role is carried beside it, never in its place.
  */
 export const AGENT_ROLE_COARSE_KIND = {
-  "chore-worker": "implementation",
-  "implementation-worker": "implementation",
-  "ui-worker": "design",
+  implementer: "implementation",
   browser: "test",
   "ui-verifier": "test",
   advisor: "research",
@@ -256,9 +256,7 @@ const StoredRolePolicy = Schema.Union([
  */
 const rolesRecord = <S extends Schema.Top>(entry: S) =>
   Schema.Struct({
-    "chore-worker": entry,
-    "implementation-worker": entry,
-    "ui-worker": entry,
+    implementer: entry,
     browser: entry,
     "ui-verifier": Schema.optionalKey(entry),
     advisor: entry,
@@ -267,6 +265,16 @@ const rolesRecord = <S extends Schema.Top>(entry: S) =>
     scout: Schema.optionalKey(entry),
     lead: Schema.optionalKey(entry),
   });
+/** The roles record from before `implementer`: the three retired writing roles in its place. */
+const writerRolesRecord = <S extends Schema.Top>(entry: S) => {
+  const { implementer: _implementer, ...roles } = rolesRecord(entry).fields;
+  return Schema.Struct({
+    ...roles,
+    "chore-worker": entry,
+    "implementation-worker": entry,
+    "ui-worker": entry,
+  });
+};
 
 const manifestFields = {
   version: Schema.Literal(2),
@@ -276,9 +284,20 @@ const manifestFields = {
   lists: Schema.Record(Alias, Schema.Array(AgentListEntry).check(Schema.isMinLength(1))),
 };
 const Manifest = Schema.Struct({ ...manifestFields, roles: rolesRecord(StoredRolePolicy) });
+const WriterManifest = Schema.Struct({
+  ...manifestFields,
+  roles: writerRolesRecord(StoredRolePolicy),
+});
+type RolePolicy = typeof RolePolicy.Type;
 
 /** Structural authority is fixed; model identities and order belong to the versioned policy. */
-function validManifest(manifest: typeof Manifest.Type): boolean {
+function validManifest(manifest: {
+  readonly models: typeof Manifest.Type.models;
+  readonly lists: typeof Manifest.Type.lists;
+  readonly roles: { readonly [name: string]: RolePolicy | undefined } & {
+    readonly [name in Exclude<AgentRole, "implementer">]?: RolePolicy | undefined;
+  };
+}): boolean {
   const { lists, models, roles } = manifest;
   // A model's effort is present exactly when the model exposes one, so a list cannot drop
   // it, or keep a stale value after the model loses its effort setting.
@@ -301,10 +320,21 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
       if (models[caller] === undefined || !list.includes(first)) return false;
     if (role.preferOtherAuthorProvider !== undefined && !isReviewerRole(name as AgentRole))
       return false;
-    if (role.browserTasks === true && !BOUNDED_BROWSER_ROLES.has(name as AgentRole)) return false;
+    if (
+      role.browserTasks === true &&
+      !BOUNDED_BROWSER_ROLES.has(name as AgentRole) &&
+      !isRetiredWriterRole(name)
+    )
+      return false;
+    // Every writing role, current or retired, writes with the implementation tools.
+    if (
+      (name === "implementer" || isRetiredWriterRole(name)) &&
+      role.toolProfile !== "implementation"
+    )
+      return false;
     if (role.council !== undefined && name !== "reviewer") return false;
   }
-  const readOnly = (role: (typeof roles)[AgentRole], toolProfile: string) =>
+  const readOnly = (role: RolePolicy | undefined, toolProfile: string) =>
     role?.sourceAccess === "read-only" && role.toolProfile === toolProfile;
   return (
     (roles.researcher === undefined || readOnly(roles.researcher, "web-research")) &&
@@ -314,16 +344,11 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
         roles.lead.toolProfile === "implementation")) &&
     readOnly(roles.browser, "phi") &&
     (roles["ui-verifier"] === undefined || readOnly(roles["ui-verifier"], "phi")) &&
-    [roles.reviewer, roles.advisor].every((role) => readOnly(role, "source-reader")) &&
-    [roles["chore-worker"], roles["implementation-worker"]].every(
-      (role) =>
-        role.taskClasses.length === 1 &&
-        role.taskClasses[0] === "non-ui" &&
-        role.toolProfile === "implementation",
-    )
+    [roles.reviewer, roles.advisor].every((role) => readOnly(role, "source-reader"))
   );
 }
 const CurrentManifest = Manifest.check(Schema.makeFilter(validManifest));
+const CurrentWriterManifest = WriterManifest.check(Schema.makeFilter(validManifest));
 /**
  * What a policy save may set: the current form only, without the retired `ui-verifier` role
  * or `implementation-phi` profile. A saved role it leaves out is dropped from the file.
@@ -387,7 +412,7 @@ const LegacyManifest = Schema.Struct({
     Schema.Struct({ prefer: Aliases, requireDifferentProvider: Schema.Boolean }),
   ),
 });
-const upgradeManifest = (legacy: typeof LegacyManifest.Type): typeof Manifest.Encoded => {
+const upgradeManifest = (legacy: typeof LegacyManifest.Type): typeof WriterManifest.Encoded => {
   const lists: Record<string, Array<AgentListEntry>> = {};
   const roles: Record<string, typeof StoredRolePolicy.Encoded> = {};
   for (const [legacyName, role] of Object.entries(legacy.roles)) {
@@ -420,19 +445,19 @@ const upgradeManifest = (legacy: typeof LegacyManifest.Type): typeof Manifest.En
     revision: legacy.revision,
     models: legacy.models,
     lists,
-    roles: roles as (typeof Manifest.Encoded)["roles"],
+    roles: roles as (typeof WriterManifest.Encoded)["roles"],
   };
 };
 const SplitManifest = Schema.Struct({
-  ...Manifest.fields,
+  ...WriterManifest.fields,
   roles: Schema.Struct({
-    ...rolesRecord(StoredRolePolicy).fields,
+    ...writerRolesRecord(StoredRolePolicy).fields,
     reviewer: Schema.optionalKey(StoredRolePolicy),
     "ticket-reviewer": StoredRolePolicy,
     "spec-reviewer": StoredRolePolicy,
   }),
 });
-const mergeReviewers = (split: typeof SplitManifest.Type): typeof Manifest.Encoded => {
+const mergeReviewers = (split: typeof SplitManifest.Type): typeof WriterManifest.Encoded => {
   const {
     "ticket-reviewer": change,
     "spec-reviewer": spec,
@@ -453,8 +478,35 @@ const mergeReviewers = (split: typeof SplitManifest.Type): typeof Manifest.Encod
     },
   };
 };
-export const AgentPolicyManifest = Schema.Union([
-  CurrentManifest,
+/**
+ * `implementer` takes the retired `implementation-worker` entry, its list included, and every task
+ * class. Its brief path is the new one; the loader reads the old brief while the new is missing.
+ */
+const mergeWriters = (writer: typeof CurrentWriterManifest.Type): typeof Manifest.Encoded => {
+  const {
+    "chore-worker": chore,
+    "implementation-worker": implementation,
+    "ui-worker": ui,
+    ...roles
+  } = writer.roles;
+  const { browserTasks: _browserTasks, ...implementer } = implementation;
+  return {
+    ...writer,
+    roles: {
+      ...roles,
+      implementer: {
+        ...implementer,
+        brief: "roles/implementer.md",
+        taskClasses: ["non-ui", "ui", "mixed"],
+        ...([chore, implementation, ui].some((role) => role.browserTasks === true)
+          ? { browserTasks: true }
+          : {}),
+      },
+    },
+  };
+};
+const PreImplementerManifest = Schema.Union([
+  CurrentWriterManifest,
   SplitManifest.check(
     Schema.makeFilter((split) => {
       const {
@@ -482,15 +534,26 @@ export const AgentPolicyManifest = Schema.Union([
       });
     }),
   ).pipe(
-    Schema.decodeTo(CurrentManifest, {
+    Schema.decodeTo(CurrentWriterManifest, {
       decode: SchemaGetter.transform(mergeReviewers),
       encode: SchemaGetter.forbidden(() => "Split reviewer policies are never written."),
     }),
   ),
   LegacyManifest.pipe(
-    Schema.decodeTo(CurrentManifest, {
+    Schema.decodeTo(CurrentWriterManifest, {
       decode: SchemaGetter.transform(upgradeManifest),
       encode: SchemaGetter.forbidden(() => "Version 1 policies are never written."),
+    }),
+  ),
+]);
+export const AgentPolicyManifest = Schema.Union([
+  CurrentManifest,
+  PreImplementerManifest.pipe(
+    Schema.decodeTo(CurrentManifest, {
+      decode: SchemaGetter.transform(mergeWriters),
+      encode: SchemaGetter.forbidden(
+        () => "Policies with the retired writing roles are never written.",
+      ),
     }),
   ),
 ]);
@@ -507,34 +570,52 @@ const Brief = Schema.Struct({
   // Keep the exact bytes represented by the brief hash, including trailing newlines.
   text: Schema.String.check(Schema.makeFilter((text) => text.trim().length > 0)),
 });
+/**
+ * A snapshot taken before `implementer` keeps its retired writers' briefs beside the one
+ * `implementer` takes, so a task bound under any of them still matches its brief hash.
+ */
+const retiredWriterBriefs = {
+  "chore-worker": Schema.optionalKey(Brief),
+  "implementation-worker": Schema.optionalKey(Brief),
+  "ui-worker": Schema.optionalKey(Brief),
+};
 const Snapshot = Schema.Struct({
   hash: Sha256,
   sourceRevision: TrimmedNonEmptyString,
   manifest: AgentPolicyManifest,
-  briefs: rolesRecord(Brief),
+  briefs: Schema.Struct({ ...rolesRecord(Brief).fields, ...retiredWriterBriefs }),
 });
+const { reviewer: _reviewer, ...writerBriefs } = writerRolesRecord(Brief).fields;
 export const AgentPolicySnapshot = Schema.Union([
   Snapshot,
   Schema.Struct({
     ...Snapshot.fields,
     briefs: Schema.Struct({
-      ...rolesRecord(Brief).fields,
+      ...writerBriefs,
       reviewer: Schema.optionalKey(Brief),
-      "ticket-reviewer": Brief,
-      "spec-reviewer": Brief,
-    }),
+      "ticket-reviewer": Schema.optionalKey(Brief),
+      "spec-reviewer": Schema.optionalKey(Brief),
+    }).check(
+      Schema.makeFilter(
+        (briefs) => briefs["spec-reviewer"] !== undefined || briefs.reviewer !== undefined,
+      ),
+    ),
   }).pipe(
     Schema.decodeTo(Snapshot, {
       decode: SchemaGetter.transform(
         ({
-          briefs: { "ticket-reviewer": _change, "spec-reviewer": reviewer, ...briefs },
+          briefs: { "ticket-reviewer": _change, "spec-reviewer": spec, reviewer, ...briefs },
           ...snapshot
         }) => ({
           ...snapshot,
-          briefs: { ...briefs, reviewer },
+          briefs: {
+            ...briefs,
+            implementer: briefs["implementation-worker"],
+            reviewer: (spec ?? reviewer)!,
+          },
         }),
       ),
-      encode: SchemaGetter.forbidden(() => "Split reviewer snapshots are never written."),
+      encode: SchemaGetter.forbidden(() => "Snapshots with retired role names are never written."),
     }),
   ),
 ]);
@@ -630,25 +711,34 @@ const agentTaskRequestFields = {
   readOnly: Schema.optional(Schema.Boolean),
   authorModel: Schema.optional(TrimmedNonEmptyString),
 };
-// Persisted split-role tasks retain their review scope while adopting the merged role.
-const legacyReviewer = <R extends object>(record: R) => ({ ...record, role: "reviewer" as const });
 const SplitReviewerRole = Schema.Literals(["ticket-reviewer", "spec-reviewer"]);
-/** A role saved outside a task record, such as on a schedule; split names read as `reviewer`. */
-export const StoredAgentRole = Schema.Union([AgentRole, SplitReviewerRole]).pipe(
+/** Role names that were retired by merging: each still reads, as the role that replaced it. */
+const RetiredRole = Schema.Union([SplitReviewerRole, RetiredWriterRole]);
+const currentRole = (role: AgentRole | typeof RetiredRole.Type): AgentRole =>
+  role === "ticket-reviewer" || role === "spec-reviewer"
+    ? "reviewer"
+    : isRetiredWriterRole(role)
+      ? "implementer"
+      : role;
+// Persisted tasks under a retired name keep their task class and review scope.
+const withCurrentRole = <R extends { readonly role: typeof RetiredRole.Type }>(record: R) => ({
+  ...record,
+  role: currentRole(record.role),
+});
+/** A role saved outside a task record, such as on a schedule; retired names read as current. */
+export const StoredAgentRole = Schema.Union([AgentRole, RetiredRole]).pipe(
   Schema.decodeTo(AgentRole, {
-    decode: SchemaGetter.transform((role) =>
-      role === "ticket-reviewer" || role === "spec-reviewer" ? "reviewer" : role,
-    ),
+    decode: SchemaGetter.transform(currentRole),
     encode: SchemaGetter.transform((role) => role),
   }),
 );
 const CurrentAgentTaskRequest = Schema.Struct(agentTaskRequestFields);
 export const AgentTaskRequest = Schema.Union([
   CurrentAgentTaskRequest,
-  Schema.Struct({ ...agentTaskRequestFields, role: SplitReviewerRole }).pipe(
+  Schema.Struct({ ...agentTaskRequestFields, role: RetiredRole }).pipe(
     Schema.decodeTo(CurrentAgentTaskRequest, {
-      decode: SchemaGetter.transform(legacyReviewer),
-      encode: SchemaGetter.forbidden(() => "Split reviewer role names are never written."),
+      decode: SchemaGetter.transform(withCurrentRole),
+      encode: SchemaGetter.forbidden(() => "Retired role names are never written."),
     }),
   ),
 ]);
@@ -663,7 +753,8 @@ export type AgentTaskRequest = typeof AgentTaskRequest.Type;
 export const AgentTaskLinkedRequest = Schema.Struct({
   browser: agentTaskRequestFields.browser,
   executionRequirement: agentTaskRequestFields.executionRequirement,
-  role: AgentRole,
+  // A linked environment from before T3-563 may still name a retired writer.
+  role: StoredAgentRole,
   taskClass: AgentTaskClass,
   workId: TrimmedNonEmptyString,
   attemptId: TrimmedNonEmptyString,
@@ -681,7 +772,7 @@ export type AgentTaskLinkedRequest = typeof AgentTaskLinkedRequest.Type;
 
 export const AgentTaskWireRequest = Schema.Struct({
   ...agentTaskRequestFields,
-  role: Schema.Union([AgentRole, SplitReviewerRole]),
+  role: Schema.Union([AgentRole, RetiredRole]),
 });
 export type AgentTaskWireRequest = typeof AgentTaskWireRequest.Type;
 
@@ -721,43 +812,38 @@ const CurrentAgentTaskBinding = Schema.Struct(agentTaskBindingFields);
 const StoredAgentTaskBinding = Schema.toEncoded(
   Schema.Struct({
     ...agentTaskBindingFields,
+    role: Schema.Union([AgentRole, RetiredRole]),
     toolProfile: Schema.Union([AgentToolProfile, RetiredWriterProfile]),
   }),
 ).pipe(
   Schema.decodeTo(CurrentAgentTaskBinding, {
-    decode: SchemaGetter.transform(({ toolProfile, ...binding }) => {
-      if (binding.role === "ui-worker") {
+    decode: SchemaGetter.transform(({ toolProfile, role, ...binding }) => {
+      if (role === "ui-worker") {
         const { browser: _phi, ...uiWorker } = binding;
+        const implementer = { ...uiWorker, role: "implementer" as const };
         if (toolProfile === "implementation-phi")
           return {
-            ...uiWorker,
+            ...implementer,
             toolProfile: "implementation" as const,
             browserTasks: true as const,
           };
         if (toolProfile === "phi")
           return {
-            ...uiWorker,
+            ...implementer,
             toolProfile: "source-reader" as const,
             browserTasks: true as const,
           };
-        return { ...uiWorker, toolProfile };
+        return { ...implementer, toolProfile };
       }
+      const current = { ...binding, role: currentRole(role) };
       if (toolProfile === "implementation-phi")
-        return { ...binding, toolProfile: "implementation" as const, browserTasks: true as const };
-      return { ...binding, toolProfile };
+        return { ...current, toolProfile: "implementation" as const, browserTasks: true as const };
+      return { ...current, toolProfile };
     }),
     encode: SchemaGetter.transform((binding) => binding),
   }),
 );
-export const AgentTaskBinding = Schema.Union([
-  StoredAgentTaskBinding,
-  Schema.Struct({ ...agentTaskBindingFields, role: SplitReviewerRole }).pipe(
-    Schema.decodeTo(CurrentAgentTaskBinding, {
-      decode: SchemaGetter.transform(legacyReviewer),
-      encode: SchemaGetter.forbidden(() => "Split reviewer role names are never written."),
-    }),
-  ),
-]);
+export const AgentTaskBinding = StoredAgentTaskBinding;
 
 export type AgentTaskBinding = typeof AgentTaskBinding.Type;
 

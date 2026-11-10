@@ -289,7 +289,7 @@ it.effect("rejects unavailable agent access before booting or opening a device",
 
 it.effect.each([
   { role: "browser", toolProfile: "phi", admitted: true },
-  { role: "implementation-worker", toolProfile: "implementation", admitted: true },
+  { role: "implementer", toolProfile: "implementation", admitted: true },
   { role: "researcher", toolProfile: "web-research", admitted: false },
 ] as const)(
   "opens and closes a device for a managed $role task unless it only reads the web",

@@ -68,6 +68,7 @@ import {
   type ChampionJourneyCandidateInput,
   type ChampionJourneyPlan,
   type ChampionJourneyRecordResult,
+  isRetiredWriterRole,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -410,9 +411,7 @@ class ChangeBatch extends Context.Reference<
 const phaseForRole = (role: string) =>
   (
     {
-      "implementation-worker": "implementation",
-      "chore-worker": "implementation",
-      "ui-worker": "implementation",
+      implementer: "implementation",
       advisor: "advice",
       reviewer: "review",
       browser: "verification",
@@ -904,7 +903,7 @@ const make = Effect.gen(function* () {
       "Follow each frozen metric method. Copy metricId, version, unit and source verbatim from t3_champions_check_context; never paraphrase source. Put actual execution commands, paths and collection details in evidence. If collection fails, report value null with status error and explain why; never invent a numeric value.",
       "Read and measure at the project root; every writer must use an isolated workspace. Never edit the shared root. Keep this owner thread and its namespace across checks. Do not archive or replace it while children are live.",
       "For metric breaches the server creates deterministic findings. Reconcile qualitative observations with known open findings: supply existingFindingId instead of paraphrasing a duplicate. Read history on demand, never fabricate a measurement.",
-      "After reporting, call t3_champions_check_context to read finding workId/attemptId. Use these exact identities in delegate_task. Bounded repair: implementation-worker or chore-worker. Large/open work: advisor on the stronger selection, shape in Forge, then lead the Spec. Use existing role policy and SlipJay. If Forge/SlipJay is unavailable, report it explicitly as attention; never claim a repair was delivered without a revision.",
+      "After reporting, call t3_champions_check_context to read finding workId/attemptId. Use these exact identities in delegate_task. Bounded repair: implementer. Large/open work: advisor on the stronger selection, shape in Forge, then lead the Spec. Use existing role policy and SlipJay. If Forge/SlipJay is unavailable, report it explicitly as attention; never claim a repair was delivered without a revision.",
       "Before a bounded investigation, call t3_champions_learning_search action query for its exact topic and retain the current retrieval receipt, including a legitimate empty result. Call t3_champions_investigation action start with distinct read-only hypotheses, then delegate only its returned branch workId/attemptId through normal managed roles in this project. At most three alternatives, two active branches, six admitted attempts per investigation and six per champion per rolling 24 hours; follow-ups count. Unknown launches hold capacity; replay the same identity instead of duplicating work.",
       "Call t3_champions_synthesize as the owner. Write recommendation as concise, coherent prose explaining the action, rationale, benefits, material trade-offs, uncertainty and proposed scope. Avoid labelled sections or a taxonomy; the user reads the finding issue, your recommendation and an answer field. Retain structured supporting fields for history and optional evidence expansion. Its immutable revision requests the user's decision; recheck the current revision and finding attempt before acting on an answer. Retain dated conditional learning with t3_champions_record_learning, opening with plainSummary (one plain sentence on what was learned) and including failed or inconclusive attempts and observed component versions. Due learning is uncertain and never authorizes an automatic paid rerun. Leaves return evidence; only you retain synthesis and learning.",
       "Use t3_champions_finding_action for handoff, confirmed SlipJay delivery and verification. Verification requires a comparable later measurement on the delivered/running revision. Missing evidence is inconclusive. Ordinary decisions go in the finding decision ledger and attention; keep measuring instead of blocking on questions.",
@@ -2543,12 +2542,13 @@ const make = Effect.gen(function* () {
         role: "browser",
       })
       .pipe(Effect.mapError(failure));
-    const selection = ranked.find((candidate) => !excluded.has(candidate.model));
+    // With only the check's own models able to run, the replay runs anyway and is recorded as
+    // not independent when it settles.
+    const selection = ranked.find((candidate) => !excluded.has(candidate.model)) ?? ranked[0];
     if (selection === undefined)
       return yield* new ChampionError({
         reason: "unavailable",
-        detail:
-          "No model can confirm this candidate: a confirmation runs on the first browser-list model that can run and is none of the models the check itself uses (its own model, Jev, Luna or the decision model), and none can run now.",
+        detail: "No model on the browser list can confirm this candidate now.",
       });
     return selection;
   });
@@ -2762,6 +2762,7 @@ const make = Effect.gen(function* () {
     if (!["completed", "failed", "cancelled", "interrupted"].includes(found.task.status))
       return unsettled("Its replay is still running.");
     const finished = found;
+    const independent = !(yield* journeyModels(doc)).has(finished.model);
     const close = Effect.fn("ChampionService.closeCandidate")(function* (
       status: ChampionJourneys.JourneyCandidate["status"],
       reason: string,
@@ -2775,6 +2776,7 @@ const make = Effect.gen(function* () {
           reason,
           findingId: findingId ?? candidate.findingId,
           ...(reproduction === null ? {} : { reproduction }),
+          ...(independent ? {} : { independent: false }),
         })
         .pipe(Effect.mapError(failure));
       yield* journeys.endReplay({
@@ -2790,12 +2792,6 @@ const make = Effect.gen(function* () {
         findingId: findingId ?? candidate.findingId,
       };
     });
-    if ((yield* journeyModels(doc)).has(finished.model))
-      return yield* close(
-        "inconclusive",
-        `The replay ran on ${finished.model}, which may not judge this check's own work.`,
-        null,
-      );
     const verdict = parseVerdict(finished.task.result);
     if (verdict === null || verdict.verdict === "blocked")
       return yield* close(
@@ -2883,6 +2879,7 @@ const make = Effect.gen(function* () {
           steps: describeSteps(candidate.steps),
           clicks,
           model: finished.model,
+          independent,
           reason: verdict.reason,
           reproduction: verdict.steps,
           screenshot: verdict.screenshot ?? candidate.screenshots.at(-1) ?? "none recorded",
@@ -3054,7 +3051,9 @@ const make = Effect.gen(function* () {
           !followup &&
           (prior[0].client_request_id !== clientRequestId ||
             (prior[0].role !== request.role &&
-              !(prior[0].role === "ui-verifier" && request.role === "browser")))
+              // A claim under a retired name is the role that replaced it.
+              !(prior[0].role === "ui-verifier" && request.role === "browser") &&
+              !(isRetiredWriterRole(prior[0].role) && request.role === "implementer")))
         )
           return yield* refuse(
             prior[0].client_request_id !== clientRequestId

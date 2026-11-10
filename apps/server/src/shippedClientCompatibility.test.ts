@@ -18,6 +18,7 @@ import * as Schema from "effect/Schema";
 import { REMEMBERED_LIMIT_WINDOW_ID, withRememberedLimits } from "@t3tools/shared/providerPools";
 
 import { settingsForClient } from "./serverSettings.ts";
+import { rpcSerializationForClient } from "./clientRoleSerialization.ts";
 
 // Frozen from the upstream release before the fork's first settings addition (fork/shipped-client).
 // To refresh it for a newer shipped client, extract that release's packages/contracts and write
@@ -294,6 +295,72 @@ it.effect("a fork client from before T3-393 reads new trials and their pause and
       [],
     );
   }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "an implementer task sent to a client that has not opted in decodes as a fork client before T3-563",
+  () =>
+    Effect.gen(function* () {
+      const frozen = yield* loadFrozenExperimentSchemas;
+      const assignment = encodeAssignment(
+        decodeAssignment({
+          id: "assignment",
+          experimentId: "trial",
+          revision: 1,
+          lever: "delegation",
+          unitKind: "task",
+          unitId: "work",
+          threadId: "worker",
+          projectId: "project",
+          taskCategory: null,
+          boundaryRunId: null,
+          variant: newTrials[0]!.variants[1]!,
+          assignedModelSelection: sol,
+          enrollment: "new",
+          assignmentMethod: "randomized",
+          assignedAt: "2026-11-10T00:00:00Z",
+          codeRevision: null,
+          briefRevision: null,
+          provenance: null,
+          agentTask: {
+            role: "implementer",
+            taskClass: "ui",
+            workId: "work",
+            attemptId: "attempt",
+            workspacePath: "/repo",
+            requestFingerprint: "c".repeat(64),
+            policyHash: "d".repeat(64),
+            policyRevision: "policy",
+            briefHash: "e".repeat(64),
+            sourceAccess: "scoped-write",
+            toolProfile: "implementation",
+            requested: sol,
+            assigned: sol,
+            effective: sol,
+          },
+        }),
+      );
+      const experiment = encodeExperiment({
+        ...newTrials[0]!,
+        eligibility: { ...newTrials[0]!.eligibility, agentRoles: ["implementer"] },
+      } as Experiment);
+      const message = {
+        _tag: "Exit",
+        requestId: "1",
+        exit: { assignment, experiment, title: "implementer" },
+      };
+      const sent = (implementerRole: boolean) => {
+        const encoded = rpcSerializationForClient(implementerRole).makeUnsafe().encode(message);
+        return JSON.parse(String(encoded)).exit;
+      };
+      // The frozen schemas refuse the new role, so the downgrade is what makes them decode.
+      assert.notDeepEqual(violations(sent(true).assignment, frozen.assignment, "a"), []);
+      assert.deepEqual(violations(sent(false).assignment, frozen.assignment, "a"), []);
+      assert.deepEqual(violations(sent(false).experiment, frozen.experiment, "e"), []);
+      assert.strictEqual(sent(false).assignment.agentTask.role, "implementation-worker");
+      // Only role values change: a user's text that happens to read "implementer" is kept.
+      assert.strictEqual(sent(false).title, "implementer");
+    }).pipe(Effect.provide(NodeServices.layer)),
 );
 
 it("a shipped client decodes the usage window that carries a remembered usage limit", () => {

@@ -1,5 +1,6 @@
 import {
   AgentRole,
+  StoredAgentRole,
   AgentTaskRequest,
   AgentTaskBinding,
   AgentTaskHandoff,
@@ -957,9 +958,9 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
       description: "Default true: runs post in this thread. False: new thread per run.",
     }),
   ),
-  agentRole: Schema.optional(AgentRole).annotate({
+  agentRole: Schema.optional(StoredAgentRole).annotate({
     description:
-      "Subagent role whose policy picks the model at each run. Defaults to 'implementation-worker'.",
+      "Subagent role whose policy picks the model at each run. Defaults to 'implementer'.",
   }),
   freshSession: Schema.optional(
     Schema.Boolean.annotate({
@@ -1050,7 +1051,7 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
   schedule: Schema.optional(OrchestratorMcpSchedule),
   enabled: Schema.optional(Schema.Boolean),
   bindToCurrentThread: Schema.optional(Schema.Boolean),
-  agentRole: Schema.optional(AgentRole).annotate({
+  agentRole: Schema.optional(StoredAgentRole).annotate({
     description: "Move the task to another subagent role; a bound task follows its thread's model.",
   }),
   freshSession: Schema.optional(Schema.Boolean),

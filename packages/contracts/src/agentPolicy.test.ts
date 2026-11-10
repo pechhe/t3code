@@ -1,24 +1,33 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 import {
+  type AgentPolicyManifest as AgentPolicyManifestType,
   AgentPolicyManifest,
   AgentPolicyManifestEdit,
   AgentPolicySnapshot,
   AgentTaskRequest,
   AgentTaskBinding,
+  StoredAgentRole,
   agentTaskTopic,
   grantsBrowserTasks,
   modelMaker,
 } from "./agentPolicy.ts";
 
 const decodeManifest = Schema.decodeUnknownSync(AgentPolicyManifest);
-const encodeManifest = Schema.encodeSync(AgentPolicyManifest);
+// Policies are only ever written in the current form, with `implementer`.
+const encodeAnyManifest = Schema.encodeSync(AgentPolicyManifest);
+const encodeManifest = (manifest: AgentPolicyManifestType) =>
+  encodeAnyManifest(manifest) as Extract<
+    typeof AgentPolicyManifest.Encoded,
+    { readonly roles: { readonly implementer: unknown } }
+  >;
 const decodeManifestExit = Schema.decodeUnknownExit(AgentPolicyManifest);
 const decodeSnapshot = Schema.decodeUnknownSync(AgentPolicySnapshot);
 const decodeBinding = Schema.decodeUnknownSync(AgentTaskBinding);
 const encodeBinding = Schema.encodeSync(AgentTaskBinding);
 const encodeRequest = Schema.encodeSync(AgentTaskRequest);
 const decodeRequest = Schema.decodeUnknownSync(AgentTaskRequest);
+const decodeStoredRole = Schema.decodeSync(StoredAgentRole);
 
 const role = (pool: string, effort: Record<string, object>, extra: object = {}) => ({
   pool,
@@ -90,6 +99,25 @@ const legacy = {
   reviewer: { prefer: ["sonnet", "sol"], requireDifferentProvider: true },
 };
 
+/** A current policy as it was saved before `implementer`: the three writing roles in its place. */
+const writerForm = (manifest: AgentPolicyManifestType) => {
+  const { implementer, ...roles } = encodeManifest(manifest).roles;
+  const writer = (name: string, taskClasses: ReadonlyArray<string>) => ({
+    ...implementer,
+    brief: `roles/${name}.md`,
+    taskClasses,
+  });
+  return {
+    ...encodeManifest(manifest),
+    roles: {
+      ...roles,
+      "chore-worker": writer("chore-worker", ["non-ui"]),
+      "implementation-worker": writer("implementation-worker", ["non-ui"]),
+      "ui-worker": writer("ui-worker", ["ui", "mixed"]),
+    },
+  };
+};
+
 describe("AgentPolicyManifest", () => {
   it("reads a version 1 policy as one ordered list per role", () => {
     const manifest = decodeManifest(legacy);
@@ -102,7 +130,17 @@ describe("AgentPolicyManifest", () => {
     // A restriction on every class narrows the role to its allowed models.
     expect(manifest.lists["browser"]).toEqual([{ model: "haiku", effort: "medium" }]);
     // A retired demanding effort chooses no model.
-    expect(manifest.roles["implementation-worker"]).not.toHaveProperty("large");
+    expect(manifest.roles.implementer).not.toHaveProperty("large");
+    // The three writing roles read as one implementer on the implementation worker's list.
+    expect(manifest.roles.implementer).toMatchObject({
+      list: "implementation-worker",
+      brief: "roles/implementer.md",
+      sourceAccess: "scoped-write",
+      toolProfile: "implementation",
+      taskClasses: ["non-ui", "ui", "mixed"],
+    });
+    for (const name of ["chore-worker", "implementation-worker", "ui-worker"])
+      expect(encodeManifest(manifest).roles).not.toHaveProperty(name);
     // The reviewer keeps its order; a requirement becomes a preference.
     expect(manifest.lists["reviewer"]?.map((entry) => entry.model)).toEqual(["sonnet", "sol"]);
     expect(manifest.roles["reviewer"]).toMatchObject({
@@ -115,7 +153,7 @@ describe("AgentPolicyManifest", () => {
   });
 
   it("preserves exact split reviewer lists and decodes stored snapshots", () => {
-    const current = decodeManifest(legacy);
+    const current = writerForm(decodeManifest(legacy));
     const { reviewer, ...roles } = current.roles;
     const split = {
       ...current,
@@ -204,7 +242,7 @@ describe("AgentPolicyManifest", () => {
   });
 
   it("keeps change-role exceptions when old reviewers disagree", () => {
-    const current = decodeManifest(legacy);
+    const current = writerForm(decodeManifest(legacy));
     const { reviewer, ...roles } = current.roles;
     const change = {
       ...reviewer,
@@ -297,7 +335,7 @@ describe("AgentPolicyManifest", () => {
         ...manifest,
         roles: {
           ...manifest.roles,
-          "ui-worker": { ...manifest.roles["ui-worker"], toolProfile: "web-research" },
+          implementer: { ...manifest.roles.implementer, toolProfile: "web-research" },
         },
       })._tag,
     ).toBe("Failure");
@@ -309,13 +347,13 @@ describe("AgentPolicyManifest", () => {
       ...manifest,
       roles: {
         ...manifest.roles,
-        "ui-worker": { ...manifest.roles["ui-worker"], toolProfile: "implementation-phi" },
+        implementer: { ...manifest.roles.implementer, toolProfile: "implementation-phi" },
       },
     };
-    const uiWorker = decodeManifest(saved).roles["ui-worker"];
-    expect(uiWorker.toolProfile).toBe("implementation");
-    expect(uiWorker.browserTasks).toBe(true);
-    expect(encodeManifest(decodeManifest(saved)).roles["ui-worker"].toolProfile).toBe(
+    const implementer = decodeManifest(saved).roles.implementer;
+    expect(implementer.toolProfile).toBe("implementation");
+    expect(implementer.browserTasks).toBe(true);
+    expect(encodeManifest(decodeManifest(saved)).roles.implementer.toolProfile).toBe(
       "implementation",
     );
     // A stored version 1 policy reads the same way.
@@ -326,7 +364,10 @@ describe("AgentPolicyManifest", () => {
         "ui-worker": { ...legacy.roles["ui-worker"], toolProfile: "implementation-phi" },
       },
     });
-    expect(v1.roles["ui-worker"].toolProfile).toBe("implementation");
+    expect(v1.roles.implementer).toMatchObject({
+      toolProfile: "implementation",
+      browserTasks: true,
+    });
     // Bounded browser tasks are still only for the roles that may hold them.
     expect(
       decodeManifestExit({
@@ -354,7 +395,7 @@ describe("AgentPolicyManifest", () => {
         ...current,
         roles: {
           ...roles,
-          "ui-worker": { ...roles["ui-worker"], toolProfile: "implementation-phi" },
+          implementer: { ...roles.implementer, toolProfile: "implementation-phi" },
         },
       })._tag,
     ).toBe("Failure");
@@ -367,7 +408,7 @@ describe("AgentPolicyManifest", () => {
         ...manifest,
         roles: { ...manifest.roles, [name]: { ...manifest.roles[name], browserTasks: true } },
       })._tag;
-    for (const name of ["chore-worker", "implementation-worker", "ui-worker", "reviewer"] as const)
+    for (const name of ["implementer", "reviewer"] as const)
       expect(granting(name), name).toBe("Success");
     for (const name of ["advisor", "browser", "ui-verifier"] as const)
       expect(granting(name), name).toBe("Failure");
@@ -435,6 +476,9 @@ describe("AgentPolicyManifest", () => {
       briefs: Object.fromEntries(Object.keys(legacy.roles).map((name) => [name, brief])),
     });
     expect(snapshot.briefs.reviewer).toEqual(brief);
+    // implementer takes the implementation worker's brief; the retired briefs stay readable.
+    expect(snapshot.briefs.implementer).toEqual(brief);
+    expect(snapshot.briefs["ui-worker"]).toEqual(brief);
   });
 });
 
@@ -484,11 +528,30 @@ describe("AgentTaskRequest", () => {
   });
 });
 
+describe("retired writing roles", () => {
+  it("read every saved or requested writer name as implementer, keeping its task class", () => {
+    for (const [role, taskClass] of [
+      ["chore-worker", "non-ui"],
+      ["implementation-worker", "mixed"],
+      ["ui-worker", "ui"],
+    ] as const) {
+      const request = decodeRequest({
+        role,
+        taskClass,
+        workId: "work",
+        attemptId: "attempt",
+        workspacePath: "/workspace",
+      });
+      expect([request.role, request.taskClass]).toEqual(["implementer", taskClass]);
+      expect(encodeRequest(request).role).toBe("implementer");
+      expect(decodeStoredRole(role)).toBe("implementer");
+    }
+  });
+});
+
 describe("agentTaskTopic", () => {
   it("drops the role prefix T3 gives a managed task's title", () => {
-    expect(agentTaskTopic("Implementation worker · Smoke edit", "implementation-worker")).toBe(
-      "Smoke edit",
-    );
+    expect(agentTaskTopic("Implementer · Smoke edit", "implementer")).toBe("Smoke edit");
     expect(agentTaskTopic("Advisor", "advisor")).toBe("");
     expect(agentTaskTopic("Ticket reviewer · Smoke edit", "reviewer")).toBe("Smoke edit");
     expect(agentTaskTopic("Spec reviewer · Smoke edit", "reviewer")).toBe("Smoke edit");
@@ -496,9 +559,7 @@ describe("agentTaskTopic", () => {
   });
 
   it("keeps a title that does not start with the role's label", () => {
-    expect(agentTaskTopic("Advisor · Smoke edit", "implementation-worker")).toBe(
-      "Advisor · Smoke edit",
-    );
+    expect(agentTaskTopic("Advisor · Smoke edit", "implementer")).toBe("Advisor · Smoke edit");
   });
 });
 
@@ -564,6 +625,7 @@ describe("AgentTaskBinding", () => {
 
   it("resumes a UI worker bound to Phi with bounded browser tasks and no Phi", () => {
     const writer = binding("ui-worker", "scoped-write", "implementation-phi");
+    expect([writer.role, writer.taskClass]).toEqual(["implementer", "ui"]);
     expect([writer.toolProfile, writer.browserTasks]).toEqual(["implementation", true]);
     expect(encodeBinding(writer).toolProfile).toBe("implementation");
     const reader = binding("ui-worker", "read-only", "phi");

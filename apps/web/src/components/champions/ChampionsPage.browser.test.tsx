@@ -422,7 +422,7 @@ describe("answering a recommendation", () => {
 
   it("shows the whole of a long question and recommendation before you answer", async () => {
     reset();
-    const question = `${"Phi refused for browser, ui-verifier and ui-worker. ".repeat(6)}Recommend B.`;
+    const question = `${"Phi refused for browser, ui-verifier and implementer. ".repeat(6)}Recommend B.`;
     const advice = `${"Keep the trial reversible and the methods unchanged. ".repeat(8)}Report back.`;
     await using _screen = await render(
       <List
@@ -795,7 +795,7 @@ describe("the champion form's roles", () => {
     );
   const eligible = choices([
     { role: "advisor", selection: model("strong"), refusal: null },
-    { role: "chore-worker", selection: model("light"), refusal: null },
+    { role: "implementer", selection: model("light"), refusal: null },
   ]);
 
   it("saves a new champion's default roles with the server's selections, not a guess", async () => {
@@ -811,7 +811,7 @@ describe("the champion form's roles", () => {
         projectId: "project-a",
         classes: {
           setup: { role: "advisor", taskClass: "non-ui" },
-          routine: { role: "chore-worker", taskClass: "non-ui" },
+          routine: { role: "implementer", taskClass: "non-ui" },
         },
         setupModelSelection: model("strong"),
         routineModelSelection: model("light"),
@@ -827,7 +827,7 @@ describe("the champion form's roles", () => {
     answering(
       choices([
         { role: "advisor", selection: null, refusal: "Nothing eligible for this role." },
-        { role: "chore-worker", selection: model("light"), refusal: null },
+        { role: "implementer", selection: model("light"), refusal: null },
       ]),
     );
     await using _screen = await render(<ChampionForm existing={null} onDone={() => {}} />);
@@ -901,7 +901,7 @@ describe("the champion form's roles", () => {
     const eligibleOn = (machine: string) =>
       choices([
         { role: "advisor", selection: model(`${machine}-strong`), refusal: null },
-        { role: "chore-worker", selection: model(`${machine}-light`), refusal: null },
+        { role: "implementer", selection: model(`${machine}-light`), refusal: null },
         { role: "researcher", selection: model(`${machine}-research`), refusal: null },
       ]).roles;
 
@@ -986,12 +986,12 @@ describe("the champion form's roles", () => {
     answering(
       choices([
         { role: "advisor", selection: null, refusal: "Nothing eligible for this role." },
-        { role: "chore-worker", selection: model("light"), refusal: null },
+        { role: "implementer", selection: model("light"), refusal: null },
       ]),
     );
     const classes = {
       setup: { role: "advisor", taskClass: "non-ui" },
-      routine: { role: "chore-worker", taskClass: "non-ui" },
+      routine: { role: "implementer", taskClass: "non-ui" },
     } as const;
     await using _screen = await render(
       <ChampionForm
@@ -1032,7 +1032,7 @@ describe("the champion form's roles", () => {
     expect(fixtures.commands.get("champion save")?.mock.calls[0]?.[0].input).toMatchObject({
       classes: {
         setup: { role: "advisor", taskClass: "non-ui" },
-        routine: { role: "chore-worker", taskClass: "non-ui" },
+        routine: { role: "implementer", taskClass: "non-ui" },
       },
       setupModelSelection: model("history-setup"),
       routineModelSelection: model("history-routine"),

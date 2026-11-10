@@ -356,7 +356,7 @@ it.layer(layerTest)("managed RuntimePolicyV2", (it) => {
         const now = yield* DateTime.now;
         const writer: AgentTaskBinding = {
           ...managedBinding,
-          role: "implementation-worker",
+          role: "implementer",
           sourceAccess: "scoped-write",
           toolProfile: "implementation",
           executionBoundary: "workspace-sandbox",
@@ -456,7 +456,7 @@ it.layer(layerTest)("managed RuntimePolicyV2", (it) => {
         const now = yield* DateTime.now;
         const worker = {
           ...managedBinding,
-          role: "implementation-worker" as const,
+          role: "implementer" as const,
           sourceAccess: "scoped-write" as const,
           toolProfile: "implementation" as const,
         };

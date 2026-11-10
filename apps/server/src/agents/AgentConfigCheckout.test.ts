@@ -13,41 +13,55 @@ const layer = ProcessRunner.layer.pipe(
   Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 
-const jj = (cwd: string, ...args: ReadonlyArray<string>) =>
+const git = (cwd: string, ...args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const processes = yield* ProcessRunner.ProcessRunner;
-    const output = yield* processes.run({ command: "jj", args, cwd, timeout: "30 seconds" });
+    const output = yield* processes.run({ command: "git", args, cwd, timeout: "30 seconds" });
     assert.equal(output.code, 0, output.stderr);
     return output.stdout.trim();
   });
 
+const configure = (cwd: string) =>
+  Effect.gen(function* () {
+    yield* git(cwd, "config", "user.email", "test@example.com");
+    yield* git(cwd, "config", "user.name", "Test");
+  });
+
 it.layer(layer)("AgentConfigCheckout", (it) => {
-  it.effect("matches jj's revision, unlanded state and distance behind main", () =>
+  it.effect("reports HEAD, uncommitted changes and the commits behind origin/main", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const repo = yield* fs.makeTempDirectoryScoped({ prefix: "agent-config-checkout-" });
-      yield* jj(repo, "git", "init", "--colocate", ".");
-      yield* jj(repo, "config", "set", "--repo", "user.email", "test@example.com");
-      yield* jj(repo, "config", "set", "--repo", "user.name", "Test");
+      const remote = yield* fs.makeTempDirectoryScoped({ prefix: "agent-config-origin-" });
+      yield* git(repo, "init", "-b", "main");
+      yield* configure(repo);
       yield* fs.writeFileString(path.join(repo, "AGENTS.md"), "v1");
-      yield* jj(repo, "commit", "-m", "v1");
-      const installed = yield* jj(repo, "log", "-r", "@-", "--no-graph", "-T", "commit_id");
-      yield* jj(repo, "bookmark", "create", "main", "-r", "@-");
-      // main moves on by two commits; the installed checkout stays on v1.
-      yield* fs.writeFileString(path.join(repo, "AGENTS.md"), "v2");
-      yield* jj(repo, "commit", "-m", "v2");
-      yield* fs.writeFileString(path.join(repo, "AGENTS.md"), "v3");
-      yield* jj(repo, "commit", "-m", "v3");
-      yield* jj(repo, "bookmark", "set", "main", "-r", "@-");
-      yield* jj(repo, "new", installed);
+      yield* git(repo, "add", "AGENTS.md");
+      yield* git(repo, "commit", "-m", "v1");
+      const installed = yield* git(repo, "rev-parse", "HEAD");
+      yield* git(remote, "init", "--bare", "-b", "main");
+      yield* git(repo, "remote", "add", "origin", remote);
+      yield* git(repo, "push", "origin", "HEAD:main");
+
+      // Someone else pushes two commits to main; this checkout stays on v1.
+      const other = yield* fs.makeTempDirectoryScoped({ prefix: "agent-config-other-" });
+      yield* git(other, "clone", remote, ".");
+      yield* configure(other);
+      for (const version of ["v2", "v3"]) {
+        yield* fs.writeFileString(path.join(other, "AGENTS.md"), version);
+        yield* git(other, "commit", "-am", version);
+      }
+      yield* git(other, "push", "origin", "HEAD:main");
+      yield* git(repo, "fetch", "origin");
 
       const clean = yield* AgentConfigCheckout.read(repo);
       assert.equal(clean.revision, installed);
+      assert.equal(clean.workingCopyRevision, installed);
       assert.isFalse(clean.hasLocalChanges);
       assert.equal(yield* AgentConfigCheckout.commitsBehindMain(repo), 2);
 
-      // An edit jj has not snapshotted yet still counts as unlanded.
+      // An edit the checkout has not committed still counts as unlanded.
       yield* fs.writeFileString(path.join(repo, "AGENTS.md"), "local edit");
       assert.isTrue((yield* AgentConfigCheckout.read(repo)).hasLocalChanges);
     }).pipe(Effect.scoped),

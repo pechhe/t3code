@@ -19,5 +19,5 @@ it("an untitled managed task is named by its role and the first line of its task
   expect(managedTaskTitle("reviewer", "\n  Review the diff\nMore detail", undefined)).toBe(
     "Reviewer · Review the diff",
   );
-  expect(managedTaskTitle("ui-worker", "  ", undefined)).toBe("UI worker");
+  expect(managedTaskTitle("implementer", "  ", undefined)).toBe("Implementer");
 });

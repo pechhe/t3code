@@ -12,6 +12,7 @@ import {
   ensureModel,
   jobsFor,
   listModel,
+  moveEntry,
   offersFast,
   readOnlyUnenforcedProviders,
   removeEntry,
@@ -51,34 +52,26 @@ const manifest = () =>
       opus: { driverKind: "claudeAgent", model: "claude-opus", effortOption: "effort" },
     },
     lists: {
-      fast: [
-        { model: "haiku", effort: "high" },
-        { model: "sol", effort: "high" },
-      ],
       workhorse: [{ model: "sol", effort: "medium" }],
       advisor: [
         { model: "sol", effort: "high" },
         { model: "opus", effort: "high" },
       ],
+      readers: [
+        { model: "haiku", effort: "high" },
+        { model: "opus", effort: "high" },
+      ],
     },
     roles: {
-      "chore-worker": role("fast", {
-        brief: "roles/chore-worker.md",
+      implementer: role("workhorse", {
+        brief: "roles/implementer.md",
         sourceAccess: "scoped-write",
         toolProfile: "implementation",
+        taskClasses: ["non-ui", "ui", "mixed"],
       }),
-      browser: role("fast", { brief: "roles/browser.md", toolProfile: "phi" }),
-      "implementation-worker": role("workhorse", {
-        brief: "roles/implementation-worker.md",
-        sourceAccess: "scoped-write",
-        toolProfile: "implementation",
-      }),
-      "ui-worker": role("advisor", {
-        brief: "roles/ui-worker.md",
-        sourceAccess: "scoped-write",
-        toolProfile: "implementation",
-        taskClasses: ["ui"],
-      }),
+      browser: role("readers", { brief: "roles/browser.md", toolProfile: "phi" }),
+      researcher: role("readers", { brief: "roles/researcher.md", toolProfile: "web-research" }),
+      scout: role("readers", { brief: "roles/scout.md" }),
       advisor: role("advisor", {
         brief: "roles/advisor.md",
         callers: { haiku: "opus" },
@@ -178,7 +171,7 @@ describe("delegation settings", () => {
       candidate.roles.includes("reviewer"),
     )!;
     expect(job.sections.map((section) => section.title)).toEqual(["Change and Spec reviews"]);
-    expect(job.sections[0]!.hint).toContain("Also used by Implementation worker");
+    expect(job.sections[0]!.hint).toContain("Also used by Implementer");
     expect(job.splitGroups.map((group) => group.list)).toEqual(["workhorse"]);
   });
 
@@ -191,7 +184,7 @@ describe("delegation settings", () => {
     expect(isValid(split)).toBe(true);
     expect(split.roles.reviewer.list).toBe("reviewer");
     expect(split.roles.reviewer.specList).toBe("reviewer-spec");
-    expect(split.roles["implementation-worker"].list).toBe("implementation-worker");
+    expect(split.roles.implementer.list).toBe("implementer");
   });
 
   it("splits both reviewer bindings when the scopes share a list", () => {
@@ -221,9 +214,9 @@ describe("delegation settings", () => {
 
   it("shows roles that share a list as one job, in page order, and edits no ui-verifier", () => {
     expect(roleGroups(manifest()).map((group) => group.roles)).toEqual([
-      ["implementation-worker", "reviewer"],
-      ["ui-worker", "advisor"],
-      ["chore-worker", "browser"],
+      ["implementer", "reviewer"],
+      ["advisor"],
+      ["browser", "researcher", "scout"],
     ]);
     const saved = manifest();
     const retired = {
@@ -238,13 +231,32 @@ describe("delegation settings", () => {
 
   it("splitting a shared job gives each role its own copy and stays valid", () => {
     const original = manifest();
-    const group = roleGroups(original).find((candidate) => candidate.list === "fast")!;
+    const group = roleGroups(original).find((candidate) => candidate.list === "readers")!;
     const split = splitGroup(original, group);
     expect(isValid(split)).toBe(true);
     expect(split.roles.browser.list).toBe("browser");
-    expect(split.lists["browser"]).toEqual(original.lists["fast"]);
-    expect(split.lists["fast"]).toBeUndefined();
-    expect(roleGroups(split)).toHaveLength(4);
+    expect(split.lists["browser"]).toEqual(original.lists["readers"]);
+    expect(split.lists["readers"]).toBeUndefined();
+    expect(roleGroups(split)).toHaveLength(5);
+  });
+
+  it("edits a list several roles share once, so every role naming it follows", () => {
+    const original = manifest();
+    const job = jobsFor(original, roleGroups(original)).find((candidate) =>
+      candidate.roles.includes("scout"),
+    )!;
+    expect(job.roles).toEqual(["browser", "researcher", "scout"]);
+    expect(job.sections.map((section) => section.list)).toEqual(["readers"]);
+    // The one list the job shows is the list all three roles read, so a reorder reaches all three.
+    const edited = moveEntry(original, job.sections[0]!.list, 0, 1);
+    expect(edited.lists["readers"]!.map((entry) => entry.model)).toEqual(["opus", "haiku"]);
+    for (const role of ["browser", "researcher", "scout"] as const)
+      expect(edited.lists[edited.roles[role]!.list]).toEqual(edited.lists["readers"]);
+    // Removing a model from it reaches them too, and leaves one shared list rather than three.
+    const removed = removeEntry(edited, "readers", "haiku");
+    expect(isValid(removed)).toBe(true);
+    expect(roleGroups(removed)).toHaveLength(3);
+    expect(removed.lists["readers"]).toEqual([{ model: "opus", effort: "high" }]);
   });
 
   it("removing a model drops the exceptions that named it", () => {

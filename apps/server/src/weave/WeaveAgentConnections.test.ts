@@ -231,7 +231,7 @@ it.effect("a thread asking Weave for a second role is refused as agent_role_conf
     yield* call(leadThread);
     yield* connections.prepare({
       threadId: leadThread,
-      role: "implementation-worker",
+      role: "implementer",
       model: "claude-opus-5-5",
     });
     const refused = yield* call(leadThread);

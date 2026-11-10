@@ -92,7 +92,7 @@ it("grants bounded browsing only from what the server recorded about the thread"
   // Ordinary threads, forks, side chats and scheduled runs carry no task record and no parent.
   expect(boundedBrowserEligible(shell())).toBe(true);
   expect(boundedBrowserEligible(shell({ agentTask: task("lead"), lineage: subagent }))).toBe(true);
-  for (const role of ["chore-worker", "implementation-worker", "ui-worker"] as const)
+  for (const role of ["implementer"] as const)
     expect(boundedBrowserEligible(shell({ agentTask: task(role), lineage: subagent })), role).toBe(
       true,
     );
@@ -153,11 +153,11 @@ it("grants bounded browsing only from what the server recorded about the thread"
   expect(boundedBrowserEligible(linkedBrowser("phi"))).toBe(false);
   expect(
     boundedBrowserEligible(
-      shell({ ...linked, agentTask: task("implementation-worker", { browserTasks: true }) }),
+      shell({ ...linked, agentTask: task("implementer", { browserTasks: true }) }),
     ),
   ).toBe(true);
   expect(
-    boundedBrowserEligible(shell({ ...linked, agentTask: task("implementation-worker") })),
+    boundedBrowserEligible(shell({ ...linked, agentTask: task("implementer") })),
   ).toBe(false);
   expect(
     boundedBrowserEligible(shell({ ...linked, agentTask: task("scout", { browserTasks: true }) })),

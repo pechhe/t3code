@@ -84,9 +84,7 @@ const harness = Effect.gen(function* () {
         ? unresolvedLead
         : leadThread;
   const roleOf = (threadId: ThreadId) =>
-    threadId === helperThread || threadId === unresolvedHelper
-      ? "implementation-worker"
-      : "reviewer";
+    threadId === helperThread || threadId === unresolvedHelper ? "implementer" : "reviewer";
   const projections = Layer.mock(ProjectionStore.ProjectionStoreV2)({
     getThread: (threadId: ThreadId) =>
       Effect.suspend(() => {
@@ -772,7 +770,7 @@ it.effect("a helper waiting on its lead's session keeps its own end unsent", () 
       kind: "end",
       recordKey: "end:thread-helper:run-1",
       threadId: helperThread,
-      role: "implementation-worker",
+      role: "implementer",
     });
 
     yield* records.deliverDue;
@@ -796,7 +794,7 @@ it.effect("a helper waiting on its lead's session keeps its own end unsent", () 
       weave.toolCalls.map(({ name }) => name),
       ["weave_forge_bind", "weave_forge_start_session", "weave_forge_record_helper"],
     );
-    const helperAgents = weave.agents.filter((agent) => agent.role === "implementation-worker");
+    const helperAgents = weave.agents.filter((agent) => agent.role === "implementer");
     assert.isNotEmpty(helperAgents);
     assert.isTrue(helperAgents.every((agent) => agent.ended));
     assert.deepStrictEqual(yield* records.outstanding(), []);

@@ -75,7 +75,7 @@ export type ScheduleDraft = {
   readonly savedFilters: ReadonlyArray<WebhookFilterDraft>;
 };
 
-const DEFAULT_SCHEDULED_TASK_ROLE: AgentRole = "implementation-worker";
+const DEFAULT_SCHEDULED_TASK_ROLE: AgentRole = "implementer";
 
 export const DEFAULT_SCHEDULE: ScheduleDraft = {
   mode: "fixed_time",

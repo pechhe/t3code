@@ -52,7 +52,7 @@ import {
 } from "./workspaceIdentity.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { defaultChildMode, exceedsCaller } from "./delegationRuntime.ts";
-import { withRetiredDemanding } from "./retiredDemanding.ts";
+import { withRetiredFields } from "./retiredRequestFields.ts";
 import { managedTaskTitle } from "./taskTitle.ts";
 import { sharesPoolWith } from "@t3tools/shared/providerPools";
 
@@ -700,7 +700,7 @@ const make = Effect.gen(function* () {
           timeoutMs: undefined,
           clientRequestId: undefined,
         }).pipe(Effect.orDie);
-        const fingerprints = yield* Effect.forEach(withRetiredDemanding(wire), hash);
+        const fingerprints = yield* Effect.forEach(withRetiredFields(wire), hash);
         const fingerprint = fingerprints[0]!;
         const identity = yield* hash(
           `${session.key}\n${input.agentTask.workId}\n${input.agentTask.attemptId}`,

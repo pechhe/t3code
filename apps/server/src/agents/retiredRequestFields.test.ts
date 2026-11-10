@@ -2,7 +2,7 @@ import { AgentTaskWireRequest, OrchestratorMcpDelegateTaskInput } from "@t3tools
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { withRetiredDemanding } from "./retiredDemanding.ts";
+import { withRetiredFields } from "./retiredRequestFields.ts";
 
 // The request as it was fingerprinted while `agentTask` still carried `demanding`.
 const before = Object.entries(AgentTaskWireRequest.fields);
@@ -19,9 +19,9 @@ const encodeSaved = Schema.encodeSync(Schema.fromJsonString(SavedInput));
 const decode = Schema.decodeUnknownSync(OrchestratorMcpDelegateTaskInput);
 const encode = Schema.encodeSync(Schema.fromJsonString(OrchestratorMcpDelegateTaskInput));
 
-describe("withRetiredDemanding", () => {
+describe("withRetiredFields", () => {
   const agentTask = {
-    role: "implementation-worker",
+    role: "implementer",
     taskClass: "non-ui",
     workId: "work",
     attemptId: "attempt-1",
@@ -42,13 +42,32 @@ describe("withRetiredDemanding", () => {
         // Decoding drops the retired flag, so the retry's own text never carries it.
         const text = encode(decode({ ...request, agentTask: retry }));
         expect(text).not.toContain("demanding");
-        expect(withRetiredDemanding(text)).toContain(saved);
+        expect(withRetiredFields(text)).toContain(saved);
       }
+    }
+  });
+
+  it("matches a task first called under a retired writer name, retried under any name", () => {
+    const encodeWire = Schema.encodeSync(
+      Schema.fromJsonString(
+        Schema.Struct({
+          ...OrchestratorMcpDelegateTaskInput.fields,
+          agentTask: Schema.optional(AgentTaskWireRequest),
+        }),
+      ),
+    );
+    const task = { ...agentTask, readOnly: undefined, authorModel: undefined };
+    const saved = encodeWire({ ...request, agentTask: { ...task, role: "ui-worker" } } as never);
+    for (const role of ["ui-worker", "implementer"]) {
+      const text = encode(decode({ ...request, agentTask: { ...task, role } }));
+      expect(text).toContain('"role":"implementer"');
+      expect(withRetiredFields(text)[0]).toBe(text);
+      expect(withRetiredFields(text)).toContain(saved);
     }
   });
 
   it("leaves a request without a managed task as it is", () => {
     const text = encode(decode({ task: "Look", clientRequestId: "request-2" }));
-    expect(withRetiredDemanding(text)).toEqual([text]);
+    expect(withRetiredFields(text)).toEqual([text]);
   });
 });

@@ -1320,7 +1320,7 @@ const laptopLayers = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   );
 
 const choreRole = {
-  role: "chore-worker",
+  role: "implementer",
   taskClass: "non-ui",
   workId: "work:jev-check",
   attemptId: "attempt:jev-check",
@@ -1754,7 +1754,7 @@ it.effect("a role the box's policy lacks is refused there before anything starts
         yield* seedParent(a);
 
         for (const [request, cause] of [
-          [{ agentTask: choreRole }, "has no `chore-worker` role"],
+          [{ agentTask: choreRole }, "has no `implementer` role"],
           [
             { agentTask: { ...choreRole, role: "scout" }, model: "gpt-5.4" },
             "gpt-5.4 is not on this environment's list",

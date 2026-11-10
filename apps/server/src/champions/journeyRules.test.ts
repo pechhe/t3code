@@ -181,7 +181,13 @@ describe("parseVerdict", () => {
   it("reads the replay's final message", () => {
     expect(
       Rules.parseVerdict("I tried.\nVERDICT: reproduced\nREASON: Error page.\nSCREENSHOT: /a.png"),
-    ).toEqual({ verdict: "reproduced", reason: "Error page.", steps: null, screenshot: "/a.png", missingService: null });
+    ).toEqual({
+      verdict: "reproduced",
+      reason: "Error page.",
+      steps: null,
+      screenshot: "/a.png",
+      missingService: null,
+    });
   });
 
   it("keeps what the replay did, with the text it typed", () => {
@@ -233,6 +239,7 @@ describe("findingEvidence", () => {
       steps: "step\n".repeat(4000),
       clicks: "click".repeat(4000),
       model: "strong",
+      independent: true,
       reason: "Seen on a fresh database.",
       reproduction: `Typed "draft 55". ${"more ".repeat(1000)}`,
       screenshot: "/shots/one.png",
@@ -404,15 +411,15 @@ describe("a replay's verdict", () => {
       Rules.parseVerdict("VERDICT: reproduced\nREASON: It failed.\nMISSING: optimiser")
         ?.missingService,
     ).toBe("optimiser");
-    expect(Rules.parseVerdict("VERDICT: reproduced\nREASON: It failed.")?.missingService).toBeNull();
+    expect(
+      Rules.parseVerdict("VERDICT: reproduced\nREASON: It failed.")?.missingService,
+    ).toBeNull();
   });
 });
 
 describe("shardOfOrigin", () => {
   it("matches a shard by its origin's port", () => {
-    expect(
-      Rules.shardOfOrigin(manifest(), "http://localhost:3300/board")?.id,
-    ).toBe("s1");
+    expect(Rules.shardOfOrigin(manifest(), "http://localhost:3300/board")?.id).toBe("s1");
     expect(Rules.shardOfOrigin(manifest(), "http://localhost:9999/board")).toBeUndefined();
     expect(Rules.shardOfOrigin(manifest(), null)).toBeUndefined();
   });

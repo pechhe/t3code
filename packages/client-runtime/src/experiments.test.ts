@@ -217,18 +217,18 @@ describe("what a draft sends", () => {
     const definition = definitionOf(
       draft({
         kind: "text",
-        textRole: "ui-worker",
+        textRole: "implementer",
         variants: [
           { type: "text", text: null, sourcePath: "added-text" },
-          { type: "text", text: "  Check phone width.\n", sourcePath: "roles/ui-worker.md" },
+          { type: "text", text: "  Check phone width.\n", sourcePath: "roles/implementer.md" },
         ],
       }),
     );
     expect(definition.lever).toBe("instruction");
-    expect(definition.eligibility.agentRoles).toEqual(["ui-worker"]);
+    expect(definition.eligibility.agentRoles).toEqual(["implementer"]);
     expect(definition.variants[0]?.instructions).toBeUndefined();
     expect(definition.variants[1]?.instructions).toEqual({
-      sourcePath: "roles/ui-worker.md",
+      sourcePath: "roles/implementer.md",
       revision: "added-text",
       sha256: hashed("Check phone width."),
       text: "Check phone width.",
@@ -270,10 +270,7 @@ describe("what a draft sends", () => {
 });
 
 describe("trial clashes mirror the server's start check", () => {
-  const scope = (
-    lever: Experiment["lever"],
-    extra: Partial<Experiment["eligibility"]> = {},
-  ) => ({
+  const scope = (lever: Experiment["lever"], extra: Partial<Experiment["eligibility"]> = {}) => ({
     lever,
     eligibility: { projectIds: [project], models: [], taskCategories: [], ...extra },
   });

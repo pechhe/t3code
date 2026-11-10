@@ -9,6 +9,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { AgentPolicyManifest } from "@t3tools/contracts";
 import * as AgentPolicy from "./AgentPolicyService.ts";
+import * as ProcessRunner from "../processRunner.ts";
 
 function manifest() {
   const role = (
@@ -35,20 +36,40 @@ function manifest() {
     ),
     lists,
     roles: {
-      "chore-worker": role("fast", "chore-worker", "scoped-write", "implementation"),
-      "implementation-worker": role(
-        "workhorse",
-        "implementation-worker",
-        "scoped-write",
-        "implementation",
-      ),
-      "ui-worker": role("ui", "ui-worker", "scoped-write", "implementation", ["ui", "mixed"]),
+      implementer: role("workhorse", "implementer", "scoped-write", "implementation", [
+        "non-ui",
+        "ui",
+        "mixed",
+      ]),
       browser: role("fast", "browser", "read-only", "phi"),
       "ui-verifier": role("fast", "ui-verifier", "read-only", "phi", ["ui"]),
       advisor: role("advisor", "advisor", "read-only", "source-reader"),
       reviewer: {
         ...role("workhorse", "reviewer", "read-only", "source-reader"),
         specList: "workhorse",
+      },
+    },
+  };
+}
+
+/** The same policy as saved before `implementer`, with the three writing roles in its place. */
+function writerManifest() {
+  const { implementer, ...current } = manifest().roles;
+  const writer = (name: string, list: string, taskClasses: Array<string>) => ({
+    ...implementer,
+    list,
+    brief: `roles/${name}.md`,
+    taskClasses,
+  });
+  return {
+    ...manifest(),
+    roles: {
+      ...current,
+      "chore-worker": writer("chore-worker", "fast", ["non-ui"]),
+      "implementation-worker": writer("implementation-worker", "workhorse", ["non-ui"]),
+      "ui-worker": {
+        ...writer("ui-worker", "ui", ["ui", "mixed"]),
+        toolProfile: "implementation-phi",
       },
     },
   };
@@ -88,10 +109,10 @@ describe("policy authority", () => {
     input.roles["reviewer"].brief = "../secrets";
     expect(() => decode(input)).toThrow();
   });
-  it("does not allow a UI implementation worker", () => {
-    const mixed = manifest();
-    mixed.roles["implementation-worker"].taskClasses = ["mixed"];
-    expect(() => decode(mixed)).toThrow();
+  it("holds the implementer to the implementation tools", () => {
+    const reader = manifest();
+    reader.roles.implementer.toolProfile = "source-reader";
+    expect(() => decode(reader)).toThrow();
   });
 });
 
@@ -109,6 +130,36 @@ const source = Effect.gen(function* () {
   return root;
 });
 
+const git = (cwd: string, ...args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const processes = yield* ProcessRunner.ProcessRunner;
+    const output = yield* processes.run({ command: "git", args, cwd, timeout: "30 seconds" });
+    expect(output.code).toBe(0);
+    return output.stdout.trim();
+  }).pipe(Effect.provide(ProcessRunner.layer));
+
+/** The same policy, in a git checkout on `main` whose `origin` is a bare remote. */
+const gitSource = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const root = yield* fs.makeTempDirectoryScoped({ prefix: "agent-policy-git-" });
+  const remote = yield* fs.makeTempDirectoryScoped({ prefix: "agent-policy-origin-" });
+  yield* fs.makeDirectory(`${root}/roles`);
+  const input = manifest();
+  yield* fs.writeFileString(`${root}/roles/policy.json`, JSON.stringify(input));
+  for (const role of Object.values(input.roles))
+    yield* fs.writeFileString(`${root}/${role.brief}`, `Brief for ${role.brief}\n`);
+  yield* fs.writeFileString(`${root}/notes.md`, "notes\n");
+  yield* git(root, "init", "-b", "main");
+  yield* git(root, "config", "user.email", "test@example.com");
+  yield* git(root, "config", "user.name", "Test");
+  yield* git(root, "add", ".");
+  yield* git(root, "commit", "-m", "policy");
+  yield* git(remote, "init", "--bare", "-b", "main");
+  yield* git(root, "remote", "add", "origin", remote);
+  yield* git(root, "push", "origin", "HEAD:main");
+  return { root, remote, published: yield* git(remote, "rev-parse", "main") };
+});
+
 it.layer(testLayer)("immutable policy snapshots", (it) => {
   it.effect("saves a validated edit, advances its revision and preserves earlier snapshots", () =>
     Effect.gen(function* () {
@@ -121,47 +172,63 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       edited.revision = "caller-cannot-set-revision";
       edited.lists.workhorse = [{ model: "workhorse", effort: "high" }];
       const saved = yield* service.save(root, { expectedHash: first.hash, manifest: edited });
-      expect(saved.sourceRevision).toBe("test-policy.1");
-      expect(saved.manifest.lists["workhorse"]).toEqual([{ model: "workhorse", effort: "high" }]);
-      expect(saved.hash).not.toBe(first.hash);
-      expect((yield* service.snapshot(root)).hash).toBe(saved.hash);
+      expect(saved.snapshot.sourceRevision).toBe("test-policy.1");
+      expect(saved.snapshot.manifest.lists["workhorse"]).toEqual([
+        { model: "workhorse", effort: "high" },
+      ]);
+      expect(saved.snapshot.hash).not.toBe(first.hash);
+      expect((yield* service.snapshot(root)).hash).toBe(saved.snapshot.hash);
       expect((yield* fs.stat(`${root}/roles/policy.json`)).mode & 0o777).toBe(0o640);
       expect(first.manifest.lists["workhorse"]?.[0]?.effort).toBe("medium");
-      expect(Object.isFrozen(saved.manifest)).toBe(true);
-      const again = yield* service.save(root, { expectedHash: saved.hash, manifest: manifest() });
-      expect(again.sourceRevision).toBe("test-policy.2");
+      expect(Object.isFrozen(saved.snapshot.manifest)).toBe(true);
+      // A policy root that is not a git checkout saves without publishing.
+      expect(saved.publish).toEqual({ pushed: false, detail: "not a git checkout" });
+      const again = yield* service.save(root, {
+        expectedHash: saved.snapshot.hash,
+        manifest: manifest(),
+      });
+      expect(again.snapshot.sourceRevision).toBe("test-policy.2");
       expect(yield* fs.readDirectory(`${root}/roles`)).not.toContainEqual(
         expect.stringMatching(/^\.policy-edit-/),
       );
     }),
   );
-  it.effect("saves a policy that still sets the retired UI roles in their current form", () =>
-    Effect.gen(function* () {
-      const service = yield* AgentPolicy.AgentPolicyService;
-      const fs = yield* FileSystem.FileSystem;
-      const root = yield* source;
-      const retired = manifest();
-      retired.roles["ui-worker"] = {
-        ...retired.roles["ui-worker"],
-        toolProfile: "implementation-phi",
-      };
-      yield* fs.writeFileString(`${root}/roles/policy.json`, JSON.stringify(retired));
-      const first = yield* service.snapshot(root);
-      expect(first.manifest.roles["ui-worker"]).toMatchObject({
-        toolProfile: "implementation",
-        browserTasks: true,
-      });
-      yield* service.save(root, { expectedHash: first.hash, manifest: first.manifest });
-      const written = JSON.parse(yield* fs.readFileString(`${root}/roles/policy.json`));
-      expect(Object.keys(written.roles)).not.toContain("ui-verifier");
-      expect(written.roles["ui-worker"]).toMatchObject({
-        toolProfile: "implementation",
-        browserTasks: true,
-      });
-      // The brief may then go: nothing loads it.
-      yield* fs.remove(`${root}/roles/ui-verifier.md`);
-      expect((yield* service.snapshot(root)).manifest.roles["ui-verifier"]).toBeUndefined();
-    }),
+  it.effect(
+    "loads a policy with the retired writing roles as implementer and saves it current",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* AgentPolicy.AgentPolicyService;
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* source;
+        const retired = writerManifest();
+        yield* fs.writeFileString(`${root}/roles/policy.json`, JSON.stringify(retired));
+        yield* fs.remove(`${root}/roles/implementer.md`);
+        for (const role of Object.values(retired.roles))
+          yield* fs.writeFileString(`${root}/${role.brief}`, `Brief for ${role.brief}\n`);
+        const first = yield* service.snapshot(root);
+        // implementer takes the implementation-worker entry and its list, and every task class.
+        expect(first.manifest.roles.implementer).toMatchObject({
+          list: "workhorse",
+          brief: "roles/implementer.md",
+          toolProfile: "implementation",
+          taskClasses: ["non-ui", "ui", "mixed"],
+          browserTasks: true,
+        });
+        expect(first.briefs.implementer.text).toBe("Brief for roles/implementation-worker.md\n");
+        yield* service.save(root, { expectedHash: first.hash, manifest: first.manifest });
+        const written = JSON.parse(yield* fs.readFileString(`${root}/roles/policy.json`));
+        for (const name of ["chore-worker", "implementation-worker", "ui-worker", "ui-verifier"])
+          expect(Object.keys(written.roles)).not.toContain(name);
+        expect(written.roles.implementer).toMatchObject({
+          brief: "roles/implementer.md",
+          browserTasks: true,
+        });
+        // The old brief serves until the new one is written; then the new one is read.
+        yield* fs.writeFileString(`${root}/roles/implementer.md`, "Implementer brief\n");
+        expect((yield* service.snapshot(root)).briefs.implementer.text).toBe("Implementer brief\n");
+        yield* fs.remove(`${root}/roles/ui-verifier.md`);
+        expect((yield* service.snapshot(root)).manifest.roles["ui-verifier"]).toBeUndefined();
+      }),
   );
 
   it.effect("loads split policies through the Spec brief and saves both reviewer lists", () =>
@@ -169,7 +236,8 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       const service = yield* AgentPolicy.AgentPolicyService;
       const fs = yield* FileSystem.FileSystem;
       const root = yield* source;
-      const current = manifest();
+      // Split and version 1 policies both predate implementer.
+      const current = writerManifest();
       const { reviewer, ...roles } = current.roles;
       yield* fs.remove(`${root}/roles/reviewer.md`);
       yield* fs.writeFileString(`${root}/roles/spec-reviewer.md`, "Spec rubric\n");
@@ -200,7 +268,7 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       expect(written.roles.reviewer.specList).toBe("advisor");
       expect(written.roles).not.toHaveProperty("spec-reviewer");
       expect(yield* fs.exists(`${root}/roles/reviewer.md`)).toBe(false);
-      expect((yield* service.snapshot(root)).hash).toBe(saved.hash);
+      expect((yield* service.snapshot(root)).hash).toBe(saved.snapshot.hash);
     }),
   );
   it.effect("reads an unconverted version 1 policy and saves it as version 2", () =>
@@ -208,7 +276,8 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       const service = yield* AgentPolicy.AgentPolicyService;
       const fs = yield* FileSystem.FileSystem;
       const root = yield* source;
-      const current = manifest();
+      // Split and version 1 policies both predate implementer.
+      const current = writerManifest();
       const legacyRole = (name: string, role: (typeof current.roles)["advisor"]) => ({
         pool: role.list,
         brief: `roles/${name}.md`,
@@ -348,7 +417,7 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
         expect.stringMatching(/^\.policy-edit-/),
       );
       expect(
-        (yield* service.save(root, { expectedHash: first.hash, manifest: manifest() }))
+        (yield* service.save(root, { expectedHash: first.hash, manifest: manifest() })).snapshot
           .sourceRevision,
       ).toBe("test-policy.1");
     }),
@@ -392,7 +461,7 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       const latest = yield* firstService.snapshot(root);
       expect(
         (yield* firstService.save(root, { expectedHash: latest.hash, manifest: manifest() }))
-          .sourceRevision,
+          .snapshot.sourceRevision,
       ).toBe("test-policy.2");
     }),
   );
@@ -494,5 +563,66 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       yield* fs.writeFileString(`${root}/roles/policy.json`, "{}");
       expect((yield* service.snapshot(root).pipe(Effect.flip)).reason).toBe("invalid");
     }),
+  );
+  it.effect("publishes one save to origin/main and leaves other changes where they were", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const service = yield* AgentPolicy.AgentPolicyService;
+        const fs = yield* FileSystem.FileSystem;
+        const { root, remote } = yield* gitSource;
+        // A staged and an unstaged change must survive the save untouched.
+        yield* fs.writeFileString(`${root}/staged.md`, "staged\n");
+        yield* git(root, "add", "staged.md");
+        yield* fs.writeFileString(`${root}/notes.md`, "edited\n");
+        const first = yield* service.snapshot(root);
+        const saved = yield* service.save(root, { expectedHash: first.hash, manifest: manifest() });
+        expect(saved.publish).toEqual({ pushed: true, detail: null });
+        expect(saved.snapshot.sourceRevision).toBe("test-policy.1");
+        expect((yield* git(remote, "show", "main:roles/policy.json")).trim()).toBe(
+          (yield* fs.readFileString(`${root}/roles/policy.json`)).trim(),
+        );
+        expect((yield* git(remote, "show", "main:roles/policy.json")).trim()).toContain(
+          '"revision": "test-policy.1"',
+        );
+        // The commit carries the policy alone: the staged file stays staged and the edit unstaged.
+        expect((yield* git(root, "show", "--name-only", "--format=", "HEAD")).trim()).toBe(
+          "roles/policy.json",
+        );
+        expect(yield* git(root, "diff", "--cached", "--name-only")).toBe("staged.md");
+        expect(yield* git(root, "diff", "--name-only")).toBe("notes.md");
+      }),
+    ),
+  );
+  it.effect("keeps the saved policy when the push is rejected", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const service = yield* AgentPolicy.AgentPolicyService;
+        const fs = yield* FileSystem.FileSystem;
+        const { root, remote, published } = yield* gitSource;
+        yield* fs.makeDirectory(`${remote}/hooks`, { recursive: true });
+        yield* fs.writeFileString(`${remote}/hooks/pre-receive`, "#!/bin/sh\nexit 1\n");
+        yield* fs.chmod(`${remote}/hooks/pre-receive`, 0o755);
+        const first = yield* service.snapshot(root);
+        const saved = yield* service.save(root, { expectedHash: first.hash, manifest: manifest() });
+        expect(saved.publish).toEqual({
+          pushed: false,
+          detail: "push rejected: pull agent-config's main, then save again",
+        });
+        expect(saved.snapshot.sourceRevision).toBe("test-policy.1");
+        expect(JSON.parse(yield* fs.readFileString(`${root}/roles/policy.json`)).revision).toBe(
+          "test-policy.1",
+        );
+        // Nothing reached the remote, so its main still names the old policy.
+        expect(yield* git(remote, "rev-parse", "main")).toBe(published);
+        // Once the remote accepts again, the next save pushes the refused commit with its own.
+        yield* fs.remove(`${remote}/hooks/pre-receive`);
+        const next = yield* service.save(root, {
+          expectedHash: saved.snapshot.hash,
+          manifest: manifest(),
+        });
+        expect(next.publish).toEqual({ pushed: true, detail: null });
+        expect(yield* git(remote, "rev-list", "--count", `${published}..main`)).toBe("2");
+      }),
+    ),
   );
 });

@@ -37,15 +37,15 @@ export const RunSetupRecord = Schema.Struct({
   /** The run's ordinal in its thread, which orders records; absent from early records. */
   runOrdinal: Schema.optional(PositiveInt),
   capturedAt: Schema.String,
-  /** The live agent-config checkout (`T3CODE_AGENT_POLICY_ROOT`), read without snapshotting it. */
+  /** The live agent-config checkout (`T3CODE_AGENT_POLICY_ROOT`), read without writing to it. */
   agentConfig: Schema.NullOr(
     Schema.Struct({
       root: TrimmedNonEmptyString,
-      /** The landed base: the working copy's parent. */
+      /** The checkout's HEAD commit, the revision the run was set up from. */
       revision: Schema.NullOr(TrimmedNonEmptyString),
-      /** The working-copy commit as of jj's last snapshot. */
+      /** The same HEAD commit: a git checkout keeps edits in the files, not in a commit. */
       workingCopyRevision: Schema.NullOr(TrimmedNonEmptyString),
-      /** Whether the live checkout differs from `revision`, edits not yet snapshotted included. */
+      /** Whether the checkout has any uncommitted change. */
       hasLocalChanges: Schema.NullOr(Schema.Boolean),
     }),
   ),

@@ -26,9 +26,17 @@ no trial.
 
 On web and desktop, **Settings → Delegation** edits the configured source
 policy. Settings permission is required; agents have no MCP tool to edit it.
-Each role has an ordered model `list`, with effort for models that offer it.
-The Reviewer also requires `specList`, an alias into `lists` for Spec reviews;
-`review.scope` selects the list automatically. Other roles cannot set `specList`.
+The policy has seven roles: `implementer`, `lead`, `scout`, `researcher`, `browser`,
+`reviewer` and `advisor`. The implementer and lead are editors; the other five are
+read-only. They differ by brief and permissions, not by which models may take their
+work: any model a role lists may take that role's UI work as well as its other work.
+The implementer takes every task class, and hands its work back as a pinned revision
+unless its brief or the request tells it to land, install or publish.
+Each role has an ordered model `list`, with effort for models that offer it. Roles
+naming the same list share it: the shipped policy gives `scout`, `researcher` and
+`browser` one list, so editing that list under any of the three edits the one list
+all three use. The Reviewer also requires `specList`, an alias into `lists` for Spec
+reviews; `review.scope` selects the list automatically. Other roles cannot set `specList`.
 With the Reviewer's `council` on, `delegate_task` sits a Spec review as a council:
 one read-only reviewer per model maker on `specList`, in list order, at most five,
 never the author's own model. A maker whose models cannot run is reported as
@@ -45,20 +53,25 @@ Briefs remain read-only.
 Each change in Settings → Delegation saves at once; an edit made while a save runs
 waits for it and saves against the revision it wrote. A list left with no model stays
 unsaved, with Discard, until it has one. A save validates the choices against the
-policy rules and installed model catalog, advances the revision, and writes the policy file. Running tasks retain their
-recorded snapshot. A concurrent source edit refuses the save and reloads the
-current values. The page shows the installed agent-config revision, whether it has
-unlanded changes, and how far it trails main, until you publish agent-config through
-its normal workflow; saving does not commit or land it.
+policy rules and installed model catalog, advances the revision, writes the policy file,
+then commits `roles/policy.json` alone in the agent-config git checkout and pushes it to
+`origin` `main`; other files' uncommitted changes there stay as they are. A checkout that
+cannot commit or push (not on `main`, no `origin`, push rejected) keeps the written file,
+and the page says the save is not pushed. Running tasks retain their recorded snapshot. A
+concurrent source edit refuses the save and reloads the current values. The page shows the
+installed agent-config revision, whether it has uncommitted changes, and how far it trails
+`origin/main` as last fetched.
 Unavailable accounts remain visible and are skipped. A policy still at version 1
 is read as one list per role (both reviewer scopes share it) and written as version 2
 on its first save. Split reviewer policies keep their exact change and Spec lists;
 the change role supplies `large` and `callers` if present.
 Version 2 has no per-task-class restrictions: a version 1 restriction survives
 only when it covers every task class the role takes, and otherwise the role
-lists its whole pool for every class. UI implementation belongs to `ui-worker`, whose
-list is the choice of UI model; a reviewer, advisor, scout or researcher may use any
-model its role lists, whatever the task class.
+lists its whole pool for every class. The task class no longer chooses a model:
+`ui` and `mixed` only tell the implementer to check its work in a browser and keep
+the screenshots, so any listed model may take UI work. A policy, snapshot or task
+that still names `chore-worker`, `implementation-worker` or `ui-worker` reads as
+`implementer` with its task class kept, and the next save writes it under the new name.
 Check each role's list in Settings before relying on an upgraded policy.
 
 ```sh
@@ -91,7 +104,7 @@ its revision and the role names, or the reason the policy is refused.
   including explicit model choices and resumes; that rule only chooses reader
   accounts.
 - T3 has two permission classes, and a task's recorded `sourceAccess` decides which it is in.
-  Editors (an ordinary or scheduled thread, a lead, any writer role) all list and may use the
+  Editors (an ordinary or scheduled thread, a lead, an implementer task) all list and may use the
   same T3 tools, on `/mcp/editor`, and differ only by brief. A managed Claude writer keeps the
   coding set of built-in tools (Read, Glob, Grep, Write, Edit, Bash): the rest of the preset cost
   each worker about 20 KB per first turn for tools T3 already provides. Harness
@@ -138,7 +151,7 @@ its revision and the role names, or the reason the policy is refused.
   tools, and any other provider gets T3's `web_search` and `web_fetch` through
   Executor's Tavily. Every read-only task may use the network, and a Codex reader's
   shell commands can reach it, but no reader can write source.
-  `researcher` is the one optional role: a policy that leaves it out does not
+  `researcher`, `scout` and `lead` are the optional roles: a policy that leaves one out does not
   offer it, so older policies and recorded snapshots stay valid.
 - While a readable policy is configured, a delegation or reviewer trial is
   refused at creation, and again when it is started, if one of its arms uses a
@@ -159,8 +172,8 @@ its revision and the role names, or the reason the policy is refused.
   project than the request resolved is refused, naming both repositories, before
   any child exists; an item, or a project's repository, that T3 cannot read is
   never refused on that ground. It is still a subagent: it wakes its parent when it
-  finishes, shows only among its parent's subagents, and cannot start another `lead`. Like `researcher`,
-  the role is optional in a policy.
+  finishes, shows only among its parent's subagents, and cannot start another `lead`. Like
+  `researcher` and `scout`, the role is optional in a policy.
 - An agent working inside a thread that starts a top-level thread with
   `t3_thread_launch` or `create_threads` must say in `whyNotDelegated` why that
   thread beats a `delegate_task` child, including a `lead` in another project.

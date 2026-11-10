@@ -686,7 +686,7 @@ export function championMachineGap(
 
 export const DEFAULT_CHAMPION_CLASSES = {
   setup: { role: "advisor", taskClass: "non-ui" },
-  routine: { role: "chore-worker", taskClass: "non-ui" },
+  routine: { role: "implementer", taskClass: "non-ui" },
 } as const satisfies {
   readonly setup: ChampionSelectionClass;
   readonly routine: ChampionSelectionClass;
@@ -694,16 +694,14 @@ export const DEFAULT_CHAMPION_CLASSES = {
 
 /** The roles worth offering a champion. The server still decides which of them can run. */
 const OFFERED_CHAMPION_ROLES: ReadonlyArray<AgentRole> = [
-  "chore-worker",
-  "implementation-worker",
-  "ui-worker",
+  "implementer",
   "advisor",
   "researcher",
   "scout",
 ];
 
-export const championRoleTaskClass = (role: AgentRole): AgentTaskClass =>
-  role === "ui-worker" ? "ui" : "non-ui";
+/** Champions run non-UI checks, whichever role they run as: the class no longer picks a role. */
+export const championRoleTaskClass = (_role: AgentRole): AgentTaskClass => "non-ui";
 
 interface ChampionClassOption {
   readonly role: AgentRole;

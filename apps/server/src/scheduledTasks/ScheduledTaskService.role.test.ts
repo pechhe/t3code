@@ -81,11 +81,11 @@ const policyLayer = Layer.mergeAll(
   Layer.mock(ManagedAgent.ManagedAgentService)({
     snapshot: () =>
       Effect.succeed({
-        manifest: { roles: { "chore-worker": { taskClasses: ["non-ui"] } } },
+        manifest: { roles: { implementer: { taskClasses: ["non-ui"] } } },
       } as unknown as AgentPolicySnapshot),
     roles: () =>
       Effect.succeed({
-        roles: [{ role: "chore-worker", selection: policyModel }],
+        roles: [{ role: "implementer", selection: implementerModel }],
       } as never),
   }),
   Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
@@ -129,11 +129,11 @@ it.effect("a task with a subagent role runs on the model its policy picks", () =
       const service = yield* ScheduledTaskService.ScheduledTaskService;
       const { task } = yield* service.upsert({
         ...baseInput,
-        agentRole: "chore-worker",
+        agentRole: "implementer",
         groupId: "group-1",
       });
       const { task: ran } = yield* service.runNow({ id: task.id });
-      assert.deepEqual(yield* Ref.get(launched), [policyModel]);
+      assert.deepEqual(yield* Ref.get(launched), [implementerModel]);
       assert.equal(ran.lastRunStatus, "succeeded");
       const [stored] = (yield* service.list()).tasks;
       assert.equal(stored?.lastRunThreadId, "thread:run-1");
@@ -144,7 +144,7 @@ it.effect("a task with a subagent role runs on the model its policy picks", () =
         id: task.id,
         title: "Renamed",
       });
-      assert.equal(updated.agentRole, "chore-worker");
+      assert.equal(updated.agentRole, "implementer");
       assert.equal(updated.groupId, "group-1");
     }).pipe(Effect.provide(serviceLayer(launched, policyLayer)));
   }).pipe(
@@ -161,7 +161,7 @@ it.effect("without a role policy the task runs on its saved model", () =>
     const launched = yield* Ref.make<ReadonlyArray<ModelSelection>>([]);
     yield* Effect.gen(function* () {
       const service = yield* ScheduledTaskService.ScheduledTaskService;
-      const { task } = yield* service.upsert({ ...baseInput, agentRole: "chore-worker" });
+      const { task } = yield* service.upsert({ ...baseInput, agentRole: "implementer" });
       yield* service.runNow({ id: task.id });
       assert.deepEqual(yield* Ref.get(launched), [savedModel]);
     }).pipe(Effect.provide(serviceLayer(launched, null)));
@@ -174,13 +174,13 @@ it.effect("without a role policy the task runs on its saved model", () =>
   ),
 );
 
-it.effect("a new task names the implementation-worker role when its caller names none", () =>
+it.effect("a new task names the implementer role when its caller names none", () =>
   Effect.gen(function* () {
     const launched = yield* Ref.make<ReadonlyArray<ModelSelection>>([]);
     yield* Effect.gen(function* () {
       const service = yield* ScheduledTaskService.ScheduledTaskService;
       const { task } = yield* service.upsert(baseInput);
-      assert.equal(task.agentRole, "implementation-worker");
+      assert.equal(task.agentRole, "implementer");
       assert.deepEqual(yield* Ref.get(launched), []);
     }).pipe(Effect.provide(serviceLayer(launched, policyLayer)));
   }).pipe(
@@ -198,16 +198,16 @@ const twoRolePolicyLayer = Layer.mergeAll(
       Effect.succeed({
         manifest: {
           roles: {
-            "chore-worker": { taskClasses: ["non-ui"] },
-            "implementation-worker": { taskClasses: ["non-ui"] },
+            implementer: { taskClasses: ["non-ui"] },
+            researcher: { taskClasses: ["non-ui"] },
           },
         },
       } as unknown as AgentPolicySnapshot),
     roles: () =>
       Effect.succeed({
         roles: [
-          { role: "chore-worker", selection: policyModel },
-          { role: "implementation-worker", selection: implementerModel },
+          { role: "researcher", selection: policyModel },
+          { role: "implementer", selection: implementerModel },
         ],
       } as never),
   }),
@@ -219,7 +219,7 @@ it.effect("editing a task's role moves its next run to that role's model", () =>
     const launched = yield* Ref.make<ReadonlyArray<ModelSelection>>([]);
     yield* Effect.gen(function* () {
       const service = yield* ScheduledTaskService.ScheduledTaskService;
-      const { task } = yield* service.upsert({ ...baseInput, agentRole: "chore-worker" });
+      const { task } = yield* service.upsert({ ...baseInput, agentRole: "researcher" });
       yield* service.runNow({ id: task.id });
       assert.deepEqual(yield* Ref.get(launched), [policyModel]);
 
@@ -227,9 +227,9 @@ it.effect("editing a task's role moves its next run to that role's model", () =>
       const { task: moved } = yield* service.upsert({
         ...baseInput,
         id: task.id,
-        agentRole: "implementation-worker",
+        agentRole: "implementer",
       });
-      assert.equal(moved.agentRole, "implementation-worker");
+      assert.equal(moved.agentRole, "implementer");
       yield* service.runNow({ id: task.id });
       assert.deepEqual(yield* Ref.get(launched), [policyModel, implementerModel]);
     }).pipe(Effect.provide(serviceLayer(launched, twoRolePolicyLayer)));
@@ -249,7 +249,7 @@ it.effect("a caller that names only a model gets the default role, which picks t
       const service = yield* ScheduledTaskService.ScheduledTaskService;
       // baseInput still carries savedModel, as an older client or an MCP caller would.
       const { task } = yield* service.upsert(baseInput);
-      assert.equal(task.agentRole, "implementation-worker");
+      assert.equal(task.agentRole, "implementer");
       yield* service.runNow({ id: task.id });
       assert.deepEqual(yield* Ref.get(launched), [implementerModel]);
     }).pipe(Effect.provide(serviceLayer(launched, twoRolePolicyLayer)));
@@ -268,7 +268,7 @@ it.effect("a task saved under a split reviewer role still lists, as the merged r
     yield* Effect.gen(function* () {
       const service = yield* ScheduledTaskService.ScheduledTaskService;
       const sql = yield* SqlClient.SqlClient;
-      const { task } = yield* service.upsert({ ...baseInput, agentRole: "chore-worker" });
+      const { task } = yield* service.upsert({ ...baseInput, agentRole: "implementer" });
       yield* sql`UPDATE scheduled_tasks SET agent_role = 'spec-reviewer' WHERE task_id = ${task.id}`;
       const { tasks } = yield* service.list();
       assert.equal(tasks.find((listed) => listed.id === task.id)?.agentRole, "reviewer");

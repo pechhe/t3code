@@ -338,7 +338,7 @@ it("holds any delegated task's result while it watches", () => {
       },
     }).state;
   assert.equal(watching("lead"), "waiting_for_children");
-  assert.equal(watching("implementation-worker"), "waiting_for_children");
+  assert.equal(watching("implementer"), "waiting_for_children");
   assert.equal(watching("scout"), "waiting_for_children");
 });
 

@@ -150,6 +150,10 @@ const RUNNABLE_CANDIDATE_REASONS = new Set([
 const decodeExternalSession = Schema.decodeUnknownEffect(
   Schema.fromJsonString(AgentExternalSession),
 );
+/** What a `ui` or `mixed` task class changes: the implementer checks its result as a user sees it. */
+export const UI_TASK_INSTRUCTION =
+  "This task changes what a user sees. Check your work in a browser with t3_browser_* before handing it back, and keep screenshots of the finished result to report with it.";
+
 export class ManagedAgentService extends Context.Service<
   ManagedAgentService,
   {
@@ -834,9 +838,6 @@ const make = Effect.gen(function* () {
     ),
     rankedTextModels: Effect.fn("ManagedAgentService.rankedTextModels")(function* (input) {
       const snapshot = yield* currentPolicy;
-      const role = snapshot.manifest.roles["chore-worker"];
-      const taskClass = role?.taskClasses[0];
-      if (taskClass === undefined) return [];
       return yield* resolver
         .rank({
           snapshot,
@@ -846,8 +847,8 @@ const make = Effect.gen(function* () {
           runtimeMode: "full-access",
           allowTrustedClaudeWriters: true,
           request: {
-            role: "chore-worker",
-            taskClass,
+            role: "implementer",
+            taskClass: "non-ui",
             workId: "text-generation",
             attemptId: "text-generation",
             workspacePath: "/text-generation",
@@ -942,7 +943,10 @@ const make = Effect.gen(function* () {
             ? { browserTasks: true as const }
             : {}),
         },
-        brief: brief.text,
+        brief:
+          context.request.role === "implementer" && context.request.taskClass !== "non-ui"
+            ? `${brief.text}\n\n${UI_TASK_INSTRUCTION}`
+            : brief.text,
       };
     }),
     validate: Effect.fn("ManagedAgentService.validate")(function* (input) {
@@ -998,7 +1002,17 @@ const make = Effect.gen(function* () {
             : recordedRole.toolProfile)
       )
         return yield* new ManagedAgentError({ reason: "policy" });
-      if (snapshot.briefs[input.binding.role]?.hash !== input.binding.briefHash)
+      // A task bound under a retired writer name kept that brief's hash.
+      const briefs =
+        input.binding.role === "implementer"
+          ? [
+              snapshot.briefs.implementer,
+              snapshot.briefs["chore-worker"],
+              snapshot.briefs["implementation-worker"],
+              snapshot.briefs["ui-worker"],
+            ]
+          : [snapshot.briefs[input.binding.role]];
+      if (!briefs.some((brief) => brief?.hash === input.binding.briefHash))
         return yield* new ManagedAgentError({ reason: "policy" });
       const context = yield* execution(
         input,

@@ -199,11 +199,11 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
           "review.priorReview.sourceRevision equals the pinned sourceRevision, so there is nothing new to review; omit priorReview for a full review",
       });
   }
-  if (request.role === "ui-worker" && request.browser !== undefined)
+  if (request.role === "implementer" && request.browser !== undefined)
     return yield* new AgentRoleError({
       reason: "unsupported-options",
       detail:
-        "ui-worker takes no browser selection: it checks its work with t3_browser_*. Use browser for a managed browser task.",
+        "implementer takes no browser selection: it checks its work with t3_browser_*. Use browser for a managed browser task.",
     });
   if (usesPhi(role.toolProfile)) {
     if (input.browser === undefined)

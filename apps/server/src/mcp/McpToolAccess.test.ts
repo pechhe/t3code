@@ -114,7 +114,7 @@ const shells = new Map([
   [verifierChildThreadId, childShell(verifierChildThreadId, "ui-verifier", "phi")],
   [reviewerChildThreadId, childShell(reviewerChildThreadId, "reviewer", "source-reader")],
   [scoutChildThreadId, childShell(scoutChildThreadId, "scout", "source-reader")],
-  [workerChildThreadId, childShell(workerChildThreadId, "chore-worker", "implementation")],
+  [workerChildThreadId, childShell(workerChildThreadId, "implementer", "implementation")],
   [
     midWorkerThreadId,
     {
@@ -129,7 +129,7 @@ const shells = new Map([
   [
     deepWorkerThreadId,
     {
-      ...childShell(deepWorkerThreadId, "chore-worker", "implementation"),
+      ...childShell(deepWorkerThreadId, "implementer", "implementation"),
       lineage: {
         rootThreadId: supervisedThreadId,
         parentThreadId: midWorkerThreadId,
@@ -401,8 +401,8 @@ const browserChild = childCaller(browserChildThreadId, "browser", "phi");
 const verifierChild = childCaller(verifierChildThreadId, "ui-verifier", "phi");
 const reviewerChild = childCaller(reviewerChildThreadId, "reviewer", "source-reader");
 const scoutChild = childCaller(scoutChildThreadId, "scout", "source-reader");
-const workerChild = childCaller(workerChildThreadId, "chore-worker", "implementation");
-const deepWorker = childCaller(deepWorkerThreadId, "chore-worker", "implementation");
+const workerChild = childCaller(workerChildThreadId, "implementer", "implementation");
+const deepWorker = childCaller(deepWorkerThreadId, "implementer", "implementation");
 const endedBrowserChild = childCaller(endedBrowserChildThreadId, "browser", "phi");
 
 it.effect.each([

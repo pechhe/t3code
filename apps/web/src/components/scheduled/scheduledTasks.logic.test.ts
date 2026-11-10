@@ -82,7 +82,7 @@ const draft = (overrides: Partial<GroupDraftFields> = {}): GroupDraftFields => (
   machines: [mac],
   projectKeys: [t3peach.key],
   workspace: "fresh",
-  agentRole: "chore-worker",
+  agentRole: "implementer",
   threadMode: "continue",
   purpose: "long_running",
   ...overrides,
@@ -207,8 +207,8 @@ describe("planGroupSave", () => {
       projects: [t3peach],
     });
     expect(plan.upserts.map((entry) => entry.input.agentRole)).toEqual([
-      "chore-worker",
-      "chore-worker",
+      "implementer",
+      "implementer",
     ]);
     // The role picks the model, so the save never pins one.
     expect(plan.upserts.every((entry) => entry.input.modelSelection === undefined)).toBe(true);

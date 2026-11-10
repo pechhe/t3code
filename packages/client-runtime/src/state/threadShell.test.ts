@@ -765,8 +765,8 @@ describe("subagent live state", () => {
 
   it("names an implementer briefly in a row's status", () => {
     const activity = activityOf(
-      shell("one", parent, "implementation-worker"),
-      shell("two", parent, "implementation-worker"),
+      shell("one", parent, "implementer"),
+      shell("two", parent, "implementer"),
     );
     expect(subagentActivityLabel(activity!)).toBe("2 implementers");
   });
@@ -830,11 +830,11 @@ describe("subagent live state", () => {
   it("orders the panel by role and leaves provider-native subagents out", () => {
     const threads = [
       shell("advisor", parent, "advisor"),
-      shell("implementer", parent, "implementation-worker"),
+      shell("implementer", parent, "implementer"),
       shell("native", parent, null, { creationSource: "provider" }),
       shell("lead", parent, "lead"),
       shell("unroled", parent, null),
-      shell("below", ThreadId.make("lead"), "implementation-worker"),
+      shell("below", ThreadId.make("lead"), "implementer"),
     ];
     expect(subagentPanelChildIds(threads, parent)).toEqual([
       "lead",
@@ -849,7 +849,7 @@ describe("subagent live state", () => {
     const below = ThreadId.make("below");
     const { parents } = deriveSubagentLiveState([
       shell("lead", parent, "lead"),
-      shell("below", lead, "implementation-worker", question),
+      shell("below", lead, "implementer", question),
     ]);
     expect(directSubagentUnder(parents, parent, below)).toBe(lead);
     expect(directSubagentUnder(parents, parent, lead)).toBe(lead);

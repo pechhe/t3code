@@ -119,7 +119,7 @@ it("accepts and drops the retired demanding flag on delegate_task and agent_role
   const delegate = decodeDelegateTask({
     task: "Build it",
     agentTask: {
-      role: "implementation-worker",
+      role: "implementer",
       taskClass: "non-ui",
       workId: "work",
       attemptId: "1",

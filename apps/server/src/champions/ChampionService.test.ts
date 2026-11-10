@@ -605,7 +605,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
       installChild: (
         finding: ChampionFinding,
         revision: string,
-        role = "implementation-worker",
+        role = "implementer",
         status = "completed",
         workItem?: OrchestrationV2ThreadShell["workItem"],
         actualSelection?: ModelSelection,
@@ -1173,7 +1173,7 @@ it.effect(
             ownerThreadId: f.caller().threadId,
             clientRequestId: "repair:test",
             request: {
-              role: "implementation-worker",
+              role: "implementer",
               taskClass: "non-ui",
               workId: finding.workId,
               attemptId: finding.attemptId,
@@ -1255,7 +1255,7 @@ it.effect(
         });
         const finding = result.findings[0]!;
         const request = {
-          role: "implementation-worker" as const,
+          role: "implementer" as const,
           taskClass: "non-ui" as const,
           workId: finding.workId,
           attemptId: finding.attemptId,
@@ -1319,10 +1319,7 @@ it.effect(
           revision: "abc123",
           evidence: "Accepted child returned revision",
         });
-        assert.equal(
-          delivered.findings[0]!.childThreadId,
-          ThreadId.make("accepted:implementation-worker"),
-        );
+        assert.equal(delivered.findings[0]!.childThreadId, ThreadId.make("accepted:implementer"));
         yield* refused(
           service.updateDelivery(f.caller(), {
             findingId: finding.id,
@@ -1568,7 +1565,7 @@ const activeFinding = Effect.fn("test.activeChampionFinding")(function* (
   return report.findings[0]!;
 });
 const repair = (finding: ChampionFinding) => ({
-  role: "implementation-worker" as const,
+  role: "implementer" as const,
   taskClass: "non-ui" as const,
   workId: finding.workId,
   attemptId: finding.attemptId,
@@ -1712,7 +1709,7 @@ it.effect(
         yield* service.runDue;
         assert.equal(
           (yield* service.get({ id: config.id })).findings[0]!.childThreadId,
-          ThreadId.make("accepted:implementation-worker"),
+          ThreadId.make("accepted:implementer"),
         );
         assert.deepEqual((yield* service.get({ id: config.id })).champion.attention, []);
       }),
@@ -1776,7 +1773,7 @@ it.effect(
         yield* service.runDue;
         assert.equal(
           (yield* service.get({ id: config.id })).findings[0]!.childThreadId,
-          ThreadId.make("accepted:implementation-worker"),
+          ThreadId.make("accepted:implementer"),
         );
         yield* refused(
           service.updateDelivery(f.caller(), {
@@ -2132,7 +2129,7 @@ it.effect(
         assert.equal((yield* service.get({ id: config.id })).findings[0]!.status, "handed_back");
         const commandId = CommandId.make("followup-command");
         yield* service.delegationOutcome({ ...followup, state: "started", commandId });
-        f.installChild(finding, "", "implementation-worker", "running");
+        f.installChild(finding, "", "implementer", "running");
         yield* service.delegationOutcome({ ...followup, state: "failed" });
         const uncertain = yield* service.get({ id: config.id });
         assert.isTrue(uncertain.champion.attention.some((a) => a.includes("fix-followup")));
@@ -2233,7 +2230,7 @@ it.effect.each(["failed", "cancelled", "interrupted"])(
         };
         yield* service.guardDelegation(input);
         yield* service.delegationOutcome({ ...input, state: "finished" });
-        f.installChild(finding, "failed-revision", "implementation-worker", status);
+        f.installChild(finding, "failed-revision", "implementer", status);
         yield* service.runDue;
         const reopened = yield* service.findingAction({
           id: config.id,
@@ -2463,7 +2460,7 @@ it.effect("keeps class defaults additive and preserves migrated classes on old-c
       const classes = yield* decodeClasses({}).pipe(Effect.orDie);
       assert.deepEqual(classes, {
         setup: { role: "advisor", taskClass: "non-ui" },
-        routine: { role: "chore-worker", taskClass: "non-ui" },
+        routine: { role: "implementer", taskClass: "non-ui" },
       });
       assert.isUndefined((yield* decodeConfig(config).pipe(Effect.orDie)).classes);
       const unavailable = yield* service.classChoices({ projectId });
@@ -3123,7 +3120,7 @@ it.effect(
         );
         assert.deepEqual(
           draft.champion.routineModelSelection,
-          preview.roles.find((role) => role.role === "chore-worker")!.selection,
+          preview.roles.find((role) => role.role === "implementer")!.selection,
         );
         f.failNextLaunch();
         yield* service.setup({ id: config.id });
@@ -3140,15 +3137,16 @@ it.effect(
             championId: config.id,
           }),
         );
-        const incompatible = yield* service.classChoices({ projectId, taskClass: "ui" });
-        assert.isNotNull(incompatible.roles.find((role) => role.role === "chore-worker")!.refusal);
+        // The implementer takes UI work like any other.
+        const ui = yield* service.classChoices({ projectId, taskClass: "ui" });
+        assert.isNull(ui.roles.find((role) => role.role === "implementer")!.refusal);
         f.ownerMode("approval-required");
         const narrowed = yield* service.classChoices({
           projectId,
           championId: config.id,
           phase: "setup",
         });
-        assert.isNull(narrowed.roles.find((role) => role.role === "chore-worker")!.selection);
+        assert.isNull(narrowed.roles.find((role) => role.role === "implementer")!.selection);
         f.ownerMode("full-access");
         f.providerAllowed(codex.instanceId, false);
         assert.isTrue(
@@ -3319,7 +3317,8 @@ it.effect(
         ...base,
         lists: {
           ...base.lists,
-          fast: [
+          // The routine class's role, the implementer, runs from this list.
+          workhorse: [
             { model: "astra", effort: "medium" },
             { model: "luna", effort: "medium" },
           ],
@@ -4007,13 +4006,6 @@ it.effect("names the cause of each refused champion delegation", () =>
       );
       yield* refusedWith(
         service.guardDelegation({
-          ...initial,
-          request: { ...repair(first), role: "chore-worker" as never },
-        }),
-        "already requested for the implementation-worker role",
-      );
-      yield* refusedWith(
-        service.guardDelegation({
           ownerThreadId,
           request: repair(second),
           clientRequestId: "second",
@@ -4042,7 +4034,7 @@ it.effect("names the cause of each refused champion delegation", () =>
         }),
         "A lead runs only for a finding with a Forge Spec",
       );
-      f.installChild(first, "handoff", "implementation-worker", "running");
+      f.installChild(first, "handoff", "implementer", "running");
       yield* refusedWith(
         service.guardDelegation({
           ...initial,
@@ -4695,55 +4687,63 @@ describe("a journey check", () => {
     ),
   );
 
-  it.effect("confirms on the first browser model the check does not use itself", () => {
-    const ranked: Array<{ instanceId: typeof instanceId; model: string }> = [];
-    const managed = {
-      ranked: () => Effect.succeed(ranked),
-    } as unknown as Managed.ManagedAgentService["Service"];
-    return withFixture((f, service) =>
-      withTarget(
-        [manifest("aaaaaaaa", "commit-1"), manifest("bbbbbbbb", "commit-1")],
-        (directory) =>
-          Effect.gen(function* () {
-            yield* activate(service, journeysConfig(directory));
-            yield* service.runCheck({ id: config.id });
-            yield* service.journeysStart(f.caller());
-            const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
-            const owner = f.caller().threadId;
-            yield* walk(policy, owner, "tab-one", "/tasks");
-            const { candidateId } = yield* service.journeyCandidate(f.caller(), {
-              tabId: "tab-one",
-              title: "Broken",
-              expected: "Works",
-              observed: "Broken",
-            });
-            const replay = yield* service.candidateReplay(f.caller(), { candidateId });
-            const guard = service.guardDelegation({
-              ownerThreadId: owner,
-              clientRequestId: "replay",
-              task: replay.brief,
-              request: {
-                role: "browser",
-                taskClass: "non-ui",
-                workId: replay.workId,
-                attemptId: replay.attemptId,
-                workspacePath: "/repo",
-                readOnly: true,
-              },
-            });
-            // In delegation order: the check's own model, then Jev and Luna, are passed over.
-            ranked.push(
-              { instanceId, model: config.routineModelSelection.model },
-              { instanceId, model: decisionEngines.jev.model },
-              { instanceId, model: decisionEngines.luna.model },
-            );
-            yield* refusedWith(guard, "none of the models the check itself uses");
-            ranked.push({ instanceId, model: "confirmer" }, { instanceId, model: "later" });
-            assert.deepEqual(yield* guard, { instanceId, model: "confirmer" });
-          }).pipe(withPolicy),
-      ),
-    ).pipe(Effect.provideService(Managed.ManagedAgentService, managed));
-  });
+  it.effect(
+    "confirms on the first browser model the check does not use itself, else its own",
+    () => {
+      const ranked: Array<{ instanceId: typeof instanceId; model: string }> = [];
+      const managed = {
+        ranked: () => Effect.succeed(ranked),
+      } as unknown as Managed.ManagedAgentService["Service"];
+      return withFixture((f, service) =>
+        withTarget(
+          [manifest("aaaaaaaa", "commit-1"), manifest("bbbbbbbb", "commit-1")],
+          (directory) =>
+            Effect.gen(function* () {
+              yield* activate(service, journeysConfig(directory));
+              yield* service.runCheck({ id: config.id });
+              yield* service.journeysStart(f.caller());
+              const policy = yield* JourneyBrowserPolicy.JourneyBrowserPolicy;
+              const owner = f.caller().threadId;
+              yield* walk(policy, owner, "tab-one", "/tasks");
+              const { candidateId } = yield* service.journeyCandidate(f.caller(), {
+                tabId: "tab-one",
+                title: "Broken",
+                expected: "Works",
+                observed: "Broken",
+              });
+              const replay = yield* service.candidateReplay(f.caller(), { candidateId });
+              const guard = service.guardDelegation({
+                ownerThreadId: owner,
+                clientRequestId: "replay",
+                task: replay.brief,
+                request: {
+                  role: "browser",
+                  taskClass: "non-ui",
+                  workId: replay.workId,
+                  attemptId: replay.attemptId,
+                  workspacePath: "/repo",
+                  readOnly: true,
+                },
+              });
+              yield* refusedWith(guard, "No model on the browser list");
+              // In delegation order: the check's own model, then Jev and Luna. With nothing else
+              // able to run, the replay runs on the first of them and settles as not independent.
+              ranked.push(
+                { instanceId, model: config.routineModelSelection.model },
+                { instanceId, model: decisionEngines.jev.model },
+                { instanceId, model: decisionEngines.luna.model },
+              );
+              assert.deepEqual(yield* guard, {
+                instanceId,
+                model: config.routineModelSelection.model,
+              });
+              ranked.push({ instanceId, model: "confirmer" }, { instanceId, model: "later" });
+              assert.deepEqual(yield* guard, { instanceId, model: "confirmer" });
+            }).pipe(withPolicy),
+        ),
+      ).pipe(Effect.provideService(Managed.ManagedAgentService, managed));
+    },
+  );
 
   it.effect("holds a check to four open replays, and ends them when it finishes", () =>
     withFixture((f, service) =>
@@ -4835,7 +4835,7 @@ describe("a journey check", () => {
     ),
   );
 
-  it.effect("refuses a verdict from the check's own model", () =>
+  it.effect("records a verdict from the check's own model as not independent", () =>
     withFixture((f, service) =>
       withTarget(
         [manifest("aaaaaaaa", "commit-1"), manifest("bbbbbbbb", "commit-1")],
@@ -4860,8 +4860,9 @@ describe("a journey check", () => {
               config.routineModelSelection.model,
             );
             const settled = yield* service.candidateSettle(f.caller(), { candidateId });
-            assert.equal(settled.status, "inconclusive");
-            assert.equal((yield* service.get({ id: config.id })).findings.length, 0);
+            assert.equal(settled.status, "confirmed");
+            const [finding] = (yield* service.get({ id: config.id })).findings;
+            assert.include(finding?.evidence, "not independently");
           }).pipe(withPolicy),
       ),
     ),

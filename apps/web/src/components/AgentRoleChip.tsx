@@ -1,6 +1,5 @@
 import type { AgentRole, ProjectIconColor } from "@t3tools/contracts";
 import {
-  BrushCleaningIcon,
   CompassIcon,
   FileCheckIcon,
   GlobeIcon,
@@ -8,7 +7,6 @@ import {
   LightbulbIcon,
   type LucideIcon,
   MapIcon,
-  PaletteIcon,
   ScanEyeIcon,
   SearchIcon,
 } from "lucide-react";
@@ -20,9 +18,7 @@ export const AGENT_ROLE_PRESENTATION: Record<
   AgentRole,
   { readonly label: string; readonly icon: LucideIcon; readonly tint: ProjectIconColor }
 > = {
-  "chore-worker": { label: "Chore worker", icon: BrushCleaningIcon, tint: "gray" },
-  "implementation-worker": { label: "Implementer", icon: HammerIcon, tint: "blue" },
-  "ui-worker": { label: "UI worker", icon: PaletteIcon, tint: "pink" },
+  implementer: { label: "Implementer", icon: HammerIcon, tint: "blue" },
   browser: { label: "Browser", icon: GlobeIcon, tint: "cyan" },
   "ui-verifier": { label: "UI verifier", icon: ScanEyeIcon, tint: "violet" },
   advisor: { label: "Advisor", icon: LightbulbIcon, tint: "amber" },

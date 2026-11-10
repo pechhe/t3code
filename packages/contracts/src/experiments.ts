@@ -1,4 +1,4 @@
-import { AgentReviewScope, AgentRole, AgentTaskBinding, Sha256 } from "./agentPolicy.ts";
+import { AgentReviewScope, AgentTaskBinding, Sha256, StoredAgentRole } from "./agentPolicy.ts";
 import * as Schema from "effect/Schema";
 import {
   NonNegativeInt,
@@ -81,7 +81,7 @@ export const ExperimentDefinition = Schema.Struct({
      */
     reviewScopes: Schema.optional(Schema.Array(AgentReviewScope).check(Schema.isMinLength(1))),
     /** The jobs a trial applies to; absent or empty means every job its lever reaches. */
-    agentRoles: Schema.optional(Schema.Array(AgentRole)),
+    agentRoles: Schema.optional(Schema.Array(StoredAgentRole)),
   }),
   maxAssignments: PositiveInt.check(Schema.isLessThanOrEqualTo(1000)),
   endsAt: Schema.String,
@@ -219,7 +219,7 @@ export const ExperimentAssignInput = Schema.Struct({
   /** For a thread, the one lever to enroll it in; each caller assigns only its own. */
   threadLever: Schema.optional(Schema.Literals(["instruction", "orchestration-policy"])),
   /** The job a thread runs as, for a trial limited to some jobs; `lead` for a top-level thread. */
-  agentRole: Schema.optional(AgentRole),
+  agentRole: Schema.optional(StoredAgentRole),
   enrollment: Schema.Literals(["new", "existing-boundary"]),
   unitCreatedAt: Schema.optional(Schema.String),
   boundaryRunId: Schema.optional(RunId),

@@ -254,6 +254,8 @@ function PolicyEditor({
     known: new Set(targets.map((target) => target.hash)),
   });
   const save = useAtomCommand(serverEnvironment.agentPolicySave);
+  // Set when a save reached the file but not the shared checkout's remote.
+  const [publishNotice, setPublishNotice] = useState<string | null>(null);
   const catalog = catalogModels(data.providers);
   const jobs = jobsFor(draft, roleGroups(draft));
   const issue = councilIssue(draft);
@@ -263,7 +265,9 @@ function PolicyEditor({
     if (state.running) return;
     state.running = true;
     setPending(true);
+    setPublishNotice(null);
     const failures: string[] = [];
+    const notPushed: string[] = [];
     for (
       let manifest = state.next;
       manifest !== null && failures.length === 0;
@@ -281,6 +285,11 @@ function PolicyEditor({
         if (result._tag === "Success") {
           state.hashes.set(target.environmentId, result.value.snapshot.hash);
           state.known.add(result.value.snapshot.hash);
+          const publish = result.value.publish;
+          if (publish !== undefined && !publish.pushed) {
+            const detail = publish.detail ?? "no reason given";
+            notPushed.push(targets.length > 1 ? `${target.label}: ${detail}` : detail);
+          }
         } else {
           const message = String(squashAtomCommandFailure(result));
           failures.push(targets.length > 1 ? `${target.label}: ${message}` : message);
@@ -290,10 +299,15 @@ function PolicyEditor({
     state.next = null;
     state.running = false;
     setPending(false);
-    if (failures.length === 0) return onSaved();
-    // Show what is on disk rather than an edit that did not save.
-    setDraft(editableManifest(saved));
-    onError(failures.join("; "));
+    if (failures.length > 0) {
+      // Show what is on disk rather than an edit that did not save.
+      setDraft(editableManifest(saved));
+      onError(failures.join("; "));
+      return;
+    }
+    if (notPushed.length > 0)
+      setPublishNotice(`Saved, but not pushed to agent-config: ${notPushed.join("; ")}.`);
+    onSaved();
   };
   const change = (next: Manifest) => {
     setDraft(next);
@@ -309,6 +323,11 @@ function PolicyEditor({
           {unenforced.join(", ")} cannot keep a reader read-only, so their models serve only writer
           jobs; a reader job skips them.
         </p>
+      ) : null}
+      {publishNotice ? (
+        <Alert variant="warning">
+          <AlertDescription role="status">{publishNotice}</AlertDescription>
+        </Alert>
       ) : null}
       <ModelsSection
         environmentId={environmentId}
@@ -496,24 +515,22 @@ function ListEditor({
                 }
               />
               {offersFast(binding, providers) ? (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <label className="flex shrink-0 cursor-default items-center gap-1.5 text-xs" />
-                    }
-                  >
-                    <Switch
-                      checked={runsFast(binding)}
-                      onCheckedChange={(fast) =>
-                        onChange(setModelFast(manifest, entry.model, fast))
-                      }
-                    />
-                    Fast
-                  </TooltipTrigger>
-                  <TooltipPopup>
-                    Runs this model on the fast service tier in every job that lists it
-                  </TooltipPopup>
-                </Tooltip>
+                <label className="flex shrink-0 cursor-default items-center gap-1.5 text-xs">
+                  <Tooltip>
+                    <TooltipTrigger render={<span />}>
+                      <Switch
+                        checked={runsFast(binding)}
+                        onCheckedChange={(fast) =>
+                          onChange(setModelFast(manifest, entry.model, fast))
+                        }
+                      />
+                    </TooltipTrigger>
+                    <TooltipPopup>
+                      Runs this model on the fast service tier in every job that lists it
+                    </TooltipPopup>
+                  </Tooltip>
+                  Fast
+                </label>
               ) : null}
               {makers && binding !== undefined ? (
                 <Badge variant="outline">{makerName(modelMaker(binding))}</Badge>

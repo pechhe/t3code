@@ -7,9 +7,7 @@ import {
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Path from "effect/Path";
 import * as AgentConfigCheckout from "./AgentConfigCheckout.ts";
 import * as Policy from "./AgentPolicyService.ts";
 import * as Providers from "../provider/ProviderRegistry.ts";
@@ -29,8 +27,6 @@ const make = Effect.gen(function* () {
   const policy = yield* Policy.AgentPolicyService;
   const providers = yield* Providers.ProviderRegistry;
   const process = yield* Processes.ProcessRunner;
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
   const root = Config.String("T3CODE_AGENT_POLICY_ROOT").pipe(
     Effect.mapError((cause) => new AgentPolicySettingsError({ reason: "not-configured", cause })),
   );
@@ -42,15 +38,10 @@ const make = Effect.gen(function* () {
   const read = Effect.fn("AgentPolicySettingsService.read")(function* () {
     const sourceRoot = yield* root;
     const snapshot = yield* load();
-    const jj = yield* fs
-      .exists(path.join(sourceRoot, ".jj"))
-      .pipe(Effect.mapError((cause) => new AgentPolicySettingsError({ reason: "read", cause })));
     const result = yield* process
       .run({
-        command: jj ? "jj" : "git",
-        args: jj
-          ? ["diff", "--summary", "-r", "@", "--", "roles"]
-          : ["status", "--porcelain", "--", "roles"],
+        command: "git",
+        args: ["--no-optional-locks", "status", "--porcelain", "--", "roles"],
         cwd: sourceRoot,
         timeout: "10 seconds",
         maxOutputBytes: 4096,
@@ -62,8 +53,6 @@ const make = Effect.gen(function* () {
         : null;
     const checkout = yield* AgentConfigCheckout.read(sourceRoot).pipe(
       Effect.provideService(Processes.ProcessRunner, process),
-      Effect.provideService(FileSystem.FileSystem, fs),
-      Effect.provideService(Path.Path, path),
     );
     return {
       snapshot,
@@ -128,7 +117,7 @@ const make = Effect.gen(function* () {
     read,
     save: Effect.fn("AgentPolicySettingsService.save")(function* (input) {
       yield* validateModels(input.manifest);
-      yield* policy.save(yield* root, input).pipe(
+      const saved = yield* policy.save(yield* root, input).pipe(
         Effect.mapError(
           (error) =>
             new AgentPolicySettingsError({
@@ -144,7 +133,8 @@ const make = Effect.gen(function* () {
             }),
         ),
       );
-      return yield* read();
+      // Only a save reports whether the file also reached the shared checkout's remote.
+      return { ...(yield* read()), publish: saved.publish };
     }),
   });
 });

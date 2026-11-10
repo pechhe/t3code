@@ -588,7 +588,7 @@ it.effect("puts each class on its endpoint and lists a bounded grant beside its 
       threadId: ThreadId.make("plain-worker"),
       providerInstanceId: ProviderInstanceId.make("codex"),
       toolProfile: "implementation",
-      agentRole: "chore-worker",
+      agentRole: "implementer",
       delegated: true,
     });
     expect(worker.config.endpoint).toBe("http://127.0.0.1:43123/mcp/editor");

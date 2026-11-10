@@ -396,7 +396,7 @@ function launchInput(input: {
 
 function managedTaskBinding(workspacePath: string) {
   return decodeAgentTaskBinding({
-    role: "implementation-worker",
+    role: "implementer",
     taskClass: "non-ui",
     workId: "launch-managed-work",
     attemptId: "launch-managed-attempt",

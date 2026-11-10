@@ -12,6 +12,7 @@ import {
 import {
   AgentPolicyCandidate,
   AgentRole,
+  StoredAgentRole,
   AgentTaskClass,
   AgentTaskBinding,
 } from "./agentPolicy.ts";
@@ -57,7 +58,10 @@ export const ChampionCharter = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_CHAMPION_INSTRUCTIONS)),
   ),
 });
-export const ChampionSelectionClass = Schema.Struct({ role: AgentRole, taskClass: AgentTaskClass });
+export const ChampionSelectionClass = Schema.Struct({
+  role: StoredAgentRole,
+  taskClass: AgentTaskClass,
+});
 export type ChampionSelectionClass = typeof ChampionSelectionClass.Type;
 export const ChampionClasses = Schema.Struct({
   setup: ChampionSelectionClass.pipe(
@@ -67,7 +71,7 @@ export const ChampionClasses = Schema.Struct({
   ),
   routine: ChampionSelectionClass.pipe(
     Schema.withDecodingDefault(
-      Effect.succeed({ role: "chore-worker" as const, taskClass: "non-ui" as const }),
+      Effect.succeed({ role: "implementer" as const, taskClass: "non-ui" as const }),
     ),
   ),
 });
@@ -452,9 +456,7 @@ export const ChampionJourneyManifest = Schema.Struct({
   shards: Schema.Array(ChampionJourneyShard).check(Schema.isMinLength(1)),
   /** Services this contained target lacks, and what cannot work without each. */
   missingServices: Schema.optional(
-    Schema.Array(
-      Schema.Struct({ name: Schema.String, what: Schema.String }),
-    ),
+    Schema.Array(Schema.Struct({ name: Schema.String, what: Schema.String })),
   ),
   /** What this kind of target was measured to carry, which sets a check's journeys per shard. */
   capacity: Schema.optional(

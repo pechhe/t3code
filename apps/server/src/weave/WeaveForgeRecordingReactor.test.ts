@@ -303,7 +303,7 @@ it.effect("a finished helper queues the session of a lead that has none yet", ()
     Effect.gen(function* () {
       state.items.set("number:7", { id: "spec-7", kind: "spec", parentId: null });
       state.threads.set(lead, threadOf(lead, { workspaceIssue: 7 }));
-      state.threads.set(child, childOf(child, lead, "implementation-worker"));
+      state.threads.set(child, childOf(child, lead, "implementer"));
       state.subagents.set(child, subagentOf(child, { title: "Helper" }));
 
       yield* reactor.recordCompletion(child, finishedRunOf(child));
@@ -367,10 +367,10 @@ it.effect("a nested delegate_task child queues a helper under the same lead", ()
         lead,
         threadOf(lead, { workItem: { itemId: "spec-1", number: 1, origin } }),
       );
-      state.threads.set(child, childOf(child, lead, "implementation-worker"));
+      state.threads.set(child, childOf(child, lead, "implementer"));
       state.threads.set(
         grandchild,
-        childOf(grandchild, child, "implementation-worker", {
+        childOf(grandchild, child, "implementer", {
           modelSelection: { model: "gpt-5.5" },
         }),
       );
@@ -405,7 +405,7 @@ it.effect("a child that carries a copy of its lead's link still names the lead a
       state.items.set("spec-1", { kind: "spec", parentId: null });
       const link = { workItem: { itemId: "spec-1", number: 1, origin } };
       state.threads.set(lead, threadOf(lead, link));
-      state.threads.set(child, childOf(child, lead, "implementation-worker", link));
+      state.threads.set(child, childOf(child, lead, "implementer", link));
       state.subagents.set(child, subagentOf(child, { title: "Copied link" }));
 
       yield* reactor.recordCompletion(child, finishedRunOf(child));
@@ -511,7 +511,7 @@ it.effect("two runs of one child queue a helper record each, under that run's ow
         lead,
         threadOf(lead, { workItem: { itemId: "spec-1", number: 1, origin } }),
       );
-      state.threads.set(child, childOf(child, lead, "implementation-worker"));
+      state.threads.set(child, childOf(child, lead, "implementer"));
       state.subagents.set(child, subagentOf(child));
 
       yield* reactor.recordCompletion(child, finishedRunOf(child));
@@ -546,7 +546,7 @@ it.effect(
           lead,
           threadOf(lead, { workItem: { itemId: "spec-1", number: 1, origin } }),
         );
-        state.threads.set(child, childOf(child, lead, "implementation-worker"));
+        state.threads.set(child, childOf(child, lead, "implementer"));
         state.subagents.set(child, subagentOf(child));
 
         const longRun = "run-".padEnd(300, "x");
@@ -572,7 +572,7 @@ it.effect("a helper queued while Weave cannot be read keeps its link's own Weave
         lead,
         threadOf(lead, { workItem: { itemId: "spec-1", number: 1, origin } }),
       );
-      state.threads.set(child, childOf(child, lead, "implementation-worker"));
+      state.threads.set(child, childOf(child, lead, "implementer"));
       state.subagents.set(child, subagentOf(child));
       // Weave cannot be read at the moment the run finishes, so the row carries no Spec.
       weave.state.unreachable = true;
@@ -596,7 +596,7 @@ it.effect("a follow-up run's helper record and run times carry that run's own ti
         lead,
         threadOf(lead, { workItem: { itemId: "spec-1", number: 1, origin } }),
       );
-      state.threads.set(child, childOf(child, lead, "implementation-worker"));
+      state.threads.set(child, childOf(child, lead, "implementer"));
       state.threads.set(reviewer, childOf(reviewer, lead, "reviewer"));
       // The delegate_task node keeps the times of the task that started first.
       state.subagents.set(child, subagentOf(child));

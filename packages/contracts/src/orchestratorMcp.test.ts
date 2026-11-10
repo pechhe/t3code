@@ -85,9 +85,18 @@ describe("scheduled task MCP contracts", () => {
       prompt: "Check for issues.",
       schedule,
       purpose: "long_running",
-      agentRole: "chore-worker",
+      agentRole: "implementer",
     });
-    expect(created.agentRole).toBe("chore-worker");
+    expect(created.agentRole).toBe("implementer");
+    // A caller still naming a retired writing role gets the implementer.
+    expect(
+      decodeScheduleTaskInput({
+        prompt: "Check.",
+        schedule,
+        purpose: "check_back",
+        agentRole: "chore-worker",
+      }).agentRole,
+    ).toBe("implementer");
     // Omitted leaves the choice to the server, which names its default role.
     expect(
       decodeScheduleTaskInput({ prompt: "Check.", schedule, purpose: "check_back" }).agentRole,

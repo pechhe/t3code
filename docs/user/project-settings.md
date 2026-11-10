@@ -185,9 +185,14 @@ the editor says so.
   agent's context does not grow. A task that posts into a thread runs in that
   thread's workspace and follows its model, and deleting the thread deletes the
   task.
-- **The role** (such as implementation-worker) picks the model and effort from your
+- **The role** (such as implementer) picks the model and effort from your
   delegation policy on each machine at every run, so a policy change reaches the
-  task without editing it. The editor shows the model the role prefers.
+  task without editing it. The editor shows the model the role prefers. Your policy
+  has seven roles — implementer, lead, scout, researcher, browser, reviewer and
+  advisor — which differ by what they may do, not by which models may take their
+  work: any model a role lists can take its UI work, and a note on a model says
+  what it is good at. A task saved under an old role name still runs as the
+  implementer.
 
 Filter the list to **Check-backs**, reminders that end once they have their answer, or
 **Long-running** work with no end. Agents label a task when they create it; if one is
@@ -323,7 +328,7 @@ your Spaces". If Phi is unavailable, the agent reports that failure rather than 
 in another browser.
 
 Delegated browser agents use Phi through T3 Code's browser tools only, when their task selects it.
-They have no shell, cannot change files, and cannot touch another task's tabs. UI workers check
+They have no shell, cannot change files, and cannot touch another task's tabs. Implementers check
 their work with bounded browser tasks on the integrated browser, never Phi.
 They are refused up front,
 with the reason, when browser access is off for the project, Phi is not enabled, the Phi skill is
