@@ -212,6 +212,15 @@ const make = Effect.gen(function* () {
       }
       const parentNodeId = parentRun.rootNodeId;
       const { target } = input;
+      // A role, its model and its tool profile are resolved by the environment that runs the
+      // task, and a launch through the link resolves none of them there.
+      if (input.agentTask !== undefined) {
+        return yield* new OrchestratorMcpFailure({
+          code: "capability_denied",
+          message:
+            "A task in a linked environment is launched there as an ordinary thread, so it cannot run a managed role: agentTask's role, model and browser access would be dropped. Omit target.environmentId to run this role here, or send an unmanaged task there by naming target.providerInstanceId and target.model from orchestrator_capabilities with that environmentId.",
+        });
+      }
       // A worktree there would branch from a commit this checkout has and the
       // other may not, so a remote task runs in that project's checkout.
       if (input.isolation === "worktree") {

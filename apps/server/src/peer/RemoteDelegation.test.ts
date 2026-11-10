@@ -1256,6 +1256,55 @@ it.effect("refuses worktree isolation for a task there before launching anything
   ),
 );
 
+it.effect("refuses a managed role for a task there instead of running an unmanaged thread", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const thread = yield* makeBoxThread;
+      const b = yield* serveBox(thread);
+      const offers = yield* SubscriptionRef.make<
+        ReadonlyArray<ProviderContinuationRequests.ProviderContinuationRequest>
+      >([]);
+      const database = yield* SqlitePersistence.layerMemory.pipe(Layer.build);
+      const a = yield* makeLaptop(database, offers);
+      yield* linkTo(a.links, b, "auto");
+      yield* seedParent(a);
+
+      const result = yield* a.call("delegate_task", {
+        task: "Check the box.",
+        agentTask: {
+          role: "chore-worker",
+          taskClass: "non-ui",
+          workId: "work:jev-check",
+          attemptId: "attempt:jev-check",
+          workspacePath: "/home/ubuntu/.t3/scratch/jev-check",
+        },
+        target: { environmentId: box.environmentId },
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain("agentTask");
+      // The role would have run there as a plain thread on this parent's model.
+      expect(yield* Ref.get(thread.launched)).toBeNull();
+    }),
+  ).pipe(
+    Effect.provide(
+      NodeHttpServer.layerTest.pipe(
+        Layer.provideMerge(
+          Layer.mergeAll(
+            Layer.mock(ContextExperimentService.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
+            }),
+            Layer.mock(ContextForgeWorkItems.ForgeWorkItems)({}),
+            Layer.mock(ContextWeaveAgentConnections.WeaveAgentConnections)({}),
+            Layer.mock(ContextReleaseApprovals.ReleaseApprovals)({}),
+          ),
+        ),
+        Layer.provideMerge(Layer.mergeAll(SqlitePersistence.layerMemory)),
+      ),
+    ),
+  ),
+);
+
 it.effect("follows an open task again after the laptop restarts", () =>
   Effect.scoped(
     Effect.gen(function* () {
