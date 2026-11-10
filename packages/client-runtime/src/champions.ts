@@ -93,6 +93,19 @@ export function championNeedsAttention(champion: ChampionSummary): boolean {
   return champion.pendingProposal || (!isSettingUp(champion) && champion.attention.length > 0);
 }
 
+export function visibleChampions<T>(
+  items: ReadonlyArray<T>,
+  summaryOf: (item: T) => ChampionSummary,
+  options: { readonly showRetired: boolean; readonly isSelected?: (item: T) => boolean },
+): T[] {
+  return items.filter(
+    (item) =>
+      options.showRetired ||
+      summaryOf(item).lifecycle !== "retired" ||
+      options.isSelected?.(item) === true,
+  );
+}
+
 function evidenceStatus(champion: ChampionSummary, nowMs: number): ChampionStatus {
   const samples = champion.latestSamples ?? [];
   const required = samples.filter((sample) => sample.required);

@@ -16,6 +16,7 @@ import {
   championStatus,
   learningNoteProse,
   pendingChampionDecision,
+  visibleChampions,
 } from "@t3tools/client-runtime/champions";
 import {
   type AtomCommandResult,
@@ -135,9 +136,12 @@ function EnvironmentChampions(props: { readonly environment: SettingsTarget }) {
   const { environmentId } = props.environment;
   const navigation = useNavigation();
   const nowMs = useNowMs();
+  const [showRetired, setShowRetired] = useState(false);
   const atom = serverEnvironment.championsLive({ environmentId, input: {} });
   const champions = useEnvironmentQuery(atom);
   const failure = championFailure(useAtomValue(atom));
+  const retiredCount =
+    champions.data?.champions.filter((champion) => champion.lifecycle === "retired").length ?? 0;
   return (
     <SettingsSection
       title={props.environment.label}
@@ -160,28 +164,42 @@ function EnvironmentChampions(props: { readonly environment: SettingsTarget }) {
           No champions yet. Set one up from the web or desktop app.
         </Text>
       ) : (
-        champions.data.champions.map((champion, index) => (
-          <Pressable
-            key={champion.id}
-            accessibilityRole="button"
-            accessibilityLabel={`Open ${champion.name}`}
-            onPress={() =>
-              navigation.navigate("SettingsChampionDetail", { environmentId, id: champion.id })
-            }
-            className={
-              index === 0
-                ? "gap-1 px-4 py-4 active:opacity-70"
-                : "gap-1 border-t border-border-subtle px-4 py-4 active:opacity-70"
-            }
-          >
-            <Text className="text-lg font-t3-medium text-foreground" numberOfLines={1}>
-              {champion.name}
-            </Text>
-            <Text className="text-sm text-foreground-muted" numberOfLines={2}>
-              {CHAMPION_STATUS_LABELS[championStatus(champion, nowMs)]} · {champion.purpose}
-            </Text>
-          </Pressable>
-        ))
+        <>
+          {visibleChampions(champions.data.champions, (champion) => champion, { showRetired }).map(
+            (champion, index) => (
+              <Pressable
+                key={champion.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${champion.name}`}
+                onPress={() =>
+                  navigation.navigate("SettingsChampionDetail", { environmentId, id: champion.id })
+                }
+                className={
+                  index === 0
+                    ? "gap-1 px-4 py-4 active:opacity-70"
+                    : "gap-1 border-t border-border-subtle px-4 py-4 active:opacity-70"
+                }
+              >
+                <Text className="text-lg font-t3-medium text-foreground" numberOfLines={1}>
+                  {champion.name}
+                </Text>
+                <Text className="text-sm text-foreground-muted" numberOfLines={2}>
+                  {CHAMPION_STATUS_LABELS[championStatus(champion, nowMs)]} · {champion.purpose}
+                </Text>
+              </Pressable>
+            ),
+          )}
+          {retiredCount > 0 ? (
+            <View className="border-t border-border-subtle px-4 py-2">
+              <Button
+                label={showRetired ? "Hide retired" : `Show retired (${retiredCount})`}
+                tone="text"
+                size="compact"
+                onPress={() => setShowRetired((current) => !current)}
+              />
+            </View>
+          ) : null}
+        </>
       )}
     </SettingsSection>
   );

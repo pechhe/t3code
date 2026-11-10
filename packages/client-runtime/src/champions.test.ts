@@ -30,6 +30,7 @@ import {
   CHAMPION_FINDING_STATUS_LABELS,
   learningNoteProse,
   pendingChampionDecision,
+  visibleChampions,
 } from "./champions.ts";
 
 const NOW = Date.parse("2026-11-01T12:00:00.000Z");
@@ -144,6 +145,30 @@ describe("championNeedsAttention", () => {
     ).toBe(false);
     expect(championNeedsAttention(summary({ attention: ["x"] }))).toBe(true);
     expect(championNeedsAttention(summary({ pendingProposal: true }))).toBe(true);
+  });
+});
+
+describe("visibleChampions", () => {
+  const live = summary({ id: "live" });
+  const retired = summary({ id: "retired", lifecycle: "retired" });
+  const ids = (items: ReadonlyArray<ChampionSummary>) => items.map((item) => item.id);
+  const identity = (item: ChampionSummary) => item;
+
+  it("hides retired champions unless revealed or selected", () => {
+    const all = [live, retired];
+    expect(ids(visibleChampions(all, identity, { showRetired: false }))).toEqual(["live"]);
+    expect(ids(visibleChampions(all, identity, { showRetired: true }))).toEqual([
+      "live",
+      "retired",
+    ]);
+    expect(
+      ids(
+        visibleChampions(all, identity, {
+          showRetired: false,
+          isSelected: (item) => item.id === "retired",
+        }),
+      ),
+    ).toEqual(["live", "retired"]);
   });
 });
 

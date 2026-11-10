@@ -3,6 +3,7 @@ import {
   championReading,
   championReadingLabel,
   championStatus,
+  visibleChampions,
 } from "@t3tools/client-runtime/champions";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -244,12 +245,13 @@ export function ChampionsPage(props: {
   const { environments, isReady } = useEnvironments();
   const wide = useMediaQuery("(min-width: 48rem)");
   const waited = useHasWaitedForServers();
+  const [showRetired, setShowRetired] = useState(false);
   const explicit = props.environmentId !== undefined && props.id !== undefined;
   // Escape must not discard a form in progress.
   useEscapeToGoBack(explicit || props.view !== undefined ? noop : undefined);
 
   const nowMs = Date.parse(`${useNowMinute()}:00.000Z`);
-  const entries = orderChampions(
+  const allEntries = orderChampions(
     sources.flatMap((source) =>
       (source.champions ?? []).map((champion) => ({
         environmentId: source.environmentId,
@@ -258,8 +260,15 @@ export function ChampionsPage(props: {
     ),
     nowMs,
   );
+  const retiredCount = allEntries.filter((entry) => entry.champion.lifecycle === "retired").length;
+  const isOpened = (entry: ChampionEntry) =>
+    entry.environmentId === props.environmentId && entry.champion.id === props.id;
+  const entries = visibleChampions(allEntries, (entry) => entry.champion, {
+    showRetired,
+    isSelected: isOpened,
+  });
   const selection = resolveChampionSelection(
-    entries,
+    explicit ? allEntries : entries,
     { environmentId: props.environmentId, id: props.id },
     { openFirst: wide && props.view === undefined },
   );
@@ -546,6 +555,17 @@ export function ChampionsPage(props: {
                 onSelect={() => open(entry)}
               />
             ))}
+            {retiredCount > 0 ? (
+              <div className="px-1 pt-1">
+                <Button
+                  size="xs"
+                  variant="ghost-muted"
+                  onClick={() => setShowRetired((current) => !current)}
+                >
+                  {showRetired ? "Hide retired" : `Show retired (${retiredCount})`}
+                </Button>
+              </div>
+            ) : null}
           </div>
         </aside>
         <main
