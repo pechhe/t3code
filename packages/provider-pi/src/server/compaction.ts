@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as NodePath from "node:path";
+import * as Schema from "effect/Schema";
 
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 
@@ -137,10 +138,8 @@ const readSnapshot = (settingsPath: string) =>
 const readOwnership = Effect.fn("readPiCompactionOwnership")(function* (ownershipPath: string) {
   const text = yield* readText(ownershipPath);
   if (text === undefined) return { models: {} } satisfies PiCompactionOwnership;
-  const parsed: unknown = yield* Effect.try(() => JSON.parse(text)).pipe(
-    Effect.orElseSucceed(() => undefined),
-  );
-  const models = isRecord(parsed) ? parsed["models"] : undefined;
+  const parsed = Schema.decodeOption(Schema.fromJsonString(Schema.Unknown))(text);
+  const models = Option.isSome(parsed) && isRecord(parsed.value) ? parsed.value["models"] : undefined;
   // An earlier build recorded only the model names it changed; those replaced nothing known.
   if (Array.isArray(models)) {
     return {

@@ -3,32 +3,32 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.9-nightly.20261110.4452",
-      "sha": "822671581383a357c5dc8d3ea9984b408c3e03c6"
-    },
-    "target": {
       "tag": "v0.1.9-nightly.20261110.4465",
       "sha": "7171fdd7716b05dc1b4be40c26ac78e8bb35f80c"
+    },
+    "target": {
+      "tag": "v0.1.9-nightly.20261110.4478",
+      "sha": "20c3dd3689782bfcb1a04332086d08017028c718"
     }
   },
   "fork": {
-    "base": "413d714937d53014eca23aa736e335028703ca3d"
+    "base": "8cd52c2936de144d5bbc9a84417259e22eb55523"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "88a4974e8bec5af30db14f747ac40222a0209d9a"
+    "blob": "2e9cb45bcce569a12fdcd704bd56ea501c85ce81"
   },
   "policy": {
     "requiredLandingVerificationSha256": "f57f8da576ea5674b21d79bbc7768f8e0c381aa98726cc2705048b36ea3176a7"
   },
-  "attempt": "v0.1.9-nightly.20261110.4465@1794305433",
-  "reviewedAt": "2026-11-10T10:30:21.876Z",
+  "attempt": "v0.1.9-nightly.20261110.4478@1794327100",
+  "reviewedAt": "2026-11-10T16:36:54.120Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:3a480cb0-97df-4add-912a-6eda0b7ec05d",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:3b1925e6-d91b-4795-9d87-c7002a75eea1",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 31,
+    "upstreamCommits": 56,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
@@ -108,171 +108,226 @@
       "shared-provider-setup"
     ],
     "areas": [
-      "orchestration-v2 middle: PR-link command reduction and the PR-watch restart carry (Orchestrator.ts, PullRequestWatchReactor.ts, packages/contracts/src/threadPullRequest.ts) beside the fork's thread/Forge watches and restructured projector",
-      "orchestration-v2 streaming: the paragraph filter rewritten around held snapshot tracks with an 800ms idle flush (assistantStreaming.ts, RunExecutionService.ts timer, contracts unchanged) beside the fork's opt-in live mode",
-      "orchestration-v2 delivery: delegated-completion wake settlement on a restarted steer, detached-session approval release, provider batch typing (RunExecutionService.ts, EventSink.ts, ProviderSessionManager.ts, ProviderCommitBatch.ts, NotificationMailbox.ts) beside the fork's workflow-json read and browser/read-only task classes",
-      "Claude adapter: MCP elicitation session grants (#33707) and the model catalog path, beside the fork's full-access environment, transcript-resume check, compaction plan and usage records",
-      "preview browser: preview_evaluate replays a parse error with replMode and terminates a timed-out script (ServerBrowserPage.evaluate), and a reloaded desktop re-announces a tab until its attach wait ends (ServerBrowser.desktopRenders); both are decided below, and the fork's Phi backend, preview tab lifetime and managed browser leases keep their own paths",
-      "provider probes: providerProbeEnvironment (MISE_OFFLINE) and parseCliVersionResult across provider-core and every provider package's status/probe path, beside each package's fork capability flags",
-      "ssh: the runner's explicit system/machine archive key and tunnel readiness that excludes ssh's connection time, beside the fork's boot-service ownership wait",
-      "source control and vcs: branch-menu PR status no longer wiped, push target resolution, Forgejo merged-PR lookup with a deleted head branch; beside the fork's landing-driven VCS refresh and checkpoint path helper",
-      "markdown: escaped prose paths scanned once per text node and relative Windows file links, under the fork's per-block markdown rendering",
-      "web and desktop chrome: remote Lineage truncation, PR title centring, snooze footer, mailto copy, database notice, mobile usage selector and app config version, desktop background-agent tab survival"
+      "apps/server/src/orchestration-v2: Orchestrator (settle blocker, steer/restart guard, cohort disposal), ProjectionStore and threadHistoryPaging (windowed thread reads), ThreadManagementService, ThreadPullRequestService, ClaudeAdapterV2/CodexAdapterV2 — managed-delegation, thread-watches, perf-persistence-reads, account-pools",
+      "apps/server/src/mcp: OrchestratorMcpService caller narrowing and the fork's managed reads — managed-delegation, perf-persistence-reads",
+      "apps/server/src/device, apps/server/scripts/migrate-dev-db, apps/server/src/provider, apps/server/src/usage, apps/server/src/vcs — thread-handoff, dev-state-tooling, account-pools, perf-persistence-reads",
+      "apps/desktop/src/preview: first-page wait and announced-only detach — preview-browser-lifetime",
+      "apps/web: ChatView citations, ThreadNotificationCoordinator, ChatComposer/prompt suggestions, MessagesTimeline/minimap, sidebar — side-chat, quiet-run-read-state, delegated-work-visibility, timeline-layout-test-fixture",
+      "apps/mobile: AdaptiveWorkspaceLayout, files and previews — mobile-fork-screens",
+      "packages/ssh: launch lock, sibling reuse and runtime-record wait — ssh-launch-respects-boot-service",
+      "packages/provider-cursor, packages/provider-pi: steer prompt, slashed provider ids — account-pools"
     ],
     "exclusions": [
       {
-        "what": "upstream docs/user/source-control.md",
-        "why": "upstream documents its own branch-menu fix; no fork entry describes that surface"
+        "what": "upstream's own changes",
+        "why": "upstream reviewed them; only the merge's conflict resolutions and this reconciliation commit are reviewed here"
       },
       {
-        "what": "migrations and dependency manifests",
-        "why": "this update ships no migration and no package.json or pnpm-workspace change, so no numbering or catalog decision was needed"
-      },
-      {
-        "what": "upstream UI polish with no fork code in the region (CustomSnoozeDialog, ThreadDetailsPrRow, ThreadDetailsControl, DatabaseStorageNotice, mobile navigator and usage route, desktop mailto menu)",
-        "why": "additive upstream fixes on surfaces no fork entry modifies"
+        "what": "packages/shared/src/String.test.ts, apps/server/src/vcs/GitVcsDriverCore*, ProjectionStore's new window reads",
+        "why": "no conflict and no recorded entry meets them; upstream's own tests cover them, and they were read for overlap only"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "live-response-streaming",
-      "upstream": "upstream #28221 rewrites the paragraph filter into held snapshot tracks with nextIdleFlushAt/takeIdleFlushes and an 800ms idle flush",
+      "entry": "ssh-launch-respects-boot-service",
+      "upstream": "#32587 gives one remote home a launch lock, reuses a live sibling alias's managed server and waits for the runtime record",
       "decision": "adapt",
       "requirements": [
-        "live remains a selectable mode whose snapshots are delivered whole with the 45ms burst cap and none held",
-        "paragraph mode and the plain working row stay upstream's default",
-        "a client that does not announce liveResponseStreaming still gets paragraph"
+        "a home owned by the user's T3 service is still waited for and adopted, never started beside",
+        "a live sibling alias's server is reused before any port is picked",
+        "the three existing launch behaviours and upstream's concurrent-launch case are both proven"
       ],
       "evidence": [
-        "apps/server/src/orchestration-v2/assistantStreaming.ts: live is an early branch inside upstream's filter object, so nextIdleFlushAt stays null and the idle timer never arms for it",
-        "apps/server/src/orchestration-v2/assistantStreaming.test.ts: the live test drives filter through the returned object; 16 tests pass",
-        "apps/server/src/orchestration-v2/RunExecutionService.ts: upstream's scheduleIdleFlush/flushIdleAssistantText unchanged"
+        "packages/ssh/src/tunnel.ts: the sibling scan runs before `if [ -z \"$REMOTE_PORT\" ] && boot_service_owns_home`; REMOTE_SERVICE_READY_TIMEOUT_MS sits beside upstream's lock/base split and SSH_TUNNEL_CONNECT_TIMEOUT_MS still uses the base",
+        "packages/ssh/src/tunnel.test.ts: 30 tests pass (both sides' helpers and cases kept)"
+      ]
+    },
+    {
+      "entry": "perf-persistence-reads",
+      "upstream": "#33305 opens a long thread from its latest segments and #33295 stops MCP calls reading the caller's whole thread",
+      "decision": "adapt",
+      "requirements": [
+        "the fork's full getThreadSnapshot, threadIds shell batch, four-reader pool and index-by-name reads (migrations 091/093/095) survive",
+        "every new read goes through readOnReader"
+      ],
+      "evidence": [
+        "apps/server/src/orchestration-v2/ProjectionStore.ts: getThreadSnapshotWindow and getThreadHistoryPage are new reads wrapped at :7787; INDEXED BY reads and the threadIds option unchanged",
+        "apps/server/src/ws.ts:1050 selects the window only when the client asks",
+        "ProjectionStore.test.ts 74 tests pass (with ThreadPullRequestService.test.ts)"
+      ]
+    },
+    {
+      "entry": "managed-delegation",
+      "upstream": "#33295 narrows MCP caller reads, #32899 starts a restart that misses its turn as a new turn, #32815 disposes a cancelled wake's cohort",
+      "decision": "adapt",
+      "requirements": [
+        "loadScopedThread still refuses an external owner's thread, and the fork's wider reads remain where the managed layer needs them",
+        "a settle disposes the automatic queued runs as a cohort",
+        "the completion hold, roles, follow-ups and cancellation are unchanged"
+      ],
+      "evidence": [
+        "apps/server/src/mcp/OrchestratorMcpService.ts: assertExternalWorkOwner kept, loadProjection kept for the owned follow-up, readThread loads the caller's runs and user messages only when the caller holds a thread watch",
+        "apps/server/src/orchestration-v2/Orchestrator.ts:4751 passes \"cohort\" where upstream does; the steer/restart guard is upstream's superset",
+        "OrchestratorMcpService.test.ts and DelegatedCompletionDelivery.test.ts pass (114 of 115 before one adaptation, then 51/51 after: upstream's settle case now proves the fork's refusal and settles with stopBackgroundWork)"
       ]
     },
     {
       "entry": "thread-watches",
-      "upstream": "upstream #24599 adds awaitingApproval and approvalAnnounced to ThreadPullRequestWatch, carried across a restarted watch and compared in PullRequestWatchReactor",
+      "upstream": "#33752 looks up a finished turn's branch pull request once",
       "decision": "adopt",
       "requirements": [
-        "the fork's thread and Forge watches are unaffected: ThreadWatchReactor, orchestrationV2PendingBackgroundWork, endedThreadWatches and the composer strip",
-        "PR watches stay upstream's and separate"
+        "PR watches stay upstream's; the fork's thread and Forge watches, endedThreadWatches and the composer strip are untouched"
       ],
       "evidence": [
-        "packages/contracts/src/threadPullRequest.ts: both fields additive optional, so shipped clients keep decoding the shell",
-        "apps/server/src/orchestration-v2/Orchestrator.ts: the two spreads landed inside the fork's restructured projector",
-        "apps/server/src/orchestration-v2/pullRequestWatch.test.ts and ThreadWatch.test.ts pass (85 tests with the Orchestrator and contracts suites)"
+        "apps/server/src/orchestration-v2/ThreadPullRequestService.ts and its test pass beside the fork's watch suites"
       ]
     },
     {
-      "entry": "ssh-launch-respects-boot-service",
-      "upstream": "upstream #33325 names the runner archive by an explicit system/machine key and #33554 makes tunnel readiness exclude ssh's own connect time",
+      "entry": "quiet-run-read-state",
+      "upstream": "#32719 keys attention on the pending request id so a replacing request notifies again",
       "decision": "adopt",
       "requirements": [
-        "a user service that owns the default home is still waited for (30s) and adopted, or the launch fails without starting a second server",
-        "a host with no such service still launches its own server"
+        "a stopped run, a silent run and the run a mark-read request is bound to still notify nothing",
+        "the 2 s working-exit grace is unchanged"
       ],
       "evidence": [
-        "packages/ssh/src/tunnel.ts: boot_service_owns_home, wait_for_boot_service, REMOTE_SERVICE_READY_TIMEOUT_MS and the guard before pick_port are unchanged beside upstream's T3_PLATFORM_KEY and waitForTunnelForward",
-        "packages/ssh/src/tunnel.test.ts: the three launch tests and upstream's new host-key test pass (with selfUpdate and markdown suites, 100 tests)"
+        "apps/web/src/components/ThreadNotificationCoordinator.logic.ts: upstream's requestId/attended gate and the fork's quiet option coexist; 19 tests pass with assistantCitationNavigation.test.ts"
       ]
     },
     {
-      "entry": "perf-markdown-blocks",
-      "upstream": "upstream #33438 scans each text node once when keeping a prose path escape and #33643 resolves a relative Windows file link",
+      "entry": "delegated-work-visibility",
+      "upstream": "#33706 and #32815 rebuild prompt suggestions after a steered turn",
       "decision": "adopt",
       "requirements": [
-        "a message still renders as memoised top-level blocks and a cross-block message still renders whole",
-        "the file-link maps keep their identity while links and code spans are unchanged"
+        "the fork's renderAboveComposer delegated panel, SubagentPanel rows and finish rules are unchanged"
       ],
       "evidence": [
-        "packages/shared/src/markdownWindowsPaths.ts: upstream's wordScans WeakMap sits under the fork's block splitting, which creates fresh token objects per parse",
-        "packages/shared/src/markdownWindowsPaths.test.ts and markdownLinks.test.ts pass"
+        "apps/web/src/components/chat/ChatComposer.tsx, usePromptSuggestion.ts"
       ]
     },
     {
-      "entry": "claude-full-access-no-prompts",
-      "upstream": "upstream #33707 offers \"Always allow this session\" for MCP elicitation and remembers the grant for the session",
+      "entry": "side-chat",
+      "upstream": "#33160 reveals the side chat on a Go to source citation while keeping the parent thread",
       "decision": "adopt",
       "requirements": [
-        "a full-access Claude query still carries CLAUDE_CODE_EVEN_MORE_DANGEROUSLY_SKIP_PERMISSIONS=1 and other modes are unchanged"
+        "the fork's roundAnchor follow-up landing, Use in main, the opening-turn runtime-mode guard and pane isolation stay"
       ],
       "evidence": [
-        "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts: upstream's mcpElicitationSessionGrants is the CLI ask path, not the permission callback the fork's variable skips",
-        "server typecheck passes with the merged adapter"
-      ]
-    },
-    {
-      "entry": "account-pools",
-      "upstream": "upstream #33448 runs background status probes with MISE_OFFLINE=1 through providerProbeEnvironment, and reports no version from a failed --version run",
-      "decision": "adopt",
-      "requirements": [
-        "pooled routing, the pre-routing usage refresh, the shared pool config and the MCP credential repair are unchanged",
-        "sessions and user-started commands keep the plain environment"
-      ],
-      "evidence": [
-        "packages/provider-core/src/server/snapshotProbe.ts: providerProbeEnvironment and parseCliVersionResult, applied by each provider package's status and probe path",
-        "the fork's session-side Claude history worker is not a status probe and keeps its environment",
-        "provider-core, contracts and server typecheck pass"
+        "apps/web/src/components/ChatView.tsx keeps both the fork's roundAnchor and useSideChatCitationReveal, sharing locationCitation/citationActivation; assistantCitationNavigation.test.ts passes"
       ]
     },
     {
       "entry": "preview-browser-lifetime",
-      "upstream": "upstream #33666 repeats the tab announce every second while desktopRenders waits for a reloaded renderer to attach",
+      "upstream": "#32861 waits for a new desktop tab's first page before announcing it and detaches only announced tabs",
       "decision": "adopt",
       "requirements": [
-        "the last tab of a profile still closes that profile's Chrome, and the shared browser still retires five minutes after its last context",
-        "a tab still owns its context from acquisition and a context start stays bounded at five seconds"
+        "the fork's profile-context close, revoked-access and stalled-start bounds are unchanged"
       ],
       "evidence": [
-        "apps/server/src/preview/ServerBrowser.ts: the repeat is forked inside Effect.scoped and ends with awaitAttached, so it is bounded by DESKTOP_ATTACH_TIMEOUT (10 s); dropTab, createTab/setUpTab/adoptPopup and ServerBrowserContexts are untouched"
+        "apps/desktop/src/preview/DesktopBrowserHost.ts and its test"
       ]
     },
     {
-      "entry": "phi-browser-backend",
-      "upstream": "upstream #31925 lets preview_evaluate retry an expression with the devtools replMode and terminates a timed-out script",
+      "entry": "dev-state-tooling",
+      "upstream": "#32744 makes the dev database seed drop active pull-request watches",
       "decision": "adopt",
       "requirements": [
-        "agent browser still selectable from web and mobile settings, preview tools still route through Phi when it is the backend",
-        "Phi custody, the separate Agents Space and the user lane are unchanged"
+        "the fork's seeding filters and its experiment-observation assertions are unchanged"
       ],
       "evidence": [
-        "apps/server/src/preview/ServerBrowserPage.ts: the change is inside evaluate, which ServerBrowser's automation handler calls with a CDP session; PhiBrowser and PhiBrowserProtocol carry no evaluate operation, so a Phi tab never reaches it",
-        "the bounded-task and decision-evaluation callers reach the same function through PreviewAutomationBroker only for a server-browser tab, where the new timeout bound is tighter than before"
+        "apps/server/scripts/migrate-dev-db.test.ts keeps both queries; 30 tests pass with tunnel.test.ts"
+      ]
+    },
+    {
+      "entry": "thread-handoff",
+      "upstream": "#33666 survives a desktop window reload for a background agent tab and #28353 captures iOS screenshots on simctl",
+      "decision": "adopt",
+      "requirements": [
+        "the fork's handoff move keeps its conversation, git transfer and read-only copy"
+      ],
+      "evidence": [
+        "apps/server/src/device/DeviceHubOperations.ts, DeviceHubProxy.ts, DeviceHost.ts"
+      ]
+    },
+    {
+      "entry": "account-pools",
+      "upstream": "#33008 fails a Claude turn whose CLI exits before its first frame, #32951 names a signed-out config dir, #33721 prices Mythos 5.2, #32583 keeps a steered Cursor prompt and #32585 resolves slashed Pi provider ids",
+      "decision": "adapt",
+      "requirements": [
+        "a retried 429 that names no reset time stays a provider error, so no account is marked out on it",
+        "the fork's one-rule account choice and fallback order are unchanged"
+      ],
+      "evidence": [
+        "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts keeps the fork's limitResetAt rule beside upstream's attachTurn claim",
+        "packages/provider-pi/src/server/adapter.ts now resolves the compaction point's model with upstream's resolvePiModelSlug(slug, discoveredModels): the merge left the removed parsePiModelSlug call, which only a typecheck catches",
+        "159 provider tests and 636 adapter/registry/pricing tests pass"
+      ]
+    },
+    {
+      "entry": "mobile-fork-screens",
+      "upstream": "#33021 medium Android windows, #33223 the Files sheet scroll, #32994 a missing file's message",
+      "decision": "adopt",
+      "requirements": [
+        "the fork's mobile screens are unchanged"
+      ],
+      "evidence": [
+        "apps/mobile/src/features/layout/AdaptiveWorkspaceLayout.tsx, features/files/*, components/ui/FilePreviewSession.tsx"
+      ]
+    },
+    {
+      "entry": "timeline-layout-test-fixture",
+      "upstream": "#33038 disables the minimap's next-turn control at the bottom of a thread",
+      "decision": "adopt",
+      "requirements": [
+        "the fork's fixture-driven layout tests are unchanged"
+      ],
+      "evidence": [
+        "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx, TimelineMinimap.tsx"
       ]
     }
   ],
   "unresolved": [],
   "checks": [
     {
-      "command": "vp run --filter t3 --filter @t3tools/ssh --filter @t3tools/shared --filter @t3tools/contracts --filter @t3tools/provider-core typecheck",
+      "command": "vp run --filter t3 --filter @t3tools/web --filter @t3tools/ssh --filter @t3tools/provider-cursor --filter @t3tools/provider-pi --filter @t3tools/shared typecheck",
       "result": "passed",
-      "note": "suggestions only (schemaClassMissingBrand), no errors; catches the merged Orchestrator, assistantStreaming and ssh sources"
+      "note": "server, web, ssh, cursor and shared clean. provider-pi first failed two ways: the merge kept a call to upstream's removed parsePiModelSlug, and packages/provider-pi/src/server/compaction.ts already failed effectTryWithoutCatch/globalJsonInEffect on the fork base (proved by running the same typecheck in a workspace at 8cd52c29); both are fixed here, the second with Schema.decodeOption so the update lands a clean package."
     },
     {
-      "command": "vp run --filter @t3tools/provider-opencode typecheck",
+      "command": "vp test run packages/ssh/src/tunnel.test.ts apps/server/scripts/migrate-dev-db.test.ts",
       "result": "passed",
-      "note": "after fixing a semantic conflict: the fork's generateCompactionSummary used the removed probe.get where upstream now passes resolve, and the test helper built environment entries without the required sensitive field (that second error was already on the fork base and is fixed here)"
+      "note": "30 tests: the three fork launch tests and upstream's concurrent-launch case"
     },
     {
-      "command": "vp test run apps/server/src/orchestration-v2/assistantStreaming.test.ts",
+      "command": "vp test run apps/server/src/mcp/OrchestratorMcpService.test.ts apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts",
       "result": "passed",
-      "note": "16 tests: the reconciled live branch and upstream's idle-flush table"
+      "note": "115 tests; one adaptation, upstream's settle case now proves the fork's background-work refusal and settles with stopBackgroundWork"
     },
     {
-      "command": "vp test run packages/ssh/src/tunnel.test.ts apps/server/src/cloud/selfUpdate.test.ts packages/shared/src/markdownWindowsPaths.test.ts packages/shared/src/markdownLinks.test.ts",
+      "command": "vp test run apps/server/src/orchestration-v2/ProjectionStore.test.ts apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts",
       "result": "passed",
-      "note": "100 tests, covering the four test conflicts and the markdown reconciliation"
+      "note": "74 tests"
     },
     {
-      "command": "vp test run apps/server/src/orchestration-v2/pullRequestWatch.test.ts apps/server/src/orchestration-v2/ThreadWatch.test.ts apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts packages/contracts/src/orchestrationV2.test.ts",
+      "command": "vp test run apps/web/src/lib/assistantCitationNavigation.test.ts apps/web/src/components/ThreadNotificationCoordinator.logic.test.ts",
       "result": "passed",
-      "note": "85 tests, covering the Orchestrator projector hunk and the new watch fields"
+      "note": "19 tests"
     },
     {
-      "command": "vp test run apps/server/src/orchestration-v2/RunExecutionService.test.ts apps/server/src/preview/ServerBrowserPage.test.ts",
+      "command": "vp test run apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts",
       "result": "passed",
-      "note": "110 tests, covering the merged ingestion conflicts and the evaluate/snapshot suites"
+      "note": "45 tests: the restart guard and the fork's compact point"
+    },
+    {
+      "command": "vp test run packages/provider-cursor/src/server/adapter.test.ts packages/provider-pi/src/server/adapter.test.ts packages/provider-pi/src/server/textGeneration.test.ts",
+      "result": "passed",
+      "note": "159 tests; the Pi text-generation fixture needed the fork's autoCompactWindow"
+    },
+    {
+      "command": "vp test run apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts apps/server/src/provider/ProviderRegistry.test.ts apps/server/src/usage/usagePricing.test.ts",
+      "result": "passed",
+      "note": "636 tests"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
@@ -280,9 +335,14 @@
       "note": "the gate lists its selection against the merged config"
     },
     {
-      "command": "code-review (scope change, reviewer role) on 3f3d7777",
+      "command": "vp test run apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts",
       "result": "passed",
-      "note": "no blocking findings, two should-fix findings that this commit answers: a missing preview-browser-lifetime decision and a missing phi-browser-backend decision for upstream's evaluate change; both are now dispositions with a record Decision line, and the preview area line no longer claims those surfaces untouched"
+      "note": "closes the review gap over the rewritten dispatch-mode guard: a restart that misses its turn starts as a new turn, and a steer into a completed turn still starts immediately"
+    },
+    {
+      "command": "vp run --filter @t3tools/mobile --filter @t3tools/desktop typecheck",
+      "result": "passed",
+      "note": "closes the review gap for the mobile layout/files files and the desktop preview host the merge touched"
     }
   ],
   "result": "reconciled"
