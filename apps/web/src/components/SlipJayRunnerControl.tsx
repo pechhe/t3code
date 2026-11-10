@@ -1,14 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
-  findSlipJayRunnerOperation,
   resolveSlipJayFixPrompt,
-  resolveSlipJayLandingChip,
   resolveSlipJayOperationElapsed,
   resolveSlipJayOperationLabel,
   resolveSlipJayQueueLabel,
   resolveSlipJayRunnerSummary,
-  resolveSlipJayStageProgress,
   SLIPJAY_LANDING_STAGES,
   type SlipJayCheckoutStatus,
   slipJayWorkspaceName,
@@ -22,8 +19,7 @@ import type {
   SlipJayRunnerOverview,
   ThreadId,
 } from "@t3tools/contracts";
-import { XIcon } from "lucide-react";
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { Badge } from "~/components/ui/badge";
@@ -44,6 +40,14 @@ import {
 } from "./SlipJayBox.logic";
 import { SlipJayLandingDetails } from "./SlipJayLandingDetails";
 import { SlipJayLandingLogDialog } from "./SlipJayLandingLogDialog";
+import {
+  dismissLanding,
+  type ShownLanding,
+  SlipJayPopoverTag,
+  ThreadLandingTicket,
+  useShownLanding,
+  useThreadLanding,
+} from "./SlipJayThreadLanding";
 import {
   SlipJayMark,
   SlipJaySpecLink,
@@ -66,33 +70,6 @@ function latestDeploys(deploys: ReadonlyArray<SlipJayRunnerDeploy>) {
     return true;
   });
 }
-
-// Finished landings the user put away, by environment and operation, for as long as the app runs.
-const dismissedLandings = new Set<string>();
-const dismissListeners = new Set<() => void>();
-const subscribeDismissed = (listener: () => void) => {
-  dismissListeners.add(listener);
-  return () => dismissListeners.delete(listener);
-};
-const dismissalKey = (environmentId: EnvironmentId, operationId: string) =>
-  `${environmentId} ${operationId}`;
-const dismissLanding = (environmentId: EnvironmentId, operationId: string) => {
-  dismissedLandings.add(dismissalKey(environmentId, operationId));
-  for (const listener of dismissListeners) listener();
-};
-
-/** The thread's landing until the user dismisses it once it has finished. */
-function useShownLanding(environmentId: EnvironmentId, status: SlipJayCheckoutStatus | null) {
-  const landing = status?.landing ?? null;
-  const dismissed = useSyncExternalStore(subscribeDismissed, () =>
-    landing === null
-      ? false
-      : dismissedLandings.has(dismissalKey(environmentId, landing.operationId)),
-  );
-  return dismissed ? null : landing;
-}
-
-type ShownLanding = NonNullable<SlipJayCheckoutStatus["landing"]>;
 
 /**
  * The landing runner in the header: the thread's own landing, else what the runner is doing.
@@ -297,26 +274,6 @@ export function SlipJayRunnerControl({
   );
 }
 
-const TAG_TRIGGER =
-  "-ms-1 flex min-w-0 self-stretch cursor-pointer items-center gap-2 rounded-sm px-1 hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring";
-
-/** How the thread's landing reads: the runner's row adds its queue place and timing. */
-function useThreadLanding(
-  threadRef: ScopedThreadRef,
-  status: SlipJayCheckoutStatus,
-  landing: ShownLanding,
-  overview: SlipJayRunnerOverview | null,
-) {
-  const operation = findSlipJayRunnerOperation(overview, landing.operationId);
-  const now = useNow(landing.status === "active");
-  const chip = resolveSlipJayLandingChip(landing, operation, now);
-  const spec = useSlipJaySpec(
-    threadRef,
-    landing.spec ?? operation?.spec ?? status.workspace?.issueNumber,
-  );
-  return { now, chip, spec };
-}
-
 /**
  * The thread's landing as the tag: a ticket whose stub carries the Spec, linked to Forge,
  * and whose body opens the popover. A failed landing offers its log and a fix in place.
@@ -340,87 +297,19 @@ function ThreadLandingTag({
   onLog: () => void;
   onFix: () => void;
 }) {
-  const { chip, spec } = useThreadLanding(threadRef, status, landing, overview);
-  const progress = resolveSlipJayStageProgress(landing);
   return (
-    <SlipJayTicket
-      tone={chip.tone}
-      // Keyed by operation, so a landing seen on screen tears as it lands, and one
-      // already landed when shown starts torn.
-      torn={landing.status === "landed"}
+    <ThreadLandingTicket
+      environmentId={environmentId}
+      threadRef={threadRef}
+      status={status}
+      landing={landing}
+      overview={overview}
+      announce
       className="h-7 shrink-0 text-xs [-webkit-app-region:no-drag]"
-      stub={
-        <>
-          <SlipJayMark />
-          {spec === null ? null : <SlipJaySpecLink spec={spec} />}
-        </>
-      }
-    >
-      <PopoverTrigger
-        render={
-          <button type="button" className={TAG_TRIGGER} aria-label={`SlipJay: ${chip.label}`} />
-        }
-      >
-        {spec?.title ? (
-          <span className="min-w-0 max-w-48 truncate font-medium max-lg:hidden">{spec.title}</span>
-        ) : null}
-        <span
-          role="status"
-          className={cn(
-            "shrink-0 font-mono",
-            chip.tone === "failed" && "text-destructive",
-            chip.tone === "landed" && "text-slipjay-mint-strong dark:text-slipjay-mint",
-          )}
-        >
-          {chip.label}
-        </span>
-        {chip.tone === "ended" ? null : (
-          <SlipJayStageDots
-            tone={chip.tone}
-            completed={progress.completed}
-            current={progress.current}
-          />
-        )}
-        {chip.tone === "waiting" && chip.detail !== null ? (
-          <span className="shrink-0 font-mono text-muted-foreground max-sm:hidden">
-            {chip.detail}
-          </span>
-        ) : null}
-        {chip.elapsed === null ? null : (
-          <span
-            className={cn(
-              "shrink-0 font-mono tabular-nums max-sm:hidden",
-              chip.slow && "text-warning",
-            )}
-          >
-            {chip.elapsed}
-          </span>
-        )}
-        {others > 0 ? <OthersCount count={others} /> : null}
-      </PopoverTrigger>
-      <span className="flex shrink-0 items-center pe-0.5">
-        {chip.tone === "failed" ? (
-          <>
-            <Button size="xs" variant="ghost" className="max-sm:hidden" onClick={onLog}>
-              Log
-            </Button>
-            <Button size="xs" variant="ghost" title="Ask the agent to fix it" onClick={onFix}>
-              Fix
-            </Button>
-          </>
-        ) : null}
-        {landing.status === "active" ? null : (
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-label="Dismiss landing"
-            onClick={() => dismissLanding(environmentId, landing.operationId)}
-          >
-            <XIcon />
-          </Button>
-        )}
-      </span>
-    </SlipJayTicket>
+      extra={others > 0 ? <OthersCount count={others} /> : null}
+      onLog={onLog}
+      onFix={onFix}
+    />
   );
 }
 
@@ -555,11 +444,7 @@ function RunnerTag({
         </>
       }
     >
-      <PopoverTrigger
-        render={
-          <button type="button" className={TAG_TRIGGER} aria-label={`SlipJay: ${summary.label}`} />
-        }
-      >
+      <SlipJayPopoverTag label={summary.label}>
         {attention ? (
           <span
             className={cn("shrink-0 font-mono", summary.label === "reconnecting" && "text-warning")}
@@ -585,7 +470,7 @@ function RunnerTag({
         {(lead !== null || attention) && summary.others > 0 ? (
           <OthersCount count={summary.others} />
         ) : null}
-      </PopoverTrigger>
+      </SlipJayPopoverTag>
     </SlipJayTicket>
   );
 }

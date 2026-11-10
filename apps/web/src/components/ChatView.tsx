@@ -39,6 +39,8 @@ import { useProjectSuggestionBannerItem } from "./chat/ProjectSuggestionBanner";
 import { useSelectedWorkspace } from "../hooks/useSelectedWorkspace";
 import { ReleaseButton } from "./ReleaseButton";
 import { SlipJayRunnerControl } from "./SlipJayRunnerControl";
+import { useShownLanding } from "./SlipJayThreadLanding";
+import { ThreadLandingNow } from "./chat/ThreadLandingNow";
 import { ForgeHomeButton } from "./forgeItem/ForgeHomeButton";
 import { DeviceEnvironmentSwitch } from "./chat/device/DeviceEnvironmentSwitch";
 import { ThreadMoveDialog } from "./chat/ThreadMoveDialog";
@@ -3340,8 +3342,26 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onExpandTimelineImageStable = useStableCallback(onExpandTimelineImage);
   const shownThreadSyncPhase = activeEnvironmentUnavailable ? null : delayedThreadSyncPhase;
+  const shownLanding = useShownLanding(environmentId, slipJayStatus);
+  const landingNow =
+    isServerThread &&
+    activeThreadRef !== null &&
+    slipJayStatus !== null &&
+    shownLanding !== null ? (
+      <ThreadLandingNow
+        environmentId={environmentId}
+        threadRef={activeThreadRef}
+        status={slipJayStatus}
+        landing={shownLanding}
+        onComposerFocusRequest={focusComposerStable}
+      />
+    ) : null;
   const hasThreadNow =
-    attentionNow !== null || workNow !== null || goalNow !== null || shownThreadSyncPhase !== null;
+    landingNow !== null ||
+    attentionNow !== null ||
+    workNow !== null ||
+    goalNow !== null ||
+    shownThreadSyncPhase !== null;
   const queuedRunCount = serverProjection ? getUserQueuedThreadRuns(serverProjection).length : 0;
   // The queue control is mounted for every server thread but joins the footer only while it shows
   // something, by its own rule: an optimistic message stops counting once the server has it.
@@ -3382,6 +3402,7 @@ export default function ChatView(props: ChatViewProps) {
           syncPhase={shownThreadSyncPhase}
           goal={goalNow}
         />
+        {landingNow}
         {threadStatusLine}
         {pendingGuestMessageCount > 0 && isServerThread && activeThread ? (
           <GuestPendingMessages
