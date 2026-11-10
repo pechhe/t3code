@@ -1795,6 +1795,66 @@ it.effect(
     }),
 );
 
+it.effect(
+  "gives a managed reader sent to a Scratch project's root the folder the launch allocated as its workspace",
+  () => {
+    const folder = "/scratch/folder";
+    const harness = makeHarness({
+      managedFolders: Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+        namedProjectsRoot: "/projects",
+        isScratchProject: (id) => Effect.succeed(id === projectId),
+        folderForThread: () => Effect.succeedSome(folder),
+      }),
+    });
+    return Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:scratch-reader",
+          thread: "thread:launch:scratch-reader",
+          message: "Explore only",
+          agentTask: decodeAgentTaskBinding({
+            ...managedTaskBinding(project.workspaceRoot),
+            role: "advisor",
+            sourceAccess: "read-only",
+            toolProfile: "source-reader",
+          }),
+          workspace: { type: "root" },
+        }),
+      );
+      const projection = yield* threads.getThreadProjection(launched.threadId);
+      assert.equal(projection.thread.worktreePath, folder);
+      assert.equal(projection.thread.agentTask?.workspacePath, folder);
+    }).pipe(Effect.provide(harness.layer));
+  },
+);
+
+it.effect("leaves a managed reader sent to a named project's root bound to that root", () => {
+  const harness = makeHarness({});
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch(
+      launchInput({
+        command: "command:launch:root-reader",
+        thread: "thread:launch:root-reader",
+        message: "Explore only",
+        agentTask: decodeAgentTaskBinding({
+          ...managedTaskBinding(project.workspaceRoot),
+          role: "advisor",
+          sourceAccess: "read-only",
+          toolProfile: "source-reader",
+        }),
+        workspace: { type: "root" },
+      }),
+    );
+    const projection = yield* threads.getThreadProjection(launched.threadId);
+    assert.isNull(projection.thread.worktreePath);
+    assert.equal(projection.thread.agentTask?.workspacePath, project.workspaceRoot);
+  }).pipe(Effect.provide(harness.layer));
+});
+
 it.effect("reuses a branchless SlipJay allocation when setup is retried", () =>
   Effect.gen(function* () {
     let setups = 0;

@@ -1254,6 +1254,15 @@ const make = Effect.gen(function* () {
         const initialBranch = workspaceStrategy.branch ?? null;
         const initialWorktreePath =
           workspaceStrategy.type === "existing_worktree" ? workspaceStrategy.worktreePath : null;
+        // A task a link sent to a project's root runs in the folder this launch allocated, so
+        // the folder, not the root the caller could not know to avoid, is the workspace it was given.
+        const agentTask =
+          input.agentTask !== undefined &&
+          initialWorktreePath !== null &&
+          requestedStrategy.type === "root" &&
+          input.agentTask.workspacePath === project.workspaceRoot
+            ? { ...input.agentTask, workspacePath: initialWorktreePath }
+            : input.agentTask;
         const claimDispatch =
           input.reuseExistingThread === true
             ? threads.dispatch({
@@ -1264,7 +1273,7 @@ const make = Effect.gen(function* () {
               })
             : threads.dispatch({
                 type: "thread.create",
-                ...(input.agentTask === undefined ? {} : { agentTask: input.agentTask }),
+                ...(agentTask === undefined ? {} : { agentTask }),
                 commandId: input.commandId,
                 threadId: candidateThreadId,
                 projectId: input.projectId,
