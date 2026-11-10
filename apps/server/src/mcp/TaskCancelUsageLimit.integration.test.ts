@@ -56,7 +56,7 @@ const modelSelection = { instanceId, model: "claude-test" };
 // A delegated child that fails on a usage limit is armed to continue at the reset.
 // Once its parent cancels the task, nothing is waiting for that continuation.
 it.effect.each([
-  { cancel: "after its limit", cancelStatus: "failed", resumed: false },
+  { cancel: "after its limit", cancelStatus: "cancelled", resumed: false },
   { cancel: "as its limit lands", cancelStatus: "cancel_requested", resumed: false },
   { cancel: "never", cancelStatus: null, resumed: true },
 ] as const)(
@@ -343,9 +343,17 @@ it.effect.each([
           yield* sweep;
           if (cancel === "after its limit") cancelled = yield* cancelTask;
           assert.equal(cancelled, cancelStatus);
+          const taskStatus = () =>
+            Effect.map(
+              orchestrator.getThreadProjection(parentThreadId),
+              (parent) => parent.subagents.find((entry) => entry.id === task.id)?.status,
+            );
+          // The task its parent cancelled during the recovery wait reports cancelled, not failed.
+          if (cancel === "after its limit") assert.equal(yield* taskStatus(), "cancelled");
 
           yield* TestClock.adjust("1 minute");
           yield* sweep;
+          yield* orchestrator.recoverDelegatedTasks;
           const childAfter = yield* orchestrator.getThreadProjection(childThreadId);
           assert.deepEqual(
             childAfter.messages.flatMap((message) =>
@@ -353,6 +361,8 @@ it.effect.each([
             ),
             resumed ? ["Review the change", "Continue where you left off."] : ["Review the change"],
           );
+          // A recovery sweep re-reading the failed run does not settle the task as failed.
+          if (cancel === "after its limit") assert.equal(yield* taskStatus(), "cancelled");
         }).pipe(Effect.provide(layerTest));
       }),
     ).pipe(

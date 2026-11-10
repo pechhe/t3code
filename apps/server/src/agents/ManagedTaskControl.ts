@@ -62,10 +62,18 @@ const threadManagementFailure = (cause: unknown) =>
   failure("orchestration_error", errorMessage(cause));
 const agentStopReason = (reason: string | undefined) =>
   reason === undefined ? "Stopped by an agent" : `Stopped by an agent: ${reason}`;
+const TERMINAL_TASK_STATUSES: ReadonlyArray<string> = [
+  "completed",
+  "failed",
+  "cancelled",
+  "interrupted",
+];
 const isTerminalTaskStatus = (
   status: OrchestratorMcpDelegateTaskResult["status"],
 ): status is "completed" | "failed" | "cancelled" | "interrupted" =>
-  ["completed", "failed", "cancelled", "interrupted"].includes(status);
+  TERMINAL_TASK_STATUSES.includes(status);
+/** A task's own record ends only once its work is settled, before any recovery report. */
+const taskRecordEnded = (status: string) => TERMINAL_TASK_STATUSES.includes(status);
 export const layer = Layer.effect(
   ManagedTaskControl,
   Effect.gen(function* () {
@@ -353,7 +361,13 @@ export const layer = Layer.effect(
         );
         return subagents.some((task) => task.id === input.taskId && task.status === "cancelled");
       }).pipe(Effect.mapError(threadManagementFailure));
-      if (isTerminalTaskStatus(current.status)) {
+      // A failed run reads as a failed task before its settlement (a recovery, say) has acted,
+      // so the task's own record, not that report, says whether the task has ended.
+      const unsettled =
+        current.status === "failed" &&
+        parentTask !== undefined &&
+        !taskRecordEnded(parentTask.status);
+      if (isTerminalTaskStatus(current.status) && !unsettled) {
         // The child can still run work for another turn, so it is stopped either way.
         yield* stopWithinLimit;
         const cancelled = yield* cancelOrphan;
@@ -375,20 +389,22 @@ export const layer = Layer.effect(
             (run.delegatedTaskId === input.taskId || run.id === current.childRunId),
         )
       ) {
-        // A failed turn whose recovery has not acted yet still holds the task open: settle
-        // the failure, so the task ends as failed and its recovery no longer continues it.
+        // A failed turn whose recovery has not acted yet still holds the task open. The parent
+        // cancelled the task, so settle it as cancelled and end its recovery with the child.
         const latestChildRun = child.runs.toSorted((a, b) => b.ordinal - a.ordinal)[0];
         if (latestChildRun?.status === "failed") {
-          yield* threadManagement.recoverDelegatedTask(childThreadId, latestChildRun.id);
+          yield* disposeCompletionDelivery;
+          yield* threadManagement.recoverDelegatedTask(childThreadId, latestChildRun.id, {
+            cancelled: true,
+          });
           const { subagents } = yield* threadManagement
             .getThreadRecords(principal.ownerThreadId, ["subagents"], {
               subagentIds: [input.taskId],
             })
             .pipe(Effect.mapError(threadManagementFailure));
-          if (subagents.some((task) => task.id === input.taskId && task.status === "failed")) {
+          if (subagents.some((task) => task.id === input.taskId && task.status === "cancelled")) {
             yield* stopWithinLimit;
-            yield* disposeCompletionDelivery;
-            return { taskId: input.taskId, status: "failed" as const };
+            return { taskId: input.taskId, status: "cancelled" as const };
           }
         }
         if (yield* cancelOrphan) return { taskId: input.taskId, status: "cancelled" as const };

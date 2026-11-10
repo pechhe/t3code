@@ -432,7 +432,12 @@ export interface OrchestratorV2Shape {
   readonly recoverDelegatedTasks: Effect.Effect<void>;
   /** Publish any managed child's result whose awaited work has outlived its grace. */
   readonly sweepDelegatedTaskResults: Effect.Effect<void>;
-  readonly recoverDelegatedTask: (threadId: ThreadId, sourceRunId: RunId) => Effect.Effect<void>;
+  /** Settle a delegated task's failed turn; `cancelled` records the task its parent stopped. */
+  readonly recoverDelegatedTask: (
+    threadId: ThreadId,
+    sourceRunId: RunId,
+    options?: { readonly cancelled?: boolean },
+  ) => Effect.Effect<void>;
   readonly delegatedTaskResultPending: (
     childThreadId: ThreadId,
     taskId?: NodeId,
@@ -14451,6 +14456,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       options: {
         readonly settledContinuationOf?: RunId;
         readonly syncRunId?: RunId;
+        /** The parent cancelled the task, so its run settles as cancelled, not as it failed. */
+        readonly cancelled?: boolean;
         readonly task: OrchestrationV2Subagent;
         readonly resultRun?: OrchestrationV2Run;
         /** Background work still running when the result publishes. */
@@ -14474,7 +14481,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             : undefined
           : taskRuns.toSorted((a, b) => b.ordinal - a.ordinal)[0];
       if (childRun === undefined) return;
-      const outcome = runOutcome(childRun);
+      const outcome = options.cancelled === true ? "cancelled" : runOutcome(childRun);
       const terminalStatus = delegatedTaskTerminalStatus(outcome);
       if (terminalStatus === null) {
         if (childRun.delegatedTaskId === undefined || childRun.id !== options.syncRunId) return;
@@ -14739,7 +14746,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
   const finalizeAppOwnedSubagent = Effect.fn("Orchestrator.finalizeAppOwnedSubagent")(function* (
     childThreadId: ThreadId,
-    options?: { readonly settledContinuationOf?: RunId; readonly syncRunId?: RunId },
+    options?: {
+      readonly settledContinuationOf?: RunId;
+      readonly syncRunId?: RunId;
+      readonly cancelled?: boolean;
+    },
   ) {
     const childControls = yield* projectionStore.getThreadRecords(
       childThreadId,
@@ -16285,12 +16296,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   );
 
   const recoverDelegatedTask = Effect.fn("Orchestrator.recoverDelegatedTask")(
-    function* (threadId: ThreadId, sourceRunId: RunId) {
+    function* (threadId: ThreadId, sourceRunId: RunId, options?: { readonly cancelled?: boolean }) {
       const parentThreadId = yield* appOwnedSubagentParentThreadId(threadId);
       if (parentThreadId === undefined) return;
       yield* threadDispatch.withLock(
         parentThreadId,
-        finalizeAppOwnedSubagent(threadId, { settledContinuationOf: sourceRunId }),
+        finalizeAppOwnedSubagent(threadId, {
+          settledContinuationOf: sourceRunId,
+          ...(options?.cancelled === true ? { cancelled: true } : {}),
+        }),
       );
     },
     (effect, threadId, _sourceRunId) =>
