@@ -1,5 +1,6 @@
 import type { OrchestrationV2Run } from "@t3tools/contracts";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
+import * as DateTime from "effect/DateTime";
 
 import { neverStarted } from "./RestartBackgroundNote.ts";
 
@@ -8,6 +9,9 @@ export const ARC_RUN_WAKE_MESSAGE_PREFIX = "message:arc-run-wake:";
 
 /** Server continuations in a row without the owner; past this, T3 stops continuing on its own. */
 export const MAX_CONTINUATION_CHAIN = 3;
+
+// Only continuations in quick succession count as a loop; a slow chain is a thread still working.
+const CONTINUATION_LOOP_WINDOW_MS = 5 * 60 * 1_000;
 
 /** A run T3 started on its own to keep a thread going, after a restart or while Away. */
 export function isServerContinuationRun(
@@ -41,4 +45,21 @@ export function serverContinuationChainLength(
     length += 1;
   }
   return length;
+}
+
+/**
+ * Whether T3 stopped keeping a run going because restarts restarted it too often in a row.
+ * Used both where the loop stops and where its result is reported, so they cannot disagree.
+ */
+export function serverContinuationCapReached(
+  runs: ReadonlyArray<OrchestrationV2Run>,
+  source: OrchestrationV2Run,
+): boolean {
+  const loopWindowStart =
+    DateTime.toEpochMillis(source.completedAt ?? source.requestedAt) - CONTINUATION_LOOP_WINDOW_MS;
+  const loopRuns = runs.filter((run) => DateTime.toEpochMillis(run.requestedAt) >= loopWindowStart);
+  return (
+    loopRuns.some((run) => run.id === source.id) &&
+    serverContinuationChainLength(loopRuns, source) >= MAX_CONTINUATION_CHAIN
+  );
 }

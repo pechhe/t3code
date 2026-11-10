@@ -3998,6 +3998,94 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
     }),
   );
 
+  it.effect("wakes a parent when the restart cap stops continuing its child", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const now = yield* DateTime.now;
+      const threadId = ThreadId.make("thread:restart-cap-parent");
+      const projectId = ProjectId.make("project:restart-cap-parent");
+      const runId = RunId.make("run:restart-cap-parent");
+      const rootNodeId = NodeId.make("node:restart-cap-parent-root");
+      yield* seedParentWithTerminalTask({
+        threadId,
+        projectId,
+        runId,
+        rootNodeId,
+        taskId: NodeId.make("node:restart-cap-parent-settled"),
+        deliveryState: "delivered",
+        parentRunStatus: "completed",
+        now,
+      });
+      const child = yield* seedRestartCancelledChild({
+        parentThreadId: threadId,
+        projectId,
+        parentRunId: runId,
+        rootNodeId,
+        name: "restart-cap-child",
+        completionWake: "settled_only",
+        continuationPending: false,
+        now,
+      });
+      const first = (yield* orchestrator.getThreadProjection(child.childThreadId)).runs[0]!;
+      const chain = [2, 3, 4].map((ordinal) => ({
+        ...first,
+        id: RunId.make(`run:restart-cap-child:${ordinal}`),
+        ordinal,
+        userMessageId: MessageId.make(`message:restart-cap-child:${ordinal}`),
+        requestedAt: DateTime.add(now, { seconds: ordinal }),
+      }));
+      yield* eventSink.writeWithEffects({
+        commandId: CommandId.make("command:restart-cap-child:chain"),
+        events: chain.map((run, index) => ({
+          id: EventId.make(`event:restart-cap-child:${run.id}`),
+          type: "run.updated" as const,
+          threadId: child.childThreadId,
+          runId: run.id,
+          providerInstanceId: modelSelection.instanceId,
+          occurredAt: now,
+          payload: {
+            ...run,
+            restartContinuationOfRunId: index === 0 ? child.childRunId : chain[index - 1]!.id,
+          },
+        })),
+        effects: [
+          {
+            id: `effect:restart-continuation:${chain[chain.length - 1]!.id}`,
+            commandId: CommandId.make("command:restart-cap-child:chain"),
+            threadId: child.childThreadId,
+            request: {
+              type: "provider-runtime.continue",
+              sourceRunId: chain[chain.length - 1]!.id,
+            },
+          },
+        ],
+      });
+
+      const source = chain[chain.length - 1]!;
+      yield* orchestrator.recoverDelegatedTasks;
+      const held = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(held.subagents.find((row) => row.id === child.taskId)?.status, "running");
+      yield* continueRestartedRun({
+        threadId: child.childThreadId,
+        sourceRunId: source.id,
+      }).pipe(Effect.provide(ServerSettings.layerTest({ continueThreadsAfterServerUpdate: true })));
+
+      assert.deepEqual(
+        (yield* orchestrator.getThreadProjection(child.childThreadId)).runs.map((run) => run.id),
+        [child.childRunId, ...chain.map((run) => run.id)],
+      );
+      const settled = yield* orchestrator.getThreadProjection(threadId);
+      const task = settled.subagents.find((row) => row.id === child.taskId);
+      assert.equal(task?.status, "cancelled");
+      assert.equal(task?.completionDelivery?.state, "claimed");
+      assert.equal(
+        task?.result,
+        "Child task ended with status cancelled.\n\nStopped after T3 Code restarted this task too many times in a row, so it needs a follow-up.",
+      );
+    }),
+  );
+
   it.effect("reports a child whose monitor the restart cut as interrupted, not completed", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;

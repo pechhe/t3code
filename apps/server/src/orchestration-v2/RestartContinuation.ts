@@ -16,7 +16,7 @@ import type { ProjectionRuntimeRecoveryState } from "./ProjectionStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { isNativeMaintenanceCommand } from "./CommandPolicy.ts";
 import { isArcRunHeld } from "./arcRun.ts";
-import { MAX_CONTINUATION_CHAIN, serverContinuationChainLength } from "./serverContinuation.ts";
+import { serverContinuationCapReached } from "./serverContinuation.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import {
   awaitingProviderThreadId,
@@ -34,9 +34,6 @@ import {
 
 const CONTINUE_PROMPT =
   "Continue where you left off. Your last turn was cut short, so a command or other action it started may have finished or may still be running. Before you repeat one that changes state, confirm it did not take effect and is not still running; if you cannot tell, say so instead of repeating it.";
-
-// Only continuations in quick succession count as a loop; a slow chain is a thread still working.
-const CONTINUATION_LOOP_WINDOW_MS = 5 * 60 * 1_000;
 
 function restartContinuationBlocked(
   projection: Pick<
@@ -230,16 +227,7 @@ export const continueRestartedRun = Effect.fn("RestartContinuation.continueResta
       return;
     if (projection.thread.providerInstanceId !== source.providerInstanceId) return;
     // A turn that keeps crashing the server would otherwise restart it forever.
-    const loopWindowStart =
-      DateTime.toEpochMillis(source.completedAt ?? source.requestedAt) -
-      CONTINUATION_LOOP_WINDOW_MS;
-    const loopRuns = projection.runs.filter(
-      (run) => DateTime.toEpochMillis(run.requestedAt) >= loopWindowStart,
-    );
-    if (
-      loopRuns.some((run) => run.id === source.id) &&
-      serverContinuationChainLength(loopRuns, source) >= MAX_CONTINUATION_CHAIN
-    ) {
+    if (serverContinuationCapReached(projection.runs, source)) {
       yield* Effect.logWarning("Not continuing a run restarted too many times in a row", {
         threadId: input.threadId,
         sourceRunId: input.sourceRunId,

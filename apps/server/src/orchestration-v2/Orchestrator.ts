@@ -153,7 +153,7 @@ import {
   decideArcRunWake,
   latestArcRunTurn,
 } from "./arcRun.ts";
-import { ARC_RUN_WAKE_MESSAGE_PREFIX } from "./serverContinuation.ts";
+import { ARC_RUN_WAKE_MESSAGE_PREFIX, serverContinuationCapReached } from "./serverContinuation.ts";
 import {
   isBufferedProviderNotification,
   isUndeliveredMailboxSteer,
@@ -14709,6 +14709,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const now = yield* DateTime.now;
       const result = subagentResultForRun(childProjection, { ...childRun, status: outcome });
       const abandonedNote = abandonedBackgroundWorkNote(options.abandonedBackgroundWork ?? []);
+      // The restart loop's last run is cancelled, so its result would not say why it stopped.
+      const restartLoopNote =
+        childRun.status === "cancelled" &&
+        childRun.restartContinuationOfRunId !== undefined &&
+        serverContinuationCapReached(childControls.runs, childRun)
+          ? "Stopped after T3 Code restarted this task too many times in a row, so it needs a follow-up."
+          : undefined;
+      const resultNote = [abandonedNote, restartLoopNote]
+        .filter((note) => note !== undefined)
+        .join("\n\n");
       const parentRun =
         task.runId === null
           ? undefined
@@ -14721,7 +14731,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...task,
         providerThreadId: childRun.providerThreadId,
         status: terminalStatus,
-        result: abandonedNote === undefined ? result.text : `${result.text}\n\n${abandonedNote}`,
+        result: resultNote.length === 0 ? result.text : `${result.text}\n\n${resultNote}`,
         completedAt: now,
         updatedAt: now,
       };
