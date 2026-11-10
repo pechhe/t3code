@@ -523,8 +523,8 @@ type MessagesTimelineRowContent =
     }
   | {
       /**
-       * Adjacent subagent and delegated-task notifications, drawn as one wrapping row of
-       * return chips; a notification naming several tasks yields one chip per task.
+       * Adjacent subagent, delegated-task and landing notifications, drawn as one wrapping row
+       * of chips; a notification naming several tasks yields one chip per task.
        */
       kind: "subagent-returns";
       id: string;
@@ -885,7 +885,7 @@ function deriveSupersededAttemptFolds(
       (entry.kind === "work" &&
         (entry.entry.itemType === "system_notice" ||
           entry.entry.sourceActivityKind === "context-compaction" ||
-          workEntryIsSubagentReturn(entry.entry)))
+          workEntryIsReturnChip(entry.entry)))
     ) {
       continue;
     }
@@ -1092,12 +1092,14 @@ function timelineEntryIsSubagentCard(entry: TimelineEntry): boolean {
   return entry.kind === "event" && entry.projectedItem.item.type === "subagent";
 }
 
-function workEntryIsSubagentReturn(entry: WorkLogEntry): boolean {
+function workEntryIsReturnChip(entry: WorkLogEntry): boolean {
   const item = entry.structuredPayload;
   return (
     entry.itemType === "notification" &&
     item?.type === "notification" &&
-    (item.source.kind === "subagent" || item.source.kind === "delegated_task")
+    (item.source.kind === "subagent" ||
+      item.source.kind === "delegated_task" ||
+      item.source.kind === "landing")
   );
 }
 
@@ -1286,7 +1288,7 @@ function deriveTurnFolds(input: {
         isCompaction ||
         timelineEntryIsPersistentResourceCard(entry) ||
         timelineEntryIsSubagentCard(entry) ||
-        (entry.kind === "work" && workEntryIsSubagentReturn(entry.entry)) ||
+        (entry.kind === "work" && workEntryIsReturnChip(entry.entry)) ||
         input.completeSupersededReplyEntryIds.has(entry.id)
       ) {
         continue;
@@ -2088,7 +2090,7 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
-    if (timelineEntry.kind === "work" && workEntryIsSubagentReturn(timelineEntry.entry)) {
+    if (timelineEntry.kind === "work" && workEntryIsReturnChip(timelineEntry.entry)) {
       const wake = wakeEntryIds.has(timelineEntry.id);
       const previous = nextRows.at(-1);
       // Each wake keeps its own "woken by" divider, so only plain returns merge.

@@ -350,7 +350,12 @@ export function landingWatchWake(landing: LandingWakeInput): {
   return {
     text: lines.join("\n"),
     notification: {
-      source: { kind: "landing", operationId: landing.operationId },
+      source: {
+        kind: "landing",
+        operationId: landing.operationId,
+        ...(landing.spec === undefined ? {} : { spec: landing.spec }),
+        ...(landing.commitId === undefined ? {} : { commitId: landing.commitId }),
+      },
       outcome: LANDING_OUTCOME[landing.outcome],
       summary: `Landing of ${label}: ${landing.outcome}`,
     },

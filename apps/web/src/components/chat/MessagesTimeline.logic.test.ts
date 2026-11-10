@@ -4032,6 +4032,18 @@ describe("one request reads as one response", () => {
     expect(rows.map((row) => row.id)).not.toContain("monitor");
   });
 
+  it("keeps a landing's chip visible outside its folded run", () => {
+    const rows = deriveMessagesTimelineRows({
+      ...input,
+      timelineEntries: [
+        ...timelineEntries.slice(0, 3),
+        notification("landing", "initial", 3, { kind: "landing", operationId: "op_1" }),
+        ...timelineEntries.slice(3),
+      ],
+    });
+    expect(rows.find((row) => row.id === "landing")).toMatchObject({ kind: "subagent-returns" });
+  });
+
   it("keeps completed and failed compaction as top-level rows", () => {
     const rows = deriveMessagesTimelineRows(input);
     expect(rows.filter((row) => row.kind === "context-compaction").map((row) => row.id)).toEqual([

@@ -40,6 +40,7 @@ import {
   type ThreadPullRequestLink,
   type OrchestrationV2ThreadArcRun,
   type OrchestrationV2ThreadWatch,
+  type OrchestrationV2Notification,
   type OrchestrationV2WorkspaceAttachment,
   type ThreadPullRequestWatch,
   type OrchestrationV2AppThread,
@@ -3571,20 +3572,72 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (watched !== undefined && watched.deletedAt !== null) {
       return yield* refuse(`Thread ${watched.id} is deleted.`);
     }
-    yield* emitThreadWatches(events, command, thread, [
-      ...watches,
-      {
-        id: `thread-watch:${command.commandId}`,
-        target,
-        title:
-          watched?.title ??
-          command.title ??
-          (target.kind === "landing"
-            ? `Landing ${target.operationId}`
-            : `Build #${target.kind === "build_item" ? target.number : ""}`),
-        startedAt: DateTime.formatIso(yield* DateTime.now),
+    const watch: OrchestrationV2ThreadWatch = {
+      id: `thread-watch:${command.commandId}`,
+      target,
+      title:
+        watched?.title ??
+        command.title ??
+        (target.kind === "landing"
+          ? `Landing ${target.operationId}`
+          : `Build #${target.kind === "build_item" ? target.number : ""}`),
+      startedAt: DateTime.formatIso(yield* DateTime.now),
+    };
+    yield* emitThreadWatches(events, command, thread, [...watches, watch]);
+    if (target.kind === "landing") {
+      yield* emitLandingRecord(events, command, thread, target.operationId, "started", {
+        source: target,
+        outcome: "updated",
+        summary: `Landing of ${command.title ?? target.operationId} submitted`,
+      });
+    }
+  });
+
+  // A landing's start and silent finish are recorded on the thread without a run, so the
+  // timeline keeps where it happened; a finish that wakes the thread records itself as the wake.
+  const emitLandingRecord = Effect.fn("Orchestrator.emitLandingRecord")(function* (
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    command: OrchestrationV2ServerCommand,
+    thread: OrchestrationV2AppThread,
+    operationId: string,
+    moment: "started" | "finished",
+    notification: OrchestrationV2Notification,
+  ) {
+    // Keyed by landing, so re-watching one already recorded leaves its first record in place.
+    const id = TurnItemId.make(`turn-item:landing:${operationId}:${moment}`);
+    const { turnItems } = yield* projectionStore
+      .getThreadRecords(thread.id, ["turnItems"], { turnItemTypes: ["notification"] })
+      .pipe(
+        Effect.mapError((cause) => new OrchestratorProjectionError({ threadId: thread.id, cause })),
+      );
+    if (turnItems.some((item) => item.id === id)) return;
+    const now = yield* DateTime.now;
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "turn-item.updated",
+      threadId: thread.id,
+      occurredAt: now,
+      payload: {
+        id,
+        threadId: thread.id,
+        runId: null,
+        nodeId: null,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: yield* nextTurnItemOrdinal({ thread }),
+        status: "completed",
+        title: null,
+        startedAt: now,
+        completedAt: now,
+        updatedAt: now,
+        type: "notification",
+        ...notification,
       },
-    ]);
+    });
   });
 
   // Ending the watch and queueing its wake share one transaction, and the wake's message id comes
@@ -3639,6 +3692,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         landingVerdictReachesRun(records, landing.operationId)
       ) {
         yield* emitThreadWatches(events, command, thread, remaining);
+        yield* emitLandingRecord(
+          events,
+          command,
+          thread,
+          landing.operationId,
+          "finished",
+          landingWatchWake(landing).notification,
+        );
         return;
       }
       yield* emitThreadWatches(events, command, thread, remaining);

@@ -1661,6 +1661,10 @@ const BuildNotificationSource = Schema.Struct({
 const LandingNotificationSource = Schema.Struct({
   kind: Schema.Literal("landing"),
   operationId: TrimmedNonEmptyString,
+  /** The Build item SlipJay recorded the landing as delivering, once known. */
+  spec: Schema.optional(PositiveInt),
+  /** The published commit of a landed change. */
+  commitId: Schema.optional(TrimmedNonEmptyString),
 });
 const CommandNotificationSource = Schema.Struct({ kind: Schema.Literal("command") });
 const ThreadNotificationSource = Schema.Struct({

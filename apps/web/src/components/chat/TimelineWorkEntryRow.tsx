@@ -51,6 +51,7 @@ import { cn } from "~/lib/utils";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { FetchedToolOutput, V2ItemInspector } from "./V2ItemInspector";
 import { SubagentReturnChip } from "./V2LifecycleRow";
+import { LandingRecordChip } from "./LandingRecordChip";
 import { notificationSubagentRefs } from "./V2LifecycleRow.logic";
 import {
   TimelineRowCtx,
@@ -170,6 +171,15 @@ export function WakeDivider() {
 const SubagentReturnChips = memo(function SubagentReturnChips(props: WorkEntryRowProps) {
   const item = props.workEntry.projectedItem?.item;
   if (item?.type !== "notification") return <WorkEntryLogRow {...props} />;
+  if (item.source.kind === "landing")
+    return (
+      <LandingRecordChip
+        source={item.source}
+        outcome={item.outcome}
+        threadId={item.threadId}
+        createdAt={props.workEntry.createdAt}
+      />
+    );
   return <NotificationReturnChips {...props} notification={item} />;
 });
 
@@ -221,10 +231,7 @@ export function SubagentReturnsTimelineRow({
   return (
     <>
       {row.wake ? <WakeDivider /> : null}
-      <section
-        aria-label="Subagent returns"
-        className="flex flex-wrap items-center gap-x-1 gap-y-0.5"
-      >
+      <section aria-label="Task updates" className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
         {row.entries.map((workEntry) => (
           <SubagentReturnChips key={workEntry.id} workEntry={workEntry} workspaceRoot={undefined} />
         ))}

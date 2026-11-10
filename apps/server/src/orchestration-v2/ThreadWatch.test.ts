@@ -1590,7 +1590,7 @@ it.layer(layerTest)("landing watches", (it) => {
       const [wake, ...rest] = yield* h.messages(thread);
       assert.lengthOf(rest, 0);
       assert.deepEqual(wake?.notification, {
-        source: { kind: "landing", operationId: "op_1" },
+        source: { kind: "landing", operationId: "op_1", spec: 5255 },
         outcome: "failed",
         summary: "Landing of Build #5255: failed",
       });
@@ -1649,10 +1649,47 @@ it.layer(layerTest)("landing watches", (it) => {
       h.submit("ws-published", "op_published");
       yield* h.reactor.sweep;
       assert.lengthOf(yield* watchesOf(thread), 1);
+      const engine = yield* Orchestrator.OrchestratorV2;
+      for (const watching of [false, true]) {
+        yield* engine.dispatch({
+          type: "thread.thread-watch",
+          commandId: CommandId.make(`command:landing-rewatch-${watching}`),
+          threadId: thread,
+          target: { kind: "landing", operationId: "op_published" },
+          watching,
+        });
+      }
       h.finish("op_published", { status: "landed", commitId: "abc1234" });
       yield* h.reactor.sweep;
       assert.lengthOf(yield* watchesOf(thread), 0);
       assert.lengthOf(yield* h.messages(thread), 0);
+      const { turnItems } = yield* engine.getThreadRecords(thread, ["turnItems"], {
+        turnItemTypes: ["notification"],
+      });
+      assert.deepEqual(
+        turnItems.map((item) =>
+          item.type === "notification"
+            ? { runId: item.runId, source: item.source, outcome: item.outcome }
+            : null,
+        ),
+        [
+          {
+            runId: null,
+            source: { kind: "landing", operationId: "op_published" },
+            outcome: "updated",
+          },
+          {
+            runId: null,
+            source: {
+              kind: "landing",
+              operationId: "op_published",
+              spec: 5255,
+              commitId: "abc1234",
+            },
+            outcome: "completed",
+          },
+        ],
+      );
     }),
   );
 
@@ -2052,7 +2089,7 @@ it.layer(layerTest)("landing watches", (it) => {
       const [wake, ...rest] = yield* h.messages(thread);
       assert.lengthOf(rest, 0);
       assert.deepEqual(wake?.notification, {
-        source: { kind: "landing", operationId: "op_unknown_outcome" },
+        source: { kind: "landing", operationId: "op_unknown_outcome", spec: 5255 },
         outcome: "unknown",
         summary: "Landing of Build #5255: unknown",
       });
