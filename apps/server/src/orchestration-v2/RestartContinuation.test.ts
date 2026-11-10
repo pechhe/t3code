@@ -1080,6 +1080,38 @@ it.effect("does not continue a run the user asked to stop before the restart", (
   }),
 );
 
+it.effect("continues past a restart continuation that was cut before it started", () =>
+  Effect.gen(function* () {
+    const cut = cutMidTurn();
+    const run = (
+      ordinal: number,
+      status: "completed" | "cancelled",
+      started: boolean,
+      of?: RunId,
+    ) => ({
+      ...cut.runs[0]!,
+      id: RunId.make(`run:chain:${ordinal}`),
+      ordinal,
+      status,
+      startedAt: started ? DateTime.makeUnsafe(`2026-10-03T10:0${ordinal}:00.000Z`) : null,
+      completedAt: DateTime.makeUnsafe(`2026-10-03T10:0${ordinal}:30.000Z`),
+      ...(of === undefined ? {} : { restartContinuationOfRunId: of }),
+    });
+    const original = run(1, "completed", true);
+    const started = run(2, "cancelled", true, original.id);
+    const neverStarted = run(3, "cancelled", false, started.id);
+    const source = run(4, "cancelled", true, neverStarted.id);
+    const dispatches = yield* continuationDispatches(
+      {
+        ...cut,
+        runs: [original, started, neverStarted, source],
+      } as unknown as OrchestrationV2ThreadProjection,
+      source.id,
+    );
+    assert.lengthOf(dispatches, 1);
+  }),
+);
+
 it.effect("does not continue a cut /compact or /logout turn", () =>
   Effect.gen(function* () {
     for (const text of ["/compact", " /LOGOUT "]) {

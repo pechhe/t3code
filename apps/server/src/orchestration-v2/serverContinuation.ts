@@ -28,7 +28,12 @@ export function serverContinuationChainLength(
   source: OrchestrationV2Run,
 ): number {
   const ran = runs
-    .filter((run) => run.id === source.id || (!neverStarted(run) && !runRanAfter(run, source)))
+    // A continuation cut before it started consumed no turn, so it cannot be part of a restart loop.
+    .filter(
+      (run) =>
+        run.startedAt !== null &&
+        (run.id === source.id || (!neverStarted(run) && !runRanAfter(run, source))),
+    )
     .toSorted((a, b) => (runRanAfter(a, b) ? -1 : 1));
   let length = 0;
   for (const run of ran) {
