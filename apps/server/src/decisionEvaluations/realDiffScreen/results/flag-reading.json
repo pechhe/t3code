@@ -1,0 +1,21 @@
+{
+  "reader": "claude-opus-5-5 (advisor role, read-only), independent of both labelers and both engines",
+  "rule": "every engine flag on a judged-clean case is read once, from the same evidence the engine saw",
+  "readings": [
+    {
+      "case": "c-t3code-6a71716e",
+      "engine": "jev",
+      "verdict": "false-alarm",
+      "needsFiles": true,
+      "reason": "the render-time reset matches the old effect; nothing wrong visible"
+    },
+    {
+      "case": "c-slipjay-775494fd",
+      "engine": "jev",
+      "verdict": "false-alarm",
+      "needsFiles": true,
+      "reason": "relies on a suite setting the old comment already named; every use shown is wrapped"
+    }
+  ],
+  "realDefects": []
+}

@@ -1,0 +1,2653 @@
+{
+  "schema": "real-diff-screen-results-v1",
+  "split": "heldout",
+  "sourceRevision": "839774fb9f11",
+  "rule": {
+    "id": "real-diff-screen",
+    "version": "1"
+  },
+  "baselineVersion": "semantic-lint-1-or",
+  "corpusDigest": "469ae9177f487d0a5ebeca4cf05bf40062afa811a5ee91edb26bceef0bc9fcef",
+  "runAt": "2026-11-10T16:54:52.287Z",
+  "engines": ["jev"],
+  "records": [
+    {
+      "caseId": "d-t3code-cf548b43",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.38
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "5912865c0dfbfeb337a7a023362631fd496c358694003efd4ece02b41f3e26eb",
+      "latencyMs": 344,
+      "inputTokens": 5439,
+      "costUsd": 0.00022843800000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-t3code-8e8826d8",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.36
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "6c58dbc8d87be3c7632ae8be60e14c119811779b39626f64e0164ef9bdc39971",
+      "latencyMs": 209,
+      "inputTokens": 1604,
+      "costUsd": 0.00006736800000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-t3code-7d169817",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.38
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "fda445c1457fc7161a81dc059ddcf2f0ec766aa0a700c5f413a15e6721c9c5e0",
+      "latencyMs": 165,
+      "inputTokens": 1673,
+      "costUsd": 0.00007026600000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-t3code-5f1f6047",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.37
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "b9996dfe23d8dbeba7a8faa999360fba9d09d7011b54fc1c1ea1783789461f82",
+      "latencyMs": 157,
+      "inputTokens": 5309,
+      "costUsd": 0.000222978,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-e07adc6a",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.34
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "00e84a7b6d31defd851716b9e93d60ea699882111801247209e09b67ef4e4e90",
+      "latencyMs": 212,
+      "inputTokens": 4978,
+      "costUsd": 0.00020907600000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-61d7e7b9",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.37
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "6bd60bf85eab0fe1547434136d2c841fa3ef1aed5ad671b0590060a699061bfe",
+      "latencyMs": 186,
+      "inputTokens": 5553,
+      "costUsd": 0.00023322600000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-46c2a153",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.22
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "536874465184b25b521a414cd7b277f3114086f78def6966c8004c2d469f8ff3",
+      "latencyMs": 170,
+      "inputTokens": 4881,
+      "costUsd": 0.000205002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-82b7cc41",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.43
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "be6edd1d71d5960f674596f61aed1d11e3ecd2dc5d4e7e3a74ddb29e67281a54",
+      "latencyMs": 290,
+      "inputTokens": 5072,
+      "costUsd": 0.000213024,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-t3code-8ff14072",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.31
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "c553e94026fb414c3d46c6878881315e704ae08f948a6e81dd6e98099aadcbd2",
+      "latencyMs": 175,
+      "inputTokens": 4084,
+      "costUsd": 0.00017152800000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-t3code-39ba2c33",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.44
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "5be7b354d2861069414018f60eae477d5b3eb08b27a633df4322b2f5dcf833c5",
+      "latencyMs": 232,
+      "inputTokens": 4911,
+      "costUsd": 0.000206262,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-t3code-cff78eac",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.28
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "45a0e0671bd9bf27dd5ee6af95143f0fe8030bad71c1054244286079c5a0b98d",
+      "latencyMs": 452,
+      "inputTokens": 5107,
+      "costUsd": 0.000214494,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-t3code-689dda59",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.49
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "bb27167114cb21bc8defa0cd9709e7182cbf82bff652d655f73e3f0e8b95233c",
+      "latencyMs": 249,
+      "inputTokens": 5114,
+      "costUsd": 0.00021478800000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-434b9fde",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.39
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "c7e0de63342f2790a1d0c80a4d28a78ccca71572806675c01176d0beb7106dd4",
+      "latencyMs": 229,
+      "inputTokens": 6190,
+      "costUsd": 0.00025998000000000004,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-c896db3f",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.17
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "cce6d6f271a9c46726b3e80dd0dea48c2e91eeccad430c8051d033aa8213b21a",
+      "latencyMs": 207,
+      "inputTokens": 4409,
+      "costUsd": 0.00018517800000000004,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-t3code-2740d987",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.32
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "a8f421d666b501a6a9cdf6411fe870e42a0331d8dbc20d7d4164d5b332c77ae8",
+      "latencyMs": 174,
+      "inputTokens": 2159,
+      "costUsd": 0.00009067800000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-t3code-f1c10c7e",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.44
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "af302d4b4a54faa7cae3cb7bcdbb6150f2f1d8dcf1bc1570f07ef5d379861e43",
+      "latencyMs": 237,
+      "inputTokens": 5448,
+      "costUsd": 0.000228816,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-91255a2f",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.32
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "27b4c03e20ccf45bc71bb444a9ddb6234b02c70e6777a102e4fc164ae07ec272",
+      "latencyMs": 194,
+      "inputTokens": 5206,
+      "costUsd": 0.000218652,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-b46d7bc9",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.29
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "1c7c6c21b99d7f5b544a7ce2915ac864c32bd2d7f658e9d5192a0b8dc84aee2c",
+      "latencyMs": 209,
+      "inputTokens": 5224,
+      "costUsd": 0.000219408,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-68c96923",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.14
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "9cfce5e03914302a9e10d7e79afc5510f02678f49602418584cef2e9ed3a5007",
+      "latencyMs": 222,
+      "inputTokens": 1365,
+      "costUsd": 0.00005733000000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-61d39014",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.2
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "33e66dbde1c722c228e43a9881b7ef05f304eff044539d56d5940a9fb1847b88",
+      "latencyMs": 179,
+      "inputTokens": 5711,
+      "costUsd": 0.00023986200000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-t3code-94ce8fea",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.21
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "8e4acb5b65d07e836a2751cfd65702c92fb9a81a10f2adf3c4109c9ea66f8631",
+      "latencyMs": 263,
+      "inputTokens": 5502,
+      "costUsd": 0.000231084,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-t3code-b7a07ee4",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.24
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "b01166b3e4cfa9be408f807cfc10e27ad657bd3839c67456d8bc85a830e2e444",
+      "latencyMs": 275,
+      "inputTokens": 4962,
+      "costUsd": 0.00020840400000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-slipjay-b15e8cbf",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.48
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "0aab4f6395d10d2982bd4539d8fd851ed445c96f1632b51ac6b21719bb447cf2",
+      "latencyMs": 172,
+      "inputTokens": 3494,
+      "costUsd": 0.000146748,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-1b74b4d3",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.32
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "863f56108865915692f7673189b24dc7af512e5a62f43784c95a9b3801d56d0f",
+      "latencyMs": 170,
+      "inputTokens": 5638,
+      "costUsd": 0.00023679600000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-7bcb49c9",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.39
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "e8d8776eb41acac921ad0fead74d7d44786fef1706629738170a9b3fbbbf9b15",
+      "latencyMs": 247,
+      "inputTokens": 3974,
+      "costUsd": 0.000166908,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-159e627f",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.25
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "fd4bd455e588582e33ece8abf2f2f0c0da05678477b1b58c910221404cd2251b",
+      "latencyMs": 182,
+      "inputTokens": 5546,
+      "costUsd": 0.000232932,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-b1f4dde0",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.35
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "29044d545022cfe24f8d05dd4f84c0718a4470bdd1f10c882554601ad192b42f",
+      "latencyMs": 218,
+      "inputTokens": 5396,
+      "costUsd": 0.000226632,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-t3code-21c3d34d",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.25
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "2304ee2e90b9d6ba6b1ce6bd69c31d313901c1777aafb6280c1b4d08766b2ebe",
+      "latencyMs": 266,
+      "inputTokens": 1994,
+      "costUsd": 0.000083748,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-t3code-de343914",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.35
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "aa418f90308e0ab8c8f7d6694ba85d72f824b98587e57b9d436eb7ca95e0b852",
+      "latencyMs": 240,
+      "inputTokens": 5196,
+      "costUsd": 0.00021823200000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-c536fead",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.47
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "c341a2f72d3c0d50ea0cc38c6efb5f5ea8ac424cbeb4ee0669b9c0db44e0cfa5",
+      "latencyMs": 223,
+      "inputTokens": 5328,
+      "costUsd": 0.00022377600000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-09eb6534",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.18
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "898cf659cae5566dca0997238bb6dcea091a1aaa17714056f5e6e3aa07ac8c3a",
+      "latencyMs": 170,
+      "inputTokens": 1248,
+      "costUsd": 0.000052416,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-29913315",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.5
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "37a741f878520fcb2639933ad515c2d6c2f9e0a9614a77343f98a4df12b34b14",
+      "latencyMs": 256,
+      "inputTokens": 5157,
+      "costUsd": 0.00021659400000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-69f4042a",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.25
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "1fa10a4667bab642045c44044bd09974ca8785ec2c8471dfab6f93d46440ea0d",
+      "latencyMs": 191,
+      "inputTokens": 3398,
+      "costUsd": 0.000142716,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-8fe32724",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.2
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "e13cea285a16806f9124881447897afdcdd5b24be21143614707be301759cf85",
+      "latencyMs": 203,
+      "inputTokens": 4415,
+      "costUsd": 0.00018543000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-8f026485",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.29
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "9bf018b318911acbe1281722a6625145d0cc9ef9c39cb7cdd55b15c92d5c150a",
+      "latencyMs": 163,
+      "inputTokens": 1474,
+      "costUsd": 0.000061908,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-7c678769",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.3
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "2375946d09775b63bcc1fb2097a31395631582a738464d70a5bbd4c96e51372e",
+      "latencyMs": 155,
+      "inputTokens": 1288,
+      "costUsd": 0.000054096000000000005,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-ed809f7a",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.24
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "6a7d20599cc6e173500dbf3f3d19178e80f69ac70fedfc8bbad901a6b7463b95",
+      "latencyMs": 192,
+      "inputTokens": 2604,
+      "costUsd": 0.00010936800000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-9ad9aa53",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.24
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "bde207619b3f6e5ea23a9b54020ce19b806e6009a97056afe0da82dc31dfb2af",
+      "latencyMs": 232,
+      "inputTokens": 1257,
+      "costUsd": 0.000052794,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-3e47c1ca",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.32
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "8fd960aa54508c376486b5f6a3eb586fcfd56f78fff8235399cecca2a8b4a5dc",
+      "latencyMs": 166,
+      "inputTokens": 2132,
+      "costUsd": 0.00008954400000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-a4180751",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.24
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "78c138ce689cae7969d3cbee0f4f02dfa690b8ebd6114159b45698916c182fcb",
+      "latencyMs": 288,
+      "inputTokens": 1893,
+      "costUsd": 0.000079506,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-4f570443",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.41
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "1b7576b5edc0a2bdb3527aca008e39b7dd3aa01f3f47ba1ca8259d14d643cf58",
+      "latencyMs": 193,
+      "inputTokens": 2305,
+      "costUsd": 0.00009681,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-28e50c9f",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.4
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "4e9b5bea6e006d1be024eaef258eae6dcf8e7b24ebf52b7667a799e213e55cc2",
+      "latencyMs": 203,
+      "inputTokens": 6549,
+      "costUsd": 0.000275058,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-bdb8d5df",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.24
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "e2a0315d9e9f1e8010f0563365d26adeae590a1061d0a466dc7425dfce1c1478",
+      "latencyMs": 247,
+      "inputTokens": 2618,
+      "costUsd": 0.000109956,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-efcf77fc",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.32
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "c9543460882ff878d9bac82b6d3c562181c582d0e56a959eace01bd5dced1b33",
+      "latencyMs": 166,
+      "inputTokens": 2391,
+      "costUsd": 0.00010042200000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-ed0f7b90",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.39
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "69304fcd4e5814b0157594c3dbe98f7551bccf74c20bc4b23ada03a05dc85f04",
+      "latencyMs": 169,
+      "inputTokens": 5337,
+      "costUsd": 0.00022415400000000004,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-86fa9e0a",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.35
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "816603b8fc958cb95c2f36b2a21e9175fb859b0bbb83be19d0e2f515ff53535d",
+      "latencyMs": 154,
+      "inputTokens": 1888,
+      "costUsd": 0.00007929600000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-2c59bf66",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.37
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "9a8089dda18416b66e71b86ab0396115a1f5cdbcd9344674ae033c0bfdaf8f3c",
+      "latencyMs": 274,
+      "inputTokens": 4682,
+      "costUsd": 0.000196644,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-f3161f39",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.33
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "f296338b20d739e5d155d9eb9358a8920076981aa86bd36a8642113a80c07365",
+      "latencyMs": 184,
+      "inputTokens": 5657,
+      "costUsd": 0.00023759400000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-11adcb0e",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.25
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "5639da3c42c244fd553caca3c635118f946a76db0985a87a36de7e5c904098b9",
+      "latencyMs": 249,
+      "inputTokens": 4696,
+      "costUsd": 0.000197232,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-c7df581a",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.2
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "be0c329ad44230e0411dd257e2af1a7caba9e9ceb41ab552c9042559374ce9f6",
+      "latencyMs": 162,
+      "inputTokens": 883,
+      "costUsd": 0.000037086000000000004,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-29314616",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.16
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "11fa931ea890d38b60d35bab61feaae7f2d83011eabdffc51de4308776a4fecb",
+      "latencyMs": 285,
+      "inputTokens": 5420,
+      "costUsd": 0.00022764,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-6a71716e",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.53
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "0739fd790f0c6111cc40c51df076e12c0d9d507b054b52814f50173765c08e3b",
+      "latencyMs": 248,
+      "inputTokens": 4290,
+      "costUsd": 0.00018018,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-b03534fa",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.26
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "38ff93f25317e8601abef66e38e5f9a890ced7fc9bc9610da73b811a5046a71f",
+      "latencyMs": 191,
+      "inputTokens": 4360,
+      "costUsd": 0.00018312,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-9bd1d800",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.32
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "dbcede808c84456f59933442caf8abb30dac4637f288836efc3a3ac3512db79c",
+      "latencyMs": 184,
+      "inputTokens": 2598,
+      "costUsd": 0.00010911600000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-fbe670c6",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.29
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "385a27a16aff084cbd8d255a0f7fb3bb94ed9842041762499a84b366f005cedc",
+      "latencyMs": 165,
+      "inputTokens": 3186,
+      "costUsd": 0.000133812,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-2f777bdd",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.19
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "81147bd82e5050f5d700d338dd87b8800eab7b55e9bd150013671002fd1ecd88",
+      "latencyMs": 198,
+      "inputTokens": 1115,
+      "costUsd": 0.000046830000000000004,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-81955304",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.3
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "009939a8583ac2933a21c21eca561c48fd8bd7cc4b193c033189c55cd14c4d6b",
+      "latencyMs": 183,
+      "inputTokens": 3504,
+      "costUsd": 0.000147168,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-ea54be7f",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.18
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "6eaa2259ee2155da64ae7e3979dba742bc11d42c440263038c18b8c56da1bcc6",
+      "latencyMs": 157,
+      "inputTokens": 1224,
+      "costUsd": 0.000051408,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-e77a48e8",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.27
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "b93e8b783f2df1530df95eada59172a8af6c1b7ba74e3c5e0aff830c4d746867",
+      "latencyMs": 168,
+      "inputTokens": 4365,
+      "costUsd": 0.00018333000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-9ad6c7ef",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.24
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "5e82d66642c8944aa00dd631c274a6cc9e1c774d7dee387751f196b83e2b5981",
+      "latencyMs": 290,
+      "inputTokens": 904,
+      "costUsd": 0.000037968000000000006,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-48247dd4",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.51
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "5e9627d48f64d3fa9151f0e0c56f6ff34b702b0b84d12fb50a76c69ef2a36740",
+      "latencyMs": 248,
+      "inputTokens": 2882,
+      "costUsd": 0.00012104400000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-f5372d27",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.15
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "bbc238eee2274ac69f7a9023992f612c566f1b507949639bd8329246b3e9aac7",
+      "latencyMs": 138,
+      "inputTokens": 1591,
+      "costUsd": 0.000066822,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-4e8b5eeb",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.19
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "20509d67d61811a598210f65a70c85880014997d927924974f6c26102e4a6743",
+      "latencyMs": 256,
+      "inputTokens": 929,
+      "costUsd": 0.000039018,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-3776dfb4",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.42
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "d06cb9b4635036da67c202f92f6b530545cba9f460352f0eda76e545f1636f36",
+      "latencyMs": 245,
+      "inputTokens": 4670,
+      "costUsd": 0.00019614,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-0b42aa94",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.24
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "8e41b0cd98c984076ec61ca1eb487185be17f0c8cc1f125d039f04dd9baf2c3b",
+      "latencyMs": 178,
+      "inputTokens": 1027,
+      "costUsd": 0.000043134,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-a8027cce",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.11
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "4e27be1ff67e63576331025917819fa960a862baec499e11e004ea1bde7d055b",
+      "latencyMs": 155,
+      "inputTokens": 1625,
+      "costUsd": 0.00006825,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-d6fb62ac",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.31
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "e3257d6cdc45af40d96c2e233045efafb6c53b342a59ee3eb7d658994e0b4e3c",
+      "latencyMs": 161,
+      "inputTokens": 1333,
+      "costUsd": 0.000055986,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-bfb38841",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.12
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "c886fe4e99d219128acf62c4bad2a1a804016d78f387a27e9cc983325e66215a",
+      "latencyMs": 237,
+      "inputTokens": 1170,
+      "costUsd": 0.00004914,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-1d80fda4",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.3
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "ac3a874691ca7437693f3b267d2fdc8edebdd1e6a851a285ca5d1352a3069f88",
+      "latencyMs": 286,
+      "inputTokens": 2961,
+      "costUsd": 0.000124362,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-76369490",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.25
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "50d5e5237fdb3b00aee976b91f85da0bb938471a44fc004162f7046db42e5be7",
+      "latencyMs": 179,
+      "inputTokens": 4902,
+      "costUsd": 0.000205884,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-dcce6ed5",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.44
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "6c3ef9c7b28fd1bdc543ec019798286d9d2a25f896a64303bcf36f89372b81c1",
+      "latencyMs": 201,
+      "inputTokens": 2435,
+      "costUsd": 0.00010227000000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-a0b10a12",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.34
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "924e2c2e2bcbe8fad3423ff15d08108445ae231474bc2d2085c5787185c47f83",
+      "latencyMs": 155,
+      "inputTokens": 944,
+      "costUsd": 0.000039648000000000004,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-c86f07d2",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.25
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "1eb83af4df7569773fc7628857f8c0999b566a14b94a4c39d7305b0fac557648",
+      "latencyMs": 234,
+      "inputTokens": 1973,
+      "costUsd": 0.000082866,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-863d3bc6",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.4
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "891a3a0f4aebd365a7b82fd0beeb781bdf95fffe96375085eb77426ee55fc320",
+      "latencyMs": 171,
+      "inputTokens": 2272,
+      "costUsd": 0.00009542400000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-53762166",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.35
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "87c24f73cda554083c33f35cd6aa5a2506e7ad3649d481f2713670b6e6b43b5a",
+      "latencyMs": 375,
+      "inputTokens": 4947,
+      "costUsd": 0.000207774,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-a69366bf",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.41
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "591ab1e44ef568e560bcbfb7289788782d682be339b8213d2e329908f8ecfc0d",
+      "latencyMs": 165,
+      "inputTokens": 4721,
+      "costUsd": 0.000198282,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-ac06e69f",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.2
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "d77865c8df59c9278a5b55d0c3cca5656c9c50a9428cc1162de4096885233f88",
+      "latencyMs": 153,
+      "inputTokens": 2030,
+      "costUsd": 0.00008526000000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-263988f2",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.24
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "48cd7d970f1798d9023ed1e9de75fd485caaf50ec4957ba012f19786cefbb0c7",
+      "latencyMs": 180,
+      "inputTokens": 1670,
+      "costUsd": 0.00007014,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-1370bee3",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.37
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "bf915ff223fbec145cb5830882421abc739f4bbce175461c0c117438eea5fe3c",
+      "latencyMs": 248,
+      "inputTokens": 4909,
+      "costUsd": 0.00020617800000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-f6d37a1c",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.31
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "81caadf4b6d3eeb7f46575b3af96a8e880d85cb00605e72ecc4945dc6eccd450",
+      "latencyMs": 206,
+      "inputTokens": 4970,
+      "costUsd": 0.00020874,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-3a569abd",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.48
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "8efcb84fa9e6930582e14cffac0e2dda34982a65a86469f37f754254bc8ad36e",
+      "latencyMs": 270,
+      "inputTokens": 5835,
+      "costUsd": 0.00024507,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-d50d21af",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.28
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "6c6d2af191958657f7baf9a6731fe7578767a5400a96eee01922efb7132a04bc",
+      "latencyMs": 265,
+      "inputTokens": 4000,
+      "costUsd": 0.000168,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-b48b23f1",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.25
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "01e9f074a55692028a64c51f92e3b85075119c21acb38302f9f9e58a350f53cf",
+      "latencyMs": 171,
+      "inputTokens": 1665,
+      "costUsd": 0.00006993,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-dcaece4f",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.22
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "679e181e2f39cb63b72ec9f315bb051e1b589dc12a42d26968510348f7c485f6",
+      "latencyMs": 162,
+      "inputTokens": 1291,
+      "costUsd": 0.000054222000000000004,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-e6fd3f00",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.29
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "bbb157cbb72ccdd702847958abacb930a3a4d26dfb98a9ff0080de46245f35b1",
+      "latencyMs": 237,
+      "inputTokens": 3924,
+      "costUsd": 0.000164808,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-6a8d4b5a",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.27
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "6dbc27d92d8543f0cc3c588071fce109bc16704c1ae99959b5ffa6fa95c4fc6f",
+      "latencyMs": 245,
+      "inputTokens": 4445,
+      "costUsd": 0.00018669,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-a31a078f",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.39
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "1398b00c761c0e65e71e2b1746ae957f826a46788128e63412b7d7cb16ca49c2",
+      "latencyMs": 183,
+      "inputTokens": 5235,
+      "costUsd": 0.00021987,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-f1a0c41e",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.35
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "342c5ebc4d0da3e7c6f68d5f1661ce7174fc683a3fb8f5b1f5f9947c863b38de",
+      "latencyMs": 235,
+      "inputTokens": 1425,
+      "costUsd": 0.000059850000000000005,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-c30be6ec",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.15
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "a7f0d668d1a11a701097b8b37248cf4229c4336c01901081620e2ec9b9a58b6b",
+      "latencyMs": 238,
+      "inputTokens": 1088,
+      "costUsd": 0.000045696000000000004,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-f2b3f2bc",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.51
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "e80107a7aff36cc4b0232ceb1e6380d6adccea964619e3d7ee2186c2880ee0ee",
+      "latencyMs": 262,
+      "inputTokens": 3782,
+      "costUsd": 0.00015884400000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-b357a3cb",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.46
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "4f1447f849c90f2712b913c19e9c11b3c14a6c0f84220dbf716828bc65f49615",
+      "latencyMs": 484,
+      "inputTokens": 4817,
+      "costUsd": 0.00020231400000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-bb2f426b",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.48
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "0a119aa60104be1d973b174441d3ffc6a2bcf69ed5494a73164a80a7cad1032c",
+      "latencyMs": 225,
+      "inputTokens": 4574,
+      "costUsd": 0.000192108,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-fbb9cb7a",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.33
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "926d8e6cd9a4d0c162f448329ce7e1b5ebfefdae05f05998dd96009064599004",
+      "latencyMs": 206,
+      "inputTokens": 1515,
+      "costUsd": 0.00006363,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-e7c0c091",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.39
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "85c4f73e36df5f79eb903a14b72a96b6dde3ade3a53ca7f3200cee7fc27a6717",
+      "latencyMs": 237,
+      "inputTokens": 4864,
+      "costUsd": 0.000204288,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-4895ddcd",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.39
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "c4465cecabe3803cdb7a654804954972adae50d44b23fda26c7ad2e9a3f5916c",
+      "latencyMs": 212,
+      "inputTokens": 5507,
+      "costUsd": 0.000231294,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-c655809d",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.38
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "fd8058dfe5ef9b68f436b19da6f2f19bea6d516da2d901cb0261788ebf2efeaf",
+      "latencyMs": 324,
+      "inputTokens": 3355,
+      "costUsd": 0.00014091,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-20208b58",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.19
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "119bbea59355a72fb4938a0842752c9eefb6479a49bfc9bfc2e80cf5adc7d9e4",
+      "latencyMs": 155,
+      "inputTokens": 2727,
+      "costUsd": 0.00011453400000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-c290d5d8",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.29
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "ac67c8d5a8653638a916a1f14ba0c0248ecb70605e26cee09c558752f20dd918",
+      "latencyMs": 249,
+      "inputTokens": 3994,
+      "costUsd": 0.000167748,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-b476ca91",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.25
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "c077d28c397beff654d994b0f439e33838a542e572a12763250e98537b09d4e2",
+      "latencyMs": 145,
+      "inputTokens": 1126,
+      "costUsd": 0.000047292,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-007674a0",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.36
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "a499d4bc205f62a494f8c34968e4d46bf32dfce9320c1603b04e7df329c131a1",
+      "latencyMs": 243,
+      "inputTokens": 5347,
+      "costUsd": 0.000224574,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-4b0a988d",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.29
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "4f981ce7c9679e6d17bbe9fbbe27c752bb2fb032b439e3b5211839f17fa2e489",
+      "latencyMs": 226,
+      "inputTokens": 1467,
+      "costUsd": 0.00006161400000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-286f425c",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.35
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "3afe1e7535773831f770814b2334d08f3676d8385df384143e1cb5521c36895b",
+      "latencyMs": 177,
+      "inputTokens": 5137,
+      "costUsd": 0.00021575400000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-49b87289",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.3
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "653474694770ba39014f514158fd92af104ee043409e3eb4d562c5b2e0f78878",
+      "latencyMs": 192,
+      "inputTokens": 4838,
+      "costUsd": 0.00020319600000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-626cf07b",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.34
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "dc80713be9f813767e170700d6416701f5446804997e32b5c94b7372a7a75e98",
+      "latencyMs": 150,
+      "inputTokens": 4337,
+      "costUsd": 0.00018215400000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-0cdf0405",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.29
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "8688749b97edf8df016d2ef4d445b37519fb3791ff90c9ab61afac708e37cc0d",
+      "latencyMs": 339,
+      "inputTokens": 5661,
+      "costUsd": 0.00023776200000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-slipjay-b3c6d137",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.42
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "0dfdf9012cd64ec36bf0edb8acbc9b1b2df2cc05c0fbe4176d5ea2bd1a642909",
+      "latencyMs": 203,
+      "inputTokens": 4450,
+      "costUsd": 0.00018690000000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-slipjay-68122704",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.48
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "b1f288d0c92320beac9528fe4dbf927111f3654fb318b4c8e3fbe3df8657bb5a",
+      "latencyMs": 172,
+      "inputTokens": 2762,
+      "costUsd": 0.00011600400000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-slipjay-b68957ea",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.43
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "3b16cdc52e6e82dc6a4dcf16fda6006fafd1103dcf69f40acedffb811db8ab83",
+      "latencyMs": 162,
+      "inputTokens": 1390,
+      "costUsd": 0.00005838,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-slipjay-aa0acab1",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.4
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "bdcb4d7d596ccd755a0e5314799b5bb81fe8ccbd8f20ca6db1553f18fc883ee2",
+      "latencyMs": 194,
+      "inputTokens": 3809,
+      "costUsd": 0.00015997800000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-slipjay-550ae965",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.25
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "8d175028284dfaa91ee5562079a656b8ae390a284e7ff7533fbfcacaf33736c7",
+      "latencyMs": 205,
+      "inputTokens": 2742,
+      "costUsd": 0.000115164,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-slipjay-0fe09b72",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.55
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "adea26e545a3f9afae5b509c81002c5b594787948af6c19ea090eabc00e01d8c",
+      "latencyMs": 228,
+      "inputTokens": 4940,
+      "costUsd": 0.00020748,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-slipjay-a4e9b99c",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.37
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "641d3af8094b124815ae33166c77018b36654edfc2f8d2f21d0d6240b2aac7ba",
+      "latencyMs": 250,
+      "inputTokens": 2449,
+      "costUsd": 0.00010285800000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-slipjay-775494fd",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.55
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "3d14487d5e0741025061db8e21e5aa71631e56f40b606c81ec8df991fde29ab8",
+      "latencyMs": 168,
+      "inputTokens": 2534,
+      "costUsd": 0.000106428,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-slipjay-8ff6f09a",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.23
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "abc5c5b45a6305d76b02797ccc184686313dcc638b3bf599cbec89bab23e4210",
+      "latencyMs": 160,
+      "inputTokens": 2614,
+      "costUsd": 0.00010978800000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-slipjay-cbd23b97",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.35
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "d725da090688d9ceb80049f4f52a77a918a2d6f97b225384859446c58a0ed786",
+      "latencyMs": 216,
+      "inputTokens": 5052,
+      "costUsd": 0.00021218400000000003,
+      "costStatus": "estimated"
+    }
+  ],
+  "systems": {
+    "heuristic": {
+      "cases": 80,
+      "failed": 0,
+      "unanswered": 0,
+      "caught": 13,
+      "defects": 30,
+      "recall": {
+        "value": 0.43333333333333335,
+        "low": 0.2737723743061511,
+        "high": 0.6080299045459127
+      },
+      "recallByStratum": {
+        "diff-only": {
+          "caught": 4,
+          "total": 7,
+          "recall": {
+            "value": 0.5714285714285714,
+            "low": 0.2504542304090258,
+            "high": 0.8417830777373732
+          }
+        },
+        "needs-files": {
+          "caught": 9,
+          "total": 23,
+          "recall": {
+            "value": 0.391304347826087,
+            "low": 0.22157377982382145,
+            "high": 0.5921482039625402
+          }
+        }
+      },
+      "falseAlarms": 22,
+      "clean": 50,
+      "falseAlarmRate": {
+        "value": 0.44,
+        "low": 0.3116198721023534,
+        "high": 0.5769421319985648
+      },
+      "flaggedPerDefect": {
+        "value": 2.6923076923076925,
+        "low": 1.8333333333333333,
+        "high": 4.75
+      },
+      "auc": 0.49666666666666665,
+      "missedIds": [
+        "d-t3code-cf548b43",
+        "d-t3code-8e8826d8",
+        "d-t3code-7d169817",
+        "d-yardsmith-61d7e7b9",
+        "d-yardsmith-46c2a153",
+        "d-yardsmith-82b7cc41",
+        "d-t3code-8ff14072",
+        "d-t3code-cff78eac",
+        "d-yardsmith-c896db3f",
+        "d-t3code-f1c10c7e",
+        "d-yardsmith-b46d7bc9",
+        "d-yardsmith-68c96923",
+        "d-t3code-94ce8fea",
+        "d-t3code-b7a07ee4",
+        "d-yardsmith-1b74b4d3",
+        "d-t3code-de343914",
+        "d-yardsmith-c536fead"
+      ],
+      "falseAlarmIds": [
+        "c-t3code-09eb6534",
+        "c-t3code-4f570443",
+        "c-t3code-efcf77fc",
+        "c-t3code-6a71716e",
+        "c-yardsmith-1d80fda4",
+        "c-yardsmith-76369490",
+        "c-yardsmith-dcce6ed5",
+        "c-yardsmith-c86f07d2",
+        "c-yardsmith-ac06e69f",
+        "c-yardsmith-f6d37a1c",
+        "c-yardsmith-d50d21af",
+        "c-yardsmith-6a8d4b5a",
+        "c-yardsmith-20208b58",
+        "c-yardsmith-c290d5d8",
+        "c-yardsmith-b476ca91",
+        "c-yardsmith-007674a0",
+        "c-yardsmith-286f425c",
+        "c-slipjay-b3c6d137",
+        "c-slipjay-aa0acab1",
+        "c-slipjay-775494fd",
+        "c-slipjay-8ff6f09a",
+        "c-slipjay-cbd23b97"
+      ]
+    },
+    "flag-all": {
+      "cases": 80,
+      "failed": 0,
+      "unanswered": 0,
+      "caught": 30,
+      "defects": 30,
+      "recall": {
+        "value": 1,
+        "low": 0.8864829086095221,
+        "high": 1
+      },
+      "recallByStratum": {
+        "diff-only": {
+          "caught": 7,
+          "total": 7,
+          "recall": {
+            "value": 1,
+            "low": 0.6456611570247934,
+            "high": 1
+          }
+        },
+        "needs-files": {
+          "caught": 23,
+          "total": 23,
+          "recall": {
+            "value": 1,
+            "low": 0.8568788745827374,
+            "high": 1
+          }
+        }
+      },
+      "falseAlarms": 50,
+      "clean": 50,
+      "falseAlarmRate": {
+        "value": 1,
+        "low": 0.9286499658256813,
+        "high": 1
+      },
+      "flaggedPerDefect": {
+        "value": 2.6666666666666665,
+        "low": 2.051282051282051,
+        "high": 3.6363636363636362
+      },
+      "auc": 0.5,
+      "missedIds": [],
+      "falseAlarmIds": [
+        "c-t3code-09eb6534",
+        "c-t3code-69f4042a",
+        "c-t3code-8f026485",
+        "c-t3code-7c678769",
+        "c-t3code-a4180751",
+        "c-t3code-4f570443",
+        "c-t3code-bdb8d5df",
+        "c-t3code-efcf77fc",
+        "c-t3code-2c59bf66",
+        "c-t3code-c7df581a",
+        "c-t3code-29314616",
+        "c-t3code-6a71716e",
+        "c-t3code-9bd1d800",
+        "c-t3code-fbe670c6",
+        "c-t3code-2f777bdd",
+        "c-t3code-81955304",
+        "c-t3code-9ad6c7ef",
+        "c-t3code-f5372d27",
+        "c-t3code-4e8b5eeb",
+        "c-t3code-3776dfb4",
+        "c-t3code-0b42aa94",
+        "c-t3code-a8027cce",
+        "c-t3code-d6fb62ac",
+        "c-t3code-bfb38841",
+        "c-yardsmith-1d80fda4",
+        "c-yardsmith-76369490",
+        "c-yardsmith-dcce6ed5",
+        "c-yardsmith-c86f07d2",
+        "c-yardsmith-863d3bc6",
+        "c-yardsmith-a69366bf",
+        "c-yardsmith-ac06e69f",
+        "c-yardsmith-f6d37a1c",
+        "c-yardsmith-d50d21af",
+        "c-yardsmith-b48b23f1",
+        "c-yardsmith-e6fd3f00",
+        "c-yardsmith-6a8d4b5a",
+        "c-yardsmith-f1a0c41e",
+        "c-yardsmith-c30be6ec",
+        "c-yardsmith-fbb9cb7a",
+        "c-yardsmith-20208b58",
+        "c-yardsmith-c290d5d8",
+        "c-yardsmith-b476ca91",
+        "c-yardsmith-007674a0",
+        "c-yardsmith-286f425c",
+        "c-yardsmith-626cf07b",
+        "c-slipjay-b3c6d137",
+        "c-slipjay-aa0acab1",
+        "c-slipjay-775494fd",
+        "c-slipjay-8ff6f09a",
+        "c-slipjay-cbd23b97"
+      ]
+    },
+    "jev": {
+      "cases": 80,
+      "failed": 0,
+      "unanswered": 0,
+      "caught": 0,
+      "defects": 30,
+      "recall": {
+        "value": 0,
+        "low": 0,
+        "high": 0.113517091390478
+      },
+      "recallByStratum": {
+        "diff-only": {
+          "caught": 0,
+          "total": 7,
+          "recall": {
+            "value": 0,
+            "low": 0,
+            "high": 0.35433884297520657
+          }
+        },
+        "needs-files": {
+          "caught": 0,
+          "total": 23,
+          "recall": {
+            "value": 0,
+            "low": 0,
+            "high": 0.14312112541726274
+          }
+        }
+      },
+      "falseAlarms": 2,
+      "clean": 50,
+      "falseAlarmRate": {
+        "value": 0.04,
+        "low": 0.011038652660826577,
+        "high": 0.13460337877954667
+      },
+      "flaggedPerDefect": {
+        "value": null,
+        "low": null,
+        "high": null
+      },
+      "auc": 0.6323333333333333,
+      "missedIds": [
+        "d-t3code-cf548b43",
+        "d-t3code-8e8826d8",
+        "d-t3code-7d169817",
+        "d-t3code-5f1f6047",
+        "d-yardsmith-e07adc6a",
+        "d-yardsmith-61d7e7b9",
+        "d-yardsmith-46c2a153",
+        "d-yardsmith-82b7cc41",
+        "d-t3code-8ff14072",
+        "d-t3code-39ba2c33",
+        "d-t3code-cff78eac",
+        "d-t3code-689dda59",
+        "d-yardsmith-434b9fde",
+        "d-yardsmith-c896db3f",
+        "d-t3code-2740d987",
+        "d-t3code-f1c10c7e",
+        "d-yardsmith-91255a2f",
+        "d-yardsmith-b46d7bc9",
+        "d-yardsmith-68c96923",
+        "d-yardsmith-61d39014",
+        "d-t3code-94ce8fea",
+        "d-t3code-b7a07ee4",
+        "d-slipjay-b15e8cbf",
+        "d-yardsmith-1b74b4d3",
+        "d-yardsmith-7bcb49c9",
+        "d-yardsmith-159e627f",
+        "d-yardsmith-b1f4dde0",
+        "d-t3code-21c3d34d",
+        "d-t3code-de343914",
+        "d-yardsmith-c536fead"
+      ],
+      "falseAlarmIds": ["c-t3code-6a71716e", "c-slipjay-775494fd"]
+    }
+  },
+  "cost": {
+    "jev": {
+      "calls": 115,
+      "latencyMs": {
+        "mean": 215.6086956521739,
+        "p50": 205,
+        "max": 484
+      },
+      "unobservedAttempts": 0,
+      "inputTokens": 407964,
+      "knownInputTokens": 407964,
+      "costUsd": 0.017134488,
+      "knownCostUsd": 0.017134488,
+      "costKnownCalls": 115,
+      "costStatuses": ["estimated"],
+      "attempts": 115,
+      "failedAttempts": 0
+    }
+  },
+  "afterFlagReading": {
+    "heuristic": {
+      "cases": 80,
+      "failed": 0,
+      "unanswered": 0,
+      "caught": 13,
+      "defects": 30,
+      "recall": {
+        "value": 0.43333333333333335,
+        "low": 0.2737723743061511,
+        "high": 0.6080299045459127
+      },
+      "recallByStratum": {
+        "diff-only": {
+          "caught": 4,
+          "total": 7,
+          "recall": {
+            "value": 0.5714285714285714,
+            "low": 0.2504542304090258,
+            "high": 0.8417830777373732
+          }
+        },
+        "needs-files": {
+          "caught": 9,
+          "total": 23,
+          "recall": {
+            "value": 0.391304347826087,
+            "low": 0.22157377982382145,
+            "high": 0.5921482039625402
+          }
+        }
+      },
+      "falseAlarms": 22,
+      "clean": 50,
+      "falseAlarmRate": {
+        "value": 0.44,
+        "low": 0.3116198721023534,
+        "high": 0.5769421319985648
+      },
+      "flaggedPerDefect": {
+        "value": 2.6923076923076925,
+        "low": 1.8333333333333333,
+        "high": 4.75
+      },
+      "auc": 0.49666666666666665,
+      "missedIds": [
+        "d-t3code-cf548b43",
+        "d-t3code-8e8826d8",
+        "d-t3code-7d169817",
+        "d-yardsmith-61d7e7b9",
+        "d-yardsmith-46c2a153",
+        "d-yardsmith-82b7cc41",
+        "d-t3code-8ff14072",
+        "d-t3code-cff78eac",
+        "d-yardsmith-c896db3f",
+        "d-t3code-f1c10c7e",
+        "d-yardsmith-b46d7bc9",
+        "d-yardsmith-68c96923",
+        "d-t3code-94ce8fea",
+        "d-t3code-b7a07ee4",
+        "d-yardsmith-1b74b4d3",
+        "d-t3code-de343914",
+        "d-yardsmith-c536fead"
+      ],
+      "falseAlarmIds": [
+        "c-t3code-09eb6534",
+        "c-t3code-4f570443",
+        "c-t3code-efcf77fc",
+        "c-t3code-6a71716e",
+        "c-yardsmith-1d80fda4",
+        "c-yardsmith-76369490",
+        "c-yardsmith-dcce6ed5",
+        "c-yardsmith-c86f07d2",
+        "c-yardsmith-ac06e69f",
+        "c-yardsmith-f6d37a1c",
+        "c-yardsmith-d50d21af",
+        "c-yardsmith-6a8d4b5a",
+        "c-yardsmith-20208b58",
+        "c-yardsmith-c290d5d8",
+        "c-yardsmith-b476ca91",
+        "c-yardsmith-007674a0",
+        "c-yardsmith-286f425c",
+        "c-slipjay-b3c6d137",
+        "c-slipjay-aa0acab1",
+        "c-slipjay-775494fd",
+        "c-slipjay-8ff6f09a",
+        "c-slipjay-cbd23b97"
+      ]
+    },
+    "flag-all": {
+      "cases": 80,
+      "failed": 0,
+      "unanswered": 0,
+      "caught": 30,
+      "defects": 30,
+      "recall": {
+        "value": 1,
+        "low": 0.8864829086095221,
+        "high": 1
+      },
+      "recallByStratum": {
+        "diff-only": {
+          "caught": 7,
+          "total": 7,
+          "recall": {
+            "value": 1,
+            "low": 0.6456611570247934,
+            "high": 1
+          }
+        },
+        "needs-files": {
+          "caught": 23,
+          "total": 23,
+          "recall": {
+            "value": 1,
+            "low": 0.8568788745827374,
+            "high": 1
+          }
+        }
+      },
+      "falseAlarms": 50,
+      "clean": 50,
+      "falseAlarmRate": {
+        "value": 1,
+        "low": 0.9286499658256813,
+        "high": 1
+      },
+      "flaggedPerDefect": {
+        "value": 2.6666666666666665,
+        "low": 2.051282051282051,
+        "high": 3.6363636363636362
+      },
+      "auc": 0.5,
+      "missedIds": [],
+      "falseAlarmIds": [
+        "c-t3code-09eb6534",
+        "c-t3code-69f4042a",
+        "c-t3code-8f026485",
+        "c-t3code-7c678769",
+        "c-t3code-a4180751",
+        "c-t3code-4f570443",
+        "c-t3code-bdb8d5df",
+        "c-t3code-efcf77fc",
+        "c-t3code-2c59bf66",
+        "c-t3code-c7df581a",
+        "c-t3code-29314616",
+        "c-t3code-6a71716e",
+        "c-t3code-9bd1d800",
+        "c-t3code-fbe670c6",
+        "c-t3code-2f777bdd",
+        "c-t3code-81955304",
+        "c-t3code-9ad6c7ef",
+        "c-t3code-f5372d27",
+        "c-t3code-4e8b5eeb",
+        "c-t3code-3776dfb4",
+        "c-t3code-0b42aa94",
+        "c-t3code-a8027cce",
+        "c-t3code-d6fb62ac",
+        "c-t3code-bfb38841",
+        "c-yardsmith-1d80fda4",
+        "c-yardsmith-76369490",
+        "c-yardsmith-dcce6ed5",
+        "c-yardsmith-c86f07d2",
+        "c-yardsmith-863d3bc6",
+        "c-yardsmith-a69366bf",
+        "c-yardsmith-ac06e69f",
+        "c-yardsmith-f6d37a1c",
+        "c-yardsmith-d50d21af",
+        "c-yardsmith-b48b23f1",
+        "c-yardsmith-e6fd3f00",
+        "c-yardsmith-6a8d4b5a",
+        "c-yardsmith-f1a0c41e",
+        "c-yardsmith-c30be6ec",
+        "c-yardsmith-fbb9cb7a",
+        "c-yardsmith-20208b58",
+        "c-yardsmith-c290d5d8",
+        "c-yardsmith-b476ca91",
+        "c-yardsmith-007674a0",
+        "c-yardsmith-286f425c",
+        "c-yardsmith-626cf07b",
+        "c-slipjay-b3c6d137",
+        "c-slipjay-aa0acab1",
+        "c-slipjay-775494fd",
+        "c-slipjay-8ff6f09a",
+        "c-slipjay-cbd23b97"
+      ]
+    },
+    "jev": {
+      "cases": 80,
+      "failed": 0,
+      "unanswered": 0,
+      "caught": 0,
+      "defects": 30,
+      "recall": {
+        "value": 0,
+        "low": 0,
+        "high": 0.113517091390478
+      },
+      "recallByStratum": {
+        "diff-only": {
+          "caught": 0,
+          "total": 7,
+          "recall": {
+            "value": 0,
+            "low": 0,
+            "high": 0.35433884297520657
+          }
+        },
+        "needs-files": {
+          "caught": 0,
+          "total": 23,
+          "recall": {
+            "value": 0,
+            "low": 0,
+            "high": 0.14312112541726274
+          }
+        }
+      },
+      "falseAlarms": 2,
+      "clean": 50,
+      "falseAlarmRate": {
+        "value": 0.04,
+        "low": 0.011038652660826577,
+        "high": 0.13460337877954667
+      },
+      "flaggedPerDefect": {
+        "value": null,
+        "low": null,
+        "high": null
+      },
+      "auc": 0.6323333333333333,
+      "missedIds": [
+        "d-t3code-cf548b43",
+        "d-t3code-8e8826d8",
+        "d-t3code-7d169817",
+        "d-t3code-5f1f6047",
+        "d-yardsmith-e07adc6a",
+        "d-yardsmith-61d7e7b9",
+        "d-yardsmith-46c2a153",
+        "d-yardsmith-82b7cc41",
+        "d-t3code-8ff14072",
+        "d-t3code-39ba2c33",
+        "d-t3code-cff78eac",
+        "d-t3code-689dda59",
+        "d-yardsmith-434b9fde",
+        "d-yardsmith-c896db3f",
+        "d-t3code-2740d987",
+        "d-t3code-f1c10c7e",
+        "d-yardsmith-91255a2f",
+        "d-yardsmith-b46d7bc9",
+        "d-yardsmith-68c96923",
+        "d-yardsmith-61d39014",
+        "d-t3code-94ce8fea",
+        "d-t3code-b7a07ee4",
+        "d-slipjay-b15e8cbf",
+        "d-yardsmith-1b74b4d3",
+        "d-yardsmith-7bcb49c9",
+        "d-yardsmith-159e627f",
+        "d-yardsmith-b1f4dde0",
+        "d-t3code-21c3d34d",
+        "d-t3code-de343914",
+        "d-yardsmith-c536fead"
+      ],
+      "falseAlarmIds": ["c-t3code-6a71716e", "c-slipjay-775494fd"]
+    }
+  },
+  "uncertain": [
+    {
+      "id": "c-t3code-29913315",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.5
+      }
+    },
+    {
+      "id": "c-t3code-8fe32724",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.2
+      }
+    },
+    {
+      "id": "c-t3code-ed809f7a",
+      "labels": ["defect", "clean"],
+      "answers": {
+        "jev": 0.24
+      }
+    },
+    {
+      "id": "c-t3code-9ad9aa53",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.24
+      }
+    },
+    {
+      "id": "c-t3code-3e47c1ca",
+      "labels": ["unsure", "clean"],
+      "answers": {
+        "jev": 0.32
+      }
+    },
+    {
+      "id": "c-t3code-28e50c9f",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.4
+      }
+    },
+    {
+      "id": "c-t3code-ed0f7b90",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.39
+      }
+    },
+    {
+      "id": "c-t3code-86fa9e0a",
+      "labels": ["defect", "clean"],
+      "answers": {
+        "jev": 0.35
+      }
+    },
+    {
+      "id": "c-t3code-f3161f39",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.33
+      }
+    },
+    {
+      "id": "c-t3code-11adcb0e",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.25
+      }
+    },
+    {
+      "id": "c-t3code-b03534fa",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.26
+      }
+    },
+    {
+      "id": "c-t3code-ea54be7f",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.18
+      }
+    },
+    {
+      "id": "c-t3code-e77a48e8",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.27
+      }
+    },
+    {
+      "id": "c-t3code-48247dd4",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.51
+      }
+    },
+    {
+      "id": "c-yardsmith-a0b10a12",
+      "labels": ["unsure", "clean"],
+      "answers": {
+        "jev": 0.34
+      }
+    },
+    {
+      "id": "c-yardsmith-53762166",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.35
+      }
+    },
+    {
+      "id": "c-yardsmith-263988f2",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.24
+      }
+    },
+    {
+      "id": "c-yardsmith-1370bee3",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.37
+      }
+    },
+    {
+      "id": "c-yardsmith-3a569abd",
+      "labels": ["defect", "unsure"],
+      "answers": {
+        "jev": 0.48
+      }
+    },
+    {
+      "id": "c-yardsmith-dcaece4f",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.22
+      }
+    },
+    {
+      "id": "c-yardsmith-a31a078f",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.39
+      }
+    },
+    {
+      "id": "c-yardsmith-f2b3f2bc",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.51
+      }
+    },
+    {
+      "id": "c-yardsmith-b357a3cb",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.46
+      }
+    },
+    {
+      "id": "c-yardsmith-bb2f426b",
+      "labels": ["defect", "clean"],
+      "answers": {
+        "jev": 0.48
+      }
+    },
+    {
+      "id": "c-yardsmith-e7c0c091",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.39
+      }
+    },
+    {
+      "id": "c-yardsmith-4895ddcd",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.39
+      }
+    },
+    {
+      "id": "c-yardsmith-c655809d",
+      "labels": ["defect", "clean"],
+      "answers": {
+        "jev": 0.38
+      }
+    },
+    {
+      "id": "c-yardsmith-4b0a988d",
+      "labels": ["unsure", "clean"],
+      "answers": {
+        "jev": 0.29
+      }
+    },
+    {
+      "id": "c-yardsmith-49b87289",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.3
+      }
+    },
+    {
+      "id": "c-yardsmith-0cdf0405",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.29
+      }
+    },
+    {
+      "id": "c-slipjay-68122704",
+      "labels": ["defect", "defect"],
+      "answers": {
+        "jev": 0.48
+      }
+    },
+    {
+      "id": "c-slipjay-b68957ea",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.43
+      }
+    },
+    {
+      "id": "c-slipjay-550ae965",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.25
+      }
+    },
+    {
+      "id": "c-slipjay-0fe09b72",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.55
+      }
+    },
+    {
+      "id": "c-slipjay-a4e9b99c",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.37
+      }
+    }
+  ]
+}

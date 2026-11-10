@@ -1,0 +1,312 @@
+{
+  "schema": "decision-eval-real-diff-yield-v1",
+  "yes": [
+    {
+      "repo": "t3code",
+      "commit": "cf548b43c630be857a9556558ce6ea3a6713ae6d",
+      "date": "2026-11-09",
+      "subject": "feat(decisions): one Settings page sets the decision model and key",
+      "laterCommits": ["cf2d1801325c", "680c7f2a519b"],
+      "diffVisible": false
+    },
+    {
+      "repo": "t3code",
+      "commit": "8e8826d8956640d036676ab0ad34cfa685b3037a",
+      "date": "2026-10-22",
+      "subject": "fix(server): fork PRs from origin use the owner head when gh targets upstream",
+      "laterCommits": ["015c647404ee"],
+      "diffVisible": false
+    },
+    {
+      "repo": "t3code",
+      "commit": "7d169817031dbd1e0e8a5d6c624abf46d82ad500",
+      "date": "2026-11-03",
+      "subject": "fix(provider-core): only a launcher in the prefix bin makes its permissions matter",
+      "laterCommits": ["e985ad517369"],
+      "diffVisible": false
+    },
+    {
+      "repo": "t3code",
+      "commit": "5f1f604733c65b50ad6d289971103b1330e943bf",
+      "date": "2026-10-25",
+      "subject": "feat(mobile): on-demand chrome e2e runner across simulators",
+      "laterCommits": ["2ed92618e60f"],
+      "diffVisible": true
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "e07adc6a1ba91e2c30767f8768d303d0214f679f",
+      "date": "2026-11-09",
+      "laterCommits": ["9413636fb676"],
+      "diffVisible": false
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "61d7e7b926ddc248ab13a000a1e0e810eb724da4",
+      "date": "2026-10-22",
+      "laterCommits": ["70b8624da122", "a457fa868a08", "b87fd366d733"],
+      "diffVisible": true
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "46c2a153566c7ca9818a70233243ea55d1e01629",
+      "date": "2026-10-10",
+      "laterCommits": ["7f3788b9cf3b"],
+      "diffVisible": true
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "82b7cc4143455f641cdf45e0418d97485fbc33ff",
+      "date": "2026-10-10",
+      "laterCommits": ["771ef313cc38"],
+      "diffVisible": false
+    },
+    {
+      "repo": "t3code",
+      "commit": "8ff14072112e5aaf8e7fd55220b23c8bd03585ba",
+      "date": "2026-11-05",
+      "subject": "Investigate how T3 sets Codex approval/sandbox mode (the composer lock switch an",
+      "laterCommits": ["fc246c593f51", "fbf141d2a6e5", "a4f3d6f03771"],
+      "diffVisible": false
+    },
+    {
+      "repo": "t3code",
+      "commit": "39ba2c33b1a5866fe79e2b4615b09be1ba2dcb23",
+      "date": "2026-10-15",
+      "subject": "feat(agents): isolated helper workspaces, typed review scope and role-first delegation (#14)",
+      "laterCommits": ["1558659e2750"],
+      "diffVisible": false
+    },
+    {
+      "repo": "t3code",
+      "commit": "cff78eac918f6dca7c24f5c6dcbe733a4cfd77fd",
+      "date": "2026-10-26",
+      "subject": "fix(threads): a thread leaves Working once only work that won't wake its agent remains",
+      "laterCommits": ["07ac3f6e4b64", "e2ef4fa70c0c", "e47df81c3317"],
+      "diffVisible": false
+    },
+    {
+      "repo": "t3code",
+      "commit": "689dda59e997337103c76ed93af0574dcc554d26",
+      "date": "2026-03-05",
+      "subject": "Persist thread runtime mode and handle mode-switch session restarts",
+      "laterCommits": ["412331aa61a9"],
+      "diffVisible": true
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "434b9fde8524a8d22de2e4da58314f179e95bf44",
+      "date": "2026-07-24",
+      "laterCommits": ["c7cdffc06ec9", "a6578273c266"],
+      "diffVisible": true
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "c896db3fc43b50ab10aa7764f0ff3b09d7cd1587",
+      "date": "2026-10-29",
+      "laterCommits": ["3612dc02b3f7", "e090909023c0"],
+      "diffVisible": false
+    },
+    {
+      "repo": "t3code",
+      "commit": "2740d9879f5c77c1aa843815d389f212527c94d0",
+      "date": "2026-09-26",
+      "subject": "fix(server): let queued messages for another provider pass a usage limit",
+      "laterCommits": ["258f994dbfed"],
+      "diffVisible": true
+    },
+    {
+      "repo": "t3code",
+      "commit": "f1c10c7e3ec33ab4024b89bceed429656c232932",
+      "date": "2026-10-22",
+      "subject": "feat(mcp): scope tool listings to the thread's role",
+      "laterCommits": ["8a7a3b1a1b9e"],
+      "diffVisible": false
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "6932b4b295a4e5810e6e0cf0355386f67c4b7387",
+      "date": "2026-10-24",
+      "laterCommits": ["ed925a018502", "af91f77d823d", "356ad6e1b7e9"],
+      "diffVisible": true
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "91255a2f173181188cacadb60abbc867d906b6db",
+      "date": "2026-10-12",
+      "laterCommits": ["dbf80ff666d8", "61aa2614a78a", "e9d50ca2094f"],
+      "diffVisible": false
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "b46d7bc9c197a26a7ba7204f82ae0a321c90a79f",
+      "date": "2026-11-05",
+      "laterCommits": ["a6e5607dce10", "37866371657d"],
+      "diffVisible": true
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "68c96923fe1faa36c432c13364e85dbaca06c0f0",
+      "date": "2026-10-12",
+      "laterCommits": ["54388dd2d7b0"],
+      "diffVisible": false
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "61d3901461c492ffa73c8e27af7ae122629aa774",
+      "date": "2026-10-23",
+      "laterCommits": ["058cf720d6b6"],
+      "diffVisible": false
+    },
+    {
+      "repo": "t3code",
+      "commit": "94ce8feac8c372183476140d6ccada0265d15a25",
+      "date": "2026-11-04",
+      "subject": "feat(champions): continuous product health and owned improvements",
+      "laterCommits": ["0fce5ca91884", "29ecc8b2830f"],
+      "diffVisible": false
+    },
+    {
+      "repo": "t3code",
+      "commit": "b7a07ee45ac84280ba60a6affcb14c67cfe7d0bc",
+      "date": "2026-11-09",
+      "subject": "feat(settings): share one provider setup across environments",
+      "laterCommits": ["6f3486fc6a78"],
+      "diffVisible": false
+    },
+    {
+      "repo": "slipjay",
+      "commit": "b15e8cbf5b1f66a234f9b00510d1212a5f72717c",
+      "date": "2026-10-24",
+      "laterCommits": ["0ded0861d962"],
+      "diffVisible": false
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "1b74b4d3a67e0045b31aef9fa67f407253af738d",
+      "date": "2026-11-06",
+      "laterCommits": ["89f85baa360e"],
+      "diffVisible": false
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "7bcb49c9b0d2c2f97980343a4996bec74937597d",
+      "date": "2026-10-19",
+      "laterCommits": ["3e3beafe8318", "d3d898ba4103", "c27789a5aefc", "4a6864645f7d"],
+      "diffVisible": false
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "159e627fad219a760bd8575f899aa22d428e0bef",
+      "date": "2026-10-17",
+      "laterCommits": ["f2b7396f93ea"],
+      "diffVisible": false
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "b1f4dde00c3a8dc6491b228af30d6712b92b7f40",
+      "date": "2026-11-09",
+      "laterCommits": ["b46945bca9dc"],
+      "diffVisible": false
+    },
+    {
+      "repo": "t3code",
+      "commit": "21c3d34d24b397af85fd60df6e2f87d28dd1a46f",
+      "date": "2026-09-22",
+      "subject": "fix(mobile): live-subscribe the Diagnostics render-error list",
+      "laterCommits": ["a4e849c21835"],
+      "diffVisible": false
+    },
+    {
+      "repo": "t3code",
+      "commit": "de343914273eceb852a1d1d739cd1d38df7796ee",
+      "date": "2026-10-02",
+      "subject": "feat(orchestrator): introduce new orchestrator (#2829)",
+      "laterCommits": ["0187c154bb68"],
+      "diffVisible": false
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "c536fead65d5899d826de9810da8b98d1b3dc2a2",
+      "date": "2026-10-15",
+      "laterCommits": ["cc561737ef15", "ba6923733240", "b777f9f74581"],
+      "diffVisible": false
+    }
+  ],
+  "partly": [
+    {
+      "repo": "yardsmith",
+      "commit": "ad07fa3e1d81627c8d57e0482eda8e06b81633a8"
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "a69893639f9df826955aae4157a54491a59dec68"
+    },
+    {
+      "repo": "t3code",
+      "commit": "4a4a87a817379113534684beac25065cbbf13a05"
+    }
+  ],
+  "notAttributed": [
+    {
+      "repo": "t3code",
+      "commit": "ad7e3d77905507226b4eb871df08f2bf54cf9c2d"
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "781d842b3f0d31597e6b211f1517833b896849e8"
+    },
+    {
+      "repo": "t3code",
+      "commit": "d9ffbeece1eadb8567482ca6b662ef2ea121e881"
+    },
+    {
+      "repo": "t3code",
+      "commit": "ae2e3469ab59722b471a91f83ce66011e724068f"
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "37a5a365522b7aea7d75c8ccb4c99b89a5a7c563"
+    },
+    {
+      "repo": "yardsmith",
+      "commit": "97dbd687a99c8d6628693ab676ad1d5e9528e04e"
+    }
+  ],
+  "writtenAt": "2026-11-10 (before any held-out case was authored)",
+  "window": {
+    "from": "2026-09-22",
+    "to": "2026-11-10"
+  },
+  "sources": {
+    "laterCommitNamesEarlier": {
+      "candidatePairs": 205,
+      "candidateOriginals": 135,
+      "readBy": "deepseek-v4.1-flash, then a second pass over the real diffs",
+      "attributedStrict": 31,
+      "partlyAttributed": 3,
+      "notAttributed": 6,
+      "perRepo": {
+        "t3code": 14,
+        "yardsmith": 16,
+        "slipjay": 1,
+        "agent-config": 0,
+        "odds-and-ends": 0
+      }
+    },
+    "revertNamesCommit": {
+      "originals": 21,
+      "countedAsDefect": 0,
+      "alreadyCountedAboveBecauseALaterFixAlsoNamesThem": 2,
+      "excluded": 19,
+      "excludedReasons": "release prep, CI or TestFlight build, a temporary test, a change of plan or an unneeded change, or no reason stated in the message"
+    },
+    "forgeReviewFindingOnPublishedRevision": {
+      "specsRead": 26,
+      "specsWithAnyReview": 3,
+      "postPublicationReviewRuns": 7,
+      "findingsFixedAfterPublication": 3,
+      "note": "all in T3-532; each is raised on a Spec's published revision, not on one commit, so none is used as a case"
+    }
+  }
+}

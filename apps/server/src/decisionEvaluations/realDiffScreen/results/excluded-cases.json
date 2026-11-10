@@ -1,0 +1,13 @@
+{
+  "note": "Dropped after a pattern scan and a read of every hit, before any engine call.",
+  "excluded": [
+    {
+      "id": "c-yardsmith-0a7d79ce",
+      "reason": "a sales email template names the owner and a first name of a possible prospect"
+    },
+    {
+      "id": "d-yardsmith-6932b4b2",
+      "reason": "a fixture uses a real company name in a subject and address; kept out to be safe"
+    }
+  ]
+}

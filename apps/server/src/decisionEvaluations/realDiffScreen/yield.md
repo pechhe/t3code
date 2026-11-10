@@ -1,0 +1,23 @@
+# Yield report (T3-573), written before any held-out case
+
+**Result: 31 attributed defects in 3 repositories, so the pilot goes ahead.** The threshold was 30, so the margin is one. A second reading of the real diffs removed 9 of the 40 first-pass candidates. The machine-readable list is [`results/yield.json`](results/yield.json) (commit ids only for the private repositories).
+
+## Per source
+
+| Source                                                         | Found                                                       | Attributed                                                                          | How it was attributed                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A later commit whose message names an earlier published commit | 205 pairs over 135 commits                                  | **31** (14 t3code, 16 yardsmith, 1 slipjay; 0 agent-config, odds-and-ends has none) | A script found the commit ids and a first reader judged the message. A second reader then read the original diff and the later fix and judged whether the fix corrects a defect the original introduced. The 31 are "yes" on the second reading. 3 were "partly" (the original contributed to a defect another change completed) and 6 were "no" (the original is only context, or the fault was elsewhere). |
+| A revert that names the commit                                 | 21 reverted commits (19 t3code, 1 slipjay, 1 yardsmith)     | **0 new**                                                                           | Only 2 revert messages say the change was wrong; both are already in the first row. The other 19 are excluded: release preparation, a CI or TestFlight build, a temporary test, a change of plan or a change found unnecessary, or no reason stated.                                                                                                                                                         |
+| A Forge review finding raised on a published revision          | 26 Specs read (T3-529 to T3-576, chores and merges skipped) | **0 used**                                                                          | Only 3 of the 26 have any review run; 7 runs came after publication, all on T3-532, with 3 findings fixed afterwards. They attach to a Spec's published revision, not one commit, so none becomes a case. Most reviews run before publication, which the Spec excludes.                                                                                                                                      |
+
+## What the 31 look like
+
+- **8 are visible in the diff alone**, **22 need files outside the diff** (a test, a fixture, a script or a consumer elsewhere), and **1** needs knowledge no repository file holds. The Spec's diff-only versus needs-more-files split therefore starts at about 8 against 23, so the diff-only figures will be wide.
+- Almost all are less than two months old (22 Sep to 10 Nov 2026); many are stale test fixtures, missed consumers and gate failures. That is what fast agent-written changes break, and it differs from a mature codebase's mix.
+- The reasons for a change often sit in a later commit written by the same author or agent that made it, so a fix that names the original is a stronger record than a silent one. Defects nobody fixed, or fixed without naming the cause, are not in this count.
+
+## Limits of the yield
+
+- Both readers are the same cheap model family (deepseek-v4.1-flash), given different inputs. I skimmed the three items the second reading did not return and spot-checked others; no human read all 40.
+- The window is short, so the clean cases are drawn from the same repositories and the same window.
+- A defect that needed a named record is a floor, not a count of real defects.

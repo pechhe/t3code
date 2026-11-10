@@ -1,0 +1,95 @@
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off globalConsole:off - command-line entry point, not server code
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { FetchHttpClient } from "effect/http";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
+import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
+import * as DecisionService from "../../decisions/DecisionService.ts";
+import { BASELINE_VERSION } from "./baseline.ts";
+import { corpusDigest, referenceOf, type CaseRecord } from "./corpus.ts";
+import { evaluate, runEvaluation, type CallRecord, type Engine } from "./harness.ts";
+import { RULE } from "./rule.ts";
+
+const arg = (name: string, fallback?: string) => {
+  const i = process.argv.indexOf(`--${name}`);
+  const value = i >= 0 ? process.argv[i + 1] : fallback;
+  if (value === undefined) throw new Error(`Missing --${name}`);
+  return value;
+};
+
+const rescore = process.argv.includes("--rescore");
+const previous = rescore
+  ? (JSON.parse(NodeFS.readFileSync(arg("out"), "utf8")) as {
+      split: string;
+      sourceRevision: string;
+      runAt: string;
+      engines: Engine[];
+      records: CallRecord[];
+    })
+  : undefined;
+const split = previous?.split ?? arg("split");
+if (split !== "tune" && split !== "heldout") throw new Error("--split must be tune or heldout");
+const all = JSON.parse(
+  NodeFS.readFileSync(NodePath.join(import.meta.dirname, "corpus/cases.json"), "utf8"),
+) as CaseRecord[];
+const cases = all.filter((c) => c.split === split);
+const engines = previous?.engines ?? (arg("engines", "jev,luna").split(",") as Engine[]);
+const out = arg("out");
+const sourceRevision = previous?.sourceRevision ?? arg("source-revision");
+const gapMs = Number(arg("gap-ms", "300"));
+const reclassifiedFile = process.argv.includes("--reclassified") ? arg("reclassified") : undefined;
+const reclassified = new Set<string>(
+  reclassifiedFile === undefined
+    ? []
+    : (JSON.parse(NodeFS.readFileSync(reclassifiedFile, "utf8")) as { realDefects: string[] })
+        .realDefects,
+);
+
+// Keys come from the process environment (TYPESAFE_API_KEY, OPENAI_API_KEY); never read or print them here.
+const live = DecisionService.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      FetchHttpClient.layer,
+      Layer.mock(ServerSecretStore.ServerSecretStore)({ get: () => Effect.succeedNone }),
+      NodeServices.layer,
+      NodeCrypto.layer,
+    ),
+  ),
+);
+
+const records =
+  previous?.records ??
+  (await Effect.runPromise(runEvaluation(cases, engines, { gapMs }).pipe(Effect.provide(live))));
+const results = evaluate(cases, records);
+const afterReading =
+  reclassifiedFile === undefined ? undefined : evaluate(cases, records, reclassified).systems;
+const answerOf = (caseId: string, engine: Engine) => {
+  const outcome = records.find((r) => r.caseId === caseId && r.engine === engine)?.outcome;
+  return outcome?.kind === "answered" ? outcome.probability : (outcome?.kind ?? "not-run");
+};
+const report = {
+  schema: "real-diff-screen-results-v1",
+  split,
+  sourceRevision,
+  rule: RULE,
+  baselineVersion: BASELINE_VERSION,
+  corpusDigest: corpusDigest(cases),
+  runAt: previous?.runAt ?? new Date().toISOString(),
+  engines,
+  records,
+  ...results,
+  afterFlagReading: afterReading,
+  /** Cases the labelers split on: not scored, listed with each engine's answer. */
+  uncertain: cases
+    .filter((c) => referenceOf(c) === "uncertain")
+    .map((c) => ({
+      id: c.id,
+      labels: c.labels,
+      answers: Object.fromEntries(engines.map((e) => [e, answerOf(c.id, e)])),
+    })),
+};
+NodeFS.writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
+console.log(JSON.stringify({ out, systems: results.systems, cost: results.cost }, null, 2));

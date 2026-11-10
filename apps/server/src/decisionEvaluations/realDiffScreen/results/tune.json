@@ -1,0 +1,422 @@
+{
+  "schema": "real-diff-screen-results-v1",
+  "split": "tune",
+  "sourceRevision": "839774fb9f11",
+  "rule": {
+    "id": "real-diff-screen",
+    "version": "1"
+  },
+  "baselineVersion": "semantic-lint-1-or",
+  "corpusDigest": "1eafbdd27d2b87fec7ef826a9a9861012ad2efbc8e07d19279d89a1c673ef03b",
+  "runAt": "2026-11-10T16:50:18.581Z",
+  "engines": ["jev"],
+  "records": [
+    {
+      "caseId": "d-yardsmith-ad07fa3e",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.25
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "798d2a81a6523a1bb9bb5469c063882760f859507a60053b5a9f0fe9b1a54e30",
+      "latencyMs": 246,
+      "inputTokens": 1887,
+      "costUsd": 0.00007925400000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-yardsmith-a6989363",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.37
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "46b84712ac22de014a0931127c45a7a5b80b7f3024ce83a382fdeefa7ba912d6",
+      "latencyMs": 207,
+      "inputTokens": 4740,
+      "costUsd": 0.00019908000000000003,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "d-t3code-4a4a87a8",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.32
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "6bac994d9da2f22300480e7b7a9bdbfcee95e58fa266ea4bbfee7150f7b390af",
+      "latencyMs": 176,
+      "inputTokens": 3787,
+      "costUsd": 0.000159054,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-3f944874",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.28
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "1099242ea7f81854912b3aa4790b0b4e5a1561118a7b228eb4a5773384dfc302",
+      "latencyMs": 174,
+      "inputTokens": 1426,
+      "costUsd": 0.000059892,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-ecbb2081",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.38
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "691b65dc6407e20ca657f0c6911ee8ffe1e882d9179b381409eabf686e7db03b",
+      "latencyMs": 167,
+      "inputTokens": 846,
+      "costUsd": 0.000035532000000000005,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-77e4f561",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.32
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "0bde91c3635049d0a78d9d29d95bff84fe43d0d03240b81c29a263ee10999608",
+      "latencyMs": 224,
+      "inputTokens": 5274,
+      "costUsd": 0.000221508,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-294dd123",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.27
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "f5df7fd432eacfc18c0e752e0e83289481759bcf7c2db5b9a9f6fb8f37c2b4fc",
+      "latencyMs": 165,
+      "inputTokens": 3075,
+      "costUsd": 0.00012915,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-t3code-1f4eae72",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.39
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "226c6274a9bb199a07dde5c5e4fdb7cb9060e1dfb6a41d9f4b342a14e774ec3d",
+      "latencyMs": 162,
+      "inputTokens": 2619,
+      "costUsd": 0.000109998,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-a2a52d25",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.38
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "76f6f079f2cbe4e2df0529342fe3f693102a4781e7d0b7b6027792bc4edeb151",
+      "latencyMs": 223,
+      "inputTokens": 5390,
+      "costUsd": 0.00022638,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-20f0b2b8",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.35
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "0b164998ebe879fb66b34979f60a4e8d894533f4e226f1527bed61c0c7c8c0c7",
+      "latencyMs": 172,
+      "inputTokens": 4166,
+      "costUsd": 0.00017497200000000002,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-43d761aa",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.43
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "c81140cc692c7fdebe2472140dd7ee1d2392cd499b1c1983a2b1ba6c50459344",
+      "latencyMs": 161,
+      "inputTokens": 5428,
+      "costUsd": 0.00022797600000000001,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-7e7e7b03",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.25
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "3a73a46faccd27d21b209758aefc31c9f596ceb6ec9ac8a8be44a148b639e84e",
+      "latencyMs": 154,
+      "inputTokens": 1449,
+      "costUsd": 0.000060858000000000006,
+      "costStatus": "estimated"
+    },
+    {
+      "caseId": "c-yardsmith-7579b9f0",
+      "engine": "jev",
+      "outcome": {
+        "kind": "answered",
+        "probability": 0.26
+      },
+      "requestedModel": "jev-1.14.0",
+      "resolvedModel": "jev-1.14.0",
+      "adapterVersion": "t3-decisions-v1",
+      "digest": "b8ba7a4745d0bf7c0c6bc317bc73c0cb7e1a356a6649a0f89a5bbc82ea0e5500",
+      "latencyMs": 152,
+      "inputTokens": 2181,
+      "costUsd": 0.00009160200000000001,
+      "costStatus": "estimated"
+    }
+  ],
+  "systems": {
+    "heuristic": {
+      "cases": 9,
+      "failed": 0,
+      "unanswered": 0,
+      "caught": 2,
+      "defects": 3,
+      "recall": {
+        "value": 0.6666666666666666,
+        "low": 0.2076549551264879,
+        "high": 0.9385096847238394
+      },
+      "recallByStratum": {
+        "diff-only": {
+          "caught": 0,
+          "total": 0,
+          "recall": {
+            "value": null,
+            "low": null,
+            "high": null
+          }
+        },
+        "needs-files": {
+          "caught": 2,
+          "total": 3,
+          "recall": {
+            "value": 0.6666666666666666,
+            "low": 0.2076549551264879,
+            "high": 0.9385096847238394
+          }
+        }
+      },
+      "falseAlarms": 2,
+      "clean": 6,
+      "falseAlarmRate": {
+        "value": 0.3333333333333333,
+        "low": 0.09676933255921683,
+        "high": 0.7000116786584712
+      },
+      "flaggedPerDefect": {
+        "value": 2,
+        "low": 1,
+        "high": 5
+      },
+      "auc": 0.6666666666666666,
+      "missedIds": ["d-t3code-4a4a87a8"],
+      "falseAlarmIds": ["c-t3code-ecbb2081", "c-yardsmith-7579b9f0"]
+    },
+    "flag-all": {
+      "cases": 9,
+      "failed": 0,
+      "unanswered": 0,
+      "caught": 3,
+      "defects": 3,
+      "recall": {
+        "value": 1,
+        "low": 0.43849391955098227,
+        "high": 1
+      },
+      "recallByStratum": {
+        "diff-only": {
+          "caught": 0,
+          "total": 0,
+          "recall": {
+            "value": null,
+            "low": null,
+            "high": null
+          }
+        },
+        "needs-files": {
+          "caught": 3,
+          "total": 3,
+          "recall": {
+            "value": 1,
+            "low": 0.43849391955098227,
+            "high": 1
+          }
+        }
+      },
+      "falseAlarms": 6,
+      "clean": 6,
+      "falseAlarmRate": {
+        "value": 1,
+        "low": 0.6096569663469354,
+        "high": 0.9999999999999999
+      },
+      "flaggedPerDefect": {
+        "value": 3,
+        "low": 1.5,
+        "high": 9
+      },
+      "auc": 0.5,
+      "missedIds": [],
+      "falseAlarmIds": [
+        "c-t3code-3f944874",
+        "c-t3code-ecbb2081",
+        "c-t3code-294dd123",
+        "c-t3code-1f4eae72",
+        "c-yardsmith-7e7e7b03",
+        "c-yardsmith-7579b9f0"
+      ]
+    },
+    "jev": {
+      "cases": 9,
+      "failed": 0,
+      "unanswered": 0,
+      "caught": 0,
+      "defects": 3,
+      "recall": {
+        "value": 0,
+        "low": 0,
+        "high": 0.5615060804490177
+      },
+      "recallByStratum": {
+        "diff-only": {
+          "caught": 0,
+          "total": 0,
+          "recall": {
+            "value": null,
+            "low": null,
+            "high": null
+          }
+        },
+        "needs-files": {
+          "caught": 0,
+          "total": 3,
+          "recall": {
+            "value": 0,
+            "low": 0,
+            "high": 0.5615060804490177
+          }
+        }
+      },
+      "falseAlarms": 0,
+      "clean": 6,
+      "falseAlarmRate": {
+        "value": 0,
+        "low": 0,
+        "high": 0.3903430336530645
+      },
+      "flaggedPerDefect": {
+        "value": null,
+        "low": null,
+        "high": null
+      },
+      "auc": 0.4722222222222222,
+      "missedIds": ["d-yardsmith-ad07fa3e", "d-yardsmith-a6989363", "d-t3code-4a4a87a8"],
+      "falseAlarmIds": []
+    }
+  },
+  "cost": {
+    "jev": {
+      "calls": 13,
+      "latencyMs": {
+        "mean": 183.30769230769232,
+        "p50": 172,
+        "max": 246
+      },
+      "unobservedAttempts": 0,
+      "inputTokens": 42268,
+      "knownInputTokens": 42268,
+      "costUsd": 0.001775256,
+      "knownCostUsd": 0.001775256,
+      "costKnownCalls": 13,
+      "costStatuses": ["estimated"],
+      "attempts": 13,
+      "failedAttempts": 0
+    }
+  },
+  "uncertain": [
+    {
+      "id": "c-t3code-77e4f561",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.32
+      }
+    },
+    {
+      "id": "c-yardsmith-a2a52d25",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.38
+      }
+    },
+    {
+      "id": "c-yardsmith-20f0b2b8",
+      "labels": ["unsure", "unsure"],
+      "answers": {
+        "jev": 0.35
+      }
+    },
+    {
+      "id": "c-yardsmith-43d761aa",
+      "labels": ["clean", "unsure"],
+      "answers": {
+        "jev": 0.43
+      }
+    }
+  ]
+}
