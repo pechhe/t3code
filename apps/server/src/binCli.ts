@@ -16,6 +16,7 @@ import { agentCommand } from "./cli/agent.ts";
 import { environmentCommand } from "./cli/environment.ts";
 import { appCommand } from "./cli/app.ts";
 import { browserCommand } from "./cli/browser.ts";
+import { delegationCommand } from "./cli/delegationShadowReport.ts";
 import { pairCommand } from "./cli/pair.ts";
 import { hasCloudPublicConfig } from "./cloud/publicConfig.ts";
 import { extendConnectionAttemptTimeout, keepOutboundFetchOnHttp1 } from "./outboundHttp.ts";
@@ -93,6 +94,7 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       voiceBridgeCommand,
       environmentCommand,
       browserCommand,
+      delegationCommand,
       projectCommand,
       threadCommand,
       upCommand,

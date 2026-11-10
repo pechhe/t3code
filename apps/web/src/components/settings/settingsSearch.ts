@@ -270,6 +270,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["advisor timeout idle close subagent"],
   },
   {
+    id: "delegation-model-shadow",
+    title: "Record the Decisions provider's model pick",
+    to: "/settings/delegation",
+    scope: "environment",
+    environmentOnly: true,
+    searchTerms: ["shadow decision model pick delegation jev measurement"],
+  },
+  {
     id: "experiments",
     title: "Experiments",
     to: "/settings/experiments",

@@ -1,6 +1,7 @@
 import * as ManagedTaskControl from "../agents/ManagedTaskControl.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
 import * as Champions from "../champions/ChampionService.ts";
+import * as DelegationModelShadow from "../agents/DelegationModelShadow.ts";
 import * as Digest from "effect/crypto/Digest";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ExternalWork from "../agents/ExternalAgentWorkService.ts";
@@ -1206,6 +1207,7 @@ const make = Effect.gen(function* () {
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const providerAdapters = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
   const champions = yield* Effect.serviceOption(Champions.ChampionService);
+  const modelShadow = yield* Effect.serviceOption(DelegationModelShadow.DelegationModelShadow);
   const taskControl = yield* ManagedTaskControl.ManagedTaskControl;
   const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
   const projects = yield* ProjectService.ProjectService;
@@ -4088,6 +4090,45 @@ const make = Effect.gen(function* () {
               state: "accepted",
             })
             .pipe(Effect.mapError(workError));
+        if (
+          Option.isSome(modelShadow) &&
+          managedService !== undefined &&
+          prepared !== undefined &&
+          !isRetryOfAcceptedDelegation &&
+          input.followup === undefined &&
+          input.agentTask?.review?.councilSeat === undefined
+        ) {
+          const { binding } = prepared;
+          // Off the request path: nothing waits on it. The eligible list is read in the fork a moment
+          // after the launch, so it can differ from the agent's only if a model's availability flips between.
+          yield* modelShadow.value.observe({
+            threadId: deriveIds.delegatedTaskThread({ commandId }),
+            projectId: taskProjectId,
+            role: binding.role,
+            taskClass: binding.taskClass,
+            eligible: DelegationModelShadow.eligibleModels(
+              managedService,
+              {
+                projectId: taskProjectId,
+                providers: eligibleProviders,
+                ceiling: parent.thread.runtimeMode,
+              },
+              {
+                role: binding.role,
+                taskClass: binding.taskClass,
+                ...(binding.browser === undefined ? {} : { browser: binding.browser }),
+                ...(binding.executionRequirement === undefined
+                  ? {}
+                  : { executionRequirement: binding.executionRequirement }),
+                ...(binding.readOnly === undefined ? {} : { readOnly: binding.readOnly }),
+                ...(binding.authorModel === undefined ? {} : { authorModel: binding.authorModel }),
+              },
+            ),
+            chosenModel: target.modelSelection.model,
+            reassigned: experimentSelection !== undefined,
+            taskText: taskPrompt(input),
+          });
+        }
         const taskEvent = result.storedEvents.find(
           (stored) =>
             stored.event.type === "subagent.updated" && stored.event.payload.origin === "app_owned",

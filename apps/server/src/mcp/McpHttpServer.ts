@@ -87,6 +87,7 @@ import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import { saveBrowserScreenshot } from "../preview/browserArtifacts.ts";
 import * as BrowserTaskCalls from "../browserTasks/BrowserTaskCalls.ts";
+import * as DelegationModelShadow from "../agents/DelegationModelShadow.ts";
 import * as BrowserTaskService from "../browserTasks/BrowserTaskService.ts";
 import * as ChampionJourneys from "../champions/ChampionJourneys.ts";
 import * as ThreadDirectory from "../peers/ThreadDirectory.ts";
@@ -1573,6 +1574,7 @@ export const layer = Layer.mergeAll(
 ).pipe(
   Layer.provide(BrowserTaskService.layer.pipe(Layer.provide(ChampionJourneys.layerBrowserPolicy))),
   Layer.provide(BrowserTaskCalls.layer),
+  Layer.provide(DelegationModelShadow.layer),
   Layer.provideMerge(BrowserLogins.layer),
   Layer.provide(BitwardenSecrets.layer.pipe(Layer.provide(ProcessRunner.layer))),
 );

@@ -1089,6 +1089,19 @@ function PermissionsSection() {
           />
         }
       />
+      <SettingsRow
+        serverScoped
+        settingKeys={["delegation"]}
+        {...searchableSetting("delegation-model-shadow")}
+        description="Records which model the Decisions provider would pick for each delegated role task, beside the one the agent chose. It never changes which model runs. Sends the task's text to the Decisions provider."
+        control={
+          <Switch
+            aria-label="Record the Decisions provider's model pick"
+            checked={delegation.modelShadow}
+            onCheckedChange={(modelShadow) => update({ modelShadow })}
+          />
+        }
+      />
     </SettingsSection>
   );
 }

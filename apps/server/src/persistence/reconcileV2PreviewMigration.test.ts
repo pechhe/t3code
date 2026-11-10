@@ -96,6 +96,7 @@ describe("V2 preview upgrade", () => {
         [114, "ChampionJourneys"],
         [115, "ScheduledTaskPurpose"],
         [116, "BrowserTaskCalls"],
+        [117, "DelegationModelShadow"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -235,6 +236,7 @@ describe("V2 preview upgrade", () => {
         [114, "ChampionJourneys"],
         [115, "ScheduledTaskPurpose"],
         [116, "BrowserTaskCalls"],
+        [117, "DelegationModelShadow"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

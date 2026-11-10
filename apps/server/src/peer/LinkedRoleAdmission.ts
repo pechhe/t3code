@@ -30,7 +30,9 @@ const refuse = (message: string) =>
   new OrchestratorMcpFailure({ code: "capability_denied", message });
 
 /** The providers the project enables here, which a role may run on. */
-const providersFor = Effect.fn("LinkedRoleAdmission.providersFor")(function* (projectId: ProjectId) {
+const providersFor = Effect.fn("LinkedRoleAdmission.providersFor")(function* (
+  projectId: ProjectId,
+) {
   const threads = yield* ThreadManagement.ThreadManagementService;
   return yield* Effect.filter(
     yield* (yield* ProviderRegistry.ProviderRegistry).getProviders,
@@ -44,6 +46,8 @@ export interface AdmittedLinkedRole {
   readonly binding: AgentTaskBinding;
   readonly brief: string;
   readonly runtimeMode: RuntimeMode;
+  /** The models this environment's policy offered the role, for the shadow pick (T3-574). */
+  readonly eligible: ReadonlyArray<{ readonly model: string; readonly note?: string | undefined }>;
   readonly workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy;
   /** Settles the workspace allocation once the launch has bound it, or gives it back on failure. */
   readonly settle: (launched: boolean) => Effect.Effect<void>;
@@ -215,6 +219,9 @@ export const admitLinkedRole = Effect.fn("LinkedRoleAdmission.admit")(function* 
     binding: prepared.binding,
     brief: prepared.brief,
     runtimeMode,
+    eligible: row.models
+      .filter((entry) => entry.available)
+      .map(({ model, note }) => ({ model, note })),
     workspaceStrategy:
       allocation === undefined
         ? { type: "root" }

@@ -2435,11 +2435,13 @@ it.effect("persists delegation runtime settings and preserves existing defaults"
       defaultChildRuntimeMode: "inherit",
       advisorIdleCloseMinutes: null,
       allowTrustedClaudeWriters: false,
+      modelShadow: false,
     });
     const delegation = {
       defaultChildRuntimeMode: "approval-required" as const,
       advisorIdleCloseMinutes: 15,
       allowTrustedClaudeWriters: true,
+      modelShadow: true,
     };
     yield* service.updateSettings({ delegation });
     // An old client editing its known fields cannot reset the owner's explicit opt-in.

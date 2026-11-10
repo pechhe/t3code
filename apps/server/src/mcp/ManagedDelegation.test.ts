@@ -4,6 +4,7 @@ import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as ContextRemoteDelegation from "../peer/RemoteDelegation.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
+  DecisionRoutingError,
   OrchestratorMcpDelegateTaskInput,
   ProviderThreadId,
   type ChampionInvestigationBranchAttempt,
@@ -30,15 +31,19 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import * as ConfigProvider from "effect/ConfigProvider";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Digest from "effect/crypto/Digest";
 import * as Hex from "effect/encoding/Hex";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Managed from "../agents/ManagedAgentService.ts";
+import * as Shadow from "../agents/DelegationModelShadow.ts";
+import * as DecisionRouter from "../decisionRouting/DecisionRouter.ts";
 import { withRetiredFields } from "../agents/retiredRequestFields.ts";
 import {
   snapshot,
@@ -50,6 +55,7 @@ import {
   changeReview,
   provider,
 } from "../agents/agentPolicy.testkit.ts";
+import { runMigrations } from "../persistence/Migrations.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
@@ -294,6 +300,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
     ) => ReadonlyArray<OrchestrationV2ThreadShell> = () => [],
     bound = true,
     options: {
+      /** The command is accepted, so the delegation counts as admitted; it still yields no child. */
+      readonly accepts?: boolean;
       readonly champion?: boolean;
       readonly register?: ReadonlyArray<"foreign" | "twin">;
       readonly scratch?: boolean;
@@ -482,6 +490,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
               dispatched.push(command);
               locked.push(holding > 0);
               // Stop after capture: launching the child is the orchestrator's concern.
+              if (options.accepts === true)
+                return Effect.succeed({ sequence: 1, storedEvents: [] } as never);
               return Effect.fail(new Error("captured") as never);
             }),
         }),
@@ -962,6 +972,142 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           })).code,
         ).toBe("capability_denied");
         expect(h.dispatched).toHaveLength(1);
+      }).pipe(
+        Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+      ),
+  );
+
+  it.effect("hands the shadow pick the role's eligible list and the model the agent chose", () => {
+    const observed: Array<{ observation: Shadow.ShadowObservation; offered: string[] }> = [];
+    return Effect.gen(function* () {
+      const h = yield* harness(() => [], false, { accepts: true });
+      yield* h.delegate({
+        task: "Read package metadata",
+        clientRequestId: "shadow-reader",
+        agentTask: request({ workspacePath: h.lead, readOnly: true }),
+      });
+      const command = h.dispatched[0] as { modelSelection: ModelSelection };
+      expect(observed).toHaveLength(1);
+      expect(observed[0]!.observation).toMatchObject({
+        role: "implementer",
+        chosenModel: command.modelSelection.model,
+        reassigned: false,
+      });
+      expect(observed[0]!.offered).toContain(command.modelSelection.model);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}),
+          Layer.mock(Shadow.DelegationModelShadow)({
+            // Reads the list as the real recorder would, inside the delegation's own context.
+            observe: (observation) =>
+              observation.eligible.pipe(
+                Effect.map((models) => models.map((entry) => entry.model)),
+                Effect.tap((offered) =>
+                  Effect.sync(() => void observed.push({ observation, offered })),
+                ),
+                Effect.ignore,
+              ),
+          }),
+        ),
+      ),
+    );
+  });
+
+  it.effect("observes nothing for a delegation that was not admitted", () => {
+    const observed: Array<Shadow.ShadowObservation> = [];
+    return Effect.gen(function* () {
+      const h = yield* harness(() => [], false);
+      yield* h.delegate({
+        task: "Read package metadata",
+        clientRequestId: "shadow-refused",
+        agentTask: request({ workspacePath: h.lead, readOnly: true }),
+      });
+      expect(h.dispatched).toHaveLength(1);
+      expect(observed).toHaveLength(0);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}),
+          Layer.mock(Shadow.DelegationModelShadow)({
+            observe: (observation) => Effect.sync(() => void observed.push(observation)),
+          }),
+        ),
+      ),
+    );
+  });
+
+  it.effect.each(["unreachable", "timeout", "rate-limited"] as const)(
+    "prepares and starts a delegation identically when the decision provider is %s",
+    (code) =>
+      Effect.gen(function* () {
+        const start = (clientRequestId: string) =>
+          Effect.gen(function* () {
+            const h = yield* harness(() => [], false, { accepts: true });
+            const result = yield* h.delegate({
+              task: "Read package metadata",
+              clientRequestId,
+              agentTask: request({ workspacePath: h.lead, readOnly: true }),
+            });
+            // A workspace path feeds the request fingerprint, so only that hash differs between runs.
+            return JSON.stringify([result.code, h.dispatched])
+              .replaceAll(h.lead, "LEAD")
+              .replace(/[0-9a-f]{64}/g, "HASH");
+          });
+        const without = yield* start(`shadow-identical-${code}`);
+        const done = yield* Deferred.make<void>();
+        let asked = 0;
+        // The real recorder, forked as in production, signalling once its row is written.
+        const recorder = Layer.effect(
+          Shadow.DelegationModelShadow,
+          Effect.gen(function* () {
+            const real = yield* Shadow.DelegationModelShadow;
+            return Shadow.DelegationModelShadow.of({
+              ...real,
+              observe: (observation) =>
+                real
+                  .record(observation)
+                  .pipe(
+                    Effect.ensuring(Deferred.succeed(done, undefined)),
+                    Effect.forkDetach,
+                    Effect.asVoid,
+                  ),
+            });
+          }),
+        ).pipe(
+          Layer.provide(
+            Shadow.layer.pipe(
+              Layer.provideMerge(
+                Layer.mergeAll(
+                  Layer.mock(DecisionRouter.DecisionRouter)({
+                    decide: () =>
+                      Effect.suspend(() => {
+                        asked++;
+                        return Effect.fail(new DecisionRoutingError({ provider: "jev", code }));
+                      }),
+                  }),
+                  Settings.ServerSettingsService.layerTest({ delegation: { modelShadow: true } }),
+                ),
+              ),
+            ),
+          ),
+          Layer.provideMerge(Sqlite.layerMemory),
+        );
+        const withShadow = yield* Effect.gen(function* () {
+          yield* runMigrations();
+          const started = yield* start(`shadow-identical-${code}`);
+          yield* Deferred.await(done);
+          const rows = yield* (yield* SqlClient.SqlClient)<{
+            status: string;
+            error_code: string;
+            pick_model: string | null;
+          }>`SELECT status, error_code, pick_model FROM delegation_model_shadow WHERE error_code = ${code}`;
+          // The provider was asked and its failure recorded, with no pick.
+          expect(asked).toBe(1);
+          expect(rows).toEqual([{ status: "failed", error_code: code, pick_model: null }]);
+          return started;
+        }).pipe(Effect.provide(recorder));
+        expect(withShadow).toBe(without);
       }).pipe(
         Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
       ),

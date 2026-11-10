@@ -27,6 +27,7 @@ import * as WorkspaceProvider from "../../../project/WorkspaceProvider.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ManagedAgent from "../../../agents/ManagedAgentService.ts";
+import * as DelegationModelShadow from "../../../agents/DelegationModelShadow.ts";
 import { admitLinkedRole } from "../../../peer/LinkedRoleAdmission.ts";
 import * as DateTime from "effect/DateTime";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
@@ -397,6 +398,21 @@ export const handlers = {
           }),
         );
         const thread = result.projection.thread;
+        if (admitted !== undefined && !result.resumed) {
+          const shadow = yield* Effect.serviceOption(DelegationModelShadow.DelegationModelShadow);
+          // This environment's policy admitted the role, so the pick is recorded here, once.
+          if (Option.isSome(shadow))
+            yield* shadow.value.observe({
+              threadId: thread.id,
+              projectId: thread.projectId,
+              role: admitted.binding.role,
+              taskClass: admitted.binding.taskClass,
+              eligible: Effect.succeed(admitted.eligible),
+              chosenModel: thread.modelSelection.model,
+              reassigned: false,
+              taskText: input.message ?? "",
+            });
+        }
         if (!result.resumed && caller !== undefined)
           yield* logWhyNotDelegated({
             launchedFrom: caller.id,

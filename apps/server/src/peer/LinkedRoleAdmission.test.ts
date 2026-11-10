@@ -161,6 +161,8 @@ it.effect("resolves a linked reader in the project's own checkout, under the cal
     expect(refused).toBeNull();
     expect(admitted?.workspaceStrategy).toEqual({ type: "root" });
     expect(admitted?.binding.effective.model).toBe("deepseek");
+    // The list this environment's policy offered, which the shadow pick is recorded against.
+    expect(admitted?.eligible.map((entry) => entry.model)).toEqual(["deepseek"]);
     expect(yield* Ref.get(seen.prepared)).toContainEqual(
       expect.objectContaining({ role: "scout", workspacePath: workspaceRoot }),
     );

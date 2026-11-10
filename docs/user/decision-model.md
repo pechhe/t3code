@@ -15,3 +15,7 @@ A key can be pasted or read from a secret provider such as 1Password. Once saved
 ## When it fails
 
 A failing provider fails the decision and says which provider and why: key rejected, out of credits, rate limited, timed out or unreachable. Nothing switches to another provider or retries. When Jev credits run out, switch to OpenRouter here and enter its key.
+
+## Compare its model picks with your agents'
+
+Settings → Delegation → **Record the Decisions provider's model pick** (off by default) asks the provider, after each managed delegation starts, which of the role's models it would have picked, and keeps the answer beside the model the agent chose. It never changes which model runs, and a failing provider never slows a delegation. It sends the task's text to the provider and keeps only ids, model names and the answer. `t3 delegation shadow` reports how often the two agree, whether the provider leans cheaper or dearer, and how each group's tasks went.

@@ -1490,11 +1490,14 @@ export const DelegationRuntimeSettings = Schema.Struct({
   advisorIdleCloseMinutes: AdvisorIdleCloseMinutes.pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  /** T3-574: asks the decision engine, off the delegation's path, which model it would pick. */
+  modelShadow: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
 });
 const DelegationRuntimeSettingsPatch = Schema.Struct({
   allowTrustedClaudeWriters: Schema.optionalKey(Schema.Boolean),
   defaultChildRuntimeMode: Schema.optionalKey(DefaultChildRuntimeMode),
   advisorIdleCloseMinutes: Schema.optionalKey(AdvisorIdleCloseMinutes),
+  modelShadow: Schema.optionalKey(Schema.Boolean),
 });
 export type DelegationRuntimeSettings = typeof DelegationRuntimeSettings.Type;
 
