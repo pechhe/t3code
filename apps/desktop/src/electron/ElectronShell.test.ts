@@ -112,7 +112,7 @@ describe("ElectronShell", () => {
       assert.deepEqual(results, [true, true, true, true]);
       assert.deepEqual(
         openExternalMock.mock.calls,
-        urls.map((url) => [url]),
+        urls.map((url) => [url, { activate: true }]),
       );
     }).pipe(Effect.provide(ElectronShell.layer)),
   );
@@ -125,7 +125,9 @@ describe("ElectronShell", () => {
       const result = yield* electronShell.openExternal("VSCode://file/Users/me/repo/file.md:3");
 
       assert.equal(result, true);
-      assert.deepEqual(openExternalMock.mock.calls, [["vscode://file/Users/me/repo/file.md:3"]]);
+      assert.deepEqual(openExternalMock.mock.calls, [
+        ["vscode://file/Users/me/repo/file.md:3", { activate: true }],
+      ]);
     }).pipe(Effect.provide(ElectronShell.layer)),
   );
 

@@ -260,6 +260,24 @@
       "sourceUrl": "https://github.com/NaturalIntelligence/fast-xml-parser"
     },
     {
+      "name": "@napi-rs/wasm-runtime",
+      "version": "1.2.2",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/napi-rs/napi-rs",
+      "generatedNotice": {
+        "licenseId": "MIT"
+      }
+    },
+    {
+      "name": "@tybys/wasm-util",
+      "version": "0.10.3",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/toyobayashi/wasm-util",
+      "generatedNotice": {
+        "licenseId": "MIT"
+      }
+    },
+    {
       "name": "@betteroffice/xlsx",
       "version": "0.3.0",
       "license": "Apache-2.0",

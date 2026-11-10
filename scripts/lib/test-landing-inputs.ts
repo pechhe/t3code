@@ -103,6 +103,11 @@ const ACP_AGENT_SPAWNERS = [
 
 export const INPUT_RULES: ReadonlyArray<InputRule> = [
   {
+    when: /^apps\/mobile\/(?:plugins\/|app\.config\.ts$)/,
+    select: ["apps/mobile/plugins/withAndroidWindowDisplayMetrics.test.mjs"],
+    reason: "test loads the app config and its plugins from disk to prebuild MainActivity",
+  },
+  {
     when: /^apps\/mobile\/modules\/t3-highlights\/(?:cpp|tests)\//,
     select: ["apps/mobile/modules/t3-highlights/tests/utf16-to-utf8.test.ts"],
     reason: "run.sh compiles the highlights C++ sources from disk",
