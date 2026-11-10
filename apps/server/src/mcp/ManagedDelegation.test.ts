@@ -1054,6 +1054,18 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       });
       expect(change.code).toBe("orchestration_error");
       expect(h.dispatched).toHaveLength(4);
+      // A lead may ask for one reviewer: the role's ordinary choice sits alone.
+      const alone = yield* h.delegate({
+        task: "Review the Spec",
+        clientRequestId: "alone",
+        agentTask: { ...review, review: { ...review.review!, council: false } },
+      });
+      expect(alone.code).toBe("orchestration_error");
+      expect(h.dispatched).toHaveLength(5);
+      expect(
+        (h.dispatched[4] as { agentTask: { review: { councilSeat: string } } }).agentTask.review
+          .councilSeat,
+      ).toBe("solo");
     }).pipe(
       Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
     ),

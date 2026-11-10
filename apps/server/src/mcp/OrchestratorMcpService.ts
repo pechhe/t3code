@@ -2274,8 +2274,9 @@ const make = Effect.gen(function* () {
 
   /**
    * Sits a Spec review as a council when the policy turns it on: one reviewer per maker on
-   * the Spec list, in list order, never the author's own model. Undefined leaves the review
-   * to the ordinary single reviewer path.
+   * the Spec list, in list order, never the author's own model. A request with
+   * `review.council: false` sits the role's ordinary choice alone, as a council of one.
+   * Undefined leaves the review to the ordinary single reviewer path.
    */
   // Requests T3 itself seated; a caller naming a seat would skip the council and trials.
   const councilRequests = new WeakSet<AgentTaskRequest>();
@@ -2309,7 +2310,9 @@ const make = Effect.gen(function* () {
           ...input,
           task: `${input.task}\n\n${
             model === undefined
-              ? "The review council could not form, so you review alone. "
+              ? review.council === false
+                ? "You review alone. "
+                : "The review council could not form, so you review alone. "
               : `You review as the ${maker} member of a review council: other members review the same candidate independently, and you do not see their reports. `
           }Record your review with review.reviewer.taskRef "${taskRef}", and give it a score out of 10 for this round, or record that you give none.`,
           ...(input.title === undefined ? {} : { title: `${input.title} · ${maker}` }),
@@ -2337,7 +2340,8 @@ const make = Effect.gen(function* () {
     const missing: Array<OrchestratorMcpReviewCouncil["missing"][number]> = [];
     const seated = new Set<string>();
     let launchFailure: OrchestratorMcpFailure | undefined;
-    for (const entry of manifest.lists[role.specList ?? role.list] ?? []) {
+    const list = review.council === false ? [] : (manifest.lists[role.specList ?? role.list] ?? []);
+    for (const entry of list) {
       const binding = manifest.models[entry.model]!;
       const maker = modelMaker(binding);
       if (seated.has(maker)) continue;

@@ -565,6 +565,8 @@ export const AgentReviewRequest = Schema.Struct({
   priorReview: Schema.optional(
     Schema.Struct({ workId: TrimmedNonEmptyString, sourceRevision: TrimmedNonEmptyString }),
   ),
+  /** `false` asks for one reviewer where the policy would sit a council. */
+  council: Schema.optional(Schema.Boolean),
   /** Set by T3 when it sits a council: the maker this reviewer sits for, or `solo`. */
   councilSeat: Schema.optional(TrimmedNonEmptyString),
 });
