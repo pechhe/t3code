@@ -162,7 +162,6 @@ describe("name fragments", () => {
         id: "exact",
         kind: "target",
         target: { role: "list", name: "Open cases" },
-        expect: "present",
       },
       {
         id: "gone",

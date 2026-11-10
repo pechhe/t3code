@@ -231,6 +231,14 @@ it.live.each(["access", "backend", "allow-list"] as const)(
             }).pipe(Effect.flip);
             expect(refused.message).toContain(`blocked address localhost:${port}`);
           }
+          const refusedTunnel = yield* broker
+            .invoke<PreviewAutomationStatus>({
+              scope: { ...scope, thread: { ...scope.thread, providerSessionId: "task-tunnel" } },
+              operation: "open",
+              input: { url: `https://localhost:${port}/blocked` },
+            })
+            .pipe(Effect.flip);
+          expect(refusedTunnel.message).toContain(`blocked address localhost:${port}`);
           yield* invoke("navigate", { url: `http://127.0.0.1:${port}/` });
           const second: McpThreadInvocationScope = {
             ...scope,

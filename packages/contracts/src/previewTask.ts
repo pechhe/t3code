@@ -150,6 +150,10 @@ export const PreviewTaskAction = Schema.Union([
 ]);
 export type PreviewTaskAction = typeof PreviewTaskAction.Type;
 
+const Expect = Schema.optional(Schema.Literals(["present", "absent"])).annotate({
+  description: "Default `present`.",
+});
+
 export const PreviewTaskCheck = Schema.Union([
   Schema.Struct({
     id: Id,
@@ -161,13 +165,13 @@ export const PreviewTaskCheck = Schema.Union([
     id: Id,
     kind: Schema.Literal("text"),
     includes: Text,
-    expect: Schema.Literals(["present", "absent"]),
+    expect: Expect,
   }),
   Schema.Struct({
     id: Id,
     kind: Schema.Literal("target"),
     target: PreviewTaskTarget,
-    expect: Schema.Literals(["present", "absent"]),
+    expect: Expect,
     value: Schema.optional(Schema.String),
     checked: Schema.optional(Schema.Boolean),
   }),

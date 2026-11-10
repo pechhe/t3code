@@ -2444,7 +2444,11 @@ const make = Effect.gen(function* () {
             ),
           ));
         // A reused tab keeps the size it was opened with unless this open fixes a new one.
-        if (existing && open.viewport !== undefined && !viewportSettingsEqual(open.viewport, existing.setting)) {
+        if (
+          existing &&
+          open.viewport !== undefined &&
+          !viewportSettingsEqual(open.viewport, existing.setting)
+        ) {
           await runPromise(
             manager.resize({ threadId: tab.threadId, tabId: tab.tabId, viewport: open.viewport }),
           );
@@ -2475,8 +2479,18 @@ const make = Effect.gen(function* () {
                 if (cause instanceof Error && cause.message.includes("Download is starting")) {
                   throw cause;
                 }
+                // A refused HTTPS tunnel reaches the page only as ERR_TUNNEL_CONNECTION_FAILED.
+                const refused =
+                  request.managedBrowser === undefined
+                    ? undefined
+                    : contexts.networkRefusals?.(tab.page.context()).at(-1);
                 await runPromise(manager.close({ threadId: tab.threadId, tabId: tab.tabId }));
                 dropTab(tab, false);
+                if (refused !== undefined)
+                  throw new ServerBrowserPage.ServerBrowserOperationError({
+                    tag: "PreviewAutomationExecutionError",
+                    message: refused,
+                  });
                 throw cause;
               });
             }

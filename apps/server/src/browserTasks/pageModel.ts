@@ -421,7 +421,7 @@ const evaluateCheck = (
     case "text": {
       // Visible text carries CSS text-transform, so a case-sensitive "absent" passes while it shows.
       const found = model.text.toLowerCase().includes(check.includes.toLowerCase());
-      if (check.expect === "present")
+      if (check.expect !== "absent")
         return found
           ? { status: "passed" }
           : model.truncated
