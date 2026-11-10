@@ -3,32 +3,32 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.8-nightly.20261109.4433",
-      "sha": "bf469bb19669671d0df2efda74ed73867a7137c0"
-    },
-    "target": {
       "tag": "v0.1.9-nightly.20261109.4443",
       "sha": "b10cdded50851ead0be729a5cedfff125dde7ca8"
+    },
+    "target": {
+      "tag": "v0.1.9-nightly.20261110.4449",
+      "sha": "eb381a7d4f4475d60fbb1f59efe9f204de59bba8"
     }
   },
   "fork": {
-    "base": "9a11a90d8f6b36e7b66debf8f87612f38ae25aa5"
+    "base": "cb5a49d628548f9895a21659effa29fe075691bf"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "29f233612dc9a07cd23fcd856cb72468d9c2195a"
+    "blob": "86e8375be3a6ce6122ea22758df83cf9af44f2dc"
   },
   "policy": {
     "requiredLandingVerificationSha256": "f57f8da576ea5674b21d79bbc7768f8e0c381aa98726cc2705048b36ea3176a7"
   },
-  "attempt": "v0.1.9-nightly.20261109.4443@1794269342",
-  "reviewedAt": "2026-11-10T00:45:00Z",
+  "attempt": "v0.1.9-nightly.20261110.4449@1794276562",
+  "reviewedAt": "2026-11-10T02:29:28Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:1ae2ce98-209d-412b-a39a-b724b5bb5b49",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:0c583c14-a850-4f6a-86d1-b724c07f8948",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 10,
+    "upstreamCommits": 7,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
@@ -108,116 +108,98 @@
       "shared-provider-setup"
     ],
     "areas": [
-      "web thread header and workspace focus (a new side chat focuses its message input, the title's menu opened by the title itself)",
-      "agent sign-in approval over T3 Connect (contracts auth details, server OAuth handlers, web approve-agent route and surfaces, client-runtime pairing codes)",
-      "web composer send path (sending while attachments upload, attachment upload helpers, provider updates across machines, custom-instructions copy and settings search)",
-      "mobile (iOS column-following composer and search bars, V5StackHeader, inspector host, Android store releases on Blacksmith)",
-      "dependencies (react-native-pdf-jsi 6.1.0 Android tap patch, pnpm-workspace patchedDependencies, lockfile regeneration, docs/dependencies.md)",
-      "generated web route tree (the new /approve-agent route regenerated rather than hand-merged)"
+      "agent sign-in approval on the hosted app (McpOAuth.approvingSession authenticating through authenticateHttpRequest, a DPoP-thumbprint-bound csrf token, /approve-agent on agentApprovalAppUrlConfig, optional bearer headers on the approval and decision endpoints, the mcpHostedApproval capability, ApproveAgentSurface and ConnectAgentSurface, and client-runtime connectMcpApproval replacing web connectAgentApproval, mintConnectMcpApprovalCode and the connectSignIn field)",
+      "server auth internals (EnvironmentAuth dropping authenticateBrowserSession, the makeDpopKey helper moving to auth/dpop.testkit.ts)",
+      "dependencies (@pierre/diffs 1.7.0-beta.3 with upstream's replacement patch and built-in find, @pierre/highlights 0.5.0, the regenerated vendored wasm C and generated language table, the lockfile)",
+      "web diff viewer (find reaching folded files and collapsed context, expanding hidden context after a diff refresh, StyledDiffCodeView and the diff render surface tokens)",
+      "web UI primitives (dropdown items over the desktop title bar respond to clicks: autocomplete, combobox, select)",
+      "usage sources (Cursor account usage scanning through the account cache, OpenCode in-window usage reads, UsageService tests)",
+      "mobile review model and user docs (outside-agents approval guidance beside the fork's t3 agent section)"
     ],
     "exclusions": [
       {
-        "what": "upstream's own code inside the 10 incoming commits",
+        "what": "upstream's own code inside the 7 incoming commits",
         "why": "upstream reviewed it; only the merge's conflict resolutions and this reconciliation commit are reviewed here"
       },
       {
         "what": "the merge's clean auto-merges",
-        "why": "files both sides touched whose hunks do not overlap; checked line by line that no fork line was lost and no upstream line dropped, and covered by the typechecks and suites below"
+        "why": "checked file by file that each side's changes survived intact (merged-vs-upstream equals the fork's delta and merged-vs-fork equals upstream's delta for every file both sides touched), and covered by the typechecks and suites below"
       },
       {
-        "what": "the release-prep version bumps (0.1.7 to 0.1.8) in apps/desktop, apps/server, apps/web and packages/contracts",
-        "why": "version text only; the fork carries no version difference there"
+        "what": "the regenerated vendored highlights sources (Vendor/highlights/highlights.c and .h, src/lib/highlights.generated.ts)",
+        "why": "generated from the pinned @pierre/highlights 0.5.0, not hand-written; apps/mobile/scripts/generate-highlights.test.ts proves the committed copies match the generator's output"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "web-client-customisation",
-      "upstream": "the thread title opens the actions menu on the first click, without upstream's own half-second delay (#33598); custom-instructions settings copy (#33113) and settings search descriptions",
-      "decision": "adapt",
-      "requirements": [
-        "the fork keeps its split title: the title copies the thread id after TITLE_CLICK_COPY_DELAY_MS and the chevron opens the actions menu at once",
-        "upstream's new title-click test becomes the fork's chevron test, so the no-wait requirement stays covered",
-        "the fork's settings search entries and save-as-you-type behaviour are unchanged"
-      ],
-      "evidence": [
-        "ChatHeader.browser.test.tsx, settingsSearch.test.ts and SourceControlWritingSettings.browser.test.tsx pass",
-        "web typecheck is clean"
-      ]
-    },
-    {
-      "entry": "side-chat",
-      "upstream": "a new side chat focuses its message input (#32929)",
-      "decision": "adopt",
-      "requirements": [
-        "workspaceFocus.ts still marks only areas F6 entered, so a clicked area shows no focus ring",
-        "Use in main, the first-turn runtime-mode guard and pane isolation are unchanged"
-      ],
-      "evidence": [
-        "workspaceFocus.browser.test.ts passes (47 tests with ChatHeader and settingsSearch)"
-      ]
-    },
-    {
       "entry": "linked-environments",
-      "upstream": "agent sign-ins are approved through T3 Connect instead of a pasted code (#33600): optional connectSignIn on the approval details, /approve-agent, mintConnectMcpApprovalCode",
-      "decision": "adapt",
+      "upstream": "agent sign-in approval moves to the hosted app (#33632) and stops failing with \"Your session cannot approve\" (#33645): approvingSession authenticates with authenticateHttpRequest and binds the csrf token to the DPoP key thumbprint, the page moves to /approve-agent on agentApprovalAppUrlConfig, the approval and decision endpoints accept an optional bearer, and mcpHostedApproval is a new optional capability. connectSignIn, connectAgentApproval, mintConnectMcpApprovalCode and peerPairingCode.test.ts are removed.",
+      "decision": "adopt",
       "requirements": [
-        "the new details field and route are additive and optional, so shipped clients still decode them",
-        "server offers no connect approval to a peerLink client, so a link still needs a plain pairing code",
-        "the fork's peer sessions, peer-threads access and environment-qualified link rule are unchanged"
+        "the previous tag's connectSignIn adaptation retires; removing the optional key still decodes in a shipped client",
+        "a peerLink client is still redirected to the environment's own page and still needs a plain pairing code (mcpOAuthHttp.ts), and a peer session holds only orchestration:read, never access:write, so it can never approve",
+        "the fork's peer sessions, its peer-threads access, McpClientAccess and its environment-qualified link rule are unchanged"
       ],
       "evidence": [
-        "apps/server/src/auth/McpOAuth.test.ts and packages/client-runtime/src/state/peerPairingCode.test.ts pass (16 tests)",
-        "server and web typechecks are clean"
+        "apps/server/src/auth/McpOAuth.test.ts keeps the fork's 152 lines beside upstream's 135, and passes with EnvironmentAuth.test.ts (44 tests across the auth suites)",
+        "grep finds no remaining reference to connectSignIn, connectAgentApproval, mintConnectMcpApprovalCode, ConnectApprovalCodeError, approvingBrowserSession or authenticateBrowserSession",
+        "apps/server/src/shippedClientCompatibility.test.ts and the server and web typechecks are clean"
       ]
     },
     {
-      "entry": "t3-agent-cli",
-      "upstream": "the connect-an-agent surface and docs offer the T3 Connect approval step (#33600)",
-      "decision": "adopt",
+      "entry": "dpop-forwarded-proto",
+      "upstream": "the new hosted-approval page authenticates through authenticateHttpRequest, so server-side DPoP verification now runs behind the T3 Connect tunnel on that path; upstream still has no x-forwarded-proto handling of its own",
+      "decision": "retain",
       "requirements": [
-        "the fork's t3 agent commands, AgentCliClient and the read-only inspection toolkit are untouched"
+        "DPoP proof verification still compares against the scheme upgraded to https when x-forwarded-proto says so, on HTTP requests and WebSocket upgrades",
+        "McpOAuth.approvingSession and McpOAuth.requestUrls both reach that helper, so an approval behind the tunnel verifies and the /approve-agent URL names the tunnel host"
       ],
       "evidence": [
-        "connectAgentApproval.test.ts and the server auth suite pass"
-      ]
-    },
-    {
-      "entry": "mobile-fork-screens",
-      "upstream": "the composer and search bars follow their iOS column (#33543); Android store releases build on Blacksmith (#33565)",
-      "decision": "adopt",
-      "requirements": [
-        "the fork's Forge item header and sheet, workflow badge, release approval card, Jujutsu labels, Away key and settings entries stay in place"
-      ],
-      "evidence": [
-        "V5StackHeader.ios.test.tsx, compactEditorInsets.test.ts and composerSendPresentation.test.ts pass",
-        "mobile typecheck is clean"
-      ]
-    },
-    {
-      "entry": "device-composer",
-      "upstream": "a message sends while its attachments upload (#33092); a redirect that declines pending approvals waits for its uploads",
-      "decision": "adopt",
-      "requirements": [
-        "the device composer, machine switch, Fast switch, reasoning dial and send motion are unchanged",
-        "the fork's useMultipleModelSend and Away inheritance keep their behaviour in useComposerSend"
-      ],
-      "evidence": [
-        "composerSend.logic.test.ts, attachmentUploadQueue.test.ts and attachmentUploadState.test.ts pass",
-        "web typecheck is clean"
+        "auth/dpop.ts and auth/McpOAuth.ts both import forwardedRequestUrl; EnvironmentAuth.authenticateHttpRequest has no direct URL comparison of its own",
+        "forwardedUrl.test.ts, dpop.test.ts, McpOAuth.test.ts and EnvironmentAuth.test.ts pass (44 tests), including the TLS-proxy regression"
       ]
     },
     {
       "entry": "validation-tooling",
-      "upstream": "upstream patches react-native-pdf-jsi 6.1.0 for Android double-tap zoom and taps near a link (#33570)",
-      "decision": "adopt",
+      "upstream": "@pierre/diffs 1.7.0-beta.3 with patches/@pierre__diffs@1.7.0-beta.3.patch replacing the 1.6.1 patch, @pierre/highlights 0.5.0, and the lockfile entries for both",
+      "decision": "adapt",
       "requirements": [
-        "docs/dependencies.md no longer calls PDF JSI unpatched, and keeps its 6.1.0 and nitro-modules 0.37.2 pairing, the expo.autolinking.ios.exclude entry and the nitro-modules licence notice",
-        "every other catalog entry, manifest range, override, patch, install permission and release-age exception stays the fork's"
+        "each catalogue entry, override, patch, install permission and release-age exception keeps the newer side: upstream's pierre versions, the fork's @noble 2.4.0, @tailwindcss 4.3.5, @electron-webauthn/macos 1.4.0 and pnpm 12.15.0",
+        "the stale @pierre/diffs@1.6.1 and @pierre/highlights@0.2.0 minimumReleaseAgeExclude lines go with the versions they named"
       ],
       "evidence": [
-        "vp i regenerated only the pdf-jsi entry in pnpm-lock.yaml; supply-chain policies pass on 2,032 entries",
-        "a second vp i leaves the lockfile unchanged"
+        "vp i regenerated the lockfile from upstream's copy; the diff moves the pierre entries, upstream's patch swap, a floating @cloudflare/workers-types date version and pnpm's packageManagerDependencies record for the already-pinned 12.15.0",
+        "a second vp i leaves pnpm-lock.yaml byte-identical, and the supply-chain policies pass on 2,033 entries"
+      ]
+    },
+    {
+      "entry": "mobile-fork-screens",
+      "upstream": "the vendored @pierre/highlights copies regenerate for 0.5.0, and upstream tweaks the mobile review model (#33627)",
+      "decision": "adopt",
+      "requirements": [
+        "the generated wasm C and language table match the pinned package, and the shipped wasm is unchanged",
+        "taking upstream's copies must not change a generated byte beyond the version stamp",
+        "the Forge item header and sheet, workflow badge, release approval card, Jujutsu labels, Away key and the fork's mobile settings entries stay in place"
+      ],
+      "evidence": [
+        "diffing the fork's 0.4.0 copies against upstream's 0.5.0 copies leaves only the generator's version stamp in each of the three files (highlights.wasm sha256 2fca61b6..., unchanged)",
+        "apps/mobile/scripts/generate-highlights.test.ts passes, so the committed copies are what the 0.5.0 generator produces",
+        "the mobile typecheck is clean"
+      ]
+    },
+    {
+      "entry": "account-pools",
+      "upstream": "Cursor's account usage scan reuses the account cache instead of rescanning (#33636) and OpenCode's usage read is bounded to in-window messages (#33612)",
+      "decision": "adopt",
+      "requirements": [
+        "the chosen member's usage refresh before routing, the pool's routing and its snapshot read the same records as before",
+        "the fork's pre-routing refresh keeps working through the same seams, which upstream did not re-shape",
+        "the fork's pool configuration and usage card are unchanged"
+      ],
+      "evidence": [
+        "ProviderRegistry.refreshInstanceUsage (ProviderRegistry.ts) -> the Cursor driver's refreshUsage -> CursorUsageAccounts.startRefresh -> readCursorAccountUsage/mergeCursorFetch: the call path is unchanged; upstream changed only the read's internals and added a two-permit refresh lock",
+        "apps/server/src/provider/ProviderRegistry.test.ts passes (56 tests), beside provider-cursor accountUsage and accountCache, provider-opencode usage and apps/server/src/usage/UsageService.test.ts (66 tests)"
       ]
     }
   ],
@@ -226,42 +208,52 @@
     {
       "command": "vp i",
       "result": "passed",
-      "note": "lockfile rebuilt on the fork's lockfile so no unrelated entry moved; supply-chain policies pass on 2,032 entries; a second run leaves the file byte-identical"
+      "note": "lockfile up to date, installation of the merged dependency set; supply-chain policies pass on 2,033 entries and a second run leaves the lockfile byte-identical"
     },
     {
       "command": "vp run --filter t3 typecheck",
       "result": "passed",
-      "note": "no errors (63 effect-tsgo suggestions, present on the fork base too)"
+      "note": "no errors (545 effect-tsgo suggestions, present on the fork base too)"
     },
     {
       "command": "vp run --filter @t3tools/web typecheck",
       "result": "passed",
-      "note": "no errors"
+      "note": "no errors (63 suggestions)"
     },
     {
       "command": "vp run --filter @t3tools/mobile typecheck",
       "result": "passed",
-      "note": "no errors"
+      "note": "no errors (41 suggestions)"
     },
     {
-      "command": "vp test run (web header, workspace focus and settings search)",
+      "command": "vp test run (server auth)",
       "result": "passed",
-      "note": "47 tests: ChatHeader.browser.test.tsx, workspaceFocus.browser.test.ts, settingsSearch.test.ts"
+      "note": "44 tests: McpOAuth.test.ts, EnvironmentAuth.test.ts, forwardedUrl.test.ts, dpop.test.ts"
     },
     {
-      "command": "vp test run (web composer and auth)",
+      "command": "vp test run (clients and client-runtime)",
       "result": "passed",
-      "note": "31 tests: composerSend.logic, attachmentUploadQueue, attachmentUploadState, connectAgentApproval, ProviderUpdatesAction.browser, SourceControlWritingSettings.browser"
+      "note": "963 tests across 73 files: shippedClientCompatibility.test.ts, ConnectAgentSurface.logic.test.ts and the whole packages/client-runtime/src/state tree"
     },
     {
-      "command": "vp test run (server auth and client pairing)",
+      "command": "vp test run (usage sources)",
       "result": "passed",
-      "note": "16 tests: apps/server/src/auth/McpOAuth.test.ts, packages/client-runtime/src/state/peerPairingCode.test.ts"
+      "note": "66 tests: provider-opencode usage, apps/server UsageService, provider-cursor accountUsage and accountCache"
     },
     {
-      "command": "vp test run (mobile)",
+      "command": "vp test run (web diff viewer and UI primitives)",
       "result": "passed",
-      "note": "7 tests: V5StackHeader.ios, compactEditorInsets, composerSendPresentation"
+      "note": "21 tests: codeViewContextExpansion.browser, codeViewSearch.browser, AnnotatableCodeView.browser, fileEditorDismissal.browser, reviewCommentContext and the components/ui suites"
+    },
+    {
+      "command": "vp test run apps/server/src/provider/ProviderRegistry.test.ts",
+      "result": "passed",
+      "note": "56 tests; the pool's pre-routing refresh calls the same instance refreshUsage seam the Cursor scan sits behind"
+    },
+    {
+      "command": "vp test run apps/mobile/scripts/generate-highlights.test.ts",
+      "result": "passed",
+      "note": "the committed vendored highlights sources match @pierre/highlights 0.5.0"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
@@ -269,9 +261,9 @@
       "note": "the merged config lists and selects tests; the canonical gate runs on the SlipJay runner at landing"
     },
     {
-      "command": "code-review (scope change, base a73f1b75, candidate 72f866dc, reviewer claude-sonnet-5-5)",
-      "result": "passed",
-      "note": "one blocking and two should-fix findings, all one defect: the seven new Decision lines were appended at the end of the record under shared-provider-setup instead of in their own entries. Fixed by moving each line into its entry (web-client-customisation, validation-tooling, device-composer, mobile-fork-screens, t3-agent-cli, linked-environments, side-chat) and recomputing record.blob; score 6/10 on the reviewed candidate. No other finding on either axis."
+      "command": "vp run knip:check (pre-commit hook in the temporary merge clone)",
+      "result": "failed",
+      "note": "pre-existing on the fork base, not caused by this merge: the mobile third-party licence generator rejects @napi-rs/wasm-runtime@1.2.2 and @tybys/wasm-util@0.10.3, which are nested inside the fork's own @tailwindcss/oxide-wasm32-wasi@4.3.5. The merge touched neither the licence config nor that package, and slipjay.json's landing gate does not run knip"
     }
   ],
   "result": "reconciled"

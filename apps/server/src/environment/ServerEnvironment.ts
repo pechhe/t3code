@@ -293,6 +293,7 @@ export const make = Effect.gen(function* () {
       linkFence: true,
       threadImport: true,
       mcpApprovalCodes: true,
+      mcpHostedApproval: true,
     },
   };
 
