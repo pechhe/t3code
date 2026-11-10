@@ -1,7 +1,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as ConfigProvider from "effect/ConfigProvider";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -56,10 +56,7 @@ const fixture = Effect.gen(function* () {
     run: <A, E, R>(effect: Effect.Effect<A, E, Settings.AgentPolicySettingsService | R>) =>
       effect.pipe(
         Effect.provide(Layer.fresh(layer)),
-        Effect.provideService(
-          ConfigProvider.ConfigProvider,
-          ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: root }),
-        ),
+        Effect.provideService(HostProcess.Environment, { T3CODE_AGENT_POLICY_ROOT: root }),
       ),
   };
 });

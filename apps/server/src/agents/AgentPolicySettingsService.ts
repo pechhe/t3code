@@ -4,11 +4,11 @@ import {
   type AgentPolicySaveInput,
   type AgentPolicyManifest,
 } from "@t3tools/contracts";
-import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as AgentConfigCheckout from "./AgentConfigCheckout.ts";
+import { agentPolicyRoot } from "./agentPolicyRoot.ts";
 import * as Policy from "./AgentPolicyService.ts";
 import * as Providers from "../provider/ProviderRegistry.ts";
 import * as Processes from "../processRunner.ts";
@@ -27,8 +27,17 @@ const make = Effect.gen(function* () {
   const policy = yield* Policy.AgentPolicyService;
   const providers = yield* Providers.ProviderRegistry;
   const process = yield* Processes.ProcessRunner;
-  const root = Config.String("T3CODE_AGENT_POLICY_ROOT").pipe(
-    Effect.mapError((cause) => new AgentPolicySettingsError({ reason: "not-configured", cause })),
+  const root = agentPolicyRoot.pipe(
+    Effect.flatMap((root) =>
+      Effect.fromOption(
+        root,
+        () =>
+          new AgentPolicySettingsError({
+            reason: "not-configured",
+            cause: "T3CODE_AGENT_POLICY_ROOT is not set",
+          }),
+      ),
+    ),
   );
   const load = Effect.fn(function* () {
     return yield* policy

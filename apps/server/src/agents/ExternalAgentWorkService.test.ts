@@ -13,10 +13,10 @@ import {
   OrchestratorMcpDelegateTaskInput,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
-import * as ConfigProvider from "effect/ConfigProvider";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as DateTime from "effect/DateTime";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -333,10 +333,7 @@ const withFixture = <A, E>(
       yield* fs.makeDirectory(registeredRoot, { recursive: true });
       return yield* use(fixture).pipe(
         Effect.provide(makeTestLayer(state, registeredRoot, invalidation, watcherStarted, stopped)),
-        Effect.provideService(
-          ConfigProvider.ConfigProvider,
-          ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot }),
-        ),
+        Effect.provideService(HostProcess.Environment, { T3CODE_AGENT_POLICY_ROOT: policyRoot }),
       );
     }),
   ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
@@ -848,10 +845,9 @@ it.effect("restores persisted ownership and the invalidation watcher after servi
             );
           }),
         ).pipe(
-          Effect.provideService(
-            ConfigProvider.ConfigProvider,
-            ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot }),
-          ),
+          Effect.provideService(HostProcess.Environment, {
+            T3CODE_AGENT_POLICY_ROOT: policyRoot,
+          }),
         );
 
       const client = yield* withService(watcherStarted, (context) =>

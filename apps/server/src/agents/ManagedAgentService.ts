@@ -32,7 +32,6 @@ import {
   usesPhi,
   type AgentToolProfile,
 } from "@t3tools/contracts";
-import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -40,6 +39,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
+import { agentPolicyRoot } from "./agentPolicyRoot.ts";
 import * as Policy from "./AgentPolicyService.ts";
 import * as Store from "./AgentPolicyStore.ts";
 import * as Resolver from "./AgentRoleResolver.ts";
@@ -277,19 +277,15 @@ const make = Effect.gen(function* () {
   const processes = yield* ProcessRunner.ProcessRunner;
   const currentPolicy = Effect.gen(function* () {
     // Explicit environment-local configuration; installing this feature activates no policy.
-    const root = yield* Config.String("T3CODE_AGENT_POLICY_ROOT").pipe(
-      Effect.mapError(
-        (cause) =>
-          new ManagedAgentError({
-            reason: "policy",
-            detail:
-              "T3CODE_AGENT_POLICY_ROOT is not set, so this environment reads no role policy; set it to the agent-config checkout to enable managed delegation",
-            cause,
-          }),
-      ),
-    );
+    const root = yield* agentPolicyRoot;
+    if (Option.isNone(root))
+      return yield* new ManagedAgentError({
+        reason: "policy",
+        detail:
+          "T3CODE_AGENT_POLICY_ROOT is not set, so this environment reads no role policy; set it to the agent-config checkout to enable managed delegation",
+      });
     return yield* policy
-      .snapshot(root)
+      .snapshot(root.value)
       .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause })));
   });
   const execution = Effect.fn(function* (
@@ -726,7 +722,7 @@ const make = Effect.gen(function* () {
       return matches[0]?.id ?? callerProjectId;
     }),
     configured: Effect.fn("ManagedAgentService.configured")(() =>
-      Config.option(Config.String("T3CODE_AGENT_POLICY_ROOT")).pipe(
+      agentPolicyRoot.pipe(
         Effect.map(Option.isSome),
         Effect.orElseSucceed(() => false),
       ),

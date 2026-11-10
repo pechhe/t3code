@@ -13,6 +13,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -82,7 +83,7 @@ const fixture = Effect.gen(function* () {
   for (const role of Object.values(manifest.roles))
     yield* fs.writeFileString(`${policyRoot}/${role.brief}`, `Original ${role.brief}\n`);
   const service = yield* Managed.ManagedAgentService;
-  const config = ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot });
+  const environment = { T3CODE_AGENT_POLICY_ROOT: policyRoot };
   const authority = { workspacePath, providers: [codex, claude], ceiling: "full-access" as const };
   const prepareInput = {
     ...authority,
@@ -92,11 +93,11 @@ const fixture = Effect.gen(function* () {
   const prepare = (overrides: Partial<Parameters<typeof service.prepare>[0]> = {}) =>
     service
       .prepare({ ...prepareInput, ...overrides })
-      .pipe(Effect.provideService(ConfigProvider.ConfigProvider, config));
+      .pipe(Effect.provideService(HostProcess.Environment, environment));
   const validate = (binding: AgentTaskBinding, selection: ModelSelection = binding.effective) =>
     service
       .validate({ ...authority, binding, selection })
-      .pipe(Effect.provideService(ConfigProvider.ConfigProvider, config));
+      .pipe(Effect.provideService(HostProcess.Environment, environment));
   return {
     fs,
     root,
@@ -108,7 +109,7 @@ const fixture = Effect.gen(function* () {
     validate,
     service,
     prepareInput,
-    config,
+    environment,
   };
 });
 
@@ -130,7 +131,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           binding: accepted.binding,
           selection: accepted.binding.effective,
         })
-        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config), Effect.flip);
+        .pipe(Effect.provideService(HostProcess.Environment, f.environment), Effect.flip);
       expect(error.reason).toBe("selection");
       expect(error.cause).toMatchObject({
         candidates: expect.arrayContaining([
@@ -222,7 +223,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           yield* settings.updateSettings({ delegation: { allowTrustedClaudeWriters: true } });
         }).pipe(
           Effect.provide(runtimeLayer),
-          Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+          Effect.provideService(HostProcess.Environment, f.environment),
         );
         for (const overrides of [
           { ceiling: "auto" as const },
@@ -266,7 +267,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         const settings = yield* Settings.ServerSettingsService;
         const roles = yield* f.service
           .roles({ ...f.prepareInput, request: { taskClass: "ui" } })
-          .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+          .pipe(Effect.provideService(HostProcess.Environment, f.environment));
         const ui = roles.roles.find((role) => role.role === "implementer")!;
         expect(ui.executionBoundary).toBe("trusted-host-access");
         expect(ui.executionRequirement).toBe("trusted-host-allowed");
@@ -390,7 +391,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           expect(denied.cause).toMatchObject({ reason: "workspace" });
         }).pipe(
           Effect.provide(runtimeLayer.pipe(Layer.provideMerge(Settings.layerTest()))),
-          Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+          Effect.provideService(HostProcess.Environment, f.environment),
         );
       }),
   );
@@ -410,7 +411,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           binding: accepted.binding,
           selection: accepted.binding.effective,
         })
-        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+        .pipe(Effect.provideService(HostProcess.Environment, f.environment));
       for (const invalid of [
         request({ workspacePath: f.workspacePath }),
         request({
@@ -623,12 +624,23 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       const f = yield* fixture;
       const error = yield* f.service
         .prepare(f.prepareInput)
-        .pipe(
-          Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromUnknown({})),
-          Effect.flip,
-        );
+        .pipe(Effect.provideService(HostProcess.Environment, {}), Effect.flip);
       expect(error.reason).toBe("policy");
       expect(error.message).toContain("T3CODE_AGENT_POLICY_ROOT");
+    }),
+  );
+  it.effect("takes the policy root from the environment the desktop patches after startup", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      // A desktop started by launchd learns this value after the server's config snapshot, which
+      // still reads as unset here.
+      const accepted = yield* f.service
+        .prepare(f.prepareInput)
+        .pipe(
+          Effect.provideService(HostProcess.Environment, f.environment),
+          Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromUnknown({})),
+        );
+      expect(accepted.binding.role).toBe("implementer");
     }),
   );
   it.effect("reports the policy file and hash a refusal could not read or admit", () =>
@@ -649,7 +661,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       const f = yield* fixture;
       const discover = f.service
         .roles({ ...f.prepareInput, request: { taskClass: "non-ui" } })
-        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config), Effect.flip);
+        .pipe(Effect.provideService(HostProcess.Environment, f.environment), Effect.flip);
       yield* f.writeManifest({ ...f.manifest, revision: "" });
       const invalid = yield* discover;
       expect(invalid.reason).toBe("policy");
@@ -859,7 +871,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           binding: helper.binding,
           selection: helper.binding.effective,
         })
-        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+        .pipe(Effect.provideService(HostProcess.Environment, f.environment));
       expect(yield* refused({ request: isolated(projectRoot) })).toBe("workspace");
       expect(yield* refused({ request: isolated(foreign) })).toBe("workspace");
       // A project registered in a subdirectory still owns the checkout containing it.
@@ -983,7 +995,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           expect(main.cause).toMatchObject({ reason: "workspace" });
         }).pipe(
           Effect.provide(runtimeLayer.pipe(Layer.provideMerge(Settings.layerTest()))),
-          Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+          Effect.provideService(HostProcess.Environment, f.environment),
         );
       }),
   );
@@ -1148,7 +1160,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           binding: accepted.binding,
           selection: accepted.binding.effective,
         })
-        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+        .pipe(Effect.provideService(HostProcess.Environment, f.environment));
       expect(
         (yield* f.service
           .validate({
@@ -1158,8 +1170,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
             binding: accepted.binding,
             selection: accepted.binding.effective,
           })
-          .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config), Effect.flip))
-          .reason,
+          .pipe(Effect.provideService(HostProcess.Environment, f.environment), Effect.flip)).reason,
       ).toBe("workspace");
     }),
   );
@@ -1192,7 +1203,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
             selection: binding.effective,
             ...(retainsWorkspace === true ? { retainsWorkspace: true } : {}),
           })
-          .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+          .pipe(Effect.provideService(HostProcess.Environment, f.environment));
 
       // A new dispatch sharing the lead's workspace still follows the lead.
       expect((yield* validate(accepted.binding).pipe(Effect.flip)).reason).toBe("workspace");
@@ -1262,7 +1273,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
             },
           })
           .pipe(
-            Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+            Effect.provideService(HostProcess.Environment, f.environment),
             Effect.map((result) => result.roles.find((role) => role.role === "reviewer")!),
           );
       expect((yield* reviewer()).selection?.model).toBe(claudeModel);
@@ -1300,7 +1311,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           ceiling: "full-access",
           request: { taskClass: "non-ui", sourceRevision },
         })
-        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+        .pipe(Effect.provideService(HostProcess.Environment, f.environment));
       const reviewer = discovered.roles.find((role) => role.role === "reviewer")!;
       expect(reviewer.selection?.model).toBe(codexModel);
       expect(reviewer.usageLimited).toContainEqual(
@@ -1319,7 +1330,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           request: { taskClass: "non-ui", sourceRevision },
           role: "reviewer",
         })
-        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+        .pipe(Effect.provideService(HostProcess.Environment, f.environment));
       expect(ranked.map((selection) => selection.model)).toEqual([codexModel]);
       const unlimited = yield* f.service
         .roles({
@@ -1327,7 +1338,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           ceiling: "full-access",
           request: { taskClass: "non-ui", sourceRevision },
         })
-        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+        .pipe(Effect.provideService(HostProcess.Environment, f.environment));
       expect(
         unlimited.roles.find((role) => role.role === "reviewer")!.usageLimited,
       ).toBeUndefined();
@@ -1347,7 +1358,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
               ceiling: "full-access",
               request: { taskClass: "ui" },
             })
-            .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+            .pipe(Effect.provideService(HostProcess.Environment, f.environment));
         const found = yield* discover();
         for (const role of ["browser", "ui-verifier"] as const)
           expect(found.roles.find((entry) => entry.role === role)?.refusal).toBeNull();
@@ -1412,7 +1423,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           request: { taskClass: "ui", browser: { backend: "phi" } },
         })
         .pipe(
-          Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+          Effect.provideService(HostProcess.Environment, f.environment),
           Effect.provideService(PhiBrowser.PhiBrowser, phi),
           Effect.map((result) => result.roles.find((entry) => entry.role === "browser")!),
         );
@@ -1573,7 +1584,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
             ceiling: "full-access",
             request: { taskClass: "ui" },
           })
-          .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+          .pipe(Effect.provideService(HostProcess.Environment, f.environment));
         expect(discovered.roles.map((role) => role.role)).not.toContain("ui-verifier");
         expect(discovered.roles.find((role) => role.role === "browser")?.refusal).toBeNull();
         const refused = yield* f
@@ -1620,7 +1631,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
             selection: { model },
           })
           .pipe(
-            Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+            Effect.provideService(HostProcess.Environment, f.environment),
             Effect.map((result) => result.roles.find((entry) => entry.role === role)!),
           );
       expect((yield* roles("gpt-astra-test")).selection?.model).toBe("gpt-astra-test");
@@ -1694,7 +1705,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
               binding,
               selection: consultant.effective,
             })
-            .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+            .pipe(Effect.provideService(HostProcess.Environment, f.environment));
         yield* followup(consultant);
         yield* followup({ ...consultant, sourceRevision });
         // A stated revision is still checked against the workspace.
@@ -1717,7 +1728,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
             callerModel,
           })
           .pipe(
-            Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+            Effect.provideService(HostProcess.Environment, f.environment),
             Effect.map((result) => result.roles.find((role) => role.role === "advisor")!),
           );
       // The policy starts an Opus caller's advisor with Astra; others follow the list.

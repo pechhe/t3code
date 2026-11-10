@@ -211,11 +211,13 @@ describe("DesktopShellEnvironment", () => {
               SSH_AUTH_SOCK: "/old-session.sock",
               JAVA_HOME: "/old/java",
               SSL_CERT_FILE: "/old/cert.pem",
+              T3CODE_AGENT_POLICY_ROOT: "/old/agents",
             }),
         });
         const cachePath = `${stateDir}/shell-environment-cache.json`;
         const cached = yield* fs.readFileString(cachePath).pipe(Effect.flatMap(decodeCache));
         assert.equal(cached.environment.PATH, "/old/bin:/usr/bin");
+        assert.equal(cached.environment.T3CODE_AGENT_POLICY_ROOT, "/old/agents");
         assert.notProperty(cached.environment, "SSH_AUTH_SOCK");
         const started = yield* Deferred.make<void>();
         const release = yield* Deferred.make<void>();
@@ -225,7 +227,7 @@ describe("DesktopShellEnvironment", () => {
           SSH_AUTH_SOCK: "/current-session.sock",
         };
         const source = [
-          "const values = { PATH: '/fresh/bin:' + process.env.PATH, __MISE_DIFF: 'fresh-mise', JAVA_HOME: process.env.JAVA_HOME, SSL_CERT_FILE: process.env.SSL_CERT_FILE };",
+          "const values = { PATH: '/fresh/bin:' + process.env.PATH, __MISE_DIFF: 'fresh-mise', JAVA_HOME: process.env.JAVA_HOME, SSL_CERT_FILE: process.env.SSL_CERT_FILE, T3CODE_AGENT_POLICY_ROOT: '/fresh/agents' };",
           "for (const [name, value] of Object.entries(values)) {",
           "  if (value !== undefined) process.stdout.write('__T3CODE_ENV_' + name + '_START__\\n' + value + '\\n__T3CODE_ENV_' + name + '_END__\\n');",
           "}",
@@ -253,6 +255,8 @@ describe("DesktopShellEnvironment", () => {
               yield* service.installIntoProcess;
               assert.equal(env.PATH, "/old/bin:/usr/bin:/launcher/bin");
               assert.equal(env.SSH_AUTH_SOCK, "/current-session.sock");
+              // The server is spawned before the login shell answers, so this must come from the cache.
+              assert.equal(env.T3CODE_AGENT_POLICY_ROOT, "/old/agents");
               const replay = yield* Stream.runHead(service.updates);
               assert.isTrue(Option.isSome(replay));
               if (Option.isSome(replay))
@@ -263,6 +267,7 @@ describe("DesktopShellEnvironment", () => {
               yield* service.awaitDiscovery;
               assert.equal(env.PATH, "/fresh/bin:/launcher/bin");
               assert.equal(env.__MISE_DIFF, "fresh-mise");
+              assert.equal(env.T3CODE_AGENT_POLICY_ROOT, "/fresh/agents");
               assert.isUndefined(env.JAVA_HOME);
               assert.isUndefined(env.SSL_CERT_FILE);
               const fresh = yield* Stream.runHead(service.updates);
@@ -276,6 +281,7 @@ describe("DesktopShellEnvironment", () => {
         });
         const refreshed = yield* fs.readFileString(cachePath).pipe(Effect.flatMap(decodeCache));
         assert.equal(refreshed.environment.PATH, "/fresh/bin:/launcher/bin");
+        assert.equal(refreshed.environment.T3CODE_AGENT_POLICY_ROOT, "/fresh/agents");
         assert.notProperty(refreshed.environment, "JAVA_HOME");
         assert.notProperty(refreshed.environment, "SSL_CERT_FILE");
       }).pipe(Effect.provide(NodeServices.layer)),

@@ -8,7 +8,6 @@ import {
   type RunSetupFile,
   type RunSetupSkill,
 } from "@t3tools/contracts";
-import * as Config from "effect/Config";
 import * as Digest from "effect/crypto/Digest";
 import * as Hex from "effect/encoding/Hex";
 import * as Context from "effect/Context";
@@ -37,6 +36,7 @@ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { forkParked } from "../serverActivation.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import * as AgentConfigCheckout from "./AgentConfigCheckout.ts";
+import { agentPolicyRoot } from "./agentPolicyRoot.ts";
 import * as Policy from "./AgentPolicyService.ts";
 
 /** The provider tool that loads a skill; its calls are the skills a run actually invoked. */
@@ -59,8 +59,6 @@ const SKILL_DEPTH = 2;
 
 const decodeRecord = Schema.decodeUnknownEffect(Schema.fromJsonString(RunSetupRecord));
 const encodeRecord = Schema.encodeSync(Schema.fromJsonString(RunSetupRecord));
-
-const policyRoot = Config.option(Config.String("T3CODE_AGENT_POLICY_ROOT"));
 
 const hashFile = Effect.fn("RunSetupRecorder.hashFile")(function* (file: string) {
   const fs = yield* FileSystem.FileSystem;
@@ -144,7 +142,7 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
   readonly away: boolean;
 }) {
   const path = yield* Path.Path;
-  const root = Option.getOrNull(yield* policyRoot.pipe(Effect.orElseSucceed(() => Option.none())));
+  const root = Option.getOrNull(yield* agentPolicyRoot);
   const workingDirectory = input.workingDirectory;
   const policy = root === null ? null : yield* input.policy(root);
   return {

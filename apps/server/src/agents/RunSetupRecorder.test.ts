@@ -13,6 +13,7 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -93,8 +94,8 @@ const capture = (root: string | null, workingDirectory: string | null) =>
     away: true,
   }).pipe(
     Effect.provideService(
-      ConfigProvider.ConfigProvider,
-      ConfigProvider.fromUnknown(root === null ? {} : { T3CODE_AGENT_POLICY_ROOT: root }),
+      HostProcess.Environment,
+      root === null ? {} : { T3CODE_AGENT_POLICY_ROOT: root },
     ),
   );
 

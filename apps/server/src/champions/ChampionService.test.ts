@@ -1,6 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off processEnvInEffect:off - a real `docker` shim on PATH stands in for the target
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as ConfigProvider from "effect/ConfigProvider";
 import * as FileSystem from "effect/FileSystem";
 import * as ProcessRunner from "../processRunner.ts";
 import * as Managed from "../agents/ManagedAgentService.ts";
@@ -58,6 +57,7 @@ import {
   type Project,
   isToolListedForSession,
 } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -3201,10 +3201,7 @@ it.effect(
       }).pipe(
         Effect.provide(f.layer),
         Effect.provideService(Managed.ManagedAgentService, managed),
-        Effect.provideService(
-          ConfigProvider.ConfigProvider,
-          ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: root }),
-        ),
+        Effect.provideService(HostProcess.Environment, { T3CODE_AGENT_POLICY_ROOT: root }),
       );
     }).pipe(
       Effect.provide(
@@ -3286,10 +3283,7 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
     }).pipe(
       Effect.provide(f.layer),
       Effect.provideService(Managed.ManagedAgentService, managed),
-      Effect.provideService(
-        ConfigProvider.ConfigProvider,
-        ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: root }),
-      ),
+      Effect.provideService(HostProcess.Environment, { T3CODE_AGENT_POLICY_ROOT: root }),
     );
   }).pipe(
     Effect.provide(
@@ -3375,10 +3369,7 @@ it.effect(
       }).pipe(
         Effect.provide(f.layer),
         Effect.provideService(Managed.ManagedAgentService, managed),
-        Effect.provideService(
-          ConfigProvider.ConfigProvider,
-          ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: root }),
-        ),
+        Effect.provideService(HostProcess.Environment, { T3CODE_AGENT_POLICY_ROOT: root }),
       );
     }).pipe(
       Effect.provide(

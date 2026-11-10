@@ -30,8 +30,8 @@ import {
   type ProviderInstanceId,
   type ServerProvider,
 } from "@t3tools/contracts";
-import * as ConfigProvider from "effect/ConfigProvider";
 import * as Deferred from "effect/Deferred";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -274,10 +274,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
               Layer.provide(WorkspaceProvider.layerGitWorktree),
             ),
           ),
-          Effect.provideService(
-            ConfigProvider.ConfigProvider,
-            ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: root }),
-          ),
+          Effect.provideService(HostProcess.Environment, { T3CODE_AGENT_POLICY_ROOT: root }),
         );
       }).pipe(
         Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
@@ -683,10 +680,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             ),
           ),
           Effect.provideService(Managed.ManagedAgentService, counted),
-          Effect.provideService(
-            ConfigProvider.ConfigProvider,
-            ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot }),
-          ),
+          Effect.provideService(HostProcess.Environment, {
+            T3CODE_AGENT_POLICY_ROOT: policyRoot,
+          }),
         );
       const roles = (model?: string, providerInstanceId?: ProviderInstanceId) =>
         Effect.gen(function* () {
@@ -708,10 +704,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
               Layer.provide(WorkspaceProvider.layerGitWorktree),
             ),
           ),
-          Effect.provideService(
-            ConfigProvider.ConfigProvider,
-            ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot }),
-          ),
+          Effect.provideService(HostProcess.Environment, {
+            T3CODE_AGENT_POLICY_ROOT: policyRoot,
+          }),
         );
       return {
         champion,
