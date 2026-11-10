@@ -278,6 +278,24 @@
       }
     },
     {
+      "name": "deprecated-react-native-prop-types",
+      "version": "2.3.0",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/facebookarchive/react-native-deprecated-modules",
+      "generatedNotice": {
+        "licenseId": "MIT"
+      }
+    },
+    {
+      "name": "@react-native/normalize-color",
+      "version": "2.1.0",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/facebook/react-native",
+      "generatedNotice": {
+        "licenseId": "MIT"
+      }
+    },
+    {
       "name": "@betteroffice/xlsx",
       "version": "0.3.0",
       "license": "Apache-2.0",
