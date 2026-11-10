@@ -22,7 +22,7 @@ it.effect.each([false, true])(
   (conflict) => {
     const reconciled = Deferred.makeUnsafe<void>();
     const commands: OrchestrationV2ServerCommand[] = [];
-    const thread = (id: string, branch: string, worktreePath: string | null) =>
+    const thread = (id: string, branch: string | null, worktreePath: string | null) =>
       ({ id: ThreadId.make(id), branch, worktreePath }) as OrchestrationV2ThreadShell;
     const snapshot = {
       schemaVersion: 2,
@@ -82,6 +82,7 @@ it.effect.each([false, true])(
             ),
           }),
           Layer.mock(GitWorkflowService.GitWorkflowService)({
+            isRepository: () => Effect.succeed(true),
             currentBranch: () => Effect.succeed("union"),
           }),
           Layer.mock(ThreadManagement.ThreadManagementService)({
@@ -109,3 +110,54 @@ it.effect.each([false, true])(
     );
   },
 );
+
+it.effect("leaves a Jujutsu workspace's threads on no branch", () => {
+  const reconciled = Deferred.makeUnsafe<void>();
+  const commands: OrchestrationV2ServerCommand[] = [];
+  const thread = (id: string) =>
+    ({
+      id: ThreadId.make(id),
+      branch: null,
+      worktreePath: "/workspace",
+    }) as OrchestrationV2ThreadShell;
+  const snapshot = {
+    schemaVersion: 2,
+    snapshotSequence: 0,
+    threads: [thread("first"), thread("second")],
+    archivedThreads: [],
+  };
+  return Effect.gen(function* () {
+    yield* Layer.build(WorktreeBranchSync.layer);
+    yield* Deferred.await(reconciled);
+    assert.deepEqual(commands, []);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        FileSystem.layerNoop({ realPath: (path) => Effect.succeed(path) }),
+        Layer.mock(ProjectionStore.ProjectionStoreV2)({
+          getThreadWorktreePaths: () =>
+            Effect.succeed([{ threadId: ThreadId.make("first"), worktreePath: "/workspace" }]),
+        }),
+        // A Jujutsu checkout's branch event names its integration bookmark.
+        Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({
+          streamBranchChanges: Stream.make({ cwd: "/workspace", refName: "t3peach" }).pipe(
+            Stream.ensuring(Deferred.succeed(reconciled, undefined)),
+          ),
+        }),
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          isRepository: () => Effect.succeed(false),
+          currentBranch: () => Effect.succeed("t3peach"),
+        }),
+        Layer.mock(ThreadManagement.ThreadManagementService)({
+          getShellSnapshot: () => Effect.succeed(snapshot),
+          dispatch: (command) =>
+            Effect.sync(() => {
+              commands.push(command);
+              return { sequence: commands.length, storedEvents: [] };
+            }),
+        }),
+      ),
+    ),
+    Effect.scoped,
+  );
+});

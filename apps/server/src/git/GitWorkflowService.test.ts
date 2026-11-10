@@ -69,6 +69,19 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("GitWorkflowServi
           ["changed.txt"],
         );
         assert.equal(remote?.behindCount, 0);
+        // No Git directory: the branch comes from the project, not a failing Git command.
+        assert.equal(yield* workflow.currentBranch(cwd), "develop");
+        // The status reads the project from the Jujutsu root, the branch from any depth below it.
+        yield* fs.makeDirectory(`${cwd}/nested`);
+        assert.equal(yield* workflow.currentBranch(`${cwd}/nested`), "develop");
+        const plainCwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3-jj-workflow-plain-" });
+        yield* processes.run({
+          operation: "test.jjStatusPlain",
+          command: "jj",
+          cwd: plainCwd,
+          args: ["git", "init", "--no-colocate", "."],
+        });
+        assert.equal(yield* workflow.currentBranch(plainCwd), null);
         const refused = yield* workflow.switchRef({ cwd, refName: "develop" }).pipe(Effect.flip);
         assert.equal(refused._tag, "GitCommandError");
       }).pipe(

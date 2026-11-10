@@ -406,8 +406,24 @@ export const make = Effect.gen(function* () {
       );
     }),
     currentBranch: Effect.fn("GitWorkflowService.currentBranch")(function* (cwd) {
-      if (!(yield* detectRepositoryForStatus("GitWorkflowService.currentBranch", cwd))) {
-        return null;
+      const handle = yield* detectRepositoryForStatus("GitWorkflowService.currentBranch", cwd);
+      if (handle === null) return null;
+      // Only Git has a HEAD to read. Polling a Jujutsu checkout with Git fails every time;
+      // its driver names the ref the checkout works against instead.
+      if (handle.kind !== "git") {
+        return handle.driver.currentRefName === undefined
+          ? null
+          : yield* handle.driver.currentRefName(cwd).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new GitManagerError({
+                    operation: "GitWorkflowService.currentBranch",
+                    cwd,
+                    detail: "Failed to read the ref this checkout works against.",
+                    cause,
+                  }),
+              ),
+            );
       }
       const result = yield* git.execute({
         operation: "GitWorkflowService.currentBranch",

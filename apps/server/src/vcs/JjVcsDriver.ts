@@ -777,6 +777,21 @@ const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
     };
   });
 
+  // A Jujutsu checkout has no checked-out branch; the ref it works against is the
+  // project's integration bookmark, which slipjay.json names without running Jujutsu.
+  // From cwd rather than `jj root`: the registry routes a directory here only when no
+  // nearer Git repository sits above it, so both starting points find the same project.
+  const currentRefName: NonNullable<VcsDriver.VcsDriver["Service"]["currentRefName"]> = Effect.fn(
+    "JjVcsDriver.currentRefName",
+  )(function* (cwd) {
+    const project = yield* findSlipJayProject(cwd).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+      Effect.provideService(ProcessRunner.ProcessRunner, processes),
+    );
+    return project?.integration ?? null;
+  });
+
   const slipJayLandCandidate: NonNullable<VcsDriver.VcsDriver["Service"]["slipJayLandCandidate"]> =
     Effect.fn("JjVcsDriver.slipJayLandCandidate")(function* ({ cwd, integration }) {
       // SlipJay never submits a change already on the integration bookmark or its remote.
@@ -799,6 +814,7 @@ const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
     execute,
     checkpoints,
     getStatus,
+    currentRefName,
     slipJayLandCandidate,
     detectRepository,
     isInsideWorkTree,

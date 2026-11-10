@@ -90,6 +90,11 @@ export class VcsDriver extends Context.Service<
       { readonly changeId: string; readonly integrated: boolean } | null,
       VcsError
     >;
+    /**
+     * Jujutsu only: the ref a checkout works against, read without a full status because
+     * branch polling runs often. Null when the project names none.
+     */
+    readonly currentRefName?: (cwd: string) => Effect.Effect<string | null, VcsError>;
     readonly checkpoints: VcsCheckpointOps;
     readonly detectRepository: (
       cwd: string,
