@@ -30,7 +30,6 @@ import { withExecutedModelNote } from "@t3tools/provider-core/server/subagentPro
 
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import { ProjectToolkit } from "../mcp/toolkits/project/tools.ts";
-import { OrchestratorToolkit } from "../mcp/toolkits/orchestrator/tools.ts";
 import { delegationDepth } from "../mcp/threadAccess.ts";
 import {
   resolveInteractionMode,
@@ -547,17 +546,12 @@ const make = Effect.gen(function* () {
           message: "Delegated tasks require an active run owned by this MCP provider session.",
         });
       }
-      const sent = yield* forwarding.call(
-        scope,
-        OrchestratorToolkit.tools.t3_thread_send,
-        remote.environmentId,
-        {
-          threadId: remote.threadId,
-          message: input.text,
-          mode: "queue",
-          clientRequestId: `followup:${scope.thread.threadId}:${input.clientRequestId}`,
-        },
-      );
+      const sent = yield* forwarding.sendThread(scope, remote.environmentId, {
+        threadId: remote.threadId,
+        message: input.text,
+        mode: "queue",
+        clientRequestId: `followup:${scope.thread.threadId}:${input.clientRequestId}`,
+      });
       const remoteChild: OrchestrationV2RemoteTaskChild = {
         environmentId: remote.environmentId,
         threadId: remote.threadId,

@@ -6,6 +6,8 @@ import {
   OrchestratorMcpThreadInterruptResult,
   OrchestratorMcpThreadReadInput,
   OrchestratorMcpThreadReadResult,
+  OrchestratorMcpThreadSendInput,
+  OrchestratorMcpThreadSendResult,
   OrchestratorMcpThreadWaitInput,
   OrchestratorMcpThreadWaitResult,
 } from "@t3tools/contracts";
@@ -67,6 +69,12 @@ export class PeerForwarding extends Context.Service<
       environmentId: EnvironmentId,
       input: OrchestratorMcpThreadInterruptInput,
     ) => Effect.Effect<OrchestratorMcpThreadInterruptResult, OrchestratorMcpFailure>;
+    /** `t3_thread_send` there. */
+    readonly sendThread: (
+      scope: Scope,
+      environmentId: EnvironmentId,
+      input: OrchestratorMcpThreadSendInput,
+    ) => Effect.Effect<OrchestratorMcpThreadSendResult, OrchestratorMcpFailure>;
     /** `t3_thread_wait` there, in pieces short enough to survive any route. */
     readonly waitForThread: (
       scope: Scope,
@@ -231,6 +239,19 @@ const make = Effect.gen(function* () {
     return Effect.andThen(requireEnabled, forwarded);
   };
 
+  const sendThread: PeerForwarding["Service"]["sendThread"] = (scope, environmentId, input) =>
+    Effect.andThen(
+      requireEnabled,
+      forward<OrchestratorMcpThreadSendResult>(
+        scope,
+        "t3_thread_send",
+        OrchestratorMcpThreadSendInput,
+        OrchestratorMcpThreadSendResult,
+        environmentId,
+        input,
+      ),
+    );
+
   /**
    * The next step for an agent whose machine is not linked: without it, an
    * empty list reads as a dead end and agents go looking elsewhere.
@@ -267,6 +288,7 @@ const make = Effect.gen(function* () {
     call,
     readThread,
     interruptThread,
+    sendThread,
     waitForThread,
     links: listLinks,
   });
