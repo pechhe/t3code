@@ -72,6 +72,14 @@ export function pinnedNodeDecision(input: {
   };
 }
 
+/** A project-local `vp` has no `env` command, so the restart must find the global one. */
+export function withoutLocalBins(pathValue: string | undefined): string {
+  return (pathValue ?? "")
+    .split(NodePath.delimiter)
+    .filter((entry) => !/[\\/]node_modules[\\/]\.bin[\\/]?$/.test(entry))
+    .join(NodePath.delimiter);
+}
+
 function runOnPinnedNode(args: ReadonlyArray<string>) {
   const decision = pinnedNodeDecision({
     pin: PINNED_NODE,
@@ -86,7 +94,11 @@ function runOnPinnedNode(args: ReadonlyArray<string>) {
   }
   const child = NodeChildProcess.spawnSync(decision.executable, decision.args, {
     stdio: "inherit",
-    env: { ...process.env, T3_LANDING_PINNED_NODE: process.versions.node },
+    env: {
+      ...process.env,
+      PATH: withoutLocalBins(process.env.PATH),
+      T3_LANDING_PINNED_NODE: process.versions.node,
+    },
   });
   // A spawn error means vp is missing; any exit status is the restarted gate's own result, and the
   // restarted run (or vp, when it cannot provide the runtime) has already said why it failed.

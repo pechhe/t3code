@@ -21,6 +21,7 @@ import {
   planCandidate,
   plannedRuns,
   pinnedNodeDecision,
+  withoutLocalBins,
   readQuarantine,
   readWorkspaces,
   relativeImports,
@@ -1424,6 +1425,11 @@ describe("pinned node", () => {
         ],
       },
     );
+  });
+
+  it("drops project-local bin directories so the restart finds the global vp", () => {
+    const path = ["/repo/node_modules/.bin", "/usr/bin", "/repo/apps/web/node_modules/.bin/"];
+    assert.strictEqual(withoutLocalBins(path.join(NodePath.delimiter)), "/usr/bin");
   });
 
   it("runs on the Node it already has when that is the pin, or when the invocation only plans", () => {
