@@ -24,7 +24,6 @@ import * as Layer from "effect/Layer";
 
 import {
   makeSubagentChildThread,
-  abandonedBackgroundWorkNote,
   delegatedTaskProgress,
   subagentResultForRun,
   makeSubagentConversationArtifacts,
@@ -36,9 +35,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import { resolveAutoSettlementAt } from "./ThreadSettlementService.ts";
 
-const evaluationTime = DateTime.makeUnsafe("2026-07-24T09:20:00.000Z");
-const progressOf = (projection: Parameters<typeof delegatedTaskProgress>[0]) =>
-  delegatedTaskProgress(projection, evaluationTime);
+const progressOf = delegatedTaskProgress;
 
 const parentThreadId = ThreadId.make("thread:subagent-snoozed-parent");
 const childThreadId = ThreadId.make("thread:subagent-awake-child");
@@ -548,7 +545,7 @@ it("holds the result for pending background work and pull request watches, not t
   assert.equal(progressOf({ ...projection, thread: watcher }).state, "result_available");
 });
 
-it("bounds how long a managed task waits on an awaited command, and names what it abandons", () => {
+it("holds a managed task for an awaited command until it ends, and never for one it did not await", () => {
   const { projection, run } = taskFixture();
   const managed = {
     ...projection,
@@ -583,35 +580,16 @@ it("bounds how long a managed task waits on an awaited command, and names what i
       },
     ],
   };
-  // Within the grace period the child ended its turn to wait on it, so the result waits too.
+  // The child ended its turn to wait on it, so the result waits until the command ends and wakes
+  // the child, however long that takes. Nothing is abandoned while it waits.
   const held = progressOf(awaited);
   assert.equal(held.state, "waiting_for_children");
-  // While it waits, nothing has been abandoned.
   assert.deepEqual(held.abandonedBackgroundWork, []);
-  const expired = delegatedTaskProgress(
-    awaited,
-    DateTime.addDuration(childCreatedAt, "15 minutes"),
-  );
-  assert.equal(expired.state, "result_available");
-  assert.deepEqual(expired.abandonedBackgroundWork, [
-    {
-      taskId: "bmtw1af16",
-      description: 'while pgrep -f "check" >/dev/null; do sleep 5; done',
-      kind: "command",
-      awaited: true,
-    },
-  ]);
+  // Work that will produce the task's result holds it too.
   assert.equal(
-    abandonedBackgroundWorkNote(expired.abandonedBackgroundWork),
-    'Abandoned background work: bmtw1af16 (while pgrep -f "check" >/dev/null; do sleep 5; done).',
+    progressOf({ ...managed, subagents: [{ status: "running" }] }).state,
+    "waiting_for_children",
   );
-  // Work that will produce the task's result still holds it, whatever the clock says.
-  for (const at of [childCreatedAt, DateTime.addDuration(childCreatedAt, "1 hour")]) {
-    assert.equal(
-      delegatedTaskProgress({ ...managed, subagents: [{ status: "running" }] }, at).state,
-      "waiting_for_children",
-    );
-  }
   const pullRequest = {
     host: "github.com",
     repository: "t3tools/t3code",
@@ -634,13 +612,10 @@ it("bounds how long a managed task waits on an awaited command, and names what i
     },
   };
   assert.equal(
-    delegatedTaskProgress(
-      {
-        ...managed,
-        thread: { ...managed.thread, pullRequests: [pullRequest] },
-      },
-      DateTime.addDuration(childCreatedAt, "1 hour"),
-    ).state,
+    progressOf({
+      ...managed,
+      thread: { ...managed.thread, pullRequests: [pullRequest] },
+    }).state,
     "waiting_for_children",
   );
   assert.equal(

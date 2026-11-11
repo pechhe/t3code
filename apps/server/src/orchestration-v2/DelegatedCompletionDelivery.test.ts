@@ -3337,7 +3337,7 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
     );
 
     it.effect(
-      "holds a managed follow-up's result through the grace, then names the command it abandons",
+      "holds a managed follow-up's result while its awaited command runs, then publishes it once the command ends",
       () =>
         Effect.gen(function* () {
           const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -3467,16 +3467,32 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
           assert.isNull(held.result);
           assert.notEqual(held.status, "completed");
 
-          yield* TestClock.adjust("16 minutes");
+          yield* TestClock.adjust("2 hours");
+          yield* orchestrator.sweepDelegatedTaskResults;
+          const stillHeld = (yield* orchestrator.getThreadProjection(
+            parentThreadId,
+          )).subagents.find((task) => task.id === followupTaskId)!;
+          assert.isNull(stillHeld.result);
+
+          yield* sink.write({
+            events: [
+              {
+                ...rosterEvent({
+                  childThreadId: child.childThreadId,
+                  now,
+                  key: "followup-grace",
+                  tasks: [],
+                }),
+                id: EventId.make("event:followup-grace:roster-ended"),
+              },
+            ],
+          });
           yield* orchestrator.sweepDelegatedTaskResults;
           const published = (yield* orchestrator.getThreadProjection(
             parentThreadId,
           )).subagents.find((task) => task.id === followupTaskId)!;
           assert.equal(published.status, "completed");
-          assert.include(
-            published.result ?? "",
-            'Abandoned background work: bmtw1af16 (while pgrep -f "check_changed_static" >/dev/null; do sleep 5; done).',
-          );
+          assert.notInclude(published.result ?? "", "Abandoned background work");
         }),
     );
 
@@ -5048,61 +5064,7 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
   );
 
   it.effect(
-    "holds a managed child's result while an awaited command it ended its turn for is within the grace",
-    () =>
-      Effect.gen(function* () {
-        const orchestrator = yield* Orchestrator.OrchestratorV2;
-        const sink = yield* EventSink.EventSinkV2;
-        const threadId = ThreadId.make("grace-inside-parent");
-        const parent = yield* seedLingeringParent(threadId, ProjectId.make("grace-inside-project"));
-        const blocked = yield* seedDelegatedChild({
-          parentThreadId: threadId,
-          projectId: ProjectId.make("grace-inside-project"),
-          parentRunId: parent.runId,
-          parentNodeId: parent.rootNodeId,
-          name: "grace-inside-blocked",
-          now: parent.now,
-        });
-        const barrier = yield* seedDelegatedChild({
-          parentThreadId: threadId,
-          projectId: ProjectId.make("grace-inside-project"),
-          parentRunId: parent.runId,
-          parentNodeId: parent.rootNodeId,
-          name: "grace-inside-barrier",
-          now: parent.now,
-        });
-        const beforeEnd = yield* sink.latestSequence();
-        yield* sink.write({
-          events: [
-            rosterEvent({
-              childThreadId: blocked.childThreadId,
-              now: parent.now,
-              key: "grace-inside-blocked",
-              tasks: [
-                {
-                  taskId: "bmtw1af16",
-                  description: 'while pgrep -f "check_changed_static" >/dev/null; do sleep 5; done',
-                  awaited: true,
-                  kind: "command",
-                },
-              ],
-            }),
-          ],
-        });
-        yield* sink.write({ events: [childEnded(blocked, parent.now)] });
-        yield* sink.write({ events: [childEnded(barrier, parent.now)] });
-        // The barrier's completion means the blocked child's run end was handled too.
-        yield* sinkStream(barrier.taskId, beforeEnd);
-        const waiting = (yield* orchestrator.getThreadProjection(threadId)).subagents.find(
-          (task) => task.id === blocked.taskId,
-        );
-        assert.equal(waiting?.status, "running");
-        assert.isNull(waiting?.result ?? null);
-      }),
-  );
-
-  it.effect(
-    "publishes a managed child's result once the grace ends, naming the background work it abandons",
+    "holds a managed child's result for an awaited command however long it runs, and publishes it once the command ends",
     () =>
       Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -5156,16 +5118,35 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
           "running",
         );
 
-        yield* TestClock.adjust("16 minutes");
+        yield* TestClock.adjust("2 hours");
+        yield* orchestrator.sweepDelegatedTaskResults;
+        assert.equal(
+          (yield* orchestrator.getThreadProjection(threadId)).subagents.find(
+            (task) => task.id === blocked.taskId,
+          )?.status,
+          "running",
+        );
+
+        // The command ends, so nothing is left running to hold the result.
+        yield* sink.write({
+          events: [
+            {
+              ...rosterEvent({
+                childThreadId: blocked.childThreadId,
+                now: parent.now,
+                key: "grace-expired-blocked",
+                tasks: [],
+              }),
+              id: EventId.make("event:grace-expired-blocked:roster-ended"),
+            },
+          ],
+        });
         yield* orchestrator.sweepDelegatedTaskResults;
         const published = (yield* orchestrator.getThreadProjection(threadId)).subagents.find(
           (task) => task.id === blocked.taskId,
         );
         assert.equal(published?.status, "completed");
-        assert.include(
-          published?.result ?? "",
-          'Abandoned background work: bmtw1af16 (while pgrep -f "check_changed_static" >/dev/null; do sleep 5; done).',
-        );
+        assert.notInclude(published?.result ?? "", "Abandoned background work");
         assert.isNotNull(published?.completionDelivery);
       }),
   );

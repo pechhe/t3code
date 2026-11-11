@@ -302,7 +302,6 @@ export type DelegatedTaskProjection = {
 export function delegatedTaskRunHold(
   projection: DelegatedTaskProjection,
   resultRun: OrchestrationV2Run,
-  now: DateTime.Utc,
 ): {
   readonly held: boolean;
   readonly abandonedBackgroundWork: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
@@ -322,17 +321,12 @@ export function delegatedTaskRunHold(
       ].map((task) => [task.taskId, task] as const),
     ).values(),
   ];
-  // A delegated child's result waits with its parent, whose managed-task grace applies: an awaited
-  // command or monitor holds until then, while a plain thread's own work holds indefinitely.
-  const graceApplies =
+  // A delegated child's result waits with its parent: an awaited command or monitor holds until it
+  // ends and wakes the child, while a plain thread's own work holds whatever it is.
+  const managed =
     projection.thread.agentTask !== undefined ||
     projection.thread.lineage?.relationshipToParent === "subagent";
-  const hold = graceApplies
-    ? delegatedCompletionHold(backgroundWork, {
-        now,
-        endedAt: resultRun.completedAt,
-      })
-    : { indefinite: backgroundWork.length > 0, until: null };
+  const holdsWork = managed ? delegatedCompletionHold(backgroundWork) : backgroundWork.length > 0;
   const held =
     (projection.thread.agentTask !== undefined &&
       (projection.thread.threadWatches?.length ?? 0) > 0) ||
@@ -345,8 +339,7 @@ export function delegatedTaskRunHold(
           (task.completionDelivery?.state === "pending" ||
             task.completionDelivery?.state === "claimed")),
     ) ||
-    hold.indefinite ||
-    (hold.until !== null && DateTime.toEpochMillis(now) < DateTime.toEpochMillis(hold.until));
+    holdsWork;
   return {
     held,
     abandonedBackgroundWork: held ? [] : abandonedBackgroundWork(backgroundWork),
@@ -357,10 +350,7 @@ export function delegatedTaskRunHold(
  * When a thread has finished its work: the one rule delegated-task delivery, `task_status` and
  * thread watches share, applied to its latest result run.
  */
-export function delegatedTaskProgress(
-  projection: DelegatedTaskProjection,
-  now: DateTime.Utc,
-): {
+export function delegatedTaskProgress(projection: DelegatedTaskProjection): {
   readonly state: "working" | "waiting_for_children" | "result_available";
   readonly resultRun: OrchestrationV2Run | undefined;
   /** Own commands and monitors still running when the result publishes. */
@@ -385,7 +375,7 @@ export function delegatedTaskProgress(
   const hold =
     resultRun === undefined
       ? { held: false, abandonedBackgroundWork: [] }
-      : delegatedTaskRunHold(projection, resultRun, now);
+      : delegatedTaskRunHold(projection, resultRun);
   const state =
     active || resultRun === undefined
       ? ("working" as const)

@@ -1,10 +1,8 @@
 import { ProviderInstanceId, ProviderThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import * as DateTime from "effect/DateTime";
 import {
   abandonedBackgroundWork,
   backgroundWorkHoldsCompletion,
-  DELEGATED_COMPLETION_GRACE,
   delegatedCompletionHold,
   derivePendingBackgroundWork,
   ownBackgroundWork,
@@ -75,46 +73,19 @@ describe("backgroundWorkHoldsCompletion", () => {
   });
 });
 
-const endedAt = DateTime.makeUnsafe("2026-10-29T01:49:30.000Z");
-const graceEnd = DateTime.addDuration(endedAt, DELEGATED_COMPLETION_GRACE);
-const within = (minutes: number) => DateTime.addDuration(endedAt, `${minutes} minutes`);
-
 describe("delegatedCompletionHold", () => {
   it.each([
-    ["nothing pending", false, null, []],
-    ["a dev server", false, null, [{ taskId: "dev", kind: "command" }]],
-    ["an awaited poll loop", false, graceEnd, [{ taskId: "poll", kind: "command", awaited: true }]],
-    ["a monitor", false, null, [{ taskId: "watch", kind: "monitor" }]],
-    ["a subagent", true, null, [{ taskId: "review", kind: "subagent" }]],
-    ["work the provider cannot name", true, null, [{ taskId: "opaque", kind: "background_task" }]],
-    ["a pull request watch", true, null, [{ taskId: "pull-request-watch:a/b#1", kind: "monitor" }]],
-    ["a thread watch", true, null, [{ taskId: "thread-watch:1", kind: "monitor" }]],
-    [
-      "an awaited poll loop and a subagent",
-      true,
-      graceEnd,
-      [
-        { taskId: "poll", kind: "command", awaited: true },
-        { taskId: "review", kind: "subagent" },
-      ],
-    ],
-  ] as const)(
-    "with %s pending, holds indefinitely: %s, until: %s",
-    (_case, indefinite, until, tasks) => {
-      expect(delegatedCompletionHold(tasks, { now: within(1), endedAt })).toEqual({
-        indefinite,
-        until,
-      });
-    },
-  );
-
-  it("gives an awaited command no hold once its run has no end time", () => {
-    expect(
-      delegatedCompletionHold([{ taskId: "poll", kind: "command", awaited: true }], {
-        now: within(60),
-        endedAt: null,
-      }),
-    ).toEqual({ indefinite: true, until: null });
+    ["nothing pending", false, []],
+    ["a dev server", false, [{ taskId: "dev", kind: "command" }]],
+    ["an awaited poll loop", true, [{ taskId: "poll", kind: "command", awaited: true }]],
+    ["a monitor", false, [{ taskId: "watch", kind: "monitor" }]],
+    ["an awaited monitor", true, [{ taskId: "watch", kind: "monitor", awaited: true }]],
+    ["a subagent", true, [{ taskId: "review", kind: "subagent" }]],
+    ["work the provider cannot name", true, [{ taskId: "opaque", kind: "background_task" }]],
+    ["a pull request watch", true, [{ taskId: "pull-request-watch:a/b#1", kind: "monitor" }]],
+    ["a thread watch", true, [{ taskId: "thread-watch:1", kind: "monitor" }]],
+  ] as const)("with %s pending, holds: %s", (_case, holds, tasks) => {
+    expect(delegatedCompletionHold(tasks)).toBe(holds);
   });
 });
 

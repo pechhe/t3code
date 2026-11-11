@@ -8,7 +8,6 @@ import { turnItemUpdateCanEndBackgroundWork } from "@t3tools/shared/orchestratio
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
-import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FiberHandle from "effect/FiberHandle";
 import * as Layer from "effect/Layer";
@@ -206,11 +205,7 @@ const make = Effect.gen(function* () {
         .getThreadRecords(watchedThreadId, watchedThreadRecords.fields, watchedThreadRecords.filter)
         .pipe(Effect.option);
       // The orchestrator confirms the row is gone before it ends the watch.
-      if (
-        Option.isSome(watched) &&
-        decideThreadWatch(watched.value, yield* DateTime.now) === undefined
-      )
-        return;
+      if (Option.isSome(watched) && decideThreadWatch(watched.value) === undefined) return;
       const uuid = yield* crypto.uuidV4();
       yield* engine.dispatch({
         type: "thread.thread-watch.fire",

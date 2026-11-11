@@ -4102,7 +4102,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     }
     const watched = watchedRecords.value;
-    const decision = decideThreadWatch(watched, yield* DateTime.now);
+    const decision = decideThreadWatch(watched);
     if (decision === undefined) return undefined;
     if (
       decision.kind !== "archived" &&
@@ -15322,8 +15322,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       childControls.thread.forkedFrom?.type !== "node"
     )
       return;
-    const now = yield* DateTime.now;
-    const progress = delegatedTaskProgress(childControls, now);
+    const progress = delegatedTaskProgress(childControls);
     const parent = yield* projectionStore.getThreadRecords(parentThreadId, [
       "subagents",
       "contextTransfers",
@@ -15351,7 +15350,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const hold =
         taskRun === undefined || delegatedTaskTerminalStatus(runOutcome(taskRun)) === null
           ? undefined
-          : delegatedTaskRunHold(childControls, taskRun, now);
+          : delegatedTaskRunHold(childControls, taskRun);
       if (
         progress.state !== "result_available" &&
         (task.id === childControls.thread.forkedFrom.nodeId || hold?.held === true)
@@ -16747,8 +16746,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     ),
   );
 
-  // An awaited command the child ended its turn for can run past its grace without any event, so
-  // nothing else would publish the result the task already has.
+  // A watch can end without any event, so nothing else would publish the result the task already has.
   yield* sweepDelegatedTaskResults.pipe(
     Effect.repeat(Schedule.spaced("1 minute")),
     Effect.forkDetach,
@@ -16841,7 +16839,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         if (run === undefined || delegatedTaskTerminalStatus(run.status) === null) return true;
         return yield* childAwaitsRestartContinuation(runs, run);
       }
-      const progress = delegatedTaskProgress(child, yield* DateTime.now);
+      const progress = delegatedTaskProgress(child);
       if (progress.state !== "result_available") return true;
       if (progress.resultRun === undefined) return false;
       return yield* childAwaitsRestartContinuation(child.runs, progress.resultRun);

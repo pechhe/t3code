@@ -1135,7 +1135,7 @@ const make = Effect.gen(function* () {
         ["runs", "messages", "subagents", "providerThreads", "turnItems"],
         { messageRoles: ["user"], monitorNotificationsOnly: true },
       );
-      const progress = delegatedTaskProgress(records, yield* DateTime.now);
+      const progress = delegatedTaskProgress(records);
       // A thread rolled back past all its work, with nothing left running, has no answer to wait for.
       if (
         progress.resultRun === undefined &&
