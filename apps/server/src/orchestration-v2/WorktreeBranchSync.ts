@@ -23,7 +23,7 @@ const make = Effect.gen(function* () {
     if (input.refName === null) return;
     // Only a Git checkout has a branch of its own: a Jujutsu workspace's ref is the
     // project's integration bookmark, which belongs to no thread.
-    if (!(yield* git.isRepository(input.cwd))) return;
+    if ((yield* git.repositoryRoot(input.cwd)) === null) return;
     const paths = yield* projections.getThreadWorktreePaths({ includeArchived: true });
     const matchingPaths = new Set<string>();
     for (const worktreePath of new Set(paths.map((thread) => thread.worktreePath))) {

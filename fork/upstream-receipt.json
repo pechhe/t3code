@@ -3,32 +3,32 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.9-nightly.20261110.4465",
-      "sha": "7171fdd7716b05dc1b4be40c26ac78e8bb35f80c"
-    },
-    "target": {
       "tag": "v0.1.9-nightly.20261110.4478",
       "sha": "20c3dd3689782bfcb1a04332086d08017028c718"
+    },
+    "target": {
+      "tag": "v0.1.9-nightly.20261111.4501",
+      "sha": "c90b67859a6d85fc957f9ffe25ba95113c6479d3"
     }
   },
   "fork": {
-    "base": "8cd52c2936de144d5bbc9a84417259e22eb55523"
+    "base": "c8d3932031e7c5d2403f4d5e89a7fae90cd44d92"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "2e9cb45bcce569a12fdcd704bd56ea501c85ce81"
+    "blob": "991831e8f0431e9fd1ac38b9cfd4eed7847bd6ce"
   },
   "policy": {
     "requiredLandingVerificationSha256": "f57f8da576ea5674b21d79bbc7768f8e0c381aa98726cc2705048b36ea3176a7"
   },
-  "attempt": "v0.1.9-nightly.20261110.4478@1794327100",
-  "reviewedAt": "2026-11-10T16:36:54.120Z",
+  "attempt": "v0.1.9-nightly.20261111.4501@1794366951",
+  "reviewedAt": "2026-11-11T03:47:50Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:3b1925e6-d91b-4795-9d87-c7002a75eea1",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:c4e05df3-40d6-4ad5-8177-222266e9e13c",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 56,
+    "upstreamCommits": 57,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
@@ -105,17 +105,18 @@
       "ssh-launch-respects-boot-service",
       "unhandled-rejection-keeps-server",
       "champion-journey-checks",
-      "shared-provider-setup"
+      "shared-provider-setup",
+      "stop-pauses-delegated-tasks"
     ],
     "areas": [
-      "apps/server/src/orchestration-v2: Orchestrator (settle blocker, steer/restart guard, cohort disposal), ProjectionStore and threadHistoryPaging (windowed thread reads), ThreadManagementService, ThreadPullRequestService, ClaudeAdapterV2/CodexAdapterV2 — managed-delegation, thread-watches, perf-persistence-reads, account-pools",
-      "apps/server/src/mcp: OrchestratorMcpService caller narrowing and the fork's managed reads — managed-delegation, perf-persistence-reads",
-      "apps/server/src/device, apps/server/scripts/migrate-dev-db, apps/server/src/provider, apps/server/src/usage, apps/server/src/vcs — thread-handoff, dev-state-tooling, account-pools, perf-persistence-reads",
-      "apps/desktop/src/preview: first-page wait and announced-only detach — preview-browser-lifetime",
-      "apps/web: ChatView citations, ThreadNotificationCoordinator, ChatComposer/prompt suggestions, MessagesTimeline/minimap, sidebar — side-chat, quiet-run-read-state, delegated-work-visibility, timeline-layout-test-fixture",
-      "apps/mobile: AdaptiveWorkspaceLayout, files and previews — mobile-fork-screens",
-      "packages/ssh: launch lock, sibling reuse and runtime-record wait — ssh-launch-respects-boot-service",
-      "packages/provider-cursor, packages/provider-pi: steer prompt, slashed provider ids — account-pools"
+      "apps/server/src/orchestration-v2: ProjectionStore ordinal reads, Orchestrator provider switch and delegated send, ProviderTurnStartService native goals \u2014 perf-persistence-reads, managed-delegation, stop-pauses-delegated-tasks",
+      "apps/server/src/mcp, apps/server/src/peer: link request addresses, caller reads \u2014 mcp-orchestration-annotations, linked-environments, managed-delegation",
+      "apps/server/src/project: scratch folder probe \u2014 no-project-chats",
+      "apps/server/src/provider, apps/server/src/usage, packages/provider-core, packages/provider-muse, packages/provider-opencode, packages/provider-pi: reset credit options, usage report shape, native goals and todos, antigravity quota hosts \u2014 account-pools, shared-provider-setup, build-items-hq",
+      "apps/server/src/ws.ts, packages/contracts/src/rpc.ts: handler registration against the fork's groups \u2014 ws-rpc-group-split",
+      "apps/web: notification gate, composer submit, question panel, command palette drag, markdown list numbers, sparkles icons \u2014 quiet-run-read-state, device-composer, delegated-work-visibility, perf-markdown-blocks, web-client-customisation",
+      "packages/shared, packages/client-runtime: awareness projection, pending background work, markdown pipeline, command output refetch \u2014 thread-watches, quiet-run-read-state, perf-markdown-blocks, perf-persistence-reads",
+      "apps/mobile, apps/desktop, scripts, docs: iPad insets, desktop IPC, e2e scenarios \u2014 mobile-fork-screens, desktop-fork-build, validation-tooling"
     ],
     "exclusions": [
       {
@@ -123,211 +124,394 @@
         "why": "upstream reviewed them; only the merge's conflict resolutions and this reconciliation commit are reviewed here"
       },
       {
-        "what": "packages/shared/src/String.test.ts, apps/server/src/vcs/GitVcsDriverCore*, ProjectionStore's new window reads",
-        "why": "no conflict and no recorded entry meets them; upstream's own tests cover them, and they were read for overlap only"
+        "what": "packages/contracts (additive optional fields), apps/mobile screens, evals/, docs/",
+        "why": "no recorded entry's requirement meets them and no conflict arose; read for overlap only"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "ssh-launch-respects-boot-service",
-      "upstream": "#32587 gives one remote home a launch lock, reuses a live sibling alias's managed server and waits for the runtime record",
+      "entry": "quiet-run-read-state",
+      "upstream": "#32520 gives a run that answers a background-work progress wake `latestRunBackgroundWake` and holds its completion for a 5 s grace in a `releases` map, adding `gate.pause()` for a stale snapshot",
       "decision": "adapt",
       "requirements": [
-        "a home owned by the user's T3 service is still waited for and adopted, never started beside",
-        "a live sibling alias's server is reused before any port is picked",
-        "the three existing launch behaviours and upstream's concurrent-launch case are both proven"
+        "a stopped run, a silent run and the run a mark-read request is bound to still notify nothing",
+        "the standing path keeps its own 5 s hold and re-arms exactly as before",
+        "one hold mechanism per path, both through the injectable `ThreadNotificationHold`"
       ],
       "evidence": [
-        "packages/ssh/src/tunnel.ts: the sibling scan runs before `if [ -z \"$REMOTE_PORT\" ] && boot_service_owns_home`; REMOTE_SERVICE_READY_TIMEOUT_MS sits beside upstream's lock/base split and SSH_TUNNEL_CONNECT_TIMEOUT_MS still uses the base",
-        "packages/ssh/src/tunnel.test.ts: 30 tests pass (both sides' helpers and cases kept)"
-      ]
-    },
-    {
-      "entry": "perf-persistence-reads",
-      "upstream": "#33305 opens a long thread from its latest segments and #33295 stops MCP calls reading the caller's whole thread",
-      "decision": "adapt",
-      "requirements": [
-        "the fork's full getThreadSnapshot, threadIds shell batch, four-reader pool and index-by-name reads (migrations 091/093/095) survive",
-        "every new read goes through readOnReader"
-      ],
-      "evidence": [
-        "apps/server/src/orchestration-v2/ProjectionStore.ts: getThreadSnapshotWindow and getThreadHistoryPage are new reads wrapped at :7787; INDEXED BY reads and the threadIds option unchanged",
-        "apps/server/src/ws.ts:1050 selects the window only when the client asks",
-        "ProjectionStore.test.ts 74 tests pass (with ThreadPullRequestService.test.ts)"
-      ]
-    },
-    {
-      "entry": "managed-delegation",
-      "upstream": "#33295 narrows MCP caller reads, #32899 starts a restart that misses its turn as a new turn, #32815 disposes a cancelled wake's cohort",
-      "decision": "adapt",
-      "requirements": [
-        "loadScopedThread still refuses an external owner's thread, and the fork's wider reads remain where the managed layer needs them",
-        "a settle disposes the automatic queued runs as a cohort",
-        "the completion hold, roles, follow-ups and cancellation are unchanged"
-      ],
-      "evidence": [
-        "apps/server/src/mcp/OrchestratorMcpService.ts: assertExternalWorkOwner kept, loadProjection kept for the owned follow-up, readThread loads the caller's runs and user messages only when the caller holds a thread watch",
-        "apps/server/src/orchestration-v2/Orchestrator.ts:4751 passes \"cohort\" where upstream does; the steer/restart guard is upstream's superset",
-        "OrchestratorMcpService.test.ts and DelegatedCompletionDelivery.test.ts pass (114 of 115 before one adaptation, then 51/51 after: upstream's settle case now proves the fork's refusal and settles with stopBackgroundWork)"
+        "apps/web/src/components/ThreadNotificationCoordinator.logic.ts: `releases`/`release`/`cancelRelease` reuse `hold`, `pause()` stops only grace holds, `observeStanding` unchanged",
+        "apps/web/src/components/ThreadNotificationCoordinator.logic.test.ts: upstream's three wake cases beside the fork's standing and quiet describes (19 tests pass)",
+        "apps/web/src/components/ThreadNotificationCoordinator.tsx: `settled` takes `monitorHoldsWakeCompletion`, `backgroundWake` and `waitsOn` both set"
       ]
     },
     {
       "entry": "thread-watches",
-      "upstream": "#33752 looks up a finished turn's branch pull request once",
+      "upstream": "#32520 moves the pending-background-work input to `OrchestrationV2ThreadShell` and adds `monitorHoldsWakeCompletion`",
       "decision": "adopt",
       "requirements": [
-        "PR watches stay upstream's; the fork's thread and Forge watches, endedThreadWatches and the composer strip are untouched"
+        "the fork's thread and Forge watches, `endedThreadWatches`, parked waits and the composer strip are unchanged"
       ],
       "evidence": [
-        "apps/server/src/orchestration-v2/ThreadPullRequestService.ts and its test pass beside the fork's watch suites"
+        "packages/shared/src/orchestrationV2PendingBackgroundWork.ts: upstream's helper imported beside the fork's watch helpers; the fork's bodies untouched",
+        "packages/shared/src/agentAwareness.ts: `latestRunBackgroundWake` added to the Pick, `readOnCompletionRunId`/`standing` kept"
       ]
     },
     {
-      "entry": "quiet-run-read-state",
-      "upstream": "#32719 keys attention on the pending request id so a replacing request notifies again",
+      "entry": "managed-delegation",
+      "upstream": "#33446 wakes a parent from a `t3_thread_send` to a finished child, #33758 mirrors OpenCode native goals, #34139 fixes peer link request addresses, #32342 names a data dir inside a Git repository",
       "decision": "adopt",
       "requirements": [
-        "a stopped run, a silent run and the run a mark-read request is bound to still notify nothing",
-        "the 2 s working-exit grace is unchanged"
+        "role resolution, the completion hold, `whyNotDelegated`, the depth limit, linked-role admission and the paused-task resume are unchanged"
       ],
       "evidence": [
-        "apps/web/src/components/ThreadNotificationCoordinator.logic.ts: upstream's requestId/attended gate and the fork's quiet option coexist; 19 tests pass with assistantCitationNavigation.test.ts"
+        "apps/server/src/orchestration-v2/Orchestrator.ts, OrchestratorMcpService.ts, peer/PeerLinks.ts merged without conflict",
+        "apps/server/src/mcp/OrchestratorMcpService.test.ts and DelegatedCompletionDelivery.test.ts pass (batch 4)"
       ]
     },
     {
-      "entry": "delegated-work-visibility",
-      "upstream": "#33706 and #32815 rebuild prompt suggestions after a steered turn",
-      "decision": "adopt",
+      "entry": "no-project-chats",
+      "upstream": "#32342 replaces the scratch probe's `Option` with `Result` and a `ScratchUnavailableError` naming the base dir and the repository",
+      "decision": "adapt",
       "requirements": [
-        "the fork's renderAboveComposer delegated panel, SubagentPanel rows and finish rules are unchanged"
+        "a No project chat still starts in the scratch folder under the data dir",
+        "the fork's exported `scratchFolder(path, baseDir)` stays the one place the folder is resolved"
       ],
       "evidence": [
-        "apps/web/src/components/chat/ChatComposer.tsx, usePromptSuggestion.ts"
+        "apps/server/src/project/ManagedProjectFolders.ts: upstream's `repositoryRoot` probe with `scratchFolder(path, config.baseDir)` in the success branch",
+        "apps/server/src/project/ManagedProjectFolders.test.ts passes (batch 1)",
+        "apps/server/src/orchestration-v2/WorktreeBranchSync.ts: the fork's `isRepository` guard became `repositoryRoot(input.cwd) === null`, the same test, because upstream removed the old method"
       ]
     },
     {
-      "entry": "side-chat",
-      "upstream": "#33160 reveals the side chat on a Go to source citation while keeping the parent thread",
+      "entry": "linked-environments",
+      "upstream": "#34139 has a link request use the addresses the app already has for a machine",
       "decision": "adopt",
       "requirements": [
-        "the fork's roundAnchor follow-up landing, Use in main, the opening-turn runtime-mode guard and pane isolation stay"
+        "peer sessions, the thread directory, linked-thread attachments and linked role admission are unchanged"
       ],
       "evidence": [
-        "apps/web/src/components/ChatView.tsx keeps both the fork's roundAnchor and useSideChatCitationReveal, sharing locationCitation/citationActivation; assistantCitationNavigation.test.ts passes"
-      ]
-    },
-    {
-      "entry": "preview-browser-lifetime",
-      "upstream": "#32861 waits for a new desktop tab's first page before announcing it and detaches only announced tabs",
-      "decision": "adopt",
-      "requirements": [
-        "the fork's profile-context close, revoked-access and stalled-start bounds are unchanged"
-      ],
-      "evidence": [
-        "apps/desktop/src/preview/DesktopBrowserHost.ts and its test"
-      ]
-    },
-    {
-      "entry": "dev-state-tooling",
-      "upstream": "#32744 makes the dev database seed drop active pull-request watches",
-      "decision": "adopt",
-      "requirements": [
-        "the fork's seeding filters and its experiment-observation assertions are unchanged"
-      ],
-      "evidence": [
-        "apps/server/scripts/migrate-dev-db.test.ts keeps both queries; 30 tests pass with tunnel.test.ts"
-      ]
-    },
-    {
-      "entry": "thread-handoff",
-      "upstream": "#33666 survives a desktop window reload for a background agent tab and #28353 captures iOS screenshots on simctl",
-      "decision": "adopt",
-      "requirements": [
-        "the fork's handoff move keeps its conversation, git transfer and read-only copy"
-      ],
-      "evidence": [
-        "apps/server/src/device/DeviceHubOperations.ts, DeviceHubProxy.ts, DeviceHost.ts"
+        "apps/server/src/peer/*, apps/web/src/components/settings/LinkedEnvironmentsSettings.tsx merged without conflict",
+        "apps/server/src/peers suites pass (batch 4)"
       ]
     },
     {
       "entry": "account-pools",
-      "upstream": "#33008 fails a Claude turn whose CLI exits before its first frame, #32951 names a signed-out config dir, #33721 prices Mythos 5.2, #32583 keeps a steered Cursor prompt and #32585 resolves slashed Pi provider ids",
+      "upstream": "#34106 offers and redeems a Fable-only reset apart from weekly resets (`consumeResetCredit(creditId)`, `ServerProviderResetCreditOption`), #33800 publishes Muse Code limits and CLIProxyAPI-hub accounts through `applyUsageLimits(ProviderUsageLimitsReport)`",
       "decision": "adapt",
       "requirements": [
-        "a retried 429 that names no reset time stays a provider error, so no account is marked out on it",
-        "the fork's one-rule account choice and fallback order are unchanged"
+        "`ProviderInstance.refreshUsage` and `ManagedServerProvider.replaceUsageLimits` stay, so the usage-only refresh and the remembered limit are unchanged",
+        "the one-rule account ranking, pools, reserve and failover order are unchanged"
       ],
       "evidence": [
-        "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts keeps the fork's limitResetAt rule beside upstream's attachTurn claim",
-        "packages/provider-pi/src/server/adapter.ts now resolves the compaction point's model with upstream's resolvePiModelSlug(slug, discoveredModels): the merge left the removed parsePiModelSlug call, which only a typecheck catches",
-        "159 provider tests and 636 adapter/registry/pricing tests pass"
+        "packages/provider-core/src/server/driver.ts: `consumeResetCredit(creditId)` beside the fork's `refreshUsage`",
+        "packages/provider-core/src/server/snapshot.ts: upstream's `ProviderUsageLimitsReport` beside the fork's `replaceUsageLimits`",
+        "packages/provider-muse/src/server/adapter.ts: upstream's `onUsageLimits` hook",
+        "apps/server/src/ws.ts: the fork's handler passes `input.creditId`",
+        "provider, registry, pricing and adapter suites pass (batch 3, 1027 tests)"
       ]
     },
     {
-      "entry": "mobile-fork-screens",
-      "upstream": "#33021 medium Android windows, #33223 the Files sheet scroll, #32994 a missing file's message",
+      "entry": "shared-provider-setup",
+      "upstream": "#33800 reshapes the provider usage report and `applyUsageLimits`",
       "decision": "adopt",
       "requirements": [
-        "the fork's mobile screens are unchanged"
+        "the `sharedProviderSetup` stamp, `planSharedSetupSync`, the `expectedDigest` guard, alias renames and former-instance-id lookup are unchanged"
       ],
       "evidence": [
-        "apps/mobile/src/features/layout/AdaptiveWorkspaceLayout.tsx, features/files/*, components/ui/FilePreviewSession.tsx"
+        "apps/server/src/sharedProviderSetup.ts and packages/shared/src/sharedProviderSetup.ts merged without conflict"
+      ]
+    },
+    {
+      "entry": "build-items-hq",
+      "upstream": "#33758/#32434/#34089 add OpenCode native goals, self-wake questions, native todos and image job outcomes",
+      "decision": "adopt",
+      "requirements": [
+        "`AgentMcpServers.makeReader` and the per-agent Weave server list and lifecycle are unchanged"
+      ],
+      "evidence": [
+        "packages/provider-opencode/src/server/v2/adapter.ts: upstream's goal and todo state beside the fork's reader; adapter and OpenCode2AdapterV2 suites pass (batch 3)"
+      ]
+    },
+    {
+      "entry": "perf-persistence-reads",
+      "upstream": "#33009 lets SQLite pick the partial user-message index for a user-only ordinal read, #34002 stops a reopened command row refetching",
+      "decision": "adapt",
+      "requirements": [
+        "message payloads stay undecoded inside the snapshot transaction, and every new read goes through `readOnReader`"
+      ],
+      "evidence": [
+        "apps/server/src/orchestration-v2/ProjectionStore.ts: `userOnly` derived from `filter.messageRoles` instead of the decoded messages, so the common path parses nothing",
+        "ProjectionStore.test.ts passes (63 tests) with upstream's plan assertion accepting the fork's `(thread_id, type)` index, which wins the plan in the fork's schema"
+      ]
+    },
+    {
+      "entry": "perf-markdown-blocks",
+      "upstream": "#33820 keeps the numbers written on ordered list items",
+      "decision": "adopt",
+      "requirements": [
+        "the block-split renderer, the whole-message fallback and the newest-two-blocks fade are unchanged"
+      ],
+      "evidence": [
+        "packages/shared/src/markdownPipeline.ts and apps/web/src/components/ChatMarkdown.tsx merged without conflict; markdownPipeline.test.ts passes (batch 4)"
+      ]
+    },
+    {
+      "entry": "ws-rpc-group-split",
+      "upstream": "upstream still declares its handlers inline in `ws.ts`; its side of the merge is a 412-line handler block the fork serves from feature groups",
+      "decision": "retain",
+      "requirements": [
+        "every WebSocket RPC is served through its feature group and no settled list of groups is introduced"
+      ],
+      "evidence": [
+        "apps/server/src/ws.ts: the block is dropped and upstream's two edits ported \u2014 `scanCwd: projectService.workspaceScanDirectory(input.cwd)` on `serverRefreshProviders` (#32471) and `consumeResetCredit(input.creditId)` (#34106)",
+        "apps/server/src/ws.test.ts passes (25 tests) after mocking the fork's `HostPowerMonitor` in upstream's new scanCwd case"
+      ]
+    },
+    {
+      "entry": "session-tool-listings",
+      "upstream": "#33943 rewrites the runtime instruction that links a file by absolute path with its line range",
+      "decision": "adapt",
+      "requirements": [
+        "the measured instruction and tool-list bytes are the merged tree's own, not either parent's"
+      ],
+      "evidence": [
+        "apps/server/src/provider/agentContextBudget.json re-measured to 10237 / 12699 / 126330 bytes; AgentContextBudget.test.ts passes",
+        "the fork's session listings are what the tool-list JSON measures"
+      ]
+    },
+    {
+      "entry": "web-client-customisation",
+      "upstream": "#25422 replaces the sparkles icons and bans them with a lint rule, #33987 adds a regenerate-title shortcut",
+      "decision": "adopt",
+      "requirements": [
+        "the fork's composer, settings-search and sidebar behaviours are unchanged"
+      ],
+      "evidence": [
+        "oxlint-plugin-t3code/rules/no-sparkles-icon.ts adopted into the shared plugin; packages/contracts/src/keybindings.ts",
+        "apps/web/src/components/CommandPalette.browser.test.tsx passes (9 tests with the citation draft)"
+      ]
+    },
+    {
+      "entry": "device-composer",
+      "upstream": "#33440 makes the composer's submit return whether it dispatched, #34095 centres the question panel header",
+      "decision": "adapt",
+      "requirements": [
+        "the fork's dial-press cue, `setSendPressKey` and `playDispatchCue` stay in the submit flow",
+        "the question panel keeps the fork's `font-response` face"
+      ],
+      "evidence": [
+        "apps/web/src/components/chat/ChatComposer.tsx: the fork's cue block returns upstream's `false` on a refused dispatch",
+        "apps/web/src/components/chat/ComposerPendingUserInputPanel.tsx: `pt-0.5 font-response`"
+      ]
+    },
+    {
+      "entry": "validation-tooling",
+      "upstream": "#34007 adds `scripts/prove-scenario.ts`, its scenario files, the `e2e` dependency and `docs/operations/scenarios.md`",
+      "decision": "adopt",
+      "requirements": [
+        "the fork's clean script, knip entries and updater fixtures are unchanged"
+      ],
+      "evidence": [
+        "scripts/e2e.config.ts, scripts/scenarios/ and scripts/package.json merged without conflict"
+      ]
+    },
+    {
+      "entry": "voice-bridge",
+      "upstream": "#34096 lets voice models reuse copies already on disk",
+      "decision": "adopt",
+      "requirements": [
+        "the bridge, its MCP port, the OpenAI surface and the window capture are unchanged"
+      ],
+      "evidence": [
+        "apps/server/src/speech/* and packages/contracts/src/speech.ts merged without conflict"
+      ]
+    },
+    {
+      "entry": "agent-process-ledger",
+      "upstream": "#33587 stops an agent-device daemon an earlier server left behind when the server quits",
+      "decision": "adopt",
+      "requirements": [
+        "`ProcessGroupLedger` and each adapter's recording are unchanged"
+      ],
+      "evidence": [
+        "apps/server/src/device/LocalDeviceHost.ts; LocalDeviceHost.test.ts passes (batch 4)"
+      ]
+    },
+    {
+      "entry": "project-themes",
+      "upstream": "#33820 adds ordered-list number rules to `apps/web/src/index.css`",
+      "decision": "adopt",
+      "requirements": [
+        "the theme palette attributes and `themeCharacter.css` are untouched"
+      ],
+      "evidence": [
+        "apps/web/src/index.css merged without conflict"
+      ]
+    },
+    {
+      "entry": "mcp-orchestration-annotations",
+      "upstream": "#34139 edits `OrchestratorMcpService` for peer link requests",
+      "decision": "retain",
+      "requirements": [
+        "no state-changing tool is ever marked read-only, and the create/send/launch tools keep `destructiveHint: false`"
+      ],
+      "evidence": [
+        "apps/server/src/mcp/toolkits/*/tools.ts unchanged by this update"
       ]
     },
     {
       "entry": "timeline-layout-test-fixture",
-      "upstream": "#33038 disables the minimap's next-turn control at the bottom of a thread",
+      "upstream": "#33964 makes the minimap next-turn browser test wait for the resize, #34003 keeps HTML previews anchored",
       "decision": "adopt",
       "requirements": [
-        "the fork's fixture-driven layout tests are unchanged"
+        "the fork's smaller height-contrast fixture and its assertions are unchanged"
       ],
       "evidence": [
-        "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx, TimelineMinimap.tsx"
+        "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx and timelineViewport.ts merged without conflict"
+      ]
+    },
+    {
+      "entry": "delegated-work-visibility",
+      "upstream": "#33440 changes the composer submit contract in the file the fork's delegated panel renders above",
+      "decision": "adopt",
+      "requirements": [
+        "the panel, its rows, `renderAboveComposer` and the finished-row rules are unchanged"
+      ],
+      "evidence": [
+        "apps/web/src/components/chat/ChatComposer.tsx"
+      ]
+    },
+    {
+      "entry": "stop-pauses-delegated-tasks",
+      "upstream": "#33446 and #33758 edit `Orchestrator.ts` around the completion delivery the pause marks ride on",
+      "decision": "adopt",
+      "requirements": [
+        "the pause marks, the resume effect and the cohort disposal are unchanged"
+      ],
+      "evidence": [
+        "apps/server/src/orchestration-v2/ThreadStop.test.ts passes (batch 4)"
+      ]
+    },
+    {
+      "entry": "fork-guidance",
+      "upstream": "a scenario-proving paragraph added to `AGENTS.md`",
+      "decision": "adopt",
+      "requirements": [
+        "the `## T3peach fork` section stays at the end of `AGENTS.md`"
+      ],
+      "evidence": [
+        "AGENTS.md merged without conflict"
+      ]
+    },
+    {
+      "entry": "desktop-fork-build",
+      "upstream": "#34094 answers desktop IPC only from the main window, #33620 stops input during teardown throwing",
+      "decision": "adopt",
+      "requirements": [
+        "the fork's build environment (no update feed, local signing, Connect `.env`, screen-picker staging) is unchanged"
+      ],
+      "evidence": [
+        "apps/desktop/src/ipc/DesktopIpc.ts and apps/desktop/src/window/DesktopWindow.ts merged without conflict"
+      ]
+    },
+    {
+      "entry": "mobile-fork-screens",
+      "upstream": "#32936 iPad insets, #33957 highlighted commands, #34087 large-image attachments, #34073 voice environment picking, #34011 command-output scrolling, #25422 icons",
+      "decision": "adopt",
+      "requirements": [
+        "the fork's Forge screens and the screens dependency are unchanged, and upstream's `react-native-screens` tarball is taken as it ships"
+      ],
+      "evidence": [
+        "apps/mobile merged without conflict; the screens tarball and lockfile entry follow upstream"
+      ]
+    },
+    {
+      "entry": "saved-icon-compatibility",
+      "upstream": "an `app-path` member added to `NativeAppIconReference` for app bundle icons",
+      "decision": "adopt",
+      "requirements": [
+        "the Lucide compatibility map, the picker and the saved-name rule are unchanged"
+      ],
+      "evidence": [
+        "packages/contracts/src/assets.ts: `NativeAppIconReference` widens only `AssetResource`'s `native-app-icon` request, which only the web client sends (`apps/web/src/components/chat/MarkdownFileLink.tsx`); `ToolActivityIcon`'s `native-app` still uses `ToolActivityNativeAppReference`, so the thread projection is unchanged and shipped clients decode nothing new",
+        "apps/web/src/lib/lucideIconByName.ts unchanged by this update"
+      ]
+    },
+    {
+      "entry": "compact-model",
+      "upstream": "#33741 gives `TextGeneration.generate` a `projectId` so a text-generation fallback respects the project's provider settings",
+      "decision": "adopt",
+      "requirements": [
+        "the summariser chain, the cross-account summary path and the compaction item's model are unchanged"
+      ],
+      "evidence": [
+        "apps/server/src/textGeneration/TextGeneration.ts: `generateCompactionSummary` passes `null`, which is what it did before the parameter existed, because `CompactionSummaryGenerationInput` carries no project",
+        "ProviderTurnStartService.test.ts and CodexTextGeneration.test.ts pass (235-test batch)"
       ]
     }
   ],
   "unresolved": [],
   "checks": [
     {
-      "command": "vp run --filter t3 --filter @t3tools/web --filter @t3tools/ssh --filter @t3tools/provider-cursor --filter @t3tools/provider-pi --filter @t3tools/shared typecheck",
+      "command": "vp i",
       "result": "passed",
-      "note": "server, web, ssh, cursor and shared clean. provider-pi first failed two ways: the merge kept a call to upstream's removed parsePiModelSlug, and packages/provider-pi/src/server/compaction.ts already failed effectTryWithoutCatch/globalJsonInEffect on the fork base (proved by running the same typecheck in a workspace at 8cd52c29); both are fixed here, the second with Schema.decodeOption so the update lands a clean package."
+      "note": "the lockfile was regenerated from the merged manifests after taking upstream's side of `pnpm-lock.yaml`; the supply-chain policy check passed for 2087 entries"
     },
     {
-      "command": "vp test run packages/ssh/src/tunnel.test.ts apps/server/scripts/migrate-dev-db.test.ts",
+      "command": "vp run --filter @t3tools/shared --filter @t3tools/provider-core --filter @t3tools/provider-muse --filter @t3tools/provider-opencode --filter @t3tools/client-runtime typecheck",
       "result": "passed",
-      "note": "30 tests: the three fork launch tests and upstream's concurrent-launch case"
+      "note": "clean after fixing a diagnostic the merge did not cause: `packages/client-runtime/src/state/peers.ts` used `Data.TaggedError` where effect-tsgo requires `Schema.TaggedError`; the same diagnostic fires on that file's base content"
     },
     {
-      "command": "vp test run apps/server/src/mcp/OrchestratorMcpService.test.ts apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts",
+      "command": "vp run --filter t3 typecheck",
       "result": "passed",
-      "note": "115 tests; one adaptation, upstream's settle case now proves the fork's background-work refusal and settles with stopBackgroundWork"
+      "note": "first run reported 196 errors, all cascades of five merge breaks that only a typecheck catches: upstream removed `GitWorkflowService.isRepository` (WorktreeBranchSync), added a `projectId` argument to `TextGeneration.generate` (the compaction summary call), and its new tests met fork-only shapes (the fork's `layerWsRpc` arity in ws.test.ts, `ManagedServerProvider.replaceUsageLimits` in ProviderRegistry.test.ts, and the three fork services `withBoth` needs in PeerLinkRequests.test.ts). All fixed; 0 errors after"
     },
     {
-      "command": "vp test run apps/server/src/orchestration-v2/ProjectionStore.test.ts apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts",
+      "command": "vp run --filter @t3tools/web --filter @t3tools/desktop --filter @t3tools/mobile --filter @t3tools/client-runtime typecheck",
       "result": "passed",
-      "note": "74 tests"
+      "note": "clean, including `ThreadRouteView.tsx`, where the merge had left upstream's moved `ScopedThreadRef` import beside the fork's and duplicated the identifier"
     },
     {
-      "command": "vp test run apps/web/src/lib/assistantCitationNavigation.test.ts apps/web/src/components/ThreadNotificationCoordinator.logic.test.ts",
-      "result": "passed",
-      "note": "19 tests"
+      "command": "vp run --filter @t3tools/scripts typecheck",
+      "result": "failed",
+      "note": "pre-existing and left: `scripts/dev-runner.ts` (effectSucceedWithUndefined) and `scripts/fork-upstream-receipt.ts` (extendsNativeError) report the same two diagnostics on the fork base `c8d3932031`, and this update does not touch either file"
     },
     {
-      "command": "vp test run apps/server/src/orchestration-v2/SteeringCompletion.integration.test.ts apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts",
+      "command": "vp test run apps/web/src/components/ThreadNotificationCoordinator.logic.test.ts packages/shared/src/agentAwareness.test.ts packages/shared/src/orchestrationV2PendingBackgroundWork.test.ts apps/server/src/orchestration-v2/ProjectionStore.test.ts apps/server/src/project/ManagedProjectFolders.test.ts apps/server/src/provider/AgentContextBudget.test.ts apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts",
       "result": "passed",
-      "note": "45 tests: the restart guard and the fork's compact point"
+      "note": "264 tests; two adaptations \u2014 the re-measured context budget, and upstream's partial-index plan assertion accepting the fork's `(thread_id, type)` index"
     },
     {
-      "command": "vp test run packages/provider-cursor/src/server/adapter.test.ts packages/provider-pi/src/server/adapter.test.ts packages/provider-pi/src/server/textGeneration.test.ts",
+      "command": "vp test run apps/web/src/components/ThreadNotificationCoordinator.logic.test.ts packages/shared/src/agentAwareness.test.ts packages/shared/src/orchestrationV2PendingBackgroundWork.test.ts packages/client-runtime/src/state/threadExecution.test.ts packages/client-runtime/src/state/peers.test.ts apps/server/src/ws.test.ts apps/server/src/shippedClientCompatibility.test.ts",
       "result": "passed",
-      "note": "159 tests; the Pi text-generation fixture needed the fork's autoCompactWindow"
+      "note": "165 tests; `ws.test.ts` needed the fork's `HostPowerMonitor` mocked in upstream's new scanCwd case"
     },
     {
-      "command": "vp test run apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts apps/server/src/provider/ProviderRegistry.test.ts apps/server/src/usage/usagePricing.test.ts",
+      "command": "vp test run packages/provider-core/src/server/managedProvider.test.ts packages/provider-muse/src/server/{adapter,driver,usageLimits}.test.ts packages/provider-opencode/src/server/v2/{adapter,OpenCode2Client}.test.ts apps/server/src/orchestration-v2/Adapters/{OpenCode2AdapterV2,ClaudeAdapterV2,CodexAdapterV2}.test.ts apps/server/src/provider/{ProviderRegistry,ProviderInstanceRegistry,claudeResetCredits}.test.ts apps/server/src/usage/usagePricing.test.ts packages/provider-pi/src/server/adapter.test.ts",
       "result": "passed",
-      "note": "636 tests"
+      "note": "1027 tests"
+    },
+    {
+      "command": "vp test run apps/server/src/orchestration-v2/{ThreadWatch,ThreadStop,DelegatedCompletionDelivery,ThreadFind}.test.ts apps/server/src/mcp/{OrchestratorMcpService,ManagedFollowup}.test.ts apps/server/src/peers/*.test.ts apps/server/src/device/LocalDeviceHost.test.ts apps/server/src/project/ProjectService.test.ts packages/shared/src/markdownPipeline.test.ts",
+      "result": "passed",
+      "note": "302 tests"
+    },
+    {
+      "command": "vp test run apps/server/src/orchestration-v2/WorktreeBranchSync.test.ts apps/server/src/peer/PeerLinkRequests.test.ts apps/server/src/provider/ProviderRegistry.test.ts apps/server/src/ws.test.ts apps/server/src/textGeneration/CodexTextGeneration.test.ts apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts",
+      "result": "passed",
+      "note": "235 tests, rerun after the typecheck fixes"
+    },
+    {
+      "command": "vp test run apps/web/src/components/ThreadNotificationCoordinator.badge.browser.test.ts",
+      "result": "passed",
+      "note": "11 tests; the first attempt failed importing the module while Vite was still pre-bundling, and passed on rerun"
+    },
+    {
+      "command": "vp test run apps/web/src/components/CommandPalette.browser.test.tsx apps/web/src/components/ComposerPromptEditorTiptap.citationDraft.browser.test.tsx",
+      "result": "passed",
+      "note": "9 tests; same cold-prebundle import failure on the first attempt only"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
@@ -335,14 +519,9 @@
       "note": "the gate lists its selection against the merged config"
     },
     {
-      "command": "vp test run apps/server/src/orchestration-v2/SelectionRestart.integration.test.ts",
+      "command": "node scripts/fork-upstream-receipt.ts verify",
       "result": "passed",
-      "note": "closes the review gap over the rewritten dispatch-mode guard: a restart that misses its turn starts as a new turn, and a steer into a completed turn still starts immediately"
-    },
-    {
-      "command": "vp run --filter @t3tools/mobile --filter @t3tools/desktop typecheck",
-      "result": "passed",
-      "note": "closes the review gap for the mobile layout/files files and the desktop preview host the merge touched"
+      "note": "receipt ok: v0.1.9-nightly.20261111.4501 (c90b67859a6d) onto c8d3932031e7"
     }
   ],
   "result": "reconciled"

@@ -50,10 +50,9 @@ export interface ProviderInstance {
    * changes nothing, so a slow or broken probe never marks the account unavailable.
    */
   readonly refreshUsage?: Effect.Effect<void>;
-  readonly consumeResetCredit?: () => Effect.Effect<
-    ProviderConsumeResetCreditOutcome,
-    ProviderDriverError
-  >;
+  readonly consumeResetCredit?: (
+    creditId: string | undefined,
+  ) => Effect.Effect<ProviderConsumeResetCreditOutcome, ProviderDriverError>;
   readonly orchestrationAdapter: ProviderAdapter.ProviderAdapterV2["Service"];
   readonly textGeneration: ProviderTextGeneration;
   readonly auth?: ProviderAuthController;

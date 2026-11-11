@@ -82,7 +82,7 @@ it.effect.each([false, true])(
             ),
           }),
           Layer.mock(GitWorkflowService.GitWorkflowService)({
-            isRepository: () => Effect.succeed(true),
+            repositoryRoot: () => Effect.succeed("/worktree"),
             currentBranch: () => Effect.succeed("union"),
           }),
           Layer.mock(ThreadManagement.ThreadManagementService)({
@@ -145,7 +145,7 @@ it.effect("leaves a Jujutsu workspace's threads on no branch", () => {
           ),
         }),
         Layer.mock(GitWorkflowService.GitWorkflowService)({
-          isRepository: () => Effect.succeed(false),
+          repositoryRoot: () => Effect.succeed(null),
           currentBranch: () => Effect.succeed("t3peach"),
         }),
         Layer.mock(ThreadManagement.ThreadManagementService)({

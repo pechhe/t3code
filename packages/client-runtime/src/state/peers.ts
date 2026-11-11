@@ -1,15 +1,15 @@
 import {
   AuthOrchestrationReadScope,
-  type EnvironmentId,
+  EnvironmentId,
   type PeerEnvironment,
   type PeerEnvironmentError,
   type PeersUpdateInput,
   WS_METHODS,
 } from "@t3tools/contracts";
 import { isLocalLoopbackHost } from "@t3tools/shared/hostClassification";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/http";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
@@ -30,9 +30,9 @@ import { createEnvironmentSessionAtoms } from "./session.ts";
 const MINT_TIMEOUT_MS = 8_000;
 
 /** The client holds no connection to the environment, so it cannot ask for a code. */
-class PeerCodeUnavailable extends Data.TaggedError("PeerCodeUnavailable")<{
-  readonly environmentId: EnvironmentId;
-}> {}
+class PeerCodeUnavailable extends Schema.TaggedError<PeerCodeUnavailable>()("PeerCodeUnavailable", {
+  environmentId: EnvironmentId,
+}) {}
 
 function isLoopbackUrl(url: string): boolean {
   try {

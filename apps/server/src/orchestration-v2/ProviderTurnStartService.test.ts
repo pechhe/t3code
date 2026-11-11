@@ -320,6 +320,7 @@ function makeLocalCommandHarness(input: {
   readonly attachments?: ReadonlyArray<ChatAttachment>;
   readonly attachmentsDir?: string;
   readonly processEnvironment?: NodeJS.ProcessEnv;
+  readonly nativeGoals?: boolean;
   readonly worktreePath?: string;
   readonly projectRoot?: string;
   readonly baseDir?: string;
@@ -432,7 +433,9 @@ function makeLocalCommandHarness(input: {
   };
   const providerThread: OrchestrationV2ThreadProjection["providerThreads"][number] = {
     id: providerThreadId,
-    driver: ProviderDriverKind.make(input.claude ? "claudeAgent" : "codex"),
+    driver: ProviderDriverKind.make(
+      input.claude ? "claudeAgent" : input.nativeGoals === undefined ? "codex" : "opencode",
+    ),
     providerInstanceId: newInstanceId,
     providerSessionId,
     appThreadId: threadId,
@@ -909,7 +912,13 @@ function makeLocalCommandHarness(input: {
     status: "ready",
     cwd: "/tmp/native-account-command",
     model: null,
-    capabilities: CodexProviderCapabilitiesV2,
+    capabilities: {
+      ...CodexProviderCapabilitiesV2,
+      turns: {
+        ...CodexProviderCapabilitiesV2.turns,
+        ...(input.nativeGoals === undefined ? {} : { supportsNativeGoals: input.nativeGoals }),
+      },
+    },
     createdAt: now,
     updatedAt: now,
     lastError: null,
@@ -1647,6 +1656,23 @@ effectIt.effect.each([
         !forks,
       );
       expect(harness.projection().providerThreads[0]?.handoffIds).toEqual(handoffIds);
+    }),
+);
+
+effectIt.effect.each([false, true])(
+  "OpenCode goal prompts defer switched-provider history only with native support: %s",
+  (nativeGoals) =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "/goal all tests pass",
+        nativeGoals,
+        sideChat: { contextRun: "failed", switchedProvider: true },
+      });
+      harness.tryHandlePromptCommand.mockReturnValue(Effect.succeed(false));
+      yield* harness.start;
+      expect(harness.startTurn.mock.calls[0]?.[0].message.text.includes("SIDE_CHAT_CONTEXT")).toBe(
+        !nativeGoals,
+      );
     }),
 );
 
