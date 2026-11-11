@@ -20,6 +20,7 @@ import { providerModelKey } from "../../../modelOrdering";
 import type { ProviderInstanceEntry } from "../../../providerInstances";
 import { resolveModelPickerSelectedModel } from "../ModelPickerContent";
 import { getTriggerDisplayModelName, type ModelEsque } from "../providerIconUtils";
+import { resolveFavoriteSlots } from "./favoriteSlots.logic";
 
 /** Favourite slots before the overflow detent. */
 const FAVORITE_SLOTS = 4;
@@ -103,7 +104,11 @@ export function DeviceModelSlider(props: {
     ref,
   } = props;
 
-  const resolveSlot = (instanceId: ProviderInstanceId, model: string): Slot | null => {
+  const resolveSlot = (
+    instanceId: ProviderInstanceId,
+    model: string,
+    { requireSuppliedModel = false }: { requireSuppliedModel?: boolean } = {},
+  ): Slot | null => {
     const entry = instanceEntries.find((candidate) => candidate.instanceId === instanceId);
     if (!entry || !entry.enabled) return null;
     const option = resolveModelPickerSelectedModel({
@@ -111,6 +116,10 @@ export function DeviceModelSlider(props: {
       model,
       options: modelOptionsByInstance.get(instanceId) ?? [],
     });
+    // A favourite for a model the provider no longer supplies must not take a
+    // detent under its raw id; the active selection keeps its overflow tag so
+    // the user still sees what a thread is pinned to.
+    if (requireSuppliedModel && option === undefined) return null;
     const locked =
       lockedProvider !== null &&
       (entry.driverKind !== lockedProvider ||
@@ -131,10 +140,11 @@ export function DeviceModelSlider(props: {
     };
   };
 
-  const slots = favorites
-    .map((favorite) => resolveSlot(favorite.provider, favorite.model))
-    .filter((slot): slot is Slot => slot !== null)
-    .slice(0, FAVORITE_SLOTS);
+  const slots = resolveFavoriteSlots(
+    favorites,
+    (favorite) => resolveSlot(favorite.provider, favorite.model, { requireSuppliedModel: true }),
+    FAVORITE_SLOTS,
+  );
   const active = resolveSlot(activeInstanceId, props.model);
   const activeIndex = slots.findIndex((slot) => slot.key === active?.key);
 
