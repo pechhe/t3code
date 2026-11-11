@@ -93,7 +93,6 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.retainedWeaveSignInStart]: AuthSettingsWriteScope,
   [WS_METHODS.retainedWeaveDisconnect]: AuthSettingsWriteScope,
   [WS_METHODS.forgeHomeDecide]: AuthSettingsWriteScope,
-  [WS_METHODS.forgeHomeAnswer]: AuthSettingsWriteScope,
   [WS_METHODS.championsStartInvestigation]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsCancelInvestigation]: AuthOrchestrationOperateScope,
   [WS_METHODS.championsUpsert]: AuthOrchestrationOperateScope,

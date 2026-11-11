@@ -3104,7 +3104,6 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.forgeHomeRead]: () => forgeHome.read,
         [WS_METHODS.forgeHomeDecide]: (input) => forgeHome.decide(input),
-        [WS_METHODS.forgeHomeAnswer]: (input) => forgeHome.answer(input),
         [WS_METHODS.scheduledTasksList]: (_input) =>
           scheduledTasks.list().pipe(Effect.map(withVisibleWebhookUrls)),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>

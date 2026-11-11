@@ -129,7 +129,6 @@ const RPC_AGGREGATES = {
   [WS_METHODS.forgeWorkItemLink]: "build",
   [WS_METHODS.forgeHomeRead]: "build",
   [WS_METHODS.forgeHomeDecide]: "build",
-  [WS_METHODS.forgeHomeAnswer]: "build",
   [WS_METHODS.championsClassChoices]: "champions",
   [WS_METHODS.championsRuntimeState]: "champions",
   [WS_METHODS.championsRecommendation]: "champions",

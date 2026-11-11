@@ -755,11 +755,13 @@ it.effect(
                   needsYou: [
                     acceptance,
                     { kind: "finding", item: item(1) },
+                    // An older Weave may still send these kinds; T3 ignores them.
                     {
                       kind: "hold",
                       item: item(2),
                       hold: { kind: "decision", note: "Choose a route" },
                     },
+                    { kind: "arc_check_in", arc: item(5), since: "2026-10-19" },
                   ],
                   stuck: "unreadable",
                   inProgress: false,
@@ -768,27 +770,17 @@ it.effect(
             }
           : oldAnswer(body);
       const state = yield* service.read;
-      assert.deepStrictEqual(state.home?.capabilities, { answer: false, notes: false });
-      assert.strictEqual(state.home?.count, 2);
+      assert.deepStrictEqual(state.home?.capabilities, { notes: false });
+      assert.strictEqual(state.home?.count, 1);
       assert.deepStrictEqual(state.home?.recentlyLanded, []);
       const needs = state.home!.needsYou;
       assert.deepStrictEqual(needs[0]?.kind === "acceptance" && needs[0].resolvedFindings, []);
-      assert.deepStrictEqual(needs[1], {
-        kind: "hold",
-        group: "answer",
-        reasonLabel: "Answer",
-        reasonDetail: "Choose a route",
-        spec: { ...item(2), ref: null },
-        url: `${origin}/forge/2`,
-        holdId: null,
-        holdKind: "decision",
-        question: "Choose a route",
-        since: null,
-      });
+      assert.deepStrictEqual(
+        needs.map((n) => n.kind),
+        ["acceptance"],
+      );
       yield* service.settleDeliveries;
-      yield* service.answer({ itemId: "item-2", holdId: "hold-1", answer: "A" });
       assert.strictEqual(weave.calls.filter((c) => c.body.action === "notes").length, 1);
-      assert.strictEqual(weave.calls.filter((c) => c.body.action === "answer").length, 0);
       // An older Weave is asked again after a while, so a Weave server update needs no T3 restart.
       yield* TestClock.adjust("5 minutes");
       yield* service.read;
@@ -928,15 +920,8 @@ it.effect("uses Weave's Inbox reasons and recently landed stages", () =>
             : {
                 needsYou: [
                   { ...acceptance, inbox },
-                  {
-                    kind: "hold",
-                    item: item(2),
-                    hold: { kind: "decision", note: "Choose", openedAt: "old" },
-                    inbox,
-                  },
                   { kind: "decision", decision: item(3), inbox },
                   { kind: "arc_review", arc: item(4), inbox },
-                  { kind: "arc_check_in", arc: item(5), inbox },
                 ],
                 recentlyLanded: [
                   {
@@ -950,7 +935,7 @@ it.effect("uses Weave's Inbox reasons and recently landed stages", () =>
       },
     });
     const home = (yield* service.read).home!;
-    assert.strictEqual(home.count, 5);
+    assert.strictEqual(home.count, 3);
     for (const need of home.needsYou) {
       assert.deepStrictEqual(
         [need.group, need.reasonLabel, need.reasonDetail, need.since],
@@ -975,7 +960,7 @@ it.effect("uses Weave's Inbox reasons and recently landed stages", () =>
   }),
 );
 
-it.effect("decodes Inbox holds, resolved findings, decisions and Arc actions", () =>
+it.effect("decodes resolved findings, decisions and Arc actions", () =>
   Effect.gen(function* () {
     const { weave, service } = yield* connected;
     weave.answer = (body) => ({
@@ -997,51 +982,36 @@ it.effect("decodes Inbox holds, resolved findings, decisions and Arc actions", (
                       ],
                     },
                   },
-                  {
-                    kind: "hold",
-                    item: item(2),
-                    hold: {
-                      id: "hold-1",
-                      kind: "decision",
-                      note: "Choose",
-                      openedAt: "2026-10-20",
-                    },
-                  },
                   { kind: "decision", decision: item(3) },
                   { ...acceptance, decisions: [item(6)], spec: { ...acceptance.spec, ...item(7) } },
                   { kind: "arc_review", arc: item(4) },
-                  { kind: "arc_check_in", arc: item(5), since: "2026-10-19" },
                 ],
               },
       },
     });
     const home = (yield* service.read).home!;
-    assert.deepStrictEqual(home.capabilities, { answer: true, notes: true });
+    assert.deepStrictEqual(home.capabilities, { notes: true });
     // A Decision nested in two Specs' cards is listed once, after the first.
-    assert.strictEqual(home.count, 7);
+    assert.strictEqual(home.count, 5);
     assert.deepStrictEqual(home.recentlyLanded, []);
     assert.deepStrictEqual(
       home.needsYou.map((need) => need.group),
-      ["accept", "review", "answer", "review", "accept", "review", "review"],
+      ["accept", "review", "review", "accept", "review"],
     );
     assert.strictEqual(home.needsYou[0]?.reasonDetail, acceptance.spec.reviewSummary);
-    assert.strictEqual(home.needsYou[2]?.since, "2026-10-20");
-    assert.strictEqual(home.needsYou[6]?.since, "2026-10-19");
     assert.deepStrictEqual(
       home.needsYou[0]?.kind === "acceptance" && home.needsYou[0].resolvedFindings,
       [{ title: "Fixed route" }],
     );
-    assert.strictEqual(home.needsYou[2]?.kind === "hold" && home.needsYou[2].holdId, "hold-1");
     assert.deepStrictEqual(
       home.needsYou
-        .filter((_, index) => index !== 0 && index !== 2)
+        .filter((_, index) => index !== 0)
         .map((n) => [n.kind, n.url, "detail" in n ? n.detail : null]),
       [
         ["decision", `${origin}/forge/6`, null],
         ["decision", `${origin}/forge/3`, null],
         ["acceptance", `${origin}/forge/7`, null],
         ["arc_review", `${origin}/forge/4`, "Review date reached: continue or close"],
-        ["arc_check_in", `${origin}/forge/5`, "No check-in since 2026-10-19"],
       ],
     );
   }),
@@ -1255,37 +1225,18 @@ it.effect("reports an unowned note undeliverable when no project matches", () =>
   }),
 );
 
-it.effect(
-  "refuses answers on older Weave and delivers new Weave answers through the note loop",
-  () =>
-    Effect.gen(function* () {
-      const old = yield* connected;
-      const input = { itemId: "item-1", holdId: "hold-1", answer: "Use the current route" };
-      const refused = yield* old.service.answer(input);
-      assert.strictEqual(refused.outcome, "refused");
-      assert.include(refused.message!, "does not support answering holds");
-      assert.isFalse(old.weave.calls.some((c) => c.body.action === "answer"));
-
-      const { weave, world, service } = yield* connected;
-      const n = note();
-      n.kind = "answer";
-      let answered = false;
-      const respond = noteAnswer([]);
-      weave.answer = (body) => {
-        if (body.action === "answer") answered = true;
-        return body.action === "notes" ? noteAnswer(answered ? [n] : [])(body) : respond(body);
-      };
-      assert.strictEqual((yield* service.answer(input)).outcome, "decided");
-      assert.deepStrictEqual(weave.calls.find((c) => c.body.action === "answer")?.body, {
-        action: "answer",
-        ...input,
-        via: { client: "t3", environmentId },
-      });
-      assert.strictEqual(
-        world.sent[0]?.text,
-        "Your owner answered your hold on YS-260: Use the current route",
-      );
-    }),
+it.effect("delivers an answer to a hold, given in Weave, through the note loop", () =>
+  Effect.gen(function* () {
+    const { weave, world, service } = yield* connected;
+    const n = note();
+    n.kind = "answer";
+    weave.answer = noteAnswer([n]);
+    yield* service.settleDeliveries;
+    assert.strictEqual(
+      world.sent[0]?.text,
+      "Your owner answered your hold on YS-260: Use the current route",
+    );
+  }),
 );
 
 it.effect("delivers a note sent back on a Proposed Decision to its source Spec's lead", () =>

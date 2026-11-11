@@ -1,4 +1,8 @@
-import type { ForgeHomeAcceptanceNeed, ForgeHomeNeed, ForgeHomeState } from "@t3tools/contracts";
+import type {
+  ForgeHomeAcceptanceNeed,
+  ForgeHomeOtherNeed,
+  ForgeHomeState,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -7,7 +11,7 @@ import {
   buildInboxKey,
   buildInboxSelection,
   latestForgeHomeState,
-  recentLandingTone,
+  forgeStageGlyph,
 } from "./ForgeHomeButton.logic";
 
 const state = (status: ForgeHomeState["status"], count: number | null): ForgeHomeState => ({
@@ -17,7 +21,7 @@ const state = (status: ForgeHomeState["status"], count: number | null): ForgeHom
   home:
     count === null
       ? null
-      : { needsYou: [], recentlyLanded: [], capabilities: { answer: false, notes: false }, count },
+      : { needsYou: [], recentlyLanded: [], capabilities: { notes: false }, count },
   readAt: null,
 });
 
@@ -51,26 +55,27 @@ describe("the Forge button", () => {
   });
 
   it("lists Accept, then Answer, by each entry's group, keeping Weave's order in each", () => {
-    const hold = (id: string, spec: string): ForgeHomeNeed => ({
-      kind: "hold",
+    const challenge = (spec: string): ForgeHomeOtherNeed => ({
+      kind: "decision_challenge",
       spec: { id: spec, number: 2, title: "t", status: "in_progress" },
       url: "u",
-      holdId: id,
-      holdKind: "decision",
-      question: "Which?",
+      detail: null,
       group: "answer",
-      reasonLabel: "Your call",
-      reasonDetail: "Which?",
+      reasonLabel: "Challenged",
+      reasonDetail: "Why?",
       since: null,
     });
     const entries = buildInboxEntries({
-      needsYou: [hold("h1", "s2"), need(), hold("h2", "s2")],
+      needsYou: [challenge("s2"), need(), challenge("s3")],
       recentlyLanded: [],
       count: 3,
-      capabilities: { answer: true, notes: true },
+      capabilities: { notes: true },
     });
-    // Two questions on one Spec stay two entries.
-    expect(entries.map(buildInboxKey)).toEqual(["acceptance:i", "hold:h1", "hold:h2"]);
+    expect(entries.map(buildInboxKey)).toEqual([
+      "acceptance:i",
+      "decision_challenge:s2",
+      "decision_challenge:s3",
+    ]);
   });
 
   it("selects the next entry once the chosen one leaves, and the last when it was last", () => {
@@ -81,7 +86,7 @@ describe("the Forge button", () => {
       ],
       recentlyLanded: [],
       count: 2,
-      capabilities: { answer: true, notes: true },
+      capabilities: { notes: true },
     });
     expect(buildInboxSelection(entries, null)).toBe(entries[0]);
     expect(buildInboxSelection(entries, { key: "acceptance:b", index: 1 })).toBe(entries[1]);
@@ -105,7 +110,7 @@ describe("the Forge button", () => {
         home: {
           needsYou: [],
           recentlyLanded: [],
-          capabilities: { answer: false, notes: false },
+          capabilities: { notes: false },
           count,
         },
       }) as ForgeHomeState;
@@ -117,11 +122,30 @@ describe("the Forge button", () => {
     expect(latestForgeHomeState(null, later)).toBe(later);
   });
 
-  it("styles a landing's stage by how far it is from production", () => {
-    expect(recentLandingTone("in_production")).toBe("production");
-    expect(recentLandingTone("waiting_audit")).toBe("waiting");
-    expect(recentLandingTone("waiting_deploy")).toBe("waiting");
-    expect(recentLandingTone("landed")).toBe("quiet");
-    expect(recentLandingTone("accepted")).toBe("quiet");
+  it("draws a landing's stage as Weave's glyph: Live outranks Accepted, waiting is amber Landed", () => {
+    expect(forgeStageGlyph("landed")).toEqual({
+      tone: "teal",
+      ring: "solid",
+      fill: 0.75,
+      tick: false,
+    });
+    expect(forgeStageGlyph("waiting_deploy")).toEqual({
+      tone: "amber",
+      ring: "solid",
+      fill: 0.75,
+      tick: false,
+    });
+    expect(forgeStageGlyph("accepted")).toEqual({
+      tone: "green",
+      ring: "solid",
+      fill: 1,
+      tick: true,
+    });
+    expect(forgeStageGlyph("in_production")).toEqual({
+      tone: "green",
+      ring: "halo",
+      fill: 1,
+      tick: true,
+    });
   });
 });

@@ -39,7 +39,6 @@ describe("RPC authorization scopes", () => {
 
   it("keeps Build decisions, which act as the person in Weave, to settings owners", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.forgeHomeDecide)).toBe(AuthSettingsWriteScope);
-    expect(requiredScopeForRpcMethod(WS_METHODS.forgeHomeAnswer)).toBe(AuthSettingsWriteScope);
   });
 
   it("keeps connecting and disconnecting Weave, which replace the person's delegation, to settings owners", () => {

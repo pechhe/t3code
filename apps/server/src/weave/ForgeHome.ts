@@ -12,7 +12,6 @@ import {
   type ForgeHome as ForgeHomeView,
   type ForgeHomeDecideInput,
   type ForgeHomeDecideResult,
-  type ForgeHomeAnswerInput,
   type ForgeHomeItem,
   type ForgeHomeNeed,
   type ForgeHomeState,
@@ -117,17 +116,6 @@ const WeaveAcceptance = Schema.Struct({
   // than listing on their own; a Weave server from before sends none.
   decisions: Schema.optional(Schema.Array(WeaveItem)),
 });
-const WeaveHoldNeed = Schema.Struct({
-  ...inboxField,
-  kind: Schema.Literal("hold"),
-  item: WeaveItem,
-  hold: Schema.Struct({
-    id: Schema.optional(Schema.String),
-    kind: Schema.String,
-    note: Schema.String,
-    openedAt: Schema.optional(Schema.NullOr(Schema.String)),
-  }),
-});
 const WeaveDecisionNeed = Schema.Struct({
   ...inboxField,
   kind: Schema.Literals(["decision", "decision_challenge"]),
@@ -136,7 +124,7 @@ const WeaveDecisionNeed = Schema.Struct({
 });
 const WeaveArcNeed = Schema.Struct({
   ...inboxField,
-  kind: Schema.Literals(["arc_review", "arc_check_in"]),
+  kind: Schema.Literal("arc_review"),
   arc: WeaveItem,
   since: Schema.optional(Schema.NullOr(Schema.String)),
 });
@@ -162,7 +150,6 @@ const WeaveHome = Schema.Struct({
 const decodeHome = Schema.decodeUnknownOption(WeaveHome);
 const decodeAcceptance = Schema.decodeUnknownOption(WeaveAcceptance);
 const decodeArcNeed = Schema.decodeUnknownOption(WeaveArcNeed);
-const decodeHoldNeed = Schema.decodeUnknownOption(WeaveHoldNeed);
 const decodeDecisionNeed = Schema.decodeUnknownOption(WeaveDecisionNeed);
 
 const WeaveDecided = Schema.Struct({
@@ -201,9 +188,6 @@ const inboxOf = (
 const refusalMessages: Record<string, string> = {
   send_back_note_required: "Add a note to send this back.",
   acceptance_card_stale: "This Spec changed after the card was shown.",
-  hold_unavailable: "This hold is no longer available.",
-  hold_not_person: "This hold does not need a person to answer it.",
-  answer_required: "Add an answer to this hold.",
   weave_access_denied: "Weave no longer lets this account use Forge.",
 };
 
@@ -222,9 +206,6 @@ export class ForgeHome extends Context.Service<
     readonly decide: (
       input: ForgeHomeDecideInput,
     ) => Effect.Effect<ForgeHomeDecideResult, ForgeHomeError>;
-    readonly answer: (
-      input: ForgeHomeAnswerInput,
-    ) => Effect.Effect<ForgeHomeDecideResult, ForgeHomeError>;
     /** Claims, delivers and reports pending person notes; the retry loop runs this. */
     readonly settleDeliveries: Effect.Effect<{ readonly failed: number }>;
   }
@@ -232,7 +213,7 @@ export class ForgeHome extends Context.Service<
 
 /**
  * Home is one projection of every Spec, so no single agent's write expires it: only its own
- * cadence does, and a person's own decision or answer forgets it.
+ * cadence does, and a person's own decision forgets it.
  */
 interface CachedHome extends Cadence {
   readonly key: string;
@@ -371,11 +352,11 @@ const make = Effect.gen(function* () {
   });
 
   // An older Weave is asked again after a while, so updating Weave needs no T3 restart.
-  let capabilities: { key: string; answer: boolean; notes: boolean; at: number } | undefined;
+  let capabilities: { key: string; notes: boolean; at: number } | undefined;
   const probe = Effect.fn("ForgeHome.probe")(
     function* () {
       const connection = yield* weave.read;
-      if (connection === null) return { answer: false, notes: false };
+      if (connection === null) return { notes: false };
       const now = yield* Clock.currentTimeMillis;
       if (
         capabilities?.key === connection.connection &&
@@ -399,11 +380,9 @@ const make = Effect.gen(function* () {
         (response.status === 200 &&
           Option.exists(response.outcome, (o) => o.status === "succeeded"))
       ) {
-        capabilities = { key: response.connection, answer: !invalid, notes: !invalid, at: now };
+        capabilities = { key: response.connection, notes: !invalid, at: now };
       }
-      return capabilities?.key === connection.connection
-        ? capabilities
-        : { answer: false, notes: false };
+      return capabilities?.key === connection.connection ? capabilities : { notes: false };
     },
     (effect) => lock.withLock("capabilities", effect),
   );
@@ -411,7 +390,7 @@ const make = Effect.gen(function* () {
   const viewOf = (
     home: typeof WeaveHome.Type,
     origin: string,
-    supported: { answer: boolean; notes: boolean },
+    supported: { notes: boolean },
   ): { view: ForgeHomeView; unreadKinds: ReadonlyArray<string> } => {
     const unreadKinds: string[] = [];
     const challenges = new Map(
@@ -473,32 +452,11 @@ const make = Effect.gen(function* () {
           ...(acceptance.value.decisions ?? []).flatMap((item) => decisionNeed(item)),
         ];
       }
-      const hold = decodeHoldNeed(raw);
-      if (Option.isSome(hold))
-        return [
-          {
-            ...inboxOf(
-              hold.value.inbox,
-              "answer",
-              hold.value.hold.note,
-              hold.value.hold.openedAt ?? null,
-            ),
-            kind: "hold",
-            spec: itemOf(hold.value.item),
-            url: forgeItemUrl(origin, hold.value.item.number),
-            holdId: hold.value.hold.id ?? null,
-            holdKind: hold.value.hold.kind,
-            question: hold.value.hold.note,
-          },
-        ];
       const decision = decodeDecisionNeed(raw);
       if (Option.isSome(decision)) return decisionNeed(decision.value.decision, decision.value);
       const arc = decodeArcNeed(raw);
       if (Option.isSome(arc)) {
-        const detail =
-          arc.value.kind === "arc_review"
-            ? "Review date reached: continue or close"
-            : `No check-in since ${arc.value.since ?? "unknown"}`;
+        const detail = "Review date reached: continue or close";
         return [
           {
             ...inboxOf(arc.value.inbox, "review", detail, arc.value.since ?? null),
@@ -529,7 +487,7 @@ const make = Effect.gen(function* () {
           at: landing.at,
         })),
         count: needsYou.length,
-        capabilities: { answer: supported.answer, notes: supported.notes },
+        capabilities: { notes: supported.notes },
       },
     };
   };
@@ -571,9 +529,7 @@ const make = Effect.gen(function* () {
             )
           : Option.none();
       if (Option.isSome(value)) {
-        const supported = yield* probe().pipe(
-          Effect.orElseSucceed(() => ({ answer: false, notes: false })),
-        );
+        const supported = yield* probe().pipe(Effect.orElseSucceed(() => ({ notes: false })));
         const { view, unreadKinds } = viewOf(value.value, origin, supported);
         if (unreadKinds.length > 0)
           yield* Effect.logWarning("Forge Home has needs T3 could not read", {
@@ -1000,9 +956,7 @@ const make = Effect.gen(function* () {
     if (status === 200 && Option.exists(outcome, (found) => found.status === "succeeded")) {
       const decided = outcome.pipe(Option.flatMap((found) => decodeDecided(found.value)));
       yield* forget;
-      const supported = yield* probe().pipe(
-        Effect.orElseSucceed(() => ({ answer: false, notes: false })),
-      );
+      const supported = yield* probe().pipe(Effect.orElseSucceed(() => ({ notes: false })));
       if (!supported.notes && Option.isSome(decided) && decided.value.finding !== null) {
         // Delivery never fails the decision: Weave has it, and the outbox keeps trying.
         yield* enqueue({
@@ -1031,38 +985,6 @@ const make = Effect.gen(function* () {
     return yield* refused(weaveErrorMessage(code));
   });
 
-  const answer: ForgeHome["Service"]["answer"] = Effect.fn("ForgeHome.answer")(function* (input) {
-    const state = yield* readHome;
-    if (state.status === "not_connected") return yield* notConnected;
-    const supported = yield* probe().pipe(
-      Effect.orElseSucceed(() => ({ answer: false, notes: false })),
-    );
-    if (!supported.answer)
-      return {
-        outcome: "refused",
-        message: "This Weave does not support answering holds from T3 yet.",
-        state,
-      };
-    const response = yield* post({
-      action: "answer",
-      ...input,
-      via: { client: "t3", environmentId },
-    }).pipe(Effect.option);
-    if (
-      Option.isSome(response) &&
-      response.value.status === 200 &&
-      Option.exists(response.value.outcome, (o) => o.status === "succeeded")
-    ) {
-      yield* forget;
-      yield* settleDeliveries;
-      return { outcome: "decided", message: null, state: yield* readHome };
-    }
-    const code = Option.isSome(response)
-      ? Option.getOrUndefined(Option.map(response.value.outcome, (o) => o.code))
-      : undefined;
-    return { outcome: "refused", message: weaveErrorMessage(code), state };
-  });
-
   // Retries what a restart or an outage left behind: first at once, then with backoff while any
   // report fails, otherwise at the Forge re-read cadence.
   yield* forkParked(
@@ -1086,7 +1008,7 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  return ForgeHome.of({ read: readHome, refreshed, decide, answer, settleDeliveries });
+  return ForgeHome.of({ read: readHome, refreshed, decide, settleDeliveries });
 });
 
 export const layer = Layer.effect(ForgeHome, make);

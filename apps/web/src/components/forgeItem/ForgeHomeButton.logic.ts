@@ -30,21 +30,36 @@ export type ForgeInboxGroup = ForgeHomeInboxGroup;
 
 export const forgeInboxGroupOf = (need: ForgeHomeNeed): ForgeInboxGroup => need.group;
 
-/** How a recently landed row's stage chip is styled: in production dark, waiting amber, the rest quiet. */
-export const recentLandingTone = (
-  stage: ForgeHomeLandingStage,
-): "production" | "waiting" | "quiet" =>
-  stage === "in_production"
-    ? "production"
-    : stage === "waiting_audit" || stage === "waiting_images" || stage === "waiting_deploy"
-      ? "waiting"
-      : "quiet";
+/**
+ * A recently landed Spec's stage as Weave draws it (`buildStatusGlyphs`): a ring whose inner disc
+ * fills as work moves on. Landed is three-quarters teal, Accepted a green ticked disc, Live that disc
+ * inside an extra outer ring; the three waiting states are Landed in amber.
+ */
+export interface ForgeStageGlyph {
+  readonly tone: "teal" | "amber" | "green";
+  readonly ring: "solid" | "halo";
+  /** The inner disc's share, from twelve o'clock clockwise. */
+  readonly fill: number;
+  readonly tick: boolean;
+}
 
-/** One entry per need: a Spec once, a hold by its id, since one Spec can hold more than one question. */
-export const buildInboxKey = (need: ForgeHomeNeed) =>
-  need.kind === "hold" && need.holdId !== null
-    ? `hold:${need.holdId}`
-    : `${need.kind}:${need.spec.id}`;
+export const forgeStageGlyph = (stage: ForgeHomeLandingStage): ForgeStageGlyph => {
+  switch (stage) {
+    case "in_production":
+      return { tone: "green", ring: "halo", fill: 1, tick: true };
+    case "accepted":
+      return { tone: "green", ring: "solid", fill: 1, tick: true };
+    case "waiting_audit":
+    case "waiting_images":
+    case "waiting_deploy":
+      return { tone: "amber", ring: "solid", fill: 0.75, tick: false };
+    case "landed":
+      return { tone: "teal", ring: "solid", fill: 0.75, tick: false };
+  }
+};
+
+/** One entry per need: a Spec (or Decision) once per kind. */
+export const buildInboxKey = (need: ForgeHomeNeed) => `${need.kind}:${need.spec.id}`;
 
 /** Home's needs in Inbox order: every group in turn, each keeping Weave's order. */
 export const buildInboxEntries = (home: ForgeHome | null): readonly ForgeHomeNeed[] =>

@@ -1,7 +1,6 @@
 import type {
   ForgeHome,
   ForgeHomeAcceptanceNeed,
-  ForgeHomeHoldNeed,
   ForgeHomeNeed,
   ForgeHomeOtherNeed,
   ForgeHomeRecentLanding,
@@ -12,10 +11,8 @@ import type {
 } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
-  ArrowUpIcon,
   CheckIcon,
   ChevronRightIcon,
-  CircleDotIcon,
   ExternalLinkIcon,
   EyeIcon,
   HelpCircleIcon,
@@ -35,6 +32,7 @@ import { forgeWorkItems, useForgeHome } from "~/state/forgeWorkItems";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { ForgeItemLabel } from "./ForgeItemLabel";
+import { ForgeStageGlyph } from "./ForgeStageGlyph";
 import {
   buildButtonCount,
   buildInboxEntries,
@@ -43,14 +41,13 @@ import {
   buildInboxKey,
   buildInboxSelection,
   latestForgeHomeState,
-  recentLandingTone,
   type ForgeInboxGroup,
 } from "./ForgeHomeButton.logic";
 
 /**
  * T3's Forge button (YS-260, T3-327): the Inbox Weave's Forge shows, in a popover. A list of what
  * needs the person (Accept, Answer, Review, as Forge files each entry), then what landed recently,
- * beside the selected item: a Spec's acceptance, or an agent's question, decided in one composer.
+ * beside the selected item: a Spec's acceptance, decided in one composer.
  * ↑ ↓ move, ⌘↵ submits, O opens it in Weave.
  */
 
@@ -318,61 +315,7 @@ function AcceptanceView({
   );
 }
 
-/** An agent's question: answering clears the hold and sends the answer to the Spec's agent thread. */
-function QuestionView({
-  ref,
-  ...props
-}: {
-  ref: Ref<Submittable>;
-  need: ForgeHomeHoldNeed;
-  canAnswer: boolean;
-  environmentId: EnvironmentId;
-  onState: (state: ForgeHomeState) => void;
-}) {
-  const { need, environmentId } = props;
-  const answer = useAtomCommand(forgeWorkItems.homeAnswer, { reportFailure: false });
-  const holdId = need.holdId;
-
-  const submit = async (text: string): Promise<string | null> => {
-    if (holdId === null) return "This question can only be answered in Weave.";
-    const result = await answer({
-      environmentId,
-      input: { itemId: need.spec.id, holdId, answer: text },
-    });
-    if (result._tag !== "Success") return failureMessage(result);
-    props.onState(result.value.state);
-    return result.value.outcome === "decided" ? null : result.value.message;
-  };
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-1.5 rounded-lg border border-warning/32 bg-warning/8 px-3 py-2.5">
-        <span className="text-2xs font-medium text-muted-foreground">
-          {need.holdKind === "decision" ? "Needs your decision" : "Needs information"}
-          {need.since ? ` · since ${new Date(need.since).toLocaleDateString()}` : ""}
-        </span>
-        <p className="m-0 text-sm leading-relaxed whitespace-pre-line">{need.question}</p>
-      </div>
-      {props.canAnswer && holdId !== null ? (
-        <Composer
-          ref={ref}
-          label={`Answer for ${need.spec.title}`}
-          placeholder="Answer in your own words…"
-          hint="Your answer goes to the Spec's agent thread"
-          emptyAction={null}
-          textAction="Answer"
-          onSubmit={submit}
-        />
-      ) : (
-        <p className="m-0 text-xs text-muted-foreground">
-          Answering from T3 needs a newer Weave. Open the Spec in Weave to answer.
-        </p>
-      )}
-    </div>
-  );
-}
-
-/** A Proposed or challenged Decision, or an Arc's prompt: its actions stay on its page in Weave. */
+/** A Proposed or challenged Decision, or an Arc's review date: its actions stay on its page in Weave. */
 function OtherView({ need }: { need: ForgeHomeOtherNeed }) {
   const actions =
     need.kind === "arc_review"
@@ -380,11 +323,9 @@ function OtherView({ need }: { need: ForgeHomeOtherNeed }) {
           { label: "Continue", act: "continue" },
           { label: "Close", act: "close" },
         ]
-      : need.kind === "arc_check_in"
-        ? [{ label: "Check in", act: "check-in" }]
-        : need.kind === "decision_challenge"
-          ? [{ label: "Open the challenged Decision", act: null }]
-          : [{ label: "Accept or supersede", act: null }];
+      : need.kind === "decision_challenge"
+        ? [{ label: "Open the challenged Decision", act: null }]
+        : [{ label: "Accept or supersede", act: null }];
   return (
     <div className="flex flex-wrap gap-2">
       {actions.map(({ label, act }, index) => (
@@ -410,7 +351,6 @@ function InboxPane({
 }: {
   ref: Ref<Submittable>;
   need: ForgeHomeNeed;
-  home: ForgeHome;
   environmentId: EnvironmentId;
   onState: (state: ForgeHomeState) => void;
 }) {
@@ -449,14 +389,6 @@ function InboxPane({
           environmentId={props.environmentId}
           onState={props.onState}
         />
-      ) : need.kind === "hold" ? (
-        <QuestionView
-          ref={ref}
-          need={need}
-          canAnswer={props.home.capabilities.answer}
-          environmentId={props.environmentId}
-          onState={props.onState}
-        />
       ) : (
         <OtherView need={need} />
       )}
@@ -487,15 +419,9 @@ function GroupIcon({ group }: { group: ForgeInboxGroup }) {
   );
 }
 
-const STAGE_CHIP = {
-  production: "bg-foreground text-background",
-  waiting: "bg-warning/8 text-warning-foreground dark:bg-warning/16",
-  quiet: "bg-muted text-muted-foreground",
-} as const;
-
-/** A Spec that landed recently: how far it has got to production. It opens the Spec's Forge page. */
+/** A Spec that landed recently: the furthest stage it has reached. It opens the Spec's Forge page. */
 function RecentLandingRow({ landing }: { landing: ForgeHomeRecentLanding }) {
-  const tone = recentLandingTone(landing.stage);
+  const waiting = landing.stage.startsWith("waiting_");
   return (
     <a
       href={landing.url}
@@ -503,21 +429,6 @@ function RecentLandingRow({ landing }: { landing: ForgeHomeRecentLanding }) {
       rel="noreferrer"
       className="flex w-full items-start gap-2 rounded-md px-1.5 py-1.5 text-xs hover:bg-accent/60 focus-visible:outline-2 focus-visible:outline-ring"
     >
-      <span
-        aria-hidden
-        className={cn(
-          "mt-px flex size-4.5 shrink-0 items-center justify-center rounded-sm",
-          tone === "production"
-            ? "bg-foreground text-background"
-            : "bg-muted text-muted-foreground",
-        )}
-      >
-        {tone === "production" ? (
-          <ArrowUpIcon className="size-3" />
-        ) : (
-          <CircleDotIcon className="size-3" />
-        )}
-      </span>
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
         <ForgeItemLabel
           item={landing.spec}
@@ -526,15 +437,13 @@ function RecentLandingRow({ landing }: { landing: ForgeHomeRecentLanding }) {
         <span className="min-w-0 flex-1 truncate">{landing.spec.title}</span>
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
-        <span
-          className={cn(
-            "inline-flex h-4 items-center whitespace-nowrap rounded-sm px-1 text-3xs font-medium leading-none",
-            STAGE_CHIP[tone],
-          )}
-        >
-          {landing.stageLabel}
+        <span className="inline-flex max-w-40 items-center gap-1.5">
+          <ForgeStageGlyph stage={landing.stage} />
+          <span className={cn("truncate", waiting && "text-warning-foreground")}>
+            {landing.stageLabel}
+          </span>
         </span>
-        <span className="w-7 text-end text-2xs text-muted-foreground tabular-nums">
+        <span className="w-13 text-end text-2xs whitespace-nowrap text-muted-foreground tabular-nums">
           {formatRelativeTimeLabel(landing.at)}
         </span>
       </span>
@@ -709,7 +618,7 @@ function Inbox(props: {
           <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
             <p className="m-0 text-sm font-medium">Nothing needs you</p>
             <p className="m-0 text-xs text-muted-foreground">
-              Specs to accept and agents' questions arrive here.
+              Specs to accept, challenged Decisions and Arc reviews arrive here.
             </p>
           </div>
         ) : (
@@ -718,7 +627,6 @@ function Inbox(props: {
             key={selectedKey}
             ref={pane}
             need={selected}
-            home={home}
             environmentId={props.environmentId}
             onState={props.onState}
           />

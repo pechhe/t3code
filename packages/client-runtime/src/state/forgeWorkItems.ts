@@ -78,10 +78,6 @@ export function createForgeWorkItemAtoms<R, E>(
       label: "environment-data:build:home:decide",
       tag: WS_METHODS.forgeHomeDecide,
     }),
-    homeAnswer: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:build:home:answer",
-      tag: WS_METHODS.forgeHomeAnswer,
-    }),
   };
 }
 

@@ -76,31 +76,16 @@ export const ForgeHomeAcceptanceNeed = Schema.Struct({
 });
 export type ForgeHomeAcceptanceNeed = typeof ForgeHomeAcceptanceNeed.Type;
 
-export const ForgeHomeHoldNeed = Schema.Struct({
-  ...inboxFields,
-  kind: Schema.Literal("hold"),
-  spec: ForgeHomeItem,
-  url: Schema.String,
-  holdId: Schema.NullOr(Schema.String),
-  holdKind: Schema.String,
-  question: Schema.String,
-});
-export type ForgeHomeHoldNeed = typeof ForgeHomeHoldNeed.Type;
-
 export const ForgeHomeOtherNeed = Schema.Struct({
   ...inboxFields,
-  kind: Schema.Literals(["decision", "decision_challenge", "arc_review", "arc_check_in"]),
+  kind: Schema.Literals(["decision", "decision_challenge", "arc_review"]),
   spec: ForgeHomeItem,
   url: Schema.String,
   detail: Schema.NullOr(Schema.String),
 });
 export type ForgeHomeOtherNeed = typeof ForgeHomeOtherNeed.Type;
 
-export const ForgeHomeNeed = Schema.Union([
-  ForgeHomeAcceptanceNeed,
-  ForgeHomeHoldNeed,
-  ForgeHomeOtherNeed,
-]);
+export const ForgeHomeNeed = Schema.Union([ForgeHomeAcceptanceNeed, ForgeHomeOtherNeed]);
 export type ForgeHomeNeed = typeof ForgeHomeNeed.Type;
 
 export const ForgeHomeLandingStage = Schema.Literals([
@@ -130,7 +115,7 @@ export const ForgeHome = Schema.Struct({
   /** Newest first; empty from a Weave that predates it. */
   recentlyLanded: Schema.Array(ForgeHomeRecentLanding),
   count: Schema.Int,
-  capabilities: Schema.Struct({ answer: Schema.Boolean, notes: Schema.Boolean }),
+  capabilities: Schema.Struct({ notes: Schema.Boolean }),
 });
 export type ForgeHome = typeof ForgeHome.Type;
 
@@ -171,13 +156,6 @@ export const ForgeHomeDecideResult = Schema.Struct({
   state: ForgeHomeState,
 });
 export type ForgeHomeDecideResult = typeof ForgeHomeDecideResult.Type;
-
-export const ForgeHomeAnswerInput = Schema.Struct({
-  itemId: TrimmedNonEmptyString,
-  holdId: TrimmedNonEmptyString,
-  answer: TrimmedNonEmptyString,
-});
-export type ForgeHomeAnswerInput = typeof ForgeHomeAnswerInput.Type;
 
 export class ForgeHomeError extends Schema.TaggedError<ForgeHomeError>()("ForgeHomeError", {
   reason: Schema.Literals(["not_connected", "thread_not_found", "launch_failed"]),

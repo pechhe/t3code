@@ -249,7 +249,6 @@ import {
   ForgeHomeDecideInput,
   ForgeHomeDecideResult,
   ForgeHomeError,
-  ForgeHomeAnswerInput,
   ForgeHomeReadInput,
   ForgeHomeState,
 } from "./forgeHome.ts";
@@ -719,7 +718,6 @@ export const WS_METHODS = {
   forgeWorkItemLink: "build.workItem.link",
   forgeHomeRead: "build.home.read",
   forgeHomeDecide: "build.home.decide",
-  forgeHomeAnswer: "build.home.answer",
 
   championsClassChoices: "champions.classChoices",
   championsRuntimeState: "champions.runtimeState",
@@ -2468,12 +2466,6 @@ const WsForgeHomeDecideRpc = Rpc.make(WS_METHODS.forgeHomeDecide, {
   error: Schema.Union([ForgeHomeError, EnvironmentAuthorizationError]),
 });
 
-const WsForgeHomeAnswerRpc = Rpc.make(WS_METHODS.forgeHomeAnswer, {
-  payload: ForgeHomeAnswerInput,
-  success: ForgeHomeDecideResult,
-  error: Schema.Union([ForgeHomeError, EnvironmentAuthorizationError]),
-});
-
 const WsChampionsClassChoicesRpc = Rpc.make(WS_METHODS.championsClassChoices, {
   payload: ChampionClassChoicesInput,
   success: ChampionClassChoicesResult,
@@ -3001,7 +2993,6 @@ export const WsServerOperationsRpcGroup = RpcGroup.make(
   WsForgeWorkItemLinkRpc,
   WsForgeHomeReadRpc,
   WsForgeHomeDecideRpc,
-  WsForgeHomeAnswerRpc,
   WsScheduledTasksListRpc,
   WsScheduledTasksSubscribeRpc,
   WsScheduledTasksUpsertRpc,
