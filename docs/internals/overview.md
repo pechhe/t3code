@@ -58,15 +58,17 @@ therefore means the intent committed, not that the provider, checkpoint, or othe
 finished. Keep external I/O out of command decisions and the database transaction. Effects tied to
 a lost provider process cannot simply replay; recovery retires them before admitting new work.
 
-The event log only keeps what live readers need: about a day of history for reconnect replay and
+The event log only keeps what live readers need: reconnect replay for threads still in use and
 command-id retries.
 [ProjectionMaintenance](../../apps/server/src/orchestration-v2/ProjectionMaintenance.ts) deletes
-older events the projections cover, so projections cannot be rebuilt from the log. It keeps each
+events the projections cover, so projections cannot be rebuilt from the log. An unpinned settled
+thread with no active work gives up every message, node, turn-item and provider-turn update that
+carries no command id; other threads keep the first and latest of each. It keeps each
 stream's newest event (high-water marks, stream versions, snapshot sequences), `thread.created`
 (the legacy importer's marker), every `running` run update (Codex usage history reads the first
 of each attempt), and prompt anchors that retained subagent rows reference. A client whose cursor
-is below both its thread's newest event and the recorded pruned-through sequence missed pruned
-events, so it resumes from a snapshot; an idle thread's cursor resumes without one. Resumes
+is below both its thread's newest event and that thread's recorded pruned-through sequence missed
+pruned events, so it resumes from a snapshot; an idle thread's cursor resumes without one. Resumes
 recheck that sequence after reading the replay, since a pass can prune during the read. V2 command
 receipts stay for idempotency: a retry older than the retained history is still deduplicated,
 but its replay comes back without the pruned events. Receipts of imported legacy commands are

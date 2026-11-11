@@ -1108,16 +1108,18 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
             }),
         ),
       );
-      const prunedThrough = yield* applicationEvents.prunedThroughSequence.pipe(
-        Effect.mapError(
-          (cause) =>
-            new OrchestrationV2GetThreadProjectionError({
-              threadId: input.threadId,
-              message: `Failed to prepare orchestration V2 thread ${input.threadId} replay`,
-              cause,
-            }),
-        ),
-      );
+      const prunedThrough = yield* applicationEvents
+        .threadPrunedThroughSequence(input.threadId)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationV2GetThreadProjectionError({
+                threadId: input.threadId,
+                message: `Failed to prepare orchestration V2 thread ${input.threadId} replay`,
+                cause,
+              }),
+          ),
+        );
       // An idle thread's cursor sits at its own high-water: nothing was missed, so replay nothing.
       if (
         input.afterSequence > highWater ||
@@ -1168,7 +1170,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
       if (
         input.afterSequence < highWater &&
         input.afterSequence <
-          (yield* applicationEvents.prunedThroughSequence.pipe(
+          (yield* applicationEvents.threadPrunedThroughSequence(input.threadId).pipe(
             Effect.mapError(
               (cause) =>
                 new OrchestrationV2GetThreadProjectionError({

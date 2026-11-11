@@ -104,6 +104,11 @@ export class OrchestrationEventStore extends Context.Service<
     /** Replay from a cursor below this misses pruned events; resync from a snapshot instead. */
     readonly prunedThroughSequence: Effect.Effect<number, OrchestrationEventStoreError>;
 
+    /** The same boundary for one thread: the log-wide one, or the last event a settled thread gave up. */
+    readonly threadPrunedThroughSequence: (
+      threadId: ThreadId,
+    ) => Effect.Effect<number, OrchestrationEventStoreError>;
+
     /** Unknown event types fail unless skipUnknownEventTypes logs and drops them; only client replay may opt in. */
     readonly readApplicationEvents: (input: {
       readonly afterSequence: number;
@@ -695,6 +700,21 @@ const makeEventStore = Effect.gen(function* () {
     Effect.mapError(toPersistenceSqlError("OrchestrationEventStore.prunedThroughSequence:query")),
   );
 
+  const threadPrunedThroughSequence: OrchestrationEventStore["Service"]["threadPrunedThroughSequence"] =
+    (threadId) =>
+      sql<{ readonly pruned_through_sequence: number }>`
+        SELECT pruned_through_sequence FROM orchestration_v2_event_prune_marks
+        WHERE thread_id = ${threadId}
+      `.pipe(
+        NodeSqliteClient.readOnly,
+        Effect.mapError(
+          toPersistenceSqlError("OrchestrationEventStore.threadPrunedThroughSequence:query"),
+        ),
+        Effect.zipWith(prunedThroughSequence, (rows, logWide) =>
+          Math.max(logWide, rows[0]?.pruned_through_sequence ?? 0),
+        ),
+      );
+
   // Advance over raw rows so even a full page of unknown types cannot end replay early.
   const catchUpApplicationEvents = (input: {
     readonly afterSequence: number;
@@ -772,6 +792,7 @@ const makeEventStore = Effect.gen(function* () {
     latestAgentSequence,
     latestApplicationSequence,
     prunedThroughSequence,
+    threadPrunedThroughSequence,
     readApplicationEvents: catchUpApplicationEvents,
     publishCommitted: (events) => PubSub.publishAll(committedEvents, events).pipe(Effect.asVoid),
     streamApplicationEvents,

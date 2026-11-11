@@ -342,50 +342,51 @@ it.effect("paces scheduled compaction while preserving retention state and fixed
   }).pipe(Effect.scoped, Effect.provide(layerTest)),
 );
 
-it.effect("replays every event in order across pages, including one that ends exactly on a page", () =>
-  Effect.gen(function* () {
-    const sink = yield* EventSink.EventSinkV2;
-    const now = yield* DateTime.now;
-    const thread = makeThread(ThreadId.make("thread:paged-replay"), now);
-    yield* sink.write({ events: [threadCreatedEvent({ id: "paged-created", thread, now })] });
-    const start = yield* sink.latestSequence();
-    // The replay reads 256 at a time: two whole pages, then a read that finds nothing more.
-    const written = Array.from({ length: 512 }, (_, index) => `paged-${index}`);
-    for (const id of written) {
-      yield* sink.write({
-        events: [
-          {
-            id: EventId.make(id),
-            type: "message.updated",
-            threadId: thread.id,
-            occurredAt: now,
-            payload: {
-              id: MessageId.make("paged-message"),
+it.effect(
+  "replays every event in order across pages, including one that ends exactly on a page",
+  () =>
+    Effect.gen(function* () {
+      const sink = yield* EventSink.EventSinkV2;
+      const now = yield* DateTime.now;
+      const thread = makeThread(ThreadId.make("thread:paged-replay"), now);
+      yield* sink.write({ events: [threadCreatedEvent({ id: "paged-created", thread, now })] });
+      const start = yield* sink.latestSequence();
+      // The replay reads 256 at a time: two whole pages, then a read that finds nothing more.
+      const written = Array.from({ length: 512 }, (_, index) => `paged-${index}`);
+      for (const id of written) {
+        yield* sink.write({
+          events: [
+            {
+              id: EventId.make(id),
+              type: "message.updated",
               threadId: thread.id,
-              runId: null,
-              nodeId: null,
-              createdBy: "agent",
-              creationSource: "provider",
-              role: "assistant",
-              text: id,
-              streaming: true,
-              attachments: [],
-              createdAt: now,
-              updatedAt: now,
+              occurredAt: now,
+              payload: {
+                id: MessageId.make("paged-message"),
+                threadId: thread.id,
+                runId: null,
+                nodeId: null,
+                createdBy: "agent",
+                creationSource: "provider",
+                role: "assistant",
+                text: id,
+                streaming: true,
+                attachments: [],
+                createdAt: now,
+                updatedAt: now,
+              },
             },
-          },
-        ],
-      });
-    }
-    const replayed = yield* sink.stream({ afterSequence: start }).pipe(
-      Stream.take(written.length),
-      Stream.runCollect,
-    );
-    assert.deepStrictEqual(
-      Array.from(replayed).map((stored) => String(stored.event.id)),
-      written,
-    );
-  }).pipe(Effect.scoped, Effect.provide(layerTest)),
+          ],
+        });
+      }
+      const replayed = yield* sink
+        .stream({ afterSequence: start })
+        .pipe(Stream.take(written.length), Stream.runCollect);
+      assert.deepStrictEqual(
+        Array.from(replayed).map((stored) => String(stored.event.id)),
+        written,
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
 );
 
 it.effect(
@@ -773,6 +774,181 @@ it.effect.each([false, true])("groups shutdown commits with rollback=%s", (fail)
     Effect.provideService(Statement.SpanPropagationEnabled, true),
   );
 });
+
+it.effect("a settled thread's events leave the log while what a client loads stays", () =>
+  Effect.gen(function* () {
+    const eventSink = yield* EventSink.EventSinkV2;
+    const eventStore = yield* EventStore.EventStoreV2;
+    const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const sql = yield* SqlClient.SqlClient;
+    const now = yield* DateTime.now;
+    const kinds = ["settled", "pinned", "unsettled", "working"] as const;
+    const threadIdOf = (kind: (typeof kinds)[number]) => ThreadId.make(`thread:prune:${kind}`);
+    for (const kind of kinds) {
+      const threadId = threadIdOf(kind);
+      const thread = makeThread(threadId, now);
+      const event = <Type extends OrchestrationV2DomainEvent["type"]>(
+        suffix: string,
+        type: Type,
+        payload: Extract<OrchestrationV2DomainEvent, { type: Type }>["payload"],
+      ) =>
+        ({
+          id: EventId.make(`event:prune:${kind}:${suffix}`),
+          type,
+          threadId,
+          providerInstanceId,
+          occurredAt: now,
+          payload,
+        }) as OrchestrationV2DomainEvent;
+      const messageId = MessageId.make(`message:prune:${kind}`);
+      const nodeId = NodeId.make(`node:prune:${kind}`);
+      const runId = RunId.make(`run:prune:${kind}`);
+      const message = (suffix: string, text: string) =>
+        event(suffix, "message.updated", {
+          createdBy: "user",
+          creationSource: "web",
+          id: messageId,
+          threadId,
+          runId: null,
+          nodeId: null,
+          role: "user",
+          text,
+          attachments: [],
+          streaming: false,
+          createdAt: now,
+          updatedAt: now,
+        });
+      const node = (suffix: string, status: "running" | "completed") =>
+        event(suffix, "node.updated", {
+          id: nodeId,
+          threadId,
+          runId: null,
+          parentNodeId: null,
+          rootNodeId: nodeId,
+          kind: "assistant_message",
+          status,
+          countsForRun: false,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          runtimeRequestId: null,
+          checkpointScopeId: null,
+          startedAt: now,
+          completedAt: status === "completed" ? now : null,
+        });
+      const item = (suffix: string, id: string, output: string) =>
+        event(suffix, "turn-item.updated", {
+          id: TurnItemId.make(`turn-item:prune:${kind}:${id}`),
+          threadId,
+          runId: null,
+          nodeId: null,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 1,
+          status: "completed",
+          title: null,
+          startedAt: now,
+          completedAt: now,
+          updatedAt: now,
+          type: "dynamic_tool",
+          toolName: "tool",
+          input: {},
+          output: { text: output },
+        });
+      yield* eventSink.write({
+        events: [
+          threadCreatedEvent({ id: `event:prune:${kind}:create`, thread, now }),
+          message("message-1", "draft"),
+          node("node-1", "running"),
+          item("item-1", "tool", "partial"),
+          message("message-2", "final"),
+          node("node-2", "completed"),
+          item("item-2", "tool", "complete"),
+          ...(kind === "working"
+            ? [
+                event("run", "run.created", {
+                  id: runId,
+                  threadId,
+                  ordinal: 1,
+                  providerInstanceId,
+                  modelSelection,
+                  providerThreadId: null,
+                  userMessageId: messageId,
+                  rootNodeId: null,
+                  activeAttemptId: null,
+                  status: "running",
+                  queuePosition: null,
+                  requestedAt: now,
+                  startedAt: now,
+                  completedAt: null,
+                  checkpointId: null,
+                  contextHandoffId: null,
+                }),
+              ]
+            : []),
+        ],
+      });
+      yield* eventSink.write({
+        commandId: CommandId.make(`command:prune:${kind}`),
+        events: [item("reply", "reply", "answered")],
+      });
+      if (kind !== "unsettled") {
+        yield* eventSink.write({
+          events: [
+            {
+              id: EventId.make(`event:prune:${kind}:settle`),
+              type: "thread.settled",
+              threadId,
+              providerInstanceId,
+              occurredAt: now,
+              payload: {
+                ...thread,
+                settledOverride: "settled",
+                settledAt: now,
+                ...(kind === "pinned" ? { pinnedAt: now } : {}),
+              },
+            },
+          ],
+        });
+      }
+    }
+    const eventIds = (kind: (typeof kinds)[number]) =>
+      sql<{ readonly event_id: string }>`
+        SELECT event_id FROM orchestration_events
+        WHERE stream_id = ${threadIdOf(kind)} ORDER BY sequence
+      `.pipe(Effect.map((rows) => rows.map((row) => row.event_id)));
+    const loaded = Effect.forEach(kinds, (kind) =>
+      projections.getThreadProjection(threadIdOf(kind)),
+    );
+    const eventsBefore = yield* Effect.forEach(kinds, eventIds);
+    const loadedBefore = yield* loaded;
+
+    assert.equal((yield* maintenance.pruneEventStore()).deletedEventCount, 6);
+    assert.equal((yield* maintenance.pruneEventStore()).deletedEventCount, 0);
+
+    assert.deepEqual(yield* eventIds("settled"), [
+      "event:prune:settled:create",
+      "event:prune:settled:reply",
+      "event:prune:settled:settle",
+    ]);
+    assert.deepEqual(yield* Effect.forEach(kinds.slice(1), eventIds), eventsBefore.slice(1));
+    assert.deepEqual(yield* loaded, loadedBefore);
+    assert.isTrue((yield* maintenance.verify).valid);
+    const reply = yield* eventStore
+      .readByCommandId({ commandId: CommandId.make("command:prune:settled") })
+      .pipe(Stream.runCollect);
+    assert.deepEqual(
+      Array.from(reply).map((stored) => stored.event.id),
+      [EventId.make("event:prune:settled:reply")],
+    );
+
+    assert.isTrue(Exit.isFailure(yield* Effect.exit(maintenance.rebuild)));
+    assert.deepEqual(yield* loaded, loadedBefore);
+  }).pipe(Effect.provide(Layer.fresh(layerTest))),
+);
 
 it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
   it.effect("projects oversized tool bodies once before replay and live RPC retention", () =>

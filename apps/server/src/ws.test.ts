@@ -1698,13 +1698,17 @@ it.effect("a publish whose push fails still refreshes the new remote", () =>
 
 // Pruned history cannot be replayed: a cursor below the boundary must resync from a snapshot,
 // or, for a shell client that loads it over HTTP, be told to without the server building one.
+// A settled thread's removed events are marked on that thread alone: only its own resume resyncs.
 it.effect.each([
-  { scope: "thread", httpSnapshotFallback: false },
-  { scope: "shell", httpSnapshotFallback: false },
-  { scope: "shell", httpSnapshotFallback: true },
+  { scope: "thread", boundary: "log", httpSnapshotFallback: false, outcome: "snapshot" },
+  { scope: "shell", boundary: "log", httpSnapshotFallback: false, outcome: "snapshot" },
+  { scope: "shell", boundary: "log", httpSnapshotFallback: true, outcome: "snapshot-required" },
+  { scope: "thread", boundary: "thread", httpSnapshotFallback: false, outcome: "snapshot" },
+  { scope: "thread", boundary: "other thread", httpSnapshotFallback: false, outcome: "replay" },
+  { scope: "shell", boundary: "thread", httpSnapshotFallback: false, outcome: "replay" },
 ] as const)(
-  "$scope resume from a cursor below the pruned boundary (HTTP fallback: $httpSnapshotFallback)",
-  ({ scope, httpSnapshotFallback }) =>
+  "$scope resume from a cursor below the $boundary's pruned boundary: $outcome (HTTP fallback: $httpSnapshotFallback)",
+  ({ scope, boundary, httpSnapshotFallback, outcome }) =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       const now = "2026-10-13T00:00:00.000Z";
@@ -1722,11 +1726,16 @@ it.effect.each([
       const [first] = yield* insert(0);
       const [second] = yield* insert(1);
       yield* insert(2);
-      yield* sql`
-        INSERT INTO orchestration_v2_projection_metadata (
-          projection_name, schema_version, last_sequence, updated_at
-        ) VALUES (${OrchestrationEventStore.EVENT_LOG_PRUNED_THROUGH}, 2, ${second!.sequence}, ${now})
-      `;
+      yield* boundary === "log"
+        ? sql`
+            INSERT INTO orchestration_v2_projection_metadata (
+              projection_name, schema_version, last_sequence, updated_at
+            ) VALUES (${OrchestrationEventStore.EVENT_LOG_PRUNED_THROUGH}, 2, ${second!.sequence}, ${now})
+          `
+        : sql`
+            INSERT INTO orchestration_v2_event_prune_marks (thread_id, pruned_through_sequence)
+            VALUES (${boundary === "thread" ? threadId : "thread:elsewhere"}, ${second!.sequence})
+          `;
       const subscription = Effect.gen(function* () {
         const items: ReadonlyArray<unknown> =
           scope === "thread"
@@ -1748,6 +1757,7 @@ it.effect.each([
           listActiveShellIndex: () => Effect.die("snapshot"),
           readShellSnapshot: () => Effect.die("snapshot"),
           listActiveSubagentThreadIds: () => Effect.die("replay"),
+          streamStoredEventsFrom: () => Stream.die("replay"),
         } as unknown as ThreadManagement.ThreadManagementService["Service"]),
         Effect.provideService(ProjectStore.ProjectStoreV2, {
           listShells: () => Effect.succeed([]),
@@ -1763,7 +1773,7 @@ it.effect.each([
       );
       assert.deepEqual(
         Exit.isFailure(exit) ? Cause.squash(exit.cause) : Array.from(exit.value),
-        httpSnapshotFallback ? [{ kind: "snapshot-required" }] : "snapshot",
+        outcome === "snapshot-required" ? [{ kind: "snapshot-required" }] : outcome,
       );
     }).pipe(Effect.scoped, Effect.provide(ReplayTestLayer)),
 );

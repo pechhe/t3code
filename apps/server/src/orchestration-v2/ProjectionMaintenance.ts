@@ -125,6 +125,14 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
     const rebuild = Effect.gen(function* () {
       const eventStore = yield* EventStore.EventStoreV2;
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      // Settled threads' item history lives only in the projection once it is pruned from the log.
+      const pruned = yield* sql`SELECT 1 FROM orchestration_v2_event_prune_marks LIMIT 1`;
+      if (pruned.length > 0) {
+        return yield* new ProjectionMaintenanceError({
+          operation: "rebuild",
+          cause: "Settled threads' events were pruned; replay would lose their history",
+        });
+      }
       yield* sql.withTransaction(
         Effect.gen(function* () {
           const throughSequence = yield* eventStore.latestSequence();
@@ -209,7 +217,8 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
 
     const supersedableThreadEventTypes = new Set(SUPERSEDABLE_THREAD_EVENT_TYPES);
     const readStateThreadEventTypes = new Set(READ_STATE_THREAD_EVENT_TYPES);
-    // Keep prompt anchors, merged token usage, and command responses needed by receipt retries.
+    // A thread still working keeps merged token usage; every thread keeps prompt anchors and the
+    // command responses receipt retries read.
     const settledWithoutActiveWork = sql.literal(`
       EXISTS (
         SELECT 1 FROM orchestration_v2_projection_threads AS thread
@@ -246,10 +255,37 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
           AND json_array_length(provider_thread.payload_json, '$.pendingBackgroundTasks') > 0
       )
     `);
+    // Pinning unsettles a thread today; removal states the rule instead of leaning on that.
+    const pinned = sql.literal(`
+      EXISTS (
+        SELECT 1 FROM orchestration_v2_projection_threads AS pinned_thread
+        WHERE pinned_thread.thread_id = event.stream_id
+          AND json_extract(pinned_thread.payload_json, '$.pinnedAt') IS NOT NULL
+      )
+    `);
     // Small indexed pages bound work on the reader worker and synchronous fallback.
     const COMPACTION_PAGE_SIZE = 50;
+    // One page can hold megabyte payloads, and freeing their overflow pages holds the writer.
+    const DELETE_PAYLOAD_BUDGET = 4 * 1024 * 1024;
+    type Obsolete = { readonly sequence: number; readonly payloadLength: number };
+    const deleteBatches = <Row extends Obsolete>(rows: ReadonlyArray<Row>) => {
+      const batches: Array<Array<Row>> = [];
+      let budget = 0;
+      for (const row of rows) {
+        const batch = batches.at(-1);
+        if (batch === undefined || budget + row.payloadLength > DELETE_PAYLOAD_BUDGET) {
+          batches.push([row]);
+          budget = row.payloadLength;
+        } else {
+          batch.push(row);
+          budget += row.payloadLength;
+        }
+      }
+      return batches;
+    };
 
-    // First and latest keyed events preserve replay insertion order and final state.
+    // In a thread still working, first and latest keyed events preserve replay order and final
+    // state. A settled thread's projection already holds both, so its keyed events go.
     const pruneEventStore = Effect.fn("ProjectionMaintenance.pruneEventStore")(function* (
       betweenPages: Effect.Effect<void> = Effect.void,
     ) {
@@ -268,7 +304,7 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
       // Retain each key's oldest candidate, deleting it only when an older event appears.
       const oldestCandidateByEntityKey = new Map<
         string,
-        { readonly sequence: number; readonly protected: boolean } | null
+        (Obsolete & { readonly protected: boolean }) | null
       >();
       const retainedProviderUsageKeys = new Set<string>();
       let deletedEventCount = 0;
@@ -283,7 +319,11 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
           readonly event_type: string;
           readonly entity_id: string | null;
           readonly imported_legacy_thread: number;
-          readonly intermediate_eligible: number;
+          readonly thread_settled: number;
+          readonly thread_pinned: number;
+          readonly has_newer: number;
+          readonly has_command: number;
+          readonly payload_length: number;
           readonly protected_intermediate: number;
           readonly has_provider_usage: number;
         }>`
@@ -313,8 +353,18 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
               )
               ELSE 0
             END AS imported_legacy_thread,
-            CASE WHEN event.event_type IN ('turn-item.updated', 'provider-turn.updated')
-              THEN ${settledWithoutActiveWork} ELSE 1 END AS intermediate_eligible,
+            CASE WHEN event.application_event_version = 2
+              AND event.event_type IN ('message.updated', 'node.updated', 'turn-item.updated', 'provider-turn.updated')
+              THEN ${settledWithoutActiveWork} ELSE 0 END AS thread_settled,
+            ${pinned} AS thread_pinned,
+            EXISTS (
+              SELECT 1 FROM orchestration_events AS newer
+                INDEXED BY idx_orchestration_events_agent_stream_sequence
+              WHERE newer.application_event_version = 2 AND newer.aggregate_kind = 'thread'
+                AND newer.stream_id = event.stream_id AND newer.sequence > event.sequence
+            ) AS has_newer,
+            event.command_id IS NOT NULL AS has_command,
+            length(event.payload_json) AS payload_length,
             CASE
               WHEN event.command_id IS NOT NULL
                 AND event.event_type IN ('message.updated', 'turn-item.updated', 'provider-turn.updated') THEN 1
@@ -331,17 +381,37 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
           ORDER BY event.sequence DESC
           LIMIT ${COMPACTION_PAGE_SIZE}
         `.pipe(NodeSqliteClient.readOnly);
-        const obsolete: number[] = [];
+        const obsolete: Obsolete[] = [];
+        const settled: Array<Obsolete & { readonly threadId: string }> = [];
         for (const row of rows) {
-          if (row.intermediate_eligible !== 1) continue;
+          const current = { sequence: row.sequence, payloadLength: row.payload_length };
+          // A thread's newest event stays: it is the high-water an idle client's cursor rests on.
+          // Subagent items stay too: a retained row can name one as the anchor holding its prompt.
+          if (
+            row.thread_settled === 1 &&
+            row.thread_pinned === 0 &&
+            row.has_command === 0 &&
+            row.protected_intermediate === 0 &&
+            row.has_newer === 1
+          ) {
+            settled.push({ ...current, threadId: row.stream_id });
+            continue;
+          }
+          // A working thread keeps every turn-item and provider-turn update.
+          if (
+            row.thread_settled !== 1 &&
+            (row.event_type === "turn-item.updated" || row.event_type === "provider-turn.updated")
+          ) {
+            continue;
+          }
           if (row.imported_legacy_thread === 1) {
-            obsolete.push(row.sequence);
+            obsolete.push(current);
           } else if (row.application_event_version === 2) {
             if (
               row.aggregate_kind === "thread" &&
               supersedableThreadEventTypes.has(row.event_type)
             ) {
-              if (retainedThreadIds.has(row.stream_id)) obsolete.push(row.sequence);
+              if (retainedThreadIds.has(row.stream_id)) obsolete.push(current);
               else retainedThreadIds.add(row.stream_id);
             } else if (
               row.aggregate_kind === "thread" &&
@@ -351,14 +421,14 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
                 retainedThreadIds.has(row.stream_id) ||
                 retainedReadStateThreadIds.has(row.stream_id)
               ) {
-                obsolete.push(row.sequence);
+                obsolete.push(current);
               } else retainedReadStateThreadIds.add(row.stream_id);
             } else if (
               row.event_type === "thread.pull-request-link-updated" &&
               retainedThreadIds.has(row.stream_id)
             ) {
               // A newer whole-thread payload already carries this link's state.
-              obsolete.push(row.sequence);
+              obsolete.push(current);
             } else if (
               row.event_type === "thread.pull-request-link-updated" ||
               row.event_type === "message.updated" ||
@@ -372,9 +442,9 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
               const candidate = oldestCandidateByEntityKey.get(key);
               if (candidate === undefined) oldestCandidateByEntityKey.set(key, null);
               else {
-                if (candidate !== null && !candidate.protected) obsolete.push(candidate.sequence);
+                if (candidate !== null && !candidate.protected) obsolete.push(candidate);
                 oldestCandidateByEntityKey.set(key, {
-                  sequence: row.sequence,
+                  ...current,
                   protected: row.protected_intermediate === 1 || keepUsage,
                 });
               }
@@ -383,16 +453,47 @@ export const layer: Layer.Layer<ProjectionMaintenanceV2, never, SqlClient.SqlCli
         }
         // Yield even without deletions for clients using the synchronous fallback.
         yield* Effect.yieldNow;
-        if (obsolete.length > 0) {
+        for (const batch of deleteBatches(obsolete)) {
           // Recheck on the writer: a thread can resume while reader discovery yields.
           const deleted = yield* sql<{ sequence: number }>`
-            DELETE FROM orchestration_events AS event WHERE sequence IN ${sql.in(obsolete)}
+            DELETE FROM orchestration_events AS event
+            WHERE sequence IN ${sql.in(batch.map((row) => row.sequence))}
               AND (event_type NOT IN ('turn-item.updated', 'provider-turn.updated')
                 OR (${settledWithoutActiveWork}))
             RETURNING sequence
           `;
           deletedEventCount += deleted.length;
           yield* Effect.yieldNow;
+          yield* betweenPages;
+        }
+        for (const batch of deleteBatches(settled)) {
+          const throughByThread = new Map<string, number>();
+          for (const row of batch) {
+            throughByThread.set(
+              row.threadId,
+              Math.max(throughByThread.get(row.threadId) ?? 0, row.sequence),
+            );
+          }
+          // The boundary is published before the rows go, so a client resuming meanwhile sees it.
+          for (const [threadId, through] of throughByThread) {
+            yield* sql`
+              INSERT INTO orchestration_v2_event_prune_marks (thread_id, pruned_through_sequence)
+              VALUES (${threadId}, ${through})
+              ON CONFLICT (thread_id) DO UPDATE SET pruned_through_sequence =
+                MAX(pruned_through_sequence, excluded.pruned_through_sequence)
+            `;
+          }
+          const deleted = yield* sql<{ sequence: number }>`
+            DELETE FROM orchestration_events AS event
+            WHERE sequence IN ${sql.in(batch.map((row) => row.sequence))}
+              AND command_id IS NULL
+              AND (${settledWithoutActiveWork})
+              AND NOT ${pinned}
+            RETURNING sequence
+          `;
+          deletedEventCount += deleted.length;
+          yield* Effect.yieldNow;
+          yield* betweenPages;
         }
         yield* betweenPages;
         throughSequence = (rows.at(-1)?.sequence ?? 1) - 1;

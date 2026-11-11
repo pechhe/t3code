@@ -4,32 +4,23 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
+import * as NodePerfHooks from "node:perf_hooks";
 import * as NodeSqlite from "node:sqlite";
 
-import { ThreadId } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Schema from "effect/Schema";
-import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
-
-const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 import * as EventStore from "../src/orchestration-v2/EventStore.ts";
 import * as Maintenance from "../src/orchestration-v2/ProjectionMaintenance.ts";
 import * as ProjectionStore from "../src/orchestration-v2/ProjectionStore.ts";
 import { runMigrations } from "../src/persistence/Migrations.ts";
-import { rebuildMessageSearch } from "../src/orchestration-v2/messageSearchIndex.ts";
 
-// Recovery modes require unchanged event history; --resume-compaction also requires saved baseline digests.
+// A settled thread's events leave the log, so replay no longer equals the projection. The proof
+// is that the projection tables, which are all a client loads, are byte-identical after the pass.
 // node apps/server/scripts/event-compaction-equivalence.ts BASELINE.sqlite .t3/unique-experiment-directory
-const [baselineArgument, directoryArgument, recoveryArgument] = process.argv.slice(2);
-if (
-  recoveryArgument !== undefined &&
-  !["--resume-baseline", "--resume-compaction"].includes(recoveryArgument)
-)
-  throw new Error("Unknown recovery argument");
+const [baselineArgument, directoryArgument] = process.argv.slice(2);
 if (!baselineArgument || !directoryArgument)
   throw new Error("Provide baseline and a new .t3 experiment directory");
 const directory = NodePath.resolve(directoryArgument);
@@ -49,34 +40,27 @@ await NodeFSP.mkdir(directory, { recursive: true });
 if (!(await NodeFSP.realpath(directory)).startsWith(sandbox))
   throw new Error("Experiment directory must remain inside this workspace's .t3");
 const filename = NodePath.join(directory, "experiment.sqlite");
-if (recoveryArgument !== undefined) {
-  const existing = await NodeFSP.realpath(filename);
-  if (existing === baseline || !existing.startsWith(sandbox))
-    throw new Error("Experiment must be a separate copy inside this workspace's .t3");
-  const source = new NodeSqlite.DatabaseSync(baseline, { readOnly: true });
-  const experiment = new NodeSqlite.DatabaseSync(filename, { readOnly: true });
-  try {
-    const counts = "SELECT COUNT(*) AS count, MAX(sequence) AS sequence FROM orchestration_events";
-    if (
-      JSON.stringify(source.prepare(counts).get()) !==
-      JSON.stringify(experiment.prepare(counts).get())
-    )
-      throw new Error("Experiment history changed; cannot resume its baseline phase");
-  } finally {
-    source.close();
-    experiment.close();
-  }
-} else {
-  await NodeFSP.copyFile(baseline, filename, NodeFS.constants.COPYFILE_EXCL);
-}
+await NodeFSP.copyFile(
+  baseline,
+  filename,
+  NodeFS.constants.COPYFILE_EXCL | NodeFS.constants.COPYFILE_FICLONE,
+);
 const report = (stage: string, result: unknown) => console.log(JSON.stringify({ stage, result }));
+// Longest time the event loop went unserved: what a connected client would feel as a freeze.
+const loopDelay = NodePerfHooks.monitorEventLoopDelay({ resolution: 10 });
 const timed = Effect.fn("EventCompactionEquivalence.measure")(function* <A, E, R>(
   stage: string,
   effect: Effect.Effect<A, E, R>,
 ) {
+  loopDelay.reset();
+  loopDelay.enable();
   const start = performance.now();
   const result = yield* effect;
-  report(stage, { seconds: (performance.now() - start) / 1000 });
+  loopDelay.disable();
+  report(stage, {
+    seconds: (performance.now() - start) / 1000,
+    longestEventLoopStallMs: loopDelay.max / 1_000_000,
+  });
   return result;
 });
 const snapshot = () => {
@@ -128,9 +112,9 @@ const accounting = async () => {
         SUM(length(CAST(payload_json AS BLOB))) AS payload_bytes
         FROM orchestration_events GROUP BY event_type ORDER BY event_type`)
         .all(),
-      indexes: db
-        .prepare(`SELECT name, SUM(pgsize) AS bytes FROM dbstat
-        WHERE name IN (SELECT name FROM sqlite_master WHERE type = 'index') GROUP BY name ORDER BY name`)
+      largest: db
+        .prepare(`SELECT name, SUM(pgsize) AS bytes, SUM(unused) AS unused_bytes FROM dbstat
+        GROUP BY name ORDER BY bytes DESC LIMIT 25`)
         .all(),
     };
   } finally {
@@ -141,125 +125,48 @@ const serviceLayer = Maintenance.layer.pipe(
   Layer.provideMerge(Layer.merge(EventStore.layer, ProjectionStore.layer)),
   Layer.provideMerge(NodeSqliteClient.layer({ filename })),
 );
-const replay = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
-  const store = yield* EventStore.EventStoreV2;
-  const ids = yield* sql<{ thread_id: string }>`
-    SELECT DISTINCT stream_id AS thread_id FROM orchestration_events
-    WHERE application_event_version = 2 AND event_type = 'thread.created' ORDER BY stream_id
-  `;
-  const results: Record<string, string> = {};
-  let completed = 0;
-  for (const { thread_id } of ids) {
-    let projection: ReturnType<typeof ProjectionStore.emptyProjection> | undefined;
-    let sequence = 0;
-    while (true) {
-      const page = yield* store
-        .read({ threadId: ThreadId.make(thread_id), afterSequence: sequence, limit: 500 })
-        .pipe(Stream.runCollect);
-      for (const stored of page) {
-        if (stored.event.type === "thread.created")
-          projection = ProjectionStore.emptyProjection(stored.event);
-        else if (projection)
-          projection = ProjectionStore.applyToProjection(projection, stored.event);
-        sequence = stored.sequence;
-      }
-      if (page.length < 500) break;
-    }
-    results[thread_id] = NodeCrypto.createHash("sha256")
-      .update(yield* encodeJson(projection))
-      .digest("hex");
-    completed++;
-    if (completed % 100 === 0) report("replay-progress", { completed, total: ids.length });
-  }
-  return results;
-});
 const differences = <A>(before: Record<string, A>, after: Record<string, A>) =>
   [...new Set([...Object.keys(before), ...Object.keys(after)])]
     .filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
     .map((key) => ({ key, before: before[key], after: after[key] }));
-const decodeReplay = Schema.decodeUnknownSync(
-  Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)),
-);
-const decodeSnapshot = Schema.decodeUnknownSync(
-  Schema.fromJsonString(
-    Schema.Record(Schema.String, Schema.Struct({ rows: Schema.Number, sha256: Schema.String })),
-  ),
-);
 await Effect.runPromise(
   Effect.gen(function* () {
     const maintenance = yield* Maintenance.ProjectionMaintenanceV2;
     const sql = yield* SqlClient.SqlClient;
     yield* runMigrations();
     report("before", yield* Effect.promise(accounting));
-    const { baselineReplay, before } = yield* Effect.gen(function* () {
-      if (recoveryArgument === "--resume-compaction") {
-        const baselineReplay = yield* Effect.promise(async () =>
-          decodeReplay(
-            await NodeFSP.readFile(NodePath.join(directory, "baseline-replay.json"), "utf8"),
-          ),
-        );
-        const before = yield* Effect.promise(async () =>
-          decodeSnapshot(
-            await NodeFSP.readFile(NodePath.join(directory, "baseline-projections.json"), "utf8"),
-          ),
-        );
-        const current = yield* Effect.promise(async () => snapshot());
-        const changed = differences(before, current);
-        report("resumed-baseline-differences", changed);
-        if (changed.length || !(yield* maintenance.verify).valid)
-          throw new Error("Saved baseline no longer matches the experiment projections");
-        return { baselineReplay, before };
-      }
-      const original = yield* Effect.promise(async () => snapshot());
-      report("original-projections", original);
-      const baselineReplay = yield* timed("baseline-replay", replay);
-      const baselineReplayJson = yield* encodeJson(baselineReplay);
-      yield* Effect.promise(() =>
-        NodeFSP.writeFile(NodePath.join(directory, "baseline-replay.json"), baselineReplayJson),
-      );
-      const baselineVerification = yield* timed("baseline-rebuild", maintenance.rebuild);
-      report("baseline-verification", baselineVerification);
-      if (!baselineVerification.valid) throw new Error("Baseline rebuild is invalid");
-      const before = yield* Effect.promise(async () => snapshot());
-      report("baseline-projections", before);
-      report("baseline-rebuild-differences", differences(original, before));
-      const baselineProjectionsJson = yield* encodeJson(before);
-      yield* Effect.promise(() =>
-        NodeFSP.writeFile(
-          NodePath.join(directory, "baseline-projections.json"),
-          baselineProjectionsJson,
-        ),
-      );
-      return { baselineReplay, before };
-    });
-    report("before-compaction", yield* Effect.promise(accounting));
-    report("compaction", yield* timed("compaction-runtime", maintenance.pruneEventStore()));
+    const before = yield* Effect.promise(async () => snapshot());
+    // The server sleeps here to hold a 10% duty; a 1 ms sleep keeps the same slices without the wait.
+    const compaction = yield* timed(
+      "compaction-runtime",
+      maintenance.pruneEventStore(Effect.sleep("1 millis")),
+    );
+    report("compaction", compaction);
     report("after-compaction", yield* Effect.promise(accounting));
-    const afterReplay = yield* timed("compacted-replay", replay);
-    const replayDifferences = differences(baselineReplay, afterReplay);
-    const compactedVerification = yield* timed("compacted-rebuild", maintenance.rebuild);
-    report("compacted-verification", compactedVerification);
-    const after = yield* Effect.promise(async () => snapshot());
-    const projectionDifferences = differences(before, after);
-    report("equivalence", { replayDifferences, projectionDifferences });
-    // The offline doctor uses the same conversion; FTS rowids must be rebuilt after VACUUM.
-    yield* sql`PRAGMA auto_vacuum = INCREMENTAL`;
-    yield* timed("vacuum", sql`VACUUM`);
-    yield* timed("message-search-rebuild", rebuildMessageSearch(sql));
+    const projectionDifferences = differences(
+      before,
+      yield* Effect.promise(async () => snapshot()),
+    );
+    report("projection-differences", projectionDifferences);
+    // The server's reclaim loop, run to exhaustion instead of one bounded pass a minute.
+    const reclaimedPages = yield* timed(
+      "reclaim-runtime",
+      Effect.gen(function* () {
+        let pages = 0;
+        while (true) {
+          const free = yield* sql<{ readonly freelist_count: number }>`PRAGMA freelist_count`;
+          if ((free[0]?.freelist_count ?? 0) === 0) return pages;
+          yield* sql`PRAGMA incremental_vacuum(1)`;
+          yield* Effect.yieldNow;
+          pages++;
+        }
+      }),
+    );
+    report("reclaimed-pages", reclaimedPages);
     yield* sql`PRAGMA wal_checkpoint(TRUNCATE)`;
     report("after-reclamation", yield* Effect.promise(accounting));
-    const vacuumDifferences = differences(after, yield* Effect.promise(async () => snapshot()));
-    report("vacuum-projection-differences", vacuumDifferences);
     const verification = yield* maintenance.verify;
     report("verification", verification);
-    if (
-      replayDifferences.length ||
-      projectionDifferences.length ||
-      vacuumDifferences.length ||
-      !compactedVerification.valid ||
-      !verification.valid
-    )
-      process.exitCode = 1;
+    if (projectionDifferences.length || !verification.valid) process.exitCode = 1;
   }).pipe(Effect.provide(serviceLayer)),
 );
