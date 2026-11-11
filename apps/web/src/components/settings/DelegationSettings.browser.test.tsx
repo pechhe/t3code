@@ -398,10 +398,14 @@ it("saves one policy to every selected environment against each one's own revisi
   expect(text().match(/Code and UI changes/g)).toHaveLength(1);
   await click("Move claude-test up");
   expect(
-    state.save.mock.calls.map(([call]) => [call.environmentId, call.input.expectedHash]),
+    state.save.mock.calls.map(([call]) => [
+      call.environmentId,
+      call.input.expectedHash,
+      call.input.validateCatalog,
+    ]),
   ).toEqual([
-    [EnvironmentId.make("test-env"), "a".repeat(64)],
-    [EnvironmentId.make("other-env"), "c".repeat(64)],
+    [EnvironmentId.make("test-env"), "a".repeat(64), undefined],
+    [EnvironmentId.make("other-env"), "c".repeat(64), false],
   ]);
 });
 
@@ -419,6 +423,18 @@ it("says when the selected environments hold different policies", async () => {
   expect(text()).toContain("Policies differ across Test Mac, Other Box");
 });
 
+it("does not save secondary environments when the editor's catalog rejects a model", async () => {
+  reset();
+  addEnvironment(fixture());
+  state.save.mockResolvedValue(
+    AsyncResult.failure(Cause.fail(new AgentPolicySettingsError({ reason: "unsupported-model" }))),
+  );
+  await using _screen = await mount();
+  await click("Move claude-test up");
+  expect(state.save).toHaveBeenCalledOnce();
+  expect(text()).toContain("Test Mac:");
+});
+
 it("names the environment whose save failed", async () => {
   reset();
   addEnvironment(fixture());
@@ -430,6 +446,17 @@ it("names the environment whose save failed", async () => {
   await using _screen = await mount();
   await click("Move claude-test up");
   expect(text()).toContain("Other Box:");
+});
+
+it("cannot save to all environments while one is disconnected", async () => {
+  reset();
+  addEnvironment(fixture());
+  scope.environments[1]!.connection.phase = "disconnected";
+  await using _screen = await mount();
+  expect(text()).toContain("Other Box: Reconnect");
+  await click("Move claude-test up");
+  expect(state.save).not.toHaveBeenCalled();
+  expect(text()).toContain("Every selected environment needs a readable policy");
 });
 
 it("cannot save to all environments while one has no readable policy", async () => {

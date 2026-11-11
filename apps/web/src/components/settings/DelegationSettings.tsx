@@ -191,7 +191,7 @@ function ScopedDelegation({
           key={shown.environmentId}
           environmentId={shown.environmentId}
           // A save to "all" must reach all: an unreadable environment would silently keep its old policy.
-          unsavedEnvironments={connected.length - editable.length}
+          unsavedEnvironments={environments.length - editable.length}
           targets={editable.map((policy) => ({
             environmentId: policy.environmentId,
             label: policy.label,
@@ -274,13 +274,21 @@ function PolicyEditor({
       manifest = state.next
     ) {
       state.next = null;
-      for (const target of targets) {
+      const orderedTargets = [
+        ...targets.filter((target) => target.environmentId === environmentId),
+        ...targets.filter((target) => target.environmentId !== environmentId),
+      ];
+      for (const target of orderedTargets) {
         const expectedHash = state.known.has(target.hash)
           ? (state.hashes.get(target.environmentId) ?? target.hash)
           : target.hash;
         const result = await save({
           environmentId: target.environmentId,
-          input: { expectedHash, manifest },
+          input: {
+            expectedHash,
+            manifest,
+            ...(target.environmentId === environmentId ? {} : { validateCatalog: false }),
+          },
         });
         if (result._tag === "Success") {
           state.hashes.set(target.environmentId, result.value.snapshot.hash);
@@ -293,6 +301,7 @@ function PolicyEditor({
         } else {
           const message = String(squashAtomCommandFailure(result));
           failures.push(targets.length > 1 ? `${target.label}: ${message}` : message);
+          break;
         }
       }
     }

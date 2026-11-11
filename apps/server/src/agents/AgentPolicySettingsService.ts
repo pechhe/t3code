@@ -125,7 +125,7 @@ const make = Effect.gen(function* () {
   return AgentPolicySettingsService.of({
     read,
     save: Effect.fn("AgentPolicySettingsService.save")(function* (input) {
-      yield* validateModels(input.manifest);
+      if (input.validateCatalog !== false) yield* validateModels(input.manifest);
       const saved = yield* policy.save(yield* root, input).pipe(
         Effect.mapError(
           (error) =>

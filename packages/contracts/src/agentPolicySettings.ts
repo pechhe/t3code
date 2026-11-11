@@ -50,6 +50,8 @@ export type AgentPolicySettings = typeof AgentPolicySettings.Type;
 export const AgentPolicySaveInput = Schema.Struct({
   expectedHash: Sha256,
   manifest: AgentPolicyManifestEdit,
+  /** A secondary environment accepts the policy validated against the editor's catalog. */
+  validateCatalog: Schema.optional(Schema.Boolean),
 });
 export type AgentPolicySaveInput = typeof AgentPolicySaveInput.Type;
 export class AgentPolicySettingsError extends Schema.TaggedError<AgentPolicySettingsError>()(

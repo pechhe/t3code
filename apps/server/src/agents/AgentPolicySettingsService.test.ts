@@ -108,7 +108,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("policy settings"
       ]);
     }),
   );
-  it.effect("saves a model from any installed provider, with or without an effort setting", () =>
+  it.effect("saves models available on another environment, as well as installed models", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
       const saved = yield* f.run(
@@ -120,20 +120,32 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("policy settings"
             models: {
               ...f.manifest.models,
               deepseek: { driverKind: "pi", model: "deepseek-v4" },
+              remote: { driverKind: "pi", model: "remote-model", effortOption: "thinking" },
             },
             lists: {
               ...f.manifest.lists,
-              workhorse: [...f.manifest.lists["workhorse"]!, { model: "deepseek" }],
+              workhorse: [
+                ...f.manifest.lists["workhorse"]!,
+                { model: "deepseek" },
+                { model: "remote", effort: "high" },
+              ],
             },
           });
-          return yield* settings.save({ expectedHash: first.snapshot.hash, manifest });
+          return yield* settings.save({
+            expectedHash: first.snapshot.hash,
+            manifest,
+            validateCatalog: false,
+          });
         }),
       );
       expect(saved.snapshot.manifest.models["deepseek"]).toEqual({
         driverKind: "pi",
         model: "deepseek-v4",
       });
-      expect(saved.snapshot.manifest.lists["workhorse"]?.at(-1)).toEqual({ model: "deepseek" });
+      expect(saved.snapshot.manifest.lists["workhorse"]?.slice(-2)).toEqual([
+        { model: "deepseek" },
+        { model: "remote", effort: "high" },
+      ]);
     }),
   );
   it.effect("refuses stale saves, unsupported models and unsupported effort without writing", () =>
