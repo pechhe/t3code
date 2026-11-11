@@ -183,6 +183,7 @@ export function ReleaseButton({ environmentId }: { environmentId: EnvironmentId 
               environmentId={environmentId}
               repository={repository}
               progress={progressOf(repository.repo)}
+              releasing={deploys.some((entry) => entry.repo === repository.repo)}
               clock={clock}
               promotion={
                 promotions?.find((promotion) => promotion.repo === repository.repo) ?? null
@@ -205,6 +206,7 @@ function ReleaseRow({
   environmentId,
   repository,
   progress,
+  releasing,
   clock,
   promotion,
   open,
@@ -213,6 +215,8 @@ function ReleaseRow({
   environmentId: EnvironmentId;
   repository: SlipJayRunnerRepository;
   progress: { progress: ReleaseProgress; key: string } | null;
+  /** A release is running, as opposed to the runner checking the candidate ahead of one. */
+  releasing: boolean;
   clock: ReleasePhaseClock;
   promotion: VcsSlipJayPromotion | null;
   open: boolean;
@@ -311,8 +315,17 @@ function ReleaseRow({
         </span>
       </div>
       <span className={TONE_TEXT[requestError === null ? row.tone : "bad"]}>{row.text}</span>
-      {progress === null || progress.progress.phase === null ? null : (
+      {progress === null || progress.progress.phase === null ? null : releasing ||
+        progress.progress.state === "bad" ? (
         <ReleaseSteps progress={progress.progress} starts={clock[progress.key]} now={now} />
+      ) : progress.progress.operation?.startedAt === undefined ? null : (
+        <span className="text-muted-foreground">
+          Checking ahead of a release ·{" "}
+          {formatSlipJayDuration(now - Date.parse(progress.progress.operation.startedAt))}
+          {progress.progress.operation.stageMedianMs === undefined
+            ? ""
+            : ` · usually ${formatSlipJayDuration(progress.progress.operation.stageMedianMs)}`}
+        </span>
       )}
       {detail === null ? null : (
         <p
