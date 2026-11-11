@@ -1,5 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Pi extensions run outside Effect; these tests exercise their native filesystem boundary.
 import * as NodeFSP from "node:fs/promises";
+import * as NodeHTTP from "node:http";
+import * as NodeHTTPS from "node:https";
 import * as NodePath from "node:path";
 import * as NodeOS from "node:os";
 import * as NodeModule from "node:module";
@@ -1001,4 +1003,87 @@ describe("canonical and legacy Weave discovery", () => {
       }
     },
   );
+});
+
+describe("Pi MCP client request limits", () => {
+  type Limits = { readonly controlMs: number; readonly toolCallMs: number };
+  type Client = {
+    callTool: (name: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
+    listTools: (signal?: AbortSignal) => Promise<unknown>;
+  };
+
+  const loadClient = (url: string, limits?: Limits): Client => {
+    const source = NodeModule.stripTypeScriptTypes(
+      PI_T3_MCP_EXTENSION_SOURCE.replace(/^import .*;$/gm, "").replace(
+        "export default async function",
+        "async function",
+      ),
+    );
+    return NodeVM.runInNewContext(
+      `${source}\ncreateMcpClient(url, "token", limits)`,
+      { NodeHTTP, NodeHTTPS, Buffer, URL, setTimeout, clearTimeout, fetch, AbortSignal, Type: {}, url, limits },
+    ) as Client;
+  };
+
+  // Replies to every POST after `delayMs`, as a slow server-side tool would.
+  const withServer = async (
+    delayMs: number,
+    run: (url: string) => Promise<void>,
+  ): Promise<void> => {
+    const server = NodeHTTP.createServer((req, res) => {
+      req.resume();
+      // @effect-diagnostics-next-line globalTimers:off -- the fixture server stands in for a slow tool.
+      const timer = setTimeout(() => {
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { content: [], tools: [] } }));
+      }, delayMs);
+      res.on("close", () => clearTimeout(timer));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      await run(`http://127.0.0.1:${(server.address() as { port: number }).port}/mcp`);
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  };
+
+  it("applies the configured tool-call limit and no shorter one", async () => {
+    await withServer(400, async (url) => {
+      const tooShort = loadClient(url, { controlMs: 60_000, toolCallMs: 100 });
+      const timedOut = await tooShort.callTool("slow", {}).then(
+        () => undefined,
+        (error: Error) => error.message,
+      );
+      assert.match(timedOut ?? "", /timed out/);
+
+      const roomy = loadClient(url, { controlMs: 100, toolCallMs: 5_000 });
+      const result = (await roomy.callTool("slow", {})) as { content: unknown[] };
+      assert.deepEqual(result.content, []);
+    });
+  });
+
+  it("keeps the short bound on control requests", async () => {
+    await withServer(400, async (url) => {
+      const client = loadClient(url, { controlMs: 100, toolCallMs: 5_000 });
+      const message = await client.listTools().then(
+        () => undefined,
+        (error: Error) => error.message,
+      );
+      assert.match(message ?? "", /timed out/);
+    });
+  });
+
+  it("still honours the caller's abort signal during a call", async () => {
+    await withServer(5_000, async (url) => {
+      const client = loadClient(url, { controlMs: 60_000, toolCallMs: 60_000 });
+      const controller = new AbortController();
+      const pending = client.callTool("slow", {}, controller.signal).then(
+        () => "resolved",
+        (error: Error) => error.name,
+      );
+      queueMicrotask(() => controller.abort());
+      assert.equal(await pending, "AbortError");
+    });
+  });
 });

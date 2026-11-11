@@ -51,6 +51,8 @@ export const PI_FILE_CHANGE_TOOLS = ["edit", "write"] as const;
 export const PI_T3_MCP_EXTENSION_SOURCE = `\
 import { stripFrontmatter, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as NodeFSP from "node:fs/promises";
+import * as NodeHTTP from "node:http";
+import * as NodeHTTPS from "node:https";
 import * as NodePath from "node:path";
 import { Type } from "typebox";
 
@@ -63,6 +65,11 @@ const INSTRUCTIONS_ENV = ${JSON.stringify(T3_PI_INSTRUCTIONS_ENV)};
 const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim())};
 const SERVICE_TIER_COMMAND = ${JSON.stringify(PI_T3_SERVICE_TIER_COMMAND)};
 const PROTOCOL = "2025-06-18";
+// Node's fetch (undici) cuts any response whose headers take over 300 s, which killed
+// long server-side tools (the longest budget is 20 minutes). Requests go through
+// node:http, which has no such default, with an explicit upper bound instead.
+const MCP_CONTROL_TIMEOUT_MS = 60_000;
+const MCP_TOOL_CALL_TIMEOUT_MS = 30 * 60_000;
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const FILE_CHANGE_TOOLS = new Set(${JSON.stringify(PI_FILE_CHANGE_TOOLS)});
 
@@ -359,7 +366,14 @@ function isMcpToolError(result: unknown): boolean {
   );
 }
 
-function createMcpClient(endpoint: string, token: string) {
+function createMcpClient(
+  endpoint: string,
+  token: string,
+  limits: { readonly controlMs: number; readonly toolCallMs: number } = {
+    controlMs: MCP_CONTROL_TIMEOUT_MS,
+    toolCallMs: MCP_TOOL_CALL_TIMEOUT_MS,
+  },
+) {
   let nextId = 1;
   let sessionId: string | undefined;
 
@@ -377,35 +391,86 @@ function createMcpClient(endpoint: string, token: string) {
     return next;
   };
 
-  const request = async (method: string, params?: unknown, signal?: AbortSignal) => {
-    const id = nextId++;
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
-      signal,
+  const post = (
+    payload: unknown,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<{
+    readonly status: number;
+    readonly sessionId: string | undefined;
+    readonly contentType: string;
+    readonly body: string;
+  }> =>
+    new Promise((resolve, reject) => {
+      const url = new URL(endpoint);
+      const transport = url.protocol === "https:" ? NodeHTTPS : NodeHTTP;
+      const body = JSON.stringify(payload);
+      let settled = false;
+      const finish = (action: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        action();
+      };
+      const req = transport.request(
+        url,
+        {
+          method: "POST",
+          headers: { ...headers(), "content-length": String(Buffer.byteLength(body)) },
+          signal,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk: Buffer) => chunks.push(chunk));
+          res.on("error", (error: Error) => finish(() => reject(error)));
+          res.on("end", () =>
+            finish(() => {
+              const header = (name: string) => {
+                const value = res.headers[name];
+                return Array.isArray(value) ? value[0] : value;
+              };
+              resolve({
+                status: res.statusCode ?? 0,
+                sessionId: header("mcp-session-id"),
+                contentType: header("content-type") ?? "",
+                body: Buffer.concat(chunks).toString("utf8"),
+              });
+            }),
+          );
+        },
+      );
+      const fail = (error: Error) => {
+        finish(() => {
+          req.destroy();
+          reject(error);
+        });
+      };
+      const timer = setTimeout(
+        () => fail(new Error(\`MCP request timed out after \${Math.round(timeoutMs / 1000)}s\`)),
+        timeoutMs,
+      );
+      req.on("error", (error) => fail(error));
+      req.end(body);
     });
-    const nextSession = response.headers.get("mcp-session-id");
-    if (nextSession) sessionId = nextSession;
-    const body = await response.text();
-    if (!response.ok) {
+
+  const request = async (method: string, params: unknown, timeoutMs: number, signal?: AbortSignal) => {
+    const id = nextId++;
+    const response = await post({ jsonrpc: "2.0", id, method, params }, timeoutMs, signal);
+    if (response.sessionId) sessionId = response.sessionId;
+    const body = response.body;
+    if (response.status < 200 || response.status >= 300) {
       throw new Error(\`MCP \${method} failed (\${response.status}): \${body.slice(0, 400)}\`);
     }
     if (body.length === 0) return undefined;
-    const parsed = parseSseOrJson(body, response.headers.get("content-type") ?? "");
+    const parsed = parseSseOrJson(body, response.contentType);
     if (parsed.error) {
       throw new Error(parsed.error.message ?? \`MCP \${method} returned an error\`);
     }
     return parsed.result;
   };
 
-  const notify = async (method: string, params?: unknown, signal?: AbortSignal) => {
-    await fetch(endpoint, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ jsonrpc: "2.0", method, params }),
-      signal,
-    });
+  const notify = async (method: string, params: unknown, signal?: AbortSignal) => {
+    await post({ jsonrpc: "2.0", method, params }, limits.controlMs, signal);
   };
 
   return {
@@ -417,6 +482,7 @@ function createMcpClient(endpoint: string, token: string) {
           capabilities: {},
           clientInfo: { name: "t3-pi-mcp", version: "1.0.0" },
         },
+        limits.controlMs,
         signal,
       );
       await notify("notifications/initialized", {}, signal).catch(() => undefined);
@@ -428,6 +494,7 @@ function createMcpClient(endpoint: string, token: string) {
         const result = (await request(
           "tools/list",
           cursor === undefined ? {} : { cursor },
+          limits.controlMs,
           signal,
         )) as { tools?: McpTool[]; nextCursor?: string } | undefined;
         tools.push(...(result?.tools ?? []));
@@ -436,7 +503,7 @@ function createMcpClient(endpoint: string, token: string) {
       return tools;
     },
     async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal) {
-      return request("tools/call", { name, arguments: args }, signal);
+      return request("tools/call", { name, arguments: args }, limits.toolCallMs, signal);
     },
   };
 }

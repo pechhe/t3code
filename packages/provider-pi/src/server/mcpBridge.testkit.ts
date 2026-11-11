@@ -2,6 +2,7 @@
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import * as NodeVM from "node:vm";
+import { EventEmitter } from "node:events";
 import { PI_T3_MCP_EXTENSION_SOURCE } from "./mcpExtensionSource.ts";
 
 interface RegisteredTool {
@@ -100,6 +101,42 @@ export async function loadMcpBridge(
       "async function",
     ),
   );
+  const respond = async (
+    url: string,
+    transport: { body: string; headers: Record<string, string>; signal?: AbortSignal },
+  ) => {
+    transport.signal?.throwIfAborted();
+    transports.push({
+      url,
+      authorization: transport.headers.authorization!,
+      signal: transport.signal,
+    });
+    const request = JSON.parse(transport.body) as {
+      id: number;
+      method: string;
+      params?: unknown;
+    };
+    requests.push(request);
+    const agentServer = options.agentServers?.find((server) => server.url === url);
+    const result =
+      request.method === "tools/list"
+        ? {
+            tools:
+              agentServer === undefined
+                ? catalog
+                : agentServer.tools.map((name) => ({
+                    name,
+                    description: name,
+                    inputSchema: { type: "object", properties: {} },
+                  })),
+          }
+        : request.method === "tools/call"
+          ? (options.result ?? { content: [{ type: "text", text: "browser snapshot" }] })
+          : {};
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }), {
+      headers: { "content-type": "application/json" },
+    });
+  };
   await NodeVM.runInNewContext(`${source}\nt3McpExtension(pi)`, {
     process: {
       cwd: () => "/fixture/workspace",
@@ -128,42 +165,13 @@ export async function loadMcpBridge(
     AbortSignal,
     NodePath,
     Type: { Unsafe: (schema: unknown) => schema },
-    fetch: async (
-      url: string,
-      transport: { body: string; headers: Record<string, string>; signal?: AbortSignal },
-    ) => {
-      transport.signal?.throwIfAborted();
-      transports.push({
-        url,
-        authorization: transport.headers.authorization!,
-        signal: transport.signal,
-      });
-      const request = JSON.parse(transport.body) as {
-        id: number;
-        method: string;
-        params?: unknown;
-      };
-      requests.push(request);
-      const agentServer = options.agentServers?.find((server) => server.url === url);
-      const result =
-        request.method === "tools/list"
-          ? {
-              tools:
-                agentServer === undefined
-                  ? catalog
-                  : agentServer.tools.map((name) => ({
-                      name,
-                      description: name,
-                      inputSchema: { type: "object", properties: {} },
-                    })),
-            }
-          : request.method === "tools/call"
-            ? (options.result ?? { content: [{ type: "text", text: "browser snapshot" }] })
-            : {};
-      return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }), {
-        headers: { "content-type": "application/json" },
-      });
-    },
+    Buffer,
+    URL,
+    setTimeout,
+    clearTimeout,
+    // The extension posts through node:http; route it to the same fixture responder.
+    NodeHTTP: fixtureHttp(() => respond),
+    NodeHTTPS: fixtureHttp(() => respond),
     pi: {
       on: (name: string, handler: AgentStartHook) => handlers.set(name, handler),
       registerCommand: () => {},
@@ -206,6 +214,47 @@ export async function loadMcpBridge(
     getActiveTools: () => activeTools,
     restoreActiveTools: (names: string[]) => {
       activeTools = names;
+    },
+  };
+}
+
+/** A node:http stand-in that answers each POST from the fixture responder. */
+function fixtureHttp(
+  responder: () => (
+    url: string,
+    transport: { body: string; headers: Record<string, string>; signal?: AbortSignal },
+  ) => Promise<Response>,
+) {
+  return {
+    request: (
+      url: URL,
+      options: { headers: Record<string, string>; signal?: AbortSignal },
+      onResponse: (res: unknown) => void,
+    ) => {
+      const events = new EventEmitter();
+      return Object.assign(events, {
+        destroy: () => {},
+        end: (body: string) => {
+          void responder()(url.toString(), {
+              body,
+              headers: options.headers,
+              ...(options.signal === undefined ? {} : { signal: options.signal }),
+            }).then(
+            async (response) => {
+              const res = new EventEmitter();
+              onResponse(
+                Object.assign(res, {
+                  statusCode: response.status,
+                  headers: Object.fromEntries(response.headers.entries()),
+                }),
+              );
+              res.emit("data", Buffer.from(await response.text()));
+              res.emit("end");
+            },
+            (error) => events.emit("error", error),
+          );
+        },
+      });
     },
   };
 }
