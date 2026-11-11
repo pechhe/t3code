@@ -311,6 +311,10 @@ function ReleaseRow({
             <Button size="xs" variant="outline" onClick={() => void start()}>
               {row.action === "retry" ? "Try again" : "Release"}
             </Button>
+          ) : release.waitingOn.kind === "up_to_date" && canRelease && checkout !== undefined ? (
+            <Button size="xs" variant="outline" disabled>
+              Nothing to release
+            </Button>
           ) : null}
         </span>
       </div>
