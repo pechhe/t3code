@@ -1159,6 +1159,7 @@ const make = Effect.gen(function* () {
                 : false;
             if (spentJourneyCheck)
               yield* saveCheck({ ...(yield* readCheck(outstandingId!)), cancelled: true });
+            let superseded = false;
             if (outstandingId !== null && !spentJourneyCheck) {
               const outstanding = yield* readCheck(outstandingId);
               if (outstanding.kind !== kind)
@@ -1181,7 +1182,29 @@ const make = Effect.gen(function* () {
                       !ThreadManagement.isTerminalRunStatus(run.status),
                   ) ?? false;
                 const automaticRetries = (outstanding.automaticRetries ?? 0) + (automatic ? 1 : 0);
-                if (
+                // A claim keeps the definitions it froze, so retrying one made before they changed
+                // would measure what is no longer accepted, and never by command.
+                superseded =
+                  kind === "check" &&
+                  !automatic &&
+                  !acceptedPending &&
+                  (shell === null || shell.activeRunId === null) &&
+                  (outstanding.metrics.length !== doc.metrics.length ||
+                    outstanding.metrics.some(
+                      (frozen) =>
+                        doc.metrics.find((metric) => metric.id === frozen.id)?.version !==
+                        frozen.version,
+                    ));
+                if (superseded) {
+                  yield* saveCheck({ ...outstanding, cancelled: true });
+                  yield* activity(
+                    id,
+                    "check-superseded",
+                    "The outstanding check was claimed before the accepted metrics changed and its run had ended, so a new check starts on the current definitions.",
+                    undefined,
+                    outstanding.threadId,
+                  );
+                } else if (
                   shell !== null &&
                   shell.activeRunId === null &&
                   !acceptedPending &&
@@ -1229,7 +1252,7 @@ const make = Effect.gen(function* () {
                   return retry;
                 }
               }
-              return outstanding;
+              if (!superseded) return outstanding;
             }
             // A journey check's evidence is what the server records; a paused one only measures.
             const journeysWhilePaused =

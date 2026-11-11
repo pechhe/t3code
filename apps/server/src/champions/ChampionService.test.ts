@@ -1195,6 +1195,36 @@ it.effect(
     ),
 );
 
+it.effect(
+  "starts a fresh check on the accepted definitions when the outstanding one was claimed before they changed and its run has ended",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        f.realProjectRoot();
+        yield* definitions(service);
+        const stuck = yield* service.runCheck({ id: config.id });
+        f.endRun();
+        yield* accepted(service, [collectedMetric(node("console.log(1)"))]);
+        const done = yield* service.runCheck({ id: config.id });
+        assert.deepEqual(f.counts(), { launches: 1, sends: 0 });
+        assert.isNull(done.champion.outstandingCheckId);
+        assert.deepEqual(
+          (yield* service.history({ id: config.id })).samples.map((s) => [
+            s.version,
+            s.value,
+            s.provenance,
+          ]),
+          [[2, 1, "server-collected"]],
+        );
+        // The superseded claim's agent can no longer report against it.
+        assert.isNotNull(stuck.champion.outstandingCheckId);
+        yield* refused(
+          service.report(f.caller(), { samples: [sample], findings: [], summary: "Too late" }),
+        );
+      }),
+    ),
+);
+
 it.effect("does not hold one champion's check behind another champion's slow command", () =>
   withFixture((f, service) =>
     Effect.gen(function* () {
