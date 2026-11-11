@@ -85,7 +85,7 @@ it("opens the thread actions menu for an older settled thread the shell leaves o
   });
   await expect.element(page.getByText("older-settled: question 0")).toBeVisible();
 
-  await page.getByRole("button", { name: `Thread actions for ${thread.title}` }).click();
+  await page.getByRole("button", { name: "Thread actions", exact: true }).click();
   // Without a bound the poll runs to the test deadline and reports a bare timeout.
   await expect
     .element(page.getByRole("menuitem", { name: "Rename thread" }), { timeout: 5_000 })
