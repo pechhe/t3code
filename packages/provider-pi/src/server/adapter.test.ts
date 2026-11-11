@@ -4907,7 +4907,16 @@ describe("PiAdapterV2", () => {
 
   it.effect.each([
     { errorMessage: UPSTREAM_OVERLOADED, code: "overloaded" },
+    {
+      errorMessage:
+        '429: {"type":"server_error","message":"The inference service is overloaded. Please try again later."}',
+      code: "overloaded",
+    },
     { errorMessage: "429 Too Many Requests: rate limited", code: null },
+    {
+      errorMessage: '429: {"type":"GoUsageLimitError","message":"OpenCode Go usage limit reached"}',
+      code: null,
+    },
     { errorMessage: "temporary network failure", code: null },
   ])(
     "codes a model error as an overload only when the upstream said so",

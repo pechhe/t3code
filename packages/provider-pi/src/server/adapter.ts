@@ -64,8 +64,9 @@ import {
   makeProviderRetryTurnItem,
 } from "@t3tools/provider-core/server/failure";
 
-// Pi relays the upstream body as text only, so its overload is recognised by that body.
-const PI_OVERLOADED_ERROR = /\b429\b[\s\S]*\[overloaded\]/iu;
+// Pi relays the upstream body as text only, so its overload is recognised by that body,
+// which has said both `[overloaded]` and "service is overloaded".
+const PI_OVERLOADED_ERROR = /\b429\b[\s\S]*\boverloaded\b/iu;
 
 /** A Pi model failure, coded as an overload when the upstream said it was overloaded. */
 const piModelFailure = (message: string, retryable?: boolean) =>
