@@ -280,7 +280,7 @@ function ReleaseRow({
   return (
     <div className="flex flex-col gap-0.5 px-1 text-xs">
       <div className="flex min-h-6 min-w-0 items-center gap-2">
-        <span className="min-w-0 truncate font-medium text-sm">{name}</span>
+        <span className="min-w-0 break-words font-medium text-sm">{name}</span>
         <span className="ms-auto flex shrink-0 items-center gap-1">
           {row.action === "retry" && projects.length > 0 ? (
             <Button size="xs" variant="ghost" onClick={() => void fixWithAgent()}>
