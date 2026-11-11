@@ -90,7 +90,21 @@ export const publishPolicy = Effect.fn("AgentConfigCheckout.publishPolicy")(func
     if (!succeeded(commit)) return notPushed("commit failed");
   }
   // Pushes an earlier save's commit too, if an earlier push was refused.
-  const push = yield* git(root, ["push", "origin", "HEAD:main"], "30 seconds");
+  const pushMain = git(root, ["push", "origin", "HEAD:main"], "30 seconds");
+  let push = yield* pushMain;
+  if (push !== null && !push.timedOut && push.code !== 0) {
+    // A save applied across environments commits the same change on each checkout, so main moves
+    // underneath us. Rebase drops commits origin already has; a real conflict is aborted.
+    const fetched = yield* git(root, ["fetch", "origin", "main"], "30 seconds");
+    if (succeeded(fetched)) {
+      const rebased = yield* git(root, ["rebase", "--autostash", "origin/main"], "30 seconds");
+      if (!succeeded(rebased)) {
+        yield* git(root, ["rebase", "--abort"]);
+        return notPushed("push rejected: main has conflicting changes to pull by hand");
+      }
+      push = yield* pushMain;
+    }
+  }
   if (push === null) return notPushed("push failed");
   if (push.timedOut) return notPushed("push timed out");
   if (push.code !== 0) return notPushed("push rejected: pull agent-config's main, then save again");

@@ -67,6 +67,47 @@ it.layer(layer)("AgentConfigCheckout", (it) => {
     }).pipe(Effect.scoped),
   );
 
+  it.effect("publishes a save whose identical change another checkout already pushed", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const remote = yield* fs.makeTempDirectoryScoped({ prefix: "agent-config-origin-" });
+      yield* git(remote, "init", "--bare", "-b", "main");
+      const clone = (prefix: string) =>
+        Effect.gen(function* () {
+          const dir = yield* fs.makeTempDirectoryScoped({ prefix });
+          yield* git(dir, "clone", remote, ".");
+          yield* configure(dir);
+          yield* git(dir, "checkout", "-B", "main");
+          return dir;
+        });
+      const seed = yield* clone("agent-config-seed-");
+      yield* fs.makeDirectory(path.join(seed, "roles"));
+      yield* fs.writeFileString(path.join(seed, "roles/policy.json"), "v1");
+      yield* git(seed, "add", "roles/policy.json");
+      yield* git(seed, "commit", "-m", "v1");
+      yield* git(seed, "push", "origin", "HEAD:main");
+
+      const first = yield* clone("agent-config-first-");
+      const second = yield* clone("agent-config-second-");
+      for (const checkout of [first, second]) {
+        yield* fs.writeFileString(path.join(checkout, "roles/policy.json"), "v2");
+      }
+      assert.deepEqual(yield* AgentConfigCheckout.publishPolicy(first, "2"), {
+        pushed: true,
+        detail: null,
+      });
+      assert.deepEqual(yield* AgentConfigCheckout.publishPolicy(second, "2"), {
+        pushed: true,
+        detail: null,
+      });
+      assert.equal(
+        yield* git(second, "rev-parse", "HEAD"),
+        yield* git(remote, "rev-parse", "main"),
+      );
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("reports an unavailable checkout as unknown", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
