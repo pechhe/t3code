@@ -125,9 +125,11 @@ const make = Effect.gen(function* () {
   ) {
     const rows = yield* sql<{ thread_id: string }>`
       SELECT thread_id FROM orchestration_v2_projection_turn_items
+        INDEXED BY orchestration_v2_projection_turn_items_slipjay_land_idx
       WHERE type = 'command_execution'
+        AND CASE WHEN json_valid(payload_json) THEN json_extract(payload_json, '$.input') END
+        LIKE '%slipjay%land%'
         AND instr(payload_json, ${landing.operationId}) > 0
-        AND json_extract(payload_json, '$.input') LIKE '%slipjay%land%'
       ORDER BY updated_at ASC`;
     for (const row of rows) {
       let thread = yield* projections.getThread(ThreadId.make(row.thread_id));
