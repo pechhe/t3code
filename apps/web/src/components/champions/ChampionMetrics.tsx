@@ -2,7 +2,9 @@ import {
   CHAMPION_READING_STATUS_LABELS,
   championReading,
   championReadingLabel,
+  championReadingNote,
   championStaleAfterMs,
+  formatChampionCommand,
   formatChampionDuration,
   formatChampionValue,
 } from "@t3tools/client-runtime/champions";
@@ -18,7 +20,7 @@ import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
-import { ScheduledRelativeLabel } from "../scheduled/scheduledTaskParts";
+import { relativeLabel } from "../scheduled/scheduledTaskParts";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { Badge } from "../ui/badge";
 import {
@@ -129,6 +131,14 @@ function MetricDetail(props: {
       <dl className="grid grid-cols-[88px_minmax(0,1fr)] gap-x-3 gap-y-1">
         {metric.description ? <DetailRow label="Means">{metric.description}</DetailRow> : null}
         <DetailRow label="Source">{metric.source}</DetailRow>
+        {metric.collect ? (
+          <DetailRow label="Measured by">
+            <span>The server runs this command in the project at each check</span>
+            <code className="mt-1 block whitespace-pre-wrap break-all rounded-md bg-muted px-2 py-1.5 font-mono text-xs">
+              {formatChampionCommand(metric.collect)}
+            </code>
+          </DetailRow>
+        ) : null}
         {metric.context ? <DetailRow label="Context">{metric.context}</DetailRow> : null}
         <DetailRow label="Better when">
           {
@@ -163,18 +173,26 @@ function MetricDetail(props: {
           <>
             <DetailRow label="Evidence">{latest.evidence || "None reported"}</DetailRow>
             <DetailRow label="Reported by">
-              <span>The agent that ran the check</span>
+              <span>
+                {latest.provenance === "server-collected"
+                  ? "The server, from the metric's command"
+                  : "The agent that ran the check"}
+              </span>
               {latest.revision ? (
                 <span className="text-muted-foreground"> at {latest.revision}</span>
               ) : null}
-              {" · "}
-              <Link
-                to="/$environmentId/$threadId"
-                params={{ environmentId: props.environmentId, threadId: latest.threadId }}
-                className="underline-offset-2 hover:underline"
-              >
-                Open check
-              </Link>
+              {latest.provenance === "server-collected" ? null : (
+                <>
+                  {" · "}
+                  <Link
+                    to="/$environmentId/$threadId"
+                    params={{ environmentId: props.environmentId, threadId: latest.threadId }}
+                    className="underline-offset-2 hover:underline"
+                  >
+                    Open check
+                  </Link>
+                </>
+              )}
             </DetailRow>
           </>
         ) : null}
@@ -254,6 +272,7 @@ export function ChampionMetricRow(props: {
   const trend = metricTrend(metric, samples);
   const off = reading?.kind === "measured" && reading.health === "breached";
   const stale = reading?.kind === "measured" && reading.health === "stale";
+  const note = reading === null ? null : championReadingNote(reading);
   const current = metricSeries(metric, [], samples).find((view) => view.current)?.samples ?? [];
   const Chevron = open ? ChevronDownIcon : ChevronRightIcon;
   return (
@@ -270,6 +289,7 @@ export function ChampionMetricRow(props: {
             <TrendLabel trend={trend} />
             {(metric.required ?? true) ? null : <Badge variant="outline">Optional</Badge>}
             {stale ? <Badge variant="warning">Out of date</Badge> : null}
+            {note ? <Badge variant="outline">{note}</Badge> : null}
           </span>
         </span>
         <span className="hidden max-w-45 @lg/metric:block">
@@ -290,7 +310,8 @@ export function ChampionMetricRow(props: {
           {freshness ? (
             <span className="text-muted-foreground text-xs">
               {freshness.prefix ? `${freshness.prefix} ` : ""}
-              <ScheduledRelativeLabel value={freshness.at} />
+              {/* A reading the server took this minute is ahead of the minute clock, never in the future. */}
+              {relativeLabel(freshness.at, Math.max(nowMs, Date.parse(freshness.at)))}
             </span>
           ) : null}
           <span className="text-muted-foreground text-xs">{metricTargetLabel(metric)}</span>

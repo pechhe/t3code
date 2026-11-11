@@ -5,14 +5,18 @@ import {
   CHAMPION_FINDING_STATUS_LABELS,
   CHAMPION_STATUS_LABELS,
   type ChampionAction,
+  CHAMPION_ROUTE_LABELS,
   championApprovalAnswer,
   championApprovalWhen,
+  championCommandChange,
   championFailureMessage,
   championFindingRuntime,
   championLoadFailureMessage,
   championReading,
   championReadingLabel,
+  championReadingNote,
   type ChampionResearchView,
+  formatChampionCommand,
   championStatus,
   learningNoteProse,
   pendingChampionDecision,
@@ -829,6 +833,25 @@ function FindingRow(props: {
       {finding.repairAttention ? (
         <Text className="text-sm text-foreground-muted">{finding.repairAttention}</Text>
       ) : null}
+      {finding.diagnosis?.attemptId === finding.attemptId ? (
+        <View className="gap-1">
+          <Text className="text-sm font-t3-medium text-foreground">Diagnosis</Text>
+          <Text className="text-sm text-foreground">{finding.diagnosis.text}</Text>
+          <Text className="text-sm text-foreground-muted">
+            Recommends {CHAMPION_ROUTE_LABELS[finding.diagnosis.route]}. {finding.diagnosis.why}
+          </Text>
+          {finding.diagnosis.departure ? (
+            <Text className="text-sm text-foreground">
+              Took {CHAMPION_ROUTE_LABELS[finding.diagnosis.departure.route]} instead.{" "}
+              {finding.diagnosis.departure.reason}
+            </Text>
+          ) : null}
+        </View>
+      ) : finding.undiagnosed?.attemptId === finding.attemptId ? (
+        <Text className="text-sm text-foreground-muted">
+          Not diagnosed, so work on it went ahead without one. {finding.undiagnosed.reason}
+        </Text>
+      ) : null}
       <FindingActions
         environmentId={props.environmentId}
         championId={props.championId}
@@ -947,15 +970,35 @@ function ChampionDetailContent(props: {
                 <Text className="px-4 pt-4 text-sm text-foreground-muted">
                   {data.proposal.reason}
                 </Text>
-                {championProposalResult(data.metrics, data.proposal).map((metric) => (
-                  <View key={metric.id} className="gap-1 px-4 py-3">
-                    <Text className="text-base font-t3-medium text-foreground">{metric.name}</Text>
-                    <Text className="text-sm text-foreground-muted">
-                      {metric.unit} · {metric.source}
-                      {(metric.required ?? true) ? "" : " · Optional"}
-                    </Text>
-                  </View>
-                ))}
+                {championProposalResult(data.metrics, data.proposal).map((metric) => {
+                  const command = championCommandChange(metric, data.metrics);
+                  return (
+                    <View key={metric.id} className="gap-1 px-4 py-3">
+                      <Text className="text-base font-t3-medium text-foreground">
+                        {metric.name}
+                      </Text>
+                      <Text className="text-sm text-foreground-muted">
+                        {metric.unit} · {metric.source}
+                        {(metric.required ?? true) ? "" : " · Optional"}
+                      </Text>
+                      {metric.collect ? (
+                        <>
+                          <Text className="text-sm text-foreground">
+                            {command === "new"
+                              ? "New command. The"
+                              : command === "changed"
+                                ? "Changed command. The"
+                                : "The"}{" "}
+                            server will run this in the project at each check:
+                          </Text>
+                          <Text className="font-mono text-sm text-foreground" selectable>
+                            {formatChampionCommand(metric.collect)}
+                          </Text>
+                        </>
+                      ) : null}
+                    </View>
+                  );
+                })}
                 {championProposalRetiring(data.metrics, data.proposal).map((metric) => (
                   <View key={metric.id} className="gap-1 px-4 py-3">
                     <Text className="text-base font-t3-medium text-foreground">{metric.name}</Text>
@@ -983,12 +1026,21 @@ function ChampionDetailContent(props: {
                       <Text className="min-w-0 flex-1 text-base text-foreground" numberOfLines={2}>
                         {metric.name}
                       </Text>
-                      <Text className="text-base font-t3-medium text-foreground">
-                        {championReadingLabel(
-                          championReading(metric, data.latestSamples, nowMs),
-                          metric.unit,
-                        )}
-                      </Text>
+                      <View className="items-end">
+                        <Text className="text-base font-t3-medium text-foreground">
+                          {championReadingLabel(
+                            championReading(metric, data.latestSamples, nowMs),
+                            metric.unit,
+                          )}
+                        </Text>
+                        {championReadingNote(championReading(metric, data.latestSamples, nowMs)) ? (
+                          <Text className="text-sm text-foreground-muted">
+                            {championReadingNote(
+                              championReading(metric, data.latestSamples, nowMs),
+                            )}
+                          </Text>
+                        ) : null}
+                      </View>
                     </View>
                   ))
                 )}

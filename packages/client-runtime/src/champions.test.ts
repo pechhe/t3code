@@ -22,8 +22,11 @@ import {
   championFindingRuntime,
   championLoadFailureMessage,
   championNeedsAttention,
+  championCommandChange,
   championReading,
   championReadingLabel,
+  championReadingNote,
+  formatChampionCommand,
   championResearchView,
   championStaleAfterMs,
   championStatus,
@@ -185,6 +188,27 @@ describe("championReading", () => {
   it("does not present another series' value as this metric's", () => {
     expect(championReading(metric, [sample({ seriesId: "old" })], NOW).kind).toBe("not-yet");
     expect(championReading(metric, [sample({ unit: "s" })], NOW).kind).toBe("not-yet");
+    expect(
+      championReadingLabel(championReading(metric, [sample({ seriesId: "old" })], NOW), "ms"),
+    ).toBe("Not measured since it changed");
+  });
+
+  it("says when a value has no target or comes from an earlier definition, and never calls either unknown", () => {
+    const note = (health: ChampionLatestSample["health"], staleAt = FUTURE) =>
+      championReadingNote(championReading(metric, [sample({ health, staleAt })], NOW));
+    expect(note("untargeted")).toBe("No target");
+    expect(note("outdated")).toBe("Earlier definition");
+    expect(note("healthy")).toBeNull();
+    expect(note("untargeted", PAST)).toBeNull();
+    expect(
+      championStatus(summary({ latestSamples: [sample({ health: "untargeted" })] }), NOW),
+    ).toBe("untargeted");
+    expect(
+      championStatus(
+        summary({ latestSamples: [sample(), sample({ metricId: "b", health: "untargeted" })] }),
+        NOW,
+      ),
+    ).toBe("healthy");
   });
 
   it("separates never measured from a server that sent nothing", () => {
@@ -201,6 +225,22 @@ describe("championReading", () => {
   it("keeps a stale value visible and marks it stale", () => {
     const reading = championReading(metric, [sample({ staleAt: PAST })], NOW);
     expect(reading).toMatchObject({ kind: "measured", value: 40, health: "stale" });
+  });
+});
+
+describe("collected metric commands", () => {
+  it("marks a command the server does not run today, and sets apart an argument a shell would split", () => {
+    const current = [{ id: "disk", collect: ["df", "-k", "/"] }, { id: "agent" }];
+    expect(championCommandChange({ id: "disk", collect: ["df", "-k", "/"] }, current)).toBeNull();
+    expect(championCommandChange({ id: "disk", collect: ["df", "-k", "/home"] }, current)).toBe(
+      "changed",
+    );
+    expect(championCommandChange({ id: "agent", collect: ["uptime"] }, current)).toBe("new");
+    expect(championCommandChange({ id: "agent" }, current)).toBeNull();
+    expect(formatChampionCommand(["sh", "-c", "echo it's $HOME", "--", "x"])).toBe(
+      "sh -c\n  echo it's $HOME\n-- x",
+    );
+    expect(formatChampionCommand(["cut", "-d", " ", "-f3"])).toBe('cut -d\n  " "\n-f3');
   });
 });
 

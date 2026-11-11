@@ -96,9 +96,10 @@ const session = (
 // These ceilings catch tools growing unnoticed. An editor lists every tool, and providers load
 // them lazily (`docs/operations/agent-delegation.md` records each one). A change that needs a
 // higher ceiling states the new number and what bought it.
+// 141,000 (T3-593): champion metrics read by command, the diagnosis and reroute actions, hand-off.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
-  ["editor", undefined, 140_000],
-  ["editor worker", session("implementation", "implementer"), 140_000],
+  ["editor", undefined, 141_000],
+  ["editor worker", session("implementation", "implementer"), 141_000],
   ["reader", session("source-reader", "reviewer"), 40_000],
   ["browser", session("phi", "browser"), 34_900],
   ["researcher", session("web-research", "researcher"), 19_500],

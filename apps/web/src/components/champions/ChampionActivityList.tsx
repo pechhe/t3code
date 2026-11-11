@@ -2,6 +2,7 @@ import {
   canDismissChampionFinding,
   canReopenChampionFinding,
   CHAMPION_FINDING_STATUS_LABELS,
+  CHAMPION_ROUTE_LABELS,
   championApprovalAnswer,
   championApprovalWhen,
   championFailureMessage,
@@ -686,6 +687,31 @@ function EntryRow(props: {
   );
 }
 
+function FindingDiagnosis({ finding }: { readonly finding: ChampionFinding }) {
+  const diagnosis = finding.diagnosis?.attemptId === finding.attemptId ? finding.diagnosis : null;
+  if (diagnosis === null)
+    return finding.undiagnosed?.attemptId === finding.attemptId ? (
+      <p className="text-muted-foreground text-xs">
+        Not diagnosed, so work on it went ahead without one. {finding.undiagnosed.reason}
+      </p>
+    ) : null;
+  return (
+    <div className="flex flex-col gap-1 rounded-md border px-2.5 py-2">
+      <p className="font-medium text-xs">Diagnosis</p>
+      <p className="wrap-break-word whitespace-pre-wrap">{diagnosis.text}</p>
+      <p className="text-muted-foreground text-xs">
+        Recommends {CHAMPION_ROUTE_LABELS[diagnosis.route]}. {diagnosis.why}
+      </p>
+      {diagnosis.departure ? (
+        <p className="text-xs">
+          Took {CHAMPION_ROUTE_LABELS[diagnosis.departure.route]} instead.{" "}
+          {diagnosis.departure.reason}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function FindingEntry(props: {
   readonly environmentId: EnvironmentId;
   readonly championId: string;
@@ -732,6 +758,7 @@ function FindingEntry(props: {
       {finding.repairAttention ? (
         <p className="text-warning-foreground">{finding.repairAttention}</p>
       ) : null}
+      <FindingDiagnosis finding={finding} />
       <WorkLinks
         environmentId={props.environmentId}
         threadId={finding.childThreadId}

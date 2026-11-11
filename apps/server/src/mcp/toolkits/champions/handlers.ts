@@ -411,6 +411,8 @@ export const handlers = {
           ...(input.operationId === undefined ? {} : { operationId: input.operationId }),
           ...(input.revision === undefined ? {} : { revision: input.revision }),
           ...(input.specUrl === undefined ? {} : { specUrl: input.specUrl }),
+          ...(input.route === undefined ? {} : { route: input.route }),
+          ...(input.diagnosis === undefined ? {} : { diagnosis: input.diagnosis }),
           evidence: input.evidence,
         });
       }).pipe(Effect.mapError(failure)),

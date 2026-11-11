@@ -152,6 +152,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
     let launches = 0;
     let sends = 0;
     let instanceAvailable = true;
+    let workspaceRoot = "/project/root";
     let failOnce = false;
     let activeRun = true;
     let queuedRun = false;
@@ -350,8 +351,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
         ),
       }),
       Layer.mock(Projects.ProjectService)({
-        getById: () =>
-          Effect.succeedSome({ id: projectId, workspaceRoot: "/project/root" } as Project),
+        getById: () => Effect.succeedSome({ id: projectId, workspaceRoot } as Project),
       }),
       Layer.mock(Scheduler.Scheduler)({ register: () => Effect.void }),
       Layer.mock(Landings.SlipJayLandings)({
@@ -539,6 +539,11 @@ const fixture = Effect.fn("test.championFixture")(() =>
         foreignProviderThread = value;
       },
       counts: () => ({ launches, sends }),
+      /** A real directory, for a test whose metric commands run in the project root. */
+      realProjectRoot: () => {
+        workspaceRoot = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "champion-collect-"));
+        return workspaceRoot;
+      },
       launchRequests,
       endRun: () => {
         activeRun = false;
@@ -1063,6 +1068,290 @@ it.effect("refuses a proposal that would track more than 32 metrics and accepts 
   ),
 );
 
+const node = (script: string, ...args: string[]) => [process.execPath, "-e", script, ...args];
+const printsFile = (path: string) =>
+  node("process.stdout.write(require('fs').readFileSync(process.argv[1],'utf8'))", path);
+const collectedMetric = (collect: ReadonlyArray<string>, id = "errors"): ChampionMetricInput => ({
+  ...metric,
+  id,
+  name: id,
+  collect,
+});
+const accepted = Effect.fn("test.championAccepted")(function* (
+  service: Champions.ChampionService["Service"],
+  metrics: ReadonlyArray<ChampionMetricInput>,
+  champion = config,
+) {
+  yield* service.upsert(champion);
+  yield* service.propose({ id: champion.id, metrics, reason: "Measure" });
+  return yield* service.accept({ id: champion.id });
+});
+
+it.effect(
+  "finishes a check whose metrics are all read by command and in target without an agent, and runs the next one normally",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        f.realProjectRoot();
+        yield* accepted(service, [
+          collectedMetric(node("console.log(1)")),
+          collectedMetric(
+            node(`console.log(JSON.stringify({value:2,revision:"abc",evidence:"two"}))`),
+            "detailed",
+          ),
+        ]);
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        f.available(false);
+        const done = yield* service.runCheck({ id: config.id });
+        assert.deepEqual(f.counts(), { launches: 0, sends: 0 });
+        assert.isNull(done.champion.outstandingCheckId);
+        assert.isNotNull(done.champion.lastCheckAt);
+        assert.isNotNull(done.champion.nextCheckAt);
+        assert.deepEqual(done.champion.attention, []);
+        assert.deepEqual(
+          done.champion.latestSamples?.map((latest) => latest.health),
+          ["healthy", "healthy"],
+        );
+        const first = (yield* service.history({ id: config.id })).samples;
+        assert.deepEqual(
+          first.map(
+            ({ metricId, value, evidence, revision, provenance, runId, modelSelection }) => ({
+              metricId,
+              value,
+              evidence,
+              revision,
+              provenance,
+              runId,
+              modelSelection,
+            }),
+          ),
+          [
+            {
+              metricId: "errors",
+              value: 1,
+              evidence: "1",
+              revision: null,
+              provenance: "server-collected",
+              runId: null,
+              modelSelection: null,
+            },
+            {
+              metricId: "detailed",
+              value: 2,
+              evidence: "two",
+              revision: "abc",
+              provenance: "server-collected",
+              runId: null,
+              modelSelection: null,
+            },
+          ],
+        );
+        yield* TestClock.adjust("1 second");
+        const again = yield* service.runCheck({ id: config.id });
+        assert.isNull(again.champion.outstandingCheckId);
+        assert.equal((yield* service.history({ id: config.id })).samples.length, 4);
+        assert.deepEqual(f.counts(), { launches: 0, sends: 0 });
+      }),
+    ),
+);
+
+it.effect(
+  "records a failing command and unreadable output as failed collections and starts the routine agent",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        f.realProjectRoot();
+        yield* accepted(service, [
+          collectedMetric(node("console.error('disk gone');process.exit(3)"), "fails"),
+          collectedMetric(node("console.log('plenty')"), "words"),
+        ]);
+        const started = yield* service.runCheck({ id: config.id });
+        assert.equal(f.counts().launches, 1);
+        assert.isNotNull(started.champion.outstandingCheckId);
+        const context = yield* service.checkContext(f.caller());
+        assert.deepEqual(context.metrics, []);
+        assert.deepEqual(
+          context.collected?.map(({ metricId, value, status }) => ({ metricId, value, status })),
+          [
+            { metricId: "fails", value: null, status: "error" },
+            { metricId: "words", value: null, status: "error" },
+          ],
+        );
+        assert.include(context.collected![0]!.evidence, "exited with 3. disk gone");
+        assert.include(context.collected![1]!.evidence, "neither a number nor a JSON reading");
+        const reported = yield* service.report(f.caller(), {
+          samples: [],
+          findings: [],
+          summary: "Two commands failed",
+        });
+        assert.deepEqual(reported.champion.attention, [
+          "Some measurements are unknown, insufficient, or failed.",
+        ]);
+        assert.deepEqual(
+          reported.champion.latestSamples?.map((latest) => latest.health),
+          ["error", "error"],
+        );
+      }),
+    ),
+);
+
+it.effect("does not hold one champion's check behind another champion's slow command", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      const marker = NodePath.join(f.realProjectRoot(), "second-ran");
+      const slow = { ...config, id: "champion:slow", name: "Slow" };
+      const quick = { ...config, id: "champion:quick", name: "Quick" };
+      yield* accepted(
+        service,
+        [
+          collectedMetric(
+            node(
+              "const fs=require('fs');const t=setInterval(()=>{if(fs.existsSync(process.argv[1])){clearInterval(t);console.log(1)}},10)",
+              marker,
+            ),
+          ),
+        ],
+        slow,
+      );
+      yield* accepted(
+        service,
+        [
+          collectedMetric(
+            node("require('fs').writeFileSync(process.argv[1],'');console.log(1)", marker),
+          ),
+        ],
+        quick,
+      );
+      for (const champion of [slow, quick])
+        yield* service.setLifecycle({ id: champion.id, lifecycle: "active" });
+      yield* TestClock.adjust("2 minutes");
+      yield* service.runDue;
+      for (const champion of [slow, quick]) {
+        const read = yield* service.get({ id: champion.id });
+        assert.isNull(read.champion.outstandingCheckId);
+        assert.equal((yield* service.history({ id: champion.id })).samples[0]?.value, 1);
+      }
+      assert.deepEqual(f.counts(), { launches: 0, sends: 0 });
+    }),
+  ),
+);
+
+it.effect(
+  "asks the agent only for metrics no command reads, refuses its value for a collected one and stores both kinds",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        f.realProjectRoot();
+        yield* accepted(service, [metric, collectedMetric(node("console.log(7)"), "disk")]);
+        yield* service.runCheck({ id: config.id });
+        assert.equal(f.counts().launches, 1);
+        const context = yield* service.checkContext(f.caller());
+        assert.deepEqual(
+          context.metrics.map((m) => m.id),
+          ["errors"],
+        );
+        assert.deepEqual(
+          context.collected?.map((s) => s.metricId),
+          ["disk"],
+        );
+        const agentSample = { ...sample, value: 1 };
+        yield* refusedWith(
+          service.report(f.caller(), {
+            samples: [agentSample, { ...sample, metricId: "disk", value: 1 }],
+            findings: [],
+            summary: "Tried to report a collected metric",
+          }),
+          "reads disk by command",
+        );
+        yield* service.report(f.caller(), {
+          samples: [agentSample],
+          findings: [],
+          summary: "Reported the rest",
+        });
+        assert.deepEqual(
+          (yield* service.history({ id: config.id })).samples.map((s) => [
+            s.metricId,
+            s.value,
+            s.provenance,
+          ]),
+          [
+            ["disk", 7, "server-collected"],
+            ["errors", 1, "agent-reported"],
+          ],
+        );
+      }),
+    ),
+);
+
+it.effect("installs a new version when a proposal changes only a metric's command", () =>
+  withFixture((_f, service) =>
+    Effect.gen(function* () {
+      const first = yield* accepted(service, [collectedMetric(node("console.log(1)"))]);
+      const second = yield* accepted(service, [collectedMetric(node("console.log(2)"))]);
+      assert.deepEqual([first.metrics[0]!.version, second.metrics[0]!.version], [1, 2]);
+      assert.deepEqual(second.metrics[0]!.collect, node("console.log(2)"));
+      assert.equal(
+        (yield* accepted(service, [collectedMetric(node("console.log(2)"))])).metrics[0]!.version,
+        2,
+      );
+    }),
+  ),
+);
+
+it.effect(
+  "raises a collected metric's finding when it is collected and verifies it at the first in-target collection after delivery",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        const reading = NodePath.join(f.realProjectRoot(), "reading");
+        NodeFS.writeFileSync(reading, "5");
+        yield* accepted(service, [collectedMetric(printsFile(reading))]);
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        const breached = yield* service.runCheck({ id: config.id });
+        const finding = breached.findings[0]!;
+        assert.equal(finding.status, "open");
+        assert.equal(finding.baselineValue, 5);
+        assert.equal(
+          finding.evidence,
+          "errors read 5 count, outside its target of at most 2 count. The server's command printed: 5",
+        );
+        assert.equal(f.counts().launches, 1);
+        yield* service.report(f.caller(), { samples: [], findings: [], summary: "Breach seen" });
+        yield* diagnose(f, service, finding);
+        yield* service.guardDelegation({
+          ownerThreadId: f.caller().threadId,
+          request: repair(finding),
+          clientRequestId: "repair",
+        });
+        f.installChild(finding, "abc123");
+        yield* service.updateDelivery(f.caller(), {
+          findingId: finding.id,
+          action: "handed_back",
+          revision: "abc123",
+          evidence: "Returned",
+        });
+        f.installChild(finding, "review clean", "reviewer");
+        f.setLanding("abc123", "1970-01-01T00:00:00.000Z");
+        yield* service.updateDelivery(f.caller(), {
+          findingId: finding.id,
+          action: "delivered",
+          operationId: "op_confirmed",
+          revision: "abc123",
+          evidence: "Published",
+        });
+        yield* TestClock.adjust("1 second");
+        yield* service.runCheck({ id: config.id });
+        assert.equal((yield* service.get({ id: config.id })).findings[0]!.status, "delivered");
+        yield* service.report(f.caller(), { samples: [], findings: [], summary: "Still out" });
+        NodeFS.writeFileSync(reading, "1");
+        yield* TestClock.adjust("1 second");
+        const fixed = yield* service.runCheck({ id: config.id });
+        assert.equal(fixed.findings.find((x) => x.id === finding.id)!.status, "verified");
+        assert.isNull(fixed.champion.outstandingCheckId);
+      }),
+    ),
+);
+
 it.effect("retains setup authentication through repeated verified server restarts", () =>
   withFixture((f, service) =>
     Effect.gen(function* () {
@@ -1246,7 +1535,7 @@ it.effect(
         const history = yield* service.history({ id: config.id });
         assert.equal(history.samples.length, 1);
         assert.equal(history.samples[0]!.threadId, f.caller().threadId);
-        assert.equal(history.samples[0]!.modelSelection.model, "cheap");
+        assert.equal(history.samples[0]!.modelSelection?.model, "cheap");
         assert.equal(history.samples[0]!.provenance, "agent-reported");
         yield* service.runCheck({ id: config.id });
         const next = yield* service.report(f.caller(), {
@@ -1361,6 +1650,7 @@ it.effect(
           summary: "Two repairs",
         });
         const finding = result.findings[0]!;
+        yield* diagnose(f, service, finding);
         const request = {
           role: "implementer" as const,
           taskClass: "non-ui" as const,
@@ -1656,9 +1946,26 @@ it.effect("leaves a check that ended without a report for any other reason to a 
   ),
 );
 
+/** Completes the advisor a metric breach must have and records the route it recommends. */
+const diagnose = Effect.fn("test.championDiagnose")(function* (
+  f: Effect.Success<ReturnType<typeof fixture>>,
+  service: Champions.ChampionService["Service"],
+  finding: ChampionFinding,
+  route: "repair" | "spec" | "decision" = "repair",
+) {
+  f.installChild(finding, "Cause found", "advisor");
+  return yield* service.updateDelivery(f.caller(), {
+    findingId: finding.id,
+    action: "diagnosis",
+    diagnosis: "The error budget is spent by one retry loop.",
+    route,
+    evidence: "One bounded cause",
+  });
+});
 const activeFinding = Effect.fn("test.activeChampionFinding")(function* (
   f: Effect.Success<ReturnType<typeof fixture>>,
   service: Champions.ChampionService["Service"],
+  route: "repair" | "spec" | "decision" = "repair",
 ) {
   yield* definitions(service);
   yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
@@ -1669,6 +1976,7 @@ const activeFinding = Effect.fn("test.activeChampionFinding")(function* (
     summary: "An ordinary repair",
   });
   assert.deepEqual(report.champion.attention, []);
+  yield* diagnose(f, service, report.findings[0]!, route);
   return report.findings[0]!;
 });
 const repair = (finding: ChampionFinding) => ({
@@ -1701,6 +2009,12 @@ it.effect(
           evidence: "Not enough comparable data yet",
         });
         assert.deepEqual((yield* service.get({ id: config.id })).champion.attention, []);
+        yield* service.updateDelivery(f.caller(), {
+          findingId: finding.id,
+          action: "reroute",
+          route: "decision",
+          evidence: "The repair left a product question open",
+        });
         const requested = yield* service.findingAction(
           {
             id: config.id,
@@ -1753,7 +2067,7 @@ it.effect(
   () =>
     withFixture((f, service) =>
       Effect.gen(function* () {
-        const finding = yield* activeFinding(f, service);
+        const finding = yield* activeFinding(f, service, "decision");
         const doc = yield* service.findingAction({
           id: config.id,
           findingId: finding.id,
@@ -1936,11 +2250,173 @@ it.effect(
 );
 
 it.effect(
+  "holds a metric breach's repair, Spec and decision until its occurrence is diagnosed, and to the diagnosed route",
+  () =>
+    withFixture((f, service) =>
+      Effect.gen(function* () {
+        yield* definitions(service);
+        yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+        yield* service.runCheck({ id: config.id });
+        const finding = (yield* service.report(f.caller(), {
+          samples: [sample],
+          findings: [],
+          summary: "Breached",
+        })).findings[0]!;
+        const ownerThreadId = f.caller().threadId;
+        const implement = (of: ChampionFinding, clientRequestId = "implement") =>
+          service.guardDelegation({ ownerThreadId, request: repair(of), clientRequestId });
+        const spec = service.updateDelivery(f.caller(), {
+          findingId: finding.id,
+          action: "spec",
+          specUrl: "https://weave.example/forge/7000",
+          evidence: "Shaped",
+        });
+        const decision = service.findingAction({
+          id: config.id,
+          findingId: finding.id,
+          action: "decision",
+          reason: "Raise the target?",
+        });
+        const record = (route: "repair" | "spec" | "decision") =>
+          service.updateDelivery(f.caller(), {
+            findingId: finding.id,
+            action: "diagnosis",
+            diagnosis: "A retry loop spends the error budget.",
+            route,
+            evidence: "One bounded cause",
+          });
+        const undiagnosed = "has no diagnosis for its current occurrence";
+        yield* refusedWith(implement(finding), undiagnosed);
+        yield* refusedWith(spec, undiagnosed);
+        yield* refusedWith(decision, undiagnosed);
+        yield* refusedWith(record("repair"), "No advisor has completed");
+        f.installChild(finding, "Cause found", "advisor");
+        const diagnosed = (yield* record("repair")).findings[0]!;
+        assert.deepEqual(
+          [diagnosed.diagnosis?.text, diagnosed.diagnosis?.route, diagnosed.diagnosis?.why],
+          ["A retry loop spends the error budget.", "repair", "One bounded cause"],
+        );
+        yield* refusedWith(record("spec"), "already has its diagnosis");
+        yield* refusedWith(spec, "sends this breach to repair, not spec");
+        yield* refusedWith(decision, "sends this breach to repair, not decision");
+        const rerouted = yield* service.updateDelivery(f.caller(), {
+          findingId: finding.id,
+          action: "reroute",
+          route: "spec",
+          evidence: "The loop is in three services",
+        });
+        assert.equal(
+          rerouted.findings[0]!.diagnosis?.departure?.reason,
+          "The loop is in three services",
+        );
+        yield* refusedWith(implement(finding), "sends this breach to spec, not repair");
+        assert.equal((yield* spec).findings[0]!.specUrl, "https://weave.example/forge/7000");
+
+        // A reopened breach is a new occurrence, and needs its own diagnosis.
+        yield* service.findingAction({
+          id: config.id,
+          findingId: finding.id,
+          action: "dismiss",
+          reason: "Accepted for now",
+        });
+        f.endRun();
+        yield* TestClock.adjust("1 second");
+        yield* service.runCheck({ id: config.id });
+        const reopened = (yield* service.report(f.caller(), {
+          samples: [sample],
+          findings: [],
+          summary: "Breached again",
+        })).findings[0]!;
+        assert.notEqual(reopened.attemptId, finding.attemptId);
+        yield* refusedWith(implement(reopened, "again"), "has no diagnosis");
+
+        // With no eligible model the finding says so and the refusal lifts.
+        f.available(false);
+        yield* refusedWith(
+          service.guardDelegation({
+            ownerThreadId,
+            clientRequestId: "advice",
+            request: { ...repair(reopened), role: "advisor" as const, readOnly: true },
+          }),
+          "No eligible model could diagnose this breach",
+        );
+        f.available(true);
+        assert.include(
+          (yield* service.get({ id: config.id })).findings[0]!.undiagnosed?.reason,
+          "setup model is not available",
+        );
+        yield* implement(reopened, "again");
+      }),
+    ),
+);
+
+it.effect("refuses a second Spec lead for a champion while one is running", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* service.upsert({
+        ...config,
+        charter: { ...config.charter, maxConcurrentRepairs: 2 },
+      });
+      yield* service.propose({ id: config.id, metrics: [metric], reason: "Measure errors" });
+      yield* service.accept({ id: config.id });
+      yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+      yield* service.runCheck({ id: config.id });
+      const [first, second] = (yield* service.report(f.caller(), {
+        samples: [{ ...sample, value: 1 }],
+        findings: [
+          { title: "Checkout rework", evidence: "Too large for one repair" },
+          { title: "Search rework", evidence: "Also too large" },
+        ],
+        summary: "Two large findings",
+      })).findings;
+      const ownerThreadId = f.caller().threadId;
+      const lead = (finding: ChampionFinding, forgeItem: number) =>
+        service.guardDelegation({
+          ownerThreadId,
+          clientRequestId: `lead:${forgeItem}`,
+          request: {
+            ...repair(finding),
+            role: "lead" as const,
+            workspacePath: "/project/root",
+            workspaceAssignment: undefined,
+          },
+          forgeItem,
+        });
+      for (const [finding, number] of [
+        [first!, 7001],
+        [second!, 7002],
+      ] as const) {
+        f.installChild(finding, "Advice", "advisor");
+        yield* service.updateDelivery(f.caller(), {
+          findingId: finding.id,
+          action: "spec",
+          specUrl: `https://weave.example/forge/${number}`,
+          evidence: "Shaped",
+        });
+        if (finding === first) yield* lead(finding, number);
+      }
+      yield* refusedWith(
+        lead(second!, 7002),
+        'already has a Spec lead running, for "Checkout rework"',
+      );
+      // The limit lifts once that lead has handed back.
+      f.installChild(first!, "lead-result", "lead", "completed", {
+        number: 7001,
+        itemId: "spec-7001",
+        origin: "https://weave.example",
+      });
+      yield* service.runDue;
+      yield* lead(second!, 7002);
+    }),
+  ),
+);
+
+it.effect(
   "routes advice to the explicit stronger selection and permits the normal Forge Spec lead workspace allocation contract",
   () =>
     withFixture((f, service) =>
       Effect.gen(function* () {
-        const finding = yield* activeFinding(f, service);
+        const finding = yield* activeFinding(f, service, "spec");
         const ownerThreadId = f.caller().threadId;
         const advisor = {
           ownerThreadId,
@@ -2152,7 +2628,7 @@ it.effect(
           reason: "Optional goal with an explicit baseline",
         });
         yield* service.accept({ id: config.id });
-        assert.equal((yield* service.get({ id: config.id })).latestSamples![0]!.health, "unknown");
+        assert.equal((yield* service.get({ id: config.id })).latestSamples![0]!.health, "outdated");
         yield* service.runCheck({ id: config.id });
         const optional = yield* service.report(f.caller(), {
           samples: [],
@@ -2162,6 +2638,27 @@ it.effect(
         assert.deepEqual(optional.champion.attention, []);
         assert.equal(optional.metrics[0]!.baseline, 5);
         assert.equal(optional.metrics[0]!.required, false);
+        yield* service.propose({
+          id: config.id,
+          metrics: [{ ...metric, maximum: null }],
+          reason: "Watch without a target",
+        });
+        yield* service.accept({ id: config.id });
+        yield* service.runCheck({ id: config.id });
+        const watched = yield* service.report(f.caller(), {
+          samples: [
+            {
+              ...sample,
+              version: 3,
+              value: 900,
+              observedAt: DateTime.formatIso(yield* DateTime.now),
+            },
+          ],
+          findings: [],
+          summary: "Measured with nothing to compare against",
+        });
+        assert.equal(watched.latestSamples![0]!.health, "untargeted");
+        assert.deepEqual(watched.findings, []);
       }),
     ),
 );
@@ -2361,7 +2858,7 @@ it.effect.each(["reopen", "decision"] as const)(
   (action) =>
     withFixture((f, service) =>
       Effect.gen(function* () {
-        const finding = yield* activeFinding(f, service);
+        const finding = yield* activeFinding(f, service, "decision");
         f.installChild(finding, "delivered-revision");
         yield* service.updateDelivery(f.caller(), {
           findingId: finding.id,
@@ -2486,6 +2983,7 @@ const investigationFixture = Effect.fn("test.championInvestigation")(function* (
   f: Effect.Success<ReturnType<typeof fixture>>,
   service: Champions.ChampionService["Service"],
   name = "investigation:errors",
+  route: "repair" | "decision" = "decision",
 ) {
   yield* definitions(service);
   yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
@@ -2495,6 +2993,7 @@ const investigationFixture = Effect.fn("test.championInvestigation")(function* (
     findings: [],
     summary: "Metric breached",
   });
+  yield* diagnose(f, service, detail.findings[0]!, route);
   const receipt = yield* service.learningQuery({
     id: config.id,
     topic: "errors",
@@ -3113,6 +3612,42 @@ it.effect(
     ),
 );
 
+it.effect("keeps no synthesis when the breach's diagnosis sends it away from a decision", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      const { investigation, admission } = yield* investigationFixture(
+        f,
+        service,
+        "investigation:errors",
+        "repair",
+      );
+      yield* service.admitInvestigation(admission());
+      f.installBranch(
+        (yield* service.runtimeState({ id: config.id })).investigations[0]!.attempts[0]!,
+        "completed",
+      );
+      yield* service.runDue;
+      yield* refusedWith(
+        service.synthesize(f.caller(), {
+          id: config.id,
+          investigationId: investigation.investigationId,
+          recommendationId: "unwanted",
+          expectedCurrentId: null,
+          proposedScope: "Collector only",
+          summary: "Choose a collector",
+          alternatives: "Logs or counters",
+          benefits: "Evidence",
+          tradeoffs: "Cost",
+          uncertainty: "Small sample",
+          recommendation: "Use logs.",
+        }),
+        "sends this breach to repair, not decision",
+      );
+      assert.deepEqual((yield* service.runtimeState({ id: config.id })).recommendations, []);
+    }),
+  ),
+);
+
 it.effect("reads an evicted pending decision recommendation by exact bounded scope", () =>
   withFixture((f, service) =>
     Effect.gen(function* () {
@@ -3376,6 +3911,29 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
         2,
       );
 
+      // A breach's advisor runs on the setup class's selection, whatever the caller's role policy picks.
+      yield* service.accept({ id: config.id });
+      yield* service.setLifecycle({ id: config.id, lifecycle: "active" });
+      yield* service.runCheck({ id: config.id });
+      const breach = (yield* service.report(f.caller(), {
+        samples: [sample],
+        findings: [],
+        summary: "Breached",
+      })).findings[0]!;
+      const setupClass = (yield* service.get({ id: config.id })).champion.classes!.setup;
+      const advice = {
+        ownerThreadId: f.caller().threadId,
+        clientRequestId: "advice",
+        request: { ...repair(breach), role: "advisor" as const, readOnly: true },
+      };
+      assert.deepEqual(
+        yield* service.guardDelegation(advice),
+        (yield* service.classChoices({ projectId })).roles.find(
+          (role) => role.role === setupClass.role,
+        )!.selection!,
+      );
+      const launched = f.counts().launches;
+
       yield* write({
         ...manifest,
         models: Object.fromEntries(
@@ -3386,7 +3944,7 @@ it.effect("starts a metrics lead thread on the lead role's current model and rec
         ),
       });
       yield* refused(service.startMetricsLead({ id: config.id }));
-      assert.equal(f.counts().launches, 2);
+      assert.equal(f.counts().launches, launched);
     }).pipe(
       Effect.provide(f.layer),
       Effect.provideService(Managed.ManagedAgentService, managed),
@@ -3964,7 +4522,7 @@ it.effect(
   () =>
     withFixture((f, service) =>
       Effect.gen(function* () {
-        const finding = yield* activeFinding(f, service);
+        const finding = yield* activeFinding(f, service, "decision");
         const requested = yield* service.findingAction(
           {
             id: config.id,
@@ -4039,7 +4597,7 @@ it.effect("lets a routine check file a metric proposal that waits for the person
 it.effect("marks the messages the server writes so they can never be quoted as the person's", () =>
   withFixture((f, service) =>
     Effect.gen(function* () {
-      const finding = yield* activeFinding(f, service);
+      const finding = yield* activeFinding(f, service, "decision");
       const requested = yield* service.findingAction(
         { id: config.id, findingId: finding.id, action: "decision", reason: "Ship it?" },
         unquotedAgent,
@@ -4203,7 +4761,7 @@ it.effect(
   () =>
     withFixture((f, service) =>
       Effect.gen(function* () {
-        const finding = yield* activeFinding(f, service);
+        const finding = yield* activeFinding(f, service, "decision");
         f.installAgentThread(agentThread, "Performance pass");
         f.addMessage(agentThread, "Yes, go ahead.");
         yield* TestClock.adjust("1 minute");
@@ -5034,6 +5592,64 @@ describe("a journey check", () => {
               assert.include(
                 finding.evidence,
                 'Steps the replay followed: Typed "draft 55", left and came back.',
+              );
+
+              // A repairing champion takes the confirmed bug; it stays here for the re-test.
+              const fixer = { ...config, id: "champion:fixer", name: "Fixer" };
+              const handing = (repairsVia: string) =>
+                service.upsert({ ...journeysConfig(directory), repairsVia });
+              yield* service.upsert({
+                ...config,
+                id: "champion:elsewhere",
+                projectId: ProjectId.make("project:elsewhere"),
+              });
+              yield* refusedWith(handing("champion:elsewhere"), "its own project");
+              yield* accepted(service, [metric], fixer);
+              yield* refusedWith(handing(fixer.id), "Fixer is paused");
+              yield* service.setLifecycle({ id: fixer.id, lifecycle: "active" });
+              yield* handing(fixer.id);
+              f.endRun();
+              yield* service.runCheck({ id: fixer.id });
+              assert.deepEqual(
+                (yield* service.checkContext(f.caller())).handedOff?.map((handed) => [
+                  handed.championId,
+                  handed.findings.map((x) => x.id),
+                ]),
+                [[config.id, [finding.id]]],
+              );
+              yield* service.report(f.caller(), {
+                samples: [quietSample],
+                findings: [],
+                summary: "Quiet",
+              });
+              const handedRepair = {
+                ownerThreadId: f.caller().threadId,
+                request: repair(finding),
+                clientRequestId: "handed-repair",
+              };
+              yield* service.guardDelegation(handedRepair);
+              f.installChild(finding, "fix-commit");
+              const repaired = yield* service.updateDelivery(f.caller(), {
+                findingId: finding.id,
+                action: "handed_back",
+                revision: "fix-commit",
+                evidence: "Returned",
+              });
+              assert.equal(repaired.champion.id, fixer.id);
+              assert.deepEqual(repaired.findings, []);
+              assert.equal(
+                (yield* service.get({ id: config.id })).findings[0]!.status,
+                "handed_back",
+              );
+              yield* service.setLifecycle({ id: fixer.id, lifecycle: "paused" });
+              yield* refusedWith(
+                service.guardDelegation({ ...handedRepair, followup: true }),
+                "paused",
+              );
+              yield* service.runDue;
+              assert.include(
+                (yield* service.get({ id: config.id })).champion.attention.join(" "),
+                "Fixer is paused, so nothing is repairing",
               );
 
               f.endRun();

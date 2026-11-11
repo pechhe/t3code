@@ -537,6 +537,10 @@ describe("parseMetricDrafts", () => {
       true,
     );
     expect(metricsMatchProposal(parsed.metrics, [], null)).toBe(false);
+    const collected = { ...proposed, collect: ["df", "-k", "/"] };
+    const kept = parseMetricDrafts([{ ...metricDraftOf(collected), name: "Renamed" }]);
+    expect(kept.ok && kept.metrics[0]?.collect).toEqual(["df", "-k", "/"]);
+    expect(metricsMatchProposal([collected], [], { metrics: [proposed], reason: "r" })).toBe(false);
     const retiring = { metrics: [proposed], retires: ["old"], reason: "r" };
     expect(metricsMatchProposal(parsed.metrics, ["old"], retiring)).toBe(true);
     expect(metricsMatchProposal(parsed.metrics, [], retiring)).toBe(false);

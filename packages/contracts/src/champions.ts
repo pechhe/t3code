@@ -29,6 +29,9 @@ export const ChampionId = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
 export type ChampionId = typeof ChampionId.Type;
 export const ChampionLifecycle = Schema.Literals(["active", "paused", "retired"]);
 export type ChampionLifecycle = typeof ChampionLifecycle.Type;
+export const ChampionMetricCommand = Schema.Array(
+  Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2000)),
+).check(Schema.isMinLength(1), Schema.isMaxLength(32));
 export const ChampionMetricInput = Schema.Struct({
   id: ChampionLabel,
   name: ChampionLabel,
@@ -42,6 +45,8 @@ export const ChampionMetricInput = Schema.Struct({
   direction: Schema.Literals(["higher", "lower", "range", "observe"]),
   minimum: Schema.NullOr(Schema.Finite),
   maximum: Schema.NullOr(Schema.Finite),
+  /** Argument list the server runs, without a shell, to read this metric; absent means an agent measures it. */
+  collect: Schema.optional(ChampionMetricCommand),
 });
 export type ChampionMetricInput = typeof ChampionMetricInput.Type;
 export const ChampionMetric = Schema.Struct({
@@ -132,6 +137,8 @@ export const ChampionConfig = Schema.Struct({
   routineModelSelection: ModelSelection,
   charter: ChampionCharter,
   journeys: Schema.optional(ChampionJourneyConfig),
+  /** The champion in this project that repairs what this journey champion confirms; null clears it. */
+  repairsVia: Schema.optional(Schema.NullOr(ChampionId)),
 });
 export type ChampionConfig = typeof ChampionConfig.Type;
 const ChampionSampleStatus = Schema.Literals(["measured", "unknown", "insufficient", "error"]);
@@ -144,7 +151,17 @@ export const ChampionLatestSample = Schema.Struct({
   required: Schema.Boolean,
   value: Schema.NullOr(Schema.Finite),
   status: ChampionSampleStatus,
-  health: Schema.Literals(["healthy", "breached", "unknown", "stale", "insufficient", "error"]),
+  /** `untargeted`: measured, but its metric sets no target. `outdated`: read under an earlier definition. */
+  health: Schema.Literals([
+    "healthy",
+    "breached",
+    "unknown",
+    "stale",
+    "insufficient",
+    "error",
+    "untargeted",
+    "outdated",
+  ]),
   observedAt: Schema.NullOr(IsoDateTime),
   collectedAt: Schema.NullOr(IsoDateTime),
   revision: Schema.NullOr(ChampionText),
@@ -184,6 +201,9 @@ export const ChampionDecisionProposal = Schema.Struct({
   otherOptions: Schema.optional(ChampionLabel),
 });
 export type ChampionDecisionProposal = typeof ChampionDecisionProposal.Type;
+/** What a diagnosis says to do about a breach. */
+export const ChampionRoute = Schema.Literals(["repair", "spec", "decision"]);
+export type ChampionRoute = typeof ChampionRoute.Type;
 export const ChampionFinding = Schema.Struct({
   id: ChampionLabel,
   metricId: Schema.NullOr(Schema.String),
@@ -226,6 +246,26 @@ export const ChampionFinding = Schema.Struct({
       }),
     ),
   ),
+  /** The stronger model's reading of one occurrence of a breach; `attemptId` names that occurrence. */
+  diagnosis: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        attemptId: ChampionText,
+        text: ChampionText,
+        route: ChampionRoute,
+        why: ChampionLabel,
+        recordedAt: IsoDateTime,
+        /** A route taken against the diagnosis, with the reason given for it. */
+        departure: Schema.optional(
+          Schema.Struct({ route: ChampionRoute, reason: ChampionLabel, at: IsoDateTime }),
+        ),
+      }),
+    ),
+  ),
+  /** Set when no eligible model could diagnose this occurrence, so work on it went ahead without one. */
+  undiagnosed: Schema.optional(
+    Schema.NullOr(Schema.Struct({ attemptId: ChampionText, reason: ChampionLabel })),
+  ),
   repairAttention: Schema.optional(Schema.NullOr(ChampionText)),
   baselineValue: Schema.optional(Schema.NullOr(Schema.Finite)),
   baselineMetric: Schema.optional(Schema.NullOr(ChampionMetric)),
@@ -257,9 +297,10 @@ export const ChampionSample = Schema.Struct({
   seriesId: ChampionText,
   collectedAt: IsoDateTime,
   threadId: ThreadId,
-  runId: RunId,
-  modelSelection: ModelSelection,
-  provenance: Schema.Literal("agent-reported"),
+  /** Null on a reading the server collected: no run or model produced it. */
+  runId: Schema.NullOr(RunId),
+  modelSelection: Schema.NullOr(ModelSelection),
+  provenance: Schema.Literals(["agent-reported", "server-collected"]),
 });
 export type ChampionSample = typeof ChampionSample.Type;
 export const ChampionActivity = Schema.Struct({
@@ -391,7 +432,20 @@ export const ChampionCheckContext = Schema.Struct({
   champion: ChampionDetail,
   checkId: ChampionText,
   messageId: MessageId,
+  /** The metrics the agent measures; ones the server reads by command are left out. */
   metrics: Schema.Array(ChampionMetric),
+  /** What the server's commands read for this check, failures included. */
+  collected: Schema.optional(Schema.Array(ChampionSample)),
+  /** Open findings journey champions in this project have handed to this champion to repair. */
+  handedOff: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        championId: ChampionId,
+        championName: ChampionLabel,
+        findings: Schema.Array(ChampionFinding),
+      }),
+    ),
+  ),
   measureOnly: Schema.Boolean,
 });
 export const ChampionReportInput = Schema.Struct({
@@ -667,7 +721,17 @@ export const ChampionJourneyRecordResult = Schema.Struct({
 export type ChampionJourneyRecordResult = typeof ChampionJourneyRecordResult.Type;
 export const ChampionFindingDeliveryInput = Schema.Struct({
   findingId: ChampionText,
-  action: Schema.Literals(["handed_back", "delivered", "verify", "inconclusive", "spec"]),
+  action: Schema.Literals([
+    "handed_back",
+    "delivered",
+    "verify",
+    "inconclusive",
+    "spec",
+    "diagnosis",
+    "reroute",
+  ]),
+  route: Schema.optional(ChampionRoute),
+  diagnosis: Schema.optional(ChampionText.check(Schema.isMinLength(1))),
   operationId: Schema.optional(ChampionLabel),
   revision: Schema.optional(Schema.String),
   specUrl: Schema.optional(Schema.String),
@@ -707,7 +771,7 @@ export class ChampionError extends Schema.TaggedError<ChampionError>()("Champion
           "Use a finite numeric value only with status measured. Failed collection requires value null and status error; explain the failure in evidence.",
         observedAt: "Use a valid ISO date-time for observedAt.",
       }[this.validation.field];
-      return `Champion report invalid: ${this.validation.sampleIndex === undefined ? "" : `sample ${this.validation.sampleIndex} `}${this.validation.field}. ${instruction}`;
+      return `Champion report invalid: ${this.validation.sampleIndex === undefined ? "" : `sample ${this.validation.sampleIndex} `}${this.validation.field}. ${this.detail ?? instruction}`;
     }
     return `Champion operation failed: ${this.reason}.${this.detail === undefined ? "" : ` ${this.detail}`}`;
   }

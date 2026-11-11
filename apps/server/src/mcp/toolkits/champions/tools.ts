@@ -110,7 +110,7 @@ const control = Tool.make("t3_champions_control", {
 const proposal = Tool.make("t3_champions_proposal", {
   ...shared,
   description:
-    "Edit the pending metric proposal with action edit (champion id plus metrics and reason; requires subsequent user acceptance), or submit metric proposals from your authenticated setup run or routine check with action submit (metrics and reason; the proposal waits for the user to accept it on the Champion page, and a check still reports as usual). Accepted metrics you do not list are kept unchanged: list only metrics to add or change, and to stop tracking one, name its id in retires. A champion tracks at most 32 metrics.",
+    'Edit the pending metric proposal with action edit (champion id plus metrics and reason; requires subsequent user acceptance), or submit metric proposals from your authenticated setup run or routine check with action submit (metrics and reason; the proposal waits for the user to accept it on the Champion page, and a check still reports as usual). Accepted metrics you do not list are kept unchanged: list only metrics to add or change, and to stop tracking one, name its id in retires. A champion tracks at most 32 metrics. Give a metric that is a plain read (a file, a count, a CLI query) collect: the argument list of a command the server runs itself at each check, with no shell, in the project root, within 30 seconds and with no provider keys or tokens in its environment. It must print a number, or JSON {"value": n, "revision"?: string, "evidence"?: string}. Once accepted, the server measures that metric and no agent reports it.',
   parameters: Schema.Struct({
     action: Schema.Literals(["edit", "submit"]),
     id: Schema.optional(ChampionGetInput.fields.id),
@@ -125,7 +125,7 @@ const proposal = Tool.make("t3_champions_proposal", {
 const report = Tool.make("t3_champions_report", {
   ...shared,
   description:
-    "Complete this check using the frozen metric methods from t3_champions_check_context. Copy metricId, version, unit and source verbatim; never paraphrase source. Put execution commands, paths and collection details in evidence. Failed collection uses value null and status error, never a fabricated numeric value. Include each required metric exactly once and reconcile findings. Open summary with one or two plain sentences on progress towards the champion's goal; the Champion page shows it under the goal. Server derives identity and provenance. With only a summary (no samples), it completes your authenticated setup run without proposing changes instead.",
+    "Complete this check using the frozen metric methods from t3_champions_check_context. Copy metricId, version, unit and source verbatim; never paraphrase source. Put execution commands, paths and collection details in evidence. Failed collection uses value null and status error, never a fabricated numeric value. Include each required metric from t3_champions_check_context exactly once and reconcile findings; metrics the server reads by command are not listed there and a sample for one is refused. Open summary with one or two plain sentences on progress towards the champion's goal; the Champion page shows it under the goal. Server derives identity and provenance. With only a summary (no samples), it completes your authenticated setup run without proposing changes instead.",
   parameters: Schema.Struct({
     samples: Schema.optional(ChampionReportInput.fields.samples),
     findings: Schema.optional(ChampionReportInput.fields.findings),
@@ -220,7 +220,7 @@ const investigation = Tool.make("t3_champions_investigation", {
 const finding_action = Tool.make("t3_champions_finding_action", {
   ...shared,
   description:
-    "Dismiss or reopen a finding, request the user's decision on it, or answer that decision for them. For a decision, reason is a one-line question and proposal holds the recommended action, one sentence of why and the other options in a few words each; the user can approve the proposal in one click. To answer (action resolve_decision), pass decisionId, the answer as reason, and approvalQuote: the user's exact words, copied from a message they typed in this thread. Without one it is refused and the decision keeps waiting for them on the Champion page. Actions handed_back, delivered, verify, inconclusive and spec record accepted child delivery with revision, Forge Spec, or comparable improvement verification instead; no child identity supplied by model is trusted.",
+    "Dismiss or reopen a finding, request the user's decision on it, or answer that decision for them. For a decision, reason is a one-line question and proposal holds the recommended action, one sentence of why and the other options in a few words each; the user can approve the proposal in one click. To answer (action resolve_decision), pass decisionId, the answer as reason, and approvalQuote: the user's exact words, copied from a message they typed in this thread. Without one it is refused and the decision keeps waiting for them on the Champion page. Actions handed_back, delivered, verify, inconclusive and spec record accepted child delivery with revision, Forge Spec, or comparable improvement verification instead; no child identity supplied by model is trusted. A metric breach is diagnosed first: after its read-only advisor completes, action diagnosis records diagnosis (what it found), route (repair, spec or decision) and evidence (one line of why); a repair, a Spec and a decision request are refused until then and must match that route. Action reroute, with route and the reason as evidence, records taking a different one.",
   parameters: Schema.Struct({
     action: Schema.Literals([
       "dismiss",
@@ -232,7 +232,11 @@ const finding_action = Tool.make("t3_champions_finding_action", {
       "verify",
       "inconclusive",
       "spec",
+      "diagnosis",
+      "reroute",
     ]),
+    route: ChampionFindingDeliveryInput.fields.route,
+    diagnosis: ChampionFindingDeliveryInput.fields.diagnosis,
     id: Schema.optional(ChampionAgentFindingActionInput.fields.id),
     findingId: Schema.optional(ChampionFindingDeliveryInput.fields.findingId),
     decisionId: Schema.optional(ChampionAgentFindingActionInput.fields.decisionId),
@@ -293,7 +297,7 @@ const history = Tool.make("t3_champions_history", {
 const upsert = Tool.make("t3_champions_upsert", {
   ...shared,
   description:
-    "Create a paused champion draft or edit its explicit setup/routine selections and charter.",
+    "Create a paused champion draft or edit its explicit setup/routine selections and charter. On a journey champion, repairsVia names an active champion in the same project that repairs what it confirms; null clears it.",
   parameters: ChampionUpsertInput,
   success: ChampionDetail,
 })
@@ -311,7 +315,7 @@ const accept = Tool.make("t3_champions_accept", {
 const check_context = Tool.make("t3_champions_check_context", {
   ...shared,
   description:
-    "Read the check claim and frozen metric definitions bound to your authenticated live run.",
+    "Read the check claim and frozen metric definitions bound to your authenticated live run. metrics lists what you measure; collected holds what the server already read by command for this check; handedOff lists findings a journey champion handed to this champion to repair.",
   parameters: Tool.EmptyParams,
   success: ChampionCheckContext,
 })

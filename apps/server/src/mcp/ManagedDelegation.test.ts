@@ -1435,6 +1435,13 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         h.addChild(finding, "advisor");
         yield* service.updateDelivery(h.scope.thread, {
           findingId: finding.id,
+          action: "diagnosis",
+          diagnosis: "The cause spans two services.",
+          route: "spec",
+          evidence: "More than one bounded repair",
+        });
+        yield* service.updateDelivery(h.scope.thread, {
+          findingId: finding.id,
           action: "spec",
           specUrl: "forge://9",
           evidence: "Advisor challenged and owner shaped the Spec",

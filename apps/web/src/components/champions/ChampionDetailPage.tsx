@@ -1,5 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
-import { championStatus, pendingChampionDecision } from "@t3tools/client-runtime/champions";
+import {
+  championCommandChange,
+  championStatus,
+  formatChampionCommand,
+  pendingChampionDecision,
+} from "@t3tools/client-runtime/champions";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import {
@@ -147,6 +152,7 @@ function ProposalCard(props: {
       <ul className="flex flex-col gap-2">
         {installs.map((metric) => {
           const change = metricChange(metric, metrics);
+          const command = championCommandChange(metric, metrics);
           return (
             <li key={metric.id} className="flex flex-col gap-0.5">
               <span className="flex flex-wrap items-baseline gap-x-2">
@@ -165,6 +171,21 @@ function ProposalCard(props: {
                 <span className="text-muted-foreground text-xs">{metric.description}</span>
               ) : null}
               <span className="text-muted-foreground text-xs">Source: {metric.source}</span>
+              {metric.collect ? (
+                <span className="mt-1 flex flex-col gap-1">
+                  <span className="flex flex-wrap items-baseline gap-x-2 text-xs">
+                    <span>The server will run this command in the project at each check</span>
+                    {command === null ? null : (
+                      <Badge variant="warning">
+                        {command === "new" ? "New command" : "Changed command"}
+                      </Badge>
+                    )}
+                  </span>
+                  <code className="whitespace-pre-wrap break-all rounded-md bg-muted px-2 py-1.5 font-mono text-xs">
+                    {formatChampionCommand(metric.collect)}
+                  </code>
+                </span>
+              ) : null}
             </li>
           );
         })}
@@ -184,6 +205,12 @@ function ProposalCard(props: {
         <p className="text-muted-foreground text-xs">
           A new series measures something different. Current readings stay as history and aren't
           joined to it.
+        </p>
+      ) : null}
+      {installs.some((metric) => championCommandChange(metric, metrics) !== null) ? (
+        <p className="text-warning-foreground text-xs">
+          Accepting lets the server run each new or changed command by itself, with no agent reading
+          it first. Read them before you accept.
         </p>
       ) : null}
       {retiring.length > 0 ? (

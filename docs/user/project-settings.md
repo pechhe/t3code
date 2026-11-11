@@ -112,8 +112,27 @@ new proposal without silently changing the accepted definitions. **Fix with a le
 starts a Spec lead thread that works out what is wrong with the metrics and plans and
 builds a fix; any new definitions still come to you to accept.
 
+A metric can name a command that produces its value. The server then runs that
+command itself at each check, in the project folder, and records what it printed;
+no agent measures or reports that metric. A check whose metrics are all read this
+way, all inside their targets, with no open finding, finishes without starting an
+agent at all. The command is part of the metric you accept: a proposal shows it in
+full and marks a new or changed one, so read it before accepting. A command that
+fails, runs longer than 30 seconds or prints something other than a number is
+recorded as a failed reading, never as zero. A value whose metric has no target
+reads **No target**, and one read under a definition you have since changed reads
+**Earlier definition**.
+
+When a metric leaves its target, the champion first asks its stronger model for one
+read-only diagnosis, shown on the finding with the route it recommends: a bounded
+repair, a Spec, or your decision. Nothing else happens to that finding until the
+diagnosis is recorded, and taking a different route needs a stated reason. If no
+model is available for it, the finding says so and work continues without one.
+
 A champion can delegate bounded repairs within its instructions and limits.
-Larger work goes through normal Spec shaping and delivery. A champion's own threads
+Larger work becomes a Forge Spec the champion files through its own Weave
+connection and hands to one Spec lead at a time; the Spec is reviewed and accepted
+under the ordinary rules, never by the champion. A champion's own threads
 stay out of the chat list unless the thread itself waits on you; open one from the
 champion page. Findings that need you are marked on **Champions** in the sidebar. A
 decision shows the proposed path and why: **Approve proposed** answers in one click,
@@ -127,8 +146,11 @@ while you type, your draft is kept for you to reconsider.
 A champion can also attack a UI through many browser journeys at once, against a
 disposable copy of the app that holds only made-up data. A failing journey tells
 nobody. It becomes a finding only when a stronger agent reproduces it alone on a
-fresh copy, and it closes when that replay passes on a later build. These checks
-never repair anything, wait while the machine is busy and say so when they ran
+fresh copy, and it closes when that replay passes on a later build. A journey champion
+can name another champion in the same project to repair what it confirms: that
+champion sees the finding in its own check and repairs it within its own limits,
+while the finding stays with the journey champion, whose replay still closes it. These checks
+never repair anything themselves, wait while the machine is busy and say so when they ran
 reduced or could not finish. Set one up through its project's agent, which supplies
 the commands that start and stop the copy.
 

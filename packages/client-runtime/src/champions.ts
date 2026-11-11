@@ -51,7 +51,8 @@ export function formatChampionDuration(ms: number): string {
 
 /** Expiry is a timestamp so a reading goes stale here between the server's own refreshes. */
 function effectiveHealth(sample: ChampionLatestSample, nowMs: number) {
-  if (sample.health !== "healthy" && sample.health !== "breached") return sample.health;
+  if (sample.health !== "healthy" && sample.health !== "breached" && sample.health !== "untargeted")
+    return sample.health;
   if (sample.staleAt === null) return "unknown";
   return nowMs >= Date.parse(sample.staleAt) ? "stale" : sample.health;
 }
@@ -66,6 +67,7 @@ export type ChampionStatus =
   | "unknown"
   | "stale"
   | "unmeasured"
+  | "untargeted"
   | "healthy"
   | "paused"
   | "retired";
@@ -80,6 +82,7 @@ export const CHAMPION_STATUS_LABELS: Record<ChampionStatus, string> = {
   unknown: "Can't tell",
   stale: "Readings out of date",
   unmeasured: "Not measured yet",
+  untargeted: "Measured, no target",
   healthy: "Healthy",
   paused: "Paused",
   retired: "Retired",
@@ -112,7 +115,8 @@ function evidenceStatus(champion: ChampionSummary, nowMs: number): ChampionStatu
   const counted = required.length > 0 ? required : samples;
   if (counted.length === 0) return champion.lastCheckAt === null ? "unmeasured" : "unknown";
   const healths = counted.map((sample) => effectiveHealth(sample, nowMs));
-  if (healths.every((health) => health === "healthy")) return "healthy";
+  if (healths.every((health) => health === "healthy" || health === "untargeted"))
+    return healths.includes("healthy") ? "healthy" : "untargeted";
   if (healths.includes("breached")) return "off-target";
   if (champion.lastCheckAt === null) return "unmeasured";
   return healths.includes("stale") ? "stale" : "unknown";
@@ -141,7 +145,8 @@ export type ChampionReading =
       readonly status: Exclude<ChampionLatestSample["status"], "measured">;
       readonly observedAt: string | null;
     }
-  | { readonly kind: "not-yet" }
+  /** `earlier`: a reading exists, but under a definition this one replaced with a new series. */
+  | { readonly kind: "not-yet"; readonly earlier?: boolean }
   /** The server sent no latest samples, so neither a value nor its absence can be claimed. */
   | { readonly kind: "unavailable" };
 
@@ -152,14 +157,10 @@ export function championReading(
 ): ChampionReading {
   if (samples === undefined) return { kind: "unavailable" };
   const sample = samples.find((candidate) => candidate.metricId === metric.id);
-  if (
-    sample === undefined ||
-    sample.seriesId !== metric.seriesId ||
-    sample.unit !== metric.unit ||
-    (sample.observedAt === null && sample.collectedAt === null)
-  ) {
+  if (sample === undefined || (sample.observedAt === null && sample.collectedAt === null))
     return { kind: "not-yet" };
-  }
+  if (sample.seriesId !== metric.seriesId || sample.unit !== metric.unit)
+    return { kind: "not-yet", earlier: true };
   if (sample.status === "measured" && sample.value !== null) {
     return {
       kind: "measured",
@@ -174,6 +175,50 @@ export function championReading(
     observedAt: sample.observedAt,
   };
 }
+
+/** What to say beside a value the target cannot judge; null when the target judges it. */
+export function championReadingNote(reading: ChampionReading): string | null {
+  if (reading.kind !== "measured") return null;
+  if (reading.health === "untargeted") return "No target";
+  if (reading.health === "outdated") return "Earlier definition";
+  return null;
+}
+
+/**
+ * The argument list as a person reads it: plain arguments run on one line, and an argument a
+ * shell would split or reinterpret sits on its own indented line, exactly as the server passes it.
+ */
+export function formatChampionCommand(collect: ReadonlyArray<string>): string {
+  let text = "";
+  for (const part of collect) {
+    const plain = /^[\w@%+=:,./-]+$/.test(part);
+    // Edge whitespace would be invisible on its own line, so such an argument is shown quoted.
+    if (!plain)
+      text += `${text === "" ? "" : "\n"}  ${part.trim() === part && part !== "" ? part : JSON.stringify(part)}\n`;
+    else text += text === "" || text.endsWith("\n") ? part : ` ${part}`;
+  }
+  return text.trimEnd();
+}
+
+/** Whether accepting this metric makes the server run a command it does not run today. */
+export function championCommandChange(
+  metric: Pick<ChampionMetricInput, "id" | "collect">,
+  current: ReadonlyArray<Pick<ChampionMetric, "id" | "collect">>,
+): "new" | "changed" | null {
+  if (metric.collect === undefined) return null;
+  const old = current.find((candidate) => candidate.id === metric.id)?.collect;
+  if (old === undefined) return "new";
+  return old.length === metric.collect.length &&
+    old.every((part, index) => part === metric.collect![index])
+    ? null
+    : "changed";
+}
+
+export const CHAMPION_ROUTE_LABELS = {
+  repair: "a bounded repair",
+  spec: "a Spec",
+  decision: "your decision",
+} as const;
 
 export const CHAMPION_READING_STATUS_LABELS = {
   unknown: "Unknown",
@@ -194,7 +239,7 @@ export function championReadingLabel(reading: ChampionReading, unit: string): st
     case "unmeasured":
       return CHAMPION_READING_STATUS_LABELS[reading.status];
     case "not-yet":
-      return "Not yet measured";
+      return reading.earlier ? "Not measured since it changed" : "Not yet measured";
     case "unavailable":
       return "Reading unavailable";
   }

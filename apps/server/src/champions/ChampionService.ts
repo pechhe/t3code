@@ -18,6 +18,7 @@ import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { forgeItemNumberFromUrl } from "@t3tools/shared/forgeLinks";
 import * as ProcessRunner from "../processRunner.ts";
+import { collectReading, type CollectedReading } from "./metricCollection.ts";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
 import { isProviderUsageExhausted } from "@t3tools/shared/providerPools";
@@ -35,6 +36,7 @@ import {
   type ChampionAcceptInput,
   type ChampionRelayedApproval,
   ChampionFinding,
+  ChampionRoute,
   ChampionSample,
   ChampionActivity,
   ChampionCharter,
@@ -196,7 +198,7 @@ const decodeMetric = Schema.decodeEffect(Schema.fromJsonString(ChampionMetric));
 const encodeCharter = Schema.encodeSync(Schema.fromJsonString(ChampionCharter));
 const encodeFindings = Schema.encodeSync(Schema.fromJsonString(Schema.Array(ChampionFinding)));
 const PROPOSAL_RULE =
-  "A proposal keeps every accepted metric it does not list: list only metrics to add or change, and to stop tracking one, name its id in retires.";
+  "A proposal keeps every accepted metric it does not list: list only metrics to add or change, and to stop tracking one, name its id in retires. Prefer a command to a method an agent re-derives: where a metric is a plain read, give it collect, the argument list of a read-only command the server runs itself at each check (see t3_champions_proposal), and run it once yourself first to prove it prints the value.";
 const metricInputOf = (metric: ChampionMetricInput): ChampionMetricInput => ({
   id: metric.id,
   name: metric.name,
@@ -210,7 +212,15 @@ const metricInputOf = (metric: ChampionMetricInput): ChampionMetricInput => ({
   direction: metric.direction,
   minimum: metric.minimum,
   maximum: metric.maximum,
+  ...(metric.collect === undefined ? {} : { collect: metric.collect }),
 });
+const targeted = (metric: ChampionMetricInput) =>
+  metric.direction !== "observe" && (metric.minimum !== null || metric.maximum !== null);
+const outside = (metric: ChampionMetricInput, value: number) =>
+  (metric.minimum !== null && value < metric.minimum) ||
+  (metric.maximum !== null && value > metric.maximum);
+const settled = (finding: ChampionFinding) =>
+  finding.status === "verified" || finding.status === "dismissed";
 const sameDefinition = (a: ChampionMetricInput, b: ChampionMetricInput) =>
   JSON.stringify(metricInputOf(a)) === JSON.stringify(metricInputOf(b));
 const sameSeries = (a: ChampionMetricInput, b: ChampionMetricInput) =>
@@ -398,16 +408,10 @@ function presentLatest(doc: Document, at: string): ChampionLatestSample[] {
         value !== null &&
         observed <= Date.parse(at) &&
         sample.collectedAt !== null &&
-        observed <= Date.parse(sample.collectedAt) &&
-        metric.direction !== "observe" &&
-        (metric.minimum !== null || metric.maximum !== null)
+        observed <= Date.parse(sample.collectedAt)
       )
-        health =
-          (metric.minimum !== null && value < metric.minimum) ||
-          (metric.maximum !== null && value > metric.maximum)
-            ? "breached"
-            : "healthy";
-    }
+        health = !targeted(metric) ? "untargeted" : outside(metric, value) ? "breached" : "healthy";
+    } else if (sample !== undefined && sample.collectedAt !== null) health = "outdated";
     return {
       metricId: metric.id,
       name: metric.name,
@@ -450,6 +454,7 @@ const make = Effect.gen(function* () {
   const providers = yield* ProviderRegistry.ProviderRegistry;
   const managedAgents = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
   const projects = yield* ProjectService.ProjectService;
+  const processes = yield* ProcessRunner.ProcessRunner;
   const scheduler = yield* Scheduler.Scheduler;
   const landings = yield* Effect.serviceOption(SlipJayLandings.SlipJayLandings);
   const random = yield* SecureRandom.SecureRandom;
@@ -801,6 +806,26 @@ const make = Effect.gen(function* () {
         yield* validateModel(input.setupModelSelection);
         yield* validateModel(input.routineModelSelection);
       }
+      if (
+        input.repairsVia != null &&
+        input.repairsVia !==
+          (Option.isSome(priorConfig) ? priorConfig.value.champion.repairsVia : undefined)
+      ) {
+        const refuse = (detail: string) => new ChampionError({ reason: "invalid", detail });
+        if (input.journeys === undefined)
+          return yield* refuse("Only a journey champion hands its findings to another champion.");
+        const repairer = yield* read(input.repairsVia).pipe(Effect.option);
+        if (Option.isNone(repairer) || repairer.value.champion.projectId !== input.projectId)
+          return yield* refuse(
+            "A journey champion hands its findings only to a champion in its own project.",
+          );
+        if (repairer.value.champion.journeys !== undefined)
+          return yield* refuse("A journey champion repairs nothing, so it cannot be named.");
+        if (repairer.value.champion.lifecycle !== "active")
+          return yield* refuse(
+            `${repairer.value.champion.name} is ${repairer.value.champion.lifecycle}, so it would repair nothing. Name an active champion.`,
+          );
+      }
       return yield* mutate(
         Effect.gen(function* () {
           const existing = yield* sql<{
@@ -900,7 +925,7 @@ const make = Effect.gen(function* () {
   const journeyPrompt = (doc: Document, check: Check) =>
     [
       `You own champion ${doc.champion.name} in this project. Your goal: ${doc.champion.purpose}`,
-      `Check claim: ${check.id}. YOU FIND AND REPORT BUGS. YOU DO NOT REPAIR. This overrides any other instruction: no repairs, no worktrees, no source edits and no reading the target's source, even if a bug looks easy to fix.`,
+      `Check claim: ${check.id}. YOU FIND AND REPORT BUGS. YOU DO NOT REPAIR. This overrides any other instruction: no repairs, no worktrees, no source edits and no reading the target's source, even if a bug looks easy to fix.${doc.champion.repairsVia == null ? "" : " The champion this one names in repairsVia sees each confirmed finding in its own check and repairs it; your re-test still settles it."}`,
       "1. Call t3_champions_check_context, then t3_champions_learning_search with this champion's id for what past checks covered. Then call t3_champions_journeys_start: it starts the target and returns its shards, the most journeys this check may run, the paths earlier checks already walked, the source files changed since, and bugs to re-test, which you replay first, by findingId, under step 5. If it says the check is deferred or refused, report that no journey ran; do not work around it.",
       "2. Survey before you choose: open your tabs, one per area in the sidebar first, and call t3_browser_snapshot on each. Read the links and buttons inside each page's main content, not the sidebar, then open and snapshot the pages those links lead to as well, so you have seen two levels. Name in each goal the links it should follow, as the snapshot shows them, and spend no journey on a feature that needs a real model, voice or outbound service, since this contained copy has none. Then choose journeys a real person might take and break. At least half must start on, or pass through, a page or control you found only this way, and a page reached only from inside another page gets at least two journeys, since nobody else will go there. No two journeys may share a start and a goal, on any shard: a shard is capacity, not a reason to repeat a path. A shard may carry a locale and workPaths: give each journey that changes data its own workPath, and never run two journeys on the same workPath at once; give a journey on a shard with a locale, such as pt-BR, the goal of reading its screens for English left behind, judged from what the screen shows. Include journeys a real person takes that goal-driven clicking misses: dragging an element between lanes, a phone-width journey opened with a narrow viewport, and a keyboard-only journey of key presses with no clicks, checking which element holds focus. Prefer areas no earlier check covered and areas that recently changed; past coverage is a list to avoid, so never reuse a goal from a learning unless it is a re-test. Every goal is an attack of at least three steps, never a visit, and across the check cover each kind of break: searches and filters given unusual input such as ( [ % or a very long value; a draft started, then a link followed away and back, checking the draft survived; a multi-step flow taken to its very last button, checking that button can be used; empty submits and double submits. Never ask a goal to report: the task's model reads each page for you. Never name or assume a bug you have not seen.",
       "3. Run them all at once, spread evenly across the shards, never one shard at a time: the check is measured on how many overlap. In ONE message issue one t3_browser_open per journey with url = the shard's origin + its signInPath (add next=<path> for where it starts). Then in ONE message issue one t3_browser_task per tab, each with a goal, pageReach: {}, a limit of decisions from the plan, a binding for every value it must type, since a goal cannot type without one, and checks that can pass only at the journey's end, such as text the finished task must show. A task that takes no action counts as testing nothing, so give each goal something to do, never use a bare url check, and do not fall back to scripted steps. A journey that must run at one width opens with t3_browser_open viewport { width, height } and stays at it; its replay will repeat that width. Put the plan's full journeyLimit, every shard's journeys together, in those two messages: a check that started fewer, or started them in smaller batches, has not done its job. One tab is one journey, and more tasks in the same tab continue it. The server records every journey, its clicks and its timing. Your browsers can reach only the shards. Close each tab when its journey ends.",
@@ -921,10 +946,16 @@ const make = Effect.gen(function* () {
         ? null
         : `LEARNING REVIEW: call t3_champions_learning_search with championId ${doc.champion.id} and filter needs-review. For each learning another agent contributed, check it against what you know: confirm it with t3_champions_confirm_learning, or supersede it with t3_champions_record_learning (expectedCurrentId its revision) and a reason. For each learning with no plain sentence, add one with t3_champions_confirm_learning action note: one sentence someone outside engineering understands, saying what was learned.`,
       `Check claim: ${check.id}. Definitions were frozen when this check started. ${check.measureOnly ? "MEASURE ONLY: do not dispatch repairs." : "Own bounded improvements through normal delegate_task managed roles."}`,
+      check.metrics.some((m) => m.collect !== undefined)
+        ? "The server reads some of this champion's metrics by command and has already recorded them for this check: t3_champions_check_context returns those readings as collected and leaves their metrics out of metrics. Never measure or report a collected metric, including one whose collection failed; say in your summary what a failed collection needs."
+        : null,
       "Follow each frozen metric method. Copy metricId, version, unit and source verbatim from t3_champions_check_context; never paraphrase source. Put actual execution commands, paths and collection details in evidence. If collection fails, report value null with status error and explain why; never invent a numeric value.",
       "Read and measure at the project root; every writer must use an isolated workspace. Never edit the shared root. Keep this owner thread and its namespace across checks. Do not archive or replace it while children are live.",
       "For metric breaches the server creates deterministic findings. Reconcile qualitative observations with known open findings: supply existingFindingId instead of paraphrasing a duplicate. Read history on demand, never fabricate a measurement.",
-      "After reporting, call t3_champions_check_context to read finding workId/attemptId. Use these exact identities in delegate_task. Bounded repair: implementer. Large/open work: advisor on the stronger selection, shape in Forge, then lead the Spec. Use existing role policy and SlipJay. If Forge/SlipJay is unavailable, report it explicitly as attention; never claim a repair was delivered without a revision.",
+      "After reporting, call t3_champions_check_context to read finding workId/attemptId. Use these exact identities in delegate_task, and existing role policy and SlipJay. If Forge/SlipJay is unavailable, report it explicitly as attention; never claim a repair was delivered without a revision.",
+      "DIAGNOSE BEFORE YOU ACT on a metric breach. A new or reopened breach first gets one read-only advisor (delegate_task role advisor, readOnly true, the finding's workId and attemptId): ask it for the cause, the evidence, and which route fits: repair (a bounded fix one implementer can make and a later reading can verify), spec (larger or open work), or decision (a product trade-off, look and feel, or a change to checks, permissions or spend, which only the user settles). Record its conclusion with t3_champions_finding_action action diagnosis: diagnosis is what it found, route what it recommends, evidence one line of why. A repair, a Spec and a decision request are each refused until then, and each must match the recorded route; to take another, record why first with action reroute. If the advisor is refused because no model is eligible, the finding records that and you may proceed without it; never run it on another model. A qualitative finding needs no diagnosis.",
+      "Route repair: delegate an implementer. Route spec: file an ordinary Forge Spec through your own Weave connection, with the diagnosis as its body and the finding named as its source, record it with t3_champions_finding_action action spec and specUrl, then delegate a lead with forgeItem set to that Spec. You lead one Spec at a time and never review or accept it. If you have no Weave connection, say so as attention; do not fall back to a repair. Route decision: request it with action decision.",
+      "t3_champions_check_context may list handedOff findings: bugs a journey champion in this project confirmed and handed to you. Delegate and record repairs for them exactly as for your own, within your own limits. They stay with that champion, whose re-test settles them: never dismiss, reopen, verify or ask a decision on one.",
       "Before a bounded investigation, call t3_champions_learning_search action query for its exact topic and retain the current retrieval receipt, including a legitimate empty result. Call t3_champions_investigation action start with distinct read-only hypotheses, then delegate only its returned branch workId/attemptId through normal managed roles in this project. At most three alternatives, two active branches, six admitted attempts per investigation and six per champion per rolling 24 hours; follow-ups count. Unknown launches hold capacity; replay the same identity instead of duplicating work.",
       "Call t3_champions_synthesize as the owner. Write recommendation as concise, coherent prose explaining the action, rationale, benefits, material trade-offs, uncertainty and proposed scope. Avoid labelled sections or a taxonomy; the user reads the finding issue, your recommendation and an answer field. Retain structured supporting fields for history and optional evidence expansion. Its immutable revision requests the user's decision; recheck the current revision and finding attempt before acting on an answer. Retain dated conditional learning with t3_champions_record_learning, opening with plainSummary (one plain sentence on what was learned) and including failed or inconclusive attempts and observed component versions. Due learning is uncertain and never authorizes an automatic paid rerun. Leaves return evidence; only you retain synthesis and learning.",
       "Use t3_champions_finding_action for handoff, confirmed SlipJay delivery and verification. Verification requires a comparable later measurement on the delivered/running revision. Missing evidence is inconclusive. Ordinary decisions go in the finding decision ledger and attention; keep measuring instead of blocking on questions.",
@@ -1226,7 +1257,14 @@ const make = Effect.gen(function* () {
               reported: false,
               dispatched: false,
             };
-            check = { ...check, executionAttempt: yield* resolveAttempt(doc, check) };
+            // A check the server may finish by itself is not refused for want of a model.
+            const attempt = yield* resolveAttempt(doc, check).pipe(
+              Effect.catchIf(
+                (error) => error.reason === "unavailable" && collectsEverything(doc, check),
+                () => Effect.undefined,
+              ),
+            );
+            if (attempt !== undefined) check = { ...check, executionAttempt: attempt };
             yield* saveCheck(check);
             yield* write({
               ...doc,
@@ -1279,30 +1317,41 @@ const make = Effect.gen(function* () {
             ),
       ),
     );
-    if (!claim.dispatched)
-      yield* dispatchCheck(claim).pipe(
-        Effect.catch((error) =>
-          mutate(
-            Effect.gen(function* () {
-              const doc = yield* read(id);
-              yield* write({
-                ...doc,
-                champion: {
-                  ...doc.champion,
-                  attention: [
-                    ...new Set([
-                      ...doc.champion.attention,
-                      `${claim.kind === "setup" ? "Setup" : "Check"} dispatch unavailable. Retry uses the same durable claim and resolves its class again.`,
-                    ]),
-                  ],
-                },
-              });
-              yield* activity(id, "dispatch-unavailable", error.message, undefined, claim.threadId);
-            }),
-          ),
-        ),
-      );
+    yield* advance(claim);
     return yield* read(id);
+  });
+  /** Takes an undispatched claim as far as it goes without an agent, then starts one if it still needs one. */
+  const advance = Effect.fn("ChampionService.advance")(function* (claim: Check) {
+    const check = yield* collectCheck(claim);
+    if (check.reported || check.cancelled || check.dispatched) return;
+    yield* dispatchCheck(check).pipe(
+      Effect.catch((error) =>
+        mutate(
+          Effect.gen(function* () {
+            const doc = yield* read(check.championId);
+            yield* write({
+              ...doc,
+              champion: {
+                ...doc.champion,
+                attention: [
+                  ...new Set([
+                    ...doc.champion.attention,
+                    `${check.kind === "setup" ? "Setup" : "Check"} dispatch unavailable. Retry uses the same durable claim and resolves its class again.`,
+                  ]),
+                ],
+              },
+            });
+            yield* activity(
+              check.championId,
+              "dispatch-unavailable",
+              error.message,
+              undefined,
+              check.threadId,
+            );
+          }),
+        ),
+      ),
+    );
   });
   const propose: ChampionService["Service"]["propose"] = Effect.fn("ChampionService.propose")(
     function* (input) {
@@ -1570,11 +1619,23 @@ const make = Effect.gen(function* () {
     "ChampionService.checkContext",
   )(function* (caller) {
     const { check, doc } = yield* authenticate(caller);
+    const handedOff =
+      check.kind !== "check"
+        ? []
+        : (yield* handedOffTo(doc))
+            .map((holder) => ({
+              championId: holder.champion.id,
+              championName: holder.champion.name,
+              findings: holder.findings.filter((finding) => !settled(finding)),
+            }))
+            .filter((holder) => holder.findings.length > 0);
     return {
       champion: doc,
       checkId: check.id,
       messageId: check.messageId,
-      metrics: check.metrics,
+      metrics: check.metrics.filter((metric) => metric.collect === undefined),
+      ...(check.samples === undefined ? {} : { collected: check.samples }),
+      ...(handedOff.length === 0 ? {} : { handedOff }),
       measureOnly: check.measureOnly || doc.champion.lifecycle !== "active",
     };
   });
@@ -1732,6 +1793,201 @@ const make = Effect.gen(function* () {
       right = words(b);
     return left.size > 0 && left.size === right.size && [...left].every((w) => right.has(w));
   };
+  /** Opens or reopens the finding of a reading outside its target; false when the open-finding limit refused it. */
+  const raiseBreach = Effect.fn("ChampionService.raiseBreach")(function* (
+    findings: ChampionFinding[],
+    check: Check,
+    metric: ChampionMetric,
+    sample: ChampionSampleInput,
+    at: string,
+  ) {
+    if (sample.value === null || !targeted(metric) || !outside(metric, sample.value)) return true;
+    const existing = findings.find((f) => f.id === `${check.championId}:metric:${metric.seriesId}`);
+    if (existing === undefined) {
+      if (findings.filter((f) => !settled(f)).length >= 50) return false;
+      findings.push(
+        yield* makeFinding(
+          check.championId,
+          `${metric.name} is outside its target`,
+          sample.evidence,
+          metric,
+          sample,
+        ),
+      );
+    } else if (settled(existing))
+      findings[findings.indexOf(existing)] = {
+        ...existing,
+        status: "open",
+        evidence: sample.evidence,
+        updatedAt: at,
+        attemptId: `${existing.id}:${check.id}`,
+        baselineValue: sample.value,
+        baselineMetric: metric,
+        deliveredAt: null,
+        childThreadId: null,
+        revision: null,
+      };
+    return true;
+  });
+  const latestOf = (check: Check, samples: ReadonlyArray<ChampionSample>) =>
+    samples.map((sample) => {
+      const metric = check.metrics.find((m) => m.id === sample.metricId);
+      return {
+        metricId: sample.metricId,
+        name: metric!.name,
+        version: sample.version,
+        seriesId: sample.seriesId,
+        unit: sample.unit,
+        required: metric?.required ?? true,
+        value: sample.value,
+        status: sample.status,
+        health: "unknown" as const,
+        observedAt: sample.observedAt,
+        collectedAt: sample.collectedAt,
+        revision: sample.revision,
+        staleAt: null,
+      };
+    });
+  const collectsEverything = (doc: Document, check: Pick<Check, "kind">) =>
+    check.kind === "check" &&
+    doc.champion.journeys === undefined &&
+    doc.metrics.length > 0 &&
+    doc.metrics.every((metric) => metric.collect !== undefined);
+  /** Runs a new check's commands once and stores their readings; finishes the check when no agent is needed. */
+  const collectCheck = Effect.fn("ChampionService.collectCheck")(function* (claim: Check) {
+    const commands = claim.metrics.filter((metric) => metric.collect !== undefined);
+    if (
+      claim.kind !== "check" ||
+      claim.samples !== undefined ||
+      claim.dispatched ||
+      claim.launchStarted === true ||
+      commands.length === 0
+    )
+      return claim;
+    const project = yield* projects
+      .getById((yield* read(claim.championId)).champion.projectId)
+      .pipe(Effect.mapError(failure));
+    const readings = yield* Effect.forEach(
+      commands,
+      (metric): Effect.Effect<CollectedReading> =>
+        Option.isNone(project)
+          ? Effect.succeed({
+              value: null,
+              revision: null,
+              evidence: "Collection failed: the champion's project no longer exists.",
+            })
+          : collectReading(processes, metric.collect!, project.value.workspaceRoot),
+      { concurrency: "unbounded" },
+    );
+    return yield* mutate(
+      Effect.gen(function* () {
+        const check = yield* readCheck(claim.id);
+        if (check.reported || check.cancelled || check.samples !== undefined) return check;
+        const doc = yield* read(check.championId);
+        const at = yield* now;
+        const findings = [...doc.findings];
+        let findingsLimited = false;
+        const samples: ChampionSample[] = [];
+        for (const [index, metric] of commands.entries()) {
+          const reading = readings[index]!;
+          const sample: ChampionSample = {
+            metricId: metric.id,
+            version: metric.version,
+            unit: metric.unit,
+            status: reading.value === null ? "error" : "measured",
+            value: reading.value,
+            observedAt: at as ChampionSample["observedAt"],
+            source: metric.source,
+            evidence: reading.evidence,
+            revision: reading.revision,
+            championId: check.championId as ChampionSample["championId"],
+            checkId: check.id,
+            seriesId: metric.seriesId,
+            collectedAt: at as ChampionSample["collectedAt"],
+            threadId: check.threadId,
+            runId: null,
+            modelSelection: null,
+            provenance: "server-collected",
+          };
+          samples.push(sample);
+          // A finding opens with a sentence a person can read; the sample keeps the raw output.
+          const target = [
+            metric.minimum === null ? null : `at least ${metric.minimum}`,
+            metric.maximum === null ? null : `at most ${metric.maximum}`,
+          ]
+            .filter((bound) => bound !== null)
+            .join(" and ");
+          const breach = {
+            ...sample,
+            evidence:
+              `${metric.name} read ${reading.value} ${metric.unit}, outside its target of ${target} ${metric.unit}. The server's command printed: ${reading.evidence}`.slice(
+                0,
+                8000,
+              ),
+          };
+          if (!(yield* raiseBreach(findings, check, metric, breach, at))) findingsLimited = true;
+          const delivered = findings.findIndex(
+            (f) =>
+              f.id === `${check.championId}:metric:${metric.seriesId}` &&
+              (f.status === "delivered" || f.status === "inconclusive") &&
+              f.revision !== null &&
+              f.delivery?.revision === f.revision,
+          );
+          // The command reads the project as it stands, so any in-target reading after delivery is the delivered one.
+          if (delivered >= 0 && reading.value !== null && !outside(metric, reading.value))
+            findings[delivered] = { ...findings[delivered]!, status: "verified", updatedAt: at };
+        }
+        const finished =
+          collectsEverything(doc, check) &&
+          commands.length === check.metrics.length &&
+          samples.every((sample) => sample.status === "measured") &&
+          !findingsLimited &&
+          findings.every(settled);
+        const saved = { ...check, samples, reported: finished };
+        yield* saveCheck(saved);
+        yield* write({
+          ...doc,
+          findings,
+          champion: {
+            ...doc.champion,
+            latestSamples: [
+              ...(doc.champion.latestSamples ?? []).filter(
+                (old) => !samples.some((sample) => sample.metricId === old.metricId),
+              ),
+              ...latestOf(check, samples),
+            ],
+            ...(finished
+              ? {
+                  outstandingCheckId: null,
+                  lastCheckAt: at as ChampionSample["collectedAt"],
+                  attention: doc.proposal === null ? [] : ["Metric proposal awaits acceptance."],
+                }
+              : {}),
+          },
+        });
+        if (finished)
+          yield* activity(
+            check.championId,
+            "check-reported",
+            `The server read ${samples.length === 1 ? "the one metric" : `all ${samples.length} metrics`} by command; every reading is inside its target and no finding is open, so no agent ran.`,
+          );
+        for (const finding of findings)
+          if (!doc.findings.some((old) => old.id === finding.id))
+            yield* activity(check.championId, "finding-opened", finding.evidence, finding);
+          else if (
+            finding.status === "verified" &&
+            doc.findings.find((old) => old.id === finding.id)?.status !== "verified"
+          )
+            yield* activity(
+              check.championId,
+              "finding-verified",
+              `The first reading collected after delivery is inside the target: ${samples.find((s) => s.seriesId === finding.seriesId)?.evidence ?? ""}`,
+              finding,
+            );
+        return saved;
+      }),
+    );
+  });
   const report: ChampionService["Service"]["report"] = Effect.fn("ChampionService.report")(
     function* (caller, input) {
       const journeyCheck = yield* authenticate(caller).pipe(
@@ -1780,6 +2036,12 @@ const make = Effect.gen(function* () {
                     reason: "invalid",
                     validation: { sampleIndex, field: "metricId" },
                   });
+                if (metric.collect !== undefined)
+                  return yield* new ChampionError({
+                    reason: "invalid",
+                    detail: `The server reads ${metric.id} by command and has recorded it for this check. Leave it out of samples.`,
+                    validation: { sampleIndex, field: "metricId" },
+                  });
                 const field =
                   metric.version !== sample.version
                     ? "version"
@@ -1809,52 +2071,15 @@ const make = Effect.gen(function* () {
                   modelSelection: run.modelSelection,
                   provenance: "agent-reported",
                 });
-                const breached =
-                  sample.value !== null &&
-                  metric.direction !== "observe" &&
-                  ((metric.minimum !== null && sample.value < metric.minimum) ||
-                    (metric.maximum !== null && sample.value > metric.maximum));
-                if (breached) {
-                  const existing = findings.find(
-                    (f) => f.id === `${check.championId}:metric:${metric.seriesId}`,
-                  );
-                  if (existing === undefined) {
-                    if (
-                      findings.filter((f) => !["verified", "dismissed"].includes(f.status))
-                        .length >= 50
-                    )
-                      findingsLimited = true;
-                    else
-                      findings.push(
-                        yield* makeFinding(
-                          check.championId,
-                          `${metric.name} is outside its target`,
-                          sample.evidence,
-                          metric,
-                          sample,
-                        ),
-                      );
-                  } else if (existing.status === "verified" || existing.status === "dismissed") {
-                    const index = findings.indexOf(existing);
-                    findings[index] = {
-                      ...existing,
-                      status: "open",
-                      evidence: sample.evidence,
-                      updatedAt: collectedAt,
-                      attemptId: `${existing.id}:${check.id}`,
-                      baselineValue: sample.value,
-                      baselineMetric: metric,
-                      deliveredAt: null,
-                      childThreadId: null,
-                      revision: null,
-                    };
-                  }
-                }
+                if (!(yield* raiseBreach(findings, check, metric, sample, collectedAt)))
+                  findingsLimited = true;
               }
               if (
                 check.metrics.some(
                   (metric) =>
-                    (metric.required ?? true) && !samples.some((s) => s.metricId === metric.id),
+                    metric.collect === undefined &&
+                    (metric.required ?? true) &&
+                    !samples.some((s) => s.metricId === metric.id),
                 )
               )
                 return yield* new ChampionError({
@@ -1895,7 +2120,8 @@ const make = Effect.gen(function* () {
                   );
                 }
               }
-              yield* saveCheck({ ...check, reported: true, samples });
+              const stored = [...(check.samples ?? []), ...samples];
+              yield* saveCheck({ ...check, reported: true, samples: stored });
               const attention = [
                 ...(journeyCheck?.status === "incomplete"
                   ? [`The last journey check did not finish: ${journeyCheck.reason}`]
@@ -1905,7 +2131,7 @@ const make = Effect.gen(function* () {
                   : []),
                 ...(doc.proposal === null ? [] : ["Metric proposal awaits acceptance."]),
 
-                ...(samples.some(
+                ...(stored.some(
                   (s) =>
                     s.status !== "measured" &&
                     (check.metrics.find((m) => m.id === s.metricId)?.required ?? true),
@@ -1923,22 +2149,7 @@ const make = Effect.gen(function* () {
                     ...(doc.champion.latestSamples ?? []).filter(
                       (old) => !samples.some((sample) => sample.metricId === old.metricId),
                     ),
-                    ...samples.map((sample) => ({
-                      metricId: sample.metricId,
-                      name: check.metrics.find((m) => m.id === sample.metricId)!.name,
-                      version: sample.version,
-                      seriesId: sample.seriesId,
-                      unit: sample.unit,
-                      required:
-                        check.metrics.find((m) => m.id === sample.metricId)?.required ?? true,
-                      value: sample.value,
-                      status: sample.status,
-                      health: "unknown" as const,
-                      observedAt: sample.observedAt,
-                      collectedAt: sample.collectedAt,
-                      revision: sample.revision,
-                      staleAt: null,
-                    })),
+                    ...latestOf(check, samples),
                   ],
                   lastCheckAt: collectedAt,
                   attention,
@@ -2132,6 +2343,9 @@ const make = Effect.gen(function* () {
         const at = yield* now;
         let updated: ChampionFinding = { ...finding, updatedAt: at };
         if (input.action === "decision") {
+          const routed = routeRefusal(finding, "decision");
+          if (routed !== null)
+            return yield* new ChampionError({ reason: "conflict", detail: routed });
           const recommendation =
             input.recommendationId === undefined
               ? undefined
@@ -2268,13 +2482,62 @@ const make = Effect.gen(function* () {
     }
     return result;
   });
+  const repairOwner = Effect.fn("ChampionService.repairOwner")(function* (holder: Document) {
+    if (holder.champion.journeys === undefined || holder.champion.repairsVia == null) return holder;
+    return yield* read(holder.champion.repairsVia).pipe(
+      Effect.catchIf(
+        (error) => error.reason === "not-found",
+        () => Effect.succeed(holder),
+      ),
+    );
+  });
+  /** The journey champions whose confirmed findings this champion repairs. */
+  const handedOffTo = Effect.fn("ChampionService.handedOffTo")(function* (owner: Document) {
+    const rows = yield* sql<{
+      document_json: string;
+    }>`SELECT document_json FROM champions WHERE project_id = ${owner.champion.projectId} AND json_extract(document_json, '$.champion.repairsVia') = ${owner.champion.id}`.pipe(
+      Effect.mapError(failure),
+    );
+    const holders = yield* Effect.forEach(rows, (row) =>
+      decodeDocument(row.document_json).pipe(Effect.mapError(failure)),
+    );
+    return holders.filter(
+      (holder) => holder.champion.journeys !== undefined && holder.champion.lifecycle !== "retired",
+    );
+  });
+  /** Finds a finding the owner may work on: its own, or one a journey champion handed to it. */
+  const locateFinding = Effect.fn("ChampionService.locateFinding")(function* (
+    owner: Document,
+    matches: (finding: ChampionFinding) => boolean,
+  ) {
+    const handed = yield* handedOffTo(owner);
+    for (const holder of [owner, ...handed]) {
+      const finding = holder.findings.find(matches);
+      if (finding !== undefined) return { holder, finding, handed };
+    }
+    return { holder: owner, finding: undefined, handed };
+  });
+  /** Why a metric breach may not take this route yet; null when it may. */
+  const routeRefusal = (finding: ChampionFinding, route: ChampionRoute) => {
+    if (finding.seriesId === null) return null;
+    if (finding.undiagnosed?.attemptId === finding.attemptId) return null;
+    const diagnosis = finding.diagnosis;
+    if (diagnosis == null || diagnosis.attemptId !== finding.attemptId)
+      return "This metric breach has no diagnosis for its current occurrence. Delegate one read-only advisor with the finding's workId and attemptId, wait for it, then record what it concluded with t3_champions_finding_action action diagnosis, giving diagnosis, route (repair, spec or decision) and evidence.";
+    const chosen = diagnosis.departure?.route ?? diagnosis.route;
+    return chosen === route
+      ? null
+      : `The diagnosis sends this breach to ${chosen}, not ${route}. To take ${route} instead, first record why with t3_champions_finding_action action reroute, route ${route} and the reason as evidence.`;
+  };
   const acceptedChild = Effect.fn("ChampionService.acceptedChild")(function* (
     doc: Document,
     finding: ChampionFinding,
     phase = finding.specUrl === null ? "implementation" : "lead",
   ) {
+    // Work on a handed-off finding is delegated by the champion that repairs it.
+    const owner = yield* repairOwner(doc);
     const records = yield* threads
-      .getThreadRecords(doc.champion.ownerThreadId, ["subagents"])
+      .getThreadRecords(owner.champion.ownerThreadId, ["subagents"])
       .pipe(Effect.mapError(failure));
     const newest = records.subagents
       .toReversed()
@@ -2297,7 +2560,7 @@ const make = Effect.gen(function* () {
         shell?.agentTask?.workId === finding.workId &&
         shell.agentTask.attemptId === finding.attemptId &&
         phaseForRole(shell.agentTask.role) === phase &&
-        shell.projectId === doc.champion.projectId
+        shell.projectId === owner.champion.projectId
       )
         return { task, shell };
     }
@@ -2314,8 +2577,10 @@ const make = Effect.gen(function* () {
     const evidence =
       input.action === "delivered"
         ? yield* Effect.gen(function* () {
-            const doc = yield* read(summary.id);
-            const finding = doc.findings.find((f) => f.id === input.findingId);
+            const { finding } = yield* locateFinding(
+              yield* read(summary.id),
+              (f) => f.id === input.findingId,
+            );
             if (!finding) return yield* new ChampionError({ reason: "not-found" });
             if (
               finding.status !== "handed_back" ||
@@ -2349,12 +2614,70 @@ const make = Effect.gen(function* () {
         : undefined;
     return yield* mutate(
       Effect.gen(function* () {
-        const doc = yield* read(summary.id);
-        const finding = doc.findings.find((f) => f.id === input.findingId);
+        const owner = yield* read(summary.id);
+        const { holder: doc, finding } = yield* locateFinding(
+          owner,
+          (f) => f.id === input.findingId,
+        );
         if (!finding) return yield* new ChampionError({ reason: "not-found" });
         const at = yield* now;
         let updated: ChampionFinding = { ...finding, updatedAt: at };
-        if (input.action === "handed_back") {
+        if (input.action === "diagnosis") {
+          if (finding.seriesId === null)
+            return yield* new ChampionError({
+              reason: "invalid",
+              detail: "Only a metric breach takes a diagnosis.",
+            });
+          if (finding.diagnosis?.attemptId === finding.attemptId)
+            return yield* new ChampionError({
+              reason: "conflict",
+              detail:
+                "This occurrence of the breach already has its diagnosis. To take another route, use action reroute with the reason.",
+            });
+          if (!input.route || !input.diagnosis)
+            return yield* new ChampionError({
+              reason: "invalid",
+              detail:
+                "A diagnosis needs diagnosis (what the advisor concluded) and route (repair, spec or decision).",
+            });
+          const advice = yield* acceptedChild(doc, finding, "advice").pipe(Effect.option);
+          if (Option.isNone(advice) || advice.value.task.status !== "completed")
+            return yield* new ChampionError({
+              reason: "conflict",
+              detail:
+                "No advisor has completed for this occurrence of the breach. Delegate one read-only advisor with the finding's workId and attemptId and wait for it.",
+            });
+          updated = {
+            ...updated,
+            undiagnosed: null,
+            diagnosis: {
+              attemptId: finding.attemptId,
+              text: input.diagnosis,
+              route: input.route,
+              why: input.evidence,
+              recordedAt: at as NonNullable<ChampionFinding["diagnosis"]>["recordedAt"],
+            },
+          };
+        } else if (input.action === "reroute") {
+          const diagnosis = finding.diagnosis;
+          if (diagnosis == null || diagnosis.attemptId !== finding.attemptId || !input.route)
+            return yield* new ChampionError({
+              reason: "invalid",
+              detail:
+                "Rerouting needs a recorded diagnosis for this occurrence and the route to take instead.",
+            });
+          updated = {
+            ...updated,
+            diagnosis: {
+              ...diagnosis,
+              departure: {
+                route: input.route,
+                reason: input.evidence,
+                at: at as NonNullable<ChampionFinding["diagnosis"]>["recordedAt"],
+              },
+            },
+          };
+        } else if (input.action === "handed_back") {
           const { task, shell: child } = yield* acceptedChild(doc, finding);
           if (
             task.status !== "completed" ||
@@ -2381,7 +2704,7 @@ const make = Effect.gen(function* () {
             return yield* new ChampionError({ reason: "invalid" });
           if (
             evidence === undefined ||
-            doc.champion.ownerThreadId !== shell.id ||
+            owner.champion.ownerThreadId !== shell.id ||
             doc.champion.projectId !== summary.projectId ||
             !sameFinding(finding, evidence.finding)
           )
@@ -2442,6 +2765,9 @@ const make = Effect.gen(function* () {
             );
           updated = { ...updated, status: comparable === undefined ? "inconclusive" : "verified" };
         } else if (input.action === "spec") {
+          const routed = routeRefusal(finding, "spec");
+          if (routed !== null)
+            return yield* new ChampionError({ reason: "conflict", detail: routed });
           const { task } = yield* acceptedChild(doc, finding, "advice");
           if (task.status !== "completed") return yield* new ChampionError({ reason: "conflict" });
           if (!input.specUrl) return yield* new ChampionError({ reason: "invalid" });
@@ -2451,11 +2777,23 @@ const make = Effect.gen(function* () {
             status: "open",
           };
         } else updated = { ...updated, status: "inconclusive" };
-        yield* activity(doc.champion.id, `finding-${updated.status}`, input.evidence, updated);
-        return yield* write({
+        yield* activity(
+          doc.champion.id,
+          input.action === "diagnosis" || input.action === "reroute"
+            ? `finding-${input.action}`
+            : `finding-${updated.status}`,
+          input.action === "diagnosis"
+            ? `Diagnosed; route: ${input.route}. ${input.evidence}`
+            : input.action === "reroute"
+              ? `Route changed to ${input.route}: ${input.evidence}`
+              : input.evidence,
+          updated,
+        );
+        const saved = yield* write({
           ...doc,
           findings: doc.findings.map((f) => (f.id === finding.id ? updated : f)),
         });
+        return doc === owner ? saved : yield* get({ id: owner.champion.id });
       }),
     );
   });
@@ -3011,7 +3349,7 @@ const make = Effect.gen(function* () {
         return yield* new ChampionError({ reason: "unavailable" });
       return selected.selection;
     }
-    return yield* mutate(
+    const outcome = yield* mutate(
       Effect.gen(function* () {
         const doc = yield* byThread(ownerThreadId);
         if (doc === undefined) return;
@@ -3028,9 +3366,11 @@ const make = Effect.gen(function* () {
           return yield* refuse(
             "This champion is paused, so it cannot delegate. Report what you measured inline and raise the delegation you needed as attention.",
           );
-        const finding = doc.findings.find(
+        const { holder, finding, handed } = yield* locateFinding(
+          doc,
           (f) => f.workId === request.workId && f.attemptId === request.attemptId,
         );
+        const owned = [...doc.findings, ...handed.flatMap((other) => other.findings)];
         if (!finding)
           return yield* refuse(
             "A champion delegates only for a finding or an investigation branch. For a repair, pass the finding's workId and attemptId from t3_champions_check_context. For read-only exploration, call t3_champions_investigation and delegate its returned branch.",
@@ -3066,7 +3406,82 @@ const make = Effect.gen(function* () {
           return yield* refuse(
             "This check is measure-only, so it cannot dispatch repairs. Report the finding; a later full check can act on it.",
           );
+        if (doc.champion.journeys !== undefined && (phase === "implementation" || phase === "lead"))
+          return yield* refuse(
+            "A journey champion repairs nothing itself. Name a repairing champion in this project with repairsVia and it will see this finding in its own check.",
+          );
+        if (phase === "implementation" && !followup) {
+          const routed = routeRefusal(finding, "repair");
+          if (routed !== null) return yield* refuse(routed);
+        }
+        // The diagnosis is the setup class's: the advisor runs on that selection or not at all.
+        let adviceSelection: ModelSelection | undefined;
+        if (phase === "advice") {
+          const classes = doc.champion.classes;
+          const resolved =
+            classes === undefined
+              ? yield* validateModel(doc.champion.setupModelSelection).pipe(
+                  Effect.as({ selection: doc.champion.setupModelSelection }),
+                  Effect.orElseSucceed(() => ({
+                    unavailable: "the champion's setup model is not available on this machine",
+                  })),
+                )
+              : yield* resolveClasses(
+                  doc.champion.projectId,
+                  classes.setup.taskClass,
+                  ownerThreadId,
+                ).pipe(
+                  Effect.map((result) => {
+                    const setup = result.roles.find((role) => role.role === classes.setup.role);
+                    return setup?.selection == null || setup.refusal !== null
+                      ? {
+                          unavailable:
+                            setup?.refusal ??
+                            `no model is eligible for the ${classes.setup.role} role`,
+                        }
+                      : { selection: setup.selection };
+                  }),
+                  Effect.orElseSucceed(() => ({ unavailable: "the role policy is unavailable" })),
+                );
+          if ("selection" in resolved) adviceSelection = resolved.selection;
+          else if (finding.seriesId === null || followup)
+            return yield* new ChampionError({
+              reason: "unavailable",
+              detail: resolved.unavailable,
+            });
+          else {
+            const reason =
+              `No eligible model could diagnose this breach: ${resolved.unavailable}`.slice(0, 500);
+            const undiagnosed = {
+              ...finding,
+              undiagnosed: { attemptId: finding.attemptId, reason },
+            };
+            yield* activity(holder.champion.id, "finding-undiagnosed", reason, undiagnosed);
+            yield* write({
+              ...holder,
+              findings: holder.findings.map((f) => (f.id === finding.id ? undiagnosed : f)),
+            });
+            return { undiagnosed: reason } as const;
+          }
+        }
         if (phase === "lead") {
+          if (!followup) {
+            const leading = yield* sql<{
+              work_id: string;
+              attempt_id: string;
+            }>`SELECT work_id, attempt_id FROM champion_repair_claims WHERE phase = 'lead' AND state IN ('reserved','unknown','accepted') AND work_id IN ${sql.in(owned.map((f) => f.workId))}`.pipe(
+              Effect.mapError(failure),
+            );
+            const other = owned.find(
+              (f) =>
+                f !== finding &&
+                leading.some((c) => c.work_id === f.workId && c.attempt_id === f.attemptId),
+            );
+            if (other !== undefined)
+              return yield* refuse(
+                `This champion already has a Spec lead running, for "${other.title}". It leads one Spec at a time: wait for that lead to hand back, then start this one.`,
+              );
+          }
           if (!finding.specUrl)
             return yield* refuse(
               "A lead runs only for a finding with a Forge Spec. Record the Spec with t3_champions_finding_action action spec first.",
@@ -3079,14 +3494,14 @@ const make = Effect.gen(function* () {
             return yield* refuse(
               "A lead allocates its own Spec workspace. Delegate again without workspaceAssignment isolated.",
             );
-          const advice = yield* acceptedChild(doc, finding, "advice").pipe(Effect.option);
+          const advice = yield* acceptedChild(holder, finding, "advice").pipe(Effect.option);
           if (Option.isNone(advice) || advice.value.task.status !== "completed")
             return yield* refuse(
               "A lead starts only after an advisor on this finding attempt has completed. Delegate the advisor first and wait for it.",
             );
         }
         if (phase === "review" || phase === "verification") {
-          const proof = yield* acceptedChild(doc, finding).pipe(Effect.option);
+          const proof = yield* acceptedChild(holder, finding).pipe(Effect.option);
           if (Option.isNone(proof) || proof.value.task.status !== "completed")
             return yield* refuse(
               `${phase === "review" ? "Review" : "Verification"} starts only after this finding attempt's ${finding.specUrl === null ? "repair worker" : "lead"} has completed and handed back. Wait for it to finish.`,
@@ -3096,8 +3511,6 @@ const make = Effect.gen(function* () {
           phase === "verification" && !followup
             ? yield* verificationSelection(doc, finding, request)
             : undefined;
-        if (phase === "advice" && doc.champion.classes === undefined)
-          yield* validateModel(doc.champion.setupModelSelection);
         const prior = yield* sql<{
           client_request_id: string;
           role: string;
@@ -3120,7 +3533,7 @@ const make = Effect.gen(function* () {
               : `This finding attempt's ${phase} was already requested for the ${prior[0].role} role. Repeat it with that role, or follow up on its task.`,
           );
         if (followup) {
-          const proof = yield* acceptedChild(doc, finding, phase).pipe(Effect.option);
+          const proof = yield* acceptedChild(holder, finding, phase).pipe(Effect.option);
           if (Option.isNone(proof))
             return yield* refuse(
               `There is no ${phase} task on this finding attempt to follow up. Start one instead.`,
@@ -3143,14 +3556,9 @@ const make = Effect.gen(function* () {
                 "That lead is no longer bound to the finding's recorded Spec, so it cannot be followed up for this finding.",
               );
           }
-          return (
-            distinctSelection ??
-            (phase === "advice" && doc.champion.classes === undefined
-              ? doc.champion.setupModelSelection
-              : undefined)
-          );
+          return distinctSelection ?? adviceSelection;
         }
-        const workIds = doc.findings.map((f) => f.workId);
+        const workIds = owned.map((f) => f.workId);
         const active = yield* sql<{
           work_id: string;
           attempt_id: string;
@@ -3158,7 +3566,7 @@ const make = Effect.gen(function* () {
           Effect.mapError(failure),
         );
         const currentActive = active.filter((c) =>
-          doc.findings.some((f) => f.workId === c.work_id && f.attemptId === c.attempt_id),
+          owned.some((f) => f.workId === c.work_id && f.attemptId === c.attempt_id),
         );
         const alreadyActive = currentActive.some(
           (c) => c.work_id === finding.workId && c.attempt_id === finding.attemptId,
@@ -3190,7 +3598,7 @@ const make = Effect.gen(function* () {
             Effect.mapError(failure),
           );
           yield* activity(
-            doc.champion.id,
+            holder.champion.id,
             "repair-phase-reserved",
             `Managed ${request.role} ${phase} reserved before dispatch as clientRequestId ${clientRequestId}.`,
             finding,
@@ -3210,17 +3618,19 @@ const make = Effect.gen(function* () {
           updatedAt: yield* now,
         };
         yield* write({
-          ...doc,
-          findings: doc.findings.map((f) => (f.id === finding.id ? updated : f)),
+          ...holder,
+          findings: holder.findings.map((f) => (f.id === finding.id ? updated : f)),
         });
-        return (
-          distinctSelection ??
-          (phase === "advice" && doc.champion.classes === undefined
-            ? doc.champion.setupModelSelection
-            : undefined)
-        );
+        return distinctSelection ?? adviceSelection;
       }),
     );
+    // Committed before refusing, so the finding says why work on it went ahead undiagnosed.
+    if (outcome !== undefined && "undiagnosed" in outcome)
+      return yield* new ChampionError({
+        reason: "unavailable",
+        detail: `${outcome.undiagnosed}. The finding now records that, so you may proceed without a diagnosis; never run it on another model.`,
+      });
+    return outcome;
   });
   const delegationOutcome: ChampionService["Service"]["delegationOutcome"] = Effect.fn(
     "ChampionService.delegationOutcome",
@@ -3482,6 +3892,7 @@ const make = Effect.gen(function* () {
       Effect.mapError(failure),
     );
     for (const row of pendingDecisions) yield* deliverDecision(row.id).pipe(Effect.ignore);
+    const resumed: Array<Effect.Effect<void>> = [];
     for (const champion of (yield* list({})).champions) {
       const doc = { champion };
       const stale = champion.latestSamples?.filter((sample) => sample.health === "stale") ?? [];
@@ -3510,6 +3921,33 @@ const make = Effect.gen(function* () {
             });
           }),
         );
+      if (champion.journeys !== undefined && champion.repairsVia != null) {
+        const repairer = yield* read(champion.repairsVia).pipe(Effect.option);
+        const note =
+          champion.openFindingCount > 0 &&
+          (Option.isNone(repairer) || repairer.value.champion.lifecycle !== "active")
+            ? `${Option.isSome(repairer) ? `${repairer.value.champion.name} is ${repairer.value.champion.lifecycle}` : "Its repairing champion no longer exists"}, so nothing is repairing this champion's confirmed findings.`
+            : null;
+        const current = champion.attention.filter((item) =>
+          item.endsWith("nothing is repairing this champion's confirmed findings."),
+        );
+        if (current.join() !== (note ?? ""))
+          yield* mutate(
+            Effect.gen(function* () {
+              const fresh = yield* read(champion.id);
+              yield* write({
+                ...fresh,
+                champion: {
+                  ...fresh.champion,
+                  attention: [
+                    ...fresh.champion.attention.filter((item) => !current.includes(item)),
+                    ...(note === null ? [] : [note]),
+                  ],
+                },
+              });
+            }),
+          );
+      }
       if (champion.openFindingCount > 0) yield* reconcileRepairs(champion.id);
       const reconciled = yield* evidence.reconcile(champion.id);
       if (reconciled.changed) yield* PubSub.publish(changes, undefined);
@@ -3541,7 +3979,10 @@ const make = Effect.gen(function* () {
         if (pendingId === null) continue;
         const check = yield* readCheck(pendingId);
         if (check.reported || check.cancelled) continue;
-        if (!check.dispatched) yield* dispatchCheck(check).pipe(Effect.ignore);
+        if (!check.dispatched) {
+          resumed.push(advance(check).pipe(Effect.ignore));
+          continue;
+        }
         const shell = check.dispatched
           ? yield* threads.getThreadShell(check.threadId).pipe(Effect.mapError(failure))
           : null;
@@ -3697,8 +4138,10 @@ const make = Effect.gen(function* () {
         doc.champion.nextCheckAt !== null &&
         doc.champion.nextCheckAt <= timestamp
       )
-        yield* start(doc.champion.id, "check", true).pipe(Effect.catch(() => Effect.void));
+        resumed.push(start(doc.champion.id, "check", true).pipe(Effect.ignore));
     }
+    // Together, so one champion's slow command holds up no other champion's check.
+    yield* Effect.forEach(resumed, (effect) => effect, { concurrency: "unbounded", discard: true });
   });
   const shellSubscription = yield* PubSub.subscribe(shellChanges);
   yield* Stream.fromSubscription(shellSubscription).pipe(
@@ -3800,6 +4243,17 @@ const make = Effect.gen(function* () {
     "ChampionService.synthesize",
   )(function* (caller, input) {
     yield* authenticateOwner(caller, input.id);
+    // Refused before anything is kept: a synthesis stored without its decision request is orphaned.
+    const investigated = yield* sql<{
+      finding_id: string;
+    }>`SELECT finding_id FROM champion_investigations WHERE id = ${input.investigationId} AND champion_id = ${input.id}`.pipe(
+      Effect.mapError(failure),
+    );
+    const subject = (yield* read(input.id)).findings.find(
+      (finding) => finding.id === investigated[0]?.finding_id,
+    );
+    const routed = subject === undefined ? null : routeRefusal(subject, "decision");
+    if (routed !== null) return yield* new ChampionError({ reason: "conflict", detail: routed });
     const value = yield* evidence.synthesis(input);
     yield* findingAction(
       {

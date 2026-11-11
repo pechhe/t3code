@@ -66,9 +66,10 @@ const HEALTH_RANK: Record<ChampionStatus, number> = {
   unknown: 6,
   stale: 7,
   unmeasured: 8,
-  healthy: 9,
-  paused: 10,
-  retired: 11,
+  untargeted: 9,
+  healthy: 10,
+  paused: 11,
+  retired: 12,
 };
 
 export function orderChampions(
@@ -436,6 +437,8 @@ export interface MetricDraft {
   readonly required: boolean;
   readonly baseline: string;
   readonly staleAfterHours: string;
+  /** Carried through unedited: the editor has no field for the command the server runs. */
+  readonly collect?: ChampionMetricInput["collect"];
 }
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -455,6 +458,7 @@ export function metricDraftOf(metric: ChampionMetricInput): MetricDraft {
     required: metric.required ?? true,
     baseline: metric.baseline == null ? "" : String(metric.baseline),
     staleAfterHours: metric.staleAfterMs === undefined ? "" : String(metric.staleAfterMs / HOUR_MS),
+    ...(metric.collect === undefined ? {} : { collect: metric.collect }),
   };
 }
 
@@ -544,6 +548,7 @@ export function parseMetricDrafts(drafts: ReadonlyArray<MetricDraft>): ParsedMet
       required: draft.required,
       baseline,
       ...(staleAfterMs === null ? {} : { staleAfterMs }),
+      ...(draft.collect === undefined ? {} : { collect: draft.collect }),
     });
   }
   if (Object.keys(errors).length > 0) return { ok: false, errors };
@@ -584,6 +589,7 @@ const inputOf = (metric: ChampionMetricInput): ChampionMetricInput => ({
   required: metric.required ?? true,
   baseline: metric.baseline ?? null,
   ...(metric.staleAfterMs === undefined ? {} : { staleAfterMs: metric.staleAfterMs }),
+  ...(metric.collect === undefined ? {} : { collect: metric.collect }),
 });
 
 const metricsKey = (metrics: ReadonlyArray<ChampionMetricInput>) =>
