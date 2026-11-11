@@ -31,6 +31,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 
@@ -59,6 +60,36 @@ export interface Cadence {
   readonly intervalMs: number;
   readonly fingerprint: string | undefined;
 }
+
+/** One review council round, as Forge's `weave_forge_council` takes it. */
+export interface ForgeCouncilRoster {
+  /** The Spec the review judges, as the review request names it. */
+  readonly specRef: string;
+  /** The round's clientRequestId: replaying it with the same roster is harmless. */
+  readonly clientRef: string;
+  readonly members: ReadonlyArray<{
+    readonly taskRef: string;
+    readonly model: string;
+    readonly maker: string;
+  }>;
+  readonly missing: ReadonlyArray<{
+    readonly maker: string;
+    readonly model: string;
+    readonly reason: string;
+  }>;
+}
+
+/**
+ * What recording a roster came to. It never fails: the review does not wait on it. `not_a_forge_spec`
+ * is a repository's own Issue number that Forge holds no item for, so there is no roster to record.
+ */
+export type ForgeCouncilRecording =
+  | { readonly recorded: true }
+  | { readonly recorded: false; readonly reason: string }
+  | { readonly recorded: "not_a_forge_spec" };
+
+/** A Spec named by its repository, `owner/repo#12`: a Forge number there, or a GitHub Issue. */
+const REPOSITORY_SPEC_REF = /^([\w.-]+\/[\w.-]+)#(\d+)$/;
 
 /** A read an agent's own Forge write expires, as a work item's is. */
 export interface ReadCadence extends Cadence {
@@ -269,6 +300,8 @@ interface CachedItem extends ReadCadence {
 
 /** Items kept for their last known summary, and numbers kept resolved, per Weave connection. */
 const ITEM_CACHE_LIMIT = 1024;
+/** How long a council roster may take to record before the review goes on without it. */
+const COUNCIL_RECORD_TIMEOUT = "15 seconds";
 
 /** A number resolved on one Weave: its item, or null while Forge doesn't know it. */
 interface CachedNumber {
@@ -334,6 +367,14 @@ export class ForgeWorkItems extends Context.Service<
     readonly projectOf: (
       reference: ForgeItemReferenceInput,
     ) => Effect.Effect<Option.Option<string>>;
+    /**
+     * Records a review council's roster in Forge as `agent`, the lead that asked for the review. A
+     * refusal, a missing connection or a Spec that is not in Forge's own is reported, not raised.
+     */
+    readonly recordCouncil: (
+      agent: WeaveAgentConnections.WeaveAgent,
+      roster: ForgeCouncilRoster,
+    ) => Effect.Effect<ForgeCouncilRecording>;
     /**
      * Links the thread to the item a reference names, replacing any earlier link, or unlinks it
      * for null. The one way people, agents and scheduled tasks set the link.
@@ -629,6 +670,47 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const recordCouncil: ForgeWorkItems["Service"]["recordCouncil"] = Effect.fn(
+    "ForgeWorkItems.recordCouncil",
+  )(function* (agent, roster) {
+    const unrecorded = (reason: string): ForgeCouncilRecording => ({ recorded: false, reason });
+    const record = Effect.gen(function* () {
+      const named = REPOSITORY_SPEC_REF.exec(roster.specRef);
+      const found = yield* readReference(named === null ? roster.specRef : `#${named[2]}`).pipe(
+        Effect.result,
+      );
+      if (Result.isFailure(found))
+        return named !== null && found.failure.reason === "not_found"
+          ? ({ recorded: "not_a_forge_spec" } as const)
+          : unrecorded(found.failure.message);
+      // The same number in another project is someone else's item: never record a roster on it.
+      if (named !== null && found.success.project !== named[1])
+        return unrecorded(
+          `Forge item #${named[2]} belongs to ${found.success.project ?? "no project"}, not ${named[1]}. If it is this review's Spec, record the roster with weave_forge_council.`,
+        );
+      return yield* weave
+        .callAs(agent, "weave_forge_council", {
+          specId: found.success.item.itemId,
+          clientRef: roster.clientRef,
+          members: roster.members,
+          missing: roster.missing,
+        })
+        .pipe(
+          Effect.as<ForgeCouncilRecording>({ recorded: true }),
+          Effect.catchTags({
+            WeaveAgentCallRefused: (refusal) => Effect.succeed(unrecorded(refusal.message)),
+            WeaveAgentCallUnavailable: (unavailable) =>
+              Effect.succeed(unrecorded(unavailable.message)),
+          }),
+        );
+    });
+    // The reviewers are already running; a Weave that does not answer must not hold the result.
+    return yield* record.pipe(
+      Effect.timeoutOption(COUNCIL_RECORD_TIMEOUT),
+      Effect.map(Option.getOrElse(() => unrecorded("Weave did not answer in time."))),
+    );
+  });
+
   const reference = (item: typeof ForgeReference.Type): ForgeItemReference => ({
     number: item.number,
     ...(item.ref === undefined ? {} : { ref: item.ref }),
@@ -832,6 +914,7 @@ const make = Effect.gen(function* () {
     mentions,
     resolve,
     projectOf,
+    recordCouncil,
     link,
     connected: readConnection.pipe(
       Effect.map((connection) => ({

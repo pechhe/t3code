@@ -14,7 +14,7 @@ import {
 import { derive as deriveIds } from "@t3tools/provider-core/server/IdAllocator";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { expect, it } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import {
   type AgentPolicyManifest as AgentPolicyManifestType,
   AgentPolicyManifest,
@@ -323,6 +323,12 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       readonly readOnlyCaller?: boolean;
       /** The repository Forge says a Forge item belongs to, when a lead names one. */
       readonly itemProject?: string | null;
+      /** Each accepted command yields a running child task, so a delegation succeeds. */
+      readonly children?: boolean;
+      /** What Forge answers when T3 records a review council's roster. */
+      readonly recordCouncil?: (
+        roster: ForgeWorkItems.ForgeCouncilRoster,
+      ) => Effect.Effect<ForgeWorkItems.ForgeCouncilRecording>;
       /** Edits the saved policy, such as turning the review council on. */
       readonly policy?: (manifest: AgentPolicyManifestType) => AgentPolicyManifestType;
     } = {},
@@ -486,6 +492,57 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
                 return Effect.succeed({ sequence: 1, storedEvents: [] } as never);
               dispatched.push(command);
               locked.push(holding > 0);
+              if (options.children === true) {
+                const index = dispatched.length;
+                const task = {
+                  id: NodeId.make(`node:task:${index}`),
+                  threadId: parent.thread.id,
+                  runId: RunId.make("lead-run"),
+                  parentNodeId: NodeId.make("lead-node"),
+                  origin: "app_owned",
+                  createdBy: "agent",
+                  driver: "codex",
+                  providerInstanceId: (command as { modelSelection: ModelSelection }).modelSelection
+                    .instanceId,
+                  providerThreadId: null,
+                  childThreadId: ThreadId.make(`child-${index}`),
+                  nativeTaskRef: null,
+                  prompt: "Review",
+                  title: null,
+                  model: (command as { modelSelection: ModelSelection }).modelSelection.model,
+                  status: "running",
+                  result: null,
+                  startedAt: null,
+                  completedAt: null,
+                };
+                childRecords.set(task.childThreadId, {
+                  ...parent,
+                  thread: { ...parent.thread, id: task.childThreadId },
+                  runs: [],
+                  messages: [],
+                  nodes: [],
+                  turnItems: [],
+                  providerTurns: [],
+                  contextTransfers: [],
+                  subagents: [],
+                  runtimeRequests: [],
+                  providerThreads: [],
+                } as unknown as OrchestrationV2ThreadProjection);
+                parent = {
+                  ...parent,
+                  subagents: [...parent.subagents, task],
+                } as unknown as OrchestrationV2ThreadProjection;
+                return Effect.succeed({
+                  sequence: index,
+                  storedEvents: [
+                    {
+                      sequence: index,
+                      commandId: null,
+                      event: { type: "subagent.updated", payload: task },
+                    },
+                  ],
+                } as never);
+              }
               // Stop after capture: launching the child is the orchestrator's concern.
               if (options.accepts === true)
                 return Effect.succeed({ sequence: 1, storedEvents: [] } as never);
@@ -655,9 +712,14 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
                     ),
               }),
             );
+      const rosters: Array<ForgeWorkItems.ForgeCouncilRoster> = [];
       const forgeWorkItems = Layer.mock(ForgeWorkItems.ForgeWorkItems)({
         // Forge names the item's repository; most tests have no item to read.
         projectOf: () => Effect.succeed(Option.fromNullishOr(options.itemProject)),
+        recordCouncil: (_agent, roster) => {
+          rosters.push(roster);
+          return options.recordCouncil?.(roster) ?? Effect.succeed({ recorded: true });
+        },
       });
       const delegate = (
         input: Parameters<Mcp.OrchestratorMcpService["Service"]["delegateTask"]>[1],
@@ -670,6 +732,24 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
               input,
             )
             .pipe(Effect.flip);
+        }).pipe(
+          Effect.provide(
+            Mcp.layer.pipe(
+              Layer.provide(forgeWorkItems),
+              Layer.provide(transport),
+              Layer.provide(championLayer),
+              Layer.provide(WorkspaceProvider.layerGitWorktree),
+            ),
+          ),
+          Effect.provideService(Managed.ManagedAgentService, counted),
+          Effect.provideService(HostProcess.Environment, {
+            T3CODE_AGENT_POLICY_ROOT: policyRoot,
+          }),
+        );
+      const sit = (input: Parameters<Mcp.OrchestratorMcpService["Service"]["delegateTask"]>[1]) =>
+        Effect.gen(function* () {
+          const mcp = yield* Mcp.OrchestratorMcpService;
+          return yield* mcp.delegateTask(scope, input);
         }).pipe(
           Effect.provide(
             Mcp.layer.pipe(
@@ -711,6 +791,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       return {
         champion,
         championSelections,
+        rosters,
+        sit,
         completeBranch: (attempt: ChampionInvestigationBranchAttempt, foreign = false) => {
           const shell = {
             ...parent.thread,
@@ -1258,6 +1340,173 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
     ),
   );
+
+  describe("recording the review council's roster in Forge", () => {
+    const withCouncil = (manifest: AgentPolicyManifestType): AgentPolicyManifestType => ({
+      ...manifest,
+      lists: {
+        ...manifest.lists,
+        council: [
+          { model: "sonnet", effort: "high" },
+          { model: "astra", effort: "high" },
+          { model: "sol", effort: "high" },
+        ],
+      },
+      roles: {
+        ...manifest.roles,
+        reviewer: { ...manifest.roles.reviewer, specList: "council", council: true },
+      },
+    });
+    const councilReview = (
+      workspacePath: string,
+      review: Partial<NonNullable<ReturnType<typeof request>["review"]>> = {},
+    ) =>
+      request({
+        role: "reviewer",
+        workspacePath,
+        readOnly: true,
+        sourceRevision: "source-pin",
+        authorModel: codexModel,
+        review: {
+          scope: "spec",
+          baseRevision: "base-commit",
+          includedChanges: ["reviewed-commit"],
+          coverage: "complete",
+          specRef: "#1",
+          specRevision: "3",
+          ...review,
+        },
+      });
+    it.effect("records one roster with every seat's taskRef and the makers that did not sit", () =>
+      Effect.gen(function* () {
+        const h = yield* harness(() => [], true, {
+          providers: [codex, claude],
+          policy: withCouncil,
+          children: true,
+        });
+        const sat = yield* h.sit({
+          task: "Review the Spec",
+          clientRequestId: "round-1",
+          agentTask: councilReview(h.lead),
+        });
+        expect(sat.council?.formed).toBe(true);
+        expect(sat.council?.roster).toEqual({ recorded: true });
+        expect(h.rosters).toHaveLength(1);
+        const roster = h.rosters[0]!;
+        expect(roster).toMatchObject({ specRef: "#1", clientRef: "round-1" });
+        expect(roster.members.map(({ taskRef, maker }) => ({ taskRef, maker }))).toEqual([
+          { taskRef: "round-1:anthropic", maker: "anthropic" },
+          { taskRef: "round-1:openai", maker: "openai" },
+        ]);
+        // What the roster names is what the council reports as the seats' taskRef.
+        expect(roster.members.map(({ taskRef }) => taskRef)).toEqual(
+          sat.council?.members.map(({ taskRef }) => taskRef),
+        );
+        expect(roster.missing).toEqual(sat.council?.missing);
+      }).pipe(
+        Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+      ),
+    );
+
+    it.effect("records a one-member roster when the review sits alone", () =>
+      Effect.gen(function* () {
+        const h = yield* harness(() => [], true, {
+          providers: [codex, claude],
+          policy: withCouncil,
+          children: true,
+        });
+        const sat = yield* h.sit({
+          task: "Review the Spec",
+          clientRequestId: "round-solo",
+          agentTask: councilReview(h.lead, { council: false }),
+        });
+        expect(sat.council?.formed).toBe(false);
+        expect(h.rosters).toHaveLength(1);
+        expect(h.rosters[0]!.members.map(({ taskRef }) => taskRef)).toEqual(["round-solo:solo"]);
+        expect(h.rosters[0]!.clientRef).toBe("round-solo");
+      }).pipe(
+        Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+      ),
+    );
+
+    it.effect("sends the identical roster when the same clientRequestId is retried", () =>
+      Effect.gen(function* () {
+        const h = yield* harness(() => [], true, {
+          providers: [codex, claude],
+          policy: withCouncil,
+          children: true,
+        });
+        const input = {
+          task: "Review the Spec",
+          clientRequestId: "round-retry",
+          agentTask: councilReview(h.lead),
+        };
+        yield* h.sit(input);
+        yield* h.sit(input);
+        expect(h.rosters).toHaveLength(2);
+        expect(h.rosters[1]).toEqual(h.rosters[0]);
+      }).pipe(
+        Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+      ),
+    );
+
+    it.effect("keeps the review running and says why when the roster cannot be recorded", () =>
+      Effect.gen(function* () {
+        const h = yield* harness(() => [], true, {
+          providers: [codex, claude],
+          policy: withCouncil,
+          children: true,
+          recordCouncil: () =>
+            Effect.succeed({
+              recorded: false,
+              reason: "Weave refused weave_forge_council (council_conflict).",
+            }),
+        });
+        const sat = yield* h.sit({
+          task: "Review the Spec",
+          clientRequestId: "round-refused",
+          agentTask: councilReview(h.lead),
+        });
+        expect(h.dispatched).toHaveLength(2);
+        expect(sat.council?.roster).toEqual({
+          recorded: false,
+          reason: expect.stringMatching(
+            /^Weave refused weave_forge_council \(council_conflict\)\. Record the roster with weave_forge_council: .*taskRef, never its taskId\.$/,
+          ),
+        });
+      }).pipe(
+        Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+      ),
+    );
+
+    it.effect("records nothing for a change review or a GitHub-tracked Spec", () =>
+      Effect.gen(function* () {
+        const h = yield* harness(() => [], true, {
+          providers: [codex, claude],
+          policy: withCouncil,
+          children: true,
+          // Forge holds no item for a repository's own Issue number.
+          recordCouncil: () => Effect.succeed({ recorded: "not_a_forge_spec" }),
+        });
+        const change = yield* h.sit({
+          task: "Review the change",
+          clientRequestId: "round-change",
+          agentTask: councilReview(h.lead, changeReview),
+        });
+        expect(change.council).toBeUndefined();
+        const github = yield* h.sit({
+          task: "Review the Spec",
+          clientRequestId: "round-github",
+          agentTask: councilReview(h.lead, { specRef: "pechhe/t3code#12" }),
+        });
+        expect(github.council?.formed).toBe(true);
+        expect(github.council?.roster).toBeUndefined();
+        expect(h.rosters.map((roster) => roster.specRef)).toEqual(["pechhe/t3code#12"]);
+      }).pipe(
+        Effect.provide(Layer.mergeAll(Layer.mock(ContextRemoteDelegation.RemoteDelegation)({}))),
+      ),
+    );
+  });
 
   it.effect(
     "dispatches a role on the lead's own instance and model with exactly the role's options",

@@ -42,8 +42,12 @@ one read-only reviewer per model maker on `specList`, in list order, at most fiv
 never the author's own model. A maker whose models cannot run is reported as
 missing, not replaced by a second model from a maker already sitting; with fewer
 than two makers one reviewer runs. The result's `council` names each member's task
-and the `taskRef` it records its review under; the lead records the round's roster
-in Forge, which then accepts the Spec only when every member's review is clean.
+and the `taskRef` it records its review under. T3 records the round's roster in Forge
+itself, as the lead, once the seats are launched; `council.roster` says whether it did.
+Only when `roster.recorded` is false does the lead record it by hand with
+`weave_forge_council`, using each member's `taskRef`, never its `taskId`. A roster that
+cannot be recorded never stops the review. Forge accepts the Spec only when every
+member's review is clean.
 Any installed provider's models can be listed, not only Codex and Claude. A model
 may carry a `note` saying what it is good at: one note per model, shared by every
 alias that binds it, and edited in Settings → Delegation → Models. A role may start
