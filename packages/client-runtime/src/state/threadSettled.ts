@@ -3,6 +3,10 @@ import * as DateTime from "effect/DateTime";
 import { DEFAULT_SNOOZE_PRESETS, type SnoozePresetSetting } from "@t3tools/contracts/settings";
 
 import type { OrchestrationV2ParkedWait } from "@t3tools/contracts";
+import {
+  backgroundWorkHoldsCompletion,
+  ownBackgroundWork,
+} from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 
 import type { EnvironmentThreadShell, PendingSubagentRequest } from "./models.ts";
 
@@ -81,6 +85,7 @@ export interface ThreadSnoozeShell extends QueuedThreadShell {
   readonly pendingGuestMessageCount?: number;
   /** What the thread is parked on; a seen, parked thread sits in the Snoozed shelf. */
   readonly parkedWaits?: ReadonlyArray<OrchestrationV2ParkedWait> | undefined;
+  readonly pendingBackgroundTasks?: EnvironmentThreadShell["pendingBackgroundTasks"] | undefined;
   readonly lastVisitedAt?: string | null | undefined;
 }
 
@@ -164,12 +169,16 @@ const ACTIVE_RUN_STATUSES = new Set(["preparing", "queued", "starting", "running
 /**
  * A parked thread reads Done until it is opened, then joins the Snoozed shelf until its wait ends.
  * Derived from the server's `parkedWaits`, never by writing `snoozedUntil`. A request for the
- * person, a fresh failure or a running turn keeps it where it is.
+ * person, a fresh failure, a running turn or its own working subagents keep it where it is.
  */
 export function threadParkedOnShelf(shell: ThreadSnoozeShell): boolean {
   if ((shell.parkedWaits?.length ?? 0) === 0) return false;
   const runtime = shell.runtime ?? shell.session ?? null;
   if (runtime !== null && ACTIVE_RUN_STATUSES.has(runtime.status)) return false;
+  // Watches are excluded: a park on another thread is listed as one.
+  if (backgroundWorkHoldsCompletion(ownBackgroundWork(shell.pendingBackgroundTasks ?? []))) {
+    return false;
+  }
   if (shell.lastVisitedAt == null) return false;
   const completedAt = Date.parse((shell.latestRun ?? shell.latestTurn)?.completedAt ?? "");
   const visitedAt = Date.parse(shell.lastVisitedAt);

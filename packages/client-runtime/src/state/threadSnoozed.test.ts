@@ -557,6 +557,14 @@ describe("parked waits", () => {
     expect(threadParkedOnShelf({ ...parkedShell(seen), hasPendingApprovals: true })).toBe(false);
   });
 
+  it("keeps a parked thread whose subagents still work out of the shelf, but not one only watching", () => {
+    const seen = parkedShell({ lastVisitedAt: "2026-04-10T10:05:00.000Z" });
+    const subagent = { taskId: "child-1", kind: "subagent" as const };
+    const watch = { taskId: "thread-watch:w1", kind: "monitor" as const, awaited: true as const };
+    expect(threadParkedOnShelf({ ...seen, pendingBackgroundTasks: [subagent, watch] })).toBe(false);
+    expect(threadParkedOnShelf({ ...seen, pendingBackgroundTasks: [watch] })).toBe(true);
+  });
+
   it("names what it wakes on and how long is left", () => {
     expect(parkedWaitWakesOn(production, Date.parse(NOW))).toBe(
       "Wakes when YS-1256 reaches Production",
