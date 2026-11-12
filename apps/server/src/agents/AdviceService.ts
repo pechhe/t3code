@@ -343,6 +343,8 @@ const make = Effect.gen(function* () {
           : `${advice.question}\nEvidence: ${advice.evidence}\nRecommendation (or reason none is possible): ${advice.recommendation}\n${advice.blocking ? "The child is waiting for your answer before continuing this work." : "The child is continuing independent work while awaiting your answer."}\nRead or answer with ask_advice action read/answer, workerThreadId ${advice.workerThreadId}, requestId ${advice.requestId}${row.worker_environment_id === null ? "" : `, environmentId ${row.worker_environment_id}`}. Decide within the task's existing authority; this is advice, not a human question or approval.`,
         attachments: [],
         dispatchMode: { type: "queue_after_active" },
+        // An answer steers a worker mid-turn; a request to the parent waits for its turn to end.
+        ...(answering ? { deliveryIntent: "auto" as const } : {}),
         createdBy: "agent",
         creationSource: "server",
       })

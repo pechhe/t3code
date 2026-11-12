@@ -154,6 +154,9 @@ it.effect(
         ).toMatchObject({ status: "answered", answer: "Keep v1." });
         yield* service.answer(scope(parentId), workerId, "shared-contract", "Keep v1.");
         expect(f.messages.size).toBe(2);
+        expect([...f.messages.values()].find((m) => m.threadId === workerId)).toMatchObject({
+          deliveryIntent: "auto",
+        });
         expect(yield* service.read(scope(workerId), workerId, "shared-contract")).toMatchObject({
           status: "answered",
           answer: "Keep v1.",
