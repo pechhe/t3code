@@ -898,11 +898,13 @@ function cancelledAppOwnedTask(
 
 // Provider wakes can start follow-up work; monitor updates only report progress.
 // Dispatch takes the parent's lock for follow-ups because intake writes the parent.
-function mayStartSubagentFollowup(
+// A managed advice answer races the same child result finalizer and uses that lock too.
+export function mayStartSubagentFollowup(
   command: Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
 ): boolean {
   if (command.scheduledTaskId !== undefined || command.restartContinuationOfRunId !== undefined)
     return false;
+  if (command.adviceDelivery?.workerThreadId === command.threadId) return true;
   if (command.notification !== undefined) return command.notification.source.kind !== "monitor";
   return (
     command.createdBy === "user" ||

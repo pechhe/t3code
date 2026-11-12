@@ -2608,6 +2608,19 @@ it.effect(
                 (candidate) => candidate.id === task.id,
               )!.result,
             );
+            const completedTask = (yield* projections.getThreadRecords(parentId, [
+              "subagents",
+            ])).subagents.find((candidate) => candidate.id === task.id)!;
+            const result = completedTask.result;
+            assert.isNotNull(result);
+            const completionDelivery = completedTask.completionDelivery;
+            assert.isDefined(completionDelivery);
+            yield* advice.recover();
+            const recovered = (yield* projections.getThreadRecords(parentId, [
+              "subagents",
+            ])).subagents.find((candidate) => candidate.id === task.id)!;
+            assert.equal(recovered.result, result);
+            assert.deepEqual(recovered.completionDelivery, completionDelivery);
             return;
           }
           yield* advice.ask(scope(task.childThreadId!), "cancel-hold", request);
@@ -2684,6 +2697,29 @@ it.effect(
       }
     }).pipe(Effect.provide(layerTest)),
 );
+it("only advice answers addressed to their managed child use the follow-up lock", () => {
+  const parentThreadId = ThreadId.make("thread:advice-lock-parent");
+  const childThreadId = ThreadId.make("thread:advice-lock-child");
+  const message = (threadId: ThreadId, workerThreadId?: ThreadId) => ({
+    type: "message.dispatch" as const,
+    commandId: CommandId.make(`advice-lock:${threadId}`),
+    threadId,
+    messageId: MessageId.make(`advice-lock:${threadId}`),
+    text: "Advice",
+    attachments: [],
+    dispatchMode: { type: "queue_after_active" as const },
+    createdBy: "agent" as const,
+    creationSource: "server" as const,
+    ...(workerThreadId === undefined
+      ? {}
+      : { adviceDelivery: { workerThreadId, runId: null, blocking: true } }),
+  });
+
+  assert.isTrue(Orchestrator.mayStartSubagentFollowup(message(childThreadId, childThreadId)));
+  assert.isFalse(Orchestrator.mayStartSubagentFollowup(message(parentThreadId, childThreadId)));
+  assert.isFalse(Orchestrator.mayStartSubagentFollowup(message(childThreadId)));
+});
+
 it.effect("a user message dispatched first stays run 1 when its lineage read is slow", () => {
   const threadId = ThreadId.make("thread:dispatch-order");
   // A file database serves projection reads from a reader worker, so the lineage read a user
