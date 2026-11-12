@@ -5,6 +5,7 @@ import {
   EventId,
   MessageId,
   NodeId,
+  type OrchestrationV2AppThread,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2Run,
   type OrchestrationV2Subagent,
@@ -18,7 +19,9 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
@@ -30,6 +33,7 @@ import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as ArcRunReactor from "./ArcRunReactor.ts";
 import * as ForgeWatchReactor from "./ForgeWatchReactor.ts";
 import * as StalledChildReactor from "./StalledChildReactor.ts";
+import * as ThreadWatchReactor from "./ThreadWatchReactor.ts";
 import {
   ARC_RUN_ANSWER,
   ARC_RUN_NO_PROGRESS_CAP,
@@ -57,6 +61,7 @@ const adapter = {
 const layerDatabase = SqlitePersistence.layerMemory;
 const layerTest = Layer.mergeAll(
   ArcRunReactor.layer,
+  ThreadWatchReactor.layer,
   UnattendedReactor.layer,
   DelegatedTaskQuestionReactor.layer,
   StalledChildReactor.layer,
@@ -456,6 +461,67 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
     }),
   );
 
+  it.effect("a parked time wait holds an Arc wake until its timer fires once", () =>
+    Effect.gen(function* () {
+      const reactor = yield* ArcRunReactor.ArcRunReactor;
+      const threadWatchReactor = yield* ThreadWatchReactor.ThreadWatchReactor;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const { threadId, run } = yield* setup("parked-time-trigger");
+      const at = DateTime.formatIso(DateTime.add(yield* DateTime.now, { minutes: 1 }));
+      const parked = yield* orchestrator.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make("park:arc-time-trigger"),
+        threadId,
+        target: { kind: "time", at },
+        watching: true,
+        park: { note: "Resume the Arc when this wait is due." },
+      });
+      for (const stored of parked.storedEvents) {
+        yield* threadWatchReactor.handle(stored.event);
+      }
+
+      const finishEvent = yield* finish(run);
+      yield* reactor.handle(finishEvent);
+      assert.lengthOf(yield* wakes(threadId), 0);
+
+      const waitForTimerWake = yield* orchestrator.streamDomainEvents.pipe(
+        Stream.filter(
+          (event) =>
+            event.threadId === threadId &&
+            event.type === "message.updated" &&
+            event.payload.id.startsWith(`message:${threadId}:parked-wait:`),
+        ),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
+      yield* TestClock.adjust("59 seconds");
+      assert.lengthOf(yield* wakes(threadId), 0);
+      assert.lengthOf(
+        (yield* orchestrator.getThreadRecords(threadId, ["messages"])).messages.filter((message) =>
+          message.id.startsWith(`message:${threadId}:parked-wait:`),
+        ),
+        0,
+      );
+
+      yield* TestClock.adjust("1 second");
+      yield* Fiber.join(waitForTimerWake);
+      const messages = (yield* orchestrator.getThreadRecords(threadId, ["messages"])).messages;
+      assert.lengthOf(yield* wakes(threadId), 0);
+      assert.lengthOf(
+        messages.filter((message) => message.id.startsWith(`message:${threadId}:parked-wait:`)),
+        1,
+      );
+      yield* threadWatchReactor.sweep;
+      assert.lengthOf(
+        (yield* orchestrator.getThreadRecords(threadId, ["messages"])).messages.filter((message) =>
+          message.id.startsWith(`message:${threadId}:parked-wait:`),
+        ),
+        1,
+      );
+    }),
+  );
+
   it.effect("needs attention after repeated wakes with no advancing checkpoint", () =>
     Effect.gen(function* () {
       const reactor = yield* ArcRunReactor.ArcRunReactor;
@@ -784,7 +850,7 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
             createdAt: now,
             resolvedAt: null,
           },
-        }) as never as OrchestrationV2DomainEvent;
+        }) satisfies Extract<OrchestrationV2DomainEvent, { type: "runtime-request.updated" }>;
       const question = requestEvent("user_input");
       yield* (yield* EventSink.EventSinkV2).write({ events: [question] });
       yield* reactor.handle(question);
@@ -832,6 +898,33 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
       );
       assert.equal(told.length, 1);
       assert.include(told[0]!.text, "Run rm in the scratch folder?");
+      assert.equal(
+        (yield* projections.getRuntimeRequest(childId, approval.payload.id))?.status,
+        "pending",
+      );
+      const approvalWake = (yield* records(parent.threadId)).runs.find(
+        (run) => run.userMessageId === told[0]!.id,
+      )!;
+      assert.equal(approvalWake.status, "queued");
+      yield* (yield* EventSink.EventSinkV2).write({
+        events: [
+          {
+            ...approval,
+            id: EventId.make("event:request:child:command:resolved"),
+            payload: { ...approval.payload, status: "resolved", resolvedAt: now },
+          },
+        ],
+      });
+      yield* finish(parent.run);
+      yield* orchestrator.dispatch({
+        type: "queue.resume",
+        commandId: CommandId.make("resume:asking-parent:resolved-approval"),
+        threadId: parent.threadId,
+      });
+      assert.equal(
+        (yield* records(parent.threadId)).runs.find((run) => run.id === approvalWake.id)?.status,
+        "cancelled",
+      );
     }),
   );
 
@@ -1564,8 +1657,31 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
         startedAt: now,
         completedAt: now,
       }) as unknown as OrchestrationV2Run;
-    const thread = {
-      id: "thread:pure",
+    const thread: OrchestrationV2AppThread = {
+      id: ThreadId.make("thread:pure"),
+      projectId: ProjectId.make("project:pure"),
+      title: "Arc lead",
+      providerInstanceId: instanceId,
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdBy: "user",
+      creationSource: "web",
+      branch: null,
+      worktreePath: null,
+      lineage: {
+        rootThreadId: ThreadId.make("thread:pure"),
+        parentThreadId: null,
+        relationshipToParent: null,
+      },
+      forkedFrom: null,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      deletedAt: null,
+      settledOverride: null,
+      settledAt: null,
+      lastVisitedAt: null,
       activeProviderThreadId: null,
       arcRun: {
         arc: { number: 1 },
@@ -1574,7 +1690,7 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
         progressAt: iso,
         ceilingSince: iso,
       },
-    } as never;
+    };
     const state = {
       thread,
       runs: [run(1)],
@@ -1583,6 +1699,26 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
       turnItems: [],
     };
     assert.deepEqual(decideArcRunWake(state, "event"), { kind: "continue" });
+    assert.isUndefined(
+      decideArcRunWake(
+        {
+          ...state,
+          thread: {
+            ...thread,
+            parkedWaits: [
+              {
+                id: "wait:future",
+                title: "check the nightly",
+                startedAt: iso,
+                target: { kind: "time", at: "2026-11-08T13:00:00.000Z" },
+              },
+            ],
+          },
+        },
+        "event",
+      ),
+      "a future parked time wait already promises to wake the Arc lead",
+    );
     assert.isUndefined(
       decideArcRunWake(
         {

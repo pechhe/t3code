@@ -489,7 +489,16 @@ it.effect("keeps a release approval card open when its run is recovered", () => 
     const runEvent = committedInput?.events.find((event) => event.type === "run.updated");
     assert.equal(runEvent?.type === "run.updated" ? runEvent.payload.status : null, "cancelled");
     assert.isFalse(
-      committedInput?.events.some((event) => event.type === "turn-item.updated") ?? false,
+      committedInput?.events.some(
+        (event) =>
+          event.type === "turn-item.updated" && event.payload.id === projection.turnItems[0]!.id,
+      ) ?? false,
+    );
+    assert.deepEqual(
+      committedInput?.events
+        .filter((event) => event.type === "turn-item.updated")
+        .map((event) => event.payload.type),
+      ["system_notice"],
     );
   }).pipe(Effect.provide(layer));
 });

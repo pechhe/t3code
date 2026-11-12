@@ -2225,7 +2225,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       );
     return !child.runtimeRequests.some(
       (request) =>
-        request.kind === "user_input" &&
+        request.kind !== "dynamic_tool_call" &&
+        request.kind !== "auth_refresh" &&
         request.status === "pending" &&
         messageId === `message:delegated-task-question:${threadId}:${request.id}`,
     );

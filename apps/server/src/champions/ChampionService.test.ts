@@ -311,6 +311,10 @@ const fixture = Effect.fn("test.championFixture")(() =>
             dispatches.push(command.type);
             return { sequence: 1 } as never;
           }),
+        cancelDelegatedTask: (input) =>
+          Effect.sync(() => {
+            dispatches.push(input.command.type);
+          }),
         stopDelegatedTasks: () => Effect.void,
         isProviderInstanceEnabledForProject: ({ instanceId }) =>
           Effect.succeed(!disabledProviders.has(instanceId)),
