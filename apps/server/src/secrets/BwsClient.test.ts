@@ -11,23 +11,30 @@ const fake = vi.hoisted(() => ({
   update: vi.fn(),
   project: vi.fn(),
   login: vi.fn(),
+  load: vi.fn(),
 }));
-vi.mock("@bitwarden/sdk-napi", () => ({
-  BitwardenClient: class {
-    auth() {
-      return { loginAccessToken: fake.login };
-    }
-    projects() {
-      return { get: fake.project };
-    }
-    secrets() {
-      return { list: fake.list, getByIds: fake.getByIds, get: fake.get, update: fake.update };
-    }
+vi.mock("node:module", () => ({
+  createRequire: () => () => {
+    fake.load();
+    return {
+      BitwardenClient: class {
+        auth() {
+          return { loginAccessToken: fake.login };
+        }
+        projects() {
+          return { get: fake.project };
+        }
+        secrets() {
+          return { list: fake.list, getByIds: fake.getByIds, get: fake.get, update: fake.update };
+        }
+      },
+    };
   },
 }));
 
 it.effect("filters scoped metadata and redacts SDK failures", () =>
   Effect.gen(function* () {
+    fake.load.mockReset();
     fake.login.mockResolvedValue(undefined);
     fake.project.mockResolvedValue({ id: "p", organizationId: "org" });
     fake.list.mockResolvedValue({ data: [{ id: "a" }, { id: "b" }] });
@@ -63,6 +70,23 @@ it.effect("filters scoped metadata and redacts SDK failures", () =>
     }).pipe(
       Effect.provide(BwsClient.layer),
       Effect.provideService(HostProcess.Environment, environment),
+    );
+  }),
+);
+
+it.effect("starts without loading an unavailable native SDK and redacts its load failure", () =>
+  Effect.gen(function* () {
+    fake.load.mockImplementation(() => {
+      throw new Error("native loader private details");
+    });
+    yield* Effect.gen(function* () {
+      const client = yield* BwsClient.BwsClient;
+      const failure = yield* Effect.flip(client.get("a"));
+      assert.equal(failure.reason, "unavailable");
+      assert.notInclude(JSON.stringify(failure), "private details");
+    }).pipe(
+      Effect.provide(BwsClient.layer),
+      Effect.provideService(HostProcess.Environment, { T3CODE_BWS_PROJECT_ID: "p" }),
     );
   }),
 );

@@ -1,4 +1,5 @@
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as NodeModule from "node:module";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- The token file must be checked through the same open descriptor that is read.
 import * as NodeFSP from "node:fs/promises";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- This path is used inside the lazy native SDK boundary.
@@ -45,6 +46,8 @@ export class BwsClient extends Context.Service<
 
 const unavailable = () => new SecretManagementError({ reason: "unavailable" });
 const runFile = NodeUtil.promisify(NodeChildProcess.execFile);
+// The native SDK stays external; single-executables resolve its files through require.
+const requireBws = NodeModule.createRequire(import.meta.url);
 
 export function selectDefaultProject(input: unknown): string {
   if (!Array.isArray(input)) throw new Error("invalid project list");
@@ -121,7 +124,9 @@ export const layer = Layer.effect(
       Effect.flatMap(projectId, (selectedProjectId) =>
         Effect.tryPromise({
           try: async () => {
-            const { BitwardenClient } = await import("@bitwarden/sdk-napi");
+            const { BitwardenClient } = requireBws(
+              "@bitwarden/sdk-napi",
+            ) as typeof import("@bitwarden/sdk-napi");
             const sdk = new BitwardenClient();
             await sdk.auth().loginAccessToken(await accessToken(environment, platform, home, uid));
             const project = await sdk.projects().get(selectedProjectId);

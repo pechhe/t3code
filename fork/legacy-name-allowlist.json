@@ -270,6 +270,11 @@
     "reason": "Links and stored connections made at the old hq.yardsmith.co.uk address still canonicalize."
   },
   {
+    "path": "patches/@cursor__sdk@1.2.0.patch",
+    "category": "captured-fixtures",
+    "reason": "Generated minified vendor symbols contain incidental HQ/Hq tokens; retain the captured patch byte-for-byte, as they are not product terminology."
+  },
+  {
     "path": "pnpm-lock.yaml",
     "category": "stored-storage-wire",
     "reason": "An integrity hash contains the token by chance; changing it would invalidate the package checksum."
