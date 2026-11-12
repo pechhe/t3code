@@ -65,8 +65,8 @@ const environmentQuery = vi.hoisted(() => ({
 }));
 vi.mock(import("~/state/query"), async (original) => ({
   ...(await original()),
-  useEnvironmentQuery: (() => ({
-    data: environmentQuery.data,
+  useEnvironmentQuery: ((query: unknown) => ({
+    data: query === null ? null : environmentQuery.data,
     dataUpdatedAt: 0,
     error: environmentQuery.error,
     failure: null,
@@ -218,7 +218,7 @@ async function click(element: HTMLElement) {
 
 function setup({ scheduledTasks = [] as ReadonlyArray<{ id: string; title: string }> } = {}) {
   environmentQuery.error = "Pull request not found";
-  environmentQuery.data = { tasks: scheduledTasks };
+  environmentQuery.data = { tasks: scheduledTasks, threads: [] };
 }
 
 const TASK_ID = ScheduledTaskId.make("task-1");
@@ -1284,10 +1284,26 @@ const AGENT_MESSAGE = "Review finished\n\nThe migration drops the index before b
 describe("MessagesTimeline agent messages", () => {
   it("folds a message from another agent into a one-line preview", async () => {
     setup();
+    const managedSenderId = ThreadId.make("managed-sender");
+    // An idle child is absent from the initial shell and arrives through the family query.
+    environmentQuery.data = {
+      threads: [
+        {
+          id: managedSenderId,
+          title: "Implementer · Sharing repair",
+          agentTask: { role: "implementer" },
+        },
+      ],
+    };
     const onOpenThread = vi.fn();
     await using screen = await renderTimeline(
       [
         message(AGENT_MESSAGE, { createdBy: "agent", senderThreadId: SENDER_THREAD_ID }),
+        message(
+          "Should sharing use the existing contract?\nEvidence: both callers already support it.",
+          { createdBy: "agent", senderThreadId: managedSenderId },
+          "message-managed",
+        ),
         // Sent from a linked environment this client does not reach.
         message(
           "Linked review finished",
@@ -1317,6 +1333,14 @@ describe("MessagesTimeline agent messages", () => {
 
     await click(screen.button(/^Agent/));
     expect(screen.text()).not.toContain("drops the index");
+
+    const managedRow = screen.button(/^Implementer.*Sharing repair/);
+    expect(managedRow.textContent).toContain("Should sharing use the existing contract?");
+    await click(managedRow);
+    expect(screen.text()).toContain("Evidence: both callers already support it.");
+    await click(screen.button("Open thread"));
+    expect(onOpenThread).toHaveBeenLastCalledWith(managedSenderId, ENVIRONMENT_ID);
+    await click(managedRow);
 
     // The linked sender shows the title it sent, and its thread cannot be opened from here.
     await click(screen.button(/^Release lead/));

@@ -4,6 +4,7 @@ import { filePreviewKind } from "@t3tools/shared/filePreview";
 import { remarkEnableOrderedListNumbers } from "@t3tools/shared/markdownPipeline";
 import { findRevealRef } from "./markdownFindContext";
 import {
+  agentTaskTopic,
   type EnvironmentId,
   type MessageId,
   type ScheduledTaskId,
@@ -15,6 +16,7 @@ import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-mes
 import { Link } from "@tanstack/react-router";
 import { useQuietThreadShell } from "../../state/entities";
 import { useEnvironment } from "../../state/environments";
+import { threadFamilies } from "../../state/threads";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
@@ -30,6 +32,7 @@ import {
   isVideoAttachment,
 } from "../../types";
 import ChatMarkdown from "../ChatMarkdown";
+import { AgentRoleChip } from "../AgentRoleChip";
 import {
   CalendarClockIcon,
   ChevronDownIcon,
@@ -403,6 +406,7 @@ export function useScheduledTaskTitle(
 
 export function FoldedMessageHeader(props: {
   icon: LucideIcon;
+  leading?: ReactNode;
   label: string;
   summary: string;
   expanded: boolean;
@@ -417,8 +421,10 @@ export function FoldedMessageHeader(props: {
       onClick={props.onToggle}
       className="flex w-full min-w-0 items-center gap-1.5 rounded-2xl px-3 py-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-ring"
     >
-      <Icon className="size-4 shrink-0 stroke-2 text-muted-foreground" />
-      <span className="max-w-1/2 shrink-0 truncate text-muted-foreground">{props.label}</span>
+      <span className="flex max-w-1/2 min-w-0 shrink-0 items-center gap-1.5">
+        {props.leading ?? <Icon className="size-4 shrink-0 stroke-2 text-muted-foreground" />}
+        <span className="min-w-0 truncate text-muted-foreground">{props.label}</span>
+      </span>
       <span className="min-w-0 flex-1 truncate">{props.summary}</span>
       <ChevronDownIcon
         className={cn(
@@ -510,13 +516,27 @@ function UserMessageTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "me
   );
   const revealFoldRef = findRevealRef(() => setExpanded(true));
   const senderShell = useQuietThreadShell(folded ? senderRef : null);
-  const senderLabel =
-    senderShell?.title.trim() || row.message.linkedSender?.title.trim() || "Agent";
   // Only an environment this client is connected to can open the sender's thread there.
   const linkedSenderEnvironment = useEnvironment(row.message.linkedSender?.environmentId ?? null);
   const canOpenSender =
     senderRef !== null &&
     (row.message.linkedSender === undefined || linkedSenderEnvironment !== null);
+  const senderFamily = useEnvironmentQuery(
+    folded && senderShell === null && senderRef !== null && canOpenSender
+      ? threadFamilies.familyAtom(senderRef.environmentId, senderRef.threadId)
+      : null,
+  );
+  const senderSource =
+    senderShell?.source ??
+    senderFamily.data?.threads.find((thread) => thread.id === senderRef?.threadId);
+  const senderRole = senderSource?.agentTask?.role;
+  const senderTitle =
+    senderShell?.title.trim() ||
+    senderSource?.title.trim() ||
+    row.message.linkedSender?.title.trim() ||
+    "Agent";
+  const senderLabel =
+    (senderRole ? agentTaskTopic(senderTitle, senderRole) : senderTitle) || senderTitle;
   const resolvedContext = resolveUserMessageContext({ ...row.message, text: userMessage.text });
   const previewImages = userImages.filter((image) => image.name.startsWith("preview-annotation-"));
   const revertTurnCount = row.revertTurnCount;
@@ -948,6 +968,16 @@ function UserMessageTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "me
         {folded ? (
           <FoldedMessageHeader
             icon={MessagesSquareIcon}
+            leading={
+              senderRole ? (
+                <>
+                  <MessagesSquareIcon className="size-4 shrink-0 stroke-2 text-muted-foreground sm:hidden" />
+                  <span className="hidden sm:contents">
+                    <AgentRoleChip role={senderRole} className="flex-none" />
+                  </span>
+                </>
+              ) : undefined
+            }
             label={senderLabel}
             summary={foldSummary}
             expanded={expanded}

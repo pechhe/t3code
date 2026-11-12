@@ -145,6 +145,8 @@ it.effect(
         expect(f.messages.size).toBe(1);
         expect([...f.messages.values()][0]).toMatchObject({
           threadId: parentId,
+          senderThreadId: workerId,
+          adviceDelivery: { workerThreadId: workerId, blocking: true },
           dispatchMode: { type: "queue_after_active" },
         });
         expect(

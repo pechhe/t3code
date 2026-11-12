@@ -2554,8 +2554,8 @@ it.effect(
           }
           assert.isNull(settledTask.result);
           const parent = yield* projections.getThreadProjection(parentId);
-          const wakes = parent.messages.filter((message) =>
-            message.text.includes("requests blocking advice"),
+          const wakes = parent.messages.filter(
+            (message) => message.senderThreadId === task.childThreadId,
           );
           assert.equal(wakes.length, 1);
           assert.equal(wakes[0]!.senderThreadId, task.childThreadId);
