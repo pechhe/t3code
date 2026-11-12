@@ -218,7 +218,10 @@ outcome, with `specRef` and the `specRevision` of the body read. `coverage` says
 whether the review covers the whole landing or Spec (`complete`) or only part
 (`partial`). A follow-up review of material changes since an earlier one sets
 `priorReview` to that review's work ID and source revision, with the same source
-as its `baseRevision`. Use `reviewer` for either scope; it runs read-only with fresh context. Codex and Claude enforce that
+as its `baseRevision`. To record an earlier review's change again against another
+base or source, such as its published commit after landing, also set
+`priorReview.baseRevision` to the base that review used: T3 refuses unless both
+diffs read in the pinned workspace are the same text apart from blob ids and hunk positions. Use `reviewer` for either scope; it runs read-only with fresh context. Codex and Claude enforce that
 read-only access natively; another provider's reviewer runs under its account's
 own permissions.
 

@@ -185,14 +185,20 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       return yield* invalidScope(
         "review.specRef and review.specRevision are required for a spec review",
       );
-    // A delta covers exactly the material changes since the earlier report.
     const prior = review.priorReview;
-    if (prior !== undefined && prior.sourceRevision !== review.baseRevision)
+    const recordsPrior = prior?.baseRevision !== undefined;
+    // A delta covers exactly the material changes since the earlier report. A record of that
+    // report's own change names its base instead; the server proves the two diffs equal.
+    if (prior !== undefined && !recordsPrior && prior.sourceRevision !== review.baseRevision)
       return yield* new AgentRoleError({
         reason: "review-prior-invalid",
-        detail: `review.priorReview.sourceRevision (${prior.sourceRevision}) must equal review.baseRevision (${review.baseRevision}), the revision the earlier report judged`,
+        detail: `review.priorReview.sourceRevision (${prior.sourceRevision}) must equal review.baseRevision (${review.baseRevision}), the revision the earlier report judged; to record the earlier report's change against another base or source, also set review.priorReview.baseRevision to the base it used`,
       });
-    if (prior !== undefined && prior.sourceRevision === request.sourceRevision)
+    if (
+      prior !== undefined &&
+      prior.sourceRevision === request.sourceRevision &&
+      (!recordsPrior || prior.baseRevision === review.baseRevision)
+    )
       return yield* new AgentRoleError({
         reason: "review-prior-invalid",
         detail:

@@ -45,12 +45,21 @@ import {
 const sourceRevision = "fixture-source-commit";
 // What `jj log -r @` / `git rev-parse HEAD` reports; a test may stand in another working copy.
 const workingCopy = { output: sourceRevision };
+// The diff `git diff <from> <to>` prints, keyed "<from>..<to>"; an absent pair cannot be read.
+const diffs: Record<string, string> = {};
 const processes = Layer.succeed(ProcessRunner.ProcessRunner, {
   run: (input) =>
     Effect.succeed({
-      stdout: input.args[0] === "status" ? "" : workingCopy.output + "\n",
+      stdout:
+        input.args[0] === "status"
+          ? ""
+          : input.args[0] === "diff"
+            ? (diffs[input.args.slice(-2).join("..")] ?? "")
+            : workingCopy.output + "\n",
       stderr: "",
-      code: ChildProcessSpawner.ExitCode(0),
+      code: ChildProcessSpawner.ExitCode(
+        input.args[0] === "diff" && !(input.args.slice(-2).join("..") in diffs) ? 128 : 0,
+      ),
       timedOut: false,
       stdoutTruncated: false,
       stderrTruncated: false,
@@ -1734,6 +1743,46 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       // The policy starts an Opus caller's advisor with Astra; others follow the list.
       expect((yield* advisorFor("claude-opus-test")).selection?.model).toBe("gpt-astra-test");
       expect((yield* advisorFor(claudeModel)).selection?.model).toBe("claude-fable-test");
+    }),
+  );
+  it.effect("records an earlier review's change against a new base only when the diffs match", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const source = "b7fb0000b7fb";
+      workingCopy.output = source;
+      const prior = {
+        workId: "review-1",
+        sourceRevision: "42da00004242",
+        baseRevision: "bd7100001bd7",
+      };
+      const recording = (priorReview = prior) =>
+        request({
+          workspacePath: f.workspacePath,
+          role: "reviewer",
+          readOnly: true,
+          sourceRevision: source,
+          review: { ...changeReview, baseRevision: "56520000565", priorReview },
+        });
+      const refusal = (priorReview?: typeof prior) =>
+        f.prepare({ request: recording(priorReview) }).pipe(
+          Effect.flip,
+          Effect.map((error) => error.message),
+        );
+      // Neither diff can be read: the claim of equivalence is refused, never assumed.
+      expect(yield* refusal()).toContain("could not be read");
+      diffs["bd7100001bd7..42da00004242"] = "+one\n";
+      diffs["56520000565..b7fb0000b7fb"] = "+two\n";
+      expect(yield* refusal()).toContain("differ beyond line positions");
+      expect(yield* refusal({ ...prior, baseRevision: "not a commit" })).toContain("hex");
+      // Whitespace is behaviour in some files, so a whitespace-only difference is not equal.
+      diffs["bd7100001bd7..42da00004242"] = "@@ -1,2 +1,2 @@ fn\n+ one\n";
+      diffs["56520000565..b7fb0000b7fb"] = "@@ -9,2 +9,2 @@ fn\n+one\n";
+      expect(yield* refusal()).toContain("differ beyond line positions");
+      // Blob ids and hunk positions follow the base, so they do not count.
+      diffs["56520000565..b7fb0000b7fb"] = "index 1..2 100644\n@@ -9,2 +9,2 @@ fn\n+ one\n";
+      yield* f.prepare({ request: recording() });
+      workingCopy.output = sourceRevision;
+      for (const key of Object.keys(diffs)) delete diffs[key];
     }),
   );
 });

@@ -256,6 +256,11 @@ its revision and the role names, or the reason the policy is refused.
   scopes it compares. A trial created
   before scopes existed admits only reviews that declare none, so the two kinds
   of review are never pooled.
+- A follow-up cannot change a reviewer's scope, so it stays attributed to Forge as
+  the scope it started with (a `change` reviewer is `ticket-reviewer`, and what it
+  records for a Spec is `relayed`, never counting). Start a fresh `spec` reviewer
+  for a Spec review. A fresh reviewer records an earlier review's change against its
+  published commit with `priorReview.baseRevision`, which T3 checks by comparing both diffs.
 - Reviews always use fresh independent context. Their read-only source access is
   required by dispatch through the provider's enforcement declaration, including
   explicit choices and resumes. Keep `preferOtherAuthorProvider` in mind when

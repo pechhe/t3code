@@ -54,7 +54,7 @@ import {
 } from "./workspaceIdentity.ts";
 
 export const sourceRevisionGuidance =
-  "The workspace is not at the stated sourceRevision, or its git tree is not clean. Pass the full commit id of the checkout: `jj log -r @ --no-graph -T commit_id` in a jj workspace, or `git rev-parse HEAD` in a clean git checkout.";
+  "The workspace is not at the stated sourceRevision, or its git tree is not clean. Pass the full commit id of the checkout: `jj log -r @ --no-graph -T commit_id` in a jj workspace, or `git rev-parse HEAD` in a clean git checkout. To review a past commit such as a published one, make a fresh workspace and move it there first (`jj new <commit>`, or `git checkout --detach <commit>`).";
 
 const isAgentRoleError = Schema.is(Resolver.AgentRoleError);
 const isPolicyLoadError = Schema.is(Policy.AgentPolicyLoadError);
@@ -564,6 +564,65 @@ const make = Effect.gen(function* () {
     },
     Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })),
   );
+  /**
+   * A review that records an earlier report's change against another base or source claims the
+   * two diffs are one change. Never trust the claim: both must resolve here and share a patch id.
+   */
+  const verifyRecordedReview = Effect.fn("ManagedAgentService.verifyRecordedReview")(function* (
+    request: AgentTaskRequest,
+  ) {
+    const review = request.review;
+    const prior = review?.priorReview;
+    if (review === undefined || prior?.baseRevision === undefined) return;
+    const unverified = (why: string) =>
+      refuse(
+        `review.priorReview.baseRevision is set, so the earlier review's diff (${prior.baseRevision}..${prior.sourceRevision}) must equal this one (${review.baseRevision}..${request.sourceRevision}), but ${why}`,
+      );
+    const revisions = [
+      prior.baseRevision,
+      prior.sourceRevision,
+      review.baseRevision,
+      request.sourceRevision ?? "",
+    ];
+    if (!revisions.every((revision) => /^[0-9a-f]{7,64}$/i.test(revision)))
+      return yield* unverified("each of the four revisions must be a commit id in hex");
+    // Exact text with only the blob ids and hunk positions removed, which a different base
+    // shifts: `git patch-id` also ignores whitespace, which changes behaviour in some files.
+    const changeText = Effect.fn("ManagedAgentService.changeText")(
+      function* (from: string, to: string) {
+        const diff = yield* processes.run({
+          command: "git",
+          args: ["diff", "--binary", "--no-color", "--no-ext-diff", from, to],
+          cwd: request.workspacePath,
+          timeout: "30 seconds",
+          maxOutputBytes: 16 * 1024 * 1024,
+        });
+        if (
+          diff.code !== 0 ||
+          diff.stdoutInvalidUtf8 ||
+          diff.stdoutTruncated ||
+          diff.stdout.trim() === ""
+        )
+          return undefined;
+        return diff.stdout
+          .split("\n")
+          .filter((line) => !line.startsWith("index "))
+          .map((line) => line.replace(/^@@ -\S+ \+\S+ @@/, "@@"))
+          .join("\n");
+      },
+      Effect.orElseSucceed(() => undefined),
+    );
+    const [earlier, recorded] = yield* Effect.all([
+      changeText(prior.baseRevision, prior.sourceRevision),
+      changeText(review.baseRevision, request.sourceRevision ?? ""),
+    ]);
+    if (earlier === undefined || recorded === undefined)
+      return yield* unverified("a diff could not be read here, or is empty or too large");
+    if (earlier !== recorded)
+      return yield* unverified(
+        "the diffs differ beyond line positions, so this is not the same change: review the delta as a new review",
+      );
+  });
   const isolatedLaunches = yield* Semaphore.make(1);
   /** Only the roles a policy configures; an optional role it leaves out is not offered. */
   const configuredRoles = (snapshot: AgentPolicySnapshot) =>
@@ -880,6 +939,7 @@ const make = Effect.gen(function* () {
         input,
         input.request.readOnly !== true && role.sourceAccess === "scoped-write",
       );
+      if (input.recordedBinding === undefined) yield* verifyRecordedReview(input.request);
       const context = yield* execution(
         input,
         input.recordedBinding ?? input.request,

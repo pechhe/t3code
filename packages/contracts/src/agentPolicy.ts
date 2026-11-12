@@ -644,9 +644,18 @@ export const AgentReviewRequest = Schema.Struct({
   specRevision: Schema.optional(TrimmedNonEmptyString),
   /** `partial` declares that the included changes do not cover the whole Spec or landing. */
   coverage: Schema.Literals(["complete", "partial"]),
-  /** A delta review of material changes since an earlier report of the same scope. */
+  /**
+   * A delta review of material changes since an earlier report of the same scope, whose
+   * `sourceRevision` is then this review's `baseRevision`. With `baseRevision` the earlier
+   * report's own base, it instead records that report's change again against another base or
+   * source (its published commit after landing): T3 refuses unless both diffs read the same apart from hunk positions.
+   */
   priorReview: Schema.optional(
-    Schema.Struct({ workId: TrimmedNonEmptyString, sourceRevision: TrimmedNonEmptyString }),
+    Schema.Struct({
+      workId: TrimmedNonEmptyString,
+      sourceRevision: TrimmedNonEmptyString,
+      baseRevision: Schema.optional(TrimmedNonEmptyString),
+    }),
   ),
   /** `false` asks for one reviewer where the policy would sit a council. */
   council: Schema.optional(Schema.Boolean),

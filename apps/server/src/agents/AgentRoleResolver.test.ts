@@ -453,6 +453,14 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       );
       expect(nothingNew.reason).toBe("review-prior-invalid");
       expect(nothingNew.detail).toContain("nothing new to review");
+      // Recording the earlier report's change against another base (its published commit)
+      // names that report's own base; the server proves the diffs equal.
+      yield* resolve(
+        reviewer({
+          priorReview: { ...prior, baseRevision: "earlier-base" },
+          baseRevision: "published-parent",
+        }),
+      );
       // Each scope problem names its field and the scope or shape the role takes.
       expect((yield* refusal(reviewer(spec, specReviewer))).detail).toContain("review.specRef");
       expect((yield* refusal(reviewer({ includedChanges: [] }))).detail).toContain(
