@@ -26,6 +26,7 @@ export interface VerifyResult {
   readonly receipt: unknown;
 }
 
+// @effect-diagnostics-next-line extendsNativeError:off - This plain Node gate never puts GitError in an Effect failure channel.
 class GitError extends Error {}
 
 function git(repo: string, args: ReadonlyArray<string>): string {

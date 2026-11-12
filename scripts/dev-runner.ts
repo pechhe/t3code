@@ -737,9 +737,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   const workspace = resolveWorkspacePath(cwd);
   const worktreePath = yield* explicitHome === undefined
     ? workspace
-    : workspace.pipe(
-        Effect.catchTags({ AmbiguousAgentWorkspaceError: () => Effect.succeed(undefined) }),
-      );
+    : workspace.pipe(Effect.catchTags({ AmbiguousAgentWorkspaceError: () => Effect.undefined }));
 
   const { offset, source } = yield* resolveOffset({
     portOffset,
