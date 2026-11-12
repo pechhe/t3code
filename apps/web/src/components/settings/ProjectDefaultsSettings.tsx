@@ -3,6 +3,7 @@ import {
   type EnvironmentId,
   type ModelSelection,
   SLIPJAY_PROJECT_FILE_NAME,
+  type VersionControlPreference,
   type WorktreeSubmodules,
   managedRuntimeModeDenial,
 } from "@t3tools/contracts";
@@ -87,6 +88,11 @@ function WorkspaceProviderRow({
   );
 }
 
+const VERSION_CONTROL_LABELS: Record<VersionControlPreference, string> = {
+  git: "Git",
+  slipjay: "SlipJay (Jujutsu)",
+};
+
 export function ProjectDefaultsSettings({ category }: { category: ProjectSettingsCategory }) {
   const { scope, target, targets, connectedEnvironments } = useSettingsScope();
   const settings = useScopedSettings();
@@ -140,6 +146,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const mixedPermissions = useScopedSettingsMixed(["defaultRuntimeMode"]);
   const PermissionIcon = runtimeModeConfig[settings.defaultRuntimeMode].icon;
   const mixedWorkspace = useScopedSettingsMixed(["defaultThreadEnvMode"]);
+  const mixedVersionControl = useScopedSettingsMixed(["versionControl"]);
   const mixedAutoPull = useScopedSettingsMixed(["defaultAutoPull"]);
   const mixedAgentCredits = useScopedSettingsMixed(["removeAgentCreditsOnMerge"]);
   const mixedMergeMethod = useScopedSettingsMixed(["pullRequestMergeMethod"]);
@@ -461,6 +468,48 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
               workspaceRoot={member.workspaceRoot}
             />
           ) : null}
+          <SettingsRow
+            serverScoped
+            settingKeys={["versionControl"]}
+            mixed={mixedVersionControl}
+            {...searchableSetting("version-control-preference")}
+            description={
+              isProjectScope
+                ? "Git works as usual in either mode. SlipJay also offers to convert this project's Git checkout to Jujutsu."
+                : "Git works as usual in either mode. SlipJay also offers to convert Git projects to Jujutsu. Projects can override it."
+            }
+            resetAction={
+              settings.versionControl !== DEFAULT_SERVER_SETTINGS.versionControl ? (
+                <SettingResetButton
+                  label="version control"
+                  onClick={() =>
+                    updateSettings({ versionControl: DEFAULT_SERVER_SETTINGS.versionControl })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <Select
+                value={mixedVersionControl ? null : settings.versionControl}
+                onValueChange={(value) => {
+                  if (value === "git" || value === "slipjay")
+                    updateSettings({ versionControl: value });
+                }}
+              >
+                <SelectTrigger size="sm" aria-label="Version control">
+                  <SelectValue>
+                    {(value: VersionControlPreference | null) =>
+                      value === null ? "Mixed" : VERSION_CONTROL_LABELS[value]
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem value="git">{VERSION_CONTROL_LABELS.git}</SelectItem>
+                  <SelectItem value="slipjay">{VERSION_CONTROL_LABELS.slipjay}</SelectItem>
+                </SelectPopup>
+              </Select>
+            }
+          />
           <SettingsRow
             serverScoped
             settingKeys={["defaultAutoPull"]}

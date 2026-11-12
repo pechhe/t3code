@@ -1224,6 +1224,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["agent opens browser device simulator pop into view hide"],
   },
   {
+    id: "version-control-preference",
+    title: "Version control",
+    to: "/settings/source-control",
+    scope: "project-defaults",
+    searchTerms: ["git slipjay jujutsu jj project repository convert banner"],
+  },
+  {
     id: "automatic-pull",
     title: "Automatically pull",
     to: "/settings/source-control",

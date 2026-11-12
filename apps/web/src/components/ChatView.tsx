@@ -1827,15 +1827,18 @@ export default function ChatView(props: ChatViewProps) {
   // attachment.
   const liveIsSlipJay =
     gitStatusAtom === null || selectedWorkspace?.attachment ? undefined : slipJayCheckout !== null;
-  // Only a status that says the checkout is not SlipJay warns, so a loading thread never flashes it.
+  // Git is a supported choice: only a project set to SlipJay is nudged to convert.
   const gitProjectBannerItem: ComposerBannerStackItem | null =
-    liveIsGitRepo === true && liveIsSlipJay === false
+    liveIsGitRepo === true &&
+    liveIsSlipJay === false &&
+    activeProjectSettings.settings.versionControl === "slipjay"
       ? {
           id: "git-project",
           variant: "warning",
           icon: <TriangleAlertIcon />,
           title: "This is a Git project",
-          description: "We are converting everything to Jujutsu with SlipJay.",
+          description:
+            "Set to SlipJay, so it should convert to Jujutsu. Change it in Source control settings.",
         }
       : null;
   // A provider-native subagent cannot take messages: a status bar replaces the

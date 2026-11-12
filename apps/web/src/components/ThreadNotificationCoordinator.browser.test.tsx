@@ -209,6 +209,7 @@ function setup() {
   const router = {
     state: { matches: [{ params: {} }] },
     navigate: state.navigate,
+    subscribe: () => () => {},
   } as unknown as AnyRouter;
   return {
     start: () => {

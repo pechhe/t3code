@@ -1210,6 +1210,10 @@ const SourceControlWritingStyleSetting = Schema.Union([
   LegacySourceControlWritingStyle,
 ]);
 
+/** Which version control a repository is meant to use. "slipjay" also asks Git checkouts to convert. */
+export const VersionControlPreference = Schema.Literals(["git", "slipjay"]);
+export type VersionControlPreference = typeof VersionControlPreference.Type;
+
 export const BranchNamingMode = Schema.Literals(["static", "semantic", "custom"]);
 export type BranchNamingMode = typeof BranchNamingMode.Type;
 
@@ -1319,6 +1323,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "reviewGuideInstructions",
   "sourceControlWritingStyle",
   "removeAgentCreditsOnMerge",
+  "versionControl",
   "branchNamingMode",
   "branchNamePrefix",
   "branchNameInstructions",
@@ -1359,6 +1364,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
   reviewGuideInstructions: Schema.optionalKey(TrimmedString),
   sourceControlWritingStyle: Schema.optionalKey(SourceControlWritingStyleSetting),
   removeAgentCreditsOnMerge: Schema.optionalKey(Schema.Boolean),
+  versionControl: Schema.optionalKey(VersionControlPreference),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),
   branchNamePrefix: Schema.optionalKey(TrimmedString),
   branchNameInstructions: Schema.optionalKey(TrimmedString),
@@ -1729,6 +1735,7 @@ export const ServerSettings = Schema.Struct({
     ),
   ),
   threadTitleInstructions: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  versionControl: VersionControlPreference.pipe(Schema.withDecodingDefault(Effect.succeed("git"))),
   branchNamingMode: BranchNamingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("static" as const)),
   ),
@@ -2275,6 +2282,7 @@ export const ServerSettingsPatch = Schema.Struct({
   ghqCloneLayout: Schema.optionalKey(Schema.Boolean),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   threadTitleInstructions: Schema.optionalKey(TrimmedString),
+  versionControl: Schema.optionalKey(VersionControlPreference),
   branchNamingMode: Schema.optionalKey(BranchNamingMode),
   branchNamePrefix: Schema.optionalKey(TrimmedString),
   branchNameInstructions: Schema.optionalKey(TrimmedString),
