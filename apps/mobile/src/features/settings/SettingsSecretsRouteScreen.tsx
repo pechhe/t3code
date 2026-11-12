@@ -1,13 +1,15 @@
-import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
+import { runAtomCommand, selectEnvironmentQueryData } from "@t3tools/client-runtime/state/runtime";
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
-import { type StaticScreenProps, useFocusEffect } from "@react-navigation/native";
+import { type StaticScreenProps, useFocusEffect, useIsFocused } from "@react-navigation/native";
 import type {
   EnvironmentId,
   SavedSecretMetadata,
+  SecretsListResult,
   TemporarySecretMetadata,
 } from "@t3tools/contracts";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { View } from "react-native";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
 import { SecretValueInput } from "../../components/secrets/SecretValueInput";
@@ -22,6 +24,8 @@ import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { useSettingsEnvironmentFilter } from "./settings-environment-filter";
 import { useSettingsEnvironmentMenu } from "./components/SettingsEnvironmentFilterHeader";
+
+const noInventory = Atom.make(AsyncResult.initial<SecretsListResult>());
 
 const quiet = { reportFailure: false, reportDefect: false } as const;
 
@@ -64,72 +68,87 @@ function EnvironmentSecrets({
   const list = useAtomCommand(serverEnvironment.secretsList, quiet);
   const removeTemporary = useAtomCommand(serverEnvironment.secretsRemoveTemporary, quiet);
   const [tab, setTab] = useState<"saved" | "temporary">("saved");
-  const [projectId, setProjectId] = useState("");
-  const [entries, setEntries] = useState<readonly SavedSecretMetadata[]>([]);
   const [temporary, setTemporary] = useState<readonly TemporarySecretMetadata[]>([]);
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
-  const [cursor, setCursor] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<SavedSecretMetadata | "new" | null>(null);
+  const focused = useIsFocused();
+  const inventoryAtom = serverEnvironment.secretsInventory({
+    environmentId,
+    input: { query: search },
+  });
+  const inventory = useAtomValue(tab === "saved" && focused ? inventoryAtom : noInventory);
+  const data = selectEnvironmentQueryData(inventory);
+  const [pagination, setPagination] = useState<{
+    readonly base: SecretsListResult;
+    readonly entries: readonly SavedSecretMetadata[];
+    readonly nextCursor: string | null;
+  } | null>(null);
+  const page = pagination?.base === data ? pagination : data;
+  const entries = page?.entries ?? [];
+  const projectId = data?.projectId ?? "";
+  const cursor = page?.nextCursor ?? null;
+  const savedBusy = busy || inventory.waiting || inventory._tag === "Initial";
+  const inventoryError =
+    inventory._tag === "Failure"
+      ? data === null
+        ? "Could not load Bitwarden. Check this environment's access and retry."
+        : "Could not refresh saved secrets. Showing the last loaded list."
+      : null;
   const generation = useRef(0);
   useFocusEffect(
     useCallback(
       () => () => {
         generation.current++;
         setSelected(null);
+        setBusy(false);
       },
       [],
     ),
   );
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- fetch metadata for the selected environment and storage tab
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- fetch temporary handoff metadata only while its screen is visible
   useEffect(() => {
+    if (tab !== "temporary" || !focused) return;
     const request = ++generation.current;
-    void (
-      tab === "saved"
-        ? runAtomCommand(
-            registry,
-            serverEnvironment.secretsList,
-            { environmentId, input: { query: search } },
-            quiet,
-          ).then((result) => {
-            if (generation.current !== request) return;
-            if (result._tag === "Success") {
-              setEntries(result.value.entries);
-              setProjectId(result.value.projectId);
-              setCursor(result.value.nextCursor);
-            } else setError("Could not load Bitwarden. Check this environment's access and retry.");
-          })
-        : runAtomCommand(
-            registry,
-            serverEnvironment.secretsListTemporary,
-            { environmentId, input: {} },
-            quiet,
-          ).then((result) => {
-            if (generation.current !== request) return;
-            if (result._tag === "Success") setTemporary(result.value);
-            else setError("Could not load temporary handoffs.");
-          })
-    ).finally(() => {
-      if (generation.current === request) setBusy(false);
+    void runAtomCommand(
+      registry,
+      serverEnvironment.secretsListTemporary,
+      { environmentId, input: {} },
+      quiet,
+    ).then((result) => {
+      if (generation.current !== request) return;
+      setBusy(false);
+      if (result._tag === "Success") setTemporary(result.value);
+      else setError("Could not load temporary handoffs.");
     });
     return () => {
       generation.current++;
     };
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- version explicitly refreshes external inventory metadata
-  }, [registry, environmentId, tab, search, version]);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- version explicitly refreshes external handoff metadata
+  }, [registry, environmentId, tab, focused, version]);
+  function searchSaved() {
+    setPagination(null);
+    setError(null);
+    setSelected(null);
+    if (query === search) registry.refresh(inventoryAtom);
+    else setSearch(query);
+  }
   async function more() {
-    if (!cursor || busy) return;
+    if (!cursor || savedBusy || data === null) return;
     const request = ++generation.current;
     setBusy(true);
     const result = await list({ environmentId, input: { query: search, cursor } });
     if (generation.current !== request) return;
     setBusy(false);
     if (result._tag === "Success") {
-      setEntries((old) => [...old, ...result.value.entries]);
-      setCursor(result.value.nextCursor);
+      setPagination({
+        base: data,
+        entries: [...entries, ...result.value.entries],
+        nextCursor: result.value.nextCursor,
+      });
     } else setError("Could not load more secrets.");
   }
   return (
@@ -143,6 +162,8 @@ function EnvironmentSecrets({
           ]}
           onSelect={(next) => {
             setSelected(null);
+            setBusy(next === "temporary");
+            setError(null);
             setTab(next);
           }}
         />
@@ -156,20 +177,9 @@ function EnvironmentSecrets({
               onChangeText={setQuery}
               autoCorrect={false}
               autoCapitalize="none"
-              onSubmitEditing={() => {
-                setSearch(query);
-                setVersion((v) => v + 1);
-              }}
+              onSubmitEditing={searchSaved}
             />
-            <Button
-              label="Search"
-              tone="secondary"
-              onPress={() => {
-                setSearch(query);
-                setVersion((v) => v + 1);
-                setSelected(null);
-              }}
-            />
+            <Button label="Search" tone="secondary" onPress={searchSaved} />
             <Button
               label="Add secret"
               tone="secondary"
@@ -184,11 +194,16 @@ function EnvironmentSecrets({
                 onPress={() => setSelected(entry)}
               />
             ))}
-            {!busy && !error && entries.length === 0 ? (
+            {data !== null && !error && !inventoryError && entries.length === 0 ? (
               <Text>No saved secrets match this search.</Text>
             ) : null}
             {cursor ? (
-              <Button label="Load more" tone="text" disabled={busy} onPress={() => void more()} />
+              <Button
+                label="Load more"
+                tone="text"
+                disabled={savedBusy}
+                onPress={() => void more()}
+              />
             ) : null}
           </>
         ) : (
@@ -225,13 +240,25 @@ function EnvironmentSecrets({
             </Text>
           </>
         )}
-        {busy ? <Text>Loading…</Text> : null}
-        {error ? <Text accessibilityRole="alert">{error}</Text> : null}
+        {(tab === "saved" ? savedBusy && data === null : busy) ? <Text>Loading…</Text> : null}
+        {tab === "saved" && inventory.waiting && data !== null ? (
+          <Text>Refreshing secrets…</Text>
+        ) : null}
+        {error || (tab === "saved" && inventoryError) ? (
+          <Text accessibilityRole="alert">{error ?? inventoryError}</Text>
+        ) : null}
         <Button
           label="Refresh"
           tone="text"
-          disabled={busy}
-          onPress={() => setVersion((v) => v + 1)}
+          disabled={tab === "saved" ? savedBusy : busy}
+          onPress={() => {
+            setError(null);
+            if (tab === "saved") registry.refresh(inventoryAtom);
+            else {
+              setBusy(true);
+              setVersion((v) => v + 1);
+            }
+          }}
         />
         {selected ? (
           <SecretEditor
@@ -242,7 +269,8 @@ function EnvironmentSecrets({
             close={() => setSelected(null)}
             changed={() => {
               setSelected(null);
-              setVersion((v) => v + 1);
+              setPagination(null);
+              setError(null);
             }}
           />
         ) : null}

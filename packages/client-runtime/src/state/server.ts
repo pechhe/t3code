@@ -25,11 +25,12 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import { AsyncResult, Atom } from "effect/reactivity";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 
 import {
   createAtomCommandScheduler,
   createEnvironmentRpcCommand,
+  createEnvironmentGuardedRpcQueryAtomFamily,
   createEnvironmentQueryAtomFamily,
   createEnvironmentRpcQueryAtomFamily,
   createEnvironmentRpcSubscriptionAtomFamily,
@@ -776,6 +777,19 @@ export function createServerEnvironmentAtoms<R, E>(
 ) {
   const configScheduler = createAtomCommandScheduler();
   const updateScheduler = createAtomCommandScheduler();
+  const secretInventoryVersion = Atom.family((_environmentId: EnvironmentId) =>
+    Atom.make(0).pipe(Atom.keepAlive),
+  );
+  const secretsInventory = createEnvironmentGuardedRpcQueryAtomFamily(runtime, {
+    label: "environment-data:server:secrets:inventory",
+    tag: WS_METHODS.secretsList,
+    refreshTrigger: ({ environmentId }) => secretInventoryVersion(environmentId),
+  });
+  const invalidateSecretInventory = (
+    { environmentId }: { readonly environmentId: EnvironmentId },
+    registry: AtomRegistry.AtomRegistry,
+  ) =>
+    Effect.sync(() => registry.update(secretInventoryVersion(environmentId), (value) => value + 1));
   const configConcurrency = {
     mode: "serial" as const,
     key: ({ environmentId }: { readonly environmentId: string }) => environmentId,
@@ -1829,12 +1843,14 @@ export function createServerEnvironmentAtoms<R, E>(
     answerSavedSecretRequest: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:secrets:answer-saved-request",
       tag: WS_METHODS.secretsAnswerSavedRequest,
+      onSuccess: invalidateSecretInventory,
       concurrency: {
         mode: "singleFlight",
         key: ({ environmentId, input }) =>
           JSON.stringify([environmentId, input.threadId, input.turnItemId]),
       },
     }),
+    secretsInventory,
     secretsList: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:secrets:list",
       tag: WS_METHODS.secretsList,
@@ -1842,6 +1858,7 @@ export function createServerEnvironmentAtoms<R, E>(
     secretsSave: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:secrets:save",
       tag: WS_METHODS.secretsSave,
+      onSuccess: invalidateSecretInventory,
     }),
     secretsReveal: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:secrets:reveal",
@@ -1850,6 +1867,7 @@ export function createServerEnvironmentAtoms<R, E>(
     secretsDelete: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:secrets:delete",
       tag: WS_METHODS.secretsDelete,
+      onSuccess: invalidateSecretInventory,
     }),
     secretsListTemporary: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:secrets:list-temporary",

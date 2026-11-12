@@ -7,6 +7,7 @@ import {
   type ClientGuardedRpcTag,
   EnvironmentId,
   type EnvironmentId as EnvironmentIdType,
+  type WS_METHODS,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -679,16 +680,14 @@ export function createEnvironmentQueryAtomFamily<R, ER, Input, A, E>(
   readonly input: Input;
 }) => Atom.Atom<AsyncResult.AsyncResult<A, E | ER | Error>> {
   const connectionAtom = environmentConnectionAtoms(runtime);
-  const family = Atom.family((key: string) => {
+  const idleTtlMs = options.idleTtlMs ?? 5 * 60_000;
+  // Keep the source reusable even when an idle SWR wrapper is collected.
+  const keepWarm = Atom.setIdleTTL(idleTtlMs);
+  const keepSourceWarm = options.revalidateOnRemount ? keepWarm : identity;
+  const keepWrapperWarm = options.revalidateOnRemount ? identity : keepWarm;
+  const sources = Atom.family((key: string) => {
     const target = parseEnvironmentRpcKey<Input>(key);
-    const idleTtlMs = options.idleTtlMs ?? 5 * 60_000;
-    // `Atom.swr` checks staleness only when its node builds. To revalidate on
-    // remount, the wrappers drop on unmount and the source alone keeps the
-    // cached value warm.
-    const keepWarm = Atom.setIdleTTL(idleTtlMs);
-    const keepSourceWarm = options.revalidateOnRemount ? keepWarm : identity;
-    const keepWrapperWarm = options.revalidateOnRemount ? identity : keepWarm;
-    const queryAtom = runtime
+    return runtime
       .atom<
         A,
         | E
@@ -812,14 +811,17 @@ export function createEnvironmentQueryAtomFamily<R, ER, Input, A, E>(
           );
         });
       })
-      .pipe(
-        keepSourceWarm,
-        Atom.swr({
-          staleTime: options.staleTimeMs ?? 30_000,
-          revalidateOnMount: true,
-        }),
-        keepWrapperWarm,
-      );
+      .pipe(keepSourceWarm);
+  });
+  const family = Atom.family((key: string) => {
+    const target = parseEnvironmentRpcKey<Input>(key);
+    const queryAtom = sources(key).pipe(
+      Atom.swr({
+        staleTime: options.staleTimeMs ?? 30_000,
+        revalidateOnMount: true,
+      }),
+      keepWrapperWarm,
+    );
     const isFinal = (result: AsyncResult.AsyncResult<A, unknown>) =>
       options.isFinal !== undefined && Option.exists(AsyncResult.value(result), options.isFinal);
     const intervalQuery =
@@ -963,6 +965,88 @@ export function createEnvironmentRpcQueryAtomFamily<
       previous: Option.Option<EnvironmentRpcSuccess<TTag>>,
     ) => options.execute?.(input, emit, previous) ?? request(options.tag, input),
   });
+}
+
+// Only metadata reads belong here; mutations and revealed values remain commands.
+type GuardedQueryRpcTag = typeof WS_METHODS.secretsList;
+
+export function createEnvironmentGuardedRpcQueryAtomFamily<R, ER, TTag extends GuardedQueryRpcTag>(
+  runtime: Atom.AtomRuntime<EnvironmentRegistry.EnvironmentRegistry | R, ER>,
+  options: {
+    readonly label: string;
+    readonly tag: TTag;
+    readonly refreshTrigger?: (target: {
+      readonly environmentId: EnvironmentIdType;
+      readonly input: EnvironmentRpcInput<TTag>;
+    }) => Atom.Atom<unknown> | undefined;
+  },
+) {
+  const permissions = createCommandPermissions(runtime, options.tag);
+  const connections = environmentConnectionAtoms(runtime);
+  const refreshes = Atom.family((key: string) =>
+    Atom.make((get) => {
+      const target = parseEnvironmentRpcKey<EnvironmentRpcInput<TTag>>(key);
+      const trigger = options.refreshTrigger?.(target);
+      if (trigger !== undefined) get(trigger);
+      return {};
+    }).pipe(Atom.setIdleTTL(5 * 60_000)),
+  );
+  const makeQueries = (environmentId: EnvironmentIdType) =>
+    createEnvironmentQueryAtomFamily(runtime, {
+      label: options.label,
+      staleTimeMs: 0,
+      revalidateOnRemount: true,
+      refreshTrigger: (target: {
+        readonly environmentId: EnvironmentIdType;
+        readonly input: EnvironmentRpcInput<TTag>;
+      }) => refreshes(environmentRpcKey(target)),
+      execute: Effect.fn("EnvironmentRpcQuery.execute")(function* (
+        input: EnvironmentRpcInput<TTag>,
+      ) {
+        const registry = yield* AtomRegistry.AtomRegistry;
+        return yield* permissions.authorize(registry, environmentId, input).pipe(
+          Effect.andThen(() => requestGuarded(options.tag, input)),
+          Effect.provideService(RpcPermissionGuard, {
+            authorize: (id, method, payload) =>
+              createCommandPermissions(runtime, method).authorize(registry, id, payload),
+          }),
+        );
+      }),
+    });
+  const queriesBySession = new WeakMap<
+    RpcSession.RpcSession,
+    Map<EnvironmentIdType, ReturnType<typeof makeQueries>>
+  >();
+  const family = Atom.family((key: string) => {
+    const target = parseEnvironmentRpcKey<EnvironmentRpcInput<TTag>>(key);
+    return Atom.transform(refreshes(key), (get) => {
+      get(refreshes(key));
+      const connection = AsyncResult.getOrElse(get(connections(target.environmentId)), () => null);
+      const session = connection === null ? null : Option.getOrNull(connection[1]);
+      const allowed = get(permissions.permissionAtom(target.environmentId, target.input));
+      if (session === null || !allowed) {
+        return AsyncResult.initial<
+          EnvironmentRpcSuccess<TTag>,
+          EnvironmentRpcFailure<TTag> | ER | Error
+        >();
+      }
+      let byEnvironment = queriesBySession.get(session);
+      if (byEnvironment === undefined) {
+        byEnvironment = new Map();
+        queriesBySession.set(session, byEnvironment);
+      }
+      let queries = byEnvironment.get(target.environmentId);
+      if (queries === undefined) {
+        queries = makeQueries(target.environmentId);
+        byEnvironment.set(target.environmentId, queries);
+      }
+      return get(queries(target));
+    }).pipe(Atom.withLabel(`${options.label}:authorized:${key}`));
+  });
+  return (target: {
+    readonly environmentId: EnvironmentIdType;
+    readonly input: EnvironmentRpcInput<TTag>;
+  }) => family(environmentRpcKey(target));
 }
 
 export function createEnvironmentRpcSubscriptionAtomFamily<

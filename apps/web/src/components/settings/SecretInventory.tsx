@@ -1,9 +1,10 @@
 import { SecretValueInput } from "../secrets/SecretValueInput";
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
-import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
+import { runAtomCommand, selectEnvironmentQueryData } from "@t3tools/client-runtime/state/runtime";
 import type {
   EnvironmentId,
   SavedSecretMetadata,
+  SecretsListResult,
   TemporarySecretMetadata,
 } from "@t3tools/contracts";
 import { useContext, useEffect, useRef, useState, type FormEvent } from "react";
@@ -21,67 +22,63 @@ export function SavedSecretInventory({ environmentId }: { readonly environmentId
   const registry = useContext(RegistryContext);
   const canList = useAtomValue(serverEnvironment.secretsList.permissionAtom(environmentId));
   const canSave = useAtomValue(serverEnvironment.secretsSave.permissionAtom(environmentId));
-  const [entries, setEntries] = useState<readonly SavedSecretMetadata[]>([]);
-  const [projectId, setProjectId] = useState("");
-  const [cursor, setCursor] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
-  const [version, setVersion] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<SavedSecretMetadata | "new" | null>(null);
+  const inventoryAtom = serverEnvironment.secretsInventory({
+    environmentId,
+    input: { query: activeQuery },
+  });
+  const inventory = useAtomValue(inventoryAtom);
+  const data = selectEnvironmentQueryData(inventory);
+  const [pagination, setPagination] = useState<{
+    readonly base: SecretsListResult;
+    readonly entries: readonly SavedSecretMetadata[];
+    readonly nextCursor: string | null;
+  } | null>(null);
+  const page = pagination?.base === data ? pagination : data;
+  const entries = page?.entries ?? [];
+  const projectId = data?.projectId ?? "";
+  const cursor = page?.nextCursor ?? null;
+  const [moreBusy, setMoreBusy] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
+  const loading = moreBusy || inventory.waiting || inventory._tag === "Initial";
+  const error =
+    moreError ??
+    (inventory._tag === "Failure"
+      ? data === null
+        ? "Could not load saved secrets. Check Bitwarden access and try again."
+        : "Could not refresh saved secrets. Showing the last loaded list."
+      : null);
   const sequence = useRef(0);
-
-  // The inventory is external server state; discard replies from superseded searches and unmounts.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- synchronize the selected environment's inventory
-  useEffect(() => {
-    const request = ++sequence.current;
-    void runAtomCommand(
-      registry,
-      serverEnvironment.secretsList,
-      {
-        environmentId,
-        input: { query: activeQuery },
-      },
-      quiet,
-    ).then((result) => {
-      if (sequence.current !== request) return;
-      setLoading(false);
-      if (result._tag === "Success") {
-        setEntries(result.value.entries);
-        setProjectId(result.value.projectId);
-        setCursor(result.value.nextCursor);
-      } else {
-        setEntries([]);
-        setCursor(null);
-        setError("Could not load saved secrets. Check Bitwarden access and try again.");
-      }
-    });
-    return () => {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- discard outstanding pagination when this inventory unmounts
+  useEffect(
+    () => () => {
       sequence.current++;
-    };
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- version explicitly refreshes external inventory metadata
-  }, [registry, environmentId, activeQuery, version]);
+    },
+    [],
+  );
 
   async function more() {
-    if (cursor === null || loading) return;
+    if (cursor === null || loading || data === null) return;
     const request = ++sequence.current;
-    setLoading(true);
+    setMoreBusy(true);
+    setMoreError(null);
     const result = await runAtomCommand(
       registry,
       serverEnvironment.secretsList,
-      {
-        environmentId,
-        input: { query: activeQuery, cursor },
-      },
+      { environmentId, input: { query: activeQuery, cursor } },
       quiet,
     );
     if (sequence.current !== request) return;
-    setLoading(false);
+    setMoreBusy(false);
     if (result._tag === "Success") {
-      setEntries((current) => [...current, ...result.value.entries]);
-      setCursor(result.value.nextCursor);
-    } else setError("Could not load more secrets. Try again.");
+      setPagination({
+        base: data,
+        entries: [...entries, ...result.value.entries],
+        nextCursor: result.value.nextCursor,
+      });
+    } else setMoreError("Could not load more secrets. Try again.");
   }
 
   if (!canList)
@@ -114,9 +111,9 @@ export function SavedSecretInventory({ environmentId }: { readonly environmentId
             onSubmit={(event) => {
               event.preventDefault();
               setSelected(null);
-              setLoading(true);
-              setError(null);
-              if (query === activeQuery) setVersion((value) => value + 1);
+              setPagination(null);
+              setMoreError(null);
+              if (query === activeQuery) registry.refresh(inventoryAtom);
               else setActiveQuery(query);
             }}
           >
@@ -135,10 +132,15 @@ export function SavedSecretInventory({ environmentId }: { readonly environmentId
               {error}
             </p>
           ) : null}
-          {loading && entries.length === 0 ? (
+          {loading && data === null ? (
             <p className="text-sm text-muted-foreground">Loading secrets…</p>
           ) : null}
-          {!loading && !error && entries.length === 0 ? (
+          {inventory.waiting && data !== null ? (
+            <p role="status" className="text-sm text-muted-foreground">
+              Refreshing secrets…
+            </p>
+          ) : null}
+          {data !== null && !error && entries.length === 0 ? (
             <p className="text-sm text-muted-foreground">No saved secrets match this search.</p>
           ) : null}
         </div>
@@ -171,8 +173,8 @@ export function SavedSecretInventory({ environmentId }: { readonly environmentId
           onClose={() => setSelected(null)}
           onChanged={() => {
             setSelected(null);
-            setLoading(true);
-            setVersion((value) => value + 1);
+            setPagination(null);
+            setMoreError(null);
           }}
         />
       ) : null}

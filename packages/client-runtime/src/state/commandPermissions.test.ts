@@ -15,6 +15,7 @@ import {
   AuthPreviewOperateScope,
   AuthProvidersManageScope,
   AuthSettingsWriteScope,
+  SecretManagementError,
   AuthSourceControlWriteScope,
   ThreadId,
   EnvironmentId,
@@ -29,10 +30,13 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Latch from "effect/Latch";
 import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
 import { EnvironmentRegistry } from "../connection/registry.ts";
 import { createCommandPermissions } from "./commandPermissions.ts";
-import { createEnvironmentRpcCommand } from "./runtime.ts";
+import { createEnvironmentRpcCommand, selectEnvironmentQueryData } from "./runtime.ts";
+import { createServerEnvironmentAtoms } from "./server.ts";
+import * as Persistence from "../platform/persistence.ts";
 import { AVAILABLE_CONNECTION_STATE, BearerConnectionTarget } from "../connection/model.ts";
 import { createPeerLinkEnvironmentAtoms } from "./peerLinks.ts";
 
@@ -716,6 +720,255 @@ it.effect("requires both destination grants to detach a workspace", () =>
       expect((yield* permission.authorize(registry, other).pipe(Effect.flip))._tag).toBe(
         "EnvironmentAuthorizationError",
       );
+    }),
+  ),
+);
+
+const secretMetadata = (key: string) => ({
+  id: key,
+  key,
+  projectId: "project",
+  browserLogin: false,
+});
+const secretPage = (key: string) => ({
+  projectId: "project",
+  entries: [secretMetadata(key)],
+  nextCursor: null,
+});
+const makeSecretInventoryHarness = Effect.fn("TestSecretInventory.makeHarness")(function* (
+  client: Readonly<Record<string, unknown>>,
+) {
+  const registry = yield* setup;
+  registry.set(
+    sessions(env),
+    AsyncResult.success({
+      ...grant(false),
+      scopes: [AuthSettingsWriteScope],
+      permissions: [AuthSettingsWriteScope],
+    }),
+  );
+  const supervisor = {
+    target: new BearerConnectionTarget({ environmentId: env, label: "Test", connectionId: "test" }),
+    session: yield* SubscriptionRef.make(Option.some({ client } as unknown as RpcSession)),
+    state: yield* SubscriptionRef.make({
+      ...AVAILABLE_CONNECTION_STATE,
+      phase: "connected" as const,
+    }),
+  } as EnvironmentSupervisor["Service"];
+  const otherSupervisor = {
+    ...supervisor,
+    target: new BearerConnectionTarget({
+      environmentId: other,
+      label: "Other",
+      connectionId: "other",
+    }),
+    session: yield* SubscriptionRef.make(
+      Option.some({
+        client: { [WS_METHODS.secretsList]: () => Effect.succeed(secretPage("OTHER_ENVIRONMENT")) },
+      } as unknown as RpcSession),
+    ),
+  };
+  const inventoryRuntime = Atom.runtime(
+    Layer.mergeAll(
+      Layer.succeed(EnvironmentRegistry, {
+        run: (id, effect) => {
+          return Effect.provideService(
+            effect,
+            EnvironmentSupervisor,
+            id === env ? supervisor : otherSupervisor,
+          );
+        },
+        followStream: (id, stream) => {
+          return Stream.provideService(
+            stream,
+            EnvironmentSupervisor,
+            id === env ? supervisor : otherSupervisor,
+          );
+        },
+      } as EnvironmentRegistry["Service"]),
+      Layer.succeed(
+        Persistence.EnvironmentCacheStore,
+        {} as Persistence.EnvironmentCacheStore["Service"],
+      ),
+    ),
+  );
+  const atoms = createServerEnvironmentAtoms(inventoryRuntime, {
+    initialConfigValueAtom: () => Atom.make(null),
+  });
+  const atom = atoms.secretsInventory({ environmentId: env, input: { query: "" } });
+  // Queue behind SWR's registry task so remount assertions observe revalidation.
+  const scheduled = Effect.callback<void>((resume) => {
+    registry.schedulerAsync.makeDispatcher().scheduleTask(() => resume(Effect.void), 0);
+  });
+  const read = AtomRegistry.getResult(registry, atom, { suspendOnWaiting: true });
+  return { registry, supervisor, atoms, atom, scheduled, read };
+});
+
+it.effect(
+  "shows cached secret metadata on remount while refreshing, retains it on failure, and isolates searches",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        let response: Effect.Effect<
+          ReturnType<typeof secretPage>,
+          SecretManagementError
+        > = Effect.succeed(secretPage("FIRST"));
+        const list = vi.fn(() => response);
+        const h = yield* makeSecretInventoryHarness({ [WS_METHODS.secretsList]: list });
+        const close = h.registry.mount(h.atom);
+        expect(yield* h.read).toEqual(secretPage("FIRST"));
+        close();
+        yield* h.scheduled;
+        const refreshStarted = yield* Latch.make();
+        const finish = yield* Latch.make();
+        response = refreshStarted.open.pipe(
+          Effect.andThen(finish.await),
+          Effect.andThen(Effect.succeed(secretPage("UPDATED"))),
+        );
+        h.registry.set(sessions(env), AsyncResult.initial());
+        h.registry.mount(h.atom);
+        h.registry.set(
+          sessions(env),
+          AsyncResult.success({
+            ...grant(false),
+            scopes: [AuthSettingsWriteScope],
+            permissions: [AuthSettingsWriteScope],
+          }),
+        );
+        expect(selectEnvironmentQueryData(h.registry.get(h.atom))).toEqual(secretPage("FIRST"));
+        yield* refreshStarted.await;
+        yield* h.scheduled;
+        expect(h.registry.get(h.atom)).toMatchObject({
+          _tag: "Success",
+          value: secretPage("FIRST"),
+          waiting: true,
+        });
+        yield* finish.open;
+        expect(yield* h.read).toEqual(secretPage("UPDATED"));
+        response = Effect.fail(new SecretManagementError({ reason: "unavailable" }));
+        h.registry.refresh(h.atom);
+        yield* h.scheduled;
+        yield* AtomRegistry.getResult(h.registry, h.atom, { suspendOnWaiting: true }).pipe(
+          Effect.flip,
+        );
+        expect(selectEnvironmentQueryData(h.registry.get(h.atom))).toEqual(secretPage("UPDATED"));
+        const searchStarted = yield* Latch.make();
+        const finishSearch = yield* Latch.make();
+        response = searchStarted.open.pipe(
+          Effect.andThen(finishSearch.await),
+          Effect.as(secretPage("MATCH")),
+        );
+        const searched = h.atoms.secretsInventory({
+          environmentId: env,
+          input: { query: "MATCH" },
+        });
+        h.registry.mount(searched);
+        yield* searchStarted.await;
+        expect(selectEnvironmentQueryData(h.registry.get(searched))).toBeNull();
+        yield* finishSearch.open;
+        expect(
+          yield* AtomRegistry.getResult(h.registry, searched, { suspendOnWaiting: true }),
+        ).toEqual(secretPage("MATCH"));
+        h.registry.set(
+          sessions(other),
+          AsyncResult.success({
+            ...grant(false),
+            scopes: [AuthSettingsWriteScope],
+            permissions: [AuthSettingsWriteScope],
+          }),
+        );
+        const otherQuery = h.atoms.secretsInventory({ environmentId: other, input: { query: "" } });
+        h.registry.mount(otherQuery);
+        expect(
+          yield* AtomRegistry.getResult(h.registry, otherQuery, { suspendOnWaiting: true }),
+        ).toEqual(secretPage("OTHER_ENVIRONMENT"));
+        expect(selectEnvironmentQueryData(h.registry.get(h.atom))).toEqual(secretPage("UPDATED"));
+      }),
+    ),
+);
+
+it.effect(
+  "hides cached secret metadata after grant loss and does not reuse it across RPC sessions",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const list = vi.fn(() => Effect.succeed(secretPage("OLD_SESSION")));
+        const h = yield* makeSecretInventoryHarness({ [WS_METHODS.secretsList]: list });
+        h.registry.mount(h.atom);
+        expect(yield* h.read).toEqual(secretPage("OLD_SESSION"));
+        h.registry.set(sessions(env), AsyncResult.success(grant(false)));
+        expect(selectEnvironmentQueryData(h.registry.get(h.atom))).toBeNull();
+        expect(list).toHaveBeenCalledTimes(1);
+        const started = yield* Latch.make();
+        const finish = yield* Latch.make();
+        const client = {
+          [WS_METHODS.secretsList]: () =>
+            started.open.pipe(Effect.andThen(finish.await), Effect.as(secretPage("NEW_SESSION"))),
+        };
+        yield* SubscriptionRef.set(
+          h.supervisor.session,
+          Option.some({ client } as unknown as RpcSession),
+        );
+        h.registry.set(
+          sessions(env),
+          AsyncResult.success({
+            ...grant(false),
+            scopes: [AuthSettingsWriteScope],
+            permissions: [AuthSettingsWriteScope],
+          }),
+        );
+        yield* started.await;
+        expect(selectEnvironmentQueryData(h.registry.get(h.atom))).toBeNull();
+        yield* finish.open;
+        expect(yield* h.read).toEqual(secretPage("NEW_SESSION"));
+      }),
+    ),
+);
+
+it.effect("refreshes cached secret inventory after successful save and delete commands", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      let entries = [secretMetadata("EXISTING")];
+      const list = vi.fn(() =>
+        Effect.sync(() => ({ projectId: "project", entries, nextCursor: null })),
+      );
+      const h = yield* makeSecretInventoryHarness({
+        [WS_METHODS.secretsList]: list,
+        [WS_METHODS.secretsSave]: () =>
+          Effect.sync(() => {
+            const added = secretMetadata("ADDED");
+            entries = [...entries, added];
+            return added;
+          }),
+        [WS_METHODS.secretsDelete]: () =>
+          Effect.sync(() => {
+            entries = [];
+          }),
+      });
+      h.registry.mount(h.atom);
+      expect((yield* h.read).entries).toEqual([secretMetadata("EXISTING")]);
+      const saved = yield* Effect.promise(() =>
+        h.atoms.secretsSave.run(h.registry, {
+          environmentId: env,
+          input: {
+            key: "ADDED",
+            projectId: "project",
+            secret: "fixture-only",
+            clientRequestId: "save-test",
+          },
+        }),
+      );
+      expect(saved._tag).toBe("Success");
+      expect((yield* h.read).entries).toEqual([
+        secretMetadata("EXISTING"),
+        secretMetadata("ADDED"),
+      ]);
+      const removed = yield* Effect.promise(() =>
+        h.atoms.secretsDelete.run(h.registry, { environmentId: env, input: { id: "ADDED" } }),
+      );
+      expect(removed._tag).toBe("Success");
+      expect((yield* h.read).entries).toEqual([]);
+      expect(list).toHaveBeenCalledTimes(3);
     }),
   ),
 );

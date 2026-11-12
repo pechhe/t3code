@@ -1667,3 +1667,62 @@ describe("persisted environment queries", () => {
     ),
   );
 });
+
+it.effect("retains cached data when an idle SWR wrapper is collected", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const references = new WeakMap<object, { current: object | undefined }>();
+      vi.stubGlobal(
+        "WeakRef",
+        class {
+          current: object | undefined;
+          constructor(value: object) {
+            this.current = value;
+            references.set(value, this);
+          }
+          deref() {
+            return this.current;
+          }
+        },
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(() => vi.unstubAllGlobals()));
+      const h = yield* makeEnvironmentQueryHarness(Effect.void);
+      let response: Effect.Effect<string> = Effect.succeed("cached");
+      const family = createEnvironmentQueryAtomFamily(h.runtime, {
+        label: "test.collected-query-wrapper",
+        staleTimeMs: 0,
+        revalidateOnRemount: true,
+        execute: () => response,
+      });
+      const target = { environmentId: QUERY_ENVIRONMENT.environmentId, input: undefined };
+      let atom: ReturnType<typeof family> | undefined = family(target);
+      const registry = AtomRegistry.make();
+      yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()));
+      const scheduled = Effect.callback<void>((resume) => {
+        registry.schedulerAsync.makeDispatcher().scheduleTask(() => resume(Effect.void), 0);
+      });
+      const close = registry.mount(atom);
+      expect(yield* AtomRegistry.getResult(registry, atom, { suspendOnWaiting: true })).toBe(
+        "cached",
+      );
+      close();
+      yield* scheduled;
+      // Model collection of the disposed wrapper, while the source's idle TTL is still live.
+      const reference = references.get(atom)!;
+      atom = undefined;
+      reference.current = undefined;
+      const started = yield* Latch.make();
+      const finish = yield* Latch.make();
+      response = started.open.pipe(Effect.andThen(finish.await), Effect.as("updated"));
+      const reopened = family(target);
+      registry.mount(reopened);
+      expect(selectEnvironmentQueryData(registry.get(reopened))).toBe("cached");
+      yield* started.await;
+      yield* scheduled;
+      yield* finish.open;
+      expect(yield* AtomRegistry.getResult(registry, reopened, { suspendOnWaiting: true })).toBe(
+        "updated",
+      );
+    }),
+  ),
+);
