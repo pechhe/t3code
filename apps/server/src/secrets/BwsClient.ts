@@ -56,6 +56,16 @@ function redactFailure(cause: unknown) {
     ? new BwsRateLimit()
     : unavailable();
 }
+const inventoryRead = Effect.fn("BwsClient.inventoryRead")(<A>(run: () => Promise<A>) =>
+  Effect.tryPromise({ try: run, catch: redactFailure }).pipe(
+    Effect.retry({
+      while: isBwsRateLimit,
+      times: 2,
+      schedule: Schedule.exponential("2 seconds"),
+    }),
+    Effect.mapError(unavailable),
+  ),
+);
 const runFile = NodeUtil.promisify(NodeChildProcess.execFile);
 // The native SDK stays external; single-executables resolve its files through require.
 const requireBws = NodeModule.createRequire(import.meta.url);
@@ -131,7 +141,6 @@ export const layer = Layer.effect(
         org: string,
         selectedProjectId: string,
       ) => Promise<A>,
-      retryReads = false,
     ) =>
       Effect.flatMap(projectId, (selectedProjectId) =>
         Effect.tryPromise({
@@ -144,38 +153,38 @@ export const layer = Layer.effect(
             const project = await sdk.projects().get(selectedProjectId);
             return f(sdk, project.organizationId, project.id);
           },
-          catch: redactFailure,
-        }).pipe(
-          Effect.retry({
-            while: (error) => retryReads && isBwsRateLimit(error),
-            times: 2,
-            schedule: Schedule.exponential("2 seconds"),
-          }),
-          Effect.mapError(unavailable),
-        ),
+          catch: unavailable,
+        }),
       );
+    // A zero TTL shares pending reads without retaining stale inventory after completion.
+    const inventory = yield* Effect.gen(function* () {
+      const { sdk, org, selectedProjectId } = yield* operation(
+        async (sdk, org, selectedProjectId) => ({
+          sdk,
+          org,
+          selectedProjectId,
+        }),
+      );
+      const identifiers = (yield* inventoryRead(() => sdk.secrets().list(org))).data;
+      const entries: Array<{ id: string; key: string; projectId: string }> = [];
+      for (let i = 0; i < identifiers.length; i += 100) {
+        const ids = identifiers.slice(i, i + 100).map((secret) => secret.id);
+        const batch = (yield* inventoryRead(() => sdk.secrets().getByIds(ids))).data;
+        if (
+          batch.length !== ids.length ||
+          new Set(batch.map((secret) => secret.id)).size !== ids.length ||
+          batch.some((secret) => !ids.includes(secret.id))
+        )
+          return yield* unavailable();
+        for (const secret of batch)
+          if (secret.projectId === selectedProjectId)
+            entries.push({ id: secret.id, key: secret.key, projectId: selectedProjectId });
+      }
+      return entries;
+    }).pipe(Effect.cachedWithTTL(0));
     return BwsClient.of({
       projectId,
-      list: Effect.fn("BwsClient.list")(() =>
-        operation(async (sdk, org, selectedProjectId) => {
-          const identifiers = (await sdk.secrets().list(org)).data;
-          const entries: Array<{ id: string; key: string; projectId: string }> = [];
-          for (let i = 0; i < identifiers.length; i += 100) {
-            const ids = identifiers.slice(i, i + 100).map((s) => s.id);
-            const batch = (await sdk.secrets().getByIds(ids)).data;
-            if (
-              batch.length !== ids.length ||
-              new Set(batch.map((s) => s.id)).size !== ids.length ||
-              batch.some((s) => !ids.includes(s.id))
-            )
-              throw new Error("incomplete listing");
-            for (const secret of batch)
-              if (secret.projectId === selectedProjectId)
-                entries.push({ id: secret.id, key: secret.key, projectId: selectedProjectId });
-          }
-          return entries;
-        }, true),
-      ),
+      list: Effect.fn("BwsClient.list")(() => inventory),
       get: Effect.fn("BwsClient.get")((id: string) => operation((sdk) => sdk.secrets().get(id))),
       create: Effect.fn("BwsClient.create")((key: string, value: string) =>
         operation((sdk, org, selectedProjectId) =>

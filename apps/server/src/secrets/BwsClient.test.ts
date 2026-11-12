@@ -94,14 +94,14 @@ it.effect("starts without loading an unavailable native SDK and redacts its load
 );
 
 it.effect(
-  "recovers a throttled large inventory within a bounded read budget without leaking values",
+  "shares pending inventory reads and retries only the throttled batch without caching later results",
   () =>
     Effect.gen(function* () {
       fake.load.mockReset();
       fake.login.mockResolvedValue(undefined);
       fake.project.mockResolvedValue({ id: "p", organizationId: "org" });
       const identifiers = Array.from({ length: 425 }, (_, index) => ({ id: String(index) }));
-      fake.list.mockResolvedValue({ data: identifiers });
+      fake.list.mockReset().mockResolvedValue({ data: identifiers });
       fake.getByIds.mockReset().mockImplementation(async (ids: string[]) => {
         if (fake.getByIds.mock.calls.length === 2) throw new Error("429 Too Many Requests private");
         return {
@@ -116,15 +116,22 @@ it.effect(
       });
       yield* Effect.gen(function* () {
         const client = yield* BwsClient.BwsClient;
-        const fiber = yield* client.list().pipe(Effect.forkChild);
+        const fiber = yield* Effect.all([client.list(), client.list()], { concurrency: 2 }).pipe(
+          Effect.forkChild,
+        );
         yield* TestClock.adjust("1 minute");
-        const entries = yield* Fiber.join(fiber);
+        const [entries, concurrentEntries] = yield* Fiber.join(fiber);
         assert.deepEqual(
           entries,
           identifiers.map(({ id }) => ({ id, key: `KEY_${id}`, projectId: "p" })),
         );
-        assert.isAtMost(fake.getByIds.mock.calls.length, 7);
+        assert.deepEqual(concurrentEntries, entries);
+        assert.equal(fake.list.mock.calls.length, 1);
+        assert.equal(fake.getByIds.mock.calls.length, 6);
         assert.notInclude(JSON.stringify(entries), "private");
+        fake.list.mockResolvedValue({ data: [] });
+        assert.deepEqual(yield* client.list(), []);
+        assert.equal(fake.list.mock.calls.length, 2);
       }).pipe(
         Effect.provide(BwsClient.layer),
         Effect.provideService(HostProcess.Environment, {
