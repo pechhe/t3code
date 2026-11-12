@@ -2,6 +2,7 @@ import {
   CommandId,
   type OrchestrationV2AppThread,
   type OrchestrationV2DomainEvent,
+  RunId,
   ThreadId,
 } from "@t3tools/contracts";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
@@ -68,6 +69,11 @@ const make = Effect.gen(function* () {
     );
     const decision = decideArcRunWake(records, trigger);
     if (decision === undefined) return;
+    if (
+      decision.kind !== "attention" &&
+      (yield* projections.getManagedChildContinuations(threadId)).length > 0
+    )
+      return;
     if (decision.kind === "failed-run") {
       // Recovery owns a limit failure only while its setting is on; otherwise this is the one path
       // left that can wake the lead, and the cap ends it visibly if the window stays closed.
@@ -119,17 +125,46 @@ const make = Effect.gen(function* () {
 
   /** Silence alone proves nothing: a child is only stalled if nothing else explains it. */
   const checkStalledChildren = Effect.fnUntraced(function* (thread: OrchestrationV2AppThread) {
+    const state = yield* projections.getThreadRecords(
+      thread.id,
+      ["runs", "subagents", "providerThreads", "turnItems"],
+      PENDING_ITEMS,
+    );
+    if (state.thread.arcRun?.state !== "active") return;
+    if (decideArcRunWake(state, "watchdog")?.kind === "attention") return;
+
     const now = DateTime.toEpochMillis(yield* DateTime.now);
-    const { subagents } = yield* projections.getThreadRecords(thread.id, ["subagents"]);
-    for (const task of subagents) {
-      if (task.origin !== "app_owned" || task.childThreadId === null) continue;
-      if (task.status !== "running") continue;
+    const candidates = new Map<
+      ThreadId,
+      { readonly task: (typeof state.subagents)[number]; readonly runId: RunId | null }
+    >();
+    for (const task of state.subagents) {
+      if (task.origin === "app_owned" && task.childThreadId !== null && task.status === "running") {
+        candidates.set(task.childThreadId, { task, runId: null });
+      }
+    }
+    const continuations = yield* projections.getManagedChildContinuations(thread.id);
+    for (const continuation of continuations) {
+      candidates.set(continuation.task.childThreadId!, {
+        task: continuation.task,
+        runId: continuation.run.id,
+      });
+    }
+    for (const [childThreadId, candidate] of candidates) {
+      const { task, runId } = candidate;
       const child = yield* projections.getThreadRecords(
-        task.childThreadId,
+        childThreadId,
         ["runs", "subagents", "runtimeRequests", "providerThreads", "turnItems"],
         PENDING_ITEMS,
       );
-      const running = child.runs.findLast((run) => run.status === "running");
+      const running =
+        runId === null
+          ? child.runs.findLast((run) => run.status === "running")
+          : child.runs.find(
+              (run) =>
+                run.id === runId &&
+                ["queued", "preparing", "starting", "running", "waiting"].includes(run.status),
+            );
       if (running === undefined) continue;
       if (
         child.runtimeRequests.some(
@@ -148,7 +183,7 @@ const make = Effect.gen(function* () {
       }
       const rows = yield* sql<{ readonly sequence: number; readonly occurred_at: string }>`
         SELECT sequence, occurred_at FROM orchestration_events
-        WHERE aggregate_kind = 'thread' AND stream_id = ${task.childThreadId}
+        WHERE aggregate_kind = 'thread' AND stream_id = ${childThreadId}
         ORDER BY sequence DESC LIMIT 1
       `;
       const last = rows[0];
@@ -174,7 +209,7 @@ const make = Effect.gen(function* () {
         threadId: thread.id,
         trigger: "watchdog",
         stall: {
-          childThreadId: task.childThreadId,
+          childThreadId,
           title: task.title?.trim() || child.thread.title,
           lastEventSequence: last.sequence,
           quietMinutes,
@@ -189,8 +224,12 @@ const make = Effect.gen(function* () {
     function* (event) {
       if (event.type !== "run.updated" || event.payload.status !== "completed") return;
       const thread = yield* projections.getThread(event.threadId);
-      if (thread.arcRun?.state !== "active") return;
-      yield* evaluate(event.threadId, "event");
+      if (thread.arcRun?.state === "active") yield* evaluate(event.threadId, "event");
+      if (thread.lineage.relationshipToParent !== "subagent") return;
+      const parentThreadId = thread.lineage.parentThreadId;
+      if (parentThreadId === null) return;
+      const parent = yield* projections.getThread(parentThreadId);
+      if (parent.arcRun?.state === "active") yield* evaluate(parentThreadId, "event");
     },
     (effect, event) =>
       effect.pipe(
@@ -206,16 +245,15 @@ const make = Effect.gen(function* () {
         Effect.forEach(
           threads.filter((thread) => thread.arcRun?.state === "active"),
           (thread) =>
-            // Right after a restart every child looks silent, and recovery has not reached it yet.
-            Effect.all(
-              [
-                evaluate(thread.id, trigger),
-                trigger === "watchdog" ? checkStalledChildren(thread) : Effect.void,
-              ],
-              { discard: true },
-            ).pipe(
+            // Let an attention wake settle before deciding whether to report a stalled child.
+            evaluate(thread.id, trigger).pipe(
+              Effect.andThen(trigger === "watchdog" ? checkStalledChildren(thread) : Effect.void),
+
               Effect.catchCause((cause) =>
-                Effect.logWarning("Arc run watchdog check failed", { threadId: thread.id, cause }),
+                Effect.logWarning("Arc run watchdog check failed", {
+                  threadId: thread.id,
+                  cause,
+                }),
               ),
             ),
           { discard: true },

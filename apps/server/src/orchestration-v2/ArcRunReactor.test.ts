@@ -13,6 +13,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderSessionId,
+  RunId,
   RuntimeRequestId,
   ThreadId,
   TurnItemId,
@@ -37,10 +38,12 @@ import * as ThreadWatchReactor from "./ThreadWatchReactor.ts";
 import {
   ARC_RUN_ANSWER,
   ARC_RUN_NO_PROGRESS_CAP,
+  ARC_RUN_STALL_IDLE_MINUTES,
   ARC_RUN_TURN_CEILING,
   decideArcRunWake,
 } from "./arcRun.ts";
 import * as DelegatedTaskQuestionReactor from "./DelegatedTaskQuestionReactor.ts";
+import * as EffectOutbox from "./EffectOutbox.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -107,9 +110,14 @@ const createThread = Effect.fn(function* (name: string) {
 const send = Effect.fn(function* (
   threadId: ThreadId,
   id: string,
-  from: "client" | "server" = "client",
+  from: "client" | "server" | "agent" = "client",
+  dispatchMode: { readonly type: "queue_after_active" } | { readonly type: "start_immediately" } = {
+    type: "queue_after_active",
+  },
 ) {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
+  const createdBy = from === "agent" ? "agent" : "user";
+  const creationSource = from === "client" ? "web" : from === "server" ? "server" : "mcp";
   yield* orchestrator.dispatch({
     type: "message.dispatch",
     commandId: CommandId.make(`send:${threadId}:${id}`),
@@ -117,10 +125,10 @@ const send = Effect.fn(function* (
     messageId: MessageId.make(`message:${threadId}:${id}`),
     text: `message ${id}`,
     attachments: [],
-    dispatchMode: { type: "queue_after_active" },
-    ...(from === "client"
-      ? { createdBy: "user" as const, creationSource: "web" as const }
-      : { createdBy: "user" as const, creationSource: "server" as const }),
+    dispatchMode,
+    createdBy,
+    creationSource,
+    ...(from === "agent" ? { senderThreadId: threadId } : {}),
   });
 });
 
@@ -261,6 +269,20 @@ const delegateSpec = Effect.fn(function* (
     (candidate) =>
       candidate.childThreadId !== null && !before.some((known) => known.id === candidate.id),
   )!;
+  const { runs } = yield* projections.getThreadRecords(task.childThreadId!, ["runs"]);
+  const childRun = runs.toSorted((left, right) => left.ordinal - right.ordinal).at(-1)!;
+  yield* (yield* EventSink.EventSinkV2).write({
+    events: [
+      {
+        id: EventId.make(`event:task-run:${task.id}`),
+        type: "run.updated",
+        threadId: task.childThreadId!,
+        runId: childRun.id,
+        occurredAt: yield* DateTime.now,
+        payload: { ...childRun, delegatedTaskId: task.id },
+      },
+    ],
+  });
   return yield* settleTask(task, "running");
 });
 
@@ -269,9 +291,13 @@ const settleTask = Effect.fn(function* (
   status: "running" | "completed" | "failed",
   delivery?: "pending" | "acknowledged",
 ) {
+  const now = yield* DateTime.now;
   const updated = {
     ...task,
     status,
+    ...(status === "running"
+      ? {}
+      : { result: `Result ${status}`, completedAt: now, updatedAt: now }),
     ...(delivery === undefined
       ? {}
       : { completionDelivery: { state: delivery, observedByRunId: null } }),
@@ -282,7 +308,6 @@ const settleTask = Effect.fn(function* (
       turnItemStatuses: ["pending", "running", "waiting"],
     }),
   );
-  const now = yield* DateTime.now;
   yield* (yield* EventSink.EventSinkV2).write({
     events: [
       ...(status === "running"
@@ -302,7 +327,7 @@ const settleTask = Effect.fn(function* (
         id: EventId.make(`event:task:${task.id}:${(eventIds += 1)}`),
         type: "subagent.updated",
         threadId: task.threadId,
-        occurredAt: yield* DateTime.now,
+        occurredAt: now,
         payload: updated,
       } as never,
     ],
@@ -398,6 +423,482 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
       yield* reactor.handle(yield* finish(run));
       yield* reactor.sweep("watchdog");
       assert.equal((yield* wakes(threadId)).length, 0);
+    }),
+  );
+
+  it.effect("waits for an active managed child continuation and wakes when it ends", () =>
+    Effect.gen(function* () {
+      const reactor = yield* ArcRunReactor.ArcRunReactor;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const parent = yield* setup("active-child-continuation");
+      const task = yield* delegateSpec(parent.threadId, parent.run, "active-child-continuation");
+      const childId = task.childThreadId!;
+
+      const original = yield* latestRun(childId);
+      assert.equal(original.delegatedTaskId, task.id);
+      yield* finish(original);
+      const continuation = {
+        ...original,
+        id: RunId.make(`run:${childId}:browser-result-continuation`),
+        ordinal: original.ordinal + 1,
+        userMessageId: MessageId.make(`message:${childId}:browser-result-continuation`),
+        status: "queued" as const,
+        requestedAt: yield* DateTime.now,
+        startedAt: null,
+        completedAt: null,
+      };
+      yield* (yield* EventSink.EventSinkV2).write({
+        events: [
+          {
+            id: EventId.make("event:browser-result-continuation-queued"),
+            type: "run.updated",
+            threadId: childId,
+            runId: continuation.id,
+            occurredAt: continuation.requestedAt,
+            payload: continuation,
+          },
+        ],
+      });
+      yield* settleTask(task, "completed", "acknowledged");
+      yield* orchestrator.dispatch({
+        type: "delegated_task.completion-delivery.acknowledge",
+        commandId: CommandId.make(`ack:${task.id}`),
+        parentThreadId: parent.threadId,
+        taskId: task.id,
+        observedByRunId: parent.run.id,
+      });
+      const historicalTask = yield* delegateSpec(
+        parent.threadId,
+        parent.run,
+        "historical-managed-result",
+      );
+      yield* finish(yield* latestRun(historicalTask.childThreadId!));
+      yield* settleTask(historicalTask, "completed", "acknowledged");
+      yield* orchestrator.dispatch({
+        type: "delegated_task.completion-delivery.acknowledge",
+        commandId: CommandId.make(`ack:${historicalTask.id}`),
+        parentThreadId: parent.threadId,
+        taskId: historicalTask.id,
+        observedByRunId: parent.run.id,
+      });
+      assert.include(
+        ["queued", "preparing", "starting", "running", "waiting"],
+        continuation.status,
+      );
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const currentTask = (yield* projections.getThreadRecords(parent.threadId, [
+        "subagents",
+      ])).subagents.find((candidate) => candidate.id === task.id)!;
+      assert.equal(currentTask.status, "completed");
+      assert.equal(currentTask.completionDelivery?.state, "acknowledged");
+      const continuations = yield* projections.getManagedChildContinuations(parent.threadId);
+      assert.lengthOf(continuations, 1);
+      assert.equal(continuations[0]!.task.id, task.id);
+      assert.equal(continuations[0]!.resultRun.id, original.id);
+      assert.equal(continuations[0]!.run.id, continuation.id);
+      const parentState = yield* projections.getThreadRecords(parent.threadId, ["turnItems"]);
+      const openItems = parentState.turnItems.filter((item) =>
+        ["pending", "running", "waiting"].includes(item.status),
+      );
+      assert.lengthOf(openItems, 0);
+
+      const parentCompletion = yield* finish(parent.run);
+      yield* reactor.handle(parentCompletion);
+      assert.lengthOf(yield* wakes(parent.threadId), 0);
+      yield* orchestrator.dispatch({
+        type: "thread.arc-run.wake",
+        commandId: CommandId.make("authoritative-child-continuation-wake-check"),
+        threadId: parent.threadId,
+        trigger: "watchdog",
+      });
+      assert.lengthOf(yield* wakes(parent.threadId), 0);
+
+      const completed = yield* finish(continuation);
+      yield* reactor.handle(completed);
+      assert.lengthOf(yield* wakes(parent.threadId), 1);
+      yield* reactor.handle(completed);
+      assert.lengthOf(yield* wakes(parent.threadId), 1);
+    }),
+  );
+
+  it.effect(
+    "a child can finish before its managed task while the Arc parent is paused or absent",
+    () =>
+      Effect.gen(function* () {
+        const reactor = yield* ArcRunReactor.ArcRunReactor;
+
+        const paused = yield* setup("paused-running-child");
+        const pausedTask = yield* delegateSpec(paused.threadId, paused.run, "paused-running-child");
+        yield* writeArcRunState(paused.threadId, "paused");
+        yield* reactor.handle(yield* finish(yield* latestRun(pausedTask.childThreadId!)));
+        assert.equal((yield* wakes(paused.threadId)).length, 0);
+        assert.equal((yield* arcRunOf(paused.threadId))?.state, "paused");
+        assert.equal(
+          (yield* (yield* ProjectionStore.ProjectionStoreV2).getThreadRecords(paused.threadId, [
+            "subagents",
+          ])).subagents.find((task) => task.id === pausedTask.id)?.status,
+          "running",
+        );
+
+        const inactive = yield* setup("inactive-running-child", { arc: false });
+        const inactiveTask = yield* delegateSpec(
+          inactive.threadId,
+          inactive.run,
+          "inactive-running-child",
+        );
+        yield* reactor.handle(yield* finish(yield* latestRun(inactiveTask.childThreadId!)));
+        assert.equal((yield* wakes(inactive.threadId)).length, 0);
+        assert.isUndefined(yield* arcRunOf(inactive.threadId));
+        assert.equal(
+          (yield* (yield* ProjectionStore.ProjectionStoreV2).getThreadRecords(inactive.threadId, [
+            "subagents",
+          ])).subagents.find((task) => task.id === inactiveTask.id)?.status,
+          "running",
+        );
+      }),
+  );
+
+  it.effect.each(["preparing", "starting", "running", "waiting"] as const)(
+    "the watchdog reports a stalled %s continuation after the result was delivered",
+    (status) =>
+      Effect.gen(function* () {
+        const reactor = yield* ArcRunReactor.ArcRunReactor;
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const parent = yield* setup(`stalled-child-continuation-${status}`);
+        const task = yield* delegateSpec(
+          parent.threadId,
+          parent.run,
+          `stalled-child-continuation-${status}`,
+        );
+        const childId = task.childThreadId!;
+        const resultRun = yield* latestRun(childId);
+        yield* finish(resultRun);
+        const continuation = {
+          ...resultRun,
+          id: RunId.make(`run:${childId}:stalled-continuation`),
+          ordinal: resultRun.ordinal + 1,
+          userMessageId: MessageId.make(`message:${childId}:stalled-continuation`),
+          status,
+          requestedAt: yield* DateTime.now,
+          startedAt: yield* DateTime.now,
+          completedAt: null,
+        };
+        yield* (yield* EventSink.EventSinkV2).write({
+          events: [
+            {
+              id: EventId.make(`event:stalled-continuation-started-${status}`),
+              type: "run.updated",
+              threadId: childId,
+              runId: continuation.id,
+              occurredAt: continuation.requestedAt,
+              payload: continuation,
+            },
+          ],
+        });
+        yield* settleTask(task, "completed", "acknowledged");
+        yield* orchestrator.dispatch({
+          type: "delegated_task.completion-delivery.acknowledge",
+          commandId: CommandId.make(`ack-stalled:${task.id}`),
+          parentThreadId: parent.threadId,
+          taskId: task.id,
+          observedByRunId: parent.run.id,
+        });
+        yield* reactor.handle(yield* finish(parent.run));
+
+        const stalls = Effect.map(wakes(parent.threadId), (sent) =>
+          sent.filter((message) => message.id.includes(":stall:")),
+        );
+        yield* TestClock.adjust("2 hours");
+        yield* reactor.sweep("startup");
+        assert.equal((yield* stalls).length, 0);
+        yield* reactor.sweep("watchdog");
+        assert.equal((yield* stalls).length, 1);
+        assert.include((yield* stalls)[0]!.text, "silent for");
+        yield* reactor.sweep("watchdog");
+        assert.equal((yield* stalls).length, 1);
+
+        yield* reactor.handle(yield* finish(continuation));
+        assert.equal((yield* stalls).length, 1);
+        assert.equal((yield* wakes(parent.threadId)).length, 1);
+      }),
+  );
+
+  it.effect(
+    "reports a stale queued continuation while an earlier continuation holds the queue",
+    () =>
+      Effect.gen(function* () {
+        const reactor = yield* ArcRunReactor.ArcRunReactor;
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const projections = yield* ProjectionStore.ProjectionStoreV2;
+        const outbox = yield* EffectOutbox.EffectOutboxV2;
+        const parent = yield* setup("stalled-queued-child-continuation");
+        const task = yield* delegateSpec(
+          parent.threadId,
+          parent.run,
+          "stalled-queued-child-continuation",
+        );
+        const childId = task.childThreadId!;
+        const resultRun = yield* latestRun(childId);
+        yield* finish(resultRun);
+        yield* settleTask(task, "completed", "acknowledged");
+        yield* orchestrator.dispatch({
+          type: "delegated_task.completion-delivery.acknowledge",
+          commandId: CommandId.make(`ack-stalled-queued:${task.id}`),
+          parentThreadId: parent.threadId,
+          taskId: task.id,
+          observedByRunId: parent.run.id,
+        });
+
+        const blockerMessageId = `stalled-queued-blocker:${childId}`;
+        const blockerCommandId = CommandId.make(`send:${childId}:${blockerMessageId}`);
+        yield* send(childId, blockerMessageId, "agent", { type: "start_immediately" });
+        const blocker = yield* latestRun(childId);
+        assert.include(["starting", "running"], blocker.status);
+        assert.equal(
+          blocker.userMessageId,
+          MessageId.make(`message:${childId}:${blockerMessageId}`),
+        );
+        const blockerEffects = yield* outbox.listByCommandId(blockerCommandId);
+        const pendingLaunch = blockerEffects.find(
+          (effect) =>
+            effect.request.type === "provider-turn.start" && effect.request.runId === blocker.id,
+        );
+        assert.equal(pendingLaunch?.status, "pending");
+
+        const queuedMessageId = `stalled-queued-continuation:${childId}`;
+        yield* send(childId, queuedMessageId, "agent");
+        const queued = yield* latestRun(childId);
+        assert.equal(queued.status, "queued");
+        assert.equal(queued.userMessageId, MessageId.make(`message:${childId}:${queuedMessageId}`));
+        assert.isTrue(
+          (yield* projections.getThreadRecords(childId, ["messages"])).messages.some(
+            (message) => message.id === queued.userMessageId,
+          ),
+        );
+        const hasQueuedContinuation = Effect.map(
+          projections.getManagedChildContinuations(parent.threadId),
+          (continuations) =>
+            continuations.some((continuation) => continuation.run.id === queued.id),
+        );
+        assert.isTrue(yield* hasQueuedContinuation);
+
+        const parentCompletion = yield* finish(parent.run);
+        yield* reactor.handle(parentCompletion);
+        assert.lengthOf(yield* wakes(parent.threadId), 0);
+        const stalls = Effect.map(wakes(parent.threadId), (sent) =>
+          sent.filter((message) => message.id.includes(":stall:")),
+        );
+
+        yield* TestClock.adjust("29 minutes");
+        assert.equal((yield* latestRun(childId)).status, "queued");
+        assert.isTrue(yield* hasQueuedContinuation);
+        yield* reactor.sweep("watchdog");
+        assert.lengthOf(yield* stalls, 0);
+        assert.equal(
+          (yield* outbox.listByCommandId(blockerCommandId)).find(
+            (effect) =>
+              effect.request.type === "provider-turn.start" && effect.request.runId === blocker.id,
+          )?.status,
+          "pending",
+        );
+
+        yield* TestClock.adjust("1 minute");
+        assert.equal((yield* latestRun(childId)).status, "queued");
+        assert.isTrue(yield* hasQueuedContinuation);
+        yield* reactor.sweep("watchdog");
+        assert.lengthOf(yield* stalls, 1);
+        assert.include((yield* stalls)[0]!.text, "silent for");
+        assert.include((yield* stalls)[0]!.text, "30 minutes with nothing open");
+        assert.equal((yield* latestRun(childId)).status, "queued");
+        assert.equal(
+          (yield* outbox.listByCommandId(blockerCommandId)).find(
+            (effect) =>
+              effect.request.type === "provider-turn.start" && effect.request.runId === blocker.id,
+          )?.status,
+          "pending",
+        );
+        yield* reactor.sweep("watchdog");
+        assert.lengthOf(yield* stalls, 1);
+
+        yield* reactor.handle(yield* finish(blocker));
+        yield* orchestrator.dispatch({
+          type: "queue.resume",
+          commandId: CommandId.make(`resume-stalled-queued:${childId}`),
+          threadId: childId,
+        });
+        const startedQueued = yield* latestRun(childId);
+        assert.equal(startedQueued.id, queued.id);
+        assert.equal(startedQueued.status, "starting");
+        assert.isTrue(yield* hasQueuedContinuation);
+        yield* reactor.handle(yield* finish(startedQueued));
+        assert.lengthOf(yield* wakes(parent.threadId), 1);
+      }),
+  );
+
+  it.effect("resumes the Arc on its normal sweep when a continuation fails", () =>
+    Effect.gen(function* () {
+      const reactor = yield* ArcRunReactor.ArcRunReactor;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const parent = yield* setup("failed-child-continuation");
+      const task = yield* delegateSpec(parent.threadId, parent.run, "failed-child-continuation");
+      const childId = task.childThreadId!;
+      const resultRun = yield* latestRun(childId);
+      yield* finish(resultRun);
+      yield* settleTask(task, "completed", "acknowledged");
+      yield* orchestrator.dispatch({
+        type: "delegated_task.completion-delivery.acknowledge",
+        commandId: CommandId.make(`ack-failed-queued:${task.id}`),
+        parentThreadId: parent.threadId,
+        taskId: task.id,
+        observedByRunId: parent.run.id,
+      });
+
+      yield* send(childId, "failed-continuation-after-result", "agent", {
+        type: "start_immediately",
+      });
+      const continuation = yield* latestRun(childId);
+      assert.include(["starting", "running"], continuation.status);
+      yield* reactor.handle(yield* finish(parent.run));
+      assert.lengthOf(yield* wakes(parent.threadId), 0);
+
+      yield* finish(continuation, "failed");
+      const child = yield* projections.getThreadRecords(childId, ["runs", "turnItems"]);
+      assert.equal(child.runs.find((run) => run.id === continuation.id)?.status, "failed");
+      assert.lengthOf(
+        yield* (yield* ProjectionStore.ProjectionStoreV2).getManagedChildContinuations(
+          parent.threadId,
+        ),
+        0,
+      );
+
+      yield* reactor.sweep("watchdog");
+      const sent = yield* wakes(parent.threadId);
+      assert.lengthOf(sent, 1);
+      assert.isFalse(sent[0]!.id.includes(":stall:"));
+    }),
+  );
+
+  it.effect("does not report a continuation that is waiting for a pending permission", () =>
+    Effect.gen(function* () {
+      const reactor = yield* ArcRunReactor.ArcRunReactor;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const parent = yield* setup("permission-waiting-child-continuation");
+      const task = yield* delegateSpec(
+        parent.threadId,
+        parent.run,
+        "permission-waiting-child-continuation",
+      );
+      const childId = task.childThreadId!;
+      yield* finish(yield* latestRun(childId));
+      yield* settleTask(task, "completed", "acknowledged");
+      yield* orchestrator.dispatch({
+        type: "delegated_task.completion-delivery.acknowledge",
+        commandId: CommandId.make(`ack-permission-wait:${task.id}`),
+        parentThreadId: parent.threadId,
+        taskId: task.id,
+        observedByRunId: parent.run.id,
+      });
+
+      yield* send(childId, "permission-waiting-continuation", "agent", {
+        type: "start_immediately",
+      });
+      const continuation = yield* latestRun(childId);
+      const now = yield* DateTime.now;
+      const requestId = RuntimeRequestId.make(`request:permission-wait:${childId}`);
+      yield* (yield* EventSink.EventSinkV2).write({
+        events: [
+          {
+            id: EventId.make(`event:permission-wait:run:${childId}`),
+            type: "run.updated",
+            threadId: childId,
+            runId: continuation.id,
+            occurredAt: now,
+            payload: { ...continuation, status: "waiting", startedAt: now },
+          },
+          {
+            id: EventId.make(`event:permission-wait:request:${childId}`),
+            type: "runtime-request.updated",
+            threadId: childId,
+            runId: continuation.id,
+            occurredAt: now,
+            payload: {
+              id: requestId,
+              nodeId: continuation.rootNodeId!,
+              providerTurnId: null,
+              nativeRequestRef: null,
+              kind: "command",
+              status: "pending",
+              responseCapability: { type: "message" },
+              createdAt: now,
+              resolvedAt: null,
+            },
+          },
+        ],
+      });
+      const parentCompletion = yield* finish(parent.run);
+      yield* reactor.handle(parentCompletion);
+      assert.lengthOf(yield* wakes(parent.threadId), 0);
+
+      yield* TestClock.adjust("6 hours");
+      yield* reactor.sweep("watchdog");
+      assert.equal((yield* projections.getRuntimeRequest(childId, requestId))?.status, "pending");
+      assert.equal((yield* latestRun(childId)).status, "waiting");
+      assert.lengthOf(yield* wakes(parent.threadId), 0);
+    }),
+  );
+
+  it.effect("a child stall notice cannot bypass the Arc turn ceiling", () =>
+    Effect.gen(function* () {
+      const reactor = yield* ArcRunReactor.ArcRunReactor;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const parent = yield* setup("ceiling-stalled-child");
+      const now = yield* DateTime.now;
+      yield* (yield* EventSink.EventSinkV2).write({
+        events: Array.from({ length: ARC_RUN_TURN_CEILING }, (_, index) => {
+          const ordinal = index + 2;
+          const run = {
+            ...parent.run,
+            id: RunId.make(`run:${parent.threadId}:ceiling:${ordinal}`),
+            ordinal,
+            userMessageId: MessageId.make(`message:${parent.threadId}:ceiling:${ordinal}`),
+            status: "completed" as const,
+            requestedAt: now,
+            startedAt: now,
+            completedAt: now,
+          };
+          return {
+            id: EventId.make(`event:run:${parent.threadId}:ceiling:${ordinal}`),
+            type: "run.updated" as const,
+            threadId: parent.threadId,
+            runId: run.id,
+            occurredAt: now,
+            payload: run,
+          };
+        }),
+      });
+
+      yield* orchestrator.dispatch({
+        type: "thread.arc-run.wake",
+        commandId: CommandId.make("ceiling:stall-must-yield-to-attention"),
+        threadId: parent.threadId,
+        trigger: "watchdog",
+        stall: {
+          childThreadId: ThreadId.make("thread:ceiling-stalled-child"),
+          title: "A silent child",
+          lastEventSequence: 1,
+          quietMinutes: ARC_RUN_STALL_IDLE_MINUTES + 1,
+          openWork: false,
+        },
+      });
+      assert.equal((yield* wakes(parent.threadId)).length, 0);
+
+      yield* reactor.sweep("watchdog");
+      const sent = yield* wakes(parent.threadId);
+      assert.equal(sent.length, 1);
+      assert.include(sent[0]!.text, "stopped waking");
+      assert.isFalse(sent[0]!.id.includes(":stall:"));
     }),
   );
 

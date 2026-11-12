@@ -498,6 +498,9 @@ export interface ProjectionStoreV2Shape {
   readonly listAppOwnedChildThreadIds: (
     threadId: ThreadId,
   ) => Effect.Effect<ReadonlyArray<ThreadId>, ProjectionStoreV2Error>;
+  readonly getManagedChildContinuations: (
+    parentThreadId: ThreadId,
+  ) => Effect.Effect<ReadonlyArray<ProjectionManagedChildContinuation>, ProjectionStoreV2Error>;
   readonly hasPendingDelegatedCompletion: (
     childThreadId: ThreadId,
   ) => Effect.Effect<boolean, ProjectionStoreV2Error>;
@@ -771,6 +774,12 @@ export interface ProjectionStoreV2Shape {
     },
     ProjectionStoreV2Error
   >;
+}
+
+export interface ProjectionManagedChildContinuation {
+  readonly task: OrchestrationV2Subagent;
+  readonly resultRun: OrchestrationV2Run;
+  readonly run: OrchestrationV2Run;
 }
 
 type ProjectionWindow = Omit<
@@ -6197,6 +6206,66 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         Effect.map((rows) => [...new Set(rows.map((row) => ThreadId.make(row.child_thread_id)))]),
         Effect.mapError(controlReadError(threadId)),
       );
+    // The latest delivered result per child is the identity boundary; ordinals include queued followups without clock comparisons.
+    const getManagedChildContinuations: ProjectionStoreV2Shape["getManagedChildContinuations"] =
+      Effect.fn("ProjectionStore.getManagedChildContinuations")(
+        function* (parentThreadId) {
+          const rows = yield* sql<{
+            readonly task_payload_json: string;
+            readonly result_run_payload_json: string;
+            readonly run_payload_json: string;
+          }>`WITH terminal_results AS (
+              SELECT
+                task.child_thread_id,
+                task.subagent_id,
+                task.payload_json AS task_payload_json,
+                result_run.payload_json AS result_run_payload_json,
+                result_run.ordinal AS result_ordinal,
+                ROW_NUMBER() OVER (
+                  PARTITION BY task.child_thread_id
+                  ORDER BY result_run.ordinal DESC, task.subagent_id DESC
+                ) AS result_rank
+              FROM orchestration_v2_projection_subagents AS task
+              JOIN orchestration_v2_projection_runs AS result_run
+                ON result_run.run_id = (
+                  SELECT candidate.run_id
+                  FROM orchestration_v2_projection_runs AS candidate
+                  WHERE candidate.thread_id = task.child_thread_id
+                    AND json_extract(candidate.payload_json, '$.delegatedTaskId') = task.subagent_id
+                    AND candidate.status IN ('completed', 'failed', 'cancelled', 'interrupted', 'rolled_back')
+                  ORDER BY candidate.ordinal DESC, candidate.run_id DESC
+                  LIMIT 1
+                )
+              WHERE task.thread_id = ${parentThreadId}
+                AND task.origin = 'app_owned'
+                AND task.child_thread_id IS NOT NULL
+                AND json_extract(task.payload_json, '$.result') IS NOT NULL
+                AND task.status IN ('completed', 'failed', 'cancelled', 'interrupted')
+                AND task.completion_delivery_state IN ('acknowledged', 'delivered')
+            )
+            SELECT terminal.task_payload_json,
+              terminal.result_run_payload_json,
+              live_run.payload_json AS run_payload_json
+            FROM terminal_results AS terminal
+            JOIN orchestration_v2_projection_runs AS live_run
+              ON live_run.thread_id = terminal.child_thread_id
+              AND live_run.status IN ('queued', 'preparing', 'starting', 'running', 'waiting')
+              AND live_run.ordinal > terminal.result_ordinal
+            WHERE terminal.result_rank = 1
+            ORDER BY terminal.subagent_id ASC, live_run.ordinal ASC, live_run.run_id ASC`;
+          return yield* Effect.forEach(rows, (row) =>
+            Effect.gen(function* () {
+              const [task, resultRun, run] = yield* Effect.all([
+                decodeSubagentPayload(row.task_payload_json),
+                decodeRunPayload(row.result_run_payload_json),
+                decodeRunPayload(row.run_payload_json),
+              ]);
+              return { task, resultRun, run } satisfies ProjectionManagedChildContinuation;
+            }),
+          );
+        },
+        (effect, parentThreadId) => effect.pipe(Effect.mapError(controlReadError(parentThreadId))),
+      );
     const hasPendingDelegatedCompletion: ProjectionStoreV2Shape["hasPendingDelegatedCompletion"] =
       Effect.fn("ProjectionStore.hasPendingDelegatedCompletion")((childThreadId) =>
         sql`SELECT 1 FROM orchestration_v2_projection_subagents AS task
@@ -8325,6 +8394,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getMessageCount: readOnReader(getMessageCount),
       getSubagentCount: readOnReader(getSubagentCount),
       listAppOwnedChildThreadIds: readOnReader(listAppOwnedChildThreadIds),
+      getManagedChildContinuations: readOnReader(getManagedChildContinuations),
       hasPendingDelegatedCompletion: readOnReader(hasPendingDelegatedCompletion),
       getNextTurnItemOrdinal: readOnReader(getNextTurnItemOrdinal),
       getTurnItem: readOnReader(getTurnItem),

@@ -4900,6 +4900,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         Effect.map(({ messages }) => messages.some((message) => message.id === messageId)),
       );
     if (command.stall !== undefined) {
+      if (decideArcRunWake(state, command.trigger)?.kind === "attention") return;
       const messageId = MessageId.make(
         `${ARC_RUN_WAKE_MESSAGE_PREFIX}stall:${command.stall.childThreadId}:${command.stall.lastEventSequence}`,
       );
@@ -4909,6 +4910,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
     const decision = decideArcRunWake(state, command.trigger);
     if (decision === undefined) return;
+    if (decision.kind !== "attention") {
+      const continuations = yield* projectionStore
+        .getManagedChildContinuations(thread.id)
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: thread.id, cause }),
+          ),
+        );
+      if (continuations.length > 0) return;
+    }
     const latest = latestArcRunTurn(state.runs);
     if (latest === undefined) return;
     if (
