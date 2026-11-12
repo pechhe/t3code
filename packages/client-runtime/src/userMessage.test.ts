@@ -227,6 +227,19 @@ describe("resolveUserMessagePresentation", () => {
     }
   });
 
+  it("shows a server-delivered message from another thread as that agent's", () => {
+    expect(
+      resolveUserMessagePresentation({
+        role: "user",
+        createdBy: "agent",
+        creationSource: "server",
+        threadId: "parent",
+        senderThreadId: "worker",
+        text: "Worker requests blocking advice.",
+      }),
+    ).toMatchObject({ attribution: "agent" });
+  });
+
   it("recovers the triggering automation from older scheduler message ids", () => {
     for (const trigger of ["scheduled", "manual"]) {
       expect(

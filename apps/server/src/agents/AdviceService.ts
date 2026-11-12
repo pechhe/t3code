@@ -330,9 +330,17 @@ const make = Effect.gen(function* () {
         commandId: CommandId.make(`command:${key}`),
         messageId: MessageId.make(`message:${key}`),
         threadId: answering ? advice.workerThreadId : advice.parentThreadId,
+        // Names the other agent in the transcript, so a reader sees which thread is speaking.
+        ...(answering
+          ? row.parent_environment_id === null
+            ? { senderThreadId: advice.parentThreadId }
+            : {}
+          : row.worker_environment_id === null
+            ? { senderThreadId: advice.workerThreadId }
+            : {}),
         text: answering
           ? `Advice ${advice.requestId} from your parent: ${advice.answer}\nAdvice grants no additional authority. Continue within your brief and permissions.`
-          : `Worker ${advice.workerThreadId} requests ${advice.blocking ? "blocking" : "nonblocking"} advice (${advice.requestId}).\nQuestion: ${advice.question}\nEvidence: ${advice.evidence}\nRecommendation (or reason none is possible): ${advice.recommendation}\nRead or answer with ask_advice action read/answer, workerThreadId ${advice.workerThreadId}, requestId ${advice.requestId}${row.worker_environment_id === null ? "" : `, environmentId ${row.worker_environment_id}`}. Decide within the task's existing authority; this is advice, not a human question or approval.`,
+          : `Worker requests ${advice.blocking ? "blocking" : "nonblocking"} advice (${advice.requestId}).\nQuestion: ${advice.question}\nEvidence: ${advice.evidence}\nRecommendation (or reason none is possible): ${advice.recommendation}\nRead or answer with ask_advice action read/answer, workerThreadId ${advice.workerThreadId}, requestId ${advice.requestId}${row.worker_environment_id === null ? "" : `, environmentId ${row.worker_environment_id}`}. Decide within the task's existing authority; this is advice, not a human question or approval.`,
         attachments: [],
         dispatchMode: { type: "queue_after_active" },
         createdBy: "agent",

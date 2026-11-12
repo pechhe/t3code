@@ -113,7 +113,8 @@ export function resolveUserMessagePresentation(message: {
     attribution:
       message.createdBy !== "agent"
         ? null
-        : message.creationSource === "server"
+        : message.creationSource === "server" &&
+            (message.senderThreadId === undefined || message.senderThreadId === message.threadId)
           ? "t3code"
           : message.senderThreadId !== undefined && message.senderThreadId === message.threadId
             ? "continuation"

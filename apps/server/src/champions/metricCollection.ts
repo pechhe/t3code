@@ -5,7 +5,7 @@ import * as Schema from "effect/Schema";
 
 import * as ProcessRunner from "../processRunner.ts";
 
-export const COLLECT_TIMEOUT = Duration.seconds(30);
+const COLLECT_TIMEOUT = Duration.seconds(30);
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const MAX_EVIDENCE = 4000;
 /** The server's provider keys and tokens stay out of a command an agent wrote. */

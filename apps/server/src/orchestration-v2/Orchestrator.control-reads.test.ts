@@ -2420,6 +2420,7 @@ it.effect(
             message.text.includes("requests blocking advice"),
           );
           assert.equal(wakes.length, 1);
+          assert.equal(wakes[0]!.senderThreadId, task.childThreadId);
           assert.isEmpty(parent.runtimeRequests);
           assert.isEmpty(
             (yield* projections.getThreadRecords(task.childThreadId!, ["runtimeRequests"]))

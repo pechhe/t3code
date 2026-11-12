@@ -1166,39 +1166,41 @@ const decodesAsAdvertised = Schema.decodeUnknownExit(Schema.toCodecJson(PreviewT
  * A `t3_browser_task` call whose parameters do not decode is refused before its handler runs, so
  * it is recorded here; the handler records every other call.
  */
-export const withUndecodedTaskRecord = Effect.fn("McpHttpServer.withUndecodedTaskRecord")(
-  function* <A, E, R>(registration: Effect.Effect<A, E, R>) {
-    const server = yield* McpServer.McpServer;
-    const calls = yield* Effect.serviceOption(BrowserTaskCalls.BrowserTaskCalls);
-    if (Option.isNone(calls)) return yield* registration;
-    const recording = McpServer.McpServer.of({
-      ...server,
-      addTool: Effect.fn("McpServer.addTool")(function (options) {
-        if (options.tool.name !== "t3_browser_task") return server.addTool(options);
-        return server.addTool({
-          ...options,
-          handle: (payload) =>
-            Effect.withFiber((fiber) => {
-              const invocation = Context.getOption(
-                fiber.context,
-                McpInvocationContext.McpInvocationContext,
-              );
-              if (Option.isNone(invocation) || Exit.isSuccess(decodesAsAdvertised(payload)))
-                return options.handle(payload);
-              return calls.value
-                .record(invocation.value, {
-                  ...BrowserTaskCalls.undecodedCall,
-                  mode: BrowserTaskCalls.callMode(payload),
-                  durationMs: 0,
-                })
-                .pipe(Effect.andThen(options.handle(payload)));
-            }),
-        });
-      }),
-    });
-    return yield* registration.pipe(Effect.provideService(McpServer.McpServer, recording));
-  },
-);
+const withUndecodedTaskRecord = Effect.fn("McpHttpServer.withUndecodedTaskRecord")(function* <
+  A,
+  E,
+  R,
+>(registration: Effect.Effect<A, E, R>) {
+  const server = yield* McpServer.McpServer;
+  const calls = yield* Effect.serviceOption(BrowserTaskCalls.BrowserTaskCalls);
+  if (Option.isNone(calls)) return yield* registration;
+  const recording = McpServer.McpServer.of({
+    ...server,
+    addTool: Effect.fn("McpServer.addTool")(function (options) {
+      if (options.tool.name !== "t3_browser_task") return server.addTool(options);
+      return server.addTool({
+        ...options,
+        handle: (payload) =>
+          Effect.withFiber((fiber) => {
+            const invocation = Context.getOption(
+              fiber.context,
+              McpInvocationContext.McpInvocationContext,
+            );
+            if (Option.isNone(invocation) || Exit.isSuccess(decodesAsAdvertised(payload)))
+              return options.handle(payload);
+            return calls.value
+              .record(invocation.value, {
+                ...BrowserTaskCalls.undecodedCall,
+                mode: BrowserTaskCalls.callMode(payload),
+                durationMs: 0,
+              })
+              .pipe(Effect.andThen(options.handle(payload)));
+          }),
+      });
+    }),
+  });
+  return yield* registration.pipe(Effect.provideService(McpServer.McpServer, recording));
+});
 
 /** Task tools return JSON; `attachTaskImages` adds screenshots for callers that ask and can take them. */
 const withTaskImages = Effect.fn("McpHttpServer.withTaskImages")(function* <A, E, R>(

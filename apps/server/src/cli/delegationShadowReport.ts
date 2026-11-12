@@ -31,7 +31,7 @@ export interface TaskOutcome {
 
 const OPEN_RUN = new Set(["preparing", "queued", "starting", "running", "waiting"]);
 
-export const GROUPS = ["agree", "cheaper", "dearer", "same-price", "unpriced"] as const;
+const GROUPS = ["agree", "cheaper", "dearer", "same-price", "unpriced"] as const;
 export type Group = (typeof GROUPS)[number];
 
 export interface GroupOutcomes {
@@ -142,7 +142,7 @@ const hasTable = (db: NodeSqlite.DatabaseSync, name: string) =>
   undefined;
 
 /** The rows of the record from `since`, oldest first, at most `first` of them. */
-export const readShadowRows = (
+const readShadowRows = (
   db: NodeSqlite.DatabaseSync,
   since: string,
   first: number | undefined,
@@ -175,7 +175,7 @@ const turnTokens = (payload: string): number | null => {
     : null;
 };
 
-export const readTaskOutcomes = (
+const readTaskOutcomes = (
   db: NodeSqlite.DatabaseSync,
   threadIds: readonly string[],
 ): ReadonlyMap<string, TaskOutcome> => {
@@ -204,7 +204,7 @@ export const readTaskOutcomes = (
 };
 
 /** T3's own cached rate table, the one usage reports price with; unpriced when it is missing. */
-export const readPriceOf = (stateDir: string): PriceOf => {
+const readPriceOf = (stateDir: string): PriceOf => {
   let table: RateTable = new Map();
   try {
     const cached = JSON.parse(
@@ -248,7 +248,7 @@ export const formatShadowReport = (scores: readonly RoleScore[], window: string)
   ].join("\n\n");
 };
 
-export const delegationShadowCommand = Command.make("shadow", {
+const delegationShadowCommand = Command.make("shadow", {
   baseDir: baseDirFlag,
   days: Flag.Int("days").pipe(
     Flag.withDescription("How many days back to report, ending now."),

@@ -111,7 +111,7 @@ const table = (title: string, groups: readonly TaskCallGroup[]) => {
   return [header.join("  "), ...lines].join("\n");
 };
 
-export const formatTaskCallReport = (summary: TaskCallSummary, window: string) =>
+const formatTaskCallReport = (summary: TaskCallSummary, window: string) =>
   summary.calls === 0
     ? `No bounded browser task calls on this environment in the ${window}.`
     : [

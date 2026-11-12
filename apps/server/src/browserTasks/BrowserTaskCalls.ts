@@ -57,7 +57,7 @@ const refusal = (reason: PreviewTaskReason) => ({
 export const undecodedCall = refusal("invalid-request");
 
 /** What a finished call leaves on record: the run's own result, or why it was refused. */
-export const callFacts = (
+const callFacts = (
   exit: Exit.Exit<PreviewTaskResult, unknown>,
 ): Omit<BrowserTaskCall, "mode" | "durationMs"> => {
   if (Exit.isSuccess(exit))
