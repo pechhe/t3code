@@ -261,7 +261,10 @@ interface MessagesTimelineProps {
   announceTurnStatus?: boolean;
   onOpenToolDiff?: (target: ToolCallDiffTarget) => void;
   onOpenTurnDiff?: (runId: RunId, filePath?: string) => void;
-  onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"], hash?: string) => void;
+  onOpenThread: (
+    threadId: OrchestrationV2TurnItem["threadId"],
+    target?: string,
+  ) => void;
   /** A follow-up round to land on when a thread opens from its pill. */
   roundAnchor?: { readonly runId: RunId; readonly key: string } | null;
   renderHtmlRender?: TimelineRowSharedState["renderHtmlRender"];

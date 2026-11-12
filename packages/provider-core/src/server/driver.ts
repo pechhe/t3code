@@ -55,6 +55,8 @@ export interface ProviderInstance {
    * changes nothing, so a slow or broken probe never marks the account unavailable.
    */
   readonly refreshUsage?: Effect.Effect<void>;
+  /** Moves a long-lived service onto a newly updated binary before its version is read back. */
+  readonly afterUpdate?: Effect.Effect<void, ProviderDriverError>;
   readonly consumeResetCredit?: (
     creditId: string | undefined,
   ) => Effect.Effect<ProviderConsumeResetCreditOutcome, ProviderDriverError>;

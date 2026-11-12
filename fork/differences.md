@@ -4,8 +4,8 @@ This record lists the material, deliberate differences between the T3peach fork 
 
 ## Baseline
 
-- Upstream: v0.1.10-nightly.20261112.4564 (`bc647ed53595888efacdd8ca435967d48888a952`)
-- Fork before merge: `5863b74b18fb2de2a91a0b8a9d5d09c099965b90`
+- Upstream: v0.1.10-nightly.20261112.4580 (`40526f96f6ae3dfe74ae60ca279e748d7838a691`)
+- Fork before merge: `566f12cdafbc5e7bea5ede8352509350d6f24749`
 
 ## Coverage
 
@@ -50,6 +50,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### compact-line
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream background-work refusal before session-changing settings, preserving per-thread compact points and provider defaults. Evidence: ProviderSessionManager.test.ts; ThreadManagementService.test.ts; Orchestrator.compact-at.test.ts.
+
 - **Kind:** durable extension
 - **Why:** A thread's compaction point can differ from its provider's: a long research thread can run further, a noisy one can compact sooner. Compaction itself stays provider-native; T3 sends no context nudges (the earlier context-rollover nudges, holds, `/rollover`, settings and experiment lever were removed in #4361 after a nudge aborted a running compaction).
 - **Requirements:** the context bar's auto-compact marker is draggable and sets the thread's compact-at point (`thread.compact-at.set`, null resets to the model's point (the server setting `modelCompactAt`, by model slug and so shared by every Claude instance, set per model in Settings → Providers → Models in thousands of tokens, 67k floor, and written to every environment under the All environments scope), else the provider's "Auto-compact after" setting); double-click or double-tap resets a thread's own point to that default, or opens that provider's settings when the thread already follows it (no "use provider setting" label beside the token count, which would resize the bar as it appeared); the line shows pending until the provider reports the point applied, and with no reported point (Codex on its built-in default) a faded line at the top of the range is still draggable; the point is held to `compactAtBounds` (100k floor for Codex, as its setting has) wherever it is shown or applied. Claude maps the point to `autoCompactWindow` = point + 33k (Claude Code compacts at window − min(maxOutput, 20k) − 13k; window 100k–1M) and Claude Code reads it only at startup (`applyFlagSettings` leaves the live threshold unchanged), so a changed point reopens the session with resume at the next turn, unless background work is running in it; Codex sets `model_auto_compact_token_limit` (scope `total`) at session start or resume, so a live change waits for the next session. Pi compacts natively too, but takes its point only from its own settings file (`compaction.modelOverrides[...].reserveTokens`, default reserve 16k), with no flag, environment variable or RPC command for it, so its line is read-only (`compactAtBounds` returns null); `PiSettings.autoCompactWindow`, or the model's `modelCompactAt`, is written there as `window − point` (never below Pi's 16k reserve) before a Pi session's first turn, turning `compaction.enabled` on with it, and T3 restarts the process it just opened when that write changed anything, so the session runs the point from its first turn; a point changed while a session is already running waits for that session's next start, as Codex's does. The write is taken under a directory lock (the Pi agent dir's `.t3-compaction.lock`, stale after 15s) because Pi's sessions and its own TUI write the same file; T3 records each replaced reserve in `<agent-dir>/.t3-compaction-overrides.json` and puts it back only when the point is cleared. `autoCompactThreshold` reports the point the running process compacts at, not Claude's window, including Claude's default (model window − 33k) and Pi's effective reserve. Stored rollover events, rows, run-setup records and experiment evidence still decode.
@@ -65,6 +67,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** Weave Forge #4361.
 
 ### compact-model
+
+- **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep cross-account compaction, fallback summarizers and transcript bounds around upstream provider-start recovery; the new failure path must not replace a live session. Evidence: ProviderTurnStartService.test.ts; ContextHandoffBudget.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep model planning and labels alongside upstream canSteer and stale-thread compaction behavior. Evidence: ProviderTurnStartService.test.ts; web typecheck; native acceptance outside helper scope.
 
@@ -95,6 +99,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** pechhe/t3code#1, #16, #55, #58, #59, #130, #132 (closed); no open item.
 
 ### agent-policy-roles
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep managed roles and host/read-only admission while adopting per-thread hasPendingWake; compare a Spec lead’s effective listing and wake state, rather than Effect object identity. Evidence: ProviderSessionManager.test.ts; packages/provider-core/src/server/driver.ts.
 
 - **Kind:** durable extension
 - **Reviewer role:** `reviewer` judges either `review.scope` (`change` or `spec`). Stored split-role requests, bindings and policy snapshots decode to it without losing scope; version 1 and split version 2 policies remain readable. The Reviewer requires separate `list` (change) and `specList` (Spec) aliases, selected by `review.scope`; split policies retain both exact lists and the change role’s exceptions, while version 1 uses the same list for both scopes. Discovery accepts optional `reviewScope`, defaulting to change, as do role-based schedules without a scope. Settings logic groups both list bindings and preserves them through editing and saving. Both scopes read `roles/reviewer.md`, falling back to the old Spec brief; saving never creates a brief. Forge still requires scope-specific role names: `weaveAgentRole` maps only at that boundary, preserving the reviewer's own identity and run reporting. Contract, policy-service, resolver and Weave recording tests prove these paths. Thread bindings already accepted `reviewer` in the preceding fork; `agent_roles` is MCP-only and does not enter native client RPC payloads. Upstream has no equivalent managed policy in the pinned base; retire this migration when no old stored policies or task records remain.
@@ -130,6 +136,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** T3-401.
 
 ### managed-delegation
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt bounded MCP wait, failed-child final reports, short child IDs, recovery of waiting children and finished-Claude process release. Preserve role authority, follow-ups, stopped-task resumption and browser release; process release reads command turn items required by the fork progress classifier. Evidence: OrchestratorMcpService.test.ts; ProviderSessionManager.test.ts; DelegatedCompletionDelivery.test.ts; ThreadManagementService.test.ts; runtimeLayer.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Adopt upstream completion recovery, self-queued result selection, local/remote follow-ups and transactional cancellation through ManagedTaskControl; retain managed roles, advice, authority ceilings and Stop/resume. Align EventSink and finalizer selectors; recover late questions only for the exact cancelled run. Evidence: OrchestratorMcpService, TaskCancelNativeSubagent, RemoteDelegation, DelegatedCompletionDelivery, EventSink and ProjectionStore tests.
 
@@ -178,6 +186,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### run-setup-records
 
+- **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep run-setup evidence and workspace instruction pointers while adopting provider-start failure terminalization and branch recording. Evidence: ProviderTurnStartService.test.ts; ThreadLaunchService.test.ts.
+
 - **Kind:** durable extension
 - **Why:** Each run's agent setup (role, model, skills, instructions) is recorded so experiments and reviews can read it.
 - **Requirements:** `t3_thread_setup` answers small by default, reaches every run (including never-started and beyond the newest 50), reports invoked skills truthfully, and is readable by read-only Claude.
@@ -204,6 +214,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### slipjay-workspaces
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep SlipJay admission, default workspace allocation and checkpoint/VCS boundaries; adopt root branch discovery and upstream Git status/checkpoint fixes without replacing the workspace provider. The new checkpoint timeout test uses the fork’s supportsCheckpoints capability probe; upstream’s isGitRepository-only mock cannot start the fork capture. Evidence: ThreadLaunchService.test.ts; CheckpointService.test.ts; VcsStatusBroadcaster.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Retain WorkspaceProvider admission, landing subscribers and VCS-independent checkpoints; restore upstream HEAD watchers and branch-status refresh helpers as one broadcaster. Evidence: VcsStatusBroadcaster, VcsDriverRegistry, GitVcsDriver and CheckpointService tests.
 
 - **Kind:** durable extension
@@ -222,6 +234,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** pechhe/t3code#21–23, #41, #42, #45, #46, #50–54, #67 (closed); open: #108, #112, #125; Forge #3352, #3368, #3412, #4402, #3747, #4294, #3142.
 
 ### slipjay-workspace-archive
+
+- **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep archive/restore and managed workspace identity guards alongside launch branch fixes; missing managed checkouts remain lead-owned recovery. Evidence: ProviderTurnStartService.test.ts; ThreadManagementService.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep retirement/restore guards and adopt ENOTDIR handling for stale stored worktree paths. Evidence: WorkspaceAttachment.test.ts; ThreadManagementService.test.ts.
 
@@ -269,6 +283,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### slipjay-settings
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep SlipJay represented on the Jujutsu discovery row while adopting login-shell PATH refresh on Rescan. Evidence: SourceControlDiscovery.test.ts.
+
 - **Kind:** durable extension
 - **Why:** Machine runner, spares and project policy are managed from T3 Settings.
 - **Requirements:** machine runner and spare settings, project policy editing, where each policy change lands as it is made (a count or level when chosen, the landing checks on leaving the box) with no Save button, and an unreadable or failed change stays on screen with Discard; Projects entry in settings sidebar opens the current project on every environment.
@@ -293,6 +309,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** pechhe/t3code#3, #122 (open), #112 (open).
 
 ### validation-tooling
+
+- **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep newer fork toolchain/catalog/patches under Decision #6796. Adopt upstream security overrides and updater timeout patch rebased to the newer fork package. Evidence: Dependency audit: 913 settings, 47 files; vp i; docs/dependencies.md.
 
 - **Kind:** deliberate behaviour change
 - **Why:** Validation must distinguish obsolete code from runtime-discovered entry points, and copied installs must have a reliable way to discard stale dependency shims.
@@ -358,6 +376,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### build-items-hq
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep per-thread Weave MCP registration and credential renewal. Adopt OpenCode’s initial tool-load settle only on versions before 2.2.6, preserving the fork’s complete per-thread MCP server set and cleanup. The old-version Weave replay advances TestClock through upstream’s 250 ms tool-load settle before joining the forked startTurn. Evidence: OpenCode2AdapterV2.test.ts; CodexAdapterV2.test.ts; packages/provider-opencode/src/server/v2/adapter.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep per-thread Weave MCP server sets in ACP/OpenCode while adopting deferred exposure and external-prompt tracking. Evidence: AcpAdapterV2, AcpRegistryAdapterV2, OpenCode2AdapterV2 and SessionToolListings tests.
 
 - **Kind:** durable extension
@@ -377,6 +397,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** pechhe/t3code#74, #78–82, #92, #109–111 (closed); pechhe/t3code#4395 (T3-102); Weave Forge #4296, #4367, #4530 (YS-260), #4423 (T3-112; Weave side YS-309), #4759 (T3-191), #5257 (T3-269).
 
 ### repository-chips-hq
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt gh set-default, encoded-space and URL query/fragment identity fixes while retaining partial-clone origin identity and Forge repository synchronization. Evidence: RepositoryIdentityResolver.test.ts; packages/shared/src/git.test.ts.
 
 - **Kind:** durable extension
 - **Why:** A repository has the same colour and icon in T3 projects and Weave.
@@ -445,6 +467,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### scheduled-tasks-extensions
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream run-outcome recording after an accepted scheduled message, keeping role/purpose fields, rootIsDefault workspace selection and the fork scheduled page. Proof: ScheduledTaskService.test.ts covers accepted-message run outcomes alongside retained purpose/default-workspace cases; ThreadLaunchService.test.ts covers launch integration. Retire the extension when upstream supplies equivalent machine/project/role scheduling.
+
 - **Decision:** `retain` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep role/purpose fields and the split scheduled settings implementation; do not resurrect retired monolithic settings files. Adopt upstream locale setting integration around those routes. Evidence: scheduledTasksSettings.logic.test.ts; web typecheck; native acceptance remains with the parent.
 
 - **Kind:** durable extension
@@ -475,6 +499,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** T3-351; T3-375; T3-448; T3-444; T3-592; T3-593.
 
 ### linked-environments
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt optional linkedSender metadata and names on web/mobile, preserving sender authentication, endpoint ceilings, environment-qualified links and fork machine chips. Evidence: McpHttpServer.test.ts; shippedClientCompatibility.test.ts; ThreadManagementService.test.ts; web/mobile typechecks.
 
 - **Kind:** durable extension
 - **Why:** Agents and composers use threads across linked T3 environments.
@@ -509,6 +535,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** T3-306.
 
 ### account-pools
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt independent status probes, usage refresh and update lifecycle hooks without replacing pool routing, per-response accounting or the separate refreshUsage hook. Evidence: ProviderSessionManager.test.ts; ProviderRegistry.test.ts; packages/provider-core/src/server/maintenanceResolver.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep pool routing and per-response Weave accounting; adopt upstream reported-model metadata and installation gating. Consume a rerouted-model value once for both provider-turn metadata and usage. Evidence: ProviderRegistry, providerMaintenanceRunner, ClaudeAdapterV2 and CodexAdapterV2 tests.
 
@@ -571,6 +599,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### preview-browser-lifetime
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream System appearance, shared HTML render lifetime and local HTTPS certificate support while retaining managed tab ownership, profile release and fork navigation guards. Evidence: ServerBrowser.test.ts; apps/desktop/src/preview/Manager.test.ts; packages/shared/src/htmlRender.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep BrowserContexts ownership/release while adopting beforeunload closure and navigation-failure reporting. Evidence: ManagedIntegratedBrowser.test.ts; ServerBrowserPage.test.ts; BrowserTaskBrowser.test.ts.
 
 - **Kind:** durable behaviour difference (a fix on upstream's preview browser)
@@ -604,6 +634,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### snapshot-overlay
 
+- **Decision:** `adopt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream portal-restart shortcut rebinding; the fork overlay and image input are unchanged. Evidence: apps/desktop/src/snapShot/PortalCaptureShortcut.test.ts.
+
 - **Kind:** durable extension
 - **Why:** SnapShot is extended with an overlay window that is the main composer over the screen.
 - **Requirements:** global shortcut (Space accepted, Option+Space records) shows a compact overlay composer; captures attach; overlay hands its chat to the new-chat page; keeps its conversation until ended; capture helper pre-started on macOS and exits with T3 Code.
@@ -635,6 +667,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### image-annotation
 
+- **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Retain numbered image notes after checking upstream AnnotatableCodeView.tsx: it adds optional onScroll forwarding for code/diff views, separate from ImageAnnotator and composerContextLegacySend. The transcript re-import changes preserve message attachments and do not add an image-note editor. Proof: imageAnnotation.test.ts and composerContextLegacySend.test.ts.
+
 - **Kind:** durable extension
 - **Why:** Users annotate composer images with numbered marks and notes.
 - **Requirements:** numbered marks and notes with arrow tool, undo and kept focus; notes travel as their own context chip, survive reloads, leave with their chip, reach older servers as text and tell the agent the sent image's pixel size.
@@ -663,6 +697,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adopt` (v0.1.9-nightly.20261110.4478, 2026-11-10): Go to source on a side-chat quote keeps the user on its parent thread (#33160: `useSideChatCitationReveal` and the shared `locationCitation`/`citationActivation` pair). Adopted in `ChatView` beside the fork's `roundAnchor` follow-up landing, so a citation still reveals the side chat while a delegated round still lands on the child run. Use in main, the first-turn runtime-mode guard and the pane isolation are unchanged. Source: apps/web/src/lib/assistantCitationNavigation.ts, apps/web/src/components/ChatView.tsx.
 
 ### no-project-chats
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream No project Git suppression and thread-local linked-PR actions; retain fork Scratch/No project semantics, SlipJay control, overlay panel suppression and machine icons. Evidence: ThreadDetailsPanel.browser.test.tsx; web typecheck; packages/client-runtime/src/operations/projects.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Adopt symlink-aware scratch scanning while retaining realBaseDir/worktreesDir checks. Evidence: AgentSessionScanner.test.ts.
 
@@ -719,6 +755,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### live-response-streaming
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Replace duplicate fork Claude text tracking with upstream block-stop completion and snapshot correction; retain the 400 ms coalescing constant, stable item/start identity and lazy allocation for empty native text blocks. Keep fork origin/start metadata on Codex. Remove the lazy-ID extension when upstream skips empty native text blocks consistently in streams and snapshots; the rest of this entry’s retirement condition is unchanged. Evidence: ClaudeAdapterV2.test.ts (streamed blocks, empty-first-block regression); CodexAdapterV2.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Retain block IDs, origins, start times and 400 ms coalescing; adopt upstream interrupted-reply/scanner state. Claude keeps root-owned owed wakes until the relevant notification is consumed, including sibling wakes. Evidence: ClaudeAdapterV2.test.ts; CodexAdapterV2.test.ts; MessagesTimeline.logic.test.ts.
 
 - **Kind:** opt-in extension (default is upstream's)
@@ -737,6 +775,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adapt` (v0.1.9-nightly.20261110.4465, 2026-11-10): upstream rewrites the paragraph filter around tracks that hold an undelivered snapshot and deliver it whole once its message has been idle for 800ms (#28221: `makeAssistantStreamingFilter` returns `{ filter, nextIdleFlushAt, takeIdleFlushes }`, and `RunExecutionService` arms one timer for the earliest due snapshot), a shape the fork's live mode had to move into. Live is kept as the filter's own early branch: the same 45ms burst cap, each snapshot delivered whole and none held, so `nextIdleFlushAt` stays null and the idle machinery never runs for it. Paragraph mode is upstream's unchanged, including the rule that an idle delivery already ahead of the next boundary never shrinks. Source: apps/server/src/orchestration-v2/assistantStreaming.ts, RunExecutionService.ts, assistantStreaming.test.ts (the live test now drives `filter` through the returned object). The opt-in reveal, eased height, `DotMatrixSpinner` working row and the per-connection gate for shipped clients are unchanged.
 
 ### web-client-customisation
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream file-tree persistence, diff scroll restoration, editor/annotation/input and question-preview fixes. Preserve fork layout, overlay, machine icons, inline thread context and review-comment projection; no visual restyling. Evidence: pendingUserInput.test.ts; MessagesTimeline.logic.test.ts; web typecheck; upstream browser regressions remain with parent acceptance.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Adopt translation/search-key handling and measured-height prompt collapse; retain type-to-search and deferred results. Remove the obsolete character-collapse heuristic test. Evidence: web typecheck; BranchToolbar.logic, composerDraftStore, timelineScrollAnchoring and appearanceFonts tests.
 
@@ -762,6 +802,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adapt` (v0.1.9-nightly.20261109.4443, 2026-11-10): upstream removed its own half-second wait before the thread title's menu by letting the whole title open that menu (#33598) — the behaviour the fork replaced with a split control, whose chevron already opens the actions menu at once while the title copies the thread id after `TITLE_CLICK_COPY_DELAY_MS`, so the resolution keeps the fork's title and its copy timer and turns upstream's new test into the fork's test that the chevron opens the menu without waiting. Upstream's custom-instructions copy (#33113) is adopted with the fork's settings search entries unchanged. Source: apps/web/src/components/chat/ChatHeader.tsx, components/settings/SourceControlWritingSettings.tsx, components/settings/settingsSearch.ts. ChatHeader.browser.test.tsx and settingsSearch.test.ts pass.
 
 ### mobile-fork-screens
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream provider-host opt-ins, question previews, settings search, review scrolling and linked-sender names; keep fork settings routes and agent-image expansion using senderRef. Evidence: mobile typecheck; shippedClientCompatibility.test.ts.
 
 - **Decision:** `retain` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep fork scheduling roles and settings destinations alongside upstream locale settings; the fork-only settings row labels use upstream’s translation helper. Evidence: shared contracts, focused settings logic and mobile package typecheck.
 
@@ -789,6 +831,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adopt` (v0.1.9-nightly.20261110.4478, 2026-11-10): medium Android windows keep the rail's room and the sidebar's place (#33021), the Android Files sheet scrolls its tree instead of dragging the sheet (#33223), and a missing file names the checked path instead of asking to reconnect (#32994). Adopted under the fork's screens, which are unchanged. Source: apps/mobile/src/features/layout/AdaptiveWorkspaceLayout.tsx, features/files/*, components/ui/FilePreviewSession.tsx.
 
 ### desktop-fork-build
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt SSH-forward teardown, shell PATH recovery, update recovery and Linux self-check packaging. Keep newer Electron updater 6.8.11 pinned with its rebased timeout patch, fork build staging and native exclusions. Evidence: ElectronHttpExecutor.test.ts; DesktopShellEnvironment.test.ts; DesktopHomeOwner.test.ts; DesktopUpdates.test.ts; build-desktop-artifact.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep Electron test aliases/KDE behavior; adopt OS fixtures and newer-side jsdom 30.1.3. Evidence: DesktopApp.test.ts; build/install intentionally not run.
 
@@ -839,6 +883,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### fork-updater
 
+- **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep claimed-attempt build/install workflow and receipt gate; adopt desktop runtime shutdown and update robustness without running a build or installation in this helper. Evidence: fork/upstream-receipt.json; scripts/build-desktop-artifact.test.ts.
+
 - **Kind:** durable extension
 - **Why:** Upstream nightlies reach the owner's machines unattended, reconciled with the fork's behaviour, without trading away a usable app.
 - **Requirements:** every new upstream tag, clean or conflicting, is reconciled against this record and lands only through `slipjay land` with a fresh receipt (no direct push); one attempt per tag is in flight, duplicate deliveries and restarts resume it, a superseded attempt cannot be claimed again, an update supersedes only older tags (a newer tag whose release lost its assets keeps its attempt and is sent again once the release returns), and while an unlanded attempt is claimed and making progress, or waits for an owner decision, no other unlanded tag can be claimed; a claim that goes quiet for a redispatch interval is notified once and no longer holds back a newer published tag, which supersedes it and is sent as the new claim (an owner decision still holds until answered), and a quiet claim on a landed build is only notified, and an update that lands while blocked on publication keeps that block and its `retry` route; an owner decision holds newer tags until answered, and only an attempt still holding its work can record one (a superseded, landed or displaced attempt is refused, so two attempts never hold each other), staying with its holding thread through a late duplicate claim or take-over until Henry answers there or `retry` runs; builds run through the agent, which first checks that no agent turn is running on the VPS; only landed source with a passing receipt check is built and activated, selected by source commit rather than version text; the installed app is replaced only after a complete, signature-verified copy exists, and an interrupted replacement is repaired from the replaced or previous build, with a journal keeping each build's receipt with it; a VPS install that switched the runtime but did not finish, or gave no answer, holds Mac installs until a build confirms the VPS, even when an earlier install of the same version and source had succeeded; a VPS install repoints every launcher that points into the versions directory (~/.local/bin/t3 and each path `scripts/install.sh` recorded) at the runtime it switched in, so the `t3` on PATH is the server that runs, and leaves a launcher it does not own alone; an explicit recovery target stays selected until the next build, and source from before receipts is built only as one; failing to keep the replaced app as previous does not undo a finished install, and the next staged build waits until it is kept, so the one-step rollback is always the build immediately before the installed one; a staged build that is no longer the selected target is never installed; a build leads its own process group and records its source, claim, stage and owner identity before work can outlive its launcher, status reads it as live, interrupted or unknown with evidence and a next action and changes nothing, and only an owner and group positively gone, with no remote step left unproved, counts as interrupted; while a build is live or unknown (surviving children, unreadable or reused identity, a PID-only lock from an older script, a VPS step entered with no proved end) the hourly run touches neither the clone nor the claim and a new build is refused unless `--take-over` confirms it stopped; a stopped build with an `--attempt` claim still valid under the attempts lock is recovered through the ordinary build dispatch at most once per landed source and attempt, a repeat is held with its evidence until `attempt <tag> retry` or a new landed source, and an owner decision, recovery target, unassociated build, genuine build failure or a selected build that already satisfies the update is never recovered; receipts settle first, so a VPS install left unproved holds Mac installs through `vps-unknown.json`, partial activations stay reported, a source is never selected by recovery, and a build that had finished staging is simply completed; the install-on-quit job, started by an agent inside the app, survives the app quitting or being force-quit, detects that quit by pid and start time even when the app reopens between polls, and quits the reopened instance before installing the still-selected staged build and reopening it; status separates selected, staged, installed and active builds per destination; a tag is sent or built only when its own upstream release publishes SHA256SUMS and the Linux archive the build verifies, checked before dispatch, at claim and again at build (the VPS build downloads them before building), so a tag-only or incomplete release is skipped with the absent asset kept on its attempt (`unavailable`), is sent once the release completes, and never holds a complete newer release back (a stale claim on it is superseded); an unreadable release is neither skipped nor assumed published; a receipt from version 2 names every entry the record defines at the receipt's commit, dispositions account for every entry it retires, and a disposition's entry must be one the record defines, or one the update retired; so an entry cannot be passed over in silence, the review before landing judges the reconciliation — the merge's conflict resolutions, the record's diff and the receipt — and never upstream's own code, which upstream reviewed. Each update is assessed as a whole before it is resolved and its summary reported to Henry — additive areas, overlaps with a recorded entry, structural changes, and entries whose exit condition upstream has now met — and an entry upstream has overtaken is disposed rather than left in step, so two surface implementations of one capability carry a recorded reason and an exit condition naming which survives.
@@ -868,6 +914,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adapt` (v0.1.9-nightly.20261110.4452, 2026-11-10): upstream revised its visuals bullet for requested WebMCP writes (#26570): page tools write only on user request, never to show results. Its wording is the base, and the fork's rules stay inside that one bullet (publish before the final reply, never restate what the page says, a `.png` path for an image to send). Upstream's second, always-delivered `preview_*` bullet is not carried, because the fork delivers preview rules only to a thread whose listing carries that family: that text, now with upstream's "including recording edits", is the one in `T3_CODE_BROWSER_TOOL_INSTRUCTIONS`. Source: packages/provider-core/src/server/orchestrationInstructions.ts; orchestrationInstructions.test.ts passes.
 
 ### perf-persistence-reads
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream command read indexes as migration 124, pending-only context-transfer reads and conversation-index selection; preserve fork rare-type index routing, decode-after-transaction and bounded getShellSnapshot wrapper so fork shell fields survive. Keep historical migration IDs and accepted aliases. Evidence: ProjectionStore.test.ts; Orchestrator.control-reads.test.ts; Sqlite.test.ts; reconcileV2PreviewMigration.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Adopt upstream timeline/search indexes as migrations 122 and 123, following deployed fork migration 121; preserve selective reads, reader routing and changed-column writes. Evidence: ProjectionStore.test.ts; reconcileV2PreviewMigration.test.ts; DatabaseMaintenance.test.ts.
 
@@ -919,6 +967,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### perf-persistence-writes
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt typed invalid-database startup failure and masked cleanup while preserving the fork WAL worker, fallback gate and hard frame ceiling. Evidence: packages/shared/src/nodeSqliteClient.test.ts; Sqlite.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Adopt upstream immediate writer release when a checkpoint reports a pinned reader. Keep the fork one-second fallback only while the worker cannot report, its 250000-frame disk ceiling, episode diagnostics and 400 ms provider coalescing. Evidence: nodeSqliteClient.test.ts; Sqlite.test.ts; ClaudeAdapterV2.test.ts; CodexAdapterV2.test.ts.
 
 - **Kind:** deliberate behaviour change (upstreamable performance fix)
@@ -934,6 +984,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### perf-markdown-blocks
 
+- **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Retain renderer fallbacks after checking upstream packages/shared/src/markdownMath.ts (dollar-math prefilter) and markdownLinks.ts (escaped label endings). These helpers do not replace ChatMarkdown whole-document fallback or newest-two-block reveal. Proof: markdownMath.test.ts, markdownLinks.test.ts and ChatMarkdown.browser.test.tsx.
+
 - **Kind:** remaining renderer extensions after upstream streaming-parser adoption.
 - **Why:** Streamed updates should reuse completed blocks while preserving whole-document Markdown semantics, source origins and calm word reveal.
 - **Requirements:** Use upstream's streaming scanner only for independent blocks. Render whole for task mutations, math, extra remark plugins, cross-block definitions/HTML, BOM and repeated heading IDs; fade only the newest two blocks. Task offsets and inline file origins still refer to the whole message.
@@ -945,6 +997,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** Forge #3172.
 
 ### agent-process-ledger
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt finished-Claude delegate process release and provider background lifecycles while preserving owned process-group accounting and the fork’s background command grace. Evidence: DelegatedCompletionDelivery.test.ts; ClaudeAdapterV2.test.ts; ProviderSessionManager.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep process-group accounting while adopting detached-job cleanup and prompt lifecycle updates. Evidence: ClaudeAdapterV2.test.ts; provider adapter suites.
 
@@ -961,6 +1015,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** Forge #3416 and #3443 under Spec #3172.
 
 ### dev-state-tooling
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Map upstream command-read indexes to deployed fork migration 124 and retain historical fixture manifests and collision checks. Evidence: reconcileV2PreviewMigration.test.ts; Sqlite.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep migrated fixture templates for current schemas, but create historical fixtures at their requested migration. Adopt upstream peer-preview fixtures with fork migration numbering and deterministic retained-thread expectations. Evidence: migrate-dev-db.test.ts; reconcileV2PreviewMigration.test.ts.
 
@@ -995,6 +1051,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### delegated-work-visibility
 
+- **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep one fork subagent panel and request projection while adopting upstream background wake and completion fixes; no second work surface is added. Evidence: MessagesTimeline.logic.test.ts; DelegatedCompletionDelivery.test.ts; ProviderSessionManager.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep one fork SubagentPanel with parked watches rather than a second backgroundWorkNow surface; adopt upstream provider background-work state and cancellation delivery. Evidence: MessagesTimeline.logic.test.ts; DelegatedCompletionDelivery.test.ts.
 
 - **Kind:** durable extension
@@ -1013,6 +1071,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### subagent-return-chip
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep round-anchor navigation and return chips alongside upstream linked-environment sender navigation using the existing target string callback. Evidence: MessagesTimeline.logic.test.ts; web typecheck; useThreadLifecycle.tsx.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Retain settled subagent cards and return chips under upstream live-work folding; deduplicate only completed projected compactions, keeping failure and legacy entries visible. Evidence: MessagesTimeline.logic.test.ts: 141 passing cases.
 
 - **Kind:** deliberate behaviour change
@@ -1029,6 +1089,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adapt` (v0.1.8-nightly.20261109.4429, 2026-11-09): jumping to a card calls upstream's `preserveDisclosurePosition(target.rowId)` on the list ref instead of the fork's settle schedule; chips, folds and the highlight are unchanged.
 
 ### session-tool-listings
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream four-minute MCP wait limit and optional pending-wake Effect without changing fork session tool families or role ceilings. Measure the tool-schema reduction: 130232 bytes; system append/context remain 11672/14132. Evidence: AgentContextBudget.test.ts; McpHttpServer.test.ts; OrchestratorMcpService.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Adopt deferred Copilot tool search within existing session endpoints and permission profiles. Restore the omitted upstream settle directive; preserve fork production watch and managed-child instructions. Audit found no duplicated sections; context budgets are measured at 11275 / 13735 / 128726 bytes. Evidence: SessionToolListings, ToolSessionPolicy, AgentContextBudget and focused Sonnet/Haiku evals in the receipt.
 
@@ -1050,6 +1112,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adapt` (v0.1.9-nightly.20261110.4452, 2026-11-10): upstream shortens `preview_evaluate`'s description for requested WebMCP writes and adds optional `command`, `itemId` and `sourceThreadId` fields to a pending background task in the orchestration contracts; both adopted, with the family table, endpoints and child texts unchanged. Re-measured budgets: claude system append 9,802 → 9,801, codex additional context 12,236 → 12,263 (the reconciled preview guidance), tool list JSON 122,108 → 122,092 bytes. Source: apps/server/src/mcp/toolkits/preview/tools.ts, packages/contracts/src/orchestrationV2.ts, apps/server/src/provider/agentContextBudget.json. Proof: AgentContextBudget.test.ts (2 tests).
 
 ### run-interrupt-cause
+
+- **Decision:** `adopt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream Stop race coverage for a provider turn that starts during Stop and interrupted startup recovery; keep fork reason metadata and move/Stop semantics. Evidence: ThreadStop.test.ts; ProviderTurnStartService.test.ts; runtimeLayer.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Adopt intentional workspace-handoff completion while preserving movedTo, Stop and provider-abort reasons. Evidence: RunExecutionService, SelectionRestart, SteeringCompletion and ThreadManagementService tests.
 
@@ -1145,6 +1209,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### claude-missing-transcript-resume
 
+- **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep per-account missing-transcript fallback and worker-isolated history reads while adopting rejected-resume handling and forked-skill model lookup through that same worker. Evidence: ClaudeAdapterV2.test.ts; ProviderTurnStartService.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep missing-transcript fallback while adopting moved-project transcript lookup and canonical registration. Evidence: ProviderTurnStartService.test.ts; ClaudeAdapterV2.test.ts.
 
 - **Kind:** temporary workaround (upstreamable bug fix)
@@ -1158,6 +1224,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** T3-308 (Forge #5588).
 
 ### claude-full-access-no-prompts
+
+- **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep the full-access permission environment flag; upstream Claude session and alias changes do not supply an equivalent. Evidence: ClaudeAdapterV2.test.ts.
 
 - **Kind:** deliberate behaviour change
 - **Why:** Claude's CLI forwards some commands to the permission callback even in `bypassPermissions` (a `sh -c` script with `rm` it cannot parse). Upstream shows these as approvals, so a full-access thread still stops for a person.
@@ -1218,6 +1286,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### ssh-launch-respects-boot-service
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt changed SSH alias Port and failed-download diagnostics while preserving service-owned-home wait/adoption and refusal to launch a second server. Evidence: packages/ssh/src/tunnel.test.ts.
+
 - **Kind:** fork fix to upstream code.
 - **Why:** The desktop app's SSH launch script starts its own `t3 serve` on the remote host when the default home's runtime file names no live server. A background-service restart removes that file while the unit is down, so the launcher read a few-second gap as "no server": it took port 3773 and the home's ownership lock and ran a server without the unit's `T3CODE_HOME`, `T3CODE_AGENT_POLICY_ROOT`, T3 Connect settings and `TZ`. Delegations from it were refused for the missing policy root (VPS, 2026-11-05: the unit stopped at 13:00:38 GMT and the SSH-started server began at 13:00:44 GMT).
 - **Requirements:** when a user service owns the default T3 home — `t3code.service` naming this home in `T3CODE_HOME`, active, activating or enabled, or the `com.t3tools.t3code.service` launch agent loaded — the launcher adopts a live managed server another SSH alias recorded first, and otherwise waits up to 30 s for that service to publish a live server and adopts it as `external`; if it never appears, the launch fails with "Retry the connection in a moment; no second server was started" and starts nothing. A host without such a service launches its own server exactly as before, and a unit installed for a different T3 home does not block a launch. A healthy service is still adopted through the runtime file first, untouched.
@@ -1258,6 +1328,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### shared-provider-setup
 
+- **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep former-instance aliases and whole-list shared setup while adopting independent per-provider updates; preserve both behavior tests in the client-runtime server suite. Evidence: packages/client-runtime/src/state/server.test.ts; shippedClientCompatibility.test.ts.
+
 - **Kind:** durable extension
 - **Why (T3-201):** Henry wants one provider setup across all his environments, with a change on one applying to all, and per-machine sign-in shown as an error with a one-click fix. Upstream configures each environment separately.
 - **Requirements:** machines join only on an explicit "Use shared setup" and can stop sharing. A machine that was offline catches up on reconnect. Concurrent edits resolve as a whole setup: the later edit wins, with no per-provider merge. A machine never receives another's secret, and a missing one shows as an error on that machine with a way to add it. A joining machine's threads keep working when its account's instance id changes.
@@ -1274,6 +1346,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### stop-pauses-delegated-tasks
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream Stop/start race and completion/process-release fixes while retaining pausedByParentStop, stopped completion cohorts and user-message-only resume. Evidence: ThreadStop.test.ts; DelegatedCompletionDelivery.test.ts; ThreadManagementService.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Retain pausedByParentStop and resumable tasks alongside upstream cancelledRunId; task_cancel uses the same transactional Stop and descendant dispatch without reacquiring its parent lock. Evidence: TaskCancelNativeSubagent.integration.test.ts; DelegatedCompletionDelivery.test.ts.
 
 - **Kind:** durable extension
@@ -1287,6 +1361,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adopt` (v0.1.9-nightly.20261111.4501, 2026-11-11): upstream's #33446 and #33758 edit `Orchestrator.ts` around the completion delivery this entry's pause marks ride on; the marks, the resume effect and the cohort disposal are unchanged. Source: apps/server/src/orchestration-v2/Orchestrator.ts, ThreadStop.test.ts.
 
 ### saved-and-temporary-secrets
+
+- **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep BWS lifecycle, secret disclosure boundaries and new settings routes; upstream question previews and optional settings additions do not replace durable-secret management. Evidence: shippedClientCompatibility.test.ts; mobile/web typechecks; existing BwsClient/SavedSecrets/SecretRequests proof retained.
 
 - **Kind:** durable extension
 - **Why (T3-613):** reusable agent credentials belong in Bitwarden Secrets Manager, while one-time credentials retain the existing private handoff. Settings must make that distinction visible and let the user manage both.

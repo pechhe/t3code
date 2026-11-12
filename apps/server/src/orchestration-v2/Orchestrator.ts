@@ -1687,6 +1687,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           // Commands here read only undelivered or active tasks; a dispatcher thread keeps
           // thousands of delivered ones, each carrying its full prompt.
           omitSettledSubagents: true,
+          // Commands act on pending forks and merge-backs only; consumed ones stay unread.
+          contextTransferStatuses: ["pending"],
         },
       )
       .pipe(
@@ -2846,6 +2848,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ...(queuedMessage.senderThreadId === undefined
             ? {}
             : { senderThreadId: queuedMessage.senderThreadId }),
+          ...(queuedMessage.linkedSender === undefined
+            ? {}
+            : { linkedSender: queuedMessage.linkedSender }),
           ...(queuedMessage.idleCompaction === undefined
             ? {}
             : { idleCompaction: queuedMessage.idleCompaction }),
@@ -5521,6 +5526,43 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             })
           : null;
 
+      // Archive and settle stop idle background work; serialized commands prevent starts racing detach.
+      // Settlement rejects active or blocked runs.
+      const detachSessionIds = new Set(
+        command.type === "thread.archive" || command.type === "thread.settle"
+          ? (providerContext?.providerSessions ?? []).map((session) => session.id)
+          : command.type === "thread.project-move.record" ||
+              (command.type === "thread.metadata.update" &&
+                command.worktreePath !== undefined &&
+                command.worktreePath !== thread.worktreePath)
+            ? (providerContext?.providerSessions ?? []).map((session) => session.id)
+            : command.type === "thread.runtime-mode.set"
+              ? (providerContext?.providerSessions ?? [])
+                  .filter(
+                    (session) => !session.capabilities.sessions.supportsRuntimeModeSwitchInSession,
+                  )
+                  .map((session) => session.id)
+              : (providerSwitchPlan?.releaseProviderSessionIds ?? []),
+      );
+      const liveSessions = (providerContext?.providerSessions ?? []).filter(
+        (session) =>
+          detachSessionIds.has(session.id) &&
+          session.status !== "stopped" &&
+          session.status !== "error",
+      );
+      if (command.type !== "thread.archive" && command.type !== "thread.settle") {
+        for (const session of liveSessions) {
+          if (yield* sessionHasBackgroundWork(session, providerContext!.providerThreads)) {
+            return yield* new OrchestratorDispatchError({
+              commandId: command.commandId,
+              commandType: command.type,
+              cause:
+                "The current session is still running background agents or commands, and this change would end them. Wait for them to finish, or press Stop, then try again.",
+            });
+          }
+        }
+      }
+
       const now = yield* DateTime.now;
       if (command.type === "thread.metadata.update" && command.limitRecovery != null) {
         const projection = yield* loadProjectionForCommand(
@@ -6420,31 +6462,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         yield* closePendingLinkRequests({ command, events, threadId: command.threadId, now });
       }
 
-      // Archive and settle stop idle background work; serialized commands prevent starts racing detach.
-      // Settlement rejects active or blocked runs.
-      const detachSessionIds = new Set(
-        command.type === "thread.archive" || command.type === "thread.settle"
-          ? (providerContext?.providerSessions ?? []).map((session) => session.id)
-          : command.type === "thread.project-move.record" ||
-              (command.type === "thread.metadata.update" &&
-                command.worktreePath !== undefined &&
-                command.worktreePath !== thread.worktreePath)
-            ? (providerContext?.providerSessions ?? []).map((session) => session.id)
-            : command.type === "thread.runtime-mode.set"
-              ? (providerContext?.providerSessions ?? [])
-                  .filter(
-                    (session) => !session.capabilities.sessions.supportsRuntimeModeSwitchInSession,
-                  )
-                  .map((session) => session.id)
-              : (providerSwitchPlan?.releaseProviderSessionIds ?? []),
-      );
-      if (detachSessionIds.size > 0) {
-        const liveSessions = (providerContext?.providerSessions ?? []).filter(
-          (session) =>
-            detachSessionIds.has(session.id) &&
-            session.status !== "stopped" &&
-            session.status !== "error",
-        );
+      if (liveSessions.length > 0) {
         yield* Effect.forEach(
           liveSessions,
           (session) =>
@@ -7028,6 +7046,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly creationSource: OrchestrationV2ConversationMessage["creationSource"];
     readonly scheduledTaskId?: OrchestrationV2ConversationMessage["scheduledTaskId"];
     readonly senderThreadId?: OrchestrationV2ConversationMessage["senderThreadId"];
+    readonly linkedSender?: OrchestrationV2ConversationMessage["linkedSender"];
     readonly idleCompaction?: OrchestrationV2ConversationMessage["idleCompaction"];
     readonly delegatedCompletion?: OrchestrationV2ConversationMessage["delegatedCompletion"];
     readonly notification?: OrchestrationV2ConversationMessage["notification"];
@@ -7172,6 +7191,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ? {}
             : { scheduledTaskId: input.scheduledTaskId }),
           ...(input.senderThreadId === undefined ? {} : { senderThreadId: input.senderThreadId }),
+          ...(input.linkedSender === undefined ? {} : { linkedSender: input.linkedSender }),
           ...(input.idleCompaction === undefined ? {} : { idleCompaction: input.idleCompaction }),
           id: input.messageId,
           threadId: input.command.threadId,
@@ -7192,6 +7212,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ? {}
             : { scheduledTaskId: input.scheduledTaskId }),
           ...(input.senderThreadId === undefined ? {} : { senderThreadId: input.senderThreadId }),
+          ...(input.linkedSender === undefined ? {} : { linkedSender: input.linkedSender }),
           ...(input.idleCompaction === undefined ? {} : { idleCompaction: input.idleCompaction }),
           id: idAllocator.derive.userTurnItem({ messageId: input.messageId }),
           threadId: input.command.threadId,
@@ -8400,6 +8421,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           : { scheduledTaskId: command.scheduledTaskId }),
         ...(command.senderThreadId === undefined ? {} : { senderThreadId: command.senderThreadId }),
         ...(command.notification === undefined ? {} : { notification: command.notification }),
+        ...(command.linkedSender === undefined ? {} : { linkedSender: command.linkedSender }),
         ...(command.idleCompaction === undefined ? {} : { idleCompaction: command.idleCompaction }),
         forceRestart: dispatchMode.type === "restart_active",
       });
@@ -8733,6 +8755,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ? {}
           : { scheduledTaskId: command.scheduledTaskId }),
         ...(command.senderThreadId === undefined ? {} : { senderThreadId: command.senderThreadId }),
+        ...(command.linkedSender === undefined ? {} : { linkedSender: command.linkedSender }),
         ...(command.idleCompaction === undefined ? {} : { idleCompaction: command.idleCompaction }),
         id: command.messageId,
         threadId: command.threadId,
@@ -8947,7 +8970,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       isProviderSwitch &&
       activeProviderThread.nativeThreadRef !== null &&
       providerSwitchPlan?.transition.type === "restart_and_resume";
-    const sessionsToDetach = uniqueSessions([
+    const releasableSessions = uniqueSessions([
       ...projection.providerSessions.filter(
         (session) =>
           providerSwitchPlan?.releaseProviderSessionIds.includes(session.id) &&
@@ -8956,8 +8979,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ),
       ...(freshContext ? sessionsReleasedByFreshContext(projection, activeProviderThread) : []),
     ]);
-    for (const detaching of sessionsToDetach) {
+    const sessionsToDetach: Array<OrchestrationV2ProviderSession> = [];
+    for (const detaching of releasableSessions) {
       if (yield* sessionHasBackgroundWork(detaching, projection.providerThreads)) {
+        // A schedule has nobody to wait or press Stop; like a queued fresh start, leave it running.
+        if (freshContext && command.scheduledTaskId !== undefined) continue;
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
@@ -8966,6 +8992,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             : "The previous provider is still running background agents or commands, and switching would end them. Wait for them to finish, or press Stop, then send the message again.",
         });
       }
+      sessionsToDetach.push(detaching);
     }
 
     const startsInPlace =
@@ -9141,6 +9168,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ? {}
           : { scheduledTaskId: command.scheduledTaskId }),
         ...(command.senderThreadId === undefined ? {} : { senderThreadId: command.senderThreadId }),
+        ...(command.linkedSender === undefined ? {} : { linkedSender: command.linkedSender }),
         ...(command.idleCompaction === undefined ? {} : { idleCompaction: command.idleCompaction }),
         id: command.messageId,
         threadId: command.threadId,
@@ -9163,6 +9191,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ? {}
           : { scheduledTaskId: command.scheduledTaskId }),
         ...(command.senderThreadId === undefined ? {} : { senderThreadId: command.senderThreadId }),
+        ...(command.linkedSender === undefined ? {} : { linkedSender: command.linkedSender }),
         ...(command.idleCompaction === undefined ? {} : { idleCompaction: command.idleCompaction }),
         id: idAllocator.derive.userTurnItem({ messageId: command.messageId }),
         threadId: command.threadId,
@@ -9550,6 +9579,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         : yield* contextHandoffService
             .prepareProviderHandoff({
               threadId: command.threadId,
+              sourceThreadId: sourceProjection.thread.id,
               targetRunId: runId,
               transferId: pendingForkTransfer.id,
               fromProviderThreadIds:
@@ -9935,6 +9965,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ? {}
         : { scheduledTaskId: command.scheduledTaskId }),
       ...(command.senderThreadId === undefined ? {} : { senderThreadId: command.senderThreadId }),
+      ...(command.linkedSender === undefined ? {} : { linkedSender: command.linkedSender }),
       ...(command.idleCompaction === undefined ? {} : { idleCompaction: command.idleCompaction }),
       id: command.messageId,
       threadId: command.threadId,
@@ -9957,6 +9988,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ? {}
         : { scheduledTaskId: command.scheduledTaskId }),
       ...(command.senderThreadId === undefined ? {} : { senderThreadId: command.senderThreadId }),
+      ...(command.linkedSender === undefined ? {} : { linkedSender: command.linkedSender }),
       ...(command.idleCompaction === undefined ? {} : { idleCompaction: command.idleCompaction }),
       id: idAllocator.derive.userTurnItem({ messageId: command.messageId }),
       threadId: command.threadId,
@@ -9987,7 +10019,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           )
         : {}),
     };
-    const activeHandoff = portableForkHandoff ?? mergeBackHandoff ?? providerSwitchHandoff;
+    // A side chat's "Context from" divider already marks its copied context.
+    const activeHandoff =
+      (sideChatFork ? null : portableForkHandoff) ?? mergeBackHandoff ?? providerSwitchHandoff;
     const handoffSourceRuns =
       portableForkHandoff !== null
         ? sourceRun === null
@@ -12620,6 +12654,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ...(queuedMessage.senderThreadId === undefined
         ? {}
         : { senderThreadId: queuedMessage.senderThreadId }),
+      ...(queuedMessage.linkedSender === undefined
+        ? {}
+        : { linkedSender: queuedMessage.linkedSender }),
       ...(queuedMessage.idleCompaction === undefined
         ? {}
         : { idleCompaction: queuedMessage.idleCompaction }),
@@ -15552,6 +15589,51 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     };
   });
 
+  // A finished delegate otherwise keeps its provider process until the idle timeout. Callers hold
+  // the parent lock; the child lock orders this after any follow-up that started a run meanwhile.
+  const releaseFinishedDelegateSessions = Effect.fn("Orchestrator.releaseFinishedDelegateSessions")(
+    function* (childThreadId: ThreadId, resultRunId: RunId) {
+      yield* threadDispatch.withLock(
+        childThreadId,
+        Effect.gen(function* () {
+          const child = yield* projectionStore.getThreadRecords(
+            childThreadId,
+            ["runs", "messages", "subagents", "providerThreads", "providerSessions", "turnItems"],
+            { messageRoles: ["user"], turnItemTypes: ["command_execution"] },
+          );
+          // Unawaited background tasks still allow a result but die with the process; the idle
+          // timer keeps their process pinned.
+          if (
+            delegatedTaskProgress(child).state !== "result_available" ||
+            child.providerThreads.some((thread) => (thread.pendingBackgroundTasks ?? []).length > 0)
+          )
+            return;
+          for (const session of child.providerSessions) {
+            // Shared processes unload their threads themselves; only a per-thread process lingers.
+            if (
+              session.status === "stopped" ||
+              session.status === "error" ||
+              session.capabilities.sessions.supportsMultipleProviderThreadsPerSession
+            )
+              continue;
+            yield* dispatchWithReceiptEffect({
+              type: "provider-session.detach",
+              commandId: CommandId.make(
+                `command:system:delegated-task-release:${resultRunId}:${session.id}`,
+              ),
+              threadId: childThreadId,
+              providerSessionId: session.id,
+              reason: "Delegated task finished.",
+            });
+          }
+        }),
+      );
+    },
+    Effect.catchCause((cause) =>
+      Effect.logWarning("Failed to release a finished delegate's provider session", { cause }),
+    ),
+  );
+
   /**
    * Callers must hold the parent thread's dispatch lock: wake-policy updates the same
    * subagent row with full-row payloads, so unserialized writers clobber policy or terminal status.
@@ -15869,6 +15951,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         },
       );
       if (published.length === 0) return;
+      yield* releaseFinishedDelegateSessions(childThreadId, childRun.id);
 
       if (completionPlan.offer && completionPlan.parentRun !== undefined) {
         yield* offerDelegatedCompletionDelivery(parentThreadId, completionPlan.parentRun.id);

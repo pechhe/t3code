@@ -103,6 +103,7 @@ import Migration0097 from "./Migrations/097_ChampionRecovery.ts";
 import Migration0098 from "./Migrations/098_PeerLinks.ts";
 import Migration0099 from "./Migrations/099_PeerLinkFence.ts";
 import Migration0122 from "./Migrations/122_ProjectionMessageSearchText.ts";
+import Migration0124 from "./Migrations/124_CommandReadIndexes.ts";
 import Migration0123 from "./Migrations/123_TurnItemConversationIndex.ts";
 import Migration0121 from "./Migrations/121_AdviceConsultations.ts";
 import Migration0100 from "./Migrations/100_WaitingLinkRequestIndex.ts";
@@ -252,6 +253,7 @@ const migrationEntries = [
   [121, "AdviceConsultations", Migration0121],
   [122, "ProjectionMessageSearchText", Migration0122],
   [123, "TurnItemConversationIndex", Migration0123],
+  [124, "CommandReadIndexes", Migration0124],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -281,6 +283,26 @@ const makeMigrationLoader = (throughId?: number) =>
 
 const FIRST_V2_MIGRATION_ID = 55;
 
+export function skippedV2Migrations(
+  recorded: ReadonlyArray<{ readonly id: number; readonly name: string }>,
+  throughId?: number,
+): string[] {
+  const latestRecordedId = Math.max(0, ...recorded.map((row) => row.id));
+  const recordedNames = new Map(recorded.map((row) => [row.id, row.name]));
+  return migrationManifest.flatMap(([id, name]) => {
+    if (
+      id < FIRST_V2_MIGRATION_ID ||
+      id > latestRecordedId ||
+      (throughId !== undefined && id > throughId)
+    )
+      return [];
+    const recordedName = recordedNames.get(id);
+    return recordedName !== undefined && migrationAlreadyApplied(id, recordedName, name)
+      ? []
+      : [`${id}_${name} (recorded: ${recordedName ?? "nothing"})`];
+  });
+}
+
 // Migrators skip ids up to the highest recorded; reject collisions that would skip V2 schema.
 const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function* (
   throughId?: number,
@@ -294,21 +316,11 @@ const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function*
     readonly migration_id: number;
     readonly name: string;
   }>`SELECT migration_id, name FROM effect_sql_migrations`;
+  const skipped = skippedV2Migrations(
+    recorded.map((row) => ({ id: row.migration_id, name: row.name })),
+    throughId,
+  );
   const latestRecordedId = Math.max(0, ...recorded.map((row) => row.migration_id));
-  const recordedNames = new Map(recorded.map((row) => [row.migration_id, row.name]));
-  const skipped = migrationEntries.flatMap(([id, name]) => {
-    if (
-      id < FIRST_V2_MIGRATION_ID ||
-      id > latestRecordedId ||
-      (throughId !== undefined && id > throughId)
-    )
-      return [];
-    const recordedName = recordedNames.get(id);
-    if (recordedName === undefined) return [`${id}_${name} (recorded: nothing)`];
-    return migrationAlreadyApplied(id, recordedName, name)
-      ? []
-      : [`${id}_${name} (recorded: ${recordedName})`];
-  });
   if (skipped.length === 0) return;
   return yield* new Migrator.MigrationError({
     kind: "BadState",

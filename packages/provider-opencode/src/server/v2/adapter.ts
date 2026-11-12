@@ -613,7 +613,7 @@ const claudeUsageLimit = (message: string | undefined) =>
     ? { resetAt: /\bResets at (\d{4}-\d\d-\d\dT[\d:.]+Z)\.?\s*$/.exec(message)?.[1] ?? null }
     : undefined;
 
-const INTERRUPT_TIMEOUT = "10 seconds";
+const INTERRUPT_TIMEOUT = 10_000;
 const INSTRUCTIONS_KEY = "t3-code";
 const RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY = "2 seconds";
@@ -622,6 +622,7 @@ const RECONNECT_WAIT = "30 seconds";
 const LOST_BACKGROUND =
   "T3 Code lost its connection to OpenCode while this subagent ran, so its result is not shown.";
 const INVENTORY_TIMEOUT = "5 seconds";
+const MCP_TOOL_RELOAD_SETTLE = "250 millis";
 const ACTIVE_CHECK_TIMEOUT = "5 seconds";
 // Other failures may still have admitted the prompt.
 const CLEAR_PROMPT_REJECTIONS: ReadonlySet<string> = new Set([
@@ -1920,7 +1921,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         driver,
         nativeItemId: call.nativeId,
       });
-      const childThreadId = idAllocator.derive.threadFromProviderThread({
+      const childThreadId = idAllocator.derive.subagentThread({
         driver,
         nativeThreadId: childId,
         providerInstanceId: instanceId,
@@ -4127,6 +4128,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       );
       // Idle Location eviction drops runtime MCP servers without clearing T3's cache.
       // Re-adding an unchanged config keeps its existing connection.
+      const fresh = kept.length === 0;
       const added = yield* Effect.filter(wanted, (server) =>
         client.mcp
           .add({
@@ -4157,6 +4159,9 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         (server) => added.includes(server) || kept.some((current) => sameServer(current, server)),
       );
       const mcpAvailable = added.some((server) => server.name === t3Name);
+      if (mcpAvailable && fresh && compareSemverVersions(connection.version, "2.2.6") < 0) {
+        yield* Effect.sleep(MCP_TOOL_RELOAD_SETTLE);
+      }
       const instructions = [
         buildRuntimeInstructions({ harness: "OpenCode", model: turnInput.modelSelection.model }),
         t3OrchestrationSystemPrompt(mcpAvailable, {
@@ -4890,8 +4895,14 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
               ),
             );
           if (reply._tag === "None") {
-            markUnsettled(state);
-            return yield* lock.withPermit(finishTurn(state, { status: "interrupted" }));
+            if (state.active !== turn) return;
+            // The turn stays open: its tools may still run, and the user decides whether to Force stop.
+            return yield* new ProviderAdapter.ProviderAdapterInterruptTimeoutError({
+              driver: OPENCODE_PROVIDER,
+              providerThreadId: interruptInput.providerThread.id,
+              providerTurnId: interruptInput.providerTurnId,
+              timeoutMs: INTERRUPT_TIMEOUT,
+            });
           }
           // Stop between steer executions retracts pending steers and skips any run they already started.
           if (!reply.value.interrupted && state.active === turn && turn.heldEnd !== undefined) {

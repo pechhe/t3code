@@ -5,12 +5,16 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import type * as Duration from "effect/Duration";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Logger from "effect/Logger";
+import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as SqlError from "effect/sql/SqlError";
 import * as Statement from "effect/sql/Statement";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as TestClock from "effect/testing/TestClock";
@@ -789,6 +793,24 @@ it.effect("hands checkpoints back to the writer when the worker stops", () =>
       assert.equal(autocheckpoint[0]?.wal_autocheckpoint, 4000);
     }),
   ),
+);
+
+it.effect("fails with a typed SqlError when the database file is not SQLite", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-sqlite-notadb-" });
+    const filename = path.join(directory, "state.sqlite");
+    yield* fs.writeFileString(filename, "not a db\n");
+
+    const exit = yield* Layer.build(SqliteClient.layer({ filename, checkpointWorker: true })).pipe(
+      Effect.exit,
+    );
+
+    assert.isTrue(Exit.isFailure(exit));
+    if (Exit.isFailure(exit)) assert.isTrue(SqlError.isSqlError(Cause.squash(exit.cause)));
+    if (Exit.isFailure(exit)) assert.isFalse(Cause.hasDies(exit.cause));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
 it.effect("finishes masked database cleanup after its caller is interrupted", () =>

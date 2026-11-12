@@ -174,6 +174,7 @@ const layerRunExecutionServiceProvided = RunExecutionService.layer.pipe(
       IdAllocator.layer,
       layerProviderEventIngestorProvided,
       TurnItemPositionStore.layer,
+      ThreadCommandExecutor.layer,
     ),
   ),
 );
@@ -305,6 +306,7 @@ const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
       WorkspaceProvider.layer,
       layerThreadManagementProvided,
       layerCommandReceiptStoreProvided,
+      layerEventSink,
       IdAllocator.layer,
     ),
   ),

@@ -1671,7 +1671,7 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
     (recoveredChild) =>
       Effect.gen(function* () {
         const ids = yield* IdAllocator.IdAllocatorV2.pipe(Effect.provide(IdAllocator.layer));
-        const childThreadId = ids.derive.threadFromProviderThread({
+        const childThreadId = ids.derive.subagentThread({
           driver: OPENCODE_PROVIDER,
           nativeThreadId: CHILD,
           providerInstanceId: instanceId,
@@ -2235,7 +2235,7 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
         .interruptTurn({ providerThread: thread, providerTurnId: yield* providerTurnId })
         .pipe(Effect.forkScoped);
       yield* TestClock.adjust("11 seconds");
-      yield* Fiber.join(interrupt);
+      yield* Fiber.join(interrupt).pipe(Effect.flip);
     });
   const terminals = (runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime, count: number) =>
     runtime.events.pipe(
@@ -2250,23 +2250,57 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
       Effect.forkScoped,
     );
 
+  // regression: #30193 an unanswered Stop showed the turn interrupted while its tool kept running
+  it.effect("reports a Stop OpenCode never answers as an interrupt timeout", () =>
+    Effect.gen(function* () {
+      const { runtime, thread } = yield* resumed(stopTimedOut);
+      yield* runtime.startTurn(turnInput(thread));
+      const interrupt = yield* runtime
+        .interruptTurn({ providerThread: thread, providerTurnId: yield* providerTurnId })
+        .pipe(Effect.exit, Effect.forkScoped);
+      yield* TestClock.adjust("11 seconds");
+      const exit = yield* Fiber.join(interrupt);
+      assert.propertyVal(
+        Exit.isFailure(exit) ? Cause.squash(exit.cause) : { _tag: "interrupt succeeded" },
+        "_tag",
+        "ProviderAdapterInterruptTimeoutError",
+      );
+    }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+  );
+
   it.effect("never lets a timed-out Stop's late end finish the next turn", () =>
     Effect.gen(function* () {
-      const { runtime, thread } = yield* resumed([
-        ...stopTimedOut,
-        out("session.active"),
-        reply("session.active", { data: {} }),
-        out("session.prompt", { sessionID: SESSION, text: "<any>" }),
-        promptAccepted,
-        event("session.execution.succeeded", { sessionID: SESSION }),
-        event("session.execution.started", { sessionID: SESSION }),
-        event("session.execution.failed", {
-          sessionID: SESSION,
-          error: { type: "provider", message: "second turn failed" },
-        }),
-      ]);
-      const ended = yield* terminals(runtime, 2);
+      const gate = makeProviderReplayGate(["late-end"]);
+      const { runtime, thread } = yield* resumed(
+        [
+          ...stopTimedOut,
+          event("session.execution.succeeded", { sessionID: SESSION }, "late-end"),
+          out("session.prompt", { sessionID: SESSION, text: "<any>" }),
+          promptAccepted,
+          event("session.execution.started", { sessionID: SESSION }),
+          event("session.execution.failed", {
+            sessionID: SESSION,
+            error: { type: "provider", message: "second turn failed" },
+          }),
+        ],
+        { replayGate: gate },
+      );
+      const lateEnd = yield* Deferred.make<void>();
+      const ended = yield* runtime.events.pipe(
+        Stream.filter(
+          (
+            event,
+          ): event is Extract<ProviderAdapter.ProviderAdapterV2Event, { type: "turn.terminal" }> =>
+            event.type === "turn.terminal",
+        ),
+        Stream.tap(() => Deferred.succeed(lateEnd, undefined)),
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
       yield* stopFirstTurn(runtime, thread);
+      gate.release("late-end");
+      yield* Deferred.await(lateEnd);
       yield* runtime.startTurn(secondTurn(thread));
       const [first, second] = yield* Fiber.join(ended);
       assert.equal(first?.status, "interrupted");
@@ -2338,8 +2372,6 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
           ...backgroundLaunch(CHILD),
           out("session.interrupt", { sessionID: SESSION }),
           reply("session.interrupt", "<hang>"),
-          out("session.active"),
-          replyData("session.active", { [SESSION]: { type: "running" } }),
           out("session.interrupt", { sessionID: SESSION }),
           reply("session.interrupt", { interrupted: true }),
           event("session.usage.updated", { sessionID: SESSION }, "drop"),
@@ -2347,6 +2379,8 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
           out("event.subscribe"),
           out("session.active"),
           replyData("session.active", { [CHILD]: { type: "running" } }),
+          out("message.list", "<any>"),
+          reply("message.list", { data: [], cursor: {} }),
           out("permission.list", { sessionID: CHILD }),
           replyData("permission.list", []),
           out("session.form.list", { sessionID: CHILD }),
@@ -2408,23 +2442,22 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
       );
       yield* runtime.startTurn(withLineage(thread));
       yield* Deferred.await(attached);
-      const interrupt = yield* runtime
-        .interruptTurn({ providerThread: thread, providerTurnId: yield* providerTurnId })
-        .pipe(Effect.forkScoped);
+      const stop = { providerThread: thread, providerTurnId: yield* providerTurnId };
+      const interrupt = yield* runtime.interruptTurn(stop).pipe(Effect.flip, Effect.forkScoped);
       yield* TestClock.adjust("11 seconds");
       yield* Fiber.join(interrupt);
-      yield* runtime.startTurn({ ...secondTurn(thread), appThread: withLineage(thread).appThread });
+      yield* runtime.interruptTurn(stop);
       gate.release("drop");
       yield* runtime.startTurn({
         ...continuationTurn(thread, yield* Deferred.await(offered)),
-        runOrdinal: 3,
-        providerTurnOrdinal: 3,
+        runOrdinal: 2,
+        providerTurnOrdinal: 2,
       });
       gate.release("reply");
       const events = [...(yield* Fiber.join(collected))];
       assert.deepEqual(
         events.flatMap((event) => (event.type === "turn.terminal" ? [event.status] : [])),
-        ["interrupted", "failed", "completed"],
+        ["interrupted", "completed"],
       );
       assert.include(
         events.flatMap((event) =>
@@ -4121,7 +4154,13 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
     }).pipe(Effect.scoped),
   );
 
-  it.effect("re-registers T3 MCP each turn and drops its instructions when adding fails", () =>
+  it.effect.each([
+    {
+      rotate: false,
+      name: "re-registers T3 MCP each turn and drops its instructions when adding fails",
+    },
+    { rotate: true, name: "waits for replacement T3 tools after MCP credentials rotate" },
+  ])("$name", ({ rotate }) =>
     Effect.gen(function* () {
       const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
       yield* mcpSessions.set({
@@ -4150,26 +4189,70 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
         promptAccepted,
         event("session.execution.succeeded", { sessionID: SESSION }),
       ];
+      const prompts: Array<unknown> = [];
       // Idle Location eviction drops OpenCode's runtime MCP servers without a reconnect.
-      const { runtime, thread } = yield* resumed([
-        add,
-        reply("mcp.add", null),
-        ...turn,
-        add,
-        reply("mcp.add", { status: 500, body: { message: "MCP unavailable" } }),
-        out("session.instructions.entry.put", {
-          sessionID: SESSION,
-          key: "t3-code",
-          value: buildRuntimeInstructions({ harness: "OpenCode", model: bigPickle.model }),
-        }),
-        reply("session.instructions.entry.put", null),
-        ...turn,
-        out("mcp.remove", { server, "location[directory]": WORK }),
-        reply("mcp.remove", null),
-      ]);
+      const { runtime, thread } = yield* resumed(
+        [
+          add,
+          reply("mcp.add", null),
+          ...turn,
+          ...(rotate
+            ? [
+                out("mcp.remove", { server, "location[directory]": WORK }),
+                reply("mcp.remove", null),
+                out("mcp.add", {
+                  server,
+                  "location[directory]": WORK,
+                  config: {
+                    type: "remote",
+                    url: "http://127.0.0.1:3773/mcp",
+                    headers: { Authorization: "Bearer rotated-credential" },
+                    oauth: false,
+                  },
+                }),
+                reply("mcp.add", null),
+              ]
+            : [
+                add,
+                reply("mcp.add", { status: 500, body: { message: "MCP unavailable" } }),
+                out("session.instructions.entry.put", {
+                  sessionID: SESSION,
+                  key: "t3-code",
+                  value: buildRuntimeInstructions({ harness: "OpenCode", model: bigPickle.model }),
+                }),
+                reply("session.instructions.entry.put", null),
+              ]),
+          ...turn,
+          out("mcp.remove", { server, "location[directory]": WORK }),
+          reply("mcp.remove", null),
+        ],
+        { onPrompt: (input) => prompts.push(input) },
+      );
       for (let index = 0; index < 2; index++) {
+        if (rotate && index === 1) {
+          yield* mcpSessions.set({
+            environmentId: EnvironmentId.make("environment:opencode2-adapter"),
+            threadId,
+            providerSessionId: "mcp:opencode2-adapter",
+            providerInstanceId: instanceId,
+            endpoint: "http://127.0.0.1:3773/mcp",
+            authorizationHeader: "Bearer rotated-credential",
+            browserToolsAvailable: false,
+          });
+        }
         const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-        yield* runtime.startTurn(turnInput(thread));
+        const started = yield* runtime.startTurn(turnInput(thread)).pipe(Effect.forkScoped);
+        // OpenCode before 2.2.6 loads a newly added server's tools after a debounce.
+        if (index === 0 || rotate) {
+          yield* TestClock.adjust("249 millis");
+          assert.lengthOf(
+            prompts,
+            index,
+            "prompted before OpenCode loaded the new MCP server's tools",
+          );
+          yield* TestClock.adjust("1 millis");
+        }
+        yield* Fiber.join(started);
         assert.equal((yield* Fiber.join(terminal))?.status, "completed");
       }
     }).pipe(Effect.scoped),
@@ -4266,7 +4349,9 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
         runtimePolicy: policy(),
       });
       const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-      yield* runtime.startTurn(turnInput(thread));
+      const started = yield* runtime.startTurn(turnInput(thread)).pipe(Effect.forkScoped);
+      yield* TestClock.adjust("250 millis");
+      yield* Fiber.join(started);
       assert.equal((yield* Fiber.join(terminal))?.status, "completed");
       yield* runtime.unloadThread!({ providerThread: thread });
     }).pipe(Effect.scoped),
@@ -4327,7 +4412,11 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
         runtimePolicy: policy(),
       });
       const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
-      yield* runtime.startTurn({ ...turnInput(thread), threadId: child });
+      const started = yield* runtime
+        .startTurn({ ...turnInput(thread), threadId: child })
+        .pipe(Effect.forkScoped);
+      yield* TestClock.adjust("250 millis");
+      yield* Fiber.join(started);
       assert.equal((yield* Fiber.join(terminal))?.status, "completed");
       yield* runtime.unloadThread!({ providerThread: thread });
     }).pipe(Effect.scoped),

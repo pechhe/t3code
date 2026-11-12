@@ -3541,6 +3541,7 @@ export default function ChatView(props: ChatViewProps) {
     },
     anchor: threadPanelPopoverAnchorRef,
     handle: threadPanelPopoverHandle,
+    composerDraftTarget,
     forceNewWorktree: multipleModelSelections !== null,
     environmentId: activeThread.environmentId,
     threadId: activeThread.id,

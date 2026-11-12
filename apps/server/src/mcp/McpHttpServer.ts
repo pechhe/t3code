@@ -41,6 +41,7 @@ import {
   type SessionEndpointKey,
   type ToolFamily,
   RuntimeMode,
+  OrchestrationV2LinkedSender,
   ThreadId,
   toolFamily,
 } from "@t3tools/contracts";
@@ -240,6 +241,34 @@ const withModeLimit = (
     : { ...invocation, client: { ...invocation.client, narrowedTo: limit.value } };
 };
 
+const decodeSenderThread = Schema.decodeUnknownOption(OrchestrationV2LinkedSender);
+
+/** Records the thread a linked environment calls for; a malformed header only loses the name. */
+const withSenderThread = (
+  invocation: McpInvocationContext.McpInvocationScope,
+  request: HttpServerRequest.HttpServerRequest,
+): McpInvocationContext.McpInvocationScope => {
+  const header = request.headers[McpInvocationContext.SENDER_THREAD_HEADER];
+  if (header === undefined || invocation.client?.linked !== true) return invocation;
+  const [environmentId, threadId, title, ...rest] = header.trim().split("/");
+  if (environmentId === undefined || threadId === undefined || title === undefined)
+    return invocation;
+  if (rest.length > 0) return invocation;
+  let decoded: Option.Option<OrchestrationV2LinkedSender>;
+  try {
+    decoded = decodeSenderThread({
+      environmentId: decodeURIComponent(environmentId),
+      threadId: decodeURIComponent(threadId),
+      title: decodeURIComponent(title),
+    });
+  } catch {
+    return invocation;
+  }
+  return Option.isNone(decoded)
+    ? invocation
+    : { ...invocation, client: { ...invocation.client, senderThread: decoded.value } };
+};
+
 // The Linked environments beta is off here: links wait until it is on again.
 const linkedEnvironmentsOff = HttpServerResponse.jsonUnsafe(
   {
@@ -300,7 +329,7 @@ const makeMcpAuthMiddleware = Effect.fn("McpHttpServer.makeAuthMiddleware")(
           });
           return unauthorized({ request, presentedToken: true, offerOAuth: false });
         }
-        const asked = withModeLimit(invocation, request);
+        const asked = withModeLimit(withSenderThread(invocation, request), request);
         if (asked === undefined) return invalidModeLimit;
         const limited = McpInvocationContext.withRuntimeModeCeiling(asked, runtimeModeCeiling);
         const linkedEnvironments = yield* linksEnabled;
