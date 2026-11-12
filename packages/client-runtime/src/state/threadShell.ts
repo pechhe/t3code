@@ -334,6 +334,33 @@ export function subagentPanelChildIds(
     .map((entry) => entry.id);
 }
 
+/**
+ * The panel's live children: those the parent's pending work names, plus those whose own thread
+ * runs though their task record is finished (a message revives a child without reopening its
+ * task). An open task is left to the pending work, which skips the parent's own live run.
+ */
+export function liveSubagentPanelChildIds(input: {
+  readonly childIds: ReadonlyArray<ThreadId>;
+  readonly pendingChildIds: ReadonlySet<ThreadId>;
+  readonly liveChildIds: ReadonlyArray<ThreadId>;
+  readonly subagents: ReadonlyArray<OrchestrationV2Subagent>;
+}): ReadonlyArray<ThreadId> {
+  const latestStatus = new Map<ThreadId, OrchestrationV2Subagent["status"]>();
+  for (const subagent of input.subagents) {
+    if (subagent.origin === "app_owned" && subagent.childThreadId !== null) {
+      latestStatus.set(subagent.childThreadId, subagent.status);
+    }
+  }
+  return input.childIds.filter((id) => {
+    if (input.pendingChildIds.has(id)) return true;
+    const status = latestStatus.get(id);
+    return (
+      input.liveChildIds.includes(id) &&
+      (status === undefined || FINISHED_SUBAGENT_STATUSES.has(status))
+    );
+  });
+}
+
 // The row's spinner and colour already say a subagent is working, so only the other states need a word.
 const SUBAGENT_ACTIVITY_SUFFIX: Record<SubagentStatus, string> = {
   approval: " approval",
@@ -706,6 +733,18 @@ export function createEnvironmentThreadShellAtoms(input: {
     }).pipe(Atom.withLabel(`environment-subagent-panel-child-ids:${key}`));
   });
 
+  const subagentPanelLiveChildIdsAtomFamily = Atom.family((key: string) => {
+    const ref = parseThreadKey(key);
+    let previous: ReadonlyArray<ThreadId> = [];
+    return Atom.make((get) => {
+      const { statuses } = get(subagentLiveStateAtom(ref.environmentId));
+      const next = get(subagentPanelChildIdsAtomFamily(key)).filter((id) => statuses.has(id));
+      if (arrayElementsEqual(previous, next)) return previous;
+      previous = next;
+      return next;
+    }).pipe(Atom.withLabel(`environment-subagent-panel-live-child-ids:${key}`));
+  });
+
   // Child approvals and questions are hidden with their sidebar rows. Read their
   // shell summaries, without subscribing to every child transcript. A task
   // delegated to a linked environment is a child too, with its own subagents.
@@ -1055,6 +1094,8 @@ export function createEnvironmentThreadShellAtoms(input: {
     subagentActivityAtom: (ref: ScopedThreadRef) => subagentActivityAtomFamily(threadKey(ref)),
     subagentPanelChildIdsAtom: (ref: ScopedThreadRef) =>
       subagentPanelChildIdsAtomFamily(threadKey(ref)),
+    subagentPanelLiveChildIdsAtom: (ref: ScopedThreadRef) =>
+      subagentPanelLiveChildIdsAtomFamily(threadKey(ref)),
     sideChatThreadIdAtom: (ref: ScopedThreadRef) => sideChatThreadIdAtomFamily(threadKey(ref)),
     threadWatchersAtom: (ref: ScopedThreadRef) => threadWatchersAtomFamily(threadKey(ref)),
     sideChatsAtom: (ref: ScopedThreadRef) => sideChatsAtomFamily(threadKey(ref)),

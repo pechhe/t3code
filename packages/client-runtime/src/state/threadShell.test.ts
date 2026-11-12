@@ -24,6 +24,7 @@ import {
   deriveSubagentLiveState,
   directSubagentUnder,
   finishedPanelSubagents,
+  liveSubagentPanelChildIds,
   subagentPanelChildIds,
   subagentActivityLabel,
 } from "./threadShell.ts";
@@ -860,6 +861,36 @@ describe("subagent live state", () => {
       "unroled",
       "advisor",
     ]);
+  });
+
+  it("keeps a revived child in the panel though its task record is finished", () => {
+    const task = (child: string, status: OrchestrationV2Subagent["status"]) =>
+      ({
+        childThreadId: ThreadId.make(child),
+        status,
+        origin: "app_owned",
+      }) as OrchestrationV2Subagent;
+    const thread = (id: string) => shell(id, parent, "lead");
+    const threads = ["revived", "foreground", "idle", "pending"].map(thread);
+    const childIds = subagentPanelChildIds(threads, parent);
+    const { statuses } = deriveSubagentLiveState(
+      ["revived", "foreground", "pending"]
+        .map(thread)
+        .concat(shell("idle", parent, "lead", { activityRunStatus: null })),
+    );
+    expect(
+      liveSubagentPanelChildIds({
+        childIds,
+        pendingChildIds: new Set([ThreadId.make("pending")]),
+        liveChildIds: childIds.filter((id) => statuses.has(id)),
+        subagents: [
+          task("revived", "failed"),
+          task("foreground", "running"),
+          task("idle", "failed"),
+          task("pending", "completed"),
+        ],
+      }),
+    ).toEqual(["revived", "pending"]);
   });
 
   it("finds the direct child a descendant's request came through", () => {

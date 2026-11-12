@@ -188,6 +188,13 @@ export function useSubagentPanelChildIds(ref: ScopedThreadRef | null) {
   );
 }
 
+/** The panel's children that are working, waiting or asking right now, by their own threads. */
+export function useSubagentPanelLiveChildIds(ref: ScopedThreadRef | null) {
+  return useAtomValue(
+    ref === null ? NO_THREAD_IDS_ATOM : environmentThreadShells.subagentPanelLiveChildIdsAtom(ref),
+  );
+}
+
 const NO_SUBAGENT_PARENTS_ATOM = Atom.make<{
   readonly parents: ReadonlyMap<ThreadId, ThreadId>;
 }>({ parents: new Map() }).pipe(Atom.withLabel("web-subagent-parents:empty"));

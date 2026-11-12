@@ -66,6 +66,7 @@ import { vcsEnvironment } from "../../state/vcs";
 import {
   useChildThreadInputs,
   useSubagentPanelChildIds,
+  useSubagentPanelLiveChildIds,
   readThreadShell,
   waitForThreadShell,
 } from "../../state/entities";
@@ -79,7 +80,10 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { childInputNowItem, goalNowItem, runStopNowItem } from "./ThreadActivityBanners";
 import { Button } from "../ui/button";
-import { finishedPanelSubagents } from "@t3tools/client-runtime/state/threads";
+import {
+  finishedPanelSubagents,
+  liveSubagentPanelChildIds,
+} from "@t3tools/client-runtime/state/threads";
 import { SubagentPanel, type SubagentPanelRequest } from "./SubagentPanel";
 import type { PanelWait } from "./SubagentPanel.logic";
 import { useForceStopThread } from "./useForceStopThread";
@@ -518,6 +522,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   const onOpenRelatedThreadStable = useStableCallback(onOpenRelatedThread);
   const childThreadInputs = useChildThreadInputs(activeThreadRef);
   const panelChildIds = useSubagentPanelChildIds(activeThreadRef);
+  const liveChildIds = useSubagentPanelLiveChildIds(activeThreadRef);
   const childInputNow = childInputNowItem({
     childThreadInputs,
     parentAwaitingUser: Boolean(
@@ -598,11 +603,16 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         })
       : null;
 
-  const liveSubagentIds = panelChildIds.filter((threadId) =>
-    pendingBackgroundTasks.some(
-      (task) => task.kind === "subagent" && task.childThreadId === threadId,
+  const liveSubagentIds = liveSubagentPanelChildIds({
+    childIds: panelChildIds,
+    pendingChildIds: new Set(
+      pendingBackgroundTasks.flatMap((task) =>
+        task.kind === "subagent" && task.childThreadId !== undefined ? [task.childThreadId] : [],
+      ),
     ),
-  );
+    liveChildIds,
+    subagents,
+  });
   const forceStop = useForceStopThread(environmentId);
   const anyRunStop = useAtomValue(
     threadDetailRef ? environmentThreadDetails.runStopAtom(threadDetailRef) : NO_RUN_STOP_ATOM,
