@@ -4,6 +4,7 @@ import { assert, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
   OrchestratorMcpRequestSecretInput,
+  SecretManagementError,
   ProjectId,
   type OrchestrationV2ServerCommand,
   SecretProviderId,
@@ -30,6 +31,7 @@ import * as TestClock from "effect/testing/TestClock";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as SecretRequests from "./SecretRequests.ts";
+import * as SavedSecrets from "./SavedSecrets.ts";
 
 const threadId = ThreadId.make("thread-orchestrator");
 const turnItemId = TurnItemId.make("turn-item:secret-request:1");
@@ -75,7 +77,12 @@ const withService = <A, E>(
   options: {
     readonly threadId?: ThreadId;
     readonly delivery?: "file";
+    readonly storage?: "bws";
+    readonly savedSecrets?: SavedSecrets.SavedSecrets["Service"];
     readonly directory?: string;
+    readonly stored?: Map<string, Uint8Array>;
+    readonly handoffFailures?: number;
+    readonly metadataFailures?: number;
     readonly runStatus?: string;
     readonly removeFails?: boolean;
     readonly closedFirst?: boolean;
@@ -84,8 +91,10 @@ const withService = <A, E>(
   } = {},
 ) =>
   Effect.gen(function* () {
-    const stored = new Map<string, Uint8Array>();
+    const stored = options.stored ?? new Map<string, Uint8Array>();
     const dispatched: Array<OrchestrationV2ServerCommand> = [];
+    let handoffFailures = options.handoffFailures ?? 0;
+    let metadataFailures = options.metadataFailures ?? 0;
     let secretStatus = "pending";
     let failedRecords = options.failedRecords ?? 0;
     const requestThreadId = options.threadId ?? threadId;
@@ -93,27 +102,45 @@ const withService = <A, E>(
       NodeCrypto.layer,
       NodeServices.layer,
       options.resolver ?? fakeVault().layer,
+      ...(options.savedSecrets
+        ? [Layer.succeed(SavedSecrets.SavedSecrets, options.savedSecrets)]
+        : []),
       Layer.succeed(
         ServerSecretStore.ServerSecretStore,
         ServerSecretStore.ServerSecretStore.of({
           ...(options.directory === undefined ? {} : { directory: options.directory }),
           get: (name) => Effect.yieldNow.pipe(Effect.as(Option.fromNullishOr(stored.get(name)))),
-          set: (name, value) => Effect.sync(() => void stored.set(name, value)),
-          create: (name, value) =>
-            stored.has(name)
+          set: (name, value) =>
+            name.startsWith("secret-handoff-") && metadataFailures-- > 0
               ? Effect.fail(
                   new ServerSecretStore.SecretStorePersistError({
                     resource: name,
-                    cause: new PlatformError.PlatformError(
-                      new PlatformError.SystemError({
-                        _tag: "AlreadyExists",
-                        module: "FileSystem",
-                        method: "open",
-                      }),
-                    ),
-                  } as never),
+                    cause: new Error("injected metadata failure"),
+                  }),
                 )
               : Effect.sync(() => void stored.set(name, value)),
+          create: (name, value) =>
+            name.startsWith("secret-request-") && handoffFailures-- > 0
+              ? Effect.fail(
+                  new ServerSecretStore.SecretStorePersistError({
+                    resource: name,
+                    cause: new Error("injected handoff failure"),
+                  }),
+                )
+              : stored.has(name)
+                ? Effect.fail(
+                    new ServerSecretStore.SecretStorePersistError({
+                      resource: name,
+                      cause: new PlatformError.PlatformError(
+                        new PlatformError.SystemError({
+                          _tag: "AlreadyExists",
+                          module: "FileSystem",
+                          method: "open",
+                        }),
+                      ),
+                    } as never),
+                  )
+                : Effect.sync(() => void stored.set(name, value)),
           getOrCreateRandom: (name, bytes) =>
             Effect.sync(() => {
               const existing = stored.get(name);
@@ -149,6 +176,9 @@ const withService = <A, E>(
                 reason: "Used as GH_TOKEN.",
                 url: "https://github.com/settings/tokens",
                 ...(options.delivery === undefined ? {} : { delivery: options.delivery }),
+                ...(options.storage
+                  ? { storage: options.storage, secretKey: "API_KEY", secretProjectId: "p" }
+                  : {}),
                 secretStatus,
               },
             ],
@@ -178,7 +208,7 @@ const withService = <A, E>(
 
 const valuesOf = (stored: Map<string, Uint8Array>) =>
   Array.from(stored.entries())
-    .filter(([name]) => name !== "secret-request-salt")
+    .filter(([name]) => /^secret-request-[0-9a-f]{32}$/.test(name))
     .map(([, bytes]) => new TextDecoder().decode(bytes));
 
 it.effect("a saved answer becomes a one-use ref, and the thread only learns it was saved", () =>
@@ -206,23 +236,30 @@ it.effect("a saved answer becomes a one-use ref, and the thread only learns it w
   ),
 );
 
-it.effect("a secret provider reference is read once and saved like a typed value", () =>
-  withService(({ service, dispatched }) =>
-    Effect.gen(function* () {
-      yield* service.answer({
-        threadId,
-        turnItemId,
-        answer: {
-          type: "reference",
-          reference: { provider: vault, reference: "fake://github/token" },
-        },
-      });
-      assert.include(dispatched[0] as object, { secretStatus: "saved" });
-      assert.notInclude(JSON.stringify(dispatched), "fake://");
-      const ref = Option.getOrThrow(yield* service.savedRef({ threadId, turnItemId }));
-      assert.equal(yield* service.consume({ ref, projectId }), "ghp_from_vault");
-    }),
-  ),
+it.effect.each(["ghp_from_vault", "  \n\t "])(
+  "a provider reference preserves its exact value %j",
+  (value) => {
+    const provider = fakeVault();
+    provider.state.values.set("fake://github/token", value);
+    return withService(
+      ({ service, dispatched }) =>
+        Effect.gen(function* () {
+          yield* service.answer({
+            threadId,
+            turnItemId,
+            answer: {
+              type: "reference",
+              reference: { provider: vault, reference: "fake://github/token" },
+            },
+          });
+          assert.include(dispatched[0] as object, { secretStatus: "saved" });
+          assert.notInclude(JSON.stringify(dispatched), "fake://");
+          const ref = Option.getOrThrow(yield* service.savedRef({ threadId, turnItemId }));
+          assert.equal(yield* service.consume({ ref, projectId }), value);
+        }),
+      { resolver: provider.layer },
+    );
+  },
 );
 
 it.effect(
@@ -485,6 +522,12 @@ it.effect("a file request moves its value to an owner-only file, once", () =>
           }
           // A retried request_secret gets the same file; the value is never a ref again.
           assert.equal(yield* service.saveToFile({ threadId, turnItemId }), file);
+          const inventory = yield* service.listTemporary;
+          assert.deepEqual(
+            inventory.map(({ label, delivery, threadId: owner }) => ({ label, delivery, owner })),
+            [{ label: "GitHub token", delivery: "file", owner: threadId }],
+          );
+          assert.notInclude(JSON.stringify(inventory), "cf_token");
           const ref = SecretRef.make(`secret-ref:${path.basename(file)}`);
           const reused = yield* service.consume({ ref, projectId }).pipe(Effect.flip);
           assert.equal(reused.reason, "ref_unavailable");
@@ -701,4 +744,200 @@ it.effect("a pasted secret is refused without a secrets directory", () =>
       assert.equal(failed.reason, "store_failed");
     }),
   ),
+);
+
+it.effect(
+  "durable cards reject legacy answers and preserve exact bytes through BWS and delivery",
+  () => {
+    const saved: Array<string> = [];
+    const vault = SavedSecrets.SavedSecrets.of({
+      list: () => Effect.die("unused"),
+      read: () => Effect.die("unused"),
+      reveal: () => Effect.die("unused"),
+      remove: () => Effect.die("unused"),
+      save: (input) =>
+        Effect.sync(() => {
+          saved.push(input.secret!);
+          return { id: "saved", key: input.key, projectId: "localdev", browserLogin: false };
+        }),
+    });
+    return withService(
+      ({ service }) =>
+        Effect.gen(function* () {
+          const input = {
+            threadId,
+            turnItemId,
+            answer: { type: "save" as const, secret: "  opaque\nvalue\n" },
+          };
+          assert.equal((yield* Effect.flip(service.answer(input))).reason, "storage_unsupported");
+          assert.deepEqual(saved, []);
+          yield* service.answerSaved(input);
+          assert.deepEqual(saved, [input.answer.secret]);
+          const ref = yield* service.savedRef({ threadId, turnItemId });
+          assert.isTrue(Option.isSome(ref));
+          if (Option.isSome(ref))
+            assert.equal(
+              yield* service.consume({ ref: ref.value, projectId }),
+              input.answer.secret,
+            );
+        }),
+      { storage: "bws", savedSecrets: vault },
+    );
+  },
+);
+
+it.effect(
+  "temporary file inventory survives service restart and removes legacy handoffs without reading values",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "secret-inventory-test-" });
+      const stored = new Map<string, Uint8Array>();
+      const options = { directory, stored };
+      const file = yield* withService(
+        ({ service }) =>
+          service.savePasted({
+            threadId,
+            requestNamespace: "session",
+            requestKey: "key",
+            value: "  private\nvalue\n",
+            label: "Deployment token",
+          }),
+        options,
+      );
+      yield* fs.writeFileString(path.join(directory, "internal-auth.bin"), "internal material");
+      yield* withService(
+        ({ service }) =>
+          Effect.gen(function* () {
+            const entries = yield* service.listTemporary;
+            assert.equal(entries.length, 1);
+            assert.equal(entries[0]?.label, "Deployment token");
+            assert.equal(entries[0]?.threadId, threadId);
+            assert.notInclude(JSON.stringify(entries), "private");
+          }),
+        options,
+      );
+      stored.clear();
+      yield* withService(
+        ({ service }) =>
+          Effect.gen(function* () {
+            const entries = yield* service.listTemporary;
+            assert.equal(entries.length, 1);
+            const entry = entries[0]!;
+            assert.equal(entry.label, "Unknown request");
+            yield* service.removeTemporary(entry.id);
+            assert.deepEqual(yield* service.listTemporary, []);
+            assert.isFalse(yield* fs.exists(file));
+            assert.isTrue(yield* fs.exists(path.join(directory, "internal-auth.bin")));
+          }),
+        options,
+      );
+    }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+);
+
+it.effect(
+  "uncertain durable saves remain uncertain and reused references cannot be resurrected after consumption",
+  () => {
+    let reads = 0;
+    const vault = SavedSecrets.SavedSecrets.of({
+      list: () => Effect.die("unused"),
+      reveal: () => Effect.die("unused"),
+      remove: () => Effect.die("unused"),
+      save: () => Effect.fail(new SecretManagementError({ reason: "uncertain" })),
+      read: () =>
+        Effect.sync(() => {
+          reads++;
+          return " exact\nbytes ";
+        }),
+    });
+    return withService(
+      ({ service }) =>
+        Effect.gen(function* () {
+          const failed = yield* Effect.flip(
+            service.answerSaved({
+              threadId,
+              turnItemId,
+              answer: { type: "save", secret: "value" },
+            }),
+          );
+          assert.equal(failed.reason, "vault_uncertain");
+          assert.include(failed.message, "uncertain");
+          const input = {
+            id: "saved-id",
+            threadId,
+            requestNamespace: "session",
+            requestKey: "reuse",
+            label: "Reuse key",
+          };
+          const first = yield* service.deliverSaved(input);
+          if (!("secretRef" in first)) return yield* Effect.die("Expected a reference");
+          assert.deepEqual(yield* service.deliverSaved(input), first);
+          assert.equal(reads, 1);
+          assert.equal(
+            yield* service.consume({ ref: first.secretRef, projectId }),
+            " exact\nbytes ",
+          );
+          assert.equal((yield* Effect.flip(service.deliverSaved(input))).reason, "ref_unavailable");
+          assert.equal(reads, 1);
+        }),
+      { storage: "bws", savedSecrets: vault },
+    );
+  },
+);
+
+it.effect.each(["handoff", "metadata"] as const)(
+  "recovers an interrupted saved handoff after restart and %s failure without reviving a consumed reference",
+  (phase) => {
+    let reads = 0;
+    const stored = new Map<string, Uint8Array>();
+    const vault = SavedSecrets.SavedSecrets.of({
+      list: () => Effect.die("unused"),
+      save: () => Effect.die("unused"),
+      remove: () => Effect.die("unused"),
+      reveal: () => Effect.die("unused"),
+      read: () =>
+        Effect.sync(() => {
+          reads++;
+          return "original value";
+        }),
+    });
+    const input = {
+      id: "key",
+      threadId,
+      requestNamespace: "session",
+      requestKey: "recovery",
+      label: "Token",
+    };
+    return Effect.gen(function* () {
+      yield* withService(
+        ({ service }) =>
+          Effect.gen(function* () {
+            assert.equal((yield* Effect.flip(service.deliverSaved(input))).reason, "store_failed");
+          }),
+        {
+          stored,
+          savedSecrets: vault,
+          ...(phase === "handoff" ? { handoffFailures: 1 } : { metadataFailures: 1 }),
+        },
+      );
+      yield* withService(
+        ({ service }) =>
+          Effect.gen(function* () {
+            const recovered = yield* service.deliverSaved(input);
+            if (!("secretRef" in recovered)) return yield* Effect.die("Expected reference");
+            assert.equal(reads, phase === "handoff" ? 2 : 1);
+            assert.equal(
+              yield* service.consume({ ref: recovered.secretRef, projectId }),
+              "original value",
+            );
+            assert.equal(
+              (yield* Effect.flip(service.deliverSaved(input))).reason,
+              "ref_unavailable",
+            );
+          }),
+        { stored, savedSecrets: vault },
+      );
+    });
+  },
 );

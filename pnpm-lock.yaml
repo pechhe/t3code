@@ -890,6 +890,9 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.3.321
         version: 0.3.321(@anthropic-ai/sdk@0.93.0(zod@4.6.7))(@modelcontextprotocol/sdk@1.32.2(supports-color@8.1.1)(zod@4.6.7))(zod@4.6.7)
+      '@bitwarden/sdk-napi':
+        specifier: 1.0.0
+        version: 1.0.0
       '@cursor/sdk':
         specifier: 1.2.0
         version: 1.2.0(patch_hash=b9966f50182358ded9d1a72f39d9cd850f2e7471e7b8224d3d618bdbbe00e055)(zod@4.6.7)
@@ -3352,6 +3355,35 @@ packages:
 
   '@betteroffice/xlsx@0.5.1':
     resolution: {integrity: sha512-UHOnzcMML6Ud9D1M4d8FZKmw3AAg2/DttE/sVxM858SgiIpOtzGOqlh62RM9/8y/JW8bR8t+wN69EX8UJvR8EQ==}
+
+  '@bitwarden/sdk-napi-darwin-arm64@1.0.0':
+    resolution: {integrity: sha512-0W6P2VByGFqYIf6bkI7qKWlXPGhG9KFibrN14pvllFIkbNRaz3hktMOLJ/JdWZVmdHrz0R5xmAVldbIWNMjFOA==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@bitwarden/sdk-napi-darwin-x64@1.0.0':
+    resolution: {integrity: sha512-Esyg8sktE50U+g12lL/xe68hgc5y78jPPV9maNcKTO9EWdde4RIx9u3xEpbYk5fyHaeMFXdo3TK8A8qLD34X5w==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@bitwarden/sdk-napi-linux-x64-gnu@1.0.0':
+    resolution: {integrity: sha512-PBGEOq9saYuBBthCq5jAr7eQSyEmQylB+kwsuT0j666VXT124a3YjDGgobPYaR9KN/IRDQ5h2Tysuy1pojx10A==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@bitwarden/sdk-napi-win32-x64-msvc@1.0.0':
+    resolution: {integrity: sha512-cu92XYjsOWEVECyohGtLxiXcMJMVui+nDJtyNg52iGDeAzWQ7QZh0/bcjkymTCuGoqRD3sT0cCs+5PbW66K2XQ==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [win32]
+
+  '@bitwarden/sdk-napi@1.0.0':
+    resolution: {integrity: sha512-KrOXiuuQdVBvIM4l7XGrKl8otA9tSEKHjRQr0nF71eyCmIDzOV2kt/gchgLK42exGGuD/JcmmgnXx/j+U6W/+g==}
+    engines: {node: '>= 10'}
 
   '@blazediff/core@1.10.0':
     resolution: {integrity: sha512-AOQff0zgR7cGsZL+4E7hVkmujoPUpm0J9xzWGWZj5wCjd3gmxESXAPfKyuzs93VdpQNFhHlBhfOjrcZ+XTERtQ==}
@@ -14140,6 +14172,25 @@ snapshots:
   '@betteroffice/pptx@0.5.1': {}
 
   '@betteroffice/xlsx@0.5.1': {}
+
+  '@bitwarden/sdk-napi-darwin-arm64@1.0.0':
+    optional: true
+
+  '@bitwarden/sdk-napi-darwin-x64@1.0.0':
+    optional: true
+
+  '@bitwarden/sdk-napi-linux-x64-gnu@1.0.0':
+    optional: true
+
+  '@bitwarden/sdk-napi-win32-x64-msvc@1.0.0':
+    optional: true
+
+  '@bitwarden/sdk-napi@1.0.0':
+    optionalDependencies:
+      '@bitwarden/sdk-napi-darwin-arm64': 1.0.0
+      '@bitwarden/sdk-napi-darwin-x64': 1.0.0
+      '@bitwarden/sdk-napi-linux-x64-gnu': 1.0.0
+      '@bitwarden/sdk-napi-win32-x64-msvc': 1.0.0
 
   '@blazediff/core@1.10.0': {}
 

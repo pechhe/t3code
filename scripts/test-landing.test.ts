@@ -147,6 +147,7 @@ describe("selection", () => {
       readRepositoryWorkspaces(),
     );
     assert.include(directories(plan), "packages/provider-pi");
+    assert.include(directories(plan), "evals");
   });
 
   it("does not follow a dependency that is only a build input", () => {
@@ -222,6 +223,12 @@ describe("tests the import graph cannot see", () => {
       selected,
       "apps/server/src/orchestration-v2/testkit/ThreadFork.integration.test.ts",
     );
+    assert.include(
+      files(
+        "apps/server/src/orchestration-v2/testkit/fixtures/message_steering/cursor_restart_transcript.ndjson",
+      ),
+      "apps/server/src/orchestration-v2/testkit/CursorReplayFixtures.integration.test.ts",
+    );
   });
 
   it("maps a file the tests read from outside the workspace", () => {
@@ -240,6 +247,17 @@ describe("tests the import graph cannot see", () => {
     assert.include(
       files("apps/server/scripts/acp-mock-agent.ts"),
       "apps/server/src/provider/acp/AcpJsonRpcConnection.test.ts",
+    );
+    assert.include(
+      files("packages/provider-grok/src/server/testFixtures/grok-model-selection-agent.mjs"),
+      "packages/provider-grok/src/server/adapter.test.ts",
+    );
+  });
+
+  it("maps the office preview worker to its browser integration test", () => {
+    assert.include(
+      files("apps/web/src/components/files/officePreview.worker.ts"),
+      "apps/web/src/components/files/AttachmentFilePreview.office.browser.test.tsx",
     );
   });
 
@@ -279,6 +297,8 @@ describe("tests the import graph cannot see", () => {
       "reads pool bodies as they stood at the retained run's commit",
     "apps/server/src/decisionEvaluations/evidenceScreening/evidenceScreening.test.ts":
       "compares the retained manifest with the lock at its recorded commit",
+    "apps/server/src/serviceLauncher.test.ts":
+      "import.meta.url is used only by a generated temporary child script; no repository path is read",
     "apps/desktop/scripts/electron-launcher.test.mjs":
       "passes its own URL to the launcher under test",
     "apps/desktop/src/snapShot/LinuxSnapShot.dbus.test.ts":

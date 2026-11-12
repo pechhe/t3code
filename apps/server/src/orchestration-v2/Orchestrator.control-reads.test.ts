@@ -1946,6 +1946,124 @@ it.effect.each([false, true])(
     }).pipe(Effect.provide(DelegatedTaskQuestionReactor.layer.pipe(Layer.provideMerge(layerTest)))),
 );
 
+it.effect("keeps only approval wakes backed by the matching pending request", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const eventSink = yield* EventSink.EventSinkV2;
+    const parentThreadId = ThreadId.make("thread:approval-wake-parent");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-approval-wake-parent"),
+      threadId: parentThreadId,
+      projectId: ProjectId.make("project:approval-wake"),
+      title: "Parent",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("start-approval-wake-parent"),
+      threadId: parentThreadId,
+      messageId: MessageId.make("message:approval-wake-parent"),
+      text: "Delegate the task",
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const parentRun = (yield* projections.getThreadProjection(parentThreadId)).runs[0]!;
+    yield* orchestrator.dispatch({
+      type: "delegated_task.request",
+      commandId: CommandId.make("delegate-approval-wake-task"),
+      parentThreadId,
+      parentRunId: parentRun.id,
+      parentNodeId: parentRun.rootNodeId!,
+      task: "Run the Spec",
+      completionWake: "always",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    const task = (yield* projections.getThreadProjection(parentThreadId)).subagents[0]!;
+    const childThreadId = task.childThreadId!;
+    const childRun = (yield* projections.getThreadRecords(childThreadId, ["runs"])).runs[0]!;
+    const now = yield* DateTime.now;
+    const requestEvent = (
+      id: RuntimeRequestId,
+      status: "pending" | "resolved",
+    ): OrchestrationV2DomainEvent => ({
+      id: EventId.make(`event:approval-wake:${id}:${status}`),
+      type: "runtime-request.updated",
+      threadId: childThreadId,
+      runId: childRun.id,
+      occurredAt: now,
+      payload: {
+        id,
+        nodeId: childRun.rootNodeId!,
+        providerTurnId: null,
+        nativeRequestRef: null,
+        kind: "command",
+        status,
+        responseCapability: { type: "message" },
+        createdAt: now,
+        resolvedAt: status === "resolved" ? now : null,
+      },
+    });
+    const pendingId = RuntimeRequestId.make("request:approval-wake-pending");
+    yield* eventSink.write({ events: [requestEvent(pendingId, "pending")] });
+
+    const dispatchWake = (id: RuntimeRequestId, commandId: string) =>
+      orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make(commandId),
+        threadId: parentThreadId,
+        messageId: MessageId.make(`message:delegated-task-question:${parentThreadId}:${id}`),
+        text: "The task needs permission.",
+        notification: {
+          source: { kind: "delegated_task", taskIds: [task.id], childThreadId },
+          outcome: "updated",
+          summary: "Delegated task needs permission",
+        },
+        attachments: [],
+        dispatchMode: { type: "queue_after_active" },
+        createdBy: "agent",
+        creationSource: "server",
+      });
+
+    const pendingMessageId = `message:delegated-task-question:${parentThreadId}:${pendingId}`;
+    yield* dispatchWake(pendingId, "dispatch-pending-approval-wake");
+    assert.isDefined(
+      (yield* projections.getThreadRecords(parentThreadId, ["messages"])).messages.find(
+        (message) => message.id === pendingMessageId,
+      ),
+    );
+
+    const resolvedId = RuntimeRequestId.make("request:approval-wake-resolved");
+    yield* eventSink.write({ events: [requestEvent(resolvedId, "resolved")] });
+    const messageCount = (yield* projections.getThreadRecords(parentThreadId, ["messages"]))
+      .messages.length;
+    yield* dispatchWake(resolvedId, "dispatch-resolved-approval-wake");
+    assert.equal(
+      (yield* projections.getThreadRecords(parentThreadId, ["messages"])).messages.length,
+      messageCount,
+    );
+    const missingId = RuntimeRequestId.make("request:approval-wake-missing");
+    yield* dispatchWake(missingId, "dispatch-missing-approval-wake");
+    assert.equal(
+      (yield* projections.getThreadRecords(parentThreadId, ["messages"])).messages.length,
+      messageCount,
+    );
+  }).pipe(Effect.provide(DelegatedTaskQuestionReactor.layer.pipe(Layer.provideMerge(layerTest)))),
+);
+
 it.effect.each([false, true])("rejects thread.create for an existing id (deleted: %s)", (deleted) =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;

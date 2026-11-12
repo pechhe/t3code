@@ -75,8 +75,9 @@ describe("searchSettings", () => {
     }
   });
 
-  it("hides the Secrets page from nav and search while the secrets feature is disabled", () => {
-    expect(SETTINGS_NAV_GROUPS.flatMap((group) => group.paths)).not.toContain("/settings/secrets");
+  it("keeps secret management discoverable while provider configuration is disabled", () => {
+    expect(SETTINGS_NAV_GROUPS.flatMap((group) => group.paths)).toContain("/settings/secrets");
+    expect(searchSettings("bitwarden").map((item) => item.id)).toContain("secret-management");
     expect(searchSettings("1password").map((item) => item.to)).not.toContain("/settings/secrets");
   });
 

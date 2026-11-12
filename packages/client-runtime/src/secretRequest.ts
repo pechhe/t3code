@@ -17,10 +17,14 @@ export type SecretRequestItem = Extract<
 >;
 
 /** A `file` request lets the agent's commands read the value, so its card must not promise more. */
-export const secretRequestPrivacyNote = (item: Pick<SecretRequestItem, "delivery">) =>
-  item.delivery === "file"
-    ? "Kept out of chat, in a private file this agent's commands can read for 24 hours"
-    : "Stored securely, never shown to the agent";
+export const secretRequestPrivacyNote = (item: Pick<SecretRequestItem, "delivery" | "storage">) =>
+  item.storage === "bws"
+    ? item.delivery === "file"
+      ? "Saved in Bitwarden until you delete it. Also kept in a private file this agent's commands can read for 24 hours."
+      : "Saved in Bitwarden until you delete it. Delivered by a one-use reference that expires when used or after 24 hours."
+    : item.delivery === "file"
+      ? "Not saved to Bitwarden. Kept in a private file this agent's commands can read for 24 hours."
+      : "Not saved to Bitwarden. This one-use reference expires when used or after 24 hours.";
 export const SECRET_REQUEST_DEFAULT_PLACEHOLDER = "Paste the secret";
 
 // Backticks, <angle brackets> and markdown link targets (balanced parentheses allowed) keep their
@@ -88,7 +92,12 @@ export type SecretRequestDisplay =
 const SAVED_DISPLAY: SecretRequestDisplay = {
   kind: "answered",
   outcome: "saved",
-  label: "Saved securely and kept private",
+  label: "Saved to Bitwarden",
+};
+const TEMPORARY_DISPLAY: SecretRequestDisplay = {
+  kind: "answered",
+  outcome: "saved",
+  label: "Used temporarily",
 };
 const DECLINED_DISPLAY: SecretRequestDisplay = {
   kind: "answered",
@@ -111,14 +120,14 @@ const PENDING_ELSEWHERE_DISPLAY: SecretRequestDisplay = {
  * thread (a fork) can only be answered where it was asked.
  */
 export function secretRequestDisplay(
-  item: Pick<SecretRequestItem, "secretStatus">,
+  item: Pick<SecretRequestItem, "secretStatus" | "storage">,
   visibility: "local" | "inherited" | "synthetic",
 ): SecretRequestDisplay {
   switch (item.secretStatus) {
     case "pending":
       return visibility === "local" ? PENDING_DISPLAY : PENDING_ELSEWHERE_DISPLAY;
     case "saved":
-      return SAVED_DISPLAY;
+      return item.storage === "bws" ? SAVED_DISPLAY : TEMPORARY_DISPLAY;
     case "declined":
       return DECLINED_DISPLAY;
     case "cancelled":
@@ -209,7 +218,7 @@ export function secretRequestAnswerInput(
       ? null
       : { threadId: item.threadId, turnItemId: item.id, answer: { type: "reference", reference } };
   }
-  const secret = answer.secret.trim();
+  const secret = answer.secret;
   if (secret.length === 0) return null;
   return { threadId: item.threadId, turnItemId: item.id, answer: { type: "save", secret } };
 }

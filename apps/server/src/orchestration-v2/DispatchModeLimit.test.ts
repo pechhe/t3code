@@ -13,7 +13,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
-import { DispatchModeLimit } from "./DispatchModeLimit.ts";
+import { DispatchModeLimit, SettingsWriteAuthority } from "./DispatchModeLimit.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -355,5 +355,23 @@ it.layer(layerWithCeiling)("runtime mode ceiling", (it) => {
       );
       assert.notEqual(started?.status, "queued");
     }),
+  );
+});
+
+it.layer(layerTest)("vault mutation authority", (it) => {
+  it.effect.each([false, true])(
+    "persists the initiating settings-write grant for a new run: %s",
+    (authorized) =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const id = ThreadId.make(`thread:vault-authority:${authorized}`);
+        yield* createThread(id);
+        yield* orchestrator
+          .dispatch(sendMessage(id, `vault-authority:${authorized}`))
+          .pipe(Effect.provideService(SettingsWriteAuthority, authorized));
+        const { runs } = yield* orchestrator.getThreadRecords(id, ["runs"]);
+        assert.equal(runs.length, 1);
+        assert.equal(runs[0]?.vaultWriteAuthorized, authorized);
+      }),
   );
 });

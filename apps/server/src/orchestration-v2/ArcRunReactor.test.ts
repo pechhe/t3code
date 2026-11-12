@@ -830,6 +830,7 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
       const { subagents } = yield* projections.getThreadRecords(parent.threadId, ["subagents"]);
       const task = subagents.find((candidate) => candidate.childThreadId !== null)!;
       const childId = task.childThreadId!;
+      yield* delegateTo(parent.threadId, childId);
       const childRun = yield* latestRun(childId);
       const now = yield* DateTime.now;
       const requestEvent = (kind: "user_input" | "command") =>

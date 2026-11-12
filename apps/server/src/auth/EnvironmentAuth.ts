@@ -93,6 +93,7 @@ const PEER_USE_RECORD_INTERVAL = Duration.minutes(1);
 const PEER_SESSION_SCOPES: ReadonlyArray<AuthEnvironmentScope> = [AuthOrchestrationReadScope];
 
 export interface McpClientSession {
+  readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
   readonly sessionId: AuthSessionId;
   readonly label: string;
   readonly access: McpClientAccess;
@@ -1380,6 +1381,7 @@ export const make = Effect.gen(function* () {
         return {
           sessionId: session.sessionId,
           label: session.client.label ?? "Linked environment",
+          scopes: session.scopes,
           access: "peer-threads",
           peerLink: true,
         } satisfies McpClientSession;
@@ -1388,6 +1390,7 @@ export const make = Effect.gen(function* () {
         return {
           sessionId: session.sessionId,
           label: session.client.label ?? "MCP client",
+          scopes: session.scopes,
           peerLink: session.peerLink === true,
           access: session.scopes.includes(AuthOrchestrationOperateScope)
             ? (session.runtimeModeCeiling ?? "approval-required")

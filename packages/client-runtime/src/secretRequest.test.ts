@@ -30,8 +30,29 @@ describe("secretRequestDisplay", () => {
 
 describe("secretRequestPrivacyNote", () => {
   it("does not promise to hide a value that the agent's commands can read", () => {
-    expect(secretRequestPrivacyNote({})).toBe("Stored securely, never shown to the agent");
-    expect(secretRequestPrivacyNote({ delivery: "file" })).not.toContain("never shown");
+    expect(secretRequestPrivacyNote({})).toContain("one-use");
+    expect(secretRequestPrivacyNote({ delivery: "file" })).toContain("commands can read");
+    expect(secretRequestPrivacyNote({ storage: "bws" })).toContain("until you delete it");
+    expect(secretRequestPrivacyNote({ storage: "bws", delivery: "file" })).toContain(
+      "commands can read for 24 hours",
+    );
+  });
+});
+
+describe("secretRequestAnswerInput", () => {
+  it("preserves whitespace and newlines in secret values", () => {
+    const item = { id: TurnItemId.make("item-1"), threadId: ThreadId.make("thread-1") };
+    expect(
+      secretRequestAnswerInput(item, { type: "save", secret: "  key\nvalue  " })?.answer,
+    ).toEqual({
+      type: "save",
+      secret: "  key\nvalue  ",
+    });
+    expect(secretRequestAnswerInput(item, { type: "save", secret: " " })?.answer).toEqual({
+      type: "save",
+      secret: " ",
+    });
+    expect(secretRequestAnswerInput(item, { type: "save", secret: "" })).toBeNull();
   });
 });
 

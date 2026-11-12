@@ -26,7 +26,7 @@ import { View, type ColorValue } from "react-native";
 
 import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
-import { SecretTextInput } from "../../components/ui/SecretTextInput";
+import { SecretValueInput } from "../../components/secrets/SecretValueInput";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
@@ -75,14 +75,26 @@ function PendingSecretRequestForm(props: {
   readonly iconColor: ColorValue;
 }) {
   const { item } = props;
+  const environment = useAtomValue(serverEnvironment.configValueAtom(props.environmentId));
   const answer = useAtomCommand(serverEnvironment.answerSecretRequest, {
     label: "answer secret request",
     // The failure cause holds the request; keep it out of the console.
     reportFailure: false,
     reportDefect: false,
   });
+  const answerSaved = useAtomCommand(serverEnvironment.answerSavedSecretRequest, {
+    label: "answer saved secret request",
+    reportFailure: false,
+    reportDefect: false,
+  });
+  const canSave = useAtomValue(
+    serverEnvironment.answerSavedSecretRequest.permissionAtom(props.environmentId),
+  );
   const config = useAtomValue(serverEnvironment.configValueAtom(props.environmentId));
-  const sources = secretRequestSources(config, config?.settings.secretProviders ?? {});
+  const sources =
+    item.storage === "bws"
+      ? []
+      : secretRequestSources(config, config?.settings.secretProviders ?? {});
   const [sourceId, setSourceId] = useState<SecretProviderId | null>(null);
   const source = sources.find((candidate) => candidate.id === sourceId) ?? null;
   const [secret, setSecret] = useState("");
@@ -94,11 +106,17 @@ function PendingSecretRequestForm(props: {
 
   const send = async (reply: SecretRequestReply) => {
     const input = secretRequestAnswerInput(item, reply);
-    if (input === null || inFlight.current) return;
+    if (
+      input === null ||
+      inFlight.current ||
+      (reply.type !== "decline" && item.storage === "bws" && !canSave)
+    )
+      return;
     inFlight.current = true;
     setSubmitting(true);
     setError(null);
-    const result = await answer({ environmentId: props.environmentId, input }).finally(() => {
+    const command = item.storage === "bws" && reply.type !== "decline" ? answerSaved : answer;
+    const result = await command({ environmentId: props.environmentId, input }).finally(() => {
       inFlight.current = false;
       setSubmitting(false);
     });
@@ -125,6 +143,22 @@ function PendingSecretRequestForm(props: {
 
   return (
     <View className="mb-3 gap-3 rounded-[20px] border border-border bg-card-alt p-4">
+      <View className="gap-1">
+        <Text className="font-t3-bold text-sm text-foreground">
+          {item.storage === "bws" ? "Save to Bitwarden" : "Use temporarily"}
+        </Text>
+        <Text className="font-sans text-xs text-foreground-muted">
+          {item.storage === "bws"
+            ? [
+                environment?.environment.label ?? props.environmentId,
+                item.secretProjectId,
+                item.secretKey,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : "This task only · no Bitwarden save"}
+        </Text>
+      </View>
       <View className="gap-1">
         <Text className="font-t3-bold text-base text-foreground">{item.label}</Text>
         {item.reason.trim() ? (
@@ -177,12 +211,12 @@ function PendingSecretRequestForm(props: {
         </View>
       ) : null}
       {source === null ? (
-        <SecretTextInput
+        <SecretValueInput
           accessibilityLabel={item.label}
           placeholder={item.placeholder ?? SECRET_REQUEST_DEFAULT_PLACEHOLDER}
           value={secret}
           onChangeText={setSecret}
-          editable={!submitting}
+          editable={!submitting && (item.storage !== "bws" || canSave)}
           onSubmitEditing={(value) => void send({ type: "save", secret: value })}
         />
       ) : (
@@ -216,10 +250,14 @@ function PendingSecretRequestForm(props: {
         </Text>
       ) : null}
       <Button
-        label="Save securely"
+        label={item.storage === "bws" ? "Save to Bitwarden" : "Use temporarily"}
         tone="primary"
         fullWidth
-        disabled={submitting || draft.trim().length === 0}
+        disabled={
+          submitting ||
+          (source === null ? draft.length === 0 : draft.trim().length === 0) ||
+          (item.storage === "bws" && !canSave)
+        }
         onPress={save}
       />
       <View className="flex-row items-center justify-between gap-2">

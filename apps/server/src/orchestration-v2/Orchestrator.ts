@@ -183,6 +183,8 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import {
   DispatchModeLimit,
+  SettingsWriteAuthority,
+  authorizeCreatedRuns,
   exceededDispatchModeLimit,
   narrowToCeiling,
   type RuntimeModeCeiling,
@@ -11566,6 +11568,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...(command.url === undefined ? {} : { url: command.url }),
             ...(command.placeholder === undefined ? {} : { placeholder: command.placeholder }),
             ...(command.delivery === undefined ? {} : { delivery: command.delivery }),
+            ...(command.storage === undefined ? {} : { storage: command.storage }),
+            ...(command.secretKey === undefined ? {} : { secretKey: command.secretKey }),
+            ...(command.savedSecretId === undefined
+              ? {}
+              : { savedSecretId: command.savedSecretId }),
+            ...(command.secretProjectId === undefined
+              ? {}
+              : { secretProjectId: command.secretProjectId }),
             secretStatus: command.secretStatus,
           };
       if (
@@ -16952,7 +16962,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (shell !== null) yield* refuseAboveDispatchModeLimit(command, threadId, shell);
     }
 
+    const vaultWriteAuthorized = yield* SettingsWriteAuthority;
     const plan = yield* dispatchOnce(command, sideChatIds).pipe(
+      Effect.map((planned) => ({
+        ...planned,
+        events: authorizeCreatedRuns(planned.events, vaultWriteAuthorized),
+      })),
       Effect.tap((planned) => refuseAboveRuntimeModeCeiling(command, planned.events)),
       Effect.filterOrFail(
         (planned) =>

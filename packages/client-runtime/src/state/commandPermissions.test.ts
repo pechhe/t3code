@@ -189,6 +189,12 @@ describe("command permissions", () => {
   );
 
   it.effect.each([
+    { method: WS_METHODS.secretsSave, scope: AuthSettingsWriteScope },
+    { method: WS_METHODS.secretsReveal, scope: AuthSettingsWriteScope },
+    { method: WS_METHODS.secretsDelete, scope: AuthSettingsWriteScope },
+    { method: WS_METHODS.secretsAnswerSavedRequest, scope: AuthSettingsWriteScope },
+    { method: WS_METHODS.secretsListTemporary, scope: AuthSettingsWriteScope },
+    { method: WS_METHODS.secretsRemoveTemporary, scope: AuthSettingsWriteScope },
     { method: WS_METHODS.serverRunStorageCleanup, scope: AuthSettingsWriteScope },
     { method: WS_METHODS.serverReclaimDatabaseSpace, scope: AuthEnvironmentMaintainScope },
   ])("requires the destination $scope grant for $method", ({ method, scope }) =>

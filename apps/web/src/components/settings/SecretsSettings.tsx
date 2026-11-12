@@ -26,7 +26,13 @@ import {
 import { useSettingsScope } from "./SettingsScopeContext";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { searchableSetting } from "./settingsSearch";
-import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
+import {
+  SettingsPageContainer,
+  SettingsRow,
+  SettingsSection,
+  useInSettingsSearchResults,
+} from "./settingsLayout";
+import { SavedSecretInventory, TemporarySecretInventory } from "./SecretInventory";
 
 const SECRET_PROVIDER_KINDS: Readonly<
   Record<string, { readonly name: string; readonly icon: Icon }>
@@ -37,11 +43,57 @@ const SECRET_PROVIDER_KINDS: Readonly<
 export function SecretsSettingsPanel() {
   const { scope, environment } = useSettingsScope();
   const connected = environment?.connection.phase === "connected";
+  const inSearch = useInSettingsSearchResults();
+  const [tab, setTab] = useState<"saved" | "temporary" | "providers">("saved");
+  const managementAvailable = connected && environment.serverConfig?.secretManagement === true;
+  const projectScoped = scope.kind === "project" || scope.kind === "checkout";
+  const currentTab = inSearch || !managementAvailable ? "providers" : tab;
   return (
     <SettingsPageContainer>
-      {connected &&
-      environment.serverConfig !== null &&
-      environment.serverConfig.secretProviderSettings !== true ? (
+      {managementAvailable && !inSearch ? (
+        <div role="tablist" aria-label="Secret storage" className="flex flex-wrap gap-1">
+          {(
+            [
+              ["saved", "Saved in Bitwarden"],
+              ["temporary", "Temporary"],
+              ["providers", "Providers"],
+            ] as const
+          ).map(([id, label]) => (
+            <Button
+              key={id}
+              role="tab"
+              aria-selected={currentTab === id}
+              variant={currentTab === id ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setTab(id)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+      {managementAvailable && currentTab !== "providers" ? (
+        projectScoped ? (
+          <SettingsSection title="Secrets">
+            <SettingsRow
+              title="Select an environment"
+              description="Secrets are managed for an environment, not an individual project."
+            />
+          </SettingsSection>
+        ) : currentTab === "saved" ? (
+          <SavedSecretInventory
+            key={environment.environmentId}
+            environmentId={environment.environmentId}
+          />
+        ) : (
+          <TemporarySecretInventory
+            key={environment.environmentId}
+            environmentId={environment.environmentId}
+          />
+        )
+      ) : connected &&
+        environment.serverConfig !== null &&
+        environment.serverConfig.secretProviderSettings !== true ? (
         <SettingsSection {...searchableSetting("secret-providers")}>
           <p className="px-4 py-3 text-sm text-muted-foreground">
             Update T3 Code on {environment.label} to manage its secret providers.
@@ -51,7 +103,7 @@ export function SecretsSettingsPanel() {
         <EnvironmentSecretProviders
           key={environment.environmentId}
           environment={environment}
-          projectScoped={scope.kind === "project" || scope.kind === "checkout"}
+          projectScoped={projectScoped}
         />
       ) : (
         <SettingsSection {...searchableSetting("secret-providers")}>

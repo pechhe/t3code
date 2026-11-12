@@ -82,6 +82,13 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.vcsInit]: AuthSourceControlWriteScope,
 
   // Linking hands another environment read access to every thread here.
+  [WS_METHODS.secretsAnswerSavedRequest]: AuthSettingsWriteScope,
+  [WS_METHODS.secretsList]: AuthSettingsWriteScope,
+  [WS_METHODS.secretsSave]: AuthSettingsWriteScope,
+  [WS_METHODS.secretsReveal]: AuthSettingsWriteScope,
+  [WS_METHODS.secretsDelete]: AuthSettingsWriteScope,
+  [WS_METHODS.secretsListTemporary]: AuthSettingsWriteScope,
+  [WS_METHODS.secretsRemoveTemporary]: AuthSettingsWriteScope,
   [WS_METHODS.peersUpdate]: AuthAccessWriteScope,
 
   [WS_METHODS.forgeWorkItemLink]: AuthOrchestrationOperateScope,

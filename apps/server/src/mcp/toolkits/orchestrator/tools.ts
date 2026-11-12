@@ -3,6 +3,9 @@ import {
   OrchestratorMcpAskAdviceWireInput,
   ThreadId,
   AgentTaskOutcomeInput,
+  SecretsListInput,
+  SecretsListResult,
+  SecretIdInput,
   ExperimentOutcome,
   AgentSessionAttachInput,
   AgentExternalSession,
@@ -297,7 +300,7 @@ const DeleteScheduledTaskTool = Tool.make("delete_scheduled_task", {
 
 const RequestSecretTool = Tool.make("request_secret", {
   description:
-    'Ask for one secret per single-line card; never combine values. Open it, don\'t offer it. Returns one-use `secretRef`, or `delivery: "file"` a file read only in its command, e.g. `adb pair <ip:port> "$(cat <file>)"`. Asked how: call now. Sign-in link: `url`. Pasted secret for child/script: `value`. Never from an old thread.',
+    'Canonical secret handoff. Search with search_secrets first. Always state storage: bws for reusable keys, temporary for sudo/OTP/pairing. Reuse savedSecretId without secretKey; to create/replace name secretKey and enter through the card. Never ask in chat. One secret per card. Open it, don\'t offer it. Returns one-use `secretRef`, or `delivery: "file"` a file read only in its command, e.g. `adb pair <ip:port> "$(cat <file>)"`. Asked how: call now. Sign-in link: `url`. Pasted secret for child/script: `value`. Never from an old thread.',
   parameters: OrchestratorMcpRequestSecretInput,
   success: OrchestratorMcpRequestSecretResult,
   failure: OrchestratorMcpFailure,
@@ -308,6 +311,25 @@ const RequestSecretTool = Tool.make("request_secret", {
   .annotate(Tool.Destructive, false)
   // Claude Code defers MCP tools behind ToolSearch; agents that never load this one ask in chat.
   .annotate(Tool.Meta, { "anthropic/alwaysLoad": true });
+
+const SearchSecretsTool = Tool.make("search_secrets", {
+  description:
+    "Find Bitwarden secrets on this environment. Optional query filters key names; omit it to list. Returns bounded metadata and IDs, never values or notes. Pass an ID to request_secret with storage bws to reuse it. Browser login keys are only usable through the saved-browser-login binding.",
+  parameters: SecretsListInput,
+  success: SecretsListResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+}).annotate(Tool.Readonly, true);
+const DeleteSecretTool = Tool.make("delete_secret", {
+  description:
+    "Delete one Bitwarden entry by ID only on the user's explicit instruction. Requires full-access/default mode. This can break other consumers; it does not revoke the key at its issuing service or erase copies already delivered. Never delete saved credentials as task cleanup.",
+  parameters: SecretIdInput,
+  success: Schema.Struct({ deleted: Schema.Boolean }),
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+}).annotate(Tool.Destructive, true);
 
 const RequestReleaseApprovalTool = Tool.make("request_release_approval", {
   description:
@@ -519,6 +541,8 @@ export const OrchestratorToolkit = Toolkit.make(
   ListScheduledTasksTool,
   DeleteScheduledTaskTool,
   RequestSecretTool,
+  SearchSecretsTool,
+  DeleteSecretTool,
   RequestReleaseApprovalTool,
   CreateThreadsTool,
   ThreadListTool,

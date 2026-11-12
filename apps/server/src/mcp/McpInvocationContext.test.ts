@@ -116,3 +116,36 @@ it.effect("offers a thread import only to another environment's link", () => {
     expect(yield* Effect.sync(McpInvocationContext.onlyForLinkedEnvironments)).toBe(false);
   });
 });
+
+it.effect(
+  "requires destination settings-write scopes for external vault mutations, independently of full-access mode",
+  () =>
+    Effect.gen(function* () {
+      const scope: McpInvocationContext.McpInvocationScope = {
+        environmentId: EnvironmentId.make("destination"),
+        requestNamespace: "client:full",
+        issuedAt: 0,
+        capabilities: new Set(["orchestration"]),
+        thread: undefined,
+        client: {
+          sessionId: "full",
+          label: "External",
+          access: "full-access",
+          scopes: ["orchestration:read", "orchestration:operate"],
+        },
+      };
+      const denied = yield* Effect.flip(McpInvocationContext.assertSettingsWrite(scope));
+      expect(denied.code).toBe("capability_denied");
+      yield* McpInvocationContext.assertSettingsWrite({
+        ...scope,
+        client: { ...scope.client!, scopes: ["settings:write"] },
+      });
+      const { client: _client, ...native } = scope;
+      expect(
+        (yield* Effect.flip(
+          McpInvocationContext.assertSettingsWrite({ ...native, client: undefined }),
+        )).code,
+      ).toBe("capability_denied");
+      yield* McpInvocationContext.assertSettingsWrite({ ...native, client: undefined }, true);
+    }),
+);

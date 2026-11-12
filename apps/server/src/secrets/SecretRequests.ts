@@ -10,6 +10,7 @@ import {
   type SecretReference,
   type SecretRequestAnswerInput,
   type ThreadId,
+  TemporarySecretMetadata,
 } from "@t3tools/contracts";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 
@@ -26,6 +27,7 @@ import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
+import * as SavedSecrets from "./SavedSecrets.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as Metrics from "../observability/Metrics.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -47,6 +49,25 @@ export class SecretRequests extends Context.Service<
   SecretRequests,
   {
     readonly answer: (input: SecretRequestAnswerInput) => Effect.Effect<void, SecretRequestError>;
+    readonly answerSaved: (
+      input: SecretRequestAnswerInput,
+    ) => Effect.Effect<void, SecretRequestError>;
+    readonly listTemporary: Effect.Effect<
+      ReadonlyArray<TemporarySecretMetadata>,
+      SecretRequestError
+    >;
+    readonly removeTemporary: (id: string) => Effect.Effect<void, SecretRequestError>;
+    readonly deliverSaved: (input: {
+      readonly id: string;
+      readonly threadId: ThreadId;
+      readonly requestNamespace: string;
+      readonly requestKey: string;
+      readonly delivery?: "secretRef" | "file";
+      readonly label: string;
+    }) => Effect.Effect<
+      { readonly secretRef: SecretRef } | { readonly file: string },
+      SecretRequestError
+    >;
     readonly savedRef: (input: {
       readonly threadId: ThreadId;
       readonly turnItemId: string;
@@ -67,6 +88,7 @@ export class SecretRequests extends Context.Service<
       readonly requestNamespace: string;
       readonly requestKey: string;
       readonly value: string;
+      readonly label?: string;
     }) => Effect.Effect<string, SecretRequestError>;
   }
 >()("t3/secrets/SecretRequests") {}
@@ -77,6 +99,7 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const resolver = yield* SecretResolver.SecretResolver;
+  const savedSecrets = yield* Effect.serviceOption(SavedSecrets.SavedSecrets);
   // Beside the store's own files so the same owner-only directory and cleanup rules apply.
   const filesDir = store.directory === undefined ? undefined : path.join(store.directory, "files");
 
@@ -100,7 +123,7 @@ const make = Effect.gen(function* () {
     // The resolver keeps failed reads for the server's life; a retry after unlocking must re-read.
     yield* resolver.invalidate([reference]);
     const [value] = yield* resolver.read([reference]);
-    if (value === undefined || value.trim() === "") {
+    if (value === undefined || value.length === 0) {
       return yield* new SecretRequestError({
         reason: "reference_unreadable",
         provider: yield* resolver.label(reference.provider),
@@ -109,99 +132,155 @@ const make = Effect.gen(function* () {
     return value;
   });
 
-  const answer: SecretRequests["Service"]["answer"] = Effect.fn("SecretRequests.answer")(
-    function* (input) {
-      yield* Effect.annotateCurrentSpan({
-        "orchestration_v2.thread_id": input.threadId,
-        "secret_request.answer": input.answer.type,
-      });
-      const records = yield* threadManagement
-        .getThreadRecords(input.threadId, ["runs", "turnItems"], {
-          turnItemTypes: ["secret_request"],
-          messageRoles: [],
-        })
-        .pipe(Effect.mapError((cause) => new SecretRequestError({ reason: "load_failed", cause })));
-      const item = records.turnItems.find((candidate) => candidate.id === input.turnItemId);
-      if (item?.type !== "secret_request" || item.runId === null || item.nodeId === null) {
-        return yield* new SecretRequestError({ reason: "not_found" });
+  const metadataName = (id: string) => `secret-handoff-${id}`;
+  const encodeMetadata = Schema.encodeEffect(Schema.fromJsonString(TemporarySecretMetadata));
+  const decodeMetadata = Schema.decodeUnknownOption(Schema.fromJsonString(TemporarySecretMetadata));
+  const remember = Effect.fn("SecretRequests.remember")(function* (entry: TemporarySecretMetadata) {
+    yield* store
+      .set(
+        metadataName(entry.id),
+        new TextEncoder().encode(yield* encodeMetadata(entry).pipe(Effect.orDie)),
+      )
+      .pipe(Effect.mapError(() => new SecretRequestError({ reason: "store_failed" })));
+  });
+
+  const answerRequest = Effect.fn("SecretRequests.answer")(function* (
+    input: SecretRequestAnswerInput,
+    allowDurable: boolean,
+  ) {
+    yield* Effect.annotateCurrentSpan({
+      "orchestration_v2.thread_id": input.threadId,
+      "secret_request.answer": input.answer.type,
+    });
+    const records = yield* threadManagement
+      .getThreadRecords(input.threadId, ["runs", "turnItems"], {
+        turnItemTypes: ["secret_request"],
+        messageRoles: [],
+      })
+      .pipe(Effect.mapError((cause) => new SecretRequestError({ reason: "load_failed", cause })));
+    const item = records.turnItems.find((candidate) => candidate.id === input.turnItemId);
+    if (item?.type !== "secret_request" || item.runId === null || item.nodeId === null) {
+      return yield* new SecretRequestError({ reason: "not_found" });
+    }
+    if (item.secretStatus !== "pending") {
+      return yield* new SecretRequestError({ reason: "already_answered" });
+    }
+    const run = records.runs.find((candidate) => candidate.id === item.runId);
+    if (run === undefined || ThreadManagementService.isTerminalRunStatus(run.status)) {
+      return yield* new SecretRequestError({ reason: "agent_stopped" });
+    }
+    if (item.storage === "bws" && input.answer.type !== "decline") {
+      if (
+        !allowDurable ||
+        input.answer.type !== "save" ||
+        !item.secretKey ||
+        !item.secretProjectId
+      ) {
+        return yield* new SecretRequestError({ reason: "storage_unsupported" });
       }
-      if (item.secretStatus !== "pending") {
-        return yield* new SecretRequestError({ reason: "already_answered" });
-      }
-      const run = records.runs.find((candidate) => candidate.id === item.runId);
-      if (run === undefined || ThreadManagementService.isTerminalRunStatus(run.status)) {
-        return yield* new SecretRequestError({ reason: "agent_stopped" });
-      }
-      const secret =
-        input.answer.type === "save"
-          ? input.answer.secret
-          : input.answer.type === "reference"
-            ? yield* readReference(input.answer.reference)
-            : undefined;
-      // Create before recording so racing answers cannot overwrite values or show saved before storage.
-      // Existing values on pending cards finish earlier saves whose recording failed.
-      if (secret !== undefined) {
-        const encoded = yield* encodeStored({
-          projectId: records.thread.projectId,
-          value: secret,
-          savedAt: yield* Clock.currentTimeMillis,
-        }).pipe(Effect.orDie);
-        yield* store
-          .create(
-            storeName(yield* refFor(input.threadId, item.id)),
-            new TextEncoder().encode(encoded),
-          )
-          .pipe(
-            Effect.catchIf(ServerSecretStore.isSecretAlreadyExistsError, () => Effect.void),
-            Effect.mapError(
-              (error) => new SecretRequestError({ reason: "store_failed", cause: error }),
-            ),
-          );
-      }
-      const secretStatus = secret === undefined ? "declined" : "saved";
-      yield* threadManagement
-        .dispatch({
-          type: "secret_request.record",
-          commandId: CommandId.make(`secret-request:${item.id}:${secretStatus}`),
-          threadId: input.threadId,
-          runId: item.runId,
-          nodeId: item.nodeId,
-          turnItemId: item.id,
-          label: item.label,
-          reason: item.reason,
-          ...(item.url === undefined ? {} : { url: item.url }),
-          ...(item.placeholder === undefined ? {} : { placeholder: item.placeholder }),
-          ...(item.delivery === undefined ? {} : { delivery: item.delivery }),
-          secretStatus,
+      if (Option.isNone(savedSecrets))
+        return yield* new SecretRequestError({ reason: "vault_failed" });
+      yield* savedSecrets.value
+        .save({
+          projectId: item.secretProjectId,
+          ...(item.savedSecretId === undefined ? {} : { id: item.savedSecretId }),
+          key: item.secretKey,
+          secret: input.answer.secret,
+          clientRequestId: `card:${input.threadId}:${item.id}`,
         })
         .pipe(
-          Effect.mapError((cause) => new SecretRequestError({ reason: "record_failed", cause })),
-          // Clear failed saves so the pending card can be answered again.
-          Effect.tapError(() =>
-            secret !== undefined
-              ? refFor(input.threadId, item.id).pipe(
-                  Effect.flatMap((ref) => removeLogged(storeName(ref))),
-                )
-              : Effect.void,
+          Effect.mapError(
+            (error) =>
+              new SecretRequestError({
+                reason:
+                  error.reason === "uncertain"
+                    ? "vault_uncertain"
+                    : error.reason === "destination_changed"
+                      ? "vault_destination_changed"
+                      : "vault_failed",
+              }),
           ),
         );
-      if (secret === undefined) return;
-      // The wait may have closed the card; delete unrecorded answers because no one receives their refs.
-      const recorded = yield* threadManagement
-        .getThreadRecords(input.threadId, ["turnItems"], {
-          turnItemTypes: ["secret_request"],
-          messageRoles: [],
-        })
+    }
+    const secret =
+      input.answer.type === "save"
+        ? input.answer.secret
+        : input.answer.type === "reference"
+          ? yield* readReference(input.answer.reference)
+          : undefined;
+    // Create before recording so racing answers cannot overwrite values or show saved before storage.
+    // Existing values on pending cards finish earlier saves whose recording failed.
+    if (secret !== undefined) {
+      const encoded = yield* encodeStored({
+        projectId: records.thread.projectId,
+        value: secret,
+        savedAt: yield* Clock.currentTimeMillis,
+      }).pipe(Effect.orDie);
+      yield* store
+        .create(
+          storeName(yield* refFor(input.threadId, item.id)),
+          new TextEncoder().encode(encoded),
+        )
         .pipe(
-          Effect.mapError((cause) => new SecretRequestError({ reason: "record_failed", cause })),
+          Effect.catchIf(ServerSecretStore.isSecretAlreadyExistsError, () => Effect.void),
+          Effect.mapError(
+            (error) => new SecretRequestError({ reason: "store_failed", cause: error }),
+          ),
         );
-      const card = recorded.turnItems.find((candidate) => candidate.id === item.id);
-      if (card?.type === "secret_request" && card.secretStatus !== "saved") {
-        yield* removeLogged(storeName(yield* refFor(input.threadId, item.id)));
-        return yield* new SecretRequestError({ reason: "agent_stopped" });
-      }
-    },
-  );
+    }
+    if (secret !== undefined)
+      yield* remember({
+        id: (yield* refFor(input.threadId, item.id)).slice(SECRET_REF_PREFIX.length),
+        label: item.label,
+        threadId: input.threadId,
+        delivery: "secretRef",
+        expiresAt: (yield* Clock.currentTimeMillis) + SECRET_REF_TTL_MS,
+      });
+    const secretStatus = secret === undefined ? "declined" : "saved";
+    yield* threadManagement
+      .dispatch({
+        type: "secret_request.record",
+        commandId: CommandId.make(`secret-request:${item.id}:${secretStatus}`),
+        threadId: input.threadId,
+        runId: item.runId,
+        nodeId: item.nodeId,
+        turnItemId: item.id,
+        label: item.label,
+        reason: item.reason,
+        ...(item.url === undefined ? {} : { url: item.url }),
+        ...(item.placeholder === undefined ? {} : { placeholder: item.placeholder }),
+        ...(item.delivery === undefined ? {} : { delivery: item.delivery }),
+        ...(item.storage === undefined ? {} : { storage: item.storage }),
+        ...(item.secretKey === undefined ? {} : { secretKey: item.secretKey }),
+        ...(item.savedSecretId === undefined ? {} : { savedSecretId: item.savedSecretId }),
+        ...(item.secretProjectId === undefined ? {} : { secretProjectId: item.secretProjectId }),
+        secretStatus,
+      })
+      .pipe(
+        Effect.mapError((cause) => new SecretRequestError({ reason: "record_failed", cause })),
+        // Clear failed saves so the pending card can be answered again.
+        Effect.tapError(() =>
+          secret !== undefined
+            ? refFor(input.threadId, item.id).pipe(
+                Effect.flatMap((ref) => removeLogged(storeName(ref))),
+              )
+            : Effect.void,
+        ),
+      );
+    if (secret === undefined) return;
+    // The wait may have closed the card; delete unrecorded answers because no one receives their refs.
+    const recorded = yield* threadManagement
+      .getThreadRecords(input.threadId, ["turnItems"], {
+        turnItemTypes: ["secret_request"],
+        messageRoles: [],
+      })
+      .pipe(Effect.mapError((cause) => new SecretRequestError({ reason: "record_failed", cause })));
+    const card = recorded.turnItems.find((candidate) => candidate.id === item.id);
+    if (card?.type === "secret_request" && card.secretStatus !== "saved") {
+      yield* removeLogged(storeName(yield* refFor(input.threadId, item.id)));
+      return yield* new SecretRequestError({ reason: "agent_stopped" });
+    }
+  });
 
   const savedRef: SecretRequests["Service"]["savedRef"] = Effect.fn("SecretRequests.savedRef")(
     function* (input) {
@@ -266,6 +345,7 @@ const make = Effect.gen(function* () {
     if (!(yield* removeLogged(storeName(input.ref)))) {
       return yield* new SecretRequestError({ reason: "consume_failed" });
     }
+    yield* removeLogged(metadataName(input.ref.slice(SECRET_REF_PREFIX.length)));
     return value;
   });
 
@@ -321,6 +401,13 @@ const make = Effect.gen(function* () {
       // The stored value goes only after the file is complete, so a failed write can retry.
       const value = yield* readRef({ ref, projectId: records.thread.projectId });
       yield* writeSecretFile(filesDir, file, value);
+      yield* remember({
+        id: ref.slice(SECRET_REF_PREFIX.length),
+        label: item.label,
+        threadId: input.threadId,
+        delivery: "file",
+        expiresAt: (yield* Clock.currentTimeMillis) + SECRET_REF_TTL_MS,
+      });
       return yield* removeStored;
     }).pipe(consumeLock.withPermits(1));
   });
@@ -339,9 +426,153 @@ const make = Effect.gen(function* () {
     return yield* Effect.gen(function* () {
       if (yield* fileSystem.exists(file).pipe(Effect.orElseSucceed(() => false))) return file;
       yield* writeSecretFile(filesDir, file, input.value);
+      yield* remember({
+        id: ref.slice(SECRET_REF_PREFIX.length),
+        label: input.label ?? "Secret supplied in this thread",
+        threadId: input.threadId,
+        delivery: "file",
+        expiresAt: (yield* Clock.currentTimeMillis) + SECRET_REF_TTL_MS,
+      });
       return file;
     }).pipe(consumeLock.withPermits(1));
   });
+
+  const reuseLock = yield* Semaphore.make(1);
+  const reuseReceiptSchema = Schema.fromJsonString(
+    Schema.Struct({ id: Schema.String, ready: Schema.Boolean }),
+  );
+  const decodeReuseReceipt = Schema.decodeUnknownOption(reuseReceiptSchema);
+  const encodeReuseReceipt = Schema.encodeEffect(reuseReceiptSchema);
+  const deliverSaved = Effect.fn("SecretRequests.deliverSaved")(function* (
+    input: Parameters<SecretRequests["Service"]["deliverSaved"]>[0],
+  ) {
+    if (Option.isNone(savedSecrets))
+      return yield* new SecretRequestError({ reason: "vault_failed" });
+    const readSaved = savedSecrets.value.read(input.id).pipe(
+      Effect.mapError(
+        (error) =>
+          new SecretRequestError({
+            reason: error.reason === "protected" ? "vault_protected" : "vault_failed",
+          }),
+      ),
+    );
+    if (input.delivery === "file")
+      return { file: yield* savePasted({ ...input, value: yield* readSaved }) };
+    const ref = yield* refFor(
+      input.threadId,
+      `reuse\u0000${input.requestNamespace}\u0000${input.requestKey}`,
+    );
+    const receiptName = `secret-reuse-${ref.slice(SECRET_REF_PREFIX.length)}`;
+    const persisted = yield* store
+      .get(receiptName)
+      .pipe(Effect.mapError(() => new SecretRequestError({ reason: "read_failed" })));
+    let ready = false;
+    if (Option.isSome(persisted)) {
+      const text = new TextDecoder().decode(persisted.value);
+      const receipt =
+        text === input.id ? Option.some({ id: input.id, ready: true }) : decodeReuseReceipt(text);
+      if (Option.isNone(receipt) || receipt.value.id !== input.id)
+        return yield* new SecretRequestError({ reason: "invalid_ref" });
+      ready = receipt.value.ready;
+    }
+    let existing = yield* store
+      .get(storeName(ref))
+      .pipe(Effect.mapError(() => new SecretRequestError({ reason: "read_failed" })));
+    if (ready) {
+      if (Option.isNone(existing))
+        return yield* new SecretRequestError({ reason: "ref_unavailable" });
+      return { secretRef: ref };
+    }
+    const records = yield* threadManagement
+      .getThreadRecords(input.threadId, [], {})
+      .pipe(Effect.mapError(() => new SecretRequestError({ reason: "load_failed" })));
+    if (Option.isNone(persisted)) {
+      const pending = yield* encodeReuseReceipt({ id: input.id, ready: false }).pipe(Effect.orDie);
+      yield* store
+        .create(receiptName, new TextEncoder().encode(pending))
+        .pipe(Effect.mapError(() => new SecretRequestError({ reason: "store_failed" })));
+    }
+    if (Option.isNone(existing)) {
+      const encoded = yield* encodeStored({
+        projectId: records.thread.projectId,
+        value: yield* readSaved,
+        savedAt: yield* Clock.currentTimeMillis,
+      }).pipe(Effect.orDie);
+      const bytes = new TextEncoder().encode(encoded);
+      yield* store
+        .create(storeName(ref), bytes)
+        .pipe(Effect.mapError(() => new SecretRequestError({ reason: "store_failed" })));
+      existing = Option.some(bytes);
+    }
+    const stored = decodeStored(new TextDecoder().decode(Option.getOrThrow(existing)));
+    if (Option.isNone(stored) || stored.value.projectId !== records.thread.projectId)
+      return yield* new SecretRequestError({ reason: "invalid_ref" });
+    yield* remember({
+      id: ref.slice(SECRET_REF_PREFIX.length),
+      label: input.label,
+      threadId: input.threadId,
+      delivery: "secretRef",
+      expiresAt: stored.value.savedAt + SECRET_REF_TTL_MS,
+    });
+    const completed = yield* encodeReuseReceipt({ id: input.id, ready: true }).pipe(Effect.orDie);
+    // Only a ready receipt may have published its reference; pending writes can safely recover.
+    yield* store
+      .set(receiptName, new TextEncoder().encode(completed))
+      .pipe(Effect.mapError(() => new SecretRequestError({ reason: "store_failed" })));
+    return { secretRef: ref };
+  }, reuseLock.withPermits(1));
+
+  const listTemporary = Effect.gen(function* () {
+    if (store.directory === undefined) return [];
+    const ids = new Map<string, { delivery: "secretRef" | "file"; file: string }>();
+    for (const name of yield* fileSystem.readDirectory(store.directory)) {
+      const match = /^secret-request-([0-9a-f]{32})\.bin$/.exec(name);
+      if (match?.[1])
+        ids.set(match[1], { delivery: "secretRef", file: path.join(store.directory, name) });
+    }
+    if (filesDir !== undefined && (yield* fileSystem.exists(filesDir))) {
+      for (const name of yield* fileSystem.readDirectory(filesDir)) {
+        if (/^[0-9a-f]{32}$/.test(name))
+          ids.set(name, { delivery: "file", file: path.join(filesDir, name) });
+      }
+    }
+    const now = yield* Clock.currentTimeMillis;
+    const entries: Array<TemporarySecretMetadata> = [];
+    for (const [id, source] of ids) {
+      const bytes = yield* store.get(metadataName(id));
+      const metadata = Option.flatMap(bytes, (data) =>
+        decodeMetadata(new TextDecoder().decode(data)),
+      );
+      const stat = yield* fileSystem.stat(source.file);
+      const expiresAt = Option.isSome(metadata)
+        ? metadata.value.expiresAt
+        : Option.match(stat.mtime, {
+            onNone: () => 0,
+            onSome: (time) => time.getTime() + SECRET_REF_TTL_MS,
+          });
+      if (expiresAt > now)
+        entries.push({
+          ...(Option.isSome(metadata)
+            ? metadata.value
+            : { id, label: "Unknown request", expiresAt }),
+          delivery: source.delivery,
+        });
+    }
+    return entries.sort((a, b) => a.expiresAt - b.expiresAt);
+  }).pipe(Effect.mapError(() => new SecretRequestError({ reason: "read_failed" })));
+  const removeTemporary = Effect.fn("SecretRequests.removeTemporary")(function* (id: string) {
+    if (!/^[0-9a-f]{32}$/.test(id)) return yield* new SecretRequestError({ reason: "invalid_ref" });
+    yield* store
+      .remove(`secret-request-${id}`)
+      .pipe(Effect.mapError(() => new SecretRequestError({ reason: "consume_failed" })));
+    if (filesDir !== undefined)
+      yield* fileSystem
+        .remove(path.join(filesDir, id), { force: true })
+        .pipe(Effect.mapError(() => new SecretRequestError({ reason: "consume_failed" })));
+    yield* store
+      .remove(metadataName(id))
+      .pipe(Effect.mapError(() => new SecretRequestError({ reason: "consume_failed" })));
+  }, consumeLock.withPermits(1));
 
   const sweepExpired = Effect.gen(function* () {
     if (store.directory === undefined) return;
@@ -358,6 +589,19 @@ const make = Effect.gen(function* () {
       );
       if (Option.isSome(decoded) && now - decoded.value.savedAt <= SECRET_REF_TTL_MS) continue;
       if (yield* removeLogged(name)) removed += 1;
+    }
+    for (const file of yield* fileSystem.readDirectory(store.directory)) {
+      const match = /^(secret-handoff-([0-9a-f]{32}))\.bin$/.exec(file);
+      if (!match?.[1] || !match[2]) continue;
+      const bytes = yield* store.get(match[1]);
+      const meta = Option.flatMap(bytes, (data) => decodeMetadata(new TextDecoder().decode(data)));
+      const refExists = yield* fileSystem.exists(
+        path.join(store.directory, `secret-request-${match[2]}.bin`),
+      );
+      const fileExists =
+        filesDir === undefined ? false : yield* fileSystem.exists(path.join(filesDir, match[2]));
+      if (Option.isNone(meta) || meta.value.expiresAt <= now || (!refExists && !fileExists))
+        yield* removeLogged(match[1]);
     }
     yield* Effect.annotateCurrentSpan({ "secret_request.expired_removed": removed });
   }).pipe(
@@ -389,7 +633,17 @@ const make = Effect.gen(function* () {
     Effect.forkScoped,
   );
 
-  return SecretRequests.of({ answer, savedRef, consume, saveToFile, savePasted });
+  return SecretRequests.of({
+    answer: Effect.fn("SecretRequests.answerTemporary")((input) => answerRequest(input, false)),
+    answerSaved: Effect.fn("SecretRequests.answerSaved")((input) => answerRequest(input, true)),
+    savedRef,
+    consume,
+    saveToFile,
+    savePasted,
+    deliverSaved,
+    listTemporary,
+    removeTemporary,
+  });
 });
 
 export const layer = Layer.effect(SecretRequests, make);

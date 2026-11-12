@@ -22,6 +22,7 @@ export const ORCHESTRATION_PROTOCOL_HEADER = "x-t3-orchestration-protocol";
 
 /** Wire shapes a client understands, comma-separated; a client that omits one gets the older shape. */
 export const CLIENT_CAPABILITIES_QUERY_PARAM = "clientCapabilities";
+export const STORAGE_AWARE_SECRET_REQUESTS_CAPABILITY = "storageAwareSecretRequests";
 /** Secret fields may hold a secret provider reference instead of a string. */
 export const SETTINGS_SECRET_REFERENCES_CAPABILITY = "settingsSecretReferences";
 /** The client reads the `implementer` role; one that omits this gets `implementation-worker`. */

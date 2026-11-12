@@ -1,3 +1,5 @@
+import * as BwsClient from "../secrets/BwsClient.ts";
+import * as SavedSecrets from "../secrets/SavedSecrets.ts";
 import * as Champions from "../champions/ChampionService.ts";
 import * as WorktreeBranchSync from "./WorktreeBranchSync.ts";
 import * as GuestShareService from "../guest/GuestShareService.ts";
@@ -315,8 +317,9 @@ const layerWorkspaceAttachmentsProvided = WorkspaceAttachments.layer.pipe(
     Layer.mergeAll(layerProjectService, WorkspaceProvider.layer, layerThreadManagementProvided),
   ),
 );
+const layerSavedSecrets = SavedSecrets.layer.pipe(Layer.provide(BwsClient.layer));
 const layerSecretRequestsProvided = SecretRequests.layer.pipe(
-  Layer.provide(layerThreadManagementProvided),
+  Layer.provide(Layer.merge(layerThreadManagementProvided, layerSavedSecrets)),
 );
 const layerScheduledTaskProvided = ScheduledTaskService.layer.pipe(
   Layer.provide(
@@ -457,6 +460,7 @@ export const layerProduction = Layer.mergeAll(
   RunSetupRecorder.storeLayer,
   layerScratchThreadPromotionProvided,
   layerSecretRequestsProvided,
+  layerSavedSecrets,
   ReleaseApprovals.layer.pipe(Layer.provide(layerThreadManagementProvided)),
   ForgeWorkItems.layer.pipe(Layer.provide(layerThreadManagementProvided)),
   ForgeHome.layer.pipe(

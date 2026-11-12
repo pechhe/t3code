@@ -94,12 +94,11 @@ const session = (
   }) satisfies SessionToolProfile;
 
 // These ceilings catch tools growing unnoticed. An editor lists every tool, and providers load
-// them lazily (`docs/operations/agent-delegation.md` records each one). A change that needs a
-// T3-612 adds the structured advice lifecycle and pinned advisor selection (about 3,000 chars).
-// 141,000 (T3-593): champion metrics read by command, the diagnosis and reroute actions, hand-off.
+// them lazily (`docs/operations/agent-delegation.md` records each one).
+// T3-613 adds saved-secret search, deletion and storage fields: editor payload is 144,865 chars.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
-  ["editor", undefined, 144_000],
-  ["editor worker", session("implementation", "implementer"), 144_000],
+  ["editor", undefined, 146_000],
+  ["editor worker", session("implementation", "implementer"), 146_000],
   ["reader", session("source-reader", "reviewer"), 42_500],
   ["browser", session("phi", "browser"), 36_500],
   ["researcher", session("web-research", "researcher"), 19_500],

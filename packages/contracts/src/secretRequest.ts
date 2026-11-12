@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 
-import { ThreadId, TrimmedNonEmptyString, TurnItemId } from "./baseSchemas.ts";
+import { ThreadId, TurnItemId } from "./baseSchemas.ts";
+import { SecretValue } from "./secretManagement.ts";
 import { SecretReference } from "./secretReference.ts";
 
 /** The http(s) page a secret card may open, or null for anything else. */
@@ -19,7 +20,7 @@ export const SecretRequestAnswerInput = Schema.Struct({
   threadId: ThreadId,
   turnItemId: TurnItemId,
   answer: Schema.Union([
-    Schema.Struct({ type: Schema.Literal("save"), secret: TrimmedNonEmptyString }),
+    Schema.Struct({ type: Schema.Literal("save"), secret: SecretValue }),
     Schema.Struct({ type: Schema.Literal("decline") }),
     /** Read once through a configured secret provider; only servers advertising `secretRequestReferences` accept it. */
     Schema.Struct({ type: Schema.Literal("reference"), reference: SecretReference }),
@@ -43,6 +44,15 @@ const SECRET_REQUEST_FAILURE_MESSAGES = {
   already_answered: "This secret request was already answered.",
   agent_stopped: "The agent that asked has stopped, so this secret can't be used.",
   store_failed: "Could not store the secret.",
+  storage_unsupported: "Use an updated T3 client to answer this Bitwarden request.",
+  vault_protected:
+    "Use this browser login through the saved-browser-login binding, not a generic secret handoff.",
+  vault_destination_changed:
+    "The Bitwarden project has changed since this card opened. Ask the agent for a new request before saving.",
+  vault_uncertain:
+    "The Bitwarden write outcome is uncertain. Check the store before trying another write; do not assume it failed.",
+  vault_failed:
+    "Bitwarden could not save this secret. Check its connection; it was not saved locally instead.",
   reference_unreadable: "Could not read the secret from the secret provider.",
   record_failed: "Saved the secret, but could not update the request.",
   invalid_ref: "That secretRef is not valid.",

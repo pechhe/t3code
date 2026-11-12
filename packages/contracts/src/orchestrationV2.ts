@@ -1,3 +1,4 @@
+import { SecretStorage } from "./secretManagement.ts";
 import { AgentTaskBinding } from "./agentPolicy.ts";
 import { OrchestrationMessageContext } from "./composerContext.ts";
 import { withRecordIdTable } from "./orchestrationV2IdTable.ts";
@@ -1156,6 +1157,7 @@ export const isProviderOverloadedFailureCode = (code: string | null | undefined)
   code != null && PROVIDER_OVERLOADED_FAILURE_CODES.has(code);
 
 export const OrchestrationV2Run = Schema.Struct({
+  vaultWriteAuthorized: Schema.optional(Schema.Boolean),
   id: RunId,
   threadId: ThreadId,
   ordinal: PositiveInt,
@@ -2123,6 +2125,10 @@ const OrchestrationV2SecretRequestFields = {
   url: Schema.optional(Schema.String),
   placeholder: Schema.optional(Schema.String),
   delivery: Schema.optional(OrchestrationV2SecretRequestDelivery),
+  storage: Schema.optional(SecretStorage),
+  secretKey: Schema.optional(Schema.String),
+  savedSecretId: Schema.optional(Schema.String),
+  secretProjectId: Schema.optional(Schema.String),
   secretStatus: OrchestrationV2SecretRequestStatus,
 } as const;
 
@@ -4354,6 +4360,10 @@ const OrchestrationV2InternalCommand = Schema.Union([
     url: Schema.optional(Schema.String),
     placeholder: Schema.optional(Schema.String),
     delivery: Schema.optional(OrchestrationV2SecretRequestDelivery),
+    storage: Schema.optional(SecretStorage),
+    secretKey: Schema.optional(Schema.String),
+    savedSecretId: Schema.optional(Schema.String),
+    secretProjectId: Schema.optional(Schema.String),
     secretStatus: OrchestrationV2SecretRequestStatus,
   }),
   /**

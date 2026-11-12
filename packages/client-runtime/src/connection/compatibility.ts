@@ -4,6 +4,7 @@ import {
   ORCHESTRATION_PROTOCOL_QUERY_PARAM,
   ORCHESTRATION_PROTOCOL_VERSION,
   SETTINGS_SECRET_REFERENCES_CAPABILITY,
+  STORAGE_AWARE_SECRET_REQUESTS_CAPABILITY,
   IMPLEMENTER_ROLE_CAPABILITY,
   type ExecutionEnvironmentDescriptor,
 } from "@t3tools/contracts";
@@ -44,7 +45,11 @@ export function appendOrchestrationProtocol(socketUrl: string): string {
   url.searchParams.set(LIVE_RESPONSE_STREAMING_QUERY_PARAM, "1");
   url.searchParams.set(
     CLIENT_CAPABILITIES_QUERY_PARAM,
-    [SETTINGS_SECRET_REFERENCES_CAPABILITY, IMPLEMENTER_ROLE_CAPABILITY].join(","),
+    [
+      SETTINGS_SECRET_REFERENCES_CAPABILITY,
+      IMPLEMENTER_ROLE_CAPABILITY,
+      STORAGE_AWARE_SECRET_REQUESTS_CAPABILITY,
+    ].join(","),
   );
   return url.toString();
 }

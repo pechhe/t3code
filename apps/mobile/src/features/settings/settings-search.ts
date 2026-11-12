@@ -50,6 +50,7 @@ const SETTINGS_SEARCH_TERMS = {
     "microphone order",
     "bluetooth",
   ],
+  SettingsSecrets: ["secrets", "bitwarden", "bws", "api keys", "temporary", "password"],
   SettingsScheduledTasks: ["automations", "schedule", "cron", "recurring", "webhook"],
   SettingsChampions: ["metrics", "health", "quality", "findings", "monitor"],
   SettingsProjectOverview: ["project", "overview", "checkouts", "worktrees", "delete project"],

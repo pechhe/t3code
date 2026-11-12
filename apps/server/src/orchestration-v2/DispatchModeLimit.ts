@@ -110,3 +110,18 @@ export const threadsStartingWork = (
   }
   return starting;
 };
+
+export const SettingsWriteAuthority = Context.Reference<boolean>(
+  "t3/orchestration-v2/SettingsWriteAuthority",
+  { defaultValue: () => false },
+);
+
+export const authorizeCreatedRuns = (
+  events: ReadonlyArray<OrchestrationV2DomainEvent>,
+  authorized: boolean,
+): ReadonlyArray<OrchestrationV2DomainEvent> =>
+  events.map((event) =>
+    event.type === "run.created"
+      ? { ...event, payload: { ...event.payload, vaultWriteAuthorized: authorized } }
+      : event,
+  );

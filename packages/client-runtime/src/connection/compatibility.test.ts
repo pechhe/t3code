@@ -33,7 +33,7 @@ describe("orchestration protocol compatibility", () => {
     );
     expect(socketUrl.searchParams.get("liveResponseStreaming")).toBe("1");
     expect(socketUrl.searchParams.get("clientCapabilities")).toBe(
-      "settingsSecretReferences,implementerRole",
+      "settingsSecretReferences,implementerRole,storageAwareSecretRequests",
     );
     expect(socketUrl.searchParams.get("wsTicket")).toBe("secret");
     expect(socketUrl.searchParams.get("connectionMethod")).toBe("relay");

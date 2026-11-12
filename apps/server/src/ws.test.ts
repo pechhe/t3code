@@ -126,6 +126,7 @@ import * as SlipJaySettings from "./project/SlipJaySettings.ts";
 import * as WorkspaceAttachments from "./orchestration-v2/WorkspaceAttachments.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
+import * as SavedSecrets from "./secrets/SavedSecrets.ts";
 import * as GuestShareService from "./guest/GuestShareService.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
@@ -892,6 +893,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(Champions.ChampionService)({}),
   Layer.mock(ScheduledTasks.ScheduledTaskService)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
+  Layer.mock(SavedSecrets.SavedSecrets)({}),
   Layer.mock(SecretResolver.SecretResolver)({}),
   Layer.mock(DecisionRouter.DecisionRouter)({}),
   Layer.mock(GuestShareService.GuestShareService)({}),

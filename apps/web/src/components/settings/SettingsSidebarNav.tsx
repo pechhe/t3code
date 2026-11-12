@@ -190,7 +190,11 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         !event.ctrlKey &&
         !event.altKey;
       const isPlainKey = !event.metaKey && !event.ctrlKey && !event.altKey;
-      const isTypeToSearch = isPlainKey && event.key.length === 1 && event.key.trim() !== "";
+      const isTypeToSearch =
+        isPlainKey &&
+        event.key.length === 1 &&
+        event.key.trim() !== "" &&
+        !(event.code === "Slash" && event.shiftKey);
       if (!isFindShortcut && !isSlashShortcut && !isTypeToSearch) return;
       if (event.defaultPrevented || event.isComposing) return;
 

@@ -452,7 +452,7 @@ export function createRuntimeCommand<R, ER, W, A, E>(
         scheduler.schedule(registry, concurrency, input, () => {
           const atom = runtime
             .atom(options.execute(input, registry))
-            .pipe(Atom.withLabel(options.label));
+            .pipe(Atom.withLabel(options.label), Atom.setIdleTTL(0));
           return executeAtomQuery(registry, atom, { reportDefect: false, reportFailure: false });
         }),
       ),

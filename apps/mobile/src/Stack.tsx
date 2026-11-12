@@ -1,3 +1,4 @@
+import { SettingsSecretsRouteScreen } from "./features/settings/SettingsSecretsRouteScreen";
 import { SettingsExperimentsRouteScreen } from "./features/settings/SettingsExperimentsRouteScreen";
 import { isDraftThreadRoute } from "./features/threads/thread-route-state";
 import { ComponentCatalogScreen } from "./features/development/ComponentCatalogScreen";
@@ -297,6 +298,11 @@ const SETTINGS_SCREENS = {
     screen: SettingsExperimentsRouteScreen,
     linking: "settings/experiments",
     options: settingsPage("Experiments"),
+  }),
+  SettingsSecrets: createNativeStackScreen({
+    screen: SettingsSecretsRouteScreen,
+    linking: "settings/secrets",
+    options: settingsPage("Secrets"),
   }),
   SettingsScheduledTasks: createNativeStackScreen({
     screen: SettingsScheduledTasksRouteScreen,

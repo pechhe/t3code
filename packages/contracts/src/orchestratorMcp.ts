@@ -1,3 +1,4 @@
+import { SecretStorage } from "./secretManagement.ts";
 import {
   AgentRole,
   StoredAgentRole,
@@ -1270,6 +1271,17 @@ export const OrchestratorMcpRequestSecretInput = Schema.Struct({
   placeholder: Schema.optional(TrimmedNonEmptyString),
   delivery: Schema.optional(Schema.Literals(["secretRef", "file"])).annotate({
     description: "secretRef (default) for a T3 tool; file for a command.",
+  }),
+  storage: Schema.optional(SecretStorage).annotate({
+    description:
+      "Always state bws for reusable credentials, temporary for OTPs, pairing and sudo. Omitted means temporary for older callers.",
+  }),
+  secretKey: Schema.optional(TrimmedNonEmptyString).annotate({
+    description: "BWS key name to create or replace.",
+  }),
+  savedSecretId: Schema.optional(TrimmedNonEmptyString).annotate({
+    description:
+      "ID from search_secrets. With secretKey, ask to replace; without it, reuse without a card.",
   }),
   value: Schema.optional(PastedSecretValue).annotate({
     description: "Pasted in this thread; no card.",

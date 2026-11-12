@@ -1,4 +1,6 @@
 import * as AdviceService from "../agents/AdviceService.ts";
+import type { SecretsListInput, SecretsListResult } from "@t3tools/contracts";
+import * as SavedSecrets from "../secrets/SavedSecrets.ts";
 import * as ManagedTaskControl from "../agents/ManagedTaskControl.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
 import * as Champions from "../champions/ChampionService.ts";
@@ -184,6 +186,7 @@ import {
   type McpThreadInvocationScope,
   requireThreadScope,
   threadLinkFor,
+  assertSettingsWrite,
 } from "./McpInvocationContext.ts";
 import * as Metrics from "../observability/Metrics.ts";
 import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
@@ -310,6 +313,14 @@ export interface OrchestratorMcpServiceShape {
     input: OrchestratorMcpDeleteScheduledTaskInput,
   ) => Effect.Effect<OrchestratorMcpDeleteScheduledTaskResult, OrchestratorMcpFailure>;
   /** Only status reaches the agent, never this value. */
+  readonly searchSecrets: (
+    scope: McpInvocationScope,
+    input: SecretsListInput,
+  ) => Effect.Effect<SecretsListResult, OrchestratorMcpFailure>;
+  readonly deleteSecret: (
+    scope: McpInvocationScope,
+    input: { readonly id: string },
+  ) => Effect.Effect<{ readonly deleted: boolean }, OrchestratorMcpFailure>;
   readonly requestSecret: (
     scope: McpInvocationScope,
     input: OrchestratorMcpRequestSecretInput,
@@ -1365,6 +1376,7 @@ const make = Effect.gen(function* () {
         )
       : Effect.succeed(project.defaultModelSelection);
   const secretRequests = yield* SecretRequests.SecretRequests;
+  const savedSecrets = yield* Effect.serviceOption(SavedSecrets.SavedSecrets);
   const releaseApprovals = yield* ReleaseApprovals.ReleaseApprovals;
 
   const requireCapability = (scope: McpInvocationScope) =>
@@ -2784,6 +2796,39 @@ const make = Effect.gen(function* () {
         return { scheduledTaskId: existing.id, deleted: true };
       },
     ),
+    searchSecrets: Effect.fn("OrchestratorMcpService.searchSecrets")(function* (scope, input) {
+      yield* loadThreadCaller(scope, "search_secrets");
+      if (Option.isNone(savedSecrets))
+        return yield* failure(
+          "orchestration_error",
+          "Bitwarden is not configured on this environment.",
+        );
+      return yield* savedSecrets.value
+        .list(input)
+        .pipe(Effect.mapError((error) => failure("orchestration_error", error.message)));
+    }),
+    deleteSecret: Effect.fn("OrchestratorMcpService.deleteSecret")(function* (scope, input) {
+      const { parent, limits } = yield* loadCaller(scope, ["runs"]);
+      yield* assertSettingsWrite(
+        scope,
+        parent !== undefined &&
+          ThreadManagementService.latestActiveRun(parent)?.vaultWriteAuthorized === true,
+      );
+      if (limits.runtimeMode !== "full-access" || limits.interactionMode !== "default")
+        return yield* failure(
+          "capability_denied",
+          "Deleting saved secrets requires full-access/default mode.",
+        );
+      if (Option.isNone(savedSecrets))
+        return yield* failure(
+          "orchestration_error",
+          "Bitwarden is not configured on this environment.",
+        );
+      yield* savedSecrets.value
+        .remove(input.id)
+        .pipe(Effect.mapError((error) => failure("orchestration_error", error.message)));
+      return { deleted: true };
+    }),
     requestSecret: Effect.fn("OrchestratorMcpService.requestSecret")(function* (scope, input) {
       const { scope: threadScope, parent } = yield* loadThreadCaller(scope, "request_secret");
       const threadId = threadScope.thread.threadId;
@@ -2797,6 +2842,62 @@ const make = Effect.gen(function* () {
           "parent_not_active",
           "Asking for a secret requires an active run owned by this MCP provider session.",
         );
+      }
+      if (input.savedSecretId !== undefined && input.secretKey === undefined) {
+        if (input.storage === "temporary" || input.value !== undefined)
+          return yield* failure(
+            "invalid_request",
+            "Reusing a saved secret requires storage bws and no pasted value.",
+          );
+        const delivered = yield* secretRequests
+          .deliverSaved({
+            id: input.savedSecretId,
+            threadId,
+            requestNamespace: scope.requestNamespace,
+            requestKey: yield* requestKey(input.clientRequestId),
+            ...(input.delivery === undefined ? {} : { delivery: input.delivery }),
+            label: input.label,
+          })
+          .pipe(Effect.mapError((error) => failure("orchestration_error", error.message)));
+        return { status: "saved" as const, ...delivered };
+      }
+      let secretProjectId: string | undefined;
+      if (input.storage === "bws") {
+        if (input.secretKey?.startsWith("BROWSER_LOGIN_"))
+          return yield* failure(
+            "invalid_request",
+            "Manage browser logins in Settings; use them through the bounded browser saved-login binding.",
+          );
+        if (!input.secretKey || input.value !== undefined)
+          return yield* failure(
+            "invalid_request",
+            "A Bitwarden save needs secretKey and a secure card, not a pasted value.",
+          );
+        if (Option.isNone(savedSecrets))
+          return yield* failure(
+            "orchestration_error",
+            "Bitwarden is not configured on this environment.",
+          );
+        const listing = yield* savedSecrets.value
+          .list({ query: input.secretKey, limit: 100 })
+          .pipe(Effect.mapError((error) => failure("orchestration_error", error.message)));
+        secretProjectId = listing.projectId;
+        if (
+          input.savedSecretId === undefined &&
+          listing.entries.some((entry) => entry.key === input.secretKey)
+        )
+          return yield* failure(
+            "invalid_request",
+            "That key exists. Reuse its ID, or explicitly select it for replacement.",
+          );
+        if (
+          input.savedSecretId !== undefined &&
+          !listing.entries.some((entry) => entry.id === input.savedSecretId)
+        )
+          return yield* failure(
+            "invalid_request",
+            "Select the existing secret by its current name and ID before replacing it.",
+          );
       }
       // A secret the user already pasted needs no card: it goes straight to a file.
       if (input.value !== undefined) {
@@ -2812,6 +2913,7 @@ const make = Effect.gen(function* () {
             requestNamespace: scope.requestNamespace,
             requestKey: yield* requestKey(input.clientRequestId),
             value: input.value,
+            label: input.label,
           })
           .pipe(Effect.mapError((error) => failure("orchestration_error", error.message)));
         yield* Effect.annotateCurrentSpan({ "secret_request.status": "saved_pasted" });
@@ -2842,6 +2944,10 @@ const make = Effect.gen(function* () {
             ...(input.url === undefined ? {} : { url: input.url }),
             ...(input.placeholder === undefined ? {} : { placeholder: input.placeholder }),
             ...(input.delivery === "file" ? { delivery: "file" as const } : {}),
+            ...(input.storage === undefined ? {} : { storage: input.storage }),
+            ...(input.secretKey === undefined ? {} : { secretKey: input.secretKey }),
+            ...(input.savedSecretId === undefined ? {} : { savedSecretId: input.savedSecretId }),
+            ...(secretProjectId === undefined ? {} : { secretProjectId }),
             secretStatus,
           })
           .pipe(

@@ -241,6 +241,20 @@ export const handlers = {
       return yield* service.deleteScheduledTask(scope, input);
     }),
   ),
+  search_secrets: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.searchSecrets(scope, input);
+    }),
+  ),
+  delete_secret: McpToolAccess.writesEnvironment((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.deleteSecret(scope, input);
+    }),
+  ),
   request_secret: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;

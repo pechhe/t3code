@@ -1,3 +1,5 @@
+import { SettingsWriteAuthority } from "./orchestration-v2/DispatchModeLimit.ts";
+import * as SavedSecrets from "./secrets/SavedSecrets.ts";
 import * as Champions from "./champions/ChampionService.ts";
 import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
@@ -35,6 +37,7 @@ import {
   AuthAccessStreamError,
   type AuthAccessStreamEvent,
   AuthOrchestrationOperateScope,
+  AuthSettingsWriteScope,
   type AuthEnvironmentScope,
   type ScheduledTaskListResult,
   AuthSessionId,
@@ -65,6 +68,8 @@ import {
   ORCHESTRATION_PROTOCOL_QUERY_PARAM,
   CLIENT_CAPABILITIES_QUERY_PARAM,
   SETTINGS_SECRET_REFERENCES_CAPABILITY,
+  STORAGE_AWARE_SECRET_REQUESTS_CAPABILITY,
+  SecretRequestError,
   IMPLEMENTER_ROLE_CAPABILITY,
   ORCHESTRATION_PROTOCOL_VERSION,
   OrchestrationV2DispatchCommandError,
@@ -831,6 +836,9 @@ function readClientCapabilities(url: URL) {
 function readSettingsClient(url: URL) {
   return {
     secretReferences: readClientCapabilities(url).includes(SETTINGS_SECRET_REFERENCES_CAPABILITY),
+    storageAwareSecrets: readClientCapabilities(url).includes(
+      STORAGE_AWARE_SECRET_REQUESTS_CAPABILITY,
+    ),
   };
 }
 
@@ -1490,7 +1498,7 @@ export const layerWsRpc = (
   liveResponseStreaming: boolean,
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
   reportProfiles: ServerBrowser.ProfileReporter,
-  settingsClient: { readonly secretReferences: boolean },
+  settingsClient: { readonly secretReferences: boolean; readonly storageAwareSecrets?: boolean },
 ) =>
   Layer.unwrap(
     Effect.gen(function* () {
@@ -1559,6 +1567,7 @@ export const layerWsRpc = (
       const forgeHome = yield* ForgeHome.ForgeHome;
       const weaveSignIn = yield* WeaveSignIn.WeaveSignIn;
       const secretRequests = yield* SecretRequests.SecretRequests;
+      const savedSecrets = yield* SavedSecrets.SavedSecrets;
       const releaseApprovals = yield* ReleaseApprovals.ReleaseApprovals;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const deviceService = yield* DeviceService.DeviceService;
@@ -1954,6 +1963,7 @@ export const layerWsRpc = (
           decisionSettings: true,
           secretReferences: true,
           secretRequestReferences: true,
+          secretManagement: true,
           ...Option.match(scratchWorkspaceRoot, {
             onNone: () => ({}),
             onSome: (root) => ({ scratchWorkspaceRoot: root }),
@@ -2037,7 +2047,13 @@ export const layerWsRpc = (
                                 "creationSource" in command ? command.creationSource : "web",
                             }),
                           )
-                    ).pipe(Effect.provide(intakeContext));
+                    ).pipe(
+                      Effect.provide(intakeContext),
+                      Effect.provideService(
+                        SettingsWriteAuthority,
+                        currentSession.scopes.includes(AuthSettingsWriteScope),
+                      ),
+                    );
                   }),
                 )
                 .pipe(
@@ -3019,6 +3035,16 @@ export const layerWsRpc = (
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
             Effect.andThen(scheduledTasks.rotateWebhookToken(input)),
           ),
+        [WS_METHODS.secretsList]: (input) => savedSecrets.list(input),
+        [WS_METHODS.secretsSave]: (input) => savedSecrets.save(input),
+        [WS_METHODS.secretsReveal]: (input) => savedSecrets.reveal(input.id),
+        [WS_METHODS.secretsDelete]: (input) => savedSecrets.remove(input.id),
+        [WS_METHODS.secretsListTemporary]: () => secretRequests.listTemporary,
+        [WS_METHODS.secretsRemoveTemporary]: (input) => secretRequests.removeTemporary(input.id),
+        [WS_METHODS.secretsAnswerSavedRequest]: (input) =>
+          settingsClient.storageAwareSecrets === true
+            ? secretRequests.answerSaved(input)
+            : Effect.fail(new SecretRequestError({ reason: "storage_unsupported" })),
         [WS_METHODS.secretsAnswerRequest]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(secretRequests.answer(input)),

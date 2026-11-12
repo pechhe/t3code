@@ -157,11 +157,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
   },
   {
     heading: msg("Connections"),
-    paths: [
-      "/settings/connections",
-      "/settings/access",
-      ...(isSecretsFeatureEnabled ? (["/settings/secrets"] as const) : []),
-    ],
+    paths: ["/settings/connections", "/settings/access", "/settings/secrets"],
   },
   {
     heading: null,
@@ -1462,6 +1458,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [
       `pull request routing trusted environments shared credentials permissions read actions source control ${SOURCE_CONTROL_HOST_LABELS}`,
     ],
+  },
+  {
+    id: "secret-management",
+    title: "Saved and temporary secrets",
+    to: "/settings/secrets",
+    searchTerms: ["bitwarden bws api key credentials password saved temporary reveal copy"],
   },
   {
     id: "secret-providers",

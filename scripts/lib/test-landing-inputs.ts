@@ -11,6 +11,7 @@ export const EXTRA_EDGES: ReadonlyArray<readonly [from: string, to: string]> = [
   ["apps/server", "packages/client-runtime"],
   ["apps/server", "scripts"],
   ["evals", "apps/server"],
+  ["evals", "packages/client-runtime"],
   ["oxlint-plugin-t3code", "packages/client-runtime"],
   ["oxlint-plugin-t3code", "packages/shared"],
   ["packages/provider-pi", "packages/client-runtime"],
@@ -73,6 +74,7 @@ const REPLAY_TRANSCRIPT_READERS = [
     "orchestration-v2/testkit/ClaudeReplayFixtures5.integration.test.ts",
     "orchestration-v2/testkit/ClaudeReplayFixtures6.integration.test.ts",
     "orchestration-v2/testkit/CodexReplayFixtures.integration.test.ts",
+    "orchestration-v2/testkit/CursorReplayFixtures.integration.test.ts",
     "orchestration-v2/testkit/OrchestratorReplayRecovery.integration.test.ts",
     "orchestration-v2/testkit/OrchestratorReplayRestartBackgroundNote.integration.test.ts",
     "orchestration-v2/testkit/ThreadFork.integration.test.ts",
@@ -179,8 +181,16 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
   },
   {
     when: /^apps\/web\/src\/components\/files\/(?:binary|office)Preview\.worker\.ts$/,
-    select: ["apps/web/src/components/files/AttachmentFilePreview.browser.test.tsx"],
+    select: [
+      "apps/web/src/components/files/AttachmentFilePreview.browser.test.tsx",
+      "apps/web/src/components/files/AttachmentFilePreview.office.browser.test.tsx",
+    ],
     reason: "workers built from a URL the import graph does not follow",
+  },
+  {
+    when: /^packages\/provider-grok\/src\/server\/testFixtures\//,
+    select: ["packages/provider-grok/src/server/adapter.test.ts"],
+    reason: "mock Grok agent loaded from disk and spawned by the adapter test",
   },
   {
     when: /^infra\/relay\/migrations\/postgres\//,

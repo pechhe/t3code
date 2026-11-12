@@ -62,7 +62,16 @@ describe("RPC authorization scopes", () => {
   });
 
   it("restricts policy reads and saves to settings owners", () => {
-    for (const method of [WS_METHODS.agentPolicyRead, WS_METHODS.agentPolicySave])
+    for (const method of [
+      WS_METHODS.agentPolicyRead,
+      WS_METHODS.agentPolicySave,
+      WS_METHODS.secretsSave,
+      WS_METHODS.secretsReveal,
+      WS_METHODS.secretsDelete,
+      WS_METHODS.secretsAnswerSavedRequest,
+      WS_METHODS.secretsListTemporary,
+      WS_METHODS.secretsRemoveTemporary,
+    ])
       expect(requiredScopeForRpcMethod(method)).toBe(AuthSettingsWriteScope);
   });
 

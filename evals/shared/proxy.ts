@@ -8,8 +8,13 @@ const decodeProxyConfig = Schema.decodeUnknownSync(
   Schema.Struct({ url: Schema.String, headers: Schema.Record(Schema.String, Schema.String) }),
 );
 /** Reads the `vibeproxy` CLIProxyAPI provider from `~/.codex/config.toml`. */
-export const proxyConfig = () =>
-  decodeProxyConfig(
+export const proxyConfig = () => {
+  if (process.env.OPENAI_API_KEY)
+    return {
+      url: process.env.OPENAI_BASE_URL?.replace(/\/$/, "") || "https://api.openai.com/v1",
+      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+    };
+  return decodeProxyConfig(
     JSON.parse(
       NodeChildProcess.execFileSync(
         "python3",
@@ -31,3 +36,4 @@ print(json.dumps({'url': p['base_url'].rstrip('/'), 'headers': h}))
       ),
     ),
   );
+};

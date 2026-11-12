@@ -1,5 +1,7 @@
 import {
   type AgentRole,
+  type AuthEnvironmentScope,
+  AuthSettingsWriteScope,
   type AgentToolProfile,
   type McpClientAccess,
   type EnvironmentId,
@@ -36,6 +38,7 @@ export interface McpClientCaller {
   readonly sessionId: string;
   readonly label: string;
   readonly access: McpClientAccess;
+  readonly scopes?: ReadonlyArray<AuthEnvironmentScope> | undefined;
   /**
    * Another T3 Code environment's peer link. What it starts here carries its
    * session as `linkOrigin`, and it changes only that work (`linkOrigin.ts`).
@@ -289,3 +292,18 @@ export const requireThreadScope = (scope: McpInvocationScope, operation: string)
   scope.thread === undefined
     ? Effect.fail(threadCallerRequired(operation))
     : Effect.succeed(scope as McpThreadInvocationScope);
+
+export const assertSettingsWrite = Effect.fn("McpInvocationContext.assertSettingsWrite")(function* (
+  scope: McpInvocationScope,
+  nativeRunAuthorized = false,
+) {
+  if (
+    scope.client === undefined
+      ? !nativeRunAuthorized
+      : !scope.client.scopes?.includes(AuthSettingsWriteScope)
+  )
+    return yield* new OrchestratorMcpFailure({
+      code: "capability_denied",
+      message: "Changing saved secrets requires settings-write access on this environment.",
+    });
+});

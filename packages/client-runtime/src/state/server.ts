@@ -1828,6 +1828,39 @@ export function createServerEnvironmentAtoms<R, E>(
           JSON.stringify([environmentId, input.threadId, input.turnItemId]),
       },
     }),
+    answerSavedSecretRequest: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:secrets:answer-saved-request",
+      tag: WS_METHODS.secretsAnswerSavedRequest,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.threadId, input.turnItemId]),
+      },
+    }),
+    secretsList: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:secrets:list",
+      tag: WS_METHODS.secretsList,
+    }),
+    secretsSave: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:secrets:save",
+      tag: WS_METHODS.secretsSave,
+    }),
+    secretsReveal: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:secrets:reveal",
+      tag: WS_METHODS.secretsReveal,
+    }),
+    secretsDelete: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:secrets:delete",
+      tag: WS_METHODS.secretsDelete,
+    }),
+    secretsListTemporary: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:secrets:list-temporary",
+      tag: WS_METHODS.secretsListTemporary,
+    }),
+    secretsRemoveTemporary: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:secrets:remove-temporary",
+      tag: WS_METHODS.secretsRemoveTemporary,
+    }),
     // One answer per card at a time; the server refuses a second answer anyway.
     answerReleaseApproval: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:release-approvals:answer",

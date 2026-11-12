@@ -1,3 +1,13 @@
+import {
+  SecretsListInput,
+  SecretsListResult,
+  SecretsSaveInput,
+  SavedSecretMetadata,
+  SecretIdInput,
+  SecretValue,
+  SecretManagementError,
+  TemporarySecretMetadata,
+} from "./secretManagement.ts";
 import { BackgroundPolicySnapshot, HostPowerSnapshot } from "./background.ts";
 import { DecisionStatus, DecisionTestResult } from "./decisionRouting.ts";
 import {
@@ -749,6 +759,13 @@ export const WS_METHODS = {
   scheduledTasksRunNow: "scheduledTasks.runNow",
   scheduledTasksRotateWebhookToken: "scheduledTasks.rotateWebhookToken",
   secretsAnswerRequest: "secrets.answerRequest",
+  secretsAnswerSavedRequest: "secrets.answerSavedRequest",
+  secretsList: "secrets.list",
+  secretsSave: "secrets.save",
+  secretsReveal: "secrets.reveal",
+  secretsDelete: "secrets.delete",
+  secretsListTemporary: "secrets.listTemporary",
+  secretsRemoveTemporary: "secrets.removeTemporary",
   releaseApprovalsAnswer: "releaseApprovals.answer",
 
   // Linked environments
@@ -2647,6 +2664,40 @@ const WsSecretsAnswerRequestRpc = Rpc.make(WS_METHODS.secretsAnswerRequest, {
   error: Schema.Union([SecretRequestError, EnvironmentAuthorizationError]),
 });
 
+const secretManagementError = Schema.Union([SecretManagementError, EnvironmentAuthorizationError]);
+const WsSecretsListRpc = Rpc.make(WS_METHODS.secretsList, {
+  payload: SecretsListInput,
+  success: SecretsListResult,
+  error: secretManagementError,
+});
+const WsSecretsSaveRpc = Rpc.make(WS_METHODS.secretsSave, {
+  payload: SecretsSaveInput,
+  success: SavedSecretMetadata,
+  error: secretManagementError,
+});
+const WsSecretsRevealRpc = Rpc.make(WS_METHODS.secretsReveal, {
+  payload: SecretIdInput,
+  success: SecretValue,
+  error: secretManagementError,
+});
+const WsSecretsDeleteRpc = Rpc.make(WS_METHODS.secretsDelete, {
+  payload: SecretIdInput,
+  error: secretManagementError,
+});
+const WsSecretsListTemporaryRpc = Rpc.make(WS_METHODS.secretsListTemporary, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(TemporarySecretMetadata),
+  error: Schema.Union([SecretRequestError, EnvironmentAuthorizationError]),
+});
+const WsSecretsRemoveTemporaryRpc = Rpc.make(WS_METHODS.secretsRemoveTemporary, {
+  payload: SecretIdInput,
+  error: Schema.Union([SecretRequestError, EnvironmentAuthorizationError]),
+});
+const WsSecretsAnswerSavedRequestRpc = Rpc.make(WS_METHODS.secretsAnswerSavedRequest, {
+  payload: SecretRequestAnswerInput,
+  error: Schema.Union([SecretRequestError, EnvironmentAuthorizationError]),
+});
+
 const WsReleaseApprovalsAnswerRpc = Rpc.make(WS_METHODS.releaseApprovalsAnswer, {
   payload: ReleaseApprovalAnswerInput,
   error: Schema.Union([ReleaseApprovalError, EnvironmentAuthorizationError]),
@@ -3001,6 +3052,13 @@ export const WsServerOperationsRpcGroup = RpcGroup.make(
   WsScheduledTasksRunNowRpc,
   WsScheduledTasksRotateWebhookTokenRpc,
   WsSecretsAnswerRequestRpc,
+  WsSecretsAnswerSavedRequestRpc,
+  WsSecretsListRpc,
+  WsSecretsSaveRpc,
+  WsSecretsRevealRpc,
+  WsSecretsDeleteRpc,
+  WsSecretsListTemporaryRpc,
+  WsSecretsRemoveTemporaryRpc,
   WsReleaseApprovalsAnswerRpc,
   WsScheduledTasksListWebhookDeliveriesRpc,
   WsScheduledTasksGetWebhookDeliveryRpc,
