@@ -102,6 +102,7 @@ import Migration0096 from "./Migrations/096_Champions.ts";
 import Migration0097 from "./Migrations/097_ChampionRecovery.ts";
 import Migration0098 from "./Migrations/098_PeerLinks.ts";
 import Migration0099 from "./Migrations/099_PeerLinkFence.ts";
+import Migration0121 from "./Migrations/121_AdviceConsultations.ts";
 import Migration0100 from "./Migrations/100_WaitingLinkRequestIndex.ts";
 import Migration0101 from "./Migrations/101_ActiveTurnItemIndexes.ts";
 import Migration0102 from "./Migrations/102_ExcludeAttachmentPlaceholdersFromSearch.ts";
@@ -246,6 +247,7 @@ const migrationEntries = [
   [118, "ParkedWaitsIndex", Migration0118],
   [119, "SlipJayLandCommandIndex", Migration0119],
   [120, "SettledThreadPruneMarks", Migration0120],
+  [121, "AdviceConsultations", Migration0121],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

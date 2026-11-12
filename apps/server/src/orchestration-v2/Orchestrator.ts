@@ -1665,10 +1665,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     Effect.fnUntraced(function* (
       events: ReadonlyArray<Omit<OrchestrationV2DomainEvent, "id">>,
       effects: ReadonlyArray<PendingOrchestrationEffectV2> = [],
-      options: { readonly updateDelegatedCompletionOnly?: boolean } = {},
+      options: {
+        readonly updateDelegatedCompletionOnly?: boolean;
+        readonly guardDelegatedCompletion?: { readonly threadId: ThreadId; readonly runId: RunId };
+      } = {},
     ) {
       const withIds = yield* Effect.forEach(events, (event) => makeSystemEvent(event));
-      yield* eventSink.writeWithEffects({ events: withIds, effects, ...options });
+      return yield* eventSink.writeWithEffects({ events: withIds, effects, ...options });
     });
 
   const completionDeliveryRun = (
@@ -15266,7 +15269,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           payload: resultTransfer,
         },
       ];
-      yield* writeSystemEvents(
+      const published = yield* writeSystemEvents(
         completionEvents,
         // A managed task's browser tabs close when it ends: at once if it was cancelled, else
         // after a grace period in which a follow-up can pick them up. The worker skips the
@@ -15285,8 +15288,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                     : DateTime.add(now, { minutes: MANAGED_TAB_FOLLOWUP_GRACE_MINUTES }),
               },
             ],
-        { updateDelegatedCompletionOnly: true },
+        {
+          updateDelegatedCompletionOnly: true,
+          guardDelegatedCompletion: { threadId: childThreadId, runId: childRun.id },
+        },
       );
+      if (published.length === 0) return;
 
       if (completionPlan.offer && completionPlan.parentRun !== undefined) {
         yield* offerDelegatedCompletionDelivery(parentThreadId, completionPlan.parentRun.id);
@@ -15322,7 +15329,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       childControls.thread.forkedFrom?.type !== "node"
     )
       return;
-    const progress = delegatedTaskProgress(childControls);
+    const pendingBlockingAdvice = yield* projectionStore.hasPendingBlockingAdvice(childThreadId);
+    const progress = delegatedTaskProgress({ ...childControls, pendingBlockingAdvice });
     const parent = yield* projectionStore.getThreadRecords(parentThreadId, [
       "subagents",
       "contextTransfers",
@@ -15350,7 +15358,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const hold =
         taskRun === undefined || delegatedTaskTerminalStatus(runOutcome(taskRun)) === null
           ? undefined
-          : delegatedTaskRunHold(childControls, taskRun);
+          : delegatedTaskRunHold({ ...childControls, pendingBlockingAdvice }, taskRun);
       if (
         progress.state !== "result_available" &&
         (task.id === childControls.thread.forkedFrom.nodeId || hold?.held === true)
@@ -15915,6 +15923,61 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         yield* dispatchThreadProjectAdoptFolder(command, events);
         break;
       case "message.dispatch": {
+        if (command.adviceDelivery !== undefined) {
+          const { runs } = yield* projectionStore
+            .getThreadRecords(command.threadId, ["runs"])
+            .pipe(mapDispatchError(command));
+          const latest = latestExecutedRun(runs);
+          const delivery = command.adviceDelivery;
+          const destination = yield* projectionStore
+            .getThread(command.threadId)
+            .pipe(mapDispatchError(command));
+          const parentId =
+            command.threadId === delivery.workerThreadId
+              ? destination.lineage.parentThreadId
+              : command.threadId;
+          if (parentId !== null) {
+            const parent = yield* projectionStore
+              .getThreadRecords(parentId, ["subagents"])
+              .pipe(mapDispatchError(command));
+            const owner = parent.subagents.findLast(
+              (task) =>
+                task.origin === "app_owned" &&
+                (task.childThreadId === delivery.workerThreadId ||
+                  task.remoteChild?.threadId === delivery.workerThreadId),
+            );
+            if (
+              owner === undefined ||
+              owner.result !== null ||
+              owner.completionDelivery?.state === "disposed" ||
+              ["completed", "failed", "interrupted", "cancelled"].includes(owner.status)
+            )
+              return yield* new OrchestratorDispatchError({
+                commandId: command.commandId,
+                commandType: command.type,
+                cause: "Advice cannot revive an ended delegation.",
+              });
+          } else if (
+            latest?.status === "completed" &&
+            !(delivery.blocking && delivery.runId === latest.id)
+          )
+            return yield* new OrchestratorDispatchError({
+              commandId: command.commandId,
+              commandType: command.type,
+              cause: "Advice cannot revive completed work.",
+            });
+
+          if (
+            latest !== null &&
+            (["cancelled", "interrupted", "failed", "rolled_back"].includes(latest.status) ||
+              (yield* stopReachedRun(command, command.threadId, latest.id)))
+          )
+            return yield* new OrchestratorDispatchError({
+              commandId: command.commandId,
+              commandType: command.type,
+              cause: "Advice cannot resume a stopped thread.",
+            });
+        }
         // Providers own native subagent conversations; messages cannot target them, and adapters ask questions on the parent.
         const thread = yield* projectionStore
           .getThread(command.threadId)
@@ -16833,6 +16896,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ],
         { messageRoles: ["user"], ...delegatedTaskProgressTurnItems },
       );
+      if (
+        latestExecutedRun(child.runs)?.status === "completed" &&
+        (yield* projectionStore.hasPendingBlockingAdvice(childThreadId))
+      )
+        return true;
       if (taskId !== undefined) {
         const runs = child.runs.filter((run) => run.delegatedTaskId === taskId);
         const run = runs.toSorted((a, b) => b.ordinal - a.ordinal)[0];

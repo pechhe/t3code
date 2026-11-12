@@ -3884,6 +3884,13 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("message.dispatch"),
+    adviceDelivery: Schema.optional(
+      Schema.Struct({
+        workerThreadId: ThreadId,
+        runId: Schema.NullOr(RunId),
+        blocking: Schema.Boolean,
+      }),
+    ),
     followupSourceRevision: Schema.optional(TrimmedNonEmptyString),
     notification: Schema.optional(OrchestrationV2Notification),
     /** Sends this pending guest message; the server uses the guest's text, not `text`. */

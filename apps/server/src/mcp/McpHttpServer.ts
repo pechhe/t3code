@@ -1,3 +1,4 @@
+import * as AdviceMcpService from "./AdviceMcpService.ts";
 import { DecisionToolkit } from "./toolkits/decisions/tools.ts";
 import * as DecisionHandlers from "./toolkits/decisions/handlers.ts";
 import { ChampionsToolkit } from "./toolkits/champions/tools.ts";
@@ -1315,10 +1316,14 @@ const layerOrchestratorMcpService = OrchestratorMcpService.layer.pipe(
   Layer.provide(WorkspaceProvider.layer),
 );
 
+// Fresh endpoint registries must retain the environment's advice subscriptions and peer presence.
+export const layerAdviceMcpService = AdviceMcpService.layer;
+
 export const layerOrchestratorToolkit = toolkitRegistration(
   OrchestratorToolkit,
   OrchestratorHandlers.layer,
 ).pipe(
+  Layer.provide(layerAdviceMcpService.pipe(Layer.provide(layerOrchestratorMcpService))),
   Layer.provide(layerOrchestratorMcpService),
   Layer.provide(ThreadMetadataMcpService.layer),
   Layer.provide(ThreadDirectory.layer),
@@ -1384,6 +1389,7 @@ export const layerDeviceToolkit = Layer.mergeAll(
  * so an endpoint composes them once and a test can supply mocks instead.
  */
 const layerSessionToolkitServices = Layer.mergeAll(
+  layerAdviceMcpService.pipe(Layer.provide(layerOrchestratorMcpService)),
   layerOrchestratorMcpService,
   ThreadMetadataMcpService.layer,
   ThreadDirectory.layer,

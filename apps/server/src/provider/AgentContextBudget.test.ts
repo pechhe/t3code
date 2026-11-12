@@ -1,3 +1,4 @@
+import * as EnvironmentAdvice from "../agents/AdviceService.ts";
 import { ChampionService } from "../champions/ChampionService.ts";
 import * as ContextFleetSummaryService from "../fleet/FleetSummaryService.ts";
 import * as ContextPeerEnvironments from "../peers/PeerEnvironments.ts";
@@ -132,6 +133,7 @@ const codexAdditionalContext = () =>
     .join("");
 
 const layerAdvertisedTools = McpHttpServer.layerTools.pipe(
+  Layer.provide(EnvironmentAdvice.layer),
   Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
   Layer.provide(toolHandlerServices),
 );

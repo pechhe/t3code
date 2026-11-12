@@ -463,6 +463,9 @@ export interface OlderSettledThreadsListing {
 }
 
 export interface ProjectionStoreV2Shape {
+  readonly hasPendingBlockingAdvice: (
+    threadId: ThreadId,
+  ) => Effect.Effect<boolean, ProjectionStoreV2Error>;
   readonly searchThreadStream: (
     input: OrchestrationV2SearchThreadInput,
   ) => Stream.Stream<OrchestrationV2SearchThreadResult, ProjectionStoreV2Error>;
@@ -5990,6 +5993,15 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       (effect, threadId) => effect.pipe(Effect.mapError(controlReadError(threadId))),
     );
 
+    const hasPendingBlockingAdvice = Effect.fn("ProjectionStore.hasPendingBlockingAdvice")(
+      function* (threadId: ThreadId) {
+        const rows =
+          yield* sql`SELECT 1 FROM advice_consultations WHERE worker_thread_id = ${threadId} AND worker_environment_id IS NULL AND (status = 'pending' OR (status = 'answered' AND answer_delivered = 0)) AND json_extract(payload_json, '$.blocking') = 1 LIMIT 1`;
+        return rows.length > 0;
+      },
+      (effect, threadId) => effect.pipe(Effect.mapError(controlReadError(threadId))),
+    );
+
     const getThreadRecords: ProjectionStoreV2Shape["getThreadRecords"] = (
       threadId,
       fields,
@@ -7962,6 +7974,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getNextTurnItemOrdinal: readOnReader(getNextTurnItemOrdinal),
       getTurnItem: readOnReader(getTurnItem),
       getMessagesById: readOnReader(getMessagesById),
+      hasPendingBlockingAdvice: readOnReader(hasPendingBlockingAdvice),
       getThreadRecords: (threadId, fields, filter) =>
         getThreadRecords(threadId, fields, filter).pipe(NodeSqliteClient.readOnly),
       getRuntimeRequest: readOnReader(getRuntimeRequest),

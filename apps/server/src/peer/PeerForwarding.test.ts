@@ -1,3 +1,4 @@
+import * as EnvironmentAdvice from "../agents/AdviceService.ts";
 import * as ContextSqlClient from "../persistence/Sqlite.ts";
 import * as ContextExperimentService from "../experiments/ExperimentService.ts";
 import * as ContextForgeWorkItems from "../weave/ForgeWorkItems.ts";
@@ -215,7 +216,7 @@ const serveBox = (seen: Ref.Ref<Seen>, linkSession: Ref.Ref<string>) =>
   servePeer(
     box,
     Layer.mergeAll(
-      McpHttpServer.layerOrchestratorToolkit,
+      McpHttpServer.layerOrchestratorToolkit.pipe(Layer.provide(EnvironmentAdvice.layer)),
       McpHttpServer.layerProjectRegistration,
       McpHttpServer.layerThreadToolkit,
     ).pipe(
@@ -286,7 +287,7 @@ const mcpClient = McpSchema.McpServerClient.of({
 const makeLaptop = Effect.gen(function* () {
   const linking = yield* layerLinkingEnvironment(laptop).pipe(Layer.build);
   const layerHere = Layer.mergeAll(
-    McpHttpServer.layerOrchestratorToolkit,
+    McpHttpServer.layerOrchestratorToolkit.pipe(Layer.provide(EnvironmentAdvice.layer)),
     McpHttpServer.layerProjectRegistration,
     McpHttpServer.layerThreadToolkit,
   ).pipe(

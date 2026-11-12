@@ -326,6 +326,12 @@ Subagent threads started by the agent can't take messages; message the parent
 thread instead. When such a subagent needs an approval or an answer, the parent
 thread asks for it.
 
+A delegated agent can ask its parent for advice while keeping the task in its
+existing conversation. A blocking consultation pauses the worker until the parent
+answers; a nonblocking one lets independent work continue. Advice does not grant
+permissions or replace an approval. A dedicated advisor is an explicit choice
+under the configured delegation policy.
+
 Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.

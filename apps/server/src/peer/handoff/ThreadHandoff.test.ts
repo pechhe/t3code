@@ -1,3 +1,4 @@
+import * as EnvironmentAdvice from "../../agents/AdviceService.ts";
 import * as AssetSigner from "../../assets/AssetSigner.ts";
 import * as ExperimentService from "../../experiments/ExperimentService.ts";
 import * as ProjectCloneTracker from "../../project/ProjectCloneTracker.ts";
@@ -262,7 +263,7 @@ const serveBox = (
       Layer.provide(layerCore),
     );
     const tools = Layer.mergeAll(
-      McpHttpServer.layerOrchestratorToolkit,
+      McpHttpServer.layerOrchestratorToolkit.pipe(Layer.provide(EnvironmentAdvice.layer)),
       McpHttpServer.layerProjectRegistration,
       McpHttpServer.layerAttachmentToolkit,
     ).pipe(

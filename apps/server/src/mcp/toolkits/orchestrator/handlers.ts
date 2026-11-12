@@ -1,4 +1,7 @@
+import * as AdviceMcpService from "../../AdviceMcpService.ts";
 import {
+  OrchestratorMcpAskAdviceInput,
+  OrchestratorMcpAskAdviceWireInput,
   AgentTaskRequest,
   OrchestratorMcpFailure,
   OrchestratorMcpSchedule,
@@ -26,7 +29,25 @@ const refuseCheckBack = new OrchestratorMcpFailure({
   message:
     "Scheduled tasks can no longer be check-backs. To look again later, park this thread with `watch`: `watching: true`, a `target` of `{kind:'time', at}` (or the event itself, such as a Production release), and `park` (with `expectedMs` for an event, and a `note` to yourself). T3 wakes the thread then. Use `schedule_task` with purpose `long_running` only for work that repeats or runs without this thread.",
 });
+const decodeAdvice = Schema.decodeUnknownEffect(OrchestratorMcpAskAdviceInput);
 const decodeAgentTask = Schema.decodeUnknownEffect(AgentTaskRequest);
+
+const executeAdvice = Effect.fn("AdviceMcp.execute")(function* (
+  input: typeof OrchestratorMcpAskAdviceWireInput.Type,
+) {
+  const scope = yield* McpInvocationContext.McpInvocationContext;
+  const decoded = yield* decodeAdvice(input).pipe(
+    Effect.mapError(
+      () =>
+        new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message:
+            "Ask requires structured question, evidence, recommendation, blocking and clientRequestId; read/cancel require requestId; answer also requires workerThreadId and answer.",
+        }),
+    ),
+  );
+  return yield* (yield* AdviceMcpService.AdviceMcpService).execute(scope, decoded);
+});
 
 export const handlers = {
   agent_task_outcome: McpToolAccess.writes((input) =>
@@ -55,6 +76,17 @@ export const handlers = {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
       return yield* service.capabilities(scope, input);
+    }),
+  ),
+  ask_advice: McpToolAccess.either(
+    (input) => input.action === "ask" && input.destination === "advisor",
+    McpToolAccess.startsThreads(() => ({}), executeAdvice, "stamped"),
+    McpToolAccess.reads(executeAdvice),
+  ),
+  t3_advice_peer: McpToolAccess.reads((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      return yield* (yield* AdviceMcpService.AdviceMcpService).peer(scope, input);
     }),
   ),
   delegate_task: McpToolAccess.writes((input) =>

@@ -1,3 +1,4 @@
+import * as EnvironmentAdvice from "../agents/AdviceService.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as NodeURL from "node:url";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
@@ -63,6 +64,7 @@ import * as PeerLinks from "../peer/PeerLinks.ts";
 import * as ThreadHandoff from "../peer/handoff/ThreadHandoff.ts";
 
 const layerOrchestratorToolkit = McpHttpServer.layerOrchestratorToolkit.pipe(
+  Layer.provide(EnvironmentAdvice.layer),
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
   Layer.provide(Layer.mock(ThreadProjectMove.ThreadProjectMoveService)({})),
   Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),

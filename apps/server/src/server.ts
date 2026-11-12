@@ -1,3 +1,5 @@
+import * as RemoteDelegationLayer from "./peer/RemoteDelegationLayer.ts";
+import * as AdviceService from "./agents/AdviceService.ts";
 import * as PhiBrowser from "./preview/PhiBrowser.ts";
 import * as PhiBrowserRunner from "./preview/PhiBrowserRunner.ts";
 import * as AdvisorIdleCloseReactor from "./orchestration-v2/AdvisorIdleCloseReactor.ts";
@@ -974,6 +976,7 @@ const layerMakeRoutes = Layer.mergeAll(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
   ),
+  Layer.effectDiscard(AdviceService.AdviceService.pipe(Effect.flatMap((advice) => advice.start()))),
   // Follows delegated tasks running in linked environments, including after a restart.
   Layer.effectDiscard(
     RemoteDelegation.RemoteDelegation.pipe(Effect.flatMap((remote) => remote.start())),
@@ -987,7 +990,7 @@ const layerMakeRoutes = Layer.mergeAll(
     PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),
   ),
   // delegate_task to a linked environment, from /mcp and the follower above.
-  Layer.provide(RemoteDelegation.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
+  Layer.provide(RemoteDelegationLayer.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
   // Links agents ask for: shown in a thread from /mcp, answered over WebSocket.
   Layer.provide(PeerLinkRequests.layer),
   // Moving a thread to a linked environment, from Settings, menus and agents,

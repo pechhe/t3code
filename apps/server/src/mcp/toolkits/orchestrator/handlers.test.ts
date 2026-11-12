@@ -1,3 +1,4 @@
+import * as AdviceMcpService from "../../AdviceMcpService.ts";
 import { expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
@@ -83,6 +84,7 @@ it.effect("schedule_task needs a label to create a task and leaves it alone on a
             }),
         }),
       ),
+      Layer.provideMerge(Layer.mock(AdviceMcpService.AdviceMcpService)({})),
       Layer.provideMerge(Layer.mock(ThreadDirectory.ThreadDirectory)({})),
       Layer.provideMerge(Layer.mock(ThreadMetadataMcpService.ThreadMetadataMcpService)({})),
       Layer.provideMerge(Layer.mock(PeerForwarding.PeerForwarding)({})),
@@ -148,6 +150,17 @@ it.effect("schedule_task and create_threads are refused at the delegation limit"
         }),
       ),
       Layer.provideMerge(Layer.mock(OrchestratorMcpService.OrchestratorMcpService)({})),
+      Layer.provideMerge(
+        Layer.mock(AdviceMcpService.AdviceMcpService)({
+          execute: () =>
+            Effect.fail(
+              new OrchestratorMcpFailure({
+                code: "invalid_request",
+                message: "advisor reached handler",
+              }),
+            ),
+        }),
+      ),
       Layer.provideMerge(Layer.mock(ThreadDirectory.ThreadDirectory)({})),
       Layer.provideMerge(Layer.mock(ThreadMetadataMcpService.ThreadMetadataMcpService)({})),
       Layer.provideMerge(Layer.mock(PeerForwarding.PeerForwarding)({})),
@@ -166,6 +179,18 @@ it.effect("schedule_task and create_threads are refused at the delegation limit"
       );
 
     yield* Effect.gen(function* () {
+      expect(
+        yield* call("ask_advice", {
+          action: "ask",
+          destination: "advisor",
+          clientRequestId: "depth",
+          question: "Design?",
+          evidence: "Read",
+          recommendation: "Keep",
+          blocking: false,
+          advisor: { workspacePath: "/source", sourceRevision: "revision", workId: "work" },
+        }),
+      ).toContain("delegation limit");
       expect(
         yield* call("schedule_task", { prompt: "Look again", schedule, purpose: "check_back" }),
       ).toContain("delegation limit");
@@ -197,5 +222,66 @@ it.effect("a task a linked environment delegated counts its depth there toward t
     yield* assertBelowDelegationLimit(threads, linked(1));
     const refused = yield* assertBelowDelegationLimit(threads, linked(2)).pipe(Effect.flip);
     expect(refused.message).toContain("delegation limit");
+  }),
+);
+
+it.effect("remote advice authenticates its local parent service before any peer forwarding", () =>
+  Effect.gen(function* () {
+    const layer = McpHttpServer.toolkitRegistration(
+      OrchestratorToolkit,
+      OrchestratorHandlers.layer,
+    ).pipe(
+      Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+      Layer.provideMerge(
+        Layer.mock(ThreadManagement.ThreadManagementService)({
+          getThreadShell: () => Effect.succeed(liveThreadShell(threadId)),
+        }),
+      ),
+      Layer.provideMerge(
+        Layer.mock(AdviceMcpService.AdviceMcpService)({
+          execute: (caller, input) =>
+            Effect.fail(
+              new OrchestratorMcpFailure({
+                code: "invalid_request",
+                message:
+                  caller.thread?.threadId === threadId && input.action === "answer"
+                    ? "authenticated-parent-route"
+                    : "wrong caller",
+              }),
+            ),
+        }),
+      ),
+      Layer.provideMerge(Layer.mock(OrchestratorMcpService.OrchestratorMcpService)({})),
+      Layer.provideMerge(Layer.mock(ThreadDirectory.ThreadDirectory)({})),
+      Layer.provideMerge(Layer.mock(ThreadMetadataMcpService.ThreadMetadataMcpService)({})),
+      Layer.provideMerge(
+        Layer.mock(PeerForwarding.PeerForwarding)({
+          call: () => Effect.die("generic forwarding bypassed the parent"),
+        }),
+      ),
+      Layer.provideMerge(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),
+      Layer.provideMerge(Layer.mock(PeerLinks.PeerLinks)({})),
+      Layer.provideMerge(Layer.mock(ThreadHandoff.ThreadHandoff)({})),
+    );
+    const result = yield* McpServer.McpServer.pipe(
+      Effect.flatMap((server) =>
+        server.callTool({
+          name: "ask_advice",
+          arguments: {
+            action: "answer",
+            environmentId: "remote",
+            workerThreadId: "worker",
+            requestId: "request",
+            answer: "Keep v1",
+          },
+        }),
+      ),
+      Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+      Effect.provideService(McpSchema.McpServerClient, mcpClient),
+      Effect.provide(layer),
+    );
+    expect(
+      result.content.map((part) => (part.type === "text" ? part.text : "")).join(""),
+    ).toContain("authenticated-parent-route");
   }),
 );

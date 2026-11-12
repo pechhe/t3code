@@ -102,6 +102,8 @@ const PULL_REQUEST_TOOLS = new Set([
  * every tool again when a family gains one.
  */
 export const toolFamily = (name: string): ToolFamily => {
+  if (name === "ask_advice") return "leaf";
+  if (name === "t3_advice_peer") return "peer";
   if (name === "t3_decide") return "decision";
   if (name === "web_search" || name === "web_fetch") return "web";
   if (REPORT_TOOLS.has(name)) return "report";
@@ -144,6 +146,7 @@ export const toolFamily = (name: string): ToolFamily => {
 export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "watch_pull_request",
   "unwatch_pull_request",
+  "ask_advice",
   "agent_roles",
   "agent_task_outcome",
   "delegate_task",

@@ -1,3 +1,4 @@
+import * as AdviceService from "../agents/AdviceService.ts";
 import { resolveRuntimeMode } from "./delegatedTaskModes.ts";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
@@ -1159,6 +1160,7 @@ describe("OrchestratorMcpService", () => {
       const taskId = NodeId.make("node:mcp-next-task");
       let finished = false;
       let pendingRequest = false;
+      let adviceBlocking: boolean | undefined;
       const parentProjection = () =>
         ({
           thread: {
@@ -1201,11 +1203,32 @@ describe("OrchestratorMcpService", () => {
           providerTurns: [],
         }) as unknown as OrchestrationV2ThreadProjection;
       const layerDependencies = Layer.mergeAll(
+        Layer.mock(AdviceService.AdviceService)({
+          pending: () =>
+            Effect.succeed(
+              adviceBlocking === undefined
+                ? undefined
+                : {
+                    requestId: "consultation",
+                    workerThreadId: childThreadId,
+                    parentThreadId,
+                    question: "Which contract?",
+                    evidence: "The callers disagree.",
+                    recommendation: "Keep v1.",
+                    blocking: adviceBlocking,
+                    status: "pending" as const,
+                    answer: null,
+                    delivery: "delivered" as const,
+                  },
+            ),
+          suppressWake: () => Effect.void,
+        }),
         Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
         NodeCrypto.layer,
         Layer.mock(ThreadManagementService.ThreadManagementService)({
           getThreadRecords: (threadId) =>
             Effect.succeed(threadId === parentThreadId ? parentProjection() : childProjection()),
+          getThreadEventSequence: () => Effect.succeed(0),
           getThreadShell: (threadId) => Effect.succeed(liveThreadShell(threadId)),
           getProjectThreadRecords: () => Effect.succeed(childProjection()),
           waitForThread: () =>
@@ -1259,6 +1282,18 @@ describe("OrchestratorMcpService", () => {
         assert.isTrue(asking.timedOut);
         assert.notProperty(asking, "next");
         pendingRequest = false;
+
+        adviceBlocking = true;
+        const consulting = yield* service.taskStatus(scope, taskId, 10_000);
+        assert.equal(consulting.status, "waiting");
+        assert.equal(consulting.pendingAdvice?.requestId, "consultation");
+        assert.isFalse(consulting.hasPendingQuestion);
+        assert.notProperty(consulting, "next");
+        adviceBlocking = false;
+        const independent = yield* service.taskStatus(scope, taskId);
+        assert.equal(independent.status, "running");
+        assert.equal(independent.next, ORCHESTRATOR_MCP_RUNNING_TASK_NEXT);
+        adviceBlocking = undefined;
 
         finished = true;
         const completed = yield* service.taskStatus(scope, taskId);

@@ -148,6 +148,25 @@ const orchestratingCaller = refuseReadOnlyClient.pipe(
   Effect.tap(refuseConfinedWrites),
 );
 
+export const advisorAccess = writingCaller.pipe(
+  Effect.tap((caller) =>
+    caller.caller?.agentTask?.sourceAccess === "read-only"
+      ? Effect.fail(
+          new OrchestratorMcpFailure({
+            code: "capability_denied",
+            message:
+              "A read-only worker may consult its parent but cannot launch or control a dedicated advisor.",
+          }),
+        )
+      : Effect.void,
+  ),
+  Effect.tap((caller) =>
+    caller.caller === undefined
+      ? Effect.void
+      : assertBelowDelegationLimit(caller.threads, caller.caller),
+  ),
+);
+
 const requireThreadCaller = McpInvocationContext.McpInvocationContext.pipe(
   Effect.flatMap((scope) => McpInvocationContext.requireThreadScope(scope, "This tool")),
 );

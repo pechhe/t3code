@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema";
 import { FetchHttpClient } from "effect/http";
 import { assert, expect, it } from "@effect/vitest";
 import { ComposerContextId, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { OrchestratorMcpAdvice } from "@t3tools/contracts";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 
 import {
@@ -4462,4 +4463,84 @@ it.each([
     }),
     [],
   );
+});
+
+const decodeAdvice = Schema.decodeUnknownSync(OrchestratorMcpAdvice);
+const decodeAdviceCase = Schema.decodeUnknownSync(Schema.fromJsonString(McpToolUseCase));
+const adviceCases = NodeFS.readFileSync(new URL("./cases/advice.ndjson", import.meta.url), "utf8")
+  .trim()
+  .split("\n")
+  .map((line) => decodeAdviceCase(line));
+
+it("keeps advice mock identities and state consistent with answered prior consultations", () => {
+  const testCase = adviceCases.find((testCase) => testCase.id === "advice-followup-new-evidence")!;
+  const base = buildBase(template, { model: "claude-sonnet-5-5", keepUserInstructions: false });
+  const sample = makeSample(testCase, base);
+  const prior = decodeAdvice(
+    t3Default(sample, "ask_advice", { action: "read", requestId: "contract-v1" }),
+  );
+  assert.equal(prior.status, "answered");
+  assert.equal(prior.answer, "Keep contract-v1.");
+  const input = {
+    action: "ask",
+    clientRequestId: "native-rejection",
+    followsRequestId: "contract-v1",
+    question: "Should the native caller gain v1 compatibility?",
+    evidence: "Native rejects v1.",
+    recommendation: "Parent coordinates compatibility.",
+    blocking: true,
+    newEvidence: "Native release inspection found a v2-only decoder.",
+  };
+  const result = decodeAdvice(t3Default(sample, "ask_advice", input));
+  assert.equal(result.requestId, input.clientRequestId);
+  assert.equal(result.question, input.question);
+  assert.equal(result.followsRequestId, "contract-v1");
+  assert.equal(result.status, "pending");
+  assert.isNull(result.answer);
+  assert.deepEqual(t3Default(sample, "ask_advice", input), result);
+  assert.deepEqual(
+    t3Default(sample, "ask_advice", { action: "read", requestId: result.requestId }),
+    result,
+  );
+  assert.equal(prior.status, "answered");
+  assert.deepEqual(t3Default(sample, "ask_advice", { ...input, question: "Changed question" }), {
+    error: "Advice identity conflicts with an existing request",
+  });
+  assert.deepEqual(
+    t3Default(sample, "ask_advice", { action: "read", requestId: "contract-v1" }),
+    prior,
+  );
+  const cancelled = decodeAdvice(
+    t3Default(sample, "ask_advice", { action: "cancel", requestId: result.requestId }),
+  );
+  assert.equal(cancelled.requestId, result.requestId);
+  assert.equal(cancelled.status, "cancelled");
+});
+
+it("requires both payload questions in the single bundled consultation", () => {
+  const testCase = adviceCases.find(
+    (testCase) => testCase.id === "advice-bundle-related-questions",
+  )!;
+  const run = (questions: ReadonlyArray<string>): SampleRun => ({
+    text: "",
+    stopReason: "end_turn",
+    calls: questions.map((question, step) => ({
+      step,
+      tool: "ask_advice",
+      input: { action: "ask", question },
+    })),
+  });
+  assert.isTrue(
+    gradeSample(
+      testCase.expect,
+      run(["Should display_name stay, and should displayName be added?"]),
+    ).every((check) => check.pass),
+  );
+  for (const questions of [
+    ["Should display_name stay?"],
+    ["Should displayName be added?"],
+    ["Should display_name stay?", "Should displayName be added?"],
+  ]) {
+    assert.isTrue(gradeSample(testCase.expect, run(questions)).some((check) => !check.pass));
+  }
 });

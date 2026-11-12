@@ -1,3 +1,4 @@
+import * as EnvironmentAdvice from "../agents/AdviceService.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as ForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as WeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
@@ -123,7 +124,7 @@ const layerLaunches = Layer.effect(
 );
 
 const layerTools = Layer.mergeAll(
-  McpHttpServer.layerOrchestratorToolkit,
+  McpHttpServer.layerOrchestratorToolkit.pipe(Layer.provide(EnvironmentAdvice.layer)),
   McpHttpServer.layerThreadToolkit,
   McpHttpServer.layerProjectRegistration,
 ).pipe(

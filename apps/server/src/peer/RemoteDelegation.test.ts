@@ -1,3 +1,6 @@
+import * as EnvironmentAdvice from "../agents/AdviceService.ts";
+import * as AdviceService from "../agents/AdviceService.ts";
+import * as RemoteDelegationLayer from "./RemoteDelegationLayer.ts";
 import * as ContextExperimentService from "../experiments/ExperimentService.ts";
 import * as ContextForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ContextWeaveAgentConnections from "../weave/WeaveAgentConnections.ts";
@@ -515,7 +518,7 @@ const boxToolkitLayer = (
       ),
   });
   return Layer.merge(
-    McpHttpServer.layerOrchestratorToolkit,
+    McpHttpServer.layerOrchestratorToolkit.pipe(Layer.provide(EnvironmentAdvice.layer)),
     McpHttpServer.layerProjectRegistration,
   ).pipe(
     Layer.provide(
@@ -638,7 +641,7 @@ const makeLaptop = (
     const layerHere = McpHttpServer.layerOrchestratorToolkit.pipe(
       Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
       Layer.provideMerge(
-        RemoteDelegation.layer.pipe(
+        RemoteDelegationLayer.layer.pipe(
           Layer.provideMerge(PeerForwarding.layer),
           Layer.provide(
             Layer.mock(ProjectService.ProjectService)({
@@ -684,6 +687,7 @@ const makeLaptop = (
       settings: Context.get(linking, ServerSettings.ServerSettingsService),
       orchestrator: Context.get(here, Orchestrator.OrchestratorV2),
       remote: Context.get(here, RemoteDelegation.RemoteDelegation),
+      advice: Context.get(here, AdviceService.AdviceService),
       threads: Context.get(here, ThreadManagement.ThreadManagementService),
       projections: Context.get(here, ProjectionStore.ProjectionStoreV2),
       sink: Context.get(here, EventSink.EventSinkV2),
@@ -884,6 +888,24 @@ it.effect("a task delegated to the box wakes the laptop's parent when it ends th
         childThreadId: null,
         remoteChild: { environmentId: box.environmentId, label: "Box" },
       });
+      const consultation = {
+        requestId: "composition",
+        workerThreadId: delegated.remoteChild.threadId,
+        parentThreadId,
+        question: "Which contract?",
+        evidence: "Callers differ",
+        recommendation: "Keep v1",
+        blocking: true,
+        status: "pending" as const,
+        answer: null,
+        delivery: "pending" as const,
+      };
+      yield* a.advice.receiveRemote(box.environmentId, consultation);
+      expect(yield* a.remote.pendingAdvice(delegated.remoteChild.threadId)).toMatchObject({
+        requestId: "composition",
+        status: "pending",
+      });
+      yield* a.advice.receiveRemote(box.environmentId, { ...consultation, status: "cancelled" });
       // The box launched it in the project with the same repository.
       expect(yield* Ref.get(thread.launched)).toBe(delegated.remoteChild.threadId);
       // Its link opens the thread there, so the parent can mention it like any other.

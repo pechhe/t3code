@@ -275,6 +275,7 @@ export const delegatedTaskProgressTurnItems = {
 };
 
 export type DelegatedTaskProjection = {
+  readonly pendingBlockingAdvice?: boolean;
   readonly thread: Pick<OrchestrationV2AppThread, "pullRequests" | "activeProviderThreadId"> &
     Partial<Pick<OrchestrationV2AppThread, "threadWatches" | "agentTask" | "lineage">>;
   readonly runs: OrchestrationV2ThreadProjection["runs"];
@@ -328,6 +329,7 @@ export function delegatedTaskRunHold(
     projection.thread.lineage?.relationshipToParent === "subagent";
   const holdsWork = managed ? delegatedCompletionHold(backgroundWork) : backgroundWork.length > 0;
   const held =
+    (projection.pendingBlockingAdvice === true && resultRun.status === "completed") ||
     (projection.thread.agentTask !== undefined &&
       (projection.thread.threadWatches?.length ?? 0) > 0) ||
     projection.subagents.some(

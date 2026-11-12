@@ -304,6 +304,27 @@ const OrchestratorMcpExecutedModel = Schema.NullOr(Schema.String).annotate({
     "Model the provider reported running, or null when unavailable. Can differ from the requested `model`.",
 });
 
+export const OrchestratorMcpAdviceQuestion = Schema.Struct({
+  question: TrimmedNonEmptyString.check(Schema.isMaxLength(16_000)),
+  evidence: TrimmedNonEmptyString.check(Schema.isMaxLength(32_000)),
+  recommendation: TrimmedNonEmptyString.check(Schema.isMaxLength(16_000)),
+  blocking: Schema.Boolean,
+  followsRequestId: Schema.optional(OrchestratorMcpClientRequestId),
+  newEvidence: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(16_000))),
+});
+export type OrchestratorMcpAdviceQuestion = typeof OrchestratorMcpAdviceQuestion.Type;
+
+export const OrchestratorMcpAdvice = Schema.Struct({
+  requestId: OrchestratorMcpClientRequestId,
+  workerThreadId: ThreadId,
+  parentThreadId: ThreadId,
+  ...OrchestratorMcpAdviceQuestion.fields,
+  status: Schema.Literals(["pending", "answered", "cancelled"]),
+  answer: Schema.NullOr(Schema.String),
+  delivery: Schema.Literals(["pending", "delivered", "unavailable"]),
+});
+export type OrchestratorMcpAdvice = typeof OrchestratorMcpAdvice.Type;
+
 export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   launchState: Schema.optional(
     Schema.Literals(["prepared", "accepted", "cancelled", "launch-unknown", "refused"]),
@@ -340,6 +361,7 @@ export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   options: Schema.optional(Schema.Array(ProviderOptionSelection)),
   summary: Schema.NullOr(Schema.String),
   resultContextTransferId: Schema.NullOr(ContextTransferId),
+  pendingAdvice: Schema.optional(OrchestratorMcpAdvice),
   hasPendingQuestion: Schema.Boolean.annotate({
     description:
       "A question blocks the child and ends a wait. Answer via `t3_pending_request` on `childThreadId`, or the user does.",
@@ -549,6 +571,68 @@ export const OrchestratorMcpThreadListResult = Schema.Struct({
   environments: Schema.Array(OrchestratorMcpPeerResult(OrchestratorMcpThreadListPage)),
 });
 export type OrchestratorMcpThreadListResult = typeof OrchestratorMcpThreadListResult.Type;
+
+const OrchestratorMcpAdviceAdvisor = Schema.Struct({
+  workspacePath: TrimmedNonEmptyString,
+  sourceRevision: TrimmedNonEmptyString,
+  workId: TrimmedNonEmptyString,
+  taskId: Schema.optional(NodeId),
+  target: Schema.optional(
+    Schema.Struct({
+      providerInstanceId: OrchestratorMcpTarget.fields.providerInstanceId,
+      model: OrchestratorMcpTarget.fields.model,
+      options: OrchestratorMcpTarget.fields.options,
+    }),
+  ),
+});
+
+export const OrchestratorMcpAskAdviceInput = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal("ask"),
+    destination: Schema.optional(Schema.Literal("parent")),
+    clientRequestId: OrchestratorMcpClientRequestId,
+    ...OrchestratorMcpAdviceQuestion.fields,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("ask"),
+    destination: Schema.Literal("advisor"),
+    clientRequestId: OrchestratorMcpClientRequestId,
+    ...OrchestratorMcpAdviceQuestion.fields,
+    advisor: OrchestratorMcpAdviceAdvisor,
+  }),
+  Schema.Struct({
+    action: Schema.Literals(["read", "cancel"]),
+    requestId: OrchestratorMcpClientRequestId,
+    workerThreadId: Schema.optional(ThreadId),
+    environmentId: OrchestratorMcpEnvironmentTarget,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("answer"),
+    requestId: OrchestratorMcpClientRequestId,
+    workerThreadId: ThreadId,
+    environmentId: OrchestratorMcpEnvironmentTarget,
+    answer: TrimmedNonEmptyString.check(Schema.isMaxLength(32_000)),
+  }),
+]);
+export type OrchestratorMcpAskAdviceInput = typeof OrchestratorMcpAskAdviceInput.Type;
+
+export const OrchestratorMcpAskAdviceWireInput = Schema.Struct({
+  action: Schema.Literals(["ask", "read", "answer", "cancel"]),
+  destination: Schema.optional(Schema.Literals(["parent", "advisor"])),
+  clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
+  requestId: Schema.optional(OrchestratorMcpClientRequestId),
+  workerThreadId: Schema.optional(ThreadId),
+  // Advice authenticates the parent here before forwarding to its worker.
+  environmentId: Schema.optional(EnvironmentId),
+  question: Schema.optional(OrchestratorMcpAdviceQuestion.fields.question),
+  evidence: Schema.optional(OrchestratorMcpAdviceQuestion.fields.evidence),
+  recommendation: Schema.optional(OrchestratorMcpAdviceQuestion.fields.recommendation),
+  blocking: Schema.optional(Schema.Boolean),
+  followsRequestId: Schema.optional(OrchestratorMcpClientRequestId),
+  newEvidence: OrchestratorMcpAdviceQuestion.fields.newEvidence,
+  answer: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(32_000))),
+  advisor: Schema.optional(OrchestratorMcpAdviceAdvisor),
+});
 
 export const OrchestratorMcpThreadSearchInput = Schema.Struct({
   ...OrchestrationSearchThreadsInput.fields,
@@ -1326,6 +1410,7 @@ export class OrchestratorMcpFailure extends Schema.TaggedError<OrchestratorMcpFa
       "orchestration_error",
       "thread_credential_required",
       "target_required",
+      "no_parent",
     ]),
     message: Schema.String,
   },

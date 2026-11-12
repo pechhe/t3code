@@ -1,5 +1,7 @@
+import { adviceVersion } from "../agents/adviceDelivery.ts";
 import {
   CommandId,
+  OrchestratorMcpAdvice,
   type EnvironmentId,
   type ModelSelection,
   NodeId,
@@ -16,6 +18,9 @@ import {
   type RunId,
   type ThreadId,
 } from "@t3tools/contracts";
+import * as AdviceService from "../agents/AdviceService.ts";
+import * as PeerMcpClient from "./PeerMcpClient.ts";
+import * as Schema from "effect/Schema";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Duration from "effect/Duration";
@@ -46,7 +51,7 @@ import * as PeerForwarding from "./PeerForwarding.ts";
 import * as PeerLinks from "./PeerLinks.ts";
 
 /** How long one follow of a remote task waits on its thread there before checking again. */
-const FOLLOW_WAIT_MS = 10 * 60 * 1_000;
+const FOLLOW_WAIT_MS = 30_000;
 /** A linked environment that stops answering is retried, backing off to this. */
 const FOLLOW_MAX_BACKOFF = Duration.minutes(5);
 /** How a follower retries; tests step it by hand. */
@@ -73,6 +78,9 @@ type ThreadScope = McpInvocationContext.McpThreadInvocationScope;
 export class RemoteDelegation extends Context.Service<
   RemoteDelegation,
   {
+    readonly pendingAdvice: (
+      workerThreadId: ThreadId,
+    ) => Effect.Effect<OrchestratorMcpAdvice | undefined, OrchestratorMcpFailure>;
     readonly delegate: (
       scope: ThreadScope,
       input: OrchestratorMcpDelegateTaskInput & {
@@ -140,6 +148,8 @@ const isFinal = (error: OrchestratorMcpFailure) =>
 
 const make = Effect.gen(function* () {
   const followRetry = yield* FollowRetrySchedule;
+  const advice = yield* Effect.serviceOption(AdviceService.AdviceService);
+  const peers = yield* Effect.serviceOption(PeerMcpClient.PeerMcpClient);
   const forwarding = yield* PeerForwarding.PeerForwarding;
   const links = yield* PeerLinks.PeerLinks;
   const threads = yield* ThreadManagement.ThreadManagementService;
@@ -763,6 +773,63 @@ const make = Effect.gen(function* () {
       Effect.ignoreCause({ log: true }),
     );
 
+  const readAdvice = Effect.fn("RemoteDelegation.readAdvice")(function* (
+    parentThreadId: ThreadId,
+    remote: OrchestrationV2RemoteTaskChild,
+    thread: {
+      readonly runtimeMode: import("@t3tools/contracts").RuntimeMode;
+      readonly interactionMode: import("@t3tools/contracts").ProviderInteractionMode;
+    },
+  ) {
+    let inspection: { readonly blocking: boolean; readonly seen: string } | undefined;
+    if (remote.agentTask !== undefined && Option.isSome(advice) && Option.isSome(peers)) {
+      yield* peers.value
+        .call({
+          environmentId: remote.environmentId,
+          tool: "t3_advice_peer",
+          arguments: { action: "read", workerThreadId: remote.threadId, parentThreadId },
+          limits: { runtimeMode: thread.runtimeMode, interactionMode: thread.interactionMode },
+          success: Schema.Array(OrchestratorMcpAdvice),
+        })
+        .pipe(
+          Effect.flatMap((requests) => {
+            inspection = {
+              blocking: requests.some(
+                (request) => request.status === "pending" && request.blocking,
+              ),
+              seen: adviceVersion(requests),
+            };
+            return Effect.forEach(
+              requests,
+              (request) =>
+                advice.value.receiveRemote(remote.environmentId, request).pipe(
+                  Effect.andThen(
+                    peers.value.call({
+                      environmentId: remote.environmentId,
+                      tool: "t3_advice_peer",
+                      arguments: {
+                        action: "delivered",
+                        workerThreadId: remote.threadId,
+                        parentThreadId,
+                        requestId: request.requestId,
+                      },
+                      limits: {
+                        runtimeMode: thread.runtimeMode,
+                        interactionMode: thread.interactionMode,
+                      },
+                      success: Schema.Array(OrchestratorMcpAdvice),
+                    }),
+                  ),
+                ),
+              { discard: true },
+            );
+          }),
+          Effect.tapError(() => advice.value.remoteUnavailable(remote.threadId)),
+        );
+    }
+    return inspection;
+  });
+
   /**
    * One wait on the task's thread there; true once the task here is done.
    * A task completed here first (cancelled, or its parent stopped) is
@@ -812,6 +879,7 @@ const make = Effect.gen(function* () {
       }
       return true;
     }
+    const inspection = yield* readAdvice(parentThreadId, remote, thread);
     const endedHere = threads
       .streamStoredEventsFrom({
         threadId: parentThreadId,
@@ -830,6 +898,54 @@ const make = Effect.gen(function* () {
           Option.isSome(ended) ? Effect.succeed({ endedHere: true } as const) : Effect.never,
         ),
       );
+    if (inspection?.blocking && Option.isSome(peers) && Option.isSome(advice)) {
+      const result = yield* peers.value
+        .call({
+          environmentId: remote.environmentId,
+          tool: "t3_advice_peer",
+          arguments: { action: "wait", workerThreadId: remote.threadId, parentThreadId },
+          limits: { runtimeMode: thread.runtimeMode, interactionMode: thread.interactionMode },
+          success: Schema.Array(OrchestratorMcpAdvice),
+        })
+        .pipe(
+          Effect.tapError(() => advice.value.remoteUnavailable(remote.threadId)),
+          Effect.raceFirst(endedHere),
+        );
+      if (!("endedHere" in result))
+        yield* Effect.forEach(
+          result,
+          (request) => advice.value.receiveRemote(remote.environmentId, request),
+          { discard: true },
+        );
+      return false;
+    }
+    const adviceChanged =
+      inspection === undefined || Option.isNone(peers) || Option.isNone(advice)
+        ? Effect.never
+        : peers.value
+            .call({
+              environmentId: remote.environmentId,
+              tool: "t3_advice_peer",
+              arguments: {
+                action: "wait",
+                workerThreadId: remote.threadId,
+                parentThreadId,
+                seen: inspection.seen,
+              },
+              limits: { runtimeMode: thread.runtimeMode, interactionMode: thread.interactionMode },
+              success: Schema.Array(OrchestratorMcpAdvice),
+            })
+            .pipe(
+              Effect.flatMap((requests) =>
+                Effect.forEach(
+                  requests,
+                  (request) => advice.value.receiveRemote(remote.environmentId, request),
+                  { discard: true },
+                ),
+              ),
+              Effect.as({ adviceChanged: true } as const),
+              Effect.tapError(() => advice.value.remoteUnavailable(remote.threadId)),
+            );
     const waited = yield* forwarding
       .waitForThread(scope, remote.environmentId, {
         threadId: remote.threadId,
@@ -840,10 +956,11 @@ const make = Effect.gen(function* () {
         // An older peer ignores this and reports the run alone.
         untilDelegatedWorkSettled: true,
       })
-      .pipe(Effect.raceFirst(endedHere));
+      .pipe(Effect.raceFirst(endedHere), Effect.raceFirst(adviceChanged));
     // The next look reads the result and stops it there.
-    if ("endedHere" in waited) return false;
+    if ("endedHere" in waited || "adviceChanged" in waited) return false;
     if (waited.timedOut) return false;
+    if ((yield* readAdvice(parentThreadId, remote, thread))?.blocking) return false;
     // A task recorded without its run waits on the thread's latest; a
     // thread there with none has nothing left to wait for.
     if (waited.runId === null) {
@@ -1034,7 +1151,16 @@ const make = Effect.gen(function* () {
       }).pipe(Effect.ignoreCause({ log: true })),
     );
 
-  return RemoteDelegation.of({ delegate, followup, pendingThere, cancel, start });
+  return RemoteDelegation.of({
+    pendingAdvice: Effect.fn("RemoteDelegation.pendingAdvice")((workerThreadId) =>
+      Option.isSome(advice) ? advice.value.pending(workerThreadId) : Effect.undefined,
+    ),
+    delegate,
+    followup,
+    pendingThere,
+    cancel,
+    start,
+  });
 });
 
 const isTerminal = (status: string) =>

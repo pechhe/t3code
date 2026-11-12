@@ -1,3 +1,4 @@
+import * as EnvironmentAdvice from "../agents/AdviceService.ts";
 import * as ContextExperimentService from "../experiments/ExperimentService.ts";
 import * as ContextForgeWorkItems from "../weave/ForgeWorkItems.ts";
 import * as ContextReleaseApprovals from "../releases/ReleaseApprovals.ts";
@@ -156,6 +157,7 @@ const makeLaptop = Effect.gen(function* () {
     Layer.provideMerge(Layer.merge(layerOrchestrator, ServerSettings.layerTest())),
   );
   const layerHere = McpHttpServer.layerOrchestratorToolkit.pipe(
+    Layer.provide(EnvironmentAdvice.layer),
     Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
     Layer.provideMerge(PeerLinkRequests.layer),
     Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),

@@ -1,3 +1,4 @@
+import * as EnvironmentAdvice from "../../agents/AdviceService.ts";
 import * as ContextPeerForwarding from "../../peer/PeerForwarding.ts";
 import * as ContextPeerLinkRequests from "../../peer/PeerLinkRequests.ts";
 import * as ContextPeerLinks from "../../peer/PeerLinks.ts";
@@ -129,6 +130,7 @@ const withTool = <A, E>(
   return body(cards).pipe(
     Effect.provide(
       McpHttpServer.layerOrchestratorToolkit.pipe(
+        Layer.provide(EnvironmentAdvice.layer),
         Layer.provide(Layer.mock(ThreadHandoff.ThreadHandoff)({})),
         Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
         Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),

@@ -1,3 +1,4 @@
+import * as EnvironmentAdvice from "../../agents/AdviceService.ts";
 import * as AssetSigner from "../../assets/AssetSigner.ts";
 import * as Experiments from "../../experiments/ExperimentService.ts";
 import * as DocumentText from "../../provider/DocumentText.ts";
@@ -73,6 +74,7 @@ import * as PeerLinks from "../../peer/PeerLinks.ts";
 import * as ThreadHandoff from "../../peer/handoff/ThreadHandoff.ts";
 
 const layerOrchestratorToolkit = McpHttpServer.layerOrchestratorToolkit.pipe(
+  Layer.provide(EnvironmentAdvice.layer),
   Layer.provide(Layer.mock(ThreadHandoff.ThreadHandoff)({})),
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
   Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),

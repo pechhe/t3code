@@ -48,6 +48,7 @@ import {
 } from "@t3tools/contracts";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
+import { OrchestratorMcpAdvice, OrchestratorMcpAskAdviceInput } from "@t3tools/contracts";
 import { buildCodexAdditionalContext } from "../../apps/server/src/provider/CodexDeveloperInstructions.ts";
 import { makeSideChatContext } from "../../apps/server/src/orchestration-v2/ContextHandoffService.ts";
 import { withInlineContext } from "../../apps/server/src/orchestration-v2/ContextHandoffDelivery.ts";
@@ -862,6 +863,7 @@ type Sample = {
   nextTask: number;
   /** Threads the agent launched in this sample, by id, so reading one shows its own brief. */
   readonly threads: Map<string, { readonly title: string; readonly brief: string }>;
+  readonly advice: Map<string, OrchestratorMcpAdvice>;
   /** Files T3's request_secret saved in this sample, in call order. */
   readonly secretFiles: Array<string>;
   secretRequests: number;
@@ -872,6 +874,9 @@ type Sample = {
 };
 
 const SHELL_TOOLS = new Set(["Bash", "Read", "Edit", "Write", "WebFetch"]);
+
+const isAdvice = Schema.is(OrchestratorMcpAdvice);
+const isAdviceInput = Schema.is(OrchestratorMcpAskAdviceInput);
 
 export const makeSample = (testCase: McpToolUseCase, base: Base): Sample => {
   const prior = testCase.setup.priorTurns ?? [];
@@ -910,6 +915,12 @@ export const makeSample = (testCase: McpToolUseCase, base: Base): Sample => {
     codeStore: {},
     nextTask: Math.max(0, ...taskNumbers) + 1,
     threads: new Map(),
+    advice: new Map(
+      priorCalls
+        .map((call) => call.result)
+        .filter(isAdvice)
+        .map((request) => [request.requestId, request]),
+    ),
     secretFiles: [],
     secretRequests: 0,
     priorResults: new Map(),
@@ -1151,6 +1162,62 @@ export const t3Default = (
     };
   };
   switch (name) {
+    case "ask_advice": {
+      if (!isAdviceInput(input)) return { error: "Invalid advice input" };
+      if (input.action === "answer") return { error: "Only the parent may answer" };
+      if (input.action === "read" || input.action === "cancel") {
+        const request = sample.advice.get(input.requestId);
+        if (request === undefined) return { error: "Advice request not found" };
+        if (input.action === "cancel" && request.status === "pending") {
+          const cancelled = { ...request, status: "cancelled" as const };
+          sample.advice.set(input.requestId, cancelled);
+          return cancelled;
+        }
+        return request;
+      }
+      if (input.action !== "ask") return { error: "Invalid advice action" };
+      if (input.destination === "advisor") return { error: "No advisor configured in this world" };
+      const request: OrchestratorMcpAdvice = {
+        requestId: input.clientRequestId,
+        workerThreadId: ThreadId.make("worker"),
+        parentThreadId: ThreadId.make("parent"),
+        question: input.question,
+        evidence: input.evidence,
+        recommendation: input.recommendation,
+        blocking: input.blocking,
+        ...(input.followsRequestId === undefined
+          ? {}
+          : { followsRequestId: input.followsRequestId }),
+        ...(input.newEvidence === undefined ? {} : { newEvidence: input.newEvidence }),
+        status: "pending",
+        answer: null,
+        delivery: "delivered",
+      };
+      const existing = sample.advice.get(request.requestId);
+      if (existing !== undefined) {
+        const fields = [
+          "question",
+          "evidence",
+          "recommendation",
+          "blocking",
+          "followsRequestId",
+          "newEvidence",
+        ] as const;
+        return fields.every((key) => existing[key] === request[key])
+          ? existing
+          : { error: "Advice identity conflicts with an existing request" };
+      }
+      if ([...sample.advice.values()].some((row) => row.status === "pending"))
+        return { error: "One consultation is already pending" };
+      if (
+        request.followsRequestId !== undefined &&
+        (sample.advice.get(request.followsRequestId)?.status !== "answered" ||
+          !request.newEvidence?.trim())
+      )
+        return { error: "Follow-up needs an answered request and new evidence" };
+      sample.advice.set(request.requestId, request);
+      return request;
+    }
     case "t3_thread_launch":
       return newThread(input, input.message);
     case "create_threads":

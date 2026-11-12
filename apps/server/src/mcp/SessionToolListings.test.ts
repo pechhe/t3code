@@ -1,3 +1,4 @@
+import * as AdviceMcpService from "./AdviceMcpService.ts";
 import * as AssetSigner from "../assets/AssetSigner.ts";
 import * as ContextPeerForwarding from "../peer/PeerForwarding.ts";
 import * as ContextPeerLinkRequests from "../peer/PeerLinkRequests.ts";
@@ -75,6 +76,7 @@ const serviceMocks = Layer.mergeAll(
   Layer.mock(BrowserLogins.BrowserLogins)({}),
   Layer.mock(Champions.ChampionService)({}),
   Layer.mock(WebResearch.WebResearch)({}),
+  Layer.mock(AdviceMcpService.AdviceMcpService)({}),
   Layer.mock(OrchestratorMcpService.OrchestratorMcpService)({}),
   Layer.mock(ThreadMetadataMcpService.ThreadMetadataMcpService)({}),
   Layer.mock(ThreadDirectory.ThreadDirectory)({}),

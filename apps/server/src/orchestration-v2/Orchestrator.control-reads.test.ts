@@ -1,5 +1,9 @@
+import * as AdviceService from "../agents/AdviceService.ts";
+import * as Threads from "./ThreadManagementService.ts";
+import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
 import { assert, it } from "@effect/vitest";
 import {
+  EnvironmentId,
   CommandId,
   MessageId,
   EventId,
@@ -1804,4 +1808,322 @@ it.effect("dispatch records the command outcome and its duration", () =>
     assert.strictEqual((yield* successes).count - successesBefore, 1);
     assert.strictEqual((yield* durations).count - durationsBefore, 1);
   }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect(
+  "parent advice queues behind active work and starts idle parents without human requests",
+  () =>
+    Effect.gen(function* () {
+      const engine = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const sink = yield* EventSink.EventSinkV2;
+      const now = yield* DateTime.now;
+      const policy = agentPolicySnapshot();
+      const managed = {
+        ...agentTaskRequest({ role: "scout", workspacePath: "/source", sourceRevision: "source" }),
+        requestFingerprint: "c".repeat(64),
+        policyHash: policy.hash,
+        policyRevision: policy.sourceRevision,
+        briefHash: policy.briefs.implementer.hash,
+        sourceAccess: "read-only" as const,
+        toolProfile: "source-reader" as const,
+        requested: modelSelection,
+        assigned: null,
+        effective: modelSelection,
+      };
+      const scope = (threadId: ThreadId): McpInvocationScope => ({
+        environmentId: EnvironmentId.make("advice-environment"),
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 0,
+        requestNamespace: threadId,
+        client: undefined,
+        thread: {
+          threadId,
+          providerInstanceId: instanceId,
+          providerSessionId: `session:${threadId}`,
+        },
+      });
+      for (const scenario of [
+        { status: "preparing", blocking: true },
+        { status: "waiting", blocking: true },
+        { status: "completed", blocking: true },
+        { status: "completed", blocking: false },
+      ] as const) {
+        const { status: parentState, blocking } = scenario;
+        const state = `${parentState}:${blocking}`;
+        const parentId = ThreadId.make(`advice-parent:${state}`);
+        yield* engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make(`advice-create:${state}`),
+          threadId: parentId,
+          projectId: ProjectId.make("advice-project"),
+          title: "Parent",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "user",
+          creationSource: "web",
+        });
+        yield* engine.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make(`advice-start:${state}`),
+          threadId: parentId,
+          messageId: MessageId.make(`advice-message:${state}`),
+          text: "Work",
+          attachments: [],
+          dispatchMode: { type: "start_immediately" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const parentRun = (yield* projections.getThreadRecords(parentId, ["runs"])).runs[0]!;
+        yield* engine.dispatch({
+          type: "delegated_task.request",
+          commandId: CommandId.make(`advice-delegate:${state}`),
+          parentThreadId: parentId,
+          parentRunId: parentRun.id,
+          parentNodeId: parentRun.rootNodeId!,
+          task: "Investigate",
+          agentTask: managed,
+          completionWake: "settled_only",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        const task = (yield* projections.getThreadRecords(parentId, ["subagents"])).subagents[0]!;
+        yield* sink.write({
+          events: [
+            {
+              id: EventId.make(`advice-parent-state:${state}`),
+              type: "run.updated",
+              threadId: parentId,
+              runId: parentRun.id,
+              occurredAt: now,
+              payload: {
+                ...parentRun,
+                status: parentState,
+                ...(parentState === "completed" ? { completedAt: now } : {}),
+              },
+            },
+          ],
+        });
+        yield* Effect.gen(function* () {
+          const advice = yield* AdviceService.AdviceService;
+          const request = {
+            question: "Which contract?",
+            evidence: "Two callers disagree.",
+            recommendation: "Keep v1.",
+            blocking,
+          };
+          yield* advice.ask(scope(task.childThreadId!), "contract", request);
+          yield* advice.ask(scope(task.childThreadId!), "contract", request);
+          const yielded = (yield* projections.getThreadRecords(task.childThreadId!, [
+            "runs",
+          ])).runs.find((run) => run.status !== "queued")!;
+          yield* sink.write({
+            events: [
+              {
+                id: EventId.make(`advice-yield:${state}`),
+                type: "run.updated",
+                threadId: task.childThreadId!,
+                runId: yielded.id,
+                occurredAt: now,
+                payload: { ...yielded, status: "completed", completedAt: now },
+              },
+            ],
+          });
+          if (blocking) {
+            const publication = {
+              guardDelegatedCompletion: { threadId: task.childThreadId!, runId: yielded.id },
+              events: [
+                {
+                  id: EventId.make(`stale-advice-publication:${state}`),
+                  type: "subagent.updated" as const,
+                  threadId: parentId,
+                  occurredAt: now,
+                  payload: {
+                    ...task,
+                    status: "completed" as const,
+                    result: "Premature result",
+                    completedAt: now,
+                    updatedAt: now,
+                  },
+                },
+              ],
+              effects: [],
+            };
+            assert.isEmpty(yield* sink.writeWithEffects(publication));
+          }
+          yield* engine.recoverDelegatedTask(task.childThreadId!, yielded.id);
+          const settledTask = (yield* projections.getThreadRecords(parentId, [
+            "subagents",
+          ])).subagents.find((candidate) => candidate.id === task.id)!;
+          if (!blocking) {
+            assert.isNotNull(settledTask.result);
+            const late = yield* engine
+              .dispatch({
+                type: "message.dispatch",
+                adviceDelivery: {
+                  workerThreadId: task.childThreadId!,
+                  runId: yielded.id,
+                  blocking: true,
+                },
+                commandId: CommandId.make(`completed-advice:${state}`),
+                threadId: task.childThreadId!,
+                messageId: MessageId.make(`completed-advice:${state}`),
+                text: "Late",
+                attachments: [],
+                dispatchMode: { type: "queue_after_active" },
+                createdBy: "agent",
+                creationSource: "server",
+              })
+              .pipe(Effect.flip);
+            assert.equal(late._tag, "OrchestratorDispatchError");
+            yield* advice.recover();
+            assert.equal(
+              (yield* advice.read(scope(task.childThreadId!), task.childThreadId!, "contract"))
+                .status,
+              "cancelled",
+            );
+            assert.equal(
+              (yield* advice
+                .answer(scope(parentId), task.childThreadId!, "contract", "Late")
+                .pipe(Effect.flip)).code,
+              "capability_denied",
+            );
+            return;
+          }
+          assert.isNull(settledTask.result);
+          const parent = yield* projections.getThreadProjection(parentId);
+          const wakes = parent.messages.filter((message) =>
+            message.text.includes("requests blocking advice"),
+          );
+          assert.equal(wakes.length, 1);
+          assert.isEmpty(parent.runtimeRequests);
+          assert.isEmpty(
+            (yield* projections.getThreadRecords(task.childThreadId!, ["runtimeRequests"]))
+              .runtimeRequests,
+          );
+          const wakeRun = parent.runs.find((run) => run.userMessageId === wakes[0]!.id)!;
+          if (parentState === "completed")
+            assert.include(["preparing", "starting", "running"], wakeRun.status);
+          else assert.equal(wakeRun.status, "queued");
+          yield* advice.answer(scope(parentId), task.childThreadId!, "contract", "Keep v1.");
+          yield* advice.answer(scope(parentId), task.childThreadId!, "contract", "Keep v1.");
+          const child = yield* projections.getThreadProjection(task.childThreadId!);
+          assert.equal(
+            child.messages.filter((message) =>
+              message.text.includes("Advice contract from your parent"),
+            ).length,
+            1,
+          );
+          assert.isEmpty(child.runtimeRequests);
+          if (parentState === "completed") {
+            const sql = yield* SqlClient.SqlClient;
+            yield* sql`UPDATE advice_consultations SET answer_delivered = 0 WHERE worker_thread_id = ${task.childThreadId!} AND request_id = 'contract'`;
+            const replyRun = child.runs
+              .filter((run) => run.status !== "queued")
+              .toSorted((a, b) => b.ordinal - a.ordinal)[0]!;
+            yield* sink.write({
+              events: [
+                {
+                  id: EventId.make(`advice-reply-finished:${state}`),
+                  type: "run.updated",
+                  threadId: task.childThreadId!,
+                  runId: replyRun.id,
+                  occurredAt: now,
+                  payload: { ...replyRun, status: "completed", completedAt: now },
+                },
+              ],
+            });
+            yield* engine.recoverDelegatedTask(task.childThreadId!, replyRun.id);
+            assert.isNull(
+              (yield* projections.getThreadRecords(parentId, ["subagents"])).subagents.find(
+                (candidate) => candidate.id === task.id,
+              )!.result,
+            );
+            yield* advice.recover();
+            assert.isNotNull(
+              (yield* projections.getThreadRecords(parentId, ["subagents"])).subagents.find(
+                (candidate) => candidate.id === task.id,
+              )!.result,
+            );
+            return;
+          }
+          yield* advice.ask(scope(task.childThreadId!), "cancel-hold", request);
+          const cancelRun = (yield* projections.getThreadRecords(task.childThreadId!, [
+            "runs",
+          ])).runs
+            .filter((run) => run.status !== "queued")
+            .toSorted((a, b) => b.ordinal - a.ordinal)[0]!;
+          yield* sink.write({
+            events: [
+              {
+                id: EventId.make(`advice-cancel-yield:${state}`),
+                type: "run.updated",
+                threadId: task.childThreadId!,
+                runId: cancelRun.id,
+                occurredAt: now,
+                payload: { ...cancelRun, status: "completed", completedAt: now },
+              },
+            ],
+          });
+          yield* engine.recoverDelegatedTask(task.childThreadId!, cancelRun.id);
+          assert.isNull(
+            (yield* projections.getThreadRecords(parentId, ["subagents"])).subagents.find(
+              (candidate) => candidate.id === task.id,
+            )!.result,
+          );
+          yield* advice.cancel(scope(parentId), task.childThreadId!, "cancel-hold");
+          assert.isNotNull(
+            (yield* projections.getThreadRecords(parentId, ["subagents"])).subagents.find(
+              (candidate) => candidate.id === task.id,
+            )!.result,
+          );
+          yield* engine.dispatch({
+            type: "thread.stop",
+            commandId: CommandId.make(`advice-stop:${state}`),
+            threadId: task.childThreadId!,
+          });
+          const rejected = yield* engine
+            .dispatch({
+              type: "message.dispatch",
+              adviceDelivery: { workerThreadId: task.childThreadId!, runId: null, blocking: true },
+              commandId: CommandId.make(`late-advice:${state}`),
+              threadId: task.childThreadId!,
+              messageId: MessageId.make(`late-advice:${state}`),
+              text: "Late advice",
+              attachments: [],
+              dispatchMode: { type: "queue_after_active" },
+              createdBy: "agent",
+              creationSource: "server",
+            })
+            .pipe(Effect.flip);
+          assert.equal(rejected._tag, "OrchestratorDispatchError");
+          assert.isFalse(
+            (yield* projections.getThreadRecords(task.childThreadId!, ["messages"])).messages.some(
+              (message) => message.id === `late-advice:${state}`,
+            ),
+          );
+        }).pipe(
+          Effect.provide(
+            AdviceService.layer.pipe(
+              Layer.provide(
+                Layer.mock(Threads.ThreadManagementService)({
+                  getThreadShell: engine.getThreadShell,
+                  getThreadRecords: engine.getThreadRecords,
+                  dispatch: engine.dispatch,
+                  streamDomainEvents: engine.streamDomainEvents,
+                  recoverDelegatedTask: engine.recoverDelegatedTask,
+                  delegatedTaskResultPending: engine.delegatedTaskResultPending,
+                }),
+              ),
+            ),
+          ),
+        );
+      }
+    }).pipe(Effect.provide(layerTest)),
 );

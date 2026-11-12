@@ -1,3 +1,4 @@
+import * as AdviceService from "../agents/AdviceService.ts";
 import * as ManagedTaskControl from "../agents/ManagedTaskControl.ts";
 import { invalidOptionSelections } from "../provider/modelSelectionValidation.ts";
 import * as Champions from "../champions/ChampionService.ts";
@@ -215,6 +216,7 @@ const DEFAULT_WAIT_TIMEOUT_MS = 10 * 60 * 1_000;
 const MAX_WAIT_TIMEOUT_MS = 60 * 60 * 1_000;
 const TASK_WAKE_EVENTS = [
   { thread: "parent", eventType: "subagent.updated" },
+  { thread: "parent", eventType: "message.updated" },
   { thread: "child", eventType: "run.updated" },
   { thread: "child", eventType: "subagent.updated" },
   { thread: "child", eventType: "provider-thread.updated" },
@@ -644,6 +646,7 @@ function isTerminalTaskStatus(
 
 function endsTaskWait(result: OrchestratorMcpDelegateTaskResult): boolean {
   return (
+    result.pendingAdvice?.blocking === true ||
     result.hasPendingQuestion ||
     result.pendingApproval !== null ||
     isTerminalTaskStatus(result.status)
@@ -1221,6 +1224,7 @@ function timelineItem(input: {
 }
 
 const make = Effect.gen(function* () {
+  const advice = yield* Effect.serviceOption(AdviceService.AdviceService);
   const forgeWorkItems = yield* ForgeWorkItems.ForgeWorkItems;
   const experiments = yield* Experiments.ExperimentService;
   const random = yield* SecureRandom.SecureRandom;
@@ -1858,7 +1862,13 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError(threadManagementFailure));
     const childRun = delegatedTaskRun(childControls, task);
     const terminalRun = latestTerminalResultRun(childControls, childRun);
-    const progress = delegatedTaskProgress(childControls);
+    const pendingAdvice = Option.isSome(advice)
+      ? yield* advice.value.pending(task.childThreadId)
+      : undefined;
+    const progress = delegatedTaskProgress({
+      ...childControls,
+      pendingBlockingAdvice: pendingAdvice?.blocking === true,
+    });
     const taskResultRun =
       childRun?.delegatedTaskId === task.id
         ? childControls.runs
@@ -1972,6 +1982,8 @@ const make = Effect.gen(function* () {
         instanceId: task.providerInstanceId,
         model: task.model,
       };
+    if (pendingAdvice?.blocking && acknowledgeTerminal && Option.isSome(advice))
+      yield* advice.value.suppressWake(scope, task.childThreadId);
     const result = {
       ...(binding === undefined ? {} : { agentTask: binding }),
       ...(handoff === undefined ? {} : { handoff }),
@@ -2001,6 +2013,9 @@ const make = Effect.gen(function* () {
         latestTerminalResultContextTransferId === resultContextTransferId
           ? null
           : latestTerminalResultContextTransferId,
+      ...(pendingAdvice === undefined
+        ? {}
+        : { pendingAdvice, ...(pendingAdvice.blocking ? { status: "waiting" as const } : {}) }),
       hasPendingQuestion:
         !isTerminalTaskStatus(status) &&
         childControls.runtimeRequests.some(
@@ -2020,6 +2035,7 @@ const make = Effect.gen(function* () {
         ? result
         : { ...result, next: ORCHESTRATOR_MCP_RUNNING_TASK_NEXT };
     if (
+      pendingAdvice === undefined &&
       acknowledgeTerminal &&
       isTerminalTaskStatus(status) &&
       task.completionDelivery?.state !== "acknowledged" &&
@@ -2124,8 +2140,20 @@ const make = Effect.gen(function* () {
     waitTimedOut: boolean,
     acknowledgeTerminal: boolean,
   ): Effect.fn.Return<OrchestratorMcpDelegateTaskResult, OrchestratorMcpFailure> {
-    const status: OrchestratorMcpDelegateTaskResult["status"] =
-      task.result === null
+    const pendingAdvice =
+      Option.isSome(advice) && task.remoteChild !== undefined
+        ? yield* remoteDelegation.pendingAdvice(task.remoteChild.threadId)
+        : undefined;
+    if (
+      pendingAdvice?.blocking &&
+      acknowledgeTerminal &&
+      Option.isSome(advice) &&
+      task.remoteChild !== undefined
+    )
+      yield* advice.value.suppressWake(scope, task.remoteChild.threadId);
+    const status: OrchestratorMcpDelegateTaskResult["status"] = pendingAdvice?.blocking
+      ? "waiting"
+      : task.result === null
         ? "running"
         : task.status === "completed" ||
             task.status === "failed" ||
@@ -2195,6 +2223,7 @@ const make = Effect.gen(function* () {
       ...(task.remoteChild?.agentTask === undefined
         ? {}
         : { agentTask: task.remoteChild.agentTask }),
+      ...(pendingAdvice === undefined ? {} : { pendingAdvice }),
       // Its questions and approvals are answered in the environment it runs in.
       hasPendingQuestion: terminal ? false : yield* remoteDelegation.pendingThere(scope, task),
       pendingApproval: null,
