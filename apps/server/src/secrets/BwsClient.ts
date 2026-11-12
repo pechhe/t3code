@@ -9,10 +9,12 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeUtil from "node:util";
 import { SecretManagementError } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
+import * as Schedule from "effect/Schedule";
 
 export interface BwsSecret {
   readonly id: string;
@@ -45,6 +47,15 @@ export class BwsClient extends Context.Service<
 >()("t3/secrets/BwsClient") {}
 
 const unavailable = () => new SecretManagementError({ reason: "unavailable" });
+class BwsRateLimit extends Schema.TaggedError<BwsRateLimit>()("BwsRateLimit", {}) {}
+const isBwsRateLimit = Schema.is(BwsRateLimit);
+
+function redactFailure(cause: unknown) {
+  const message = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "";
+  return /\b429\b|too many requests|rate[\s_-]*limit/i.test(message)
+    ? new BwsRateLimit()
+    : unavailable();
+}
 const runFile = NodeUtil.promisify(NodeChildProcess.execFile);
 // The native SDK stays external; single-executables resolve its files through require.
 const requireBws = NodeModule.createRequire(import.meta.url);
@@ -120,6 +131,7 @@ export const layer = Layer.effect(
         org: string,
         selectedProjectId: string,
       ) => Promise<A>,
+      retryReads = false,
     ) =>
       Effect.flatMap(projectId, (selectedProjectId) =>
         Effect.tryPromise({
@@ -132,8 +144,15 @@ export const layer = Layer.effect(
             const project = await sdk.projects().get(selectedProjectId);
             return f(sdk, project.organizationId, project.id);
           },
-          catch: unavailable,
-        }),
+          catch: redactFailure,
+        }).pipe(
+          Effect.retry({
+            while: (error) => retryReads && isBwsRateLimit(error),
+            times: 2,
+            schedule: Schedule.exponential("2 seconds"),
+          }),
+          Effect.mapError(unavailable),
+        ),
       );
     return BwsClient.of({
       projectId,
@@ -141,8 +160,8 @@ export const layer = Layer.effect(
         operation(async (sdk, org, selectedProjectId) => {
           const identifiers = (await sdk.secrets().list(org)).data;
           const entries: Array<{ id: string; key: string; projectId: string }> = [];
-          for (let i = 0; i < identifiers.length; i += 20) {
-            const ids = identifiers.slice(i, i + 20).map((s) => s.id);
+          for (let i = 0; i < identifiers.length; i += 100) {
+            const ids = identifiers.slice(i, i + 100).map((s) => s.id);
             const batch = (await sdk.secrets().getByIds(ids)).data;
             if (
               batch.length !== ids.length ||
@@ -155,7 +174,7 @@ export const layer = Layer.effect(
                 entries.push({ id: secret.id, key: secret.key, projectId: selectedProjectId });
           }
           return entries;
-        }),
+        }, true),
       ),
       get: Effect.fn("BwsClient.get")((id: string) => operation((sdk) => sdk.secrets().get(id))),
       create: Effect.fn("BwsClient.create")((key: string, value: string) =>

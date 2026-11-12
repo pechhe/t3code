@@ -2,6 +2,8 @@ import { assert, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as TestClock from "effect/testing/TestClock";
 import * as BwsClient from "./BwsClient.ts";
 
 const fake = vi.hoisted(() => ({
@@ -88,6 +90,92 @@ it.effect("starts without loading an unavailable native SDK and redacts its load
       Effect.provide(BwsClient.layer),
       Effect.provideService(HostProcess.Environment, { T3CODE_BWS_PROJECT_ID: "p" }),
     );
+  }),
+);
+
+it.effect(
+  "recovers a throttled large inventory within a bounded read budget without leaking values",
+  () =>
+    Effect.gen(function* () {
+      fake.load.mockReset();
+      fake.login.mockResolvedValue(undefined);
+      fake.project.mockResolvedValue({ id: "p", organizationId: "org" });
+      const identifiers = Array.from({ length: 425 }, (_, index) => ({ id: String(index) }));
+      fake.list.mockResolvedValue({ data: identifiers });
+      fake.getByIds.mockReset().mockImplementation(async (ids: string[]) => {
+        if (fake.getByIds.mock.calls.length === 2) throw new Error("429 Too Many Requests private");
+        return {
+          data: ids.map((id) => ({
+            id,
+            key: `KEY_${id}`,
+            projectId: "p",
+            value: "private",
+            note: "private",
+          })),
+        };
+      });
+      yield* Effect.gen(function* () {
+        const client = yield* BwsClient.BwsClient;
+        const fiber = yield* client.list().pipe(Effect.forkChild);
+        yield* TestClock.adjust("1 minute");
+        const entries = yield* Fiber.join(fiber);
+        assert.deepEqual(
+          entries,
+          identifiers.map(({ id }) => ({ id, key: `KEY_${id}`, projectId: "p" })),
+        );
+        assert.isAtMost(fake.getByIds.mock.calls.length, 7);
+        assert.notInclude(JSON.stringify(entries), "private");
+      }).pipe(
+        Effect.provide(BwsClient.layer),
+        Effect.provideService(HostProcess.Environment, {
+          BWS_ACCESS_TOKEN: "fake-token",
+          T3CODE_BWS_PROJECT_ID: "p",
+        }),
+      );
+    }),
+);
+
+it.effect("bounds throttled reads and never retries other failures or mutations", () =>
+  Effect.gen(function* () {
+    fake.load.mockReset();
+    fake.login.mockResolvedValue(undefined);
+    fake.project.mockResolvedValue({ id: "p", organizationId: "org" });
+    fake.list.mockResolvedValue({ data: [{ id: "a" }] });
+    for (const scenario of ["throttled-read", "denied-read", "throttled-write"] as const) {
+      fake.getByIds
+        .mockReset()
+        .mockRejectedValue(new Error(scenario === "denied-read" ? "401 private" : "429 private"));
+      fake.update.mockReset().mockRejectedValue(new Error("429 private"));
+      yield* Effect.gen(function* () {
+        const client = yield* BwsClient.BwsClient;
+        const operation =
+          scenario === "throttled-write"
+            ? client
+                .update(
+                  { id: "a", key: "A", projectId: "p", value: "old", note: "note" },
+                  "A",
+                  "new",
+                )
+                .pipe(Effect.asVoid)
+            : client.list().pipe(Effect.asVoid);
+        const fiber = yield* Effect.flip(operation).pipe(Effect.forkChild);
+        yield* TestClock.adjust("1 minute");
+        const failure = yield* Fiber.join(fiber);
+        assert.equal(failure.reason, "unavailable");
+        assert.notInclude(JSON.stringify(failure), "private");
+        assert.equal(
+          fake.getByIds.mock.calls.length,
+          scenario === "throttled-read" ? 3 : scenario === "denied-read" ? 1 : 0,
+        );
+        assert.equal(fake.update.mock.calls.length, scenario === "throttled-write" ? 1 : 0);
+      }).pipe(
+        Effect.provide(BwsClient.layer),
+        Effect.provideService(HostProcess.Environment, {
+          BWS_ACCESS_TOKEN: "fake-token",
+          T3CODE_BWS_PROJECT_ID: "p",
+        }),
+      );
+    }
   }),
 );
 
