@@ -26,16 +26,11 @@
 #       claimed attempt this build serves, which is what lets the hourly run recover
 #       it once if it is interrupted. --take-over passes an earlier build whose stop
 #       cannot be proved, once someone has confirmed nothing of it still runs.
-#   install [--now | --on-quit | --wait-for-quit]
+#   install [--on-quit | --wait-for-quit]
 #       Install the staged build. --on-quit starts the install-on-quit job, which
 #       runs --wait-for-quit: it watches the original pid and start time, so a
 #       quick reopen cannot hide the quit; it quits that new instance, installs
-#       the still-selected staged build and reopens it. --now starts the same job
-#       running --quit-now: it quits the running app itself (waiting for you to quit
-#       it only when the app declines) and then installs and reopens as above.
-#   setup-keychain
-#       Once, in a Terminal on the Mac: lets every build read the app's saved-secrets
-#       key without the Keychain asking for your password after each rebuild.
+#       the still-selected staged build and reopens it.
 #   attempt <tag> claim <thread> [--take-over] | landed <operation> <commit>
 #           | blocked <evidence|owner-decision|checks|publication> <summary>
 #           | retry [--take-over]
@@ -1609,14 +1604,12 @@ hourly() {
   release attempts.lock
 }
 
-# Leaves a job running from this plist alone (a --now request needs one that quits
-# the app); otherwise (re)loads the job from its plist, which also replaces one an
-# older version submitted, and starts it. $1 is the install mode the job runs.
+# Leaves a job waiting from this plist alone; otherwise (re)loads the job from
+# its plist, which also replaces one an older version submitted, and starts it.
 start_install_on_quit() {
-  local mode="$1" domain="gui/$(id -u)" plist="$HOME/Library/LaunchAgents/$INSTALL_JOB.plist" env="" name value job
+  local domain="gui/$(id -u)" plist="$HOME/Library/LaunchAgents/$INSTALL_JOB.plist" env="" name value job
   job="$(launchctl print "$domain/$INSTALL_JOB" 2>/dev/null || true)"
-  if grep -qxF $'\tstate = running' <<<"$job" && grep -qxF $'\tpath = '"$plist" <<<"$job" &&
-    { [ "$mode" != --quit-now ] || grep -qF -- --quit-now "$plist" 2>/dev/null; }; then
+  if grep -qxF $'\tstate = running' <<<"$job" && grep -qxF $'\tpath = '"$plist" <<<"$job"; then
     echo "$INSTALL_JOB is already waiting for T3 Peach to quit"
     return 0
   fi
@@ -1635,7 +1628,7 @@ start_install_on_quit() {
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string><string>-lic</string>
-    <string>exec /bin/bash "$REPO/scripts/fork-nightly.sh" install $mode</string>
+    <string>exec /bin/bash "$REPO/scripts/fork-nightly.sh" install --wait-for-quit</string>
   </array>
   <key>EnvironmentVariables</key><dict>$env</dict>
   <key>StandardOutPath</key><string>$STATE/launchd.log</string>
@@ -1646,11 +1639,7 @@ EOF
   launchctl bootout "$domain/$INSTALL_JOB" 2>/dev/null || true
   launchctl bootstrap "$domain" "$plist"
   launchctl kickstart "$domain/$INSTALL_JOB"
-  if [ "$mode" = --quit-now ]; then
-    echo "$INSTALL_JOB quits T3 Peach, installs the staged build and reopens it"
-  else
-    echo "$INSTALL_JOB waits for T3 Peach to quit, then installs the staged build"
-  fi
+  echo "$INSTALL_JOB waits for T3 Peach to quit, then installs the staged build"
 }
 
 status() {
@@ -1698,30 +1687,8 @@ setup_signing() {
   echo "signing keychain ready: $SIGNING_KEYCHAIN"
 }
 
-# The app keeps its saved-secrets key under this Keychain item. A default item trusts
-# only the build that made it, so macOS asks for the login password after every
-# rebuild; one that any application may read does not. Run once in a Terminal on the
-# Mac: reading the key asks for the password once. The key's value is kept, so saved
-# environments stay readable.
-setup_keychain() {
-  local service="t3code Safe Storage" account="t3code Key" secret
-  secret="$(security find-generic-password -s "$service" -a "$account" -w)" || {
-    echo "could not read $service; nothing changed" >&2
-    return 1
-  }
-  security delete-generic-password -s "$service" -a "$account" >/dev/null || return 1
-  # -w puts the key on this command's argv for an instant, visible only to this user.
-  security add-generic-password -A -s "$service" -a "$account" -w "$secret" || {
-    security add-generic-password -s "$service" -a "$account" -w "$secret" || true
-    echo "could not recreate $service open to every build; restored it as it was" >&2
-    return 1
-  }
-  echo "$service now opens for every build without a password"
-}
-
 case "${1:-}" in
   setup-signing) setup_signing ;;
-  setup-keychain) setup_keychain ;;
   "")
     exec >>"$STATE/nightly.log" 2>&1
     acquire lock || {
@@ -1775,20 +1742,13 @@ case "${1:-}" in
     exit "$rc"
     ;;
   install)
-    mode="${2:-}"
-    case "$mode" in
-      --on-quit | --now)
-        start_install_on_quit "$([ "$mode" = --now ] && echo --quit-now || echo --wait-for-quit)"
-        exit 0
-        ;;
-      --quit-now)
-        [ -f "$STATE/staged/receipt.json" ] || exit 0
-        # An app that declines to quit is waited for, as --on-quit would.
-        quit_reopened_t3 || wait_for_t3_quit
-        mode=--wait-for-quit
-        ;;
-      --wait-for-quit) wait_for_t3_quit ;;
-    esac
+    if [ "${2:-}" = --on-quit ]; then
+      start_install_on_quit
+      exit 0
+    fi
+    if [ "${2:-}" = --wait-for-quit ]; then
+      wait_for_t3_quit
+    fi
     acquire lock wait
     trap 'release lock' EXIT
     rename_legacy_copies || true
@@ -1796,9 +1756,9 @@ case "${1:-}" in
     migrate_legacy_name || true
     had_staged="$([ -f "$STATE/staged/receipt.json" ] && echo 1 || true)"
     rc=0
-    install_staged "$mode" || rc=$?
+    install_staged "${2:-}" || rc=$?
     migrate_legacy_name || true
-    if [ "$mode" = --wait-for-quit ]; then
+    if [ "${2:-}" = --wait-for-quit ]; then
       if [ -n "$had_staged" ] && app_present "$INSTALLED"; then open "$INSTALLED" || true; fi
     fi
     exit "$rc"
@@ -1809,7 +1769,7 @@ case "${1:-}" in
     ;;
   status) status ;;
   *)
-    echo "usage: $0 [--install-agent | build [--rev <commit>] [--recovery <reason>] [--attempt <tag>] [--take-over] | install [--now | --on-quit | --wait-for-quit] | setup-signing | setup-keychain | attempt <tag> <action> ... | status]" >&2
+    echo "usage: $0 [--install-agent | build [--rev <commit>] [--recovery <reason>] [--attempt <tag>] [--take-over] | install [--on-quit | --wait-for-quit] | setup-signing | attempt <tag> <action> ... | status]" >&2
     exit 2
     ;;
 esac
