@@ -31,6 +31,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
+import * as Schedule from "effect/Schedule";
 import { FetchHttpClient } from "effect/http";
 
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
@@ -70,6 +71,7 @@ import * as PeerLinks from "../PeerLinks.ts";
 import * as PeerMcpClient from "../PeerMcpClient.ts";
 import { descriptorOf, layerLinkingEnvironment, linkTo, servePeer } from "../PeerLinks.testkit.ts";
 import * as RemoteDelegation from "../RemoteDelegation.ts";
+import * as RemoteThreadWatches from "../RemoteThreadWatches.ts";
 import * as HandoffGit from "./HandoffGit.ts";
 import * as HandoffImport from "./HandoffImport.ts";
 import * as ThreadHandoff from "./ThreadHandoff.ts";
@@ -213,32 +215,41 @@ const layerOrchestration = (
   );
 };
 
-const unusedServices = Layer.mergeAll(
-  Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
-  Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({ list: () => Effect.succeed([]) }),
-  Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
-  Layer.mock(SecretRequests.SecretRequests)({}),
-  Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
-  Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/p" }),
-  Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({}),
-  Layer.mock(RemoteDelegation.RemoteDelegation)({}),
-  Layer.mock(PeerForwarding.PeerForwarding)({}),
-  Layer.mock(PeerLinkRequests.PeerLinkRequests)({}),
-  Layer.mock(PeerLinks.PeerLinks)({}),
-  // The box takes moves; it never starts one.
-  Layer.mock(ThreadHandoff.ThreadHandoff)({}),
-  Layer.mock(ExperimentService.ExperimentService)({}),
-  Layer.mock(ForgeWorkItems.ForgeWorkItems)({}),
-  Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({}),
-  Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
-  Layer.mock(WeaveAgentConnections.WeaveAgentConnections)({}),
-);
+/** What the box's tools never use here, with its links as `links` answers them. */
+const unusedServices = (
+  links: Partial<PeerLinks.PeerLinks["Service"]> = {},
+  forge: Partial<ForgeWorkItems.ForgeWorkItems["Service"]> = {},
+) =>
+  Layer.mergeAll(
+    Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+    Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+      list: () => Effect.succeed([]),
+    }),
+    Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+    Layer.mock(SecretRequests.SecretRequests)({}),
+    Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
+    Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/p" }),
+    Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({}),
+    Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+    Layer.mock(PeerForwarding.PeerForwarding)({}),
+    Layer.mock(PeerLinkRequests.PeerLinkRequests)({}),
+    Layer.mock(PeerLinks.PeerLinks)(links),
+    // The box takes moves; it never starts one.
+    Layer.mock(ThreadHandoff.ThreadHandoff)({}),
+    Layer.mock(ExperimentService.ExperimentService)({}),
+    Layer.mock(ForgeWorkItems.ForgeWorkItems)(forge),
+    Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({}),
+    Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+    Layer.mock(WeaveAgentConnections.WeaveAgentConnections)({}),
+  );
 
 /** The box: its real tools on a real /mcp, with uploads, on its own repo. */
 const serveBox = (
   boxRepo: string,
   stateDir: string,
   captured: Ref.Ref<ReadonlyArray<CapturedTurn>>,
+  links: Partial<PeerLinks.PeerLinks["Service"]> = {},
+  forge: Partial<ForgeWorkItems.ForgeWorkItems["Service"]> = {},
 ) =>
   Effect.gen(function* () {
     const core = yield* Layer.mergeAll(
@@ -279,7 +290,7 @@ const serveBox = (
           listWorktreePaths: () => Effect.succeed([]),
         }),
       ),
-      Layer.provide(unusedServices),
+      Layer.provide(unusedServices(links, forge)),
       Layer.provide(layerAssets),
       Layer.provide(layerCore),
     );
@@ -329,9 +340,11 @@ const makeLaptop = (
             ),
           ).pipe(Layer.provide(Layer.succeedContext(linking)));
     const layerHere = ThreadHandoff.layer.pipe(
+      Layer.provideMerge(RemoteThreadWatches.layer),
       Layer.provideMerge(PeerForwarding.layer.pipe(Layer.provide(layerPeers))),
       // Unanswered moves are rechecked as soon as asked.
       Layer.provide(Layer.succeed(ThreadHandoff.UnansweredMoveRecheck, Duration.zero)),
+      Layer.provide(Layer.succeed(RemoteDelegation.FollowRetrySchedule, Schedule.forever)),
       Layer.provide(HandoffGit.layer),
       Layer.provide(
         layerProjects(projectAt("project:laptop", laptopRepo)).pipe(
@@ -344,8 +357,9 @@ const makeLaptop = (
           getDescriptor: Effect.succeed(laptop),
         }),
       ),
-      Layer.provide(Layer.succeedContext(linking)),
+      // The laptop's own database answers first, so the services above read its threads.
       Layer.provide(Layer.succeedContext(core)),
+      Layer.provide(Layer.succeedContext(linking)),
       Layer.provide(VcsProcess.layer),
       Layer.provide(NodeCrypto.layer),
       // Uploads go to the box's own address, not the test server's.
@@ -359,6 +373,7 @@ const makeLaptop = (
       orchestrator: Context.get(core, Orchestrator.OrchestratorV2),
       threads: Context.get(core, ThreadManagement.ThreadManagementService),
       handoff: Context.get(here, ThreadHandoff.ThreadHandoff),
+      watches: Context.get(here, RemoteThreadWatches.RemoteThreadWatches),
     };
   });
 
@@ -591,6 +606,515 @@ it.live("a move the box refuses releases the thread here, untouched", () =>
           shell.title.includes("Flaky"),
         ),
       ).toEqual([]);
+    }),
+  ).pipe(Effect.provide(layerTestHost)),
+);
+
+/** A laptop thread that holds a watch on another laptop thread and a parked time wait. */
+const startWaiting = (laptopEnv: Effect.Success<ReturnType<typeof makeLaptop>>) =>
+  Effect.gen(function* () {
+    const watched = ThreadId.make("thread:laptop-deploy");
+    yield* laptopEnv.orchestrator.dispatch({
+      type: "thread.create",
+      createdBy: "user",
+      creationSource: "web",
+      commandId: CommandId.make("command:create:laptop-deploy"),
+      threadId: watched,
+      projectId: ProjectId.make("project:laptop"),
+      title: "Deploy the fix",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+    });
+    yield* laptopEnv.orchestrator.dispatch({
+      type: "thread.thread-watch",
+      commandId: CommandId.make("command:watch:deploy"),
+      threadId,
+      target: { kind: "thread", threadId: watched },
+      watching: true,
+    });
+    yield* laptopEnv.orchestrator.dispatch({
+      type: "thread.thread-watch",
+      commandId: CommandId.make("command:park:tonight"),
+      threadId,
+      target: { kind: "time", at: "2099-01-01T00:00:00.000Z" },
+      watching: true,
+      park: { note: "Check the nightly." },
+    });
+    yield* laptopEnv.orchestrator.dispatch({
+      type: "thread.pull-request.watch",
+      commandId: CommandId.make("command:watch:pull-request"),
+      threadId,
+      host: "github.com",
+      repository: "acme/app",
+      number: 12,
+      watching: true,
+      link: { url: "https://github.com/acme/app/pull/12", source: "agent" },
+    });
+    return watched;
+  });
+
+it.live("a move carries the thread's waits, and ends them on the copy left behind", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, laptopRepo, boxRepo } = yield* makeRepos;
+      const boxTurns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
+      // The box is linked back to the laptop, so it can watch the laptop's thread.
+      const b = yield* serveBox(boxRepo, path.join(root, "box-state"), boxTurns, {
+        get: (environmentId) =>
+          Effect.succeed(
+            environmentId === laptop.environmentId ? Option.some({} as never) : Option.none(),
+          ),
+      });
+      const a = yield* makeLaptop(laptopRepo, yield* Ref.make<ReadonlyArray<CapturedTurn>>([]));
+      yield* linkTo(a.links, b, "full-access");
+      yield* seedThread(a, laptopRepo);
+      const watched = yield* startWaiting(a);
+
+      const moved = yield* a.handoff.start({ threadId, environmentId: box.environmentId });
+      expect(moved.state).toBe("departed");
+      if (moved.state !== "departed") return;
+
+      // There: the same waits, the thread here now a thread in another environment.
+      const there = yield* idle(b.orchestrator, moved.threadId);
+      expect(there.thread.threadWatches?.map((watch) => watch.target)).toEqual([
+        { kind: "thread", threadId: watched, environmentId: laptop.environmentId },
+      ]);
+      expect(there.thread.parkedWaits?.map((wait) => wait.target)).toEqual([
+        { kind: "time", at: "2099-01-01T00:00:00.000Z" },
+      ]);
+      expect(there.thread.parkedWaits?.[0]?.note).toBe("Check the nightly.");
+      expect(
+        there.thread.pullRequests?.map((link) => [link.number, link.watch !== undefined]),
+      ).toEqual([[12, true]]);
+      const [firstTurn] = yield* Ref.get(boxTurns);
+      expect(firstTurn?.text).toContain("Its waits moved with it");
+      expect(firstTurn?.text).toContain("watching Deploy the fix");
+      expect(firstTurn?.text).toContain("watching pull request #12");
+
+      // Here: nothing left to wake the read-only copy.
+      const here = yield* a.orchestrator.getThreadProjection(threadId);
+      expect(here.thread.handoff).toMatchObject({ state: "departed" });
+      expect(here.thread.threadWatches ?? []).toEqual([]);
+      expect(here.thread.parkedWaits ?? []).toEqual([]);
+      expect(here.thread.pullRequests?.some((link) => link.watch !== undefined)).toBe(false);
+    }),
+  ).pipe(Effect.provide(layerTestHost)),
+);
+
+/** The box links back to the laptop, and is as connected to Weave as `forge` says. */
+const boxLinks = {
+  get: (environmentId: typeof laptop.environmentId) =>
+    Effect.succeed(
+      environmentId === laptop.environmentId ? Option.some({} as never) : Option.none(),
+    ),
+};
+
+it.live("a Build item wait moves with the thread and one the box cannot read ends the move", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, laptopRepo, boxRepo } = yield* makeRepos;
+      const connected = yield* Ref.make(true);
+      const b = yield* serveBox(
+        boxRepo,
+        path.join(root, "box-state"),
+        yield* Ref.make<ReadonlyArray<CapturedTurn>>([]),
+        boxLinks,
+        { connected: Ref.get(connected).pipe(Effect.map((on) => ({ connected: on }) as never)) },
+      );
+      const a = yield* makeLaptop(laptopRepo, yield* Ref.make<ReadonlyArray<CapturedTurn>>([]));
+      yield* linkTo(a.links, b, "full-access");
+      yield* seedThread(a, laptopRepo);
+      yield* a.orchestrator.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make("command:watch:build"),
+        threadId,
+        target: { kind: "build_item", number: 7, until: "closed" },
+        title: "Build #7",
+        watching: true,
+      });
+
+      // A box with no Weave connection cannot keep it: the move fails and the thread keeps its watch.
+      yield* Ref.set(connected, false);
+      const refused = yield* a.handoff
+        .start({ threadId, environmentId: box.environmentId })
+        .pipe(Effect.flip);
+      expect(refused.message).toContain("no Weave connection");
+      expect(refused.message).toContain("Build #7");
+      expect(
+        (yield* a.orchestrator.getThreadProjection(threadId)).thread.threadWatches,
+      ).toHaveLength(1);
+
+      // Connected, the same move carries it, once, and ends it here.
+      yield* Ref.set(connected, true);
+      yield* a.orchestrator.dispatch({
+        type: "thread.handoff.update",
+        commandId: CommandId.make("command:clear-failed-handoff"),
+        threadId,
+        expected: "failed",
+        handoff: null,
+      });
+      const moved = yield* a.handoff.start({ threadId, environmentId: box.environmentId });
+      expect(moved.state).toBe("departed");
+      if (moved.state !== "departed") return;
+      const there = yield* idle(b.orchestrator, moved.threadId);
+      expect(there.thread.threadWatches?.map((watch) => watch.target)).toEqual([
+        { kind: "build_item", number: 7, until: "closed" },
+      ]);
+      expect(
+        (yield* a.orchestrator.getThreadProjection(threadId)).thread.threadWatches ?? [],
+      ).toEqual([]);
+    }),
+  ).pipe(Effect.provide(layerTestHost)),
+);
+
+it.live("a wait on a third environment or on Production the box cannot follow ends the move", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, laptopRepo, boxRepo } = yield* makeRepos;
+      const b = yield* serveBox(
+        boxRepo,
+        path.join(root, "box-state"),
+        yield* Ref.make<ReadonlyArray<CapturedTurn>>([]),
+        boxLinks,
+      );
+      const a = yield* makeLaptop(laptopRepo, yield* Ref.make<ReadonlyArray<CapturedTurn>>([]));
+      yield* linkTo(a.links, b, "full-access");
+      yield* seedThread(a, laptopRepo);
+      const clear = (id: string) =>
+        a.orchestrator.dispatch({
+          type: "thread.handoff.update",
+          commandId: CommandId.make(`command:clear-failed-handoff:${id}`),
+          threadId,
+          expected: "failed",
+          handoff: null,
+        });
+
+      yield* a.orchestrator.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make("command:watch:third"),
+        threadId,
+        target: {
+          kind: "thread",
+          threadId: ThreadId.make("thread:elsewhere"),
+          environmentId: EnvironmentId.make("environment-third"),
+        },
+        title: "Deploy there",
+        watching: true,
+      });
+      const thirdRefused = yield* a.handoff
+        .start({ threadId, environmentId: box.environmentId })
+        .pipe(Effect.flip);
+      expect(thirdRefused.message).toContain("not linked to environment-third");
+      expect(thirdRefused.message).toContain("Deploy there");
+      yield* clear("third");
+      yield* a.orchestrator.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make("command:unwatch:third"),
+        threadId,
+        target: {
+          kind: "thread",
+          threadId: ThreadId.make("thread:elsewhere"),
+          environmentId: EnvironmentId.make("environment-third"),
+        },
+        watching: false,
+      });
+
+      yield* a.orchestrator.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make("command:park:production"),
+        threadId,
+        target: { kind: "production", commitId: "abc1234" },
+        title: "commit abc1234",
+        watching: true,
+        park: { expectedMs: 600_000 },
+      });
+      const productionRefused = yield* a.handoff
+        .start({ threadId, environmentId: box.environmentId })
+        .pipe(Effect.flip);
+      expect(productionRefused.message).toContain("commit abc1234");
+      expect(productionRefused.message).toContain("SlipJay");
+      expect((yield* a.orchestrator.getThreadProjection(threadId)).thread.parkedWaits).toHaveLength(
+        1,
+      );
+    }),
+  ).pipe(Effect.provide(layerTestHost)),
+);
+
+it.live("a wait the box could not recreate is named in the thread's first message", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, laptopRepo, boxRepo } = yield* makeRepos;
+      const boxTurns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
+      const b = yield* serveBox(boxRepo, path.join(root, "box-state"), boxTurns, boxLinks);
+      const a = yield* makeLaptop(laptopRepo, yield* Ref.make<ReadonlyArray<CapturedTurn>>([]));
+      yield* linkTo(a.links, b, "full-access");
+      yield* seedThread(a, laptopRepo);
+      // A thread of the box's that is gone there: the wait cannot be set up, and the thread is told.
+      yield* a.orchestrator.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make("command:watch:gone-on-box"),
+        threadId,
+        target: {
+          kind: "thread",
+          threadId: ThreadId.make("thread:gone-on-box"),
+          environmentId: box.environmentId,
+        },
+        title: "Fix the login on the box",
+        watching: true,
+      });
+      const moved = yield* a.handoff.start({ threadId, environmentId: box.environmentId });
+      expect(moved.state).toBe("departed");
+      if (moved.state !== "departed") return;
+      yield* idle(b.orchestrator, moved.threadId);
+      const [firstTurn] = yield* Ref.get(boxTurns);
+      expect(firstTurn?.text).toContain(
+        "could not move with the thread and need setting up again: watching Fix the login on the box",
+      );
+    }),
+  ).pipe(Effect.provide(layerTestHost)),
+);
+
+it.live("a wait the box cannot keep ends the move naming it, and the thread keeps its waits", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, laptopRepo, boxRepo } = yield* makeRepos;
+      // The box has no link back to the laptop, so it cannot watch the laptop's thread.
+      const b = yield* serveBox(
+        boxRepo,
+        path.join(root, "box-state"),
+        yield* Ref.make<ReadonlyArray<CapturedTurn>>([]),
+        { get: () => Effect.succeedNone },
+      );
+      const a = yield* makeLaptop(laptopRepo, yield* Ref.make<ReadonlyArray<CapturedTurn>>([]));
+      yield* linkTo(a.links, b, "full-access");
+      yield* seedThread(a, laptopRepo);
+      yield* startWaiting(a);
+
+      const failed = yield* a.handoff
+        .start({ threadId, environmentId: box.environmentId })
+        .pipe(Effect.flip);
+      expect(failed.message).toContain(`not linked to ${laptop.environmentId}`);
+      expect(failed.message).toContain("Deploy the fix");
+      const here = yield* a.orchestrator.getThreadProjection(threadId);
+      expect(here.thread.handoff).toMatchObject({ state: "failed" });
+      expect(here.thread.threadWatches).toHaveLength(1);
+      expect(here.thread.parkedWaits).toHaveLength(1);
+      // Nothing was created on the box.
+      expect(
+        (yield* b.orchestrator.getShellSnapshot()).threads.filter((shell) =>
+          shell.title.includes("Flaky"),
+        ),
+      ).toEqual([]);
+    }),
+  ).pipe(Effect.provide(layerTestHost)),
+);
+
+const boxWorker = ThreadId.make("thread:box-worker");
+
+/** A thread on the box the laptop's thread watches, which does nothing until a message is sent to it. */
+const createBoxWorker = (b: Effect.Success<ReturnType<typeof serveBox>>) =>
+  b.orchestrator.dispatch({
+    type: "thread.create",
+    createdBy: "user",
+    creationSource: "web",
+    commandId: CommandId.make("command:create:box-worker"),
+    threadId: boxWorker,
+    projectId: ProjectId.make("project:box"),
+    title: "Fix the login on the box",
+    modelSelection,
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+  });
+
+const sendToBoxWorker = (b: Effect.Success<ReturnType<typeof serveBox>>) =>
+  b.orchestrator.dispatch({
+    type: "message.dispatch",
+    createdBy: "user",
+    creationSource: "web",
+    commandId: CommandId.make("command:send:box-worker"),
+    threadId: boxWorker,
+    messageId: MessageId.make("message:box-worker:1"),
+    text: "Fix it.",
+    attachments: [],
+    dispatchMode: { type: "start_immediately" },
+  });
+
+const watchBoxWorker = (a: Effect.Success<ReturnType<typeof makeLaptop>>, id = "box-worker") =>
+  a.orchestrator.dispatch({
+    type: "thread.thread-watch",
+    commandId: CommandId.make(`command:watch:${id}`),
+    threadId,
+    target: { kind: "thread", threadId: boxWorker, environmentId: box.environmentId },
+    title: "Fix the login on the box",
+    watching: true,
+  });
+
+/** The wakes the laptop's thread has had from a thread on the box. */
+const boxWakes = (a: Effect.Success<ReturnType<typeof makeLaptop>>) =>
+  a.orchestrator
+    .getThreadRecords(threadId, ["messages"])
+    .pipe(
+      Effect.map(({ messages }) =>
+        messages.filter((message) => message.notification?.source.kind === "thread"),
+      ),
+    );
+
+const awaitBoxWake = (a: Effect.Success<ReturnType<typeof makeLaptop>>) =>
+  awaitOrchestratorState(a.orchestrator, boxWakes(a), (wakes) => wakes.length > 0);
+
+it.live("a thread wakes once when the thread it watches on the box finishes there", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, laptopRepo, boxRepo } = yield* makeRepos;
+      const b = yield* serveBox(
+        boxRepo,
+        path.join(root, "box-state"),
+        yield* Ref.make<ReadonlyArray<CapturedTurn>>([]),
+      );
+      const a = yield* makeLaptop(laptopRepo, yield* Ref.make<ReadonlyArray<CapturedTurn>>([]));
+      yield* linkTo(a.links, b, "read-only");
+      yield* seedThread(a, laptopRepo);
+      yield* createBoxWorker(b);
+      yield* watchBoxWorker(a);
+      // A server that restarted finds the watch it saved.
+      yield* a.watches.start();
+      expect(yield* boxWakes(a)).toEqual([]);
+
+      yield* sendToBoxWorker(b);
+      const [wake] = yield* awaitBoxWake(a);
+      expect(wake?.text).toContain(
+        `[Fix the login on the box](t3-thread://v2/${box.environmentId}/${boxWorker})`,
+      );
+      expect(wake?.text).toContain("> box replied.");
+      expect(wake?.notification).toMatchObject({
+        source: { kind: "thread", threadId: boxWorker, environmentId: box.environmentId },
+        outcome: "completed",
+      });
+      expect((yield* a.orchestrator.getThreadShell(threadId))?.threadWatches ?? []).toEqual([]);
+      expect(yield* boxWakes(a)).toHaveLength(1);
+    }),
+  ).pipe(Effect.provide(layerTestHost)),
+);
+
+it.live(
+  "a thread that finished before it was watched wakes at once, started before the watch",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const { root, laptopRepo, boxRepo } = yield* makeRepos;
+        const b = yield* serveBox(
+          boxRepo,
+          path.join(root, "box-state"),
+          yield* Ref.make<ReadonlyArray<CapturedTurn>>([]),
+        );
+        const a = yield* makeLaptop(laptopRepo, yield* Ref.make<ReadonlyArray<CapturedTurn>>([]));
+        yield* linkTo(a.links, b, "read-only");
+        yield* seedThread(a, laptopRepo);
+        yield* createBoxWorker(b);
+        yield* sendToBoxWorker(b);
+        yield* idle(b.orchestrator, boxWorker);
+        yield* a.watches.start();
+        yield* watchBoxWorker(a);
+        const [wake] = yield* awaitBoxWake(a);
+        expect(wake?.text).toContain("has finished");
+        expect(yield* boxWakes(a)).toHaveLength(1);
+      }),
+    ).pipe(Effect.provide(layerTestHost)),
+);
+
+it.live("a dropped link never wakes early, and the watch carries on when it returns", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, laptopRepo, boxRepo } = yield* makeRepos;
+      const b = yield* serveBox(
+        boxRepo,
+        path.join(root, "box-state"),
+        yield* Ref.make<ReadonlyArray<CapturedTurn>>([]),
+      );
+      // The box does not answer until the test lets it, after three calls have failed.
+      const restored = yield* Deferred.make<void>();
+      const failedThrice = yield* Deferred.make<void>();
+      const calls = yield* Ref.make(0);
+      const a = yield* makeLaptop(
+        laptopRepo,
+        yield* Ref.make<ReadonlyArray<CapturedTurn>>([]),
+        undefined,
+        (call) => (request) =>
+          Effect.gen(function* () {
+            if (yield* Deferred.isDone(restored)) return yield* call(request);
+            if ((yield* Ref.updateAndGet(calls, (count) => count + 1)) >= 3) {
+              yield* Deferred.succeed(failedThrice, undefined);
+            }
+            return yield* new OrchestratorMcpFailure({
+              code: "orchestration_error",
+              message: "The box is not answering.",
+            });
+          }),
+      );
+      yield* linkTo(a.links, b, "read-only");
+      yield* seedThread(a, laptopRepo);
+      yield* createBoxWorker(b);
+      yield* sendToBoxWorker(b);
+      yield* idle(b.orchestrator, boxWorker);
+      yield* watchBoxWorker(a);
+      yield* a.watches.start();
+      // It keeps trying while the box is down, and has woken nobody.
+      yield* Deferred.await(failedThrice);
+      expect(yield* boxWakes(a)).toEqual([]);
+      expect((yield* a.orchestrator.getThreadShell(threadId))?.threadWatches).toHaveLength(1);
+
+      yield* Deferred.succeed(restored, undefined);
+      yield* awaitBoxWake(a);
+      expect(yield* boxWakes(a)).toHaveLength(1);
+    }),
+  ).pipe(Effect.provide(layerTestHost)),
+);
+
+it.live("a forgotten link or a deleted thread wakes once with why", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const { root, laptopRepo, boxRepo } = yield* makeRepos;
+      const b = yield* serveBox(
+        boxRepo,
+        path.join(root, "box-state"),
+        yield* Ref.make<ReadonlyArray<CapturedTurn>>([]),
+      );
+      const a = yield* makeLaptop(laptopRepo, yield* Ref.make<ReadonlyArray<CapturedTurn>>([]));
+      yield* linkTo(a.links, b, "read-only");
+      yield* seedThread(a, laptopRepo);
+      yield* a.watches.start();
+
+      // A thread that is not on the box can never report.
+      yield* watchBoxWorker(a);
+      const [gone] = yield* awaitBoxWake(a);
+      expect(gone?.text).toContain("can no longer be read");
+      expect(gone?.notification?.outcome).toBe("unknown");
+
+      // A link forgotten here can never answer.
+      yield* createBoxWorker(b);
+      yield* a.links.unlink(box.environmentId);
+      yield* watchBoxWorker(a, "after-unlink");
+      const wakes = yield* awaitOrchestratorState(
+        a.orchestrator,
+        boxWakes(a),
+        (messages) => messages.length > 1,
+      );
+      expect(wakes[1]?.text).toContain("can no longer be watched");
+      expect(wakes).toHaveLength(2);
     }),
   ).pipe(Effect.provide(layerTestHost)),
 );
@@ -932,23 +1456,49 @@ describe("moveBlocker", () => {
     ).toContain("delegated task");
   });
 
-  it("names the work that would wake the copy left behind", () => {
+  it("moves with its waits, and names only the work that cannot follow it", () => {
+    const watchMirror = {
+      kind: "monitor",
+      taskId: "thread-watch:w1",
+      description: "Watching thread deploy",
+    };
+    const prMirror = {
+      kind: "monitor",
+      taskId: "pull-request-watch:github.com/acme/app#12",
+      description: "Watching pull request #12",
+    };
+    const waiting = {
+      ...thread,
+      threadWatches: [{ title: "deploy", target: { kind: "thread", threadId: "t" } }],
+      parkedWaits: [{ title: "tonight", target: { kind: "time", at: "2026-11-12T22:00:00Z" } }],
+    } as unknown as typeof thread;
+    expect(
+      ThreadHandoff.moveBlocker(waiting, {
+        pendingBackgroundTasks: [watchMirror, prMirror] as unknown as ReadonlyArray<never>,
+      }),
+    ).toBe(null);
+
     const blocked = ThreadHandoff.moveBlocker(
       {
-        ...thread,
-        threadWatches: [{ title: "deploy" }],
-        pullRequests: [{ number: 12, watch: {} }, { number: 13 }],
+        ...waiting,
+        threadWatches: [
+          ...(waiting.threadWatches ?? []),
+          { title: "SlipJay landing", target: { kind: "landing", operationId: "op" } },
+        ],
       } as unknown as typeof thread,
       {
         pendingBackgroundTasks: [
+          watchMirror,
           { kind: "command", taskId: "t1", description: "vp test" },
+          { kind: "subagent", taskId: "t2", description: "review the diff" },
         ] as unknown as ReadonlyArray<never>,
       },
     );
     expect(blocked).toContain("background command vp test");
-    expect(blocked).toContain('watch "deploy"');
-    expect(blocked).toContain("pull request #12");
-    expect(blocked).not.toContain("#13");
+    expect(blocked).toContain("delegated task review the diff");
+    expect(blocked).toContain('landing "SlipJay landing"');
+    expect(blocked).not.toContain("deploy");
+    expect(blocked).not.toContain("tonight");
   });
 });
 

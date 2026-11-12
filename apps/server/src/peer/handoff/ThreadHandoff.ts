@@ -3,7 +3,9 @@ import {
   type EnvironmentId,
   isDelegatedTaskThread,
   type OrchestrationV2AppThread,
+  type OrchestrationV2ParkedWaitTarget,
   type OrchestrationV2ThreadShell,
+  type OrchestrationV2WatchTarget,
   type OrchestratorMcpFailure,
   ThreadHandoffError,
   type OrchestrationV2ThreadHandoff,
@@ -12,6 +14,7 @@ import {
   type ProjectId,
   type ThreadId,
 } from "@t3tools/contracts";
+import { ownBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Digest from "effect/crypto/Digest";
@@ -56,9 +59,16 @@ export const continuationMessage = (input: {
   readonly fromEnvironmentId: EnvironmentId;
   readonly fromThreadId: ThreadId;
   readonly prompt: string | undefined;
+  /** The waits that moved with the thread, each named. */
+  readonly waits?: ReadonlyArray<string> | undefined;
 }) =>
   [
     `This thread was just moved here from ${input.fromLabel} (environment ${input.fromEnvironmentId}, thread ${input.fromThreadId}), with its conversation and its uncommitted work. The copy there is read-only now.`,
+    ...(input.waits === undefined || input.waits.length === 0
+      ? []
+      : [
+          `Its waits moved with it and now wake this thread here, once each: ${input.waits.join("; ")}. Nothing needs setting up again.`,
+        ]),
     "If your instructions say how to resume after a context rollover, follow them now: reload the workflow you were following, re-read the work item you own, and re-claim it from this thread, since claims made from the old thread still name it.",
     input.prompt ?? "Continue where it left off.",
   ].join("\n\n");
@@ -74,14 +84,15 @@ export const UnansweredMoveRecheck = Context.Reference<Duration.Duration>(
 );
 
 /**
- * Why `thread` cannot move now, or null. Work that wakes a thread when it ends
- * (delegated tasks, background commands, watches) would wake the copy left
- * behind, and a delegated task's own thread belongs to the parent waiting on it.
+ * Why `thread` cannot move now, or null. A thread's waits move with it, but work that wakes it
+ * from this machine cannot: a delegated task or background command is a process here, and a
+ * landing belongs to this machine's runner. A delegated task's own thread belongs to the parent
+ * waiting on it.
  */
 export const moveBlocker = (
   thread: Pick<
     OrchestrationV2AppThread,
-    "agentTask" | "lineage" | "threadWatches" | "parkedWaits" | "pullRequests" | "arcRun"
+    "agentTask" | "lineage" | "threadWatches" | "parkedWaits" | "arcRun"
   >,
   shell: Pick<OrchestrationV2ThreadShell, "pendingBackgroundTasks"> | null,
 ): string | null => {
@@ -91,21 +102,72 @@ export const moveBlocker = (
   if (thread.arcRun !== undefined && thread.arcRun.state !== "paused") {
     return "This thread is running an Arc, which T3 wakes here. Stop it first, then move the thread.";
   }
-  const waking = [
-    ...(shell?.pendingBackgroundTasks ?? []).map((task) =>
+  const staying = [
+    // The monitors that mirror a watch are not work: the watch itself moves.
+    ...ownBackgroundWork(shell?.pendingBackgroundTasks ?? []).map((task) =>
       task.kind === "subagent"
         ? `delegated task ${task.description ?? task.taskId}`
         : `background ${task.kind} ${task.description ?? task.taskId}`,
     ),
-    ...(thread.threadWatches ?? []).map((watch) => `watch "${watch.title}"`),
-    ...(thread.parkedWaits ?? []).map((wait) => `parked wait "${wait.title}"`),
-    ...(thread.pullRequests ?? [])
-      .filter((pullRequest) => pullRequest.watch !== undefined)
-      .map((pullRequest) => `watch on pull request #${pullRequest.number}`),
+    ...[...(thread.threadWatches ?? []), ...(thread.parkedWaits ?? [])]
+      .filter((wait) => wait.target.kind === "landing")
+      .map((wait) => `landing "${wait.title}"`),
   ];
-  return waking.length === 0
+  return staying.length === 0
     ? null
-    : `This thread still has work that wakes it here: ${waking.join("; ")}. Let it finish or stop it, then move the thread.`;
+    : `This thread has work that cannot move with it: ${staying.join("; ")}. Let it finish or stop it, then move the thread.`;
+};
+
+/** What a thread is waiting on, as it moves with it: the destination wakes the thread as this one did. */
+const carriedWaits = (
+  thread: Pick<OrchestrationV2AppThread, "threadWatches" | "parkedWaits" | "pullRequests">,
+  here: EnvironmentId,
+  destination: EnvironmentId,
+) => {
+  // A thread here is a remote one from there; one that lives there is local there.
+  const target = <T extends OrchestrationV2WatchTarget | OrchestrationV2ParkedWaitTarget>(
+    target: T,
+  ): T =>
+    target.kind !== "thread"
+      ? target
+      : ({
+          kind: "thread",
+          threadId: target.threadId,
+          ...(target.environmentId === destination
+            ? {}
+            : { environmentId: target.environmentId ?? here }),
+        } as T);
+  const watches = (thread.threadWatches ?? [])
+    .filter((watch) => watch.target.kind !== "landing")
+    .map((watch) => ({
+      id: watch.id,
+      title: watch.title,
+      startedAt: watch.startedAt,
+      target: target(watch.target),
+    }));
+  const parkedWaits = (thread.parkedWaits ?? [])
+    .filter((wait) => wait.target.kind !== "landing")
+    .map((wait) => ({ ...wait, target: target(wait.target) }));
+  const pullRequestWatches = (thread.pullRequests ?? [])
+    .filter(
+      (link) =>
+        link.watch !== undefined &&
+        link.source !== "stack-dismissed" &&
+        link.snapshot?.state !== "merged",
+    )
+    .map((link) => ({
+      host: link.host,
+      repository: link.repository,
+      number: link.number,
+      url: link.url,
+      ...(link.repositoryWebUrl === undefined ? {} : { repositoryWebUrl: link.repositoryWebUrl }),
+    }));
+  const names = [
+    ...watches.map((watch) => `watching ${watch.title}`),
+    ...parkedWaits.map((wait) => `parked on ${wait.title}`),
+    ...pullRequestWatches.map((link) => `watching pull request #${link.number}`),
+  ];
+  return { watches, parkedWaits, pullRequestWatches, names };
 };
 
 /** Only a full-access link leaves a moved thread unfenced there. */
@@ -476,6 +538,7 @@ const make = Effect.gen(function* () {
         packed === undefined ? undefined : yield* upload(scope, handoff.environmentId, packed);
       const messages = yield* conversation(threadId);
       const descriptor = yield* environment.getDescriptor;
+      const waits = carriedWaits(thread, hereId, handoff.environmentId);
       sent = true;
       importCalled = true;
       unsent.delete(handoff.handoffId);
@@ -493,7 +556,13 @@ const make = Effect.gen(function* () {
             fromEnvironmentId: hereId,
             fromThreadId: threadId,
             prompt: handoff.continuationPrompt,
+            waits: waits.names,
           }),
+          ...(waits.watches.length === 0 ? {} : { watches: waits.watches }),
+          ...(waits.parkedWaits.length === 0 ? {} : { parkedWaits: waits.parkedWaits }),
+          ...(waits.pullRequestWatches.length === 0
+            ? {}
+            : { pullRequestWatches: waits.pullRequestWatches }),
           ...(packed === undefined || attachmentId === undefined
             ? {}
             : {
@@ -547,8 +616,56 @@ const make = Effect.gen(function* () {
       threadId: there,
     };
     yield* setHandoff(threadId, "departing", departed, "departed");
+    // The waits went with the thread, and this copy takes no wake: its monitors end with the move.
+    yield* endWaits(threadId);
     return departed;
   });
+
+  /** Ends what a moved thread was waiting on here, which its copy there now waits on. */
+  const endWaits = Effect.fn("ThreadHandoff.endWaits")(
+    function* (threadId: ThreadId) {
+      const { thread } = yield* threads.getThreadRecords(threadId, []);
+      const end = (commandId: string, command: Parameters<typeof threads.dispatch>[0]) =>
+        threads
+          .dispatch(command)
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("thread-handoff.end-wait-failed", { threadId, commandId, cause }),
+            ),
+          );
+      yield* Effect.forEach(
+        [...(thread.threadWatches ?? []), ...(thread.parkedWaits ?? [])],
+        (wait) => {
+          const commandId = `command:handoff:${threadId}:end-wait:${wait.id}`;
+          return end(commandId, {
+            type: "thread.thread-watch",
+            commandId: CommandId.make(commandId),
+            threadId,
+            watchId: wait.id,
+            watching: false,
+          });
+        },
+        { discard: true },
+      );
+      yield* Effect.forEach(
+        (thread.pullRequests ?? []).filter((link) => link.watch !== undefined),
+        (link) => {
+          const commandId = `command:handoff:${threadId}:end-pr:${link.host}/${link.repository}#${link.number}`;
+          return end(commandId, {
+            type: "thread.pull-request.watch",
+            commandId: CommandId.make(commandId),
+            threadId,
+            host: link.host,
+            repository: link.repository,
+            number: link.number,
+            watching: false,
+          });
+        },
+        { discard: true },
+      );
+    },
+    Effect.catchCause((cause) => Effect.logWarning("thread-handoff.end-waits", { cause })),
+  );
 
   const failed = Effect.fn("ThreadHandoff.failed")(function* (
     threadId: ThreadId,
@@ -777,6 +894,8 @@ const make = Effect.gen(function* () {
       });
       const handoff = records.thread.handoff;
       if (handoff === undefined) return;
+      // A crash between "arrived" and the end of its waits leaves them here: end them now.
+      if (handoff.state === "departed") return yield* endWaits(threadId);
       if (handoff.state === "pending") {
         const live = records.runs.some(
           (run) =>
@@ -829,7 +948,11 @@ const make = Effect.gen(function* () {
     Effect.flatMap((shells) =>
       Effect.forEach(
         shells.filter(
-          (shell) => shell.handoff?.state === "pending" || shell.handoff?.state === "departing",
+          (shell) =>
+            shell.handoff?.state === "pending" ||
+            shell.handoff?.state === "departing" ||
+            (shell.handoff?.state === "departed" &&
+              ((shell.threadWatches?.length ?? 0) > 0 || (shell.parkedWaits?.length ?? 0) > 0)),
         ),
         (shell) => settle(shell.id),
         { discard: true },

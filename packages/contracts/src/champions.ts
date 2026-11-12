@@ -192,6 +192,7 @@ export const ChampionRelayedApproval = Schema.Struct({
   /** The model the relaying thread ran on. */
   model: Schema.String.check(Schema.isMaxLength(500)),
   approvedAt: IsoDateTime,
+  sourceEnvironment: Schema.optional(Schema.Struct({ id: EnvironmentId, label: Schema.String })),
 });
 export type ChampionRelayedApproval = typeof ChampionRelayedApproval.Type;
 /** The path a champion asks the user to approve, kept short enough to decide from at a glance. */

@@ -14,6 +14,8 @@ import { SheetHeader } from "../../components/ui/SheetHeader";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { ScreenContent } from "../../components/ui/ScreenContent";
+import { useLinkedEnvironments } from "../../state/peerLinks";
+import { connectedEnvironmentIdsAtom } from "../../state/presentation";
 import { environmentThreadShells } from "../../state/threads";
 
 const KIND_LABELS = {
@@ -33,6 +35,8 @@ export function ThreadBackgroundWorkSheet({ route }: StaticScreenProps<Backgroun
     environmentThreadShells.threadShellAtom(scopeThreadRef(target.environmentId, target.threadId)),
   );
   const presentation = presentPendingBackgroundWork(thread?.pendingBackgroundTasks ?? []);
+  const linkedEnvironments = useLinkedEnvironments(target.environmentId);
+  const connectedEnvironmentIds = useAtomValue(connectedEnvironmentIdsAtom);
   const openThread = (threadId: ThreadId) => {
     void Haptics.selectionAsync();
     // A thread replaces the leaf sheet so workspace back navigation still works.
@@ -54,7 +58,20 @@ export function ThreadBackgroundWorkSheet({ route }: StaticScreenProps<Backgroun
         </Text>
       ) : (
         presentation.items.map((item) => (
-          <BackgroundWorkRow key={item.taskId} item={item} onOpen={openThread} />
+          <BackgroundWorkRow
+            key={item.taskId}
+            item={item}
+            // A watched thread in a linked environment is that environment's, never this one's.
+            environment={
+              item.watching?.kind === "thread" && item.watching.environmentId !== undefined
+                ? {
+                    label: linkedEnvironments.get(item.watching.environmentId) ?? null,
+                    connected: connectedEnvironmentIds.includes(item.watching.environmentId),
+                  }
+                : null
+            }
+            onOpen={openThread}
+          />
         ))
       )}
     </ScrollView>
@@ -69,6 +86,7 @@ export function ThreadBackgroundWorkSheet({ route }: StaticScreenProps<Backgroun
 
 function BackgroundWorkRow(props: {
   readonly item: PendingBackgroundWorkItem;
+  readonly environment: { readonly label: string | null; readonly connected: boolean } | null;
   readonly onOpen: (threadId: ThreadId) => void;
 }) {
   const { item } = props;
@@ -85,7 +103,17 @@ function BackgroundWorkRow(props: {
       />
       <View className="min-w-0 flex-1">
         <Text className="font-t3-medium text-sm text-foreground">{item.label}</Text>
-        <Text className="text-xs text-foreground-muted">{KIND_LABELS[item.kind]}</Text>
+        <Text className="text-xs text-foreground-muted">
+          {[
+            KIND_LABELS[item.kind],
+            props.environment?.label ? `on ${props.environment.label}` : null,
+            props.environment !== null && !props.environment.connected
+              ? "Waiting for connection"
+              : null,
+          ]
+            .filter((part) => part !== null)
+            .join(" · ")}
+        </Text>
       </View>
       {childThreadId === undefined ? null : (
         <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-subtle" />

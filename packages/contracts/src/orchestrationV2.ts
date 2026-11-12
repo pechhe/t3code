@@ -606,9 +606,14 @@ export const OrchestrationV2ThreadProjectSuggestionJson =
     dismissedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   }));
 
-/** A one-shot watch, local to the watcher's environment. */
+/** A one-shot watch. Only a thread target may name another environment; the rest are local to the watcher's. */
 export const OrchestrationV2WatchTarget = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("thread"), threadId: ThreadId }),
+  Schema.Struct({
+    kind: Schema.Literal("thread"),
+    threadId: ThreadId,
+    /** A linked environment's thread; absent means this environment. */
+    environmentId: Schema.optional(EnvironmentId),
+  }),
   Schema.Struct({
     kind: Schema.Literal("build_item"),
     number: PositiveInt,
@@ -715,6 +720,37 @@ export const OrchestrationV2WatchWaitsOnPerson = Schema.Struct({
 });
 export type OrchestrationV2WatchWaitsOnPerson = typeof OrchestrationV2WatchWaitsOnPerson.Type;
 
+/**
+ * How a watched thread in a linked environment ended, as that environment reported it, so the
+ * watcher words its wake the way a local watch does. `unreachable` is the watcher's own: the link
+ * or the thread there is gone for good.
+ */
+export const OrchestrationV2RemoteThreadWatchOutcome = Schema.Struct({
+  kind: Schema.Literals([
+    "finished",
+    "failed",
+    "stopped",
+    "archived",
+    "needs-input",
+    "unreadable",
+    "unreachable",
+    "moved",
+  ]),
+  title: Schema.optional(Schema.String),
+  /** The result, error or oldest request, in the watched thread's own words. */
+  detail: Schema.optional(Schema.String),
+  requestCount: Schema.optional(PositiveInt),
+  stoppedBackgroundWork: Schema.optional(Schema.Array(Schema.String)),
+  /** `unreachable`: why the watch cannot go on. */
+  reason: Schema.optional(Schema.String),
+  /** `moved`: where the thread went; no environment means the watcher's own. */
+  movedTo: Schema.optional(
+    Schema.Struct({ threadId: ThreadId, environmentId: Schema.optional(EnvironmentId) }),
+  ),
+});
+export type OrchestrationV2RemoteThreadWatchOutcome =
+  typeof OrchestrationV2RemoteThreadWatchOutcome.Type;
+
 const ThreadWatchFields = {
   id: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
@@ -752,6 +788,7 @@ export type OrchestrationV2ThreadWatch = typeof OrchestrationV2ThreadWatch.Type;
 /** A watch of another thread that has ended, kept so the watched thread stays findable in Lineage. */
 export const OrchestrationV2EndedThreadWatch = Schema.Struct({
   threadId: ThreadId,
+  environmentId: Schema.optional(EnvironmentId),
   title: TrimmedNonEmptyString,
   endedAt: IsoDateTime,
 });
@@ -1785,6 +1822,8 @@ const CommandNotificationSource = Schema.Struct({ kind: Schema.Literal("command"
 const ThreadNotificationSource = Schema.Struct({
   kind: Schema.Literal("thread"),
   threadId: ThreadId,
+  /** Set when the thread is in a linked environment. */
+  environmentId: Schema.optional(EnvironmentId),
 });
 
 /** Encode legacy background_command/background_task shapes first so older clients accept command/subagent sources. */
@@ -1817,13 +1856,19 @@ export const OrchestrationV2NotificationSource = kindUnionWithFallback(
       kind: Schema.Literal("background_task"),
       work: Schema.Literal("thread"),
       threadId: ThreadId,
+      environmentId: Schema.optional(EnvironmentId),
     }).pipe(
       Schema.decodeTo(Schema.toType(ThreadNotificationSource), {
-        decode: SchemaGetter.transform(({ threadId }) => ({ kind: "thread" as const, threadId })),
-        encode: SchemaGetter.transform(({ threadId }) => ({
+        decode: SchemaGetter.transform(({ threadId, environmentId }) => ({
+          kind: "thread" as const,
+          threadId,
+          ...(environmentId === undefined ? {} : { environmentId }),
+        })),
+        encode: SchemaGetter.transform(({ threadId, environmentId }) => ({
           kind: "background_task" as const,
           work: "thread" as const,
           threadId,
+          ...(environmentId === undefined ? {} : { environmentId }),
         })),
       }),
     ),
@@ -4484,6 +4529,8 @@ const OrchestrationV2InternalCommand = Schema.Union([
     ),
     /** A parked wait whose target has not happened: what T3 now knows of it, for its give-up wake. */
     lastKnown: Schema.optional(TrimmedNonEmptyString),
+    /** A watch on a thread in a linked environment: how that thread ended there. */
+    remote: Schema.optional(OrchestrationV2RemoteThreadWatchOutcome),
   }),
   /**
    * Attaches a workspace in another project, marks one released, or removes one. The workspace

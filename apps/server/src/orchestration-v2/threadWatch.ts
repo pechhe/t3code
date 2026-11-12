@@ -1,7 +1,9 @@
 import type {
+  EnvironmentId,
   OrchestrationV2AppThread,
   OrchestrationV2ConversationMessage,
   OrchestrationV2Notification,
+  OrchestrationV2RemoteThreadWatchOutcome,
   OrchestrationV2Run,
   OrchestrationV2RuntimeRequest,
   OrchestrationV2ServerCommand,
@@ -132,7 +134,9 @@ export function queuedThreadWatchWakes(
         typeof target === "string" || target.kind === "thread"
           ? message.notification?.source.kind === "thread" &&
             message.notification.source.threadId ===
-              (typeof target === "string" ? target : target.threadId)
+              (typeof target === "string" ? target : target.threadId) &&
+            message.notification.source.environmentId ===
+              (typeof target === "string" ? undefined : target.environmentId)
           : target.kind === "landing"
             ? message.notification?.source.kind === "landing" &&
               message.notification.source.operationId === target.operationId
@@ -163,7 +167,8 @@ export function requestPrompt(
   return undefined;
 }
 
-const LABEL: Record<ThreadWatchDecision["kind"] | "unreadable", string> = {
+const LABEL: Record<ThreadWatchWakeDecision["kind"], string> = {
+  unreachable: "Unreachable",
   archived: "Archived or deleted",
   unreadable: "Gone",
   "needs-input": "Needs input",
@@ -172,10 +177,8 @@ const LABEL: Record<ThreadWatchDecision["kind"] | "unreadable", string> = {
   finished: "Finished",
 };
 
-const OUTCOME: Record<
-  ThreadWatchDecision["kind"] | "unreadable",
-  OrchestrationV2Notification["outcome"]
-> = {
+const OUTCOME: Record<ThreadWatchWakeDecision["kind"], OrchestrationV2Notification["outcome"]> = {
+  unreachable: "unknown",
   archived: "cancelled",
   unreadable: "unknown",
   "needs-input": "updated",
@@ -192,7 +195,7 @@ function workName(name: string): string {
   return `\`${line.length > WORK_NAME_LENGTH ? `${line.slice(0, WORK_NAME_LENGTH)}…` : line}\``;
 }
 
-function quote(text: string, threadId: string): string {
+function quote(text: string, threadId: string, there: string): string {
   const trimmed = text.trim();
   const cut = trimmed.length > QUOTE_LENGTH;
   const shown = cut ? `${trimmed.slice(0, QUOTE_LENGTH)}…` : trimmed;
@@ -201,42 +204,94 @@ function quote(text: string, threadId: string): string {
     .map((line) => `> ${line}`)
     .join("\n");
   return cut
-    ? `${lines}\n\nThis was cut short. Read the rest with t3_thread_read using threadId ${threadId}.`
+    ? `${lines}\n\nThis was cut short. Read the rest with t3_thread_read using threadId ${threadId}${there}.`
     : lines;
+}
+
+/** What a thread watch's wake words: a local decision, or how a linked environment reported it. */
+export type ThreadWatchWakeDecision =
+  | { readonly kind: "archived" | "unreadable" | "finished" | "failed" }
+  | { readonly kind: "needs-input"; readonly count: number }
+  | { readonly kind: "stopped"; readonly stoppedBackgroundWork: ReadonlyArray<string> }
+  | { readonly kind: "unreachable"; readonly reason: string };
+
+/** The wording of `decision`, read off the run or requests it was decided from. */
+export function wakeDecisionOf(
+  decision: ThreadWatchDecision | { readonly kind: "unreadable" },
+): ThreadWatchWakeDecision {
+  switch (decision.kind) {
+    case "needs-input":
+      return { kind: "needs-input", count: decision.requests.length };
+    case "stopped":
+      return {
+        kind: "stopped",
+        stoppedBackgroundWork: decision.resultRun.stoppedBackgroundWork ?? [],
+      };
+    default:
+      return { kind: decision.kind };
+  }
+}
+
+/** The same wording for what a linked environment reported of its thread. */
+export function wakeDecisionOfRemote(
+  outcome: OrchestrationV2RemoteThreadWatchOutcome,
+): ThreadWatchWakeDecision {
+  switch (outcome.kind) {
+    case "needs-input":
+      return { kind: "needs-input", count: outcome.requestCount ?? 1 };
+    case "stopped":
+      return { kind: "stopped", stoppedBackgroundWork: outcome.stoppedBackgroundWork ?? [] };
+    case "unreachable":
+      return { kind: "unreachable", reason: outcome.reason ?? "The link no longer reaches it." };
+    // A move re-points the watch; it never words a wake.
+    case "moved":
+      return { kind: "unreadable" };
+    default:
+      return { kind: outcome.kind };
+  }
 }
 
 /**
  * The wake reports T3 Code's own facts, and quotes the watched thread only as that thread's words,
- * so a watched agent cannot pose as T3 Code to its watcher.
+ * so a watched agent cannot pose as T3 Code to its watcher. A thread in a linked environment is
+ * linked, and read, with that environment named.
  */
 export function threadWatchWake(input: {
-  readonly watch: { readonly threadId: ThreadId };
+  readonly watch: { readonly threadId: ThreadId; readonly environmentId?: EnvironmentId };
   readonly title: string;
   /** `unreadable`: the watched thread's row is gone, so it can never report. */
-  readonly decision: ThreadWatchDecision | { readonly kind: "unreadable" };
+  readonly decision: ThreadWatchWakeDecision;
   /** The result, error or oldest request, in the watched thread's own words. */
   readonly detail: string | undefined;
 }): { readonly text: string; readonly notification: OrchestrationV2Notification } {
   const { decision, watch } = input;
-  const link = `[${input.title.replaceAll("]", "\\]")}](t3-thread://v1/${watch.threadId})`;
+  const there =
+    watch.environmentId === undefined ? "" : ` and environmentId ${watch.environmentId}`;
+  const link = `[${input.title.replaceAll("]", "\\]")}](t3-thread://${
+    watch.environmentId === undefined
+      ? `v1/${watch.threadId}`
+      : `v2/${watch.environmentId}/${watch.threadId}`
+  })`;
   const said = (intro: string) =>
     input.detail === undefined || input.detail.trim().length === 0
       ? ""
-      : `\n\n${intro}\n\n${quote(input.detail, watch.threadId)}`;
+      : `\n\n${intro}\n\n${quote(input.detail, watch.threadId, there)}`;
   const body = (() => {
     switch (decision.kind) {
       case "archived":
         return `Thread ${link} was archived or deleted before it finished.`;
       case "unreadable":
         return `Thread ${link} can no longer be read, so it ended without reporting a result.`;
+      case "unreachable":
+        return `Thread ${link} can no longer be watched: ${decision.reason}`;
       case "needs-input": {
-        const count = decision.requests.length;
-        return `Thread ${link} is waiting for a person: it has ${count === 1 ? "1 pending request" : `${count} pending requests`}. Read and answer one with t3_pending_request_read and t3_pending_request_respond using threadId ${watch.threadId}, or ask the user.${said(`Its oldest request, in that thread's own words:`)}`;
+        const count = decision.count;
+        return `Thread ${link} is waiting for a person: it has ${count === 1 ? "1 pending request" : `${count} pending requests`}. Read and answer one with t3_pending_request_read and t3_pending_request_respond using threadId ${watch.threadId}${there}, or ask the user.${said(`Its oldest request, in that thread's own words:`)}`;
       }
       case "failed":
         return `Thread ${link} failed.${said("Its error:")}`;
       case "stopped": {
-        const work = decision.resultRun.stoppedBackgroundWork ?? [];
+        const work = decision.stoppedBackgroundWork;
         const cut =
           work.length === 0
             ? ""
@@ -251,7 +306,11 @@ export function threadWatchWake(input: {
   return {
     text: `${body}\n\nT3 Code has stopped watching it. Call watch with a thread target to be woken again.`,
     notification: {
-      source: { kind: "thread", threadId: watch.threadId },
+      source: {
+        kind: "thread",
+        threadId: watch.threadId,
+        ...(watch.environmentId === undefined ? {} : { environmentId: watch.environmentId }),
+      },
       outcome: OUTCOME[decision.kind],
       summary: label === undefined ? LABEL[decision.kind] : `${LABEL[decision.kind]}: ${label}`,
     },
@@ -265,7 +324,11 @@ export function watchTargetsEqual(
 ): boolean {
   switch (left.kind) {
     case "thread":
-      return right.kind === "thread" && left.threadId === right.threadId;
+      return (
+        right.kind === "thread" &&
+        left.threadId === right.threadId &&
+        left.environmentId === right.environmentId
+      );
     case "landing":
       return right.kind === "landing" && left.operationId === right.operationId;
     case "build_item":

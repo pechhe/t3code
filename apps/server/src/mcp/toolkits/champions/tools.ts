@@ -32,7 +32,6 @@ import {
   ChampionHistoryInput,
   ChampionHistoryResult,
   ChampionListInput,
-  ChampionListResult,
   ChampionProposal,
   ChampionReportInput,
   ChampionUpsertInput,
@@ -48,6 +47,8 @@ import {
   ChampionLearningNoteInput,
   ChampionLearningEntry,
 } from "@t3tools/contracts";
+import { ForwardedChampionApproval } from "../../../champions/ChampionApproval.ts";
+import { ChampionDirectoryResult } from "../../../champions/ChampionDirectory.ts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 import * as Champions from "../../../champions/ChampionService.ts";
@@ -66,7 +67,10 @@ const class_choices = Tool.make("t3_champions_class_choices", {
   ...shared,
   description:
     "Read server-resolved eligible agent classes for a destination project and classification, with policy provenance and honest refusals. New draft historical selection fields come from these choices; never guess a model.",
-  parameters: ChampionClassChoicesInput,
+  parameters: Schema.Struct({
+    ...ChampionClassChoicesInput.fields,
+    environmentId: OrchestratorMcpEnvironmentTarget,
+  }),
   success: ChampionClassChoicesResult,
 })
   .annotate(Tool.Readonly, true)
@@ -102,6 +106,7 @@ const control = Tool.make("t3_champions_control", {
       "discard_proposal",
     ]),
     id: ChampionGetInput.fields.id,
+    environmentId: OrchestratorMcpEnvironmentTarget,
   }),
   success: ChampionDetail,
 })
@@ -117,6 +122,7 @@ const proposal = Tool.make("t3_champions_proposal", {
     metrics: Schema.optional(ChampionProposal.fields.metrics),
     retires: ChampionProposal.fields.retires,
     reason: Schema.optional(ChampionProposal.fields.reason),
+    environmentId: OrchestratorMcpEnvironmentTarget,
   }),
   success: ChampionDetail,
 })
@@ -200,7 +206,7 @@ const confirm_learning = Tool.make("t3_champions_confirm_learning", {
 const investigation = Tool.make("t3_champions_investigation", {
   ...shared,
   description:
-    "Start or cancel a bounded investigation of a finding. action start records at most three distinct read-only hypotheses after current learning retrieval; returned branches give exact managed workId and attemptId. Delegate through the normal managed task tool; admission enforces capacity and budget. action cancel persists cancellation intent for the exact investigation; managed cancellation is reconciled durably and unknown children continue to hold capacity.",
+    "Start or cancel a bounded investigation of a finding. Only action cancel may name a linked environment with environmentId; start is the Champion owner's own call, there. action start records at most three distinct read-only hypotheses after current learning retrieval; returned branches give exact managed workId and attemptId. Delegate through the normal managed task tool; admission enforces capacity and budget. action cancel persists cancellation intent for the exact investigation; managed cancellation is reconciled durably and unknown children continue to hold capacity.",
   parameters: Schema.Struct({
     action: Schema.Literals(["start", "cancel"]),
     id: Schema.optional(ChampionInvestigationStartInput.fields.id),
@@ -212,6 +218,7 @@ const investigation = Tool.make("t3_champions_investigation", {
     alternatives: Schema.optional(ChampionInvestigationStartInput.fields.alternatives),
     requestId: Schema.optional(ChampionInvestigationCancelInput.fields.requestId),
     reason: Schema.optional(ChampionInvestigationCancelInput.fields.reason),
+    environmentId: OrchestratorMcpEnvironmentTarget,
   }),
   success: ChampionInvestigation,
 })
@@ -244,6 +251,8 @@ const finding_action = Tool.make("t3_champions_finding_action", {
     proposal: Schema.optional(ChampionAgentFindingActionInput.fields.proposal),
     reason: Schema.optional(ChampionAgentFindingActionInput.fields.reason),
     approvalQuote: Schema.optional(ChampionAgentFindingActionInput.fields.approvalQuote),
+    environmentId: OrchestratorMcpEnvironmentTarget,
+    forwardedApproval: Schema.optional(ForwardedChampionApproval),
     operationId: Schema.optional(ChampionFindingDeliveryInput.fields.operationId),
     revision: Schema.optional(ChampionFindingDeliveryInput.fields.revision),
     specUrl: Schema.optional(ChampionFindingDeliveryInput.fields.specUrl),
@@ -277,19 +286,22 @@ const learning_read = Tool.make("t3_champions_learning_read", {
 const list = Tool.make("t3_champions_list", {
   ...shared,
   description:
-    "Read compact champion summaries here, or in a linked environment named with environmentId.",
+    "Read compact Champion summaries from here and every linked environment, stamped with environmentId and environmentLabel. environments reports unreachable peers without failing the call. There is no paging: every summary is returned once. projectId filters this environment only. Set environmentId to read just that environment.",
   parameters: Schema.Struct({
     ...ChampionListInput.fields,
-    environmentId: OrchestratorMcpEnvironmentTarget,
+    environmentId: Schema.optional(EnvironmentId),
   }),
-  success: ChampionListResult,
+  success: ChampionDirectoryResult,
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
 const history = Tool.make("t3_champions_history", {
   ...shared,
   description: "Read a bounded page of measurement history and activity.",
-  parameters: ChampionHistoryInput,
+  parameters: Schema.Struct({
+    ...ChampionHistoryInput.fields,
+    environmentId: OrchestratorMcpEnvironmentTarget,
+  }),
   success: ChampionHistoryResult,
 })
   .annotate(Tool.Readonly, true)
@@ -298,7 +310,10 @@ const upsert = Tool.make("t3_champions_upsert", {
   ...shared,
   description:
     "Create a paused champion draft or edit its explicit setup/routine selections and charter. On a journey champion, repairsVia names an active champion in the same project that repairs what it confirms; null clears it.",
-  parameters: ChampionUpsertInput,
+  parameters: Schema.Struct({
+    ...ChampionUpsertInput.fields,
+    environmentId: OrchestratorMcpEnvironmentTarget,
+  }),
   success: ChampionDetail,
 })
   .annotate(Tool.Readonly, false)
@@ -306,8 +321,12 @@ const upsert = Tool.make("t3_champions_upsert", {
 const accept = Tool.make("t3_champions_accept", {
   ...shared,
   description:
-    "Accept the pending metric proposal named by proposalId (from t3_champions_get) for the user. It needs approvalQuote: the user's exact words approving it, copied from a message they typed in this thread. Without one it is refused and the proposal keeps waiting for them on the Champion page. A proposal replaced since you read it is refused.",
-  parameters: ChampionAgentAcceptInput,
+    "Accept the pending metric proposal named by proposalId (from t3_champions_get) for the user. It needs approvalQuote: the user's exact words approving it, copied from a message they typed in this thread. Without one it is refused and the proposal keeps waiting for them on the Champion page. A proposal replaced since you read it is refused. For a Champion in a linked environment, name it with environmentId: your quote is checked here against your thread, and the other environment accepts it only if the message was typed after the proposal was filed.",
+  parameters: Schema.Struct({
+    ...ChampionAgentAcceptInput.fields,
+    environmentId: OrchestratorMcpEnvironmentTarget,
+    forwardedApproval: Schema.optional(ForwardedChampionApproval),
+  }),
   success: ChampionDetail,
 })
   .annotate(Tool.Readonly, false)
@@ -361,7 +380,10 @@ const journey_record = Tool.make("t3_champions_journey_record", {
   ...shared,
   description:
     "Read what the server recorded about one journey check: concurrency, timing, latency per shard, machine peaks, spend, candidates, and every network destination allowed or blocked. includeJourneys adds each journey's recorded steps.",
-  parameters: ChampionJourneyRecordInput,
+  parameters: Schema.Struct({
+    ...ChampionJourneyRecordInput.fields,
+    environmentId: OrchestratorMcpEnvironmentTarget,
+  }),
   success: ChampionJourneyRecordResult,
 })
   .annotate(Tool.Readonly, true)

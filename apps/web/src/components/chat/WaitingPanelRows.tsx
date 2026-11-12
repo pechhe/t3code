@@ -1,4 +1,7 @@
-import type { PendingBackgroundWorkItem } from "@t3tools/client-runtime/state/thread-execution";
+import type {
+  PendingBackgroundWorkItem,
+  WatchTarget,
+} from "@t3tools/client-runtime/state/thread-execution";
 import { threadShellRelationshipStatus } from "@t3tools/client-runtime/state/thread-relationships";
 import {
   parkedWaitFacts,
@@ -45,6 +48,7 @@ import {
   waitsOnYouText,
 } from "./SubagentPanel.logic";
 import { threadRelationshipStatusLabel } from "./ThreadRelationshipIcon";
+import { useRemoteWatchedThread, WAITING_FOR_CONNECTION } from "./useRemoteWatchedThread";
 
 const KIND_PRESENTATION: Record<PanelWaitKind, { label: string; icon: LucideIcon }> = {
   agent: { label: "Agent", icon: CircleDashedIcon },
@@ -63,7 +67,7 @@ const KIND_LABEL_BY_GROUP: Partial<Record<PendingBackgroundWorkItem["group"], st
 
 export interface PanelLinkHandlers {
   readonly threadRef: ScopedThreadRef;
-  readonly onOpenThread: (threadId: ThreadId) => void;
+  readonly onOpenThread: (threadId: ThreadId, environmentId?: EnvironmentId) => void;
   readonly onOpenPullRequest: (event: MouseEvent<HTMLElement>, url: string) => void;
 }
 
@@ -109,15 +113,7 @@ function WaitLabel({
     );
   }
   if (watching?.kind === "thread") {
-    return (
-      <InlineButton
-        tone="muted"
-        aria-label={`Open watched thread ${item.label}`}
-        onClick={() => handlers.onOpenThread(watching.threadId)}
-      >
-        {item.label}
-      </InlineButton>
-    );
+    return <WatchedThreadLink label={item.label} watching={watching} handlers={handlers} />;
   }
   if (watching?.kind === "build_item") {
     return (
@@ -143,8 +139,42 @@ function WaitLabel({
   return <>{item.label}</>;
 }
 
+type WatchedThread = Extract<WatchTarget, { readonly kind: "thread" }>;
+
+/** The watched thread's name as a link. One in a linked environment opens there, under its name. */
+function WatchedThreadLink({
+  label,
+  watching,
+  handlers,
+}: {
+  readonly label: string;
+  readonly watching: WatchedThread;
+  readonly handlers: PanelLinkHandlers;
+}) {
+  const { threadId, environmentId } = watching;
+  const remote = useRemoteWatchedThread({
+    watcherEnvironmentId: handlers.threadRef.environmentId,
+    target: watching,
+  });
+  return (
+    <>
+      <InlineButton
+        tone="muted"
+        aria-label={`Open watched thread ${label}`}
+        disabled={environmentId !== undefined && !remote.connected}
+        onClick={() => handlers.onOpenThread(threadId, environmentId)}
+      >
+        {label}
+      </InlineButton>
+      {remote.environmentLabel === null ? null : (
+        <span className="font-normal text-muted-foreground"> on {remote.environmentLabel}</span>
+      )}
+    </>
+  );
+}
+
 // Lineage already keeps watched threads' shells, so the panel reads status from the same source.
-function WatchedThreadStatus({
+function LocalWatchedThreadStatus({
   threadRef,
   threadId,
 }: {
@@ -157,6 +187,42 @@ function WatchedThreadStatus({
     <span className="flex-none text-muted-foreground">
       {threadRelationshipStatusLabel(threadShellRelationshipStatus(shell))}
     </span>
+  );
+}
+
+// A thread in a linked environment is never looked up here: its status is read from that
+// environment while this client is connected to it, and is "Waiting for connection" until then.
+function RemoteWatchedThreadStatus({
+  watcherEnvironmentId,
+  watching,
+}: {
+  readonly watcherEnvironmentId: EnvironmentId;
+  readonly watching: WatchedThread;
+}) {
+  const remote = useRemoteWatchedThread({
+    watcherEnvironmentId,
+    target: watching,
+  });
+  const text = remote.connected
+    ? remote.status === null
+      ? null
+      : threadRelationshipStatusLabel(remote.status)
+    : WAITING_FOR_CONNECTION;
+  if (text === null) return null;
+  return <span className="flex-none text-muted-foreground">{text}</span>;
+}
+
+function WatchedThreadStatus({
+  threadRef,
+  watching,
+}: {
+  readonly threadRef: ScopedThreadRef;
+  readonly watching: WatchedThread;
+}) {
+  return watching.environmentId === undefined ? (
+    <LocalWatchedThreadStatus threadRef={threadRef} threadId={watching.threadId} />
+  ) : (
+    <RemoteWatchedThreadStatus watcherEnvironmentId={threadRef.environmentId} watching={watching} />
   );
 }
 
@@ -255,7 +321,7 @@ export function WaitRow(props: {
       {props.stalledSince != null ? (
         <StalledStatus since={props.stalledSince} />
       ) : item.watching?.kind === "thread" ? (
-        <WatchedThreadStatus threadRef={handlers.threadRef} threadId={item.watching.threadId} />
+        <WatchedThreadStatus threadRef={handlers.threadRef} watching={item.watching} />
       ) : (
         <span
           className={`inline-flex flex-none items-center gap-1 tabular-nums ${wait.awaited ? "text-muted-foreground" : "text-info-foreground"}`}
@@ -348,6 +414,14 @@ export function ParkedWaitRow(props: {
   const { wait, threadRef, nowMs } = props;
   const endWait = useAtomCommand(threadEnvironment.endWait, { reportFailure: true });
   const kind = parkedWaitKindLabel(wait);
+  const remote = useRemoteWatchedThread({
+    watcherEnvironmentId: threadRef.environmentId,
+    target: wait.target.kind === "thread" ? wait.target : null,
+  });
+  const facts = [
+    ...(remote.environmentLabel === null ? [] : [`on ${remote.environmentLabel}`]),
+    ...parkedWaitFacts(wait, nowMs),
+  ];
   return (
     <div
       data-parked-wait={wait.id}
@@ -358,7 +432,7 @@ export function ParkedWaitRow(props: {
         {parkedWaitWakesOn(wait, nowMs)}
       </span>
       <span className="flex min-w-0 flex-none items-center gap-1.5 text-muted-foreground tabular-nums">
-        {parkedWaitFacts(wait, nowMs).map((fact, index) => (
+        {facts.map((fact, index) => (
           <Fragment key={fact}>
             {index > 0 ? <span aria-hidden>·</span> : null}
             <span>{fact}</span>

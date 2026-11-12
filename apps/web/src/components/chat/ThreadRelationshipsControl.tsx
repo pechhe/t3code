@@ -24,6 +24,7 @@ import {
   threadShellRelationshipStatus,
   orderWebThreadLineageRows,
   resolveMergeBackTargetThreadId,
+  threadWatchRowKey,
   type ThreadRelationshipEdge,
   type ThreadRelationshipWalkRow,
   type ThreadWatchRelationshipRow,
@@ -91,6 +92,7 @@ import { AgentElapsed, AgentRowTime } from "./AgentElapsed";
 import { ThreadRelationshipIcon, threadRelationshipStatusLabel } from "./ThreadRelationshipIcon";
 import { ThreadLineageWorkflowRow } from "./ThreadLineageWorkflowRow";
 import { openSideChatTab } from "../../lib/sideChatPane";
+import { useRemoteWatchedThread, WAITING_FOR_CONNECTION } from "./useRemoteWatchedThread";
 
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -217,21 +219,33 @@ function ThreadLineageGroup<Row extends LineageRow>(props: {
 // Watches are not graph edges (see deriveThreadWatchRelationships), so these rows get their own
 // small row: the same look, but no stop control and no per-row subagent detail.
 function ThreadWatchRow(props: {
-  readonly threadId: ThreadId;
+  readonly watcherEnvironmentId: EnvironmentId;
+  readonly row: ThreadWatchRelationshipRow;
   readonly badge?: string | undefined;
   readonly graph: ReturnType<typeof deriveThreadRelationshipGraph>;
-  readonly titles: ReadonlyMap<ThreadId, string>;
+  readonly titles: ReadonlyMap<string, string>;
   readonly providers: ReadonlyArray<ServerProvider> | undefined;
-  readonly onOpenThread: (threadId: ThreadId) => void;
+  readonly onOpenThread: (threadId: ThreadId, environmentId?: EnvironmentId) => void;
 }) {
-  const { threadId } = props;
-  const node = props.graph.nodes.get(threadId);
-  const status = threadShellRelationshipStatus(node?.thread);
-  const title = node?.thread?.title ?? props.titles.get(threadId) ?? threadId;
-  const provider = props.providers?.find(
-    (entry) => entry.instanceId === node?.thread?.providerInstanceId,
-  );
+  const { threadId, environmentId } = props.row;
+  // A thread in a linked environment is read from that environment, never from this one's graph.
+  const remote = useRemoteWatchedThread({
+    watcherEnvironmentId: props.watcherEnvironmentId,
+    target: props.row,
+  });
+  const isRemote = environmentId !== undefined;
+  const node = isRemote ? undefined : props.graph.nodes.get(threadId);
+  const status = isRemote ? remote.status : threadShellRelationshipStatus(node?.thread);
+  const title =
+    (isRemote ? remote.shell?.title : node?.thread?.title) ??
+    props.titles.get(threadWatchRowKey(props.row)) ??
+    threadId;
+  const provider = isRemote
+    ? undefined
+    : props.providers?.find((entry) => entry.instanceId === node?.thread?.providerInstanceId);
   const failed = status === "failed" || status === "error";
+  const statusText =
+    isRemote && !remote.connected ? WAITING_FOR_CONNECTION : threadRelationshipStatusLabel(status);
   return (
     <li className="group relative flex h-8 items-center rounded-lg">
       <ThreadDetailsControl
@@ -239,8 +253,8 @@ function ThreadWatchRow(props: {
         variant="ghost"
         part="row"
         aria-label={`Open ${title} chat`}
-        disabled={node?.thread == null}
-        onClick={() => props.onOpenThread(threadId)}
+        disabled={isRemote ? !remote.connected : node?.thread == null}
+        onClick={() => props.onOpenThread(threadId, environmentId)}
       >
         <ThreadRelationshipIcon
           driver={provider?.driver}
@@ -254,10 +268,15 @@ function ThreadWatchRow(props: {
         {props.badge ? (
           <span className="shrink-0 text-2xs text-muted-foreground">{props.badge}</span>
         ) : null}
+        {remote.environmentLabel === null ? null : (
+          <span className="max-w-1/3 shrink-0 truncate text-2xs text-muted-foreground">
+            on {remote.environmentLabel}
+          </span>
+        )}
         <span
           className={`shrink-0 text-2xs ${failed ? "text-destructive" : "text-muted-foreground"}`}
         >
-          {threadRelationshipStatusLabel(status)}
+          {statusText}
         </span>
       </ThreadDetailsControl>
     </li>
@@ -615,19 +634,25 @@ export function ThreadRelationshipsPanel(props: {
     endedThreadWatches: currentThread?.endedThreadWatches,
     watcherThreadIds: watchers.map((watcher) => watcher.id),
   });
-  const watchTitles = new Map<ThreadId, string>([
-    ...watchers.map((watcher) => [watcher.id, watcher.title] as const),
+  const watchTitles = new Map<string, string>([
+    ...watchers.map(
+      (watcher) => [threadWatchRowKey({ threadId: watcher.id }), watcher.title] as const,
+    ),
     ...(currentThread?.threadWatches ?? []).flatMap((watch) =>
-      watch.target.kind === "thread" ? [[watch.target.threadId, watch.title] as const] : [],
+      watch.target.kind === "thread"
+        ? [[threadWatchRowKey(watch.target), watch.title] as const]
+        : [],
     ),
     ...(currentThread?.endedThreadWatches ?? []).map(
-      (ended) => [ended.threadId, ended.title] as const,
+      (ended) => [threadWatchRowKey(ended), ended.title] as const,
     ),
   ]);
   // Finished watches join the "Earlier" list. A thread already in the graph (a finished subagent
   // that was also watched) keeps its graph row and gets no second one.
   const graphThreadIds = new Set(relationshipRows.map((row) => row.threadId));
-  const earlierWatched = watched.filter((row) => !graphThreadIds.has(row.threadId));
+  const earlierWatched = watched.filter(
+    (row) => row.environmentId !== undefined || !graphThreadIds.has(row.threadId),
+  );
 
   // Subagents this thread is waiting on have a live row above its composer, not a second one here.
   const inSubagentPanel = new Set(
@@ -731,7 +756,14 @@ export function ThreadRelationshipsPanel(props: {
   }
 
   // Idle children can be omitted from the shell; opening one loads its own detail.
-  const openThread = (threadId: ThreadId) => {
+  const openThread = (threadId: ThreadId, environmentId?: EnvironmentId) => {
+    if (environmentId !== undefined) {
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(scopeThreadRef(environmentId, threadId)),
+      });
+      return;
+    }
     if (openSideChatTab(ref, graph.nodes.get(threadId)?.thread ?? null)) return;
     void navigate({
       to: "/$environmentId/$threadId",
@@ -1098,8 +1130,9 @@ export function ThreadRelationshipsPanel(props: {
       />
     ) : "watched" in row ? (
       <ThreadWatchRow
-        key={row.watched.threadId}
-        threadId={row.watched.threadId}
+        key={threadWatchRowKey(row.watched)}
+        watcherEnvironmentId={props.environmentId}
+        row={row.watched}
         {...(row.badge === undefined ? {} : { badge: row.badge })}
         graph={graph}
         titles={watchTitles}

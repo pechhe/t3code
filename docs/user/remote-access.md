@@ -395,14 +395,23 @@ You can also tell the agent to move it, for example "I need to wrap up, move
 this to my VPS". It finishes its reply first, then the thread moves and picks
 up where it said it would. Sending a message before then cancels the move.
 
-A thread can't move while background commands, watches or delegated tasks
-would still wake it here; let them finish or stop them first. A delegated
+What the thread is waiting on moves with it: its watches on threads, Build items and
+pull requests, and its parked waits. They wake the thread on the new machine, once each,
+and the first message there lists them. A wait on a thread that stays behind becomes a
+watch across the link, so the new machine needs a link back to this one. A thread can't
+move while a background command, a delegated task or a landing in progress is still
+running, because those can't follow it; let them finish or stop them first. A delegated
 task's own thread stays with the thread that started it.
 
 If the other machine's branch has commits this one lacks, the move is refused
 and nothing changes on either side. If the connection drops mid-move, the
 thread stays read-only until the other machine says whether it arrived; unlink
 that machine to keep the thread here instead.
+
+An agent can also wait on a thread on a linked machine: `watch` takes an `environmentId`
+in a thread target, and the agent wakes when that thread ends, as for a local one. The
+watch waits through a dropped link, and ends with one message saying why if the link is
+revoked or removed or the thread is deleted.
 
 An agent can also hand a task to a linked machine with `delegate_task`: it runs
 there as an ordinary thread, in the project with the same repository (or the

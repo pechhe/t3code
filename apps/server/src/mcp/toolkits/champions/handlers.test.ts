@@ -3,6 +3,9 @@ import {
   type ChampionLearningContributor,
   type ChampionLearningRevision,
   EnvironmentId,
+  ProjectId,
+  MessageId,
+  type ChampionDetail,
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -109,6 +112,48 @@ const learning = {
   versionConditions: [],
 };
 
+const detail: ChampionDetail = {
+  champion: {
+    id: "champion:gate",
+    projectId: ProjectId.make("project:box"),
+    name: "Gate",
+    purpose: "Stay fast",
+    schedule: { type: "interval", everyMs: 3600000 },
+    setupModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "m" },
+    routineModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "m" },
+    charter: { maxConcurrentRepairs: 1, maxRepairsPerDay: 3, instructions: "" },
+    lifecycle: "active",
+    ownerThreadId: leadThread,
+    setupThreadId: null,
+    nextCheckAt: null,
+    lastCheckAt: null,
+    outstandingCheckId: null,
+    attention: [],
+    openFindingCount: 0,
+    pendingProposal: false,
+    updatedAt: "2026-11-07T00:00:00.000Z",
+  },
+  metrics: [],
+  findings: [],
+  proposal: null,
+};
+
+const proof = {
+  quote: "Yes, go ahead.",
+  threadId: leadThread,
+  threadTitle: "Spec lead",
+  model: "m",
+  messageId: MessageId.make("message:approval"),
+  createdAt: "2026-11-07T00:01:00.000Z",
+};
+const fullLinkScope: McpInvocationContext.McpInvocationScope = {
+  ...linkScope,
+  client: {
+    ...linkScope.client!,
+    access: "full-access",
+    senderThread: { environmentId: here, threadId: leadThread, title: "Spec lead" },
+  },
+};
 const harness = Effect.sync(() => {
   const contributed: Array<ChampionLearningContributor> = [];
   const recorded: Array<unknown> = [];
@@ -117,6 +162,10 @@ const harness = Effect.sync(() => {
   const queried: Array<unknown> = [];
   const findingActions: Array<unknown> = [];
   const deliveries: Array<unknown> = [];
+  const controls: Array<unknown> = [];
+  const approvals: Array<unknown> = [];
+  const cancelled: Array<unknown> = [];
+  const proposed: Array<unknown> = [];
   const revision = (input: { readonly id: string }) =>
     ({
       ...input,
@@ -166,13 +215,36 @@ const harness = Effect.sync(() => {
         deliveries.push(input);
         return {} as never;
       }),
+    setLifecycle: (input) =>
+      Effect.sync(() => {
+        controls.push(input);
+        return detail;
+      }),
+    cancelInvestigation: (input) =>
+      Effect.sync(() => {
+        cancelled.push(input);
+        return {} as never;
+      }),
+    propose: (input) =>
+      Effect.sync(() => {
+        proposed.push(input);
+        return detail;
+      }),
+    verifyApproval: () => Effect.succeed(proof),
+    accept: (_input, relay) =>
+      Effect.sync(() => {
+        approvals.push(relay);
+        return detail;
+      }),
     runtimeState: () => Effect.succeed({ attempts: [], investigations: [], recommendations: [] }),
   });
   const forwarding = Layer.mock(PeerForwarding.PeerForwarding)({
     call: (_scope, tool, environmentId, params) =>
       Effect.sync(() => {
         forwarded.push({ environmentId, tool: tool.name, params });
-        return { forwarded: true } as never;
+        return tool.name === "t3_champions_control" || tool.name === "t3_champions_accept"
+          ? (detail as never)
+          : ({ forwarded: true } as never);
       }),
   });
   const layer = McpHttpServer.toolkitRegistration(ChampionsToolkit, ChampionsHandlers.layer).pipe(
@@ -193,6 +265,10 @@ const harness = Effect.sync(() => {
     queried,
     findingActions,
     deliveries,
+    controls,
+    approvals,
+    cancelled,
+    proposed,
     layer,
   };
 });
@@ -448,4 +524,138 @@ it.effect("a Champion check or setup from a thread at the delegation limit is re
       }
     }).pipe(Effect.provide(h.layer));
   }),
+);
+
+it.effect("allows Champion writes over full-access links while refusing read-only links", () =>
+  Effect.gen(function* () {
+    const h = yield* harness;
+    yield* Effect.gen(function* () {
+      const input = { id: "champion:gate", action: "pause" };
+      const denied = yield* call("t3_champions_control", linkScope, input);
+      expect(denied.isError).toBe(true);
+      expect(denied.text).toContain("capability_denied");
+      expect(h.controls).toEqual([]);
+      const allowed = yield* call(
+        "t3_champions_control",
+        {
+          ...linkScope,
+          client: { ...linkScope.client!, access: "full-access" },
+        },
+        input,
+      );
+      expect(allowed.text).not.toContain("capability_denied");
+      expect(allowed.isError, allowed.text).toBe(false);
+      expect(h.controls).toEqual([{ id: "champion:gate", lifecycle: "paused" }]);
+      const remote = yield* call("t3_champions_control", threadScope(leadThread), {
+        ...input,
+        environmentId: box,
+      });
+      expect(remote.isError).toBe(false);
+      expect(h.forwarded).toMatchObject([{ tool: "t3_champions_control", environmentId: box }]);
+    }).pipe(Effect.provide(h.layer));
+  }),
+);
+
+it.effect(
+  "forwards verified person-typed approvals and accepts them only from a full-access link with a source thread",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      yield* Effect.gen(function* () {
+        const input = { id: "champion:gate", proposalId: "proposal:1", approvalQuote: proof.quote };
+        const remote = yield* call("t3_champions_accept", threadScope(leadThread), {
+          ...input,
+          environmentId: box,
+        });
+        expect(remote.isError, remote.text).toBe(false);
+        expect(h.forwarded[0]!.params).toMatchObject({ forwardedApproval: proof });
+        for (const scope of [
+          threadScope(leadThread),
+          linkScope,
+          { ...fullLinkScope, client: { ...fullLinkScope.client!, senderThread: undefined } },
+          { ...fullLinkScope, client: { ...fullLinkScope.client!, linked: false } },
+        ]) {
+          const denied = yield* call("t3_champions_accept", scope, {
+            ...input,
+            forwardedApproval: proof,
+          });
+          expect(denied.isError).toBe(true);
+        }
+        expect(h.approvals).toEqual([]);
+        const allowed = yield* call("t3_champions_accept", fullLinkScope, {
+          ...input,
+          forwardedApproval: proof,
+        });
+        expect(allowed.isError, allowed.text).toBe(false);
+        expect(h.approvals).toMatchObject([
+          { forwarded: { ...proof, sourceEnvironment: { id: here, label: "peach-live" } } },
+        ]);
+      }).pipe(Effect.provide(h.layer));
+    }),
+);
+
+it.effect(
+  "runs Champion writes for an orchestrating thread in a linked environment, but never a Champion's own calls",
+  () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      yield* Effect.gen(function* () {
+        const cancel = {
+          action: "cancel",
+          id: "champion:gate",
+          investigationId: "inv:1",
+          requestId: "req:1",
+          reason: "Stale",
+        };
+        const edit = {
+          action: "edit",
+          id: "champion:gate",
+          metrics: [],
+          retires: ["m"],
+          reason: "Tidy",
+        };
+        const full = {
+          ...linkScope,
+          client: { ...linkScope.client!, access: "full-access" as const },
+        };
+        // Over a full-access link a non-owner cancels as the Champion page does; a read-only link is refused.
+        yield* call("t3_champions_investigation", full, cancel);
+        expect((yield* call("t3_champions_proposal", full, edit)).isError).toBe(false);
+        expect(h.cancelled).toHaveLength(1);
+        expect(h.proposed).toHaveLength(1);
+        for (const [tool, args] of [
+          ["t3_champions_investigation", cancel],
+          ["t3_champions_proposal", edit],
+        ] as const)
+          expect((yield* call(tool, linkScope, args)).text).toContain("capability_denied");
+        expect(h.cancelled).toHaveLength(1);
+        // From a thread here, environmentId sends the call on; a Champion's own acts never leave.
+        yield* call("t3_champions_investigation", threadScope(leadThread), {
+          ...cancel,
+          environmentId: box,
+        });
+        yield* call("t3_champions_proposal", threadScope(leadThread), {
+          ...edit,
+          environmentId: box,
+        });
+        expect(h.forwarded.map(({ tool }) => tool)).toEqual([
+          "t3_champions_investigation",
+          "t3_champions_proposal",
+        ]);
+        for (const refused of [
+          {
+            tool: "t3_champions_investigation",
+            args: { action: "start", id: "champion:gate", environmentId: box },
+          },
+          {
+            tool: "t3_champions_proposal",
+            args: { action: "submit", metrics: [], reason: "x", environmentId: box },
+          },
+        ]) {
+          const result = yield* call(refused.tool, threadScope(leadThread), refused.args);
+          expect(result.isError, refused.tool).toBe(true);
+        }
+        expect(h.forwarded).toHaveLength(2);
+      }).pipe(Effect.provide(h.layer));
+    }),
 );

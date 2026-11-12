@@ -14,6 +14,7 @@ import {
   ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
@@ -68,6 +69,11 @@ export type ThreadImportError =
   | ThreadImportWriteError
   | ThreadImportProjectMismatchError
   | ThreadImportContinuationError;
+
+type ThreadWaitCommand = Extract<
+  Parameters<ThreadManagement.ThreadManagementService["Service"]["dispatch"]>[0],
+  { readonly type: "thread.thread-watch" | "thread.pull-request.watch" }
+>;
 
 /** A checkout an import prepared for its thread. */
 export interface ImportedWorkspace {
@@ -279,8 +285,89 @@ const make = Effect.gen(function* () {
         return false;
       }),
     );
-    const runId = yield* startContinuation(threadId, input);
+    const skipped = yield* keepWaits(threadId, input);
+    const runId = yield* startContinuation(threadId, {
+      ...input,
+      // A wait this environment could not recreate is the agent's to set up again, so it is told.
+      ...(input.continuationPrompt === undefined || skipped.length === 0
+        ? {}
+        : {
+            continuationPrompt: `${input.continuationPrompt}\n\nThese waits could not move with the thread and need setting up again: ${skipped.join("; ")}.`,
+          }),
+    });
     return { threadId, projectId: input.projectId, created, runId };
+  });
+
+  /**
+   * Recreates the waits that moved with the thread. Each command id derives from the thread and
+   * the wait, so a resent import adds none twice. A wait the thread cannot take (its target gone
+   * here) is logged and skipped rather than failing a move that already landed.
+   */
+  const keepWaits = Effect.fn("ThreadImportService.keepWaits")(function* (
+    threadId: ThreadId,
+    input: OrchestratorMcpThreadImportInput,
+  ) {
+    const skipped: Array<string> = [];
+    const dispatch = (commandId: string, name: string, command: ThreadWaitCommand) =>
+      threads.dispatch(command).pipe(
+        Effect.asVoid,
+        Effect.catchCause((cause) =>
+          Effect.logWarning("thread-import.wait-skipped", { threadId, commandId, cause }).pipe(
+            Effect.andThen(Effect.sync(() => skipped.push(name))),
+          ),
+        ),
+      );
+    for (const watch of input.watches ?? []) {
+      const commandId = `command:thread-import:${threadId}:watch:${watch.id}`;
+      yield* dispatch(commandId, `watching ${watch.title}`, {
+        type: "thread.thread-watch",
+        commandId: CommandId.make(commandId),
+        threadId,
+        target: watch.target,
+        title: watch.title,
+        watching: true,
+      });
+    }
+    const now = yield* Clock.currentTimeMillis;
+    for (const wait of input.parkedWaits ?? []) {
+      const commandId = `command:thread-import:${threadId}:parked:${wait.id}`;
+      // The wait keeps the moment it gives up, not the time it was given.
+      const remaining = wait.givesUpAt === undefined ? undefined : Date.parse(wait.givesUpAt) - now;
+      yield* dispatch(commandId, `parked on ${wait.title}`, {
+        type: "thread.thread-watch",
+        commandId: CommandId.make(commandId),
+        threadId,
+        target: wait.target,
+        title: wait.title,
+        watching: true,
+        park: {
+          ...(wait.target.kind === "time" || remaining === undefined
+            ? {}
+            : { expectedMs: Math.max(1_000, Math.floor(remaining / 2)) }),
+          ...(wait.note === undefined ? {} : { note: wait.note }),
+        },
+      });
+    }
+    for (const link of input.pullRequestWatches ?? []) {
+      const commandId = `command:thread-import:${threadId}:pull-request:${link.host}/${link.repository}#${link.number}`;
+      yield* dispatch(commandId, `watching pull request #${link.number}`, {
+        type: "thread.pull-request.watch",
+        commandId: CommandId.make(commandId),
+        threadId,
+        host: link.host,
+        repository: link.repository,
+        number: link.number,
+        watching: true,
+        link: {
+          url: link.url,
+          source: "agent",
+          ...(link.repositoryWebUrl === undefined
+            ? {}
+            : { repositoryWebUrl: link.repositoryWebUrl }),
+        },
+      });
+    }
+    return skipped;
   });
 
   /** Sends the continuation prompt once; a retry replays the same command. */

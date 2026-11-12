@@ -4551,6 +4551,56 @@ it.effect(
     ),
 );
 
+it.effect("accepts a source-verified approval for several earlier requests but no later one", () =>
+  withFixture((f, service) =>
+    Effect.gen(function* () {
+      yield* service.upsert(config);
+      const first = yield* service.propose({ id: config.id, metrics: [metric], reason: "First" });
+      f.installAgentThread(agentThread, "Source thread");
+      yield* TestClock.adjust("1 minute");
+      f.addMessage(agentThread, "Yes, go ahead.", { createdAt: DateTime.makeUnsafe(60_000) });
+      const proof = yield* service.verifyApproval({
+        threadId: agentThread,
+        quote: "Yes, go ahead.",
+      });
+      assert.isString(proof.messageId);
+      const relay = {
+        threadId: proof.threadId,
+        quote: proof.quote,
+        forwarded: {
+          ...proof,
+          sourceEnvironment: { id: EnvironmentId.make("source-machine"), label: "Mac" },
+        },
+      };
+      const accepted = yield* service.accept(
+        { id: config.id, proposalId: first.proposal!.id! },
+        relay,
+      );
+      assert.isNull(accepted.proposal);
+      const activity = (yield* service.history({ id: config.id })).activity.find(
+        (event) => event.approval !== undefined,
+      )!;
+      assert.deepEqual(activity.approval!.sourceEnvironment, {
+        id: "source-machine",
+        label: "Mac",
+      });
+      // The source message is not consumed by acceptance.
+      const sameTime = yield* service.propose({
+        id: config.id,
+        metrics: [metric],
+        reason: "Second",
+      });
+      yield* service.accept({ id: config.id, proposalId: sameTime.proposal!.id! }, relay);
+      yield* TestClock.adjust("1 minute");
+      const later = yield* service.propose({ id: config.id, metrics: [metric], reason: "Later" });
+      yield* refusedWith(
+        service.accept({ id: config.id, proposalId: later.proposal!.id! }, relay),
+        "before this request was filed",
+      );
+    }),
+  ),
+);
+
 it.effect(
   "lets an agent answer a decision with the person's words and tells the owner once that it was relayed",
   () =>

@@ -401,6 +401,7 @@ export interface ThreadManagementServiceShape {
     readonly itemId: TurnItemId;
   }) => Effect.Effect<OrchestrationV2GetTurnItemResult, Orchestrator.OrchestratorV2Error>;
   readonly getThreadRecords: Orchestrator.OrchestratorV2["Service"]["getThreadRecords"];
+  readonly watchedThreadStanding: Orchestrator.OrchestratorV2["Service"]["watchedThreadStanding"];
   readonly getThreadProjection: (
     threadId: ThreadId,
   ) => Effect.Effect<OrchestrationV2ThreadProjection, Orchestrator.OrchestratorV2Error>;
@@ -1863,6 +1864,9 @@ const make = Effect.gen(function* () {
         Effect.map((item) => ({ item: item === null ? null : projectTurnItemForDetail(item) })),
       );
     }),
+    watchedThreadStanding: Effect.fn("ThreadManagementService.watchedThreadStanding")((threadId) =>
+      orchestrator.watchedThreadStanding(threadId),
+    ),
     getThreadRecords: Effect.fn("ThreadManagementService.getThreadRecords")(
       function (threadId, fields, filter) {
         return ensureProjectionTranscript(threadId).pipe(

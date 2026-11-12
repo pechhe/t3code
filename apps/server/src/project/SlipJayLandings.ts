@@ -877,3 +877,32 @@ export const layerNone = Layer.succeed(
     ),
   }),
 );
+
+/**
+ * Why T3 cannot tell when a commit reaches Production for the repository one of `checkouts`
+ * holds, if it cannot: no SlipJay here, no SlipJay repository, or no release state from the runner.
+ */
+export const productionWaitRefusal = Effect.fn("SlipJayLandings.productionWaitRefusal")(function* (
+  slipJay: Option.Option<SlipJayLandings["Service"]>,
+  input: { readonly projectId: string; readonly checkouts: ReadonlyArray<string> },
+) {
+  if (Option.isNone(slipJay)) {
+    return "T3 follows no SlipJay runner here, so it cannot tell when a commit reaches Production.";
+  }
+  let repository: string | null = null;
+  for (const checkout of input.checkouts) {
+    repository = yield* slipJay.value.repositoryOf(checkout);
+    if (repository !== null) break;
+  }
+  if (repository === null) {
+    return `Project ${input.projectId} is not a SlipJay repository, so T3 receives no Production state for it.`;
+  }
+  const overview = Option.getOrUndefined(yield* Stream.runHead(slipJay.value.runner));
+  const known = overview?.repositories.find((entry) => entry.repo === repository);
+  if (known?.release == null) {
+    return `T3 receives no release state for ${repository} from the SlipJay runner${
+      overview?.connected === true ? "" : ", which it is not connected to now"
+    }, so it cannot tell when a commit reaches Production there.`;
+  }
+  return undefined;
+});

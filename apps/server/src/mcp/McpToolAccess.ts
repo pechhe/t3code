@@ -578,6 +578,30 @@ export const either = <P, A, E, R, A2, E2, R2>(
   );
 };
 
+const preparations = new WeakMap<
+  object,
+  (params: object) => Effect.Effect<object, OrchestratorMcpFailure>
+>();
+
+/** Verify source-local evidence before forwarding a call to a linked environment. */
+export const beforeForwarding = <P extends object, A, E, R, R2>(
+  declaration: Declaration<(params: P) => Effect.Effect<A, E, R>>,
+  prepare: (params: P) => Effect.Effect<P, OrchestratorMcpFailure, R2>,
+) => {
+  const prepared = declare(
+    checkedHandler(declaration) as (
+      params: P,
+    ) => Effect.Effect<A, E | OrchestratorMcpFailure, R | R2>,
+    remoteCheckOf(declaration) as RemoteCheck<P> | undefined,
+    forwardedOf(declaration) as Forwarded<P, A, E, R> | undefined,
+  );
+  preparations.set(
+    prepared,
+    prepare as unknown as (params: object) => Effect.Effect<object, OrchestratorMcpFailure>,
+  );
+  return prepared;
+};
+
 /**
  * `declaration`, whose result from a linked environment then goes through
  * `forwarded` here, for what this environment records about the call.
@@ -712,8 +736,8 @@ export class HandlersLayer<Tools extends Record<string, Tool.Any>, EX = never, R
 }
 
 /**
- * The only tools a linked environment may call: thread and Champion reads, Away (`setsAway`)
- * and passing on a contributed learning (`contributes`). Every other tool refuses it before
+ * The only tools a linked environment may call: thread and Champion reads, whether a watched
+ * thread has ended, Away (`setsAway`) and passing on a contributed learning (`contributes`). Every other tool refuses it before
  * running, so a tool added later is closed to peers until listed here.
  */
 const PEER_THREAD_TOOLS: ReadonlySet<string> = new Set([
@@ -728,6 +752,7 @@ const PEER_THREAD_TOOLS: ReadonlySet<string> = new Set([
   "t3_champions_learning_search",
   "t3_champions_learning_read",
   "t3_champions_record_learning",
+  "t3_thread_watch_status",
 ]);
 
 const refusePeerClient = McpInvocationContext.McpInvocationContext.pipe(
@@ -815,8 +840,10 @@ const routed = Effect.fn("McpToolAccess.routed")(function* <Tools extends Record
         if (scope.linkedEnvironments === false) return yield* PeerForwarding.linkedEnvironmentsOff;
         yield* (remote as RemoteCheck<typeof params>)(params);
         if (Option.isNone(forwarding)) return yield* linksUnavailable;
+        const prepared = preparations.get(declaration);
+        const outgoing = prepared === undefined ? params : yield* prepared(params);
         const result = yield* forwarding.value.call(scope, tool, target, {
-          ...params,
+          ...outgoing,
           environmentId,
         });
         return forwarded === undefined ? result : yield* forwarded(params, target, result);

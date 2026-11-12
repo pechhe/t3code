@@ -107,6 +107,7 @@ import * as FleetProjection from "./fleet/FleetProjection.ts";
 import * as FleetPeers from "./peers/FleetPeers.ts";
 import * as PeerForwarding from "./peer/PeerForwarding.ts";
 import * as RemoteDelegation from "./peer/RemoteDelegation.ts";
+import * as RemoteThreadWatches from "./peer/RemoteThreadWatches.ts";
 import * as PeerLinkRequests from "./peer/PeerLinkRequests.ts";
 import * as HandoffGit from "./peer/handoff/HandoffGit.ts";
 import * as HandoffImport from "./peer/handoff/HandoffImport.ts";
@@ -987,6 +988,10 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.effectDiscard(
     RemoteDelegation.RemoteDelegation.pipe(Effect.flatMap((remote) => remote.start())),
   ),
+  // Wakes threads waiting on a thread in a linked environment, including after a restart.
+  Layer.effectDiscard(
+    RemoteThreadWatches.RemoteThreadWatches.pipe(Effect.flatMap((watches) => watches.start())),
+  ),
   // Runs moves that waited for a turn to end, and settles any a restart cut short.
   Layer.effectDiscard(
     ThreadHandoff.ThreadHandoff.pipe(Effect.flatMap((handoff) => handoff.start_())),
@@ -995,6 +1000,7 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(
     PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),
   ),
+  Layer.provide(RemoteThreadWatches.layer),
   // delegate_task to a linked environment, from /mcp and the follower above.
   Layer.provide(RemoteDelegationLayer.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
   // Links agents ask for: shown in a thread from /mcp, answered over WebSocket.

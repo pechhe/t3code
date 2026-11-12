@@ -1,4 +1,4 @@
-import { ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { threadWatchers } from "./shellThreadWatches.ts";
@@ -7,7 +7,11 @@ const worker = ThreadId.make("thread:worker");
 
 const shell = (
   id: string,
-  watches: ReadonlyArray<{ readonly threadId: ThreadId; readonly startedAt: string }>,
+  watches: ReadonlyArray<{
+    readonly threadId: ThreadId;
+    readonly startedAt: string;
+    readonly environmentId?: EnvironmentId;
+  }>,
   archivedAt: string | null = null,
   deletedAt: string | null = null,
 ) => ({
@@ -17,7 +21,11 @@ const shell = (
   threadWatches: watches.map((watch, index) => ({
     id: `thread-watch:${id}:${index}`,
     title: "Worker",
-    target: { kind: "thread" as const, threadId: watch.threadId },
+    target: {
+      kind: "thread" as const,
+      threadId: watch.threadId,
+      ...(watch.environmentId === undefined ? {} : { environmentId: watch.environmentId }),
+    },
     startedAt: watch.startedAt,
   })),
 });
@@ -63,6 +71,22 @@ describe("threadWatchers", () => {
     expect(threadWatchers(shells, worker).map((watcher) => watcher.id)).toEqual([
       "thread:early",
       "thread:late",
+    ]);
+  });
+
+  it("does not count a watch of a linked environment's thread that shares the id", () => {
+    const shells = [
+      shell("thread:remote-watcher", [
+        {
+          threadId: worker,
+          startedAt: "2026-10-17T09:00:00.000Z",
+          environmentId: EnvironmentId.make("environment:peer"),
+        },
+      ]),
+      shell("thread:local-watcher", [{ threadId: worker, startedAt: "2026-10-17T10:00:00.000Z" }]),
+    ];
+    expect(threadWatchers(shells, worker).map((watcher) => watcher.id)).toEqual([
+      "thread:local-watcher",
     ]);
   });
 });

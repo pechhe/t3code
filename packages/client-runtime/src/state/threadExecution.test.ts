@@ -1,4 +1,5 @@
 import {
+  EnvironmentId,
   TurnItemId,
   NodeId,
   MessageId,
@@ -542,6 +543,29 @@ describe("presentPendingBackgroundWork", () => {
     ).toMatchObject({
       title: "Waiting on Build #4297",
       items: [{ label: "Build #4297", group: "build_item" }],
+    });
+  });
+
+  it("keeps the environment of a watched thread in a linked environment", () => {
+    const environmentId = EnvironmentId.make("environment:peer");
+    const watching = {
+      kind: "thread" as const,
+      threadId: ThreadId.make("thread:remote"),
+      environmentId,
+    };
+    expect(
+      presentPendingBackgroundWork([
+        {
+          taskId: "thread-watch:3",
+          kind: "monitor",
+          description: "Watching thread Remote worker",
+          awaited: true,
+          watching,
+        },
+      ]),
+    ).toMatchObject({
+      title: "Waiting on Remote worker",
+      items: [{ label: "Remote worker", group: "thread", watching }],
     });
   });
 

@@ -604,6 +604,14 @@ describe("championMachineGap", () => {
     });
   });
 
+  it("keeps a connected machine with no first list out of the empty state", () => {
+    expect(
+      championMachineGap([{ ...machine("Studio", "connected"), environmentId: "studio" }], {
+        loadingEnvironmentIds: ["studio"],
+      }),
+    ).toMatchObject({ waiting: true, title: "Connecting to Studio" });
+  });
+
   it("leaves connected and never-joined machines to the true empty states", () => {
     expect(
       championMachineGap([machine("Studio", "connected"), machine("Spare", "available")]),

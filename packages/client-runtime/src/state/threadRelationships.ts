@@ -1,5 +1,6 @@
 import {
   isOrchestrationV2WorkActive,
+  type EnvironmentId,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadShell,
   type ThreadId,
@@ -184,14 +185,21 @@ export type ThreadWatchRelationshipKind = "watching" | "watchedBy" | "watched";
 
 export interface ThreadWatchRelationshipRow {
   readonly threadId: ThreadId;
+  /** A linked environment's thread; absent means the watcher's own environment. */
+  readonly environmentId?: EnvironmentId;
   readonly kind: ThreadWatchRelationshipKind;
 }
 
+/** A local and a remote thread may share an id, so rows are told apart by environment too. */
+export const threadWatchRowKey = (row: {
+  readonly threadId: ThreadId;
+  readonly environmentId?: EnvironmentId | undefined;
+}): string => `${row.environmentId ?? ""}\u0000${row.threadId}`;
+
 /**
- * The threads this one watches and the threads watching it. Kept beside the relationship graph,
- * not in it: a watch is not a parent/child edge, and the graph's other consumers (mobile, the
- * running count) would otherwise start treating watched threads as work this thread owns.
- * Build-item and pull-request watches are not threads and stay out.
+ * The threads this one watches and the threads watching it. A watch is not a graph edge: the graph's
+ * other consumers would count watched threads as work this thread owns. Only thread watches appear;
+ * one in a linked environment keeps its `environmentId`, and only watchers here are known.
  */
 export function deriveThreadWatchRelationships(input: {
   readonly threadId: ThreadId;
@@ -204,21 +212,34 @@ export function deriveThreadWatchRelationships(input: {
   /** Threads this one finished watching, newest first, minus any it watches again. */
   readonly watched: ReadonlyArray<ThreadWatchRelationshipRow>;
 } {
-  const watching = new Set<ThreadId>();
+  const rowOf = (
+    threadId: ThreadId,
+    environmentId: EnvironmentId | undefined,
+    kind: ThreadWatchRelationshipKind,
+  ): ThreadWatchRelationshipRow => ({
+    threadId,
+    ...(environmentId === undefined ? {} : { environmentId }),
+    kind,
+  });
+  const isSelf = (threadId: ThreadId, environmentId: EnvironmentId | undefined) =>
+    environmentId === undefined && threadId === input.threadId;
+  const watching = new Map<string, ThreadWatchRelationshipRow>();
   for (const watch of input.threadWatches ?? []) {
-    if (watch.target.kind === "thread" && watch.target.threadId !== input.threadId) {
-      watching.add(watch.target.threadId);
-    }
+    if (watch.target.kind !== "thread") continue;
+    const { threadId, environmentId } = watch.target;
+    if (isSelf(threadId, environmentId)) continue;
+    const row = rowOf(threadId, environmentId, "watching");
+    watching.set(threadWatchRowKey(row), row);
   }
-  const watched = new Set<ThreadId>();
+  const watched = new Map<string, ThreadWatchRelationshipRow>();
   for (const ended of input.endedThreadWatches ?? []) {
-    if (ended.threadId !== input.threadId && !watching.has(ended.threadId)) {
-      watched.add(ended.threadId);
-    }
+    const row = rowOf(ended.threadId, ended.environmentId, "watched");
+    const key = threadWatchRowKey(row);
+    if (!isSelf(ended.threadId, ended.environmentId) && !watching.has(key)) watched.set(key, row);
   }
   return {
-    watching: [...watching].map((threadId) => ({ threadId, kind: "watching" })),
-    watched: [...watched].map((threadId) => ({ threadId, kind: "watched" })),
+    watching: [...watching.values()],
+    watched: [...watched.values()],
     watchedBy: [...new Set(input.watcherThreadIds)].map((threadId) => ({
       threadId,
       kind: "watchedBy",

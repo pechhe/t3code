@@ -94,3 +94,35 @@ it("opens full command details for short labels and keeps pending tasks current"
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
 });
+
+it("shows a watched thread in an unreachable linked environment as waiting for connection", async () => {
+  const task = {
+    taskId: "thread-watch:remote",
+    kind: "monitor" as const,
+    description: "Watching thread Remote worker",
+    awaited: true as const,
+    watching: {
+      kind: "thread" as const,
+      threadId: ThreadId.make("thread"),
+      environmentId: EnvironmentId.make("peer"),
+    },
+  };
+  const [item] = presentPendingBackgroundWork([task])?.items ?? [];
+  await using screen = await render(
+    <WaitRow
+      wait={{ item: item!, task, awaited: true, startedAtMs: null }}
+      handlers={{
+        threadRef: scopeThreadRef(EnvironmentId.make("test"), ThreadId.make("thread")),
+        onOpenThread: () => undefined,
+        onOpenPullRequest: () => undefined,
+      }}
+      environmentId={EnvironmentId.make("test")}
+      threadId={ThreadId.make("thread")}
+      turnItems={[]}
+    />,
+  );
+  await expect.element(screen.getByText("Waiting for connection")).toBeVisible();
+  await expect
+    .element(screen.getByRole("button", { name: "Open watched thread Remote worker" }))
+    .toBeDisabled();
+});

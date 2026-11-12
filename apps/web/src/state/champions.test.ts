@@ -126,6 +126,19 @@ describe("allChampionsAtom", () => {
     expect(harness.read(B)?.champions).toHaveLength(1);
   });
 
+  it("publishes a linked machine's first list as soon as it arrives", () => {
+    using harness = setup();
+    harness.registry.set(harness.live.a, AsyncResult.initial());
+    harness.machines({ connectionState: "connecting" });
+    expect(harness.read(A)?.champions).toBeNull();
+    harness.machines({ connectionState: "connected" });
+    expect(harness.read(A)?.champions).toBeNull();
+    harness.registry.set(harness.live.a, listed("first-linked-champion"));
+    expect(harness.read(A)?.champions?.map((champion) => champion.id)).toEqual([
+      "first-linked-champion",
+    ]);
+  });
+
   it("drops the last list when the server revokes access on a live connection", () => {
     using harness = setup();
     harness.registry.set(

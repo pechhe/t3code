@@ -96,10 +96,11 @@ function RelayedApproval(props: {
       </Badge>
       <span>through</span>
       <ThreadLink
-        environmentId={props.environmentId}
+        environmentId={approval.sourceEnvironment?.id ?? props.environmentId}
         threadId={approval.threadId}
         label={approval.threadTitle.trim() || "an agent thread"}
       />
+      {approval.sourceEnvironment ? <span>on {approval.sourceEnvironment.label}</span> : null}
       {when ? (
         <>
           <span aria-hidden>·</span>

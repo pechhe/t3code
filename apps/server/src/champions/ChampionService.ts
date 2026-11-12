@@ -1,3 +1,4 @@
+import type { ForwardedChampionApproval } from "./ChampionApproval.ts";
 import * as ChampionEvidence from "./ChampionEvidence.ts";
 import * as ChampionJourneys from "./ChampionJourneys.ts";
 import {
@@ -234,6 +235,9 @@ type Caller = McpThreadCaller | undefined;
 export interface ChampionRelay {
   readonly threadId: ThreadId | undefined;
   readonly quote: string | undefined;
+  readonly forwarded?: ForwardedChampionApproval & {
+    readonly sourceEnvironment: NonNullable<ChampionRelayedApproval["sourceEnvironment"]>;
+  };
 }
 const JOURNEY_OWNER_GONE_AFTER = Duration.minutes(5);
 const JOURNEY_DEFER_MINUTES = 30;
@@ -246,6 +250,9 @@ type DetailOperation<I> = (input: I) => Effect.Effect<ChampionDetail, ChampionEr
 export class ChampionService extends Context.Service<
   ChampionService,
   {
+    readonly verifyApproval: (
+      relay: ChampionRelay,
+    ) => Effect.Effect<ForwardedChampionApproval, ChampionError>;
     readonly classChoices: (
       input: ChampionClassChoicesInput,
     ) => Effect.Effect<ChampionClassChoicesResult, ChampionError>;
@@ -589,11 +596,11 @@ const make = Effect.gen(function* () {
       OR json_extract(document_json, '$.champion.setupThreadId') = ${threadId}`;
     return rows[0] === undefined ? undefined : yield* decodeDocument(rows[0].document_json);
   }, Effect.mapError(failure));
-  const relayedApproval = Effect.fn("ChampionService.relayedApproval")(function* (
+  const verifyApproval = Effect.fn("ChampionService.verifyApproval")(function* (
     relay: ChampionRelay,
-    waiting: string,
+    waiting = "The request still waits for the user on the Champion page.",
     /** When the request was filed; an approval typed before it cannot be about it. */
-    filedAt: string | undefined,
+    filedAt?: string,
   ) {
     const ask = (why: string) =>
       new ChampionError({ reason: "unauthorized", detail: `${why} ${waiting}` });
@@ -624,12 +631,38 @@ const make = Effect.gen(function* () {
       return yield* ask(
         "The user typed that before this request was filed, so it cannot approve it.",
       );
+    const message = typed.toSorted(
+      (a, b) => DateTime.toEpochMillis(b.createdAt) - DateTime.toEpochMillis(a.createdAt),
+    )[0]!;
     return {
       quote,
       threadId: shell.id,
       threadTitle: shell.title.slice(0, 500),
       model: shell.modelSelection.model.slice(0, 500),
+      messageId: message.id,
+      createdAt: DateTime.formatIso(message.createdAt),
+    } satisfies ForwardedChampionApproval;
+  });
+  const relayedApproval = Effect.fn("ChampionService.relayedApproval")(function* (
+    relay: ChampionRelay,
+    waiting: string,
+    filedAt: string | undefined,
+  ) {
+    const verified = relay.forwarded ?? (yield* verifyApproval(relay, waiting, filedAt));
+    if (filedAt !== undefined && Date.parse(verified.createdAt) < Date.parse(filedAt))
+      return yield* new ChampionError({
+        reason: "unauthorized",
+        detail: `The user typed that before this request was filed, so it cannot approve it. ${waiting}`,
+      });
+    return {
+      quote: verified.quote,
+      threadId: verified.threadId,
+      threadTitle: verified.threadTitle,
+      model: verified.model,
       approvedAt: yield* now,
+      ...(relay.forwarded === undefined
+        ? {}
+        : { sourceEnvironment: relay.forwarded.sourceEnvironment }),
     } satisfies ChampionRelayedApproval;
   });
   const list: ChampionService["Service"]["list"] = Effect.fn("ChampionService.list")(
@@ -4315,6 +4348,7 @@ const make = Effect.gen(function* () {
       return yield* cancelInvestigation(input);
     });
   return ChampionService.of({
+    verifyApproval,
     classChoices,
     startInvestigationFromOwner,
     cancelInvestigationFromOwner,

@@ -62,7 +62,10 @@ import { secretRequestPageUrl } from "./secretRequest.ts";
 import { hasOnlyPairedSurrogates } from "./threadMetadataMcp.ts";
 import { ThreadTitleRegeneration } from "./threadTitle.ts";
 import {
+  OrchestrationV2ParkedWait,
   OrchestrationV2ParkedWaitTarget,
+  OrchestrationV2RemoteThreadWatchOutcome,
+  OrchestrationV2WatchTarget,
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
   OrchestrationV2RunStatus,
@@ -470,8 +473,7 @@ const OrchestratorMcpProjectTarget = Schema.optional(
  */
 export const OrchestratorMcpEnvironmentTarget = Schema.optional(
   EnvironmentId.annotate({
-    description:
-      "Linked environment to act in. Omit for this one. Ids are then that environment's.",
+    description: "Linked environment to act in. Omit for this one.",
   }),
 );
 
@@ -850,7 +852,12 @@ export type OrchestratorMcpThreadWaitResult = typeof OrchestratorMcpThreadWaitRe
 
 export const OrchestratorMcpThreadWatchInput = Schema.Struct({
   target: Schema.Union([
-    Schema.Struct({ kind: Schema.Literal("thread"), threadId: ThreadId }),
+    Schema.Struct({
+      kind: Schema.Literal("thread"),
+      threadId: ThreadId,
+      /** A linked environment's thread. Omit for a thread here. */
+      environmentId: Schema.optional(EnvironmentId),
+    }),
     Schema.Struct({
       kind: Schema.Literal("build_item"),
       /** The item's number, or a ref such as `YS-12`; the watch keeps the canonical number. */
@@ -891,6 +898,29 @@ export const OrchestratorMcpThreadWatchResult = Schema.Struct({
   givesUpAt: Schema.optional(IsoDateTime),
 });
 export type OrchestratorMcpThreadWatchResult = typeof OrchestratorMcpThreadWatchResult.Type;
+
+/**
+ * Where a thread stands for a watcher in another environment: still working, ended (with how, as
+ * a local watch would word it), or moved to another environment, which the watcher follows.
+ */
+export const OrchestratorMcpThreadWatchStatusInput = Schema.Struct({ threadId: ThreadId });
+export type OrchestratorMcpThreadWatchStatusInput =
+  typeof OrchestratorMcpThreadWatchStatusInput.Type;
+
+export const OrchestratorMcpThreadWatchStatusResult = Schema.Union([
+  Schema.Struct({ state: Schema.Literal("working") }),
+  Schema.Struct({
+    state: Schema.Literal("ended"),
+    outcome: OrchestrationV2RemoteThreadWatchOutcome,
+  }),
+  Schema.Struct({
+    state: Schema.Literal("moved"),
+    environmentId: EnvironmentId,
+    threadId: ThreadId,
+  }),
+]);
+export type OrchestratorMcpThreadWatchStatusResult =
+  typeof OrchestratorMcpThreadWatchStatusResult.Type;
 
 export const OrchestratorMcpThreadInterruptInput = Schema.Struct({
   environmentId: OrchestratorMcpEnvironmentTarget,
@@ -995,6 +1025,36 @@ export const OrchestratorMcpThreadImportInput = Schema.Struct({
   messages: Schema.Array(OrchestratorMcpImportedMessage).check(Schema.isMaxLength(2_000)),
   /** Sent as the thread's first message here, so its agent picks up where it left off. */
   continuationPrompt: Schema.optional(OrchestratorMcpPrompt),
+  /**
+   * The thread's waits, recreated here under the ids they had, so a resent import adds none
+   * twice. A thread target names its environment from here: the sender has already pointed one
+   * on its own side back at itself and cleared the environment on one that lives here.
+   */
+  watches: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        id: TrimmedNonEmptyString,
+        title: TrimmedNonEmptyString,
+        startedAt: IsoDateTime,
+        target: OrchestrationV2WatchTarget,
+      }),
+    ).check(Schema.isMaxLength(200)),
+  ),
+  parkedWaits: Schema.optional(
+    Schema.Array(OrchestrationV2ParkedWait).check(Schema.isMaxLength(200)),
+  ),
+  /** Watched pull requests, to watch again from the thread here. */
+  pullRequestWatches: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        host: TrimmedNonEmptyString,
+        repository: TrimmedNonEmptyString,
+        number: PositiveInt,
+        url: TrimmedNonEmptyString,
+        repositoryWebUrl: Schema.optional(TrimmedNonEmptyString),
+      }),
+    ).check(Schema.isMaxLength(50)),
+  ),
 });
 export type OrchestratorMcpThreadImportInput = typeof OrchestratorMcpThreadImportInput.Type;
 

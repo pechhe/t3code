@@ -370,6 +370,33 @@ function List(props: {
   );
 }
 
+describe("ChampionsPage on first look", () => {
+  it("says a connected machine is still loading rather than claiming there are no champions", async () => {
+    fixtures.projects = [PROJECT_B];
+    const listA = Atom.make<unknown>(listed()).pipe(Atom.keepAlive);
+    const listB = Atom.make<unknown>(AsyncResult.initial()).pipe(Atom.keepAlive);
+    fixtures.lists.set(A, listA);
+    fixtures.lists.set(B, listB);
+    await page.viewport(1200, 800);
+    const registry = AtomRegistry.make();
+    registry.set(fixtures.machines, machines("connected"));
+    await using _screen = await render(
+      <RegistryContext.Provider value={registry}>
+        <ChampionsPage />
+      </RegistryContext.Provider>,
+    );
+    await expect
+      .element(page.getByText("Connecting to Laptop", { exact: false }).first())
+      .toBeVisible();
+    await expect.element(page.getByText("No champions yet")).not.toBeInTheDocument();
+    await act(() => registry.set(listB, listed(champion("b", "Bravo", "project-b"))));
+    await expect.element(page.getByRole("button", { name: /^Bravo/ })).toBeVisible();
+    await expect
+      .element(page.getByText("Connecting to Laptop", { exact: false }))
+      .not.toBeInTheDocument();
+  });
+});
+
 describe("answering a recommendation", () => {
   it("doesn't send a draft against a recommendation that changed, and keeps it", async () => {
     reset();
@@ -522,6 +549,35 @@ describe("answering a recommendation", () => {
     await expect.element(lines.nth(1)).toBeVisible();
     await expect.element(page.getByRole("link", { name: "Performance pass" }).nth(1)).toBeVisible();
     await expect.element(page.getByText(approval.quote).nth(1)).toBeVisible();
+  });
+
+  it("names the machine an approval came from when it was typed on another one", async () => {
+    reset();
+    const approval = {
+      quote: "yes, go ahead",
+      threadId: ThreadId.make("source-thread"),
+      threadTitle: "Source thread",
+      model: "claude-opus-5-5",
+      approvedAt: "2026-11-07T16:00:00.000Z",
+      sourceEnvironment: { id: EnvironmentId.make("mac"), label: "Henry's Mac" },
+    };
+    await using _screen = await render(
+      <List
+        finding={finding({
+          ...decision("d1", "r1"),
+          status: "resolved",
+          answer: "Approved.",
+          resolvedAt: "2026-11-07T16:00:00.000Z",
+          approval,
+        })}
+        events={[]}
+        state={runtime({
+          recommendations: [recommendation("r1", "Extend the script.", "2026-11-05T09:00:00.000Z")],
+        })}
+      />,
+    );
+    await userEvent.click(page.getByRole("button", { name: /Private packages stay unpatched/ }));
+    await expect.element(page.getByText("on Henry's Mac")).toBeVisible();
   });
 
   it("keeps the draft when the server says it arrived too late", async () => {

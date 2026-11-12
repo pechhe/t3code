@@ -51,6 +51,7 @@ const SILENT_SERVER_AFTER_MS = 10_000;
 /** A machine that never answers can't be told from a slow one, so loading has to end. */
 function useHasWaitedForServers() {
   const [waited, setWaited] = useState(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- a timer outside React ends the loading state
   useEffect(() => {
     const timer = setTimeout(() => setWaited(true), SILENT_SERVER_AFTER_MS);
     return () => clearTimeout(timer);
@@ -282,13 +283,13 @@ export function ChampionsPage(props: {
     !waited &&
     connectedSources.some((source) => source.champions === null && source.error === null);
   const allUnavailable =
-    connectedSources.length > 0 &&
-    connectedSources.every(
-      (source) => source.error !== null || (waited && source.champions === null),
-    );
+    connectedSources.length > 0 && connectedSources.every((source) => source.error !== null);
   const showContent = explicit || props.view === "new";
   // Live lists only cover connected machines, so a dropped connection isn't an empty list.
   const gap = championMachineGap(environments, {
+    loadingEnvironmentIds: connectedSources
+      .filter((source) => source.champions === null && source.error === null)
+      .map((source) => source.environmentId),
     showingLastKnown: sources.some(
       (source) => source.connection !== "connected" && (source.champions?.length ?? 0) > 0,
     ),
@@ -396,7 +397,7 @@ export function ChampionsPage(props: {
     ) : (
       <ContentSkeleton />
     );
-  } else if (loading || !isReady) {
+  } else if (!isReady || (loading && gap === null)) {
     content = null;
   } else if (allUnavailable) {
     content = (

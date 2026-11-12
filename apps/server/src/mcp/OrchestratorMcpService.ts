@@ -355,6 +355,8 @@ export interface OrchestratorMcpServiceShape {
     scope: McpInvocationScope,
     input: OrchestratorMcpThreadWatchInput,
     watching: boolean,
+    /** For a thread in a linked environment: what the caller read of it there. */
+    remote?: { readonly title: string },
   ) => Effect.Effect<OrchestratorMcpThreadWatchResult, OrchestratorMcpFailure>;
 }
 
@@ -1315,33 +1317,17 @@ const make = Effect.gen(function* () {
     if (!/^[0-9a-f]{7,64}$/i.test(target.commitId)) {
       return "Name the published commit by its hexadecimal id.";
     }
-    if (Option.isNone(slipJay)) {
-      return "T3 follows no SlipJay runner here, so it cannot tell when a commit reaches Production.";
-    }
     const projectId = target.projectId ?? watcher.projectId;
     const project = yield* requireProject(projectId);
-    const checkouts = [
-      ...(projectId === watcher.projectId && watcher.worktreePath !== null
-        ? [watcher.worktreePath]
-        : []),
-      project.workspaceRoot,
-    ];
-    let repository: string | null = null;
-    for (const checkout of checkouts) {
-      repository = yield* slipJay.value.repositoryOf(checkout);
-      if (repository !== null) break;
-    }
-    if (repository === null) {
-      return `Project ${projectId} is not a SlipJay repository, so T3 receives no Production state for it.`;
-    }
-    const overview = Option.getOrUndefined(yield* Stream.runHead(slipJay.value.runner));
-    const known = overview?.repositories.find((entry) => entry.repo === repository);
-    if (known?.release == null) {
-      return `T3 receives no release state for ${repository} from the SlipJay runner${
-        overview?.connected === true ? "" : ", which it is not connected to now"
-      }, so it cannot tell when a commit reaches Production there.`;
-    }
-    return undefined;
+    return yield* SlipJayLandings.productionWaitRefusal(slipJay, {
+      projectId,
+      checkouts: [
+        ...(projectId === watcher.projectId && watcher.worktreePath !== null
+          ? [watcher.worktreePath]
+          : []),
+        project.workspaceRoot,
+      ],
+    });
   });
 
   /** The Build item a landing published `commitId` for, as clients name it; else none. */
@@ -5189,7 +5175,7 @@ const make = Effect.gen(function* () {
       } satisfies OrchestratorMcpThreadWaitResult;
     }),
     watchThread: Effect.fn("OrchestratorMcpService.watchThread")(
-      function* (scope, input, watching) {
+      function* (scope, input, watching, remote) {
         yield* requireCapability(scope);
         const { thread } = yield* requireThreadScope(scope, watching ? "watch" : "unwatch");
         const watcher = yield* threadManagement
@@ -5226,18 +5212,27 @@ const make = Effect.gen(function* () {
         });
         const parking = watching && input.park !== undefined;
         const target: OrchestrationV2ParkedWaitTarget =
-          named.kind !== "build_item"
-            ? named
-            : {
-                kind: "build_item",
-                until: named.until,
-                number:
-                  typeof named.number === "number"
-                    ? named.number
-                    : watching
-                      ? yield* resolveNumber(named.number)
-                      : yield* unwatchNumber(named.number),
-              };
+          named.kind === "thread"
+            ? {
+                kind: "thread",
+                threadId: named.threadId,
+                // Naming this environment is naming no other.
+                ...(named.environmentId === undefined || named.environmentId === scope.environmentId
+                  ? {}
+                  : { environmentId: named.environmentId }),
+              }
+            : named.kind !== "build_item"
+              ? named
+              : {
+                  kind: "build_item",
+                  until: named.until,
+                  number:
+                    typeof named.number === "number"
+                      ? named.number
+                      : watching
+                        ? yield* resolveNumber(named.number)
+                        : yield* unwatchNumber(named.number),
+                };
         const wasWatching =
           (target.kind !== "production" &&
             target.kind !== "time" &&
@@ -5262,7 +5257,9 @@ const make = Effect.gen(function* () {
           }
           const refusal = threadWatchRefusal(
             watcher,
-            target.kind === "thread" ? target.threadId : undefined,
+            target.kind === "thread" && target.environmentId === undefined
+              ? target.threadId
+              : undefined,
             { parked: parking },
           );
           if (refusal !== undefined) return yield* failure("invalid_request", refusal);
@@ -5274,6 +5271,13 @@ const make = Effect.gen(function* () {
             title = yield* productionSubject(watcher.id, target.commitId);
           } else if (target.kind === "landing") {
             title = `Landing ${target.operationId}`;
+          } else if (target.kind === "thread" && target.environmentId !== undefined) {
+            if (remote === undefined)
+              return yield* failure(
+                "invalid_request",
+                "A thread in another environment is watched through the watch tool.",
+              );
+            title = remote.title;
           } else if (target.kind === "thread") {
             const watched = yield* threadManagement
               .getThreadShell(target.threadId)
@@ -5281,7 +5285,7 @@ const make = Effect.gen(function* () {
             if (watched === null || watched.deletedAt !== null) {
               return yield* failure(
                 "thread_not_found",
-                `Thread ${target.threadId} is not in this environment. A thread can watch only threads in its own environment.`,
+                `Thread ${target.threadId} is not in this environment. To watch a thread in a linked environment, name it with environmentId.`,
               );
             }
           } else if (target.kind === "build_item") {

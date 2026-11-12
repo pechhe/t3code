@@ -97,3 +97,21 @@ describe("Champion screen and agent tool parity", () => {
     expect(writeTools.filter((tool) => !matched.has(tool))).toEqual([]);
   });
 });
+
+it("targets an environment for every orchestrator tool and keeps owner-only tools local", () => {
+  const orchestrator = new Set([
+    ...Object.values(SCREEN_WRITES_TO_TOOLS),
+    "t3_champions_list",
+    "t3_champions_get",
+    "t3_champions_history",
+    "t3_champions_class_choices",
+    "t3_champions_learning_search",
+    "t3_champions_learning_read",
+    "t3_champions_record_learning",
+    "t3_champions_journey_record",
+  ]);
+  for (const tool of Object.values(ChampionsToolkit.tools)) {
+    const fields = "fields" in tool.parametersSchema ? tool.parametersSchema.fields : {};
+    expect("environmentId" in fields, tool.name).toBe(orchestrator.has(tool.name));
+  }
+});

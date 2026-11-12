@@ -94,4 +94,25 @@ describe("selectThreadRelationshipShells", () => {
       selectThreadRelationshipShells(threadId, null, threads).map((thread) => thread.id),
     ).toEqual(["current", "finished"]);
   });
+
+  it("does not mistake a linked environment's thread for a local one with the same id", () => {
+    const peer = "environment:peer";
+    const threads = [
+      {
+        ...shell("current"),
+        threadWatches: [{ target: { kind: "thread", threadId: "same", environmentId: peer } }],
+        endedThreadWatches: [{ threadId: "same-ended", environmentId: peer }],
+      },
+      shell("same"),
+      shell("same-ended"),
+      {
+        ...shell("remote-watcher"),
+        threadWatches: [{ target: { kind: "thread", threadId: "current", environmentId: peer } }],
+      },
+    ] as unknown as OrchestrationV2ThreadShell[];
+
+    expect(
+      selectThreadRelationshipShells(threadId, null, threads).map((thread) => thread.id),
+    ).toEqual(["current"]);
+  });
 });

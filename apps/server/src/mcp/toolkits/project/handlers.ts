@@ -14,7 +14,10 @@ import * as Schema from "effect/Schema";
 import { OrchestratorRuntimeModeAboveCeilingError } from "../../../orchestration-v2/Orchestrator.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadImportService from "../../../orchestration-v2/ThreadImportService.ts";
+import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as HandoffImport from "../../../peer/handoff/HandoffImport.ts";
+import * as PeerLinks from "../../../peer/PeerLinks.ts";
+import * as SlipJayLandings from "../../../project/SlipJayLandings.ts";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
 import { threadWatchRefusal } from "../../../orchestration-v2/threadWatch.ts";
@@ -465,6 +468,21 @@ export const handlers = {
     // The launched thread carries the caller's link, if it has one.
     "stamped",
   ),
+  t3_thread_watch_status: McpToolAccess.reads((input) =>
+    Effect.gen(function* () {
+      const threads = yield* ThreadManagementService.ThreadManagementService;
+      const standing = yield* threads
+        .watchedThreadStanding(input.threadId)
+        .pipe(Effect.mapError(unavailable));
+      if (standing.state !== "moved") return standing;
+      if (standing.environmentId === undefined) return yield* unavailable();
+      return {
+        state: "moved" as const,
+        environmentId: standing.environmentId,
+        threadId: standing.threadId,
+      };
+    }),
+  ),
   t3_thread_import: McpToolAccess.startsThreads(
     (input) => input,
     (input, { runtimeMode, interactionMode, linkOrigin }) =>
@@ -495,6 +513,48 @@ export const handlers = {
             message:
               "worktreePath must be a git worktree or jj workspace of the project's repository.",
           });
+        // Before anything is created here: waits this environment cannot keep end the move, naming why.
+        const waits = [...(input.watches ?? []), ...(input.parkedWaits ?? [])];
+        for (const wait of waits) {
+          if (wait.target.kind === "thread" && wait.target.environmentId !== undefined) {
+            const linked = yield* (yield* PeerLinks.PeerLinks)
+              .get(wait.target.environmentId)
+              .pipe(Effect.mapError(unavailable));
+            if (Option.isNone(linked))
+              return yield* new OrchestratorMcpFailure({
+                code: "invalid_request",
+                message: `This environment is not linked to ${wait.target.environmentId}, so it cannot keep the thread's wait on "${wait.title}". Link it here first.`,
+              });
+          }
+          if (wait.target.kind === "production") {
+            const projects = yield* access;
+            const productionProject = yield* projects
+              .getById(wait.target.projectId ?? input.projectId)
+              .pipe(Effect.mapError(unavailable), Effect.map(Option.getOrUndefined));
+            const refusal = yield* SlipJayLandings.productionWaitRefusal(
+              yield* Effect.serviceOption(SlipJayLandings.SlipJayLandings),
+              {
+                projectId: wait.target.projectId ?? input.projectId,
+                checkouts: productionProject === undefined ? [] : [productionProject.workspaceRoot],
+              },
+            );
+            if (refusal !== undefined)
+              return yield* new OrchestratorMcpFailure({
+                code: "invalid_request",
+                message: `This environment cannot keep the thread's wait on "${wait.title}": ${refusal}`,
+              });
+          }
+          if (wait.target.kind === "build_item") {
+            const connection = yield* (yield* ForgeWorkItems.ForgeWorkItems).connected.pipe(
+              Effect.mapError(unavailable),
+            );
+            if (!connection.connected)
+              return yield* new OrchestratorMcpFailure({
+                code: "invalid_request",
+                message: `This environment has no Weave connection, so it cannot keep the thread's wait on Build #${wait.target.number}. Connect it in Settings first.`,
+              });
+          }
+        }
         const imports = yield* ThreadImportService.ThreadImportService;
         const handoffs = yield* HandoffImport.HandoffImport;
         const bundle = input.bundle;

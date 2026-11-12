@@ -560,8 +560,18 @@ thread's result with `t3_thread_read` also ends it, since the wake would only
 repeat that result. A wake that fired while the watcher was busy waits queued
 behind its run, so ending the watch, by `unwatch` or by that read,
 cancels a wake still queued. A thread cannot
-watch itself or a thread in another environment, and a settled or archived thread
-cannot start a watch. A delegated task may watch, and its result waits until its watches end.
+watch itself, and a settled or archived thread cannot start a watch.
+
+A thread target may name a linked environment, `target: {kind: "thread", threadId,
+environmentId}`. `ThreadWatchReactor` ignores it; `RemoteThreadWatches` follows it over
+the peer link as `RemoteDelegation` follows a remote task: a long `t3_thread_wait`, then
+`t3_thread_watch_status` there, which is `watchedThreadStanding`, the one rule a local
+watch decides by, and answers `working`, `moved` or `ended` with the thread's result. It
+then fires `thread.thread-watch.fire` with that answer as `remote`, so the wake reads like
+a local one and its message id still comes from the watch. A dropped link is retried with
+back-off and never wakes; a link revoked or forgotten, or a thread gone there, wakes once
+with why. A watched thread that has moved to another environment is followed to its new
+home. `t3_thread_watch_status` is read-only, so a read-only link suffices. A delegated task may watch, and its result waits until its watches end.
 
 ### `t3_thread_interrupt`
 

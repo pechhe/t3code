@@ -170,7 +170,9 @@ conclusion; **Due for review** shows learnings past their review date. Other age
 threads can contribute learnings too: a contribution counts at once; on its next check
 the champion confirms it or replaces it with a reason, and the original stays in its
 history. Agents on a linked environment can search and read these learnings and
-contribute their own. Older conclusions stay available; a learning due for review is
+contribute their own, and with a full-access link they can read and act on the
+champions themselves: list them across every linked machine, accept a metric proposal
+or answer a decision, using your approval typed in their own thread. Older conclusions stay available; a learning due for review is
 uncertain, not deleted, and does not start another investigation by itself. A returned change or a landing alone
 does not prove improvement: the champion needs comparable measurements of the
 running version.

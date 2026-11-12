@@ -661,13 +661,23 @@ export interface ChampionMachineGap {
 export function championMachineGap(
   environments: ReadonlyArray<{
     readonly label: string;
+    readonly environmentId?: string;
     readonly connection: { readonly phase: EnvironmentConnectionPhase };
   }>,
-  options?: { readonly showingLastKnown?: boolean },
+  options?: {
+    readonly showingLastKnown?: boolean;
+    readonly loadingEnvironmentIds?: ReadonlyArray<string>;
+  },
 ): ChampionMachineGap | null {
   const named = (machines: ReadonlyArray<{ readonly label: string }>) =>
     machines.length === 1 ? machines[0]!.label : `${machines.length} machines`;
-  const connecting = environments.filter(({ connection }) => connection.phase === "connecting");
+  const connecting = environments.filter(
+    ({ connection, environmentId }) =>
+      connection.phase === "connecting" ||
+      (connection.phase === "connected" &&
+        environmentId !== undefined &&
+        options?.loadingEnvironmentIds?.includes(environmentId)),
+  );
   const reconnecting = environments.filter(
     ({ connection }) => connection.phase === "reconnecting" || connection.phase === "offline",
   );

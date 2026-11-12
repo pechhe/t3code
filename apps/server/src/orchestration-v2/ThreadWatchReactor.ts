@@ -46,7 +46,8 @@ interface Deadline {
 
 function threadTargetsOf(watcher: OrchestrationV2AppThread): ReadonlyArray<Watching> {
   return [...(watcher.threadWatches ?? []), ...(watcher.parkedWaits ?? [])].flatMap((watch) =>
-    watch.target.kind === "thread"
+    // A thread in a linked environment is followed over the link, not by this thread's events.
+    watch.target.kind === "thread" && watch.target.environmentId === undefined
       ? [{ watcherId: watcher.id, watchId: watch.id, watchedThreadId: watch.target.threadId }]
       : [],
   );
@@ -89,6 +90,9 @@ function canSettleWatchedThread(event: OrchestrationV2DomainEvent): boolean {
   switch (event.type) {
     case "turn-item.updated":
       return turnItemUpdateCanEndBackgroundWork(event.payload);
+    // A thread that has moved is followed to where it went rather than seen idle.
+    case "thread.metadata-updated":
+      return event.payload.handoff?.state === "departed";
     case "run.created":
     case "run.updated":
     case "run.background-work-cancelled":
@@ -205,7 +209,13 @@ const make = Effect.gen(function* () {
         .getThreadRecords(watchedThreadId, watchedThreadRecords.fields, watchedThreadRecords.filter)
         .pipe(Effect.option);
       // The orchestrator confirms the row is gone before it ends the watch.
-      if (Option.isSome(watched) && decideThreadWatch(watched.value) === undefined) return;
+      if (
+        Option.isSome(watched) &&
+        decideThreadWatch(watched.value) === undefined &&
+        // A thread that moved away is followed to where it went, whatever its runs say.
+        watched.value.thread.handoff?.state !== "departed"
+      )
+        return;
       const uuid = yield* crypto.uuidV4();
       yield* engine.dispatch({
         type: "thread.thread-watch.fire",

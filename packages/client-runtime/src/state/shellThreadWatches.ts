@@ -9,7 +9,8 @@ type WatcherShell = Pick<OrchestrationV2ThreadShell, "id" | "threadWatches"> & {
 /**
  * The threads watching `threadId`, oldest watch first. Watches live on the watcher, and a client
  * holds every active thread's shell, so the reverse list needs nothing from the server. An
- * archived or deleted watcher no longer watches.
+ * archived or deleted watcher no longer watches. A watch naming a linked environment's thread
+ * is not a watch of one here, whatever its id.
  */
 export function threadWatchers<Shell extends WatcherShell>(
   shells: Iterable<Shell>,
@@ -19,7 +20,10 @@ export function threadWatchers<Shell extends WatcherShell>(
   for (const shell of shells) {
     if (shell.archivedAt !== null || shell.deletedAt !== null || shell.id === threadId) continue;
     const watch = shell.threadWatches?.find(
-      (candidate) => candidate.target.kind === "thread" && candidate.target.threadId === threadId,
+      (candidate) =>
+        candidate.target.kind === "thread" &&
+        candidate.target.environmentId === undefined &&
+        candidate.target.threadId === threadId,
     );
     if (watch !== undefined) watchers.push({ shell, startedAt: watch.startedAt });
   }

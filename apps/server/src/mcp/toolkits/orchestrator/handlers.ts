@@ -16,6 +16,7 @@ import * as PeerLinkRequests from "../../../peer/PeerLinkRequests.ts";
 import * as PeerLinks from "../../../peer/PeerLinks.ts";
 import * as RemoteDelegation from "../../../peer/RemoteDelegation.ts";
 import * as ThreadHandoff from "../../../peer/handoff/ThreadHandoff.ts";
+import { ProjectToolkit } from "../project/tools.ts";
 import { assertBelowDelegationLimit, loadCaller, readCaller } from "../../threadAccess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -380,7 +381,32 @@ export const handlers = {
       Effect.gen(function* () {
         const scope = yield* McpInvocationContext.McpInvocationContext;
         const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-        return yield* service.watchThread(scope, input, true);
+        const target = input.target;
+        if (
+          target.kind !== "thread" ||
+          target.environmentId === undefined ||
+          target.environmentId === scope.environmentId
+        ) {
+          return yield* service.watchThread(scope, input, true);
+        }
+        if (scope.linkedEnvironments === false) return yield* PeerForwarding.linkedEnvironmentsOff;
+        // Reading it first fails a watch on a thread that is not there, and gives the watch its
+        // title; asking its status shows the other environment can answer it.
+        const forwarding = yield* PeerForwarding.PeerForwarding;
+        const read = yield* forwarding.readThread(scope, target.environmentId, {
+          threadId: target.threadId,
+          limit: 1,
+          runLimit: 1,
+        });
+        yield* forwarding.call(
+          scope,
+          ProjectToolkit.tools.t3_thread_watch_status,
+          target.environmentId,
+          {
+            threadId: target.threadId,
+          },
+        );
+        return yield* service.watchThread(scope, input, true, { title: read.thread.title });
       }),
   ),
   unwatch: McpToolAccess.writesThreads(

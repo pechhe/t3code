@@ -23,6 +23,8 @@ import {
   OrchestratorMcpFailure,
   OrchestratorMcpThreadImportInput,
   OrchestratorMcpThreadImportResult,
+  OrchestratorMcpThreadWatchStatusInput,
+  OrchestratorMcpThreadWatchStatusResult,
   SourceControlCloneRepositoryInput,
   SourceControlCloneRepositoryResult,
   SecretRef,
@@ -34,6 +36,7 @@ import * as ServerConfig from "../../../config.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as ThreadImportService from "../../../orchestration-v2/ThreadImportService.ts";
+import * as PeerLinks from "../../../peer/PeerLinks.ts";
 import * as HandoffImport from "../../../peer/handoff/HandoffImport.ts";
 import * as ThreadLaunchService from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as Digest from "effect/crypto/Digest";
@@ -245,15 +248,29 @@ const ThreadImportTool = Tool.make("t3_thread_import", {
     HandoffImport.HandoffImport,
     WorkspaceProvider.WorkspaceProvider,
     Digest.Digest,
+    PeerLinks.PeerLinks,
+    ForgeWorkItems.ForgeWorkItems,
   ],
 })
   .annotate(Tool.Destructive, true)
   .annotate(Tool.Idempotent, true)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForLinkedEnvironments);
 
+const ThreadWatchStatusTool = Tool.make("t3_thread_watch_status", {
+  ...shared,
+  description:
+    "Whether a thread here, watched from a linked environment, has ended, and how: the same decision a local watch makes, with the thread's result. Working while it still works or moves; moved once it continues elsewhere.",
+  parameters: OrchestratorMcpThreadWatchStatusInput,
+  success: OrchestratorMcpThreadWatchStatusResult,
+})
+  // Read-only, but only a linked environment's server calls it, so no session pre-approves it.
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.onlyForLinkedEnvironments);
+
 export const ProjectToolkit = Toolkit.make(
   ThreadLaunchTool,
   ThreadImportTool,
+  ThreadWatchStatusTool,
   ProjectListTool,
   ProjectReadTool,
   ProjectCreateTool,

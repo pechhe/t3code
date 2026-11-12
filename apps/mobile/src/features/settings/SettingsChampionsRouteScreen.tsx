@@ -121,10 +121,11 @@ function RelayedApproval(props: {
       </Text>
       <ThreadLinkButton
         label={approval.threadTitle.trim() || "an agent thread"}
-        environmentId={props.environmentId}
+        environmentId={approval.sourceEnvironment?.id ?? props.environmentId}
         threadId={approval.threadId}
       />
       <Text className="text-sm text-foreground-muted">
+        {approval.sourceEnvironment ? `On ${approval.sourceEnvironment.label} · ` : ""}
         {when ? `${when} · ` : ""}
         <Text className="text-sm italic text-foreground">“{approval.quote}”</Text>
       </Text>

@@ -1,8 +1,11 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  ChampionRelayedApproval,
   Experiment,
+  EnvironmentId,
   ExperimentAssignment,
   OrchestrationV2DelegatedCompletionTaskDeliveryState,
+  OrchestrationV2Notification,
   OrchestrationV2Subagent,
   OrchestrationV2ThreadShell,
   OrchestrationV2ThreadStanding,
@@ -132,7 +135,7 @@ it("a client that predates endedThreadWatches still decodes a thread shell that 
   assert.deepEqual(Object.keys(decoded).toSorted(), ["id", "title"]);
 });
 
-it("a shipped client ignores additive champion owner metadata on an ordinary thread shell", () => {
+it("a shipped client ignores additive Champion owner and approval origin metadata", () => {
   const { id, title, threadWatches } = OrchestrationV2ThreadShell.fields;
   const shippedShell = Schema.Struct({ id, title, threadWatches });
   const decoded = Schema.decodeUnknownSync(shippedShell)({
@@ -141,7 +144,21 @@ it("a shipped client ignores additive champion owner metadata on an ordinary thr
     champion: { id: "quality", attention: false },
   });
   assert.deepEqual(Object.keys(decoded).toSorted(), ["id", "title"]);
+  const approval = {
+    quote: "Yes, go ahead.",
+    threadId: "source-thread",
+    threadTitle: "Performance pass",
+    model: "m",
+    approvedAt: "2026-11-07T00:00:00.000Z",
+    sourceEnvironment: { id: "mac", label: "Mac" },
+  };
+  const shippedApproval = decodeShippedApproval(approval);
+  assert.notProperty(shippedApproval, "sourceEnvironment");
+  assert.equal(shippedApproval.quote, approval.quote);
 });
+
+const { sourceEnvironment: _source, ...shippedApprovalFields } = ChampionRelayedApproval.fields;
+const decodeShippedApproval = Schema.decodeSync(Schema.Struct(shippedApprovalFields));
 
 const decodeSubagent = Schema.decodeSync(OrchestrationV2Subagent);
 
@@ -186,9 +203,8 @@ it("a shipped client decodes a task its parent's Stop paused as an interrupted t
   assert.notProperty(decoded, "pausedByParentStop");
 });
 
-// Frozen from the upstream thread shell (fork/shipped-client/thread-shell.schema.json, upstream
-// pingdotgg/t3code 20c3dd3689, v0.1.9-nightly.20261110.4478). Upstream's shell has no watches or
-// parked waits at all, so a shipped client ignores those keys; the schema is what it requires.
+// Frozen from upstream's thread shell (fork/shipped-client/thread-shell.schema.json, pingdotgg/t3code
+// 20c3dd3689, v0.1.9-nightly.20261110.4478), which has no watches or parked waits.
 // To refresh it, extract that release's packages/contracts and write
 // JSON.stringify(Schema.toJsonSchemaDocument(Schema.toEncoded(OrchestrationV2ThreadShell))).
 const loadShippedThreadShellSchema = Effect.gen(function* () {
@@ -243,11 +259,7 @@ const decodeForkShell = Schema.decodeUnknownSync(forkShellJson);
 
 const encodeForkShell = (extra: Record<string, unknown>) =>
   JSON.parse(
-    JSON.stringify(
-      Schema.encodeSync(forkShellJson)(
-        decodeForkShell(forkThreadShell(extra)),
-      ),
-    ),
+    JSON.stringify(Schema.encodeSync(forkShellJson)(decodeForkShell(forkThreadShell(extra)))),
   );
 
 it.effect(
@@ -350,6 +362,47 @@ it("a shipped client decodes a stalled thread and one that waits on the owner as
     const forkDecoded: unknown = decodeStanding(wire.standing);
     assert.deepEqual(forkDecoded, wire.standing);
   }
+});
+
+const encodeNotification = Schema.encodeSync(OrchestrationV2Notification);
+
+it("a shipped client reads a watch on a thread in another environment as a thread watch", () => {
+  // What a shipped client reads: a thread target is its kind and thread id, a stored thread
+  // wake the legacy background-task source. The environment is an extra key it ignores.
+  const shippedWatch = Schema.Struct({
+    id: Schema.String,
+    title: Schema.String,
+    startedAt: Schema.String,
+    target: Schema.Struct({ kind: Schema.Literal("thread"), threadId: Schema.String }),
+  });
+  const watch = {
+    id: "thread-watch:remote",
+    title: "Fix the login on the box",
+    startedAt: "2026-11-12T09:00:00.000Z",
+    target: { kind: "thread", threadId: "thread-box", environmentId: "environment-box" },
+  };
+  const decoded = Schema.decodeUnknownSync(shippedWatch)(watch);
+  assert.deepEqual(decoded.target, { kind: "thread", threadId: "thread-box" });
+
+  const wake = encodeNotification({
+    source: {
+      kind: "thread",
+      threadId: ThreadId.make("thread-box"),
+      environmentId: EnvironmentId.make("environment-box"),
+    },
+    outcome: "completed",
+    summary: "Finished: Fix the login on the box",
+  });
+  const shippedSource = Schema.Struct({
+    kind: Schema.Literal("background_task"),
+    work: Schema.Literal("thread"),
+    threadId: Schema.String,
+  });
+  assert.deepEqual(Schema.decodeUnknownSync(shippedSource)(wake.source), {
+    kind: "background_task",
+    work: "thread",
+    threadId: "thread-box",
+  });
 });
 
 it("shipped thread shells ignore managed roles and preceding fork clients accept reviewer", () => {

@@ -6,12 +6,14 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  EnvironmentId,
   EventId,
   MessageId,
   type ModelSelection,
   NodeId,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ParkedWaitTarget,
+  type OrchestrationV2RemoteThreadWatchOutcome,
   type OrchestrationV2Run,
   ProjectId,
   ProviderDriverKind,
@@ -69,7 +71,7 @@ import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as RuntimeLayer from "./runtimeLayer.ts";
 import * as ThreadWatchReactor from "./ThreadWatchReactor.ts";
-import { threadWatchRefusal } from "./threadWatch.ts";
+import { threadWatchRefusal, watchTargetsEqual } from "./threadWatch.ts";
 import * as ProviderTurnStartServiceTestkit from "./ProviderTurnStartService.testkit.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
@@ -741,6 +743,303 @@ it.layer(layerTest)("thread watches", (it) => {
       // The second watch ended too, but the thread is listed once.
       assert.lengthOf((yield* orchestrator.getThreadShell(lead))?.endedThreadWatches ?? [], 1);
     }),
+  );
+
+  it.effect("a watch on a thread in another environment fires only with how it ended there", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
+      const lead = yield* createThread("remote-lead");
+      const environmentId = EnvironmentId.make("environment-other");
+      const remoteThread = ThreadId.make("thread:remote-worker");
+      const start = yield* orchestrator.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make("command:remote-watch"),
+        threadId: lead,
+        target: { kind: "thread", threadId: remoteThread, environmentId },
+        title: "Fix the login there",
+        watching: true,
+      });
+      yield* observe(start.storedEvents);
+      const [started] = yield* watchesOf(lead);
+      assert.deepEqual(started?.target, { kind: "thread", threadId: remoteThread, environmentId });
+      // This environment has no such thread, and a sweep never reads it as gone.
+      yield* reactor.sweep;
+      assert.lengthOf(yield* wakes(lead), 0);
+      assert.lengthOf(yield* watchesOf(lead), 1);
+      // The same id here is another thread: it does not count as watching this one.
+      assert.isFalse(
+        watchTargetsEqual(started!.target, { kind: "thread", threadId: remoteThread }),
+      );
+      // Nothing fires without the other environment's word.
+      yield* orchestrator.dispatch({
+        type: "thread.thread-watch.fire",
+        commandId: CommandId.make("command:remote-fire-empty"),
+        threadId: lead,
+        watchId: started?.id ?? "",
+      });
+      assert.lengthOf(yield* wakes(lead), 0);
+
+      yield* orchestrator.dispatch({
+        type: "thread.thread-watch.fire",
+        commandId: CommandId.make("command:remote-fire"),
+        threadId: lead,
+        watchId: started?.id ?? "",
+        remote: { kind: "finished", title: "Fix the login there", detail: "Landed abc123 there." },
+      });
+      const [wake, ...rest] = yield* wakes(lead);
+      assert.lengthOf(rest, 0);
+      assert.deepEqual(wake?.notification, {
+        source: { kind: "thread", threadId: remoteThread, environmentId },
+        outcome: "completed",
+        summary: "Finished: Fix the login there",
+      });
+      assert.include(
+        wake?.text,
+        `[Fix the login there](t3-thread://v2/${environmentId}/${remoteThread})`,
+      );
+      assert.include(wake?.text, "> Landed abc123 there.");
+      assert.lengthOf(yield* watchesOf(lead), 0);
+      // A replayed answer wakes nobody twice.
+      const replay = yield* orchestrator
+        .dispatch({
+          type: "thread.thread-watch.fire",
+          commandId: CommandId.make("command:remote-fire-replay"),
+          threadId: lead,
+          watchId: started?.id ?? "",
+          remote: { kind: "finished", title: "Fix the login there" },
+        })
+        .pipe(Effect.exit);
+      assert.isTrue(replay._tag === "Failure");
+      assert.lengthOf(yield* wakes(lead), 1);
+      assert.deepEqual(
+        (yield* orchestrator.getThreadShell(lead))?.endedThreadWatches?.map(
+          (ended) => ended.environmentId,
+        ),
+        [environmentId],
+      );
+    }),
+  );
+
+  it.effect("unwatch ends a watch on a thread in another environment, never one here", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const lead = yield* createThread("unwatch-remote-lead");
+      const environmentId = EnvironmentId.make("environment-other");
+      const sameId = ThreadId.make("thread:same-id");
+      const dispatchWatch = (
+        watching: boolean,
+        id: string,
+        target: OrchestrationV2ParkedWaitTarget,
+      ) =>
+        orchestrator.dispatch({
+          type: "thread.thread-watch",
+          commandId: CommandId.make(`command:${id}`),
+          threadId: lead,
+          target,
+          title: "Remote worker",
+          watching,
+        });
+      yield* dispatchWatch(true, "remote-watch-1", {
+        kind: "thread",
+        threadId: sameId,
+        environmentId,
+      });
+      // Unwatching the same id here is no stop for the thread there.
+      yield* dispatchWatch(false, "unwatch-here", { kind: "thread", threadId: sameId });
+      assert.lengthOf(yield* watchesOf(lead), 1);
+      yield* dispatchWatch(false, "unwatch-there", {
+        kind: "thread",
+        threadId: sameId,
+        environmentId,
+      });
+      assert.lengthOf(yield* watchesOf(lead), 0);
+      assert.deepEqual(
+        (yield* orchestrator.getThreadShell(lead))?.endedThreadWatches?.map(
+          (ended) => ended.threadId,
+        ),
+        [sameId],
+      );
+    }),
+  );
+
+  it.effect(
+    "a link or thread that is gone wakes once with why, and a question with its count",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const environmentId = EnvironmentId.make("environment-other");
+        const watchRemote = (lead: ThreadId, thread: string, parked = false) =>
+          orchestrator.dispatch({
+            type: "thread.thread-watch",
+            commandId: CommandId.make(`command:remote-watch:${lead}`),
+            threadId: lead,
+            target: { kind: "thread", threadId: ThreadId.make(thread), environmentId },
+            title: "Remote worker",
+            watching: true,
+            ...(parked ? { park: { expectedMs: 600_000, note: "check back" } } : {}),
+          });
+        const fire = (
+          lead: ThreadId,
+          watchId: string,
+          remote: OrchestrationV2RemoteThreadWatchOutcome,
+        ) =>
+          orchestrator.dispatch({
+            type: "thread.thread-watch.fire",
+            commandId: CommandId.make(`command:remote-fire:${lead}`),
+            threadId: lead,
+            watchId,
+            remote,
+          });
+
+        const unreachable = yield* createThread("remote-unreachable");
+        yield* watchRemote(unreachable, "thread:u");
+        const [held] = yield* watchesOf(unreachable);
+        yield* fire(unreachable, held?.id ?? "", {
+          kind: "unreachable",
+          reason: "The link to Box was revoked.",
+        });
+        const [gone] = yield* wakes(unreachable);
+        assert.include(gone?.text, "can no longer be watched: The link to Box was revoked.");
+        assert.equal(gone?.notification?.outcome, "unknown");
+
+        const asking = yield* createThread("remote-asking");
+        yield* watchRemote(asking, "thread:q", true);
+        const [wait] = (yield* orchestrator.getThreadShell(asking))?.parkedWaits ?? [];
+        assert.deepEqual(wait?.target, {
+          kind: "thread",
+          threadId: ThreadId.make("thread:q"),
+          environmentId,
+        });
+        yield* fire(asking, wait?.id ?? "", {
+          kind: "needs-input",
+          title: "Remote worker",
+          requestCount: 2,
+          detail: "Which branch?",
+        });
+        const [question] = yield* wakes(asking);
+        assert.include(question?.text, "it has 2 pending requests");
+        assert.include(question?.text, `threadId thread:q and environmentId ${environmentId}`);
+        assert.include(question?.text, "> Which branch?");
+        assert.lengthOf((yield* orchestrator.getThreadShell(asking))?.parkedWaits ?? [], 0);
+      }),
+  );
+
+  it.effect(
+    "a thread that is moving takes no wake, and takes it once a failed move releases it",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
+        const lead = yield* createThread("moving-lead");
+        const worker = yield* createThread("moving-worker", "Finish me");
+        yield* watch(lead, worker);
+        const handoff = {
+          handoffId: "handoff-moving",
+          environmentId: EnvironmentId.make("environment-box"),
+          label: "Box",
+        };
+        const update = (
+          expected: null | "departing",
+          next:
+            | { readonly state: "departing" }
+            | { readonly state: "failed"; readonly lastError: string },
+          id: string,
+        ) =>
+          orchestrator
+            .dispatch({
+              type: "thread.handoff.update",
+              commandId: CommandId.make(`command:${id}`),
+              threadId: lead,
+              expected,
+              handoff: { ...handoff, ...next },
+            })
+            .pipe(Effect.flatMap(({ storedEvents }) => observe(storedEvents)));
+        yield* update(null, { state: "departing" }, "moving-departing");
+
+        // The watched thread finishes mid-move: the departing copy neither wakes nor loses its watch.
+        yield* observe(yield* seedRun(worker, { status: "completed", text: "Done mid-move." }));
+        yield* reactor.sweep;
+        assert.lengthOf(yield* wakes(lead), 0);
+        assert.lengthOf(yield* watchesOf(lead), 1);
+
+        // A move that fails releases the thread, and the watch wakes it, once.
+        yield* update("departing", { state: "failed", lastError: "refused" }, "moving-failed");
+        yield* reactor.sweep;
+        assert.lengthOf(yield* wakes(lead), 1);
+        assert.lengthOf(yield* watchesOf(lead), 0);
+      }),
+  );
+
+  it.effect(
+    "a watch follows the thread it watches to where it moved, and ends if that is itself",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
+        const lead = yield* createThread("move-lead");
+        const worker = yield* createThread("move-worker", "Move me");
+        yield* watch(lead, worker);
+        const environmentId = EnvironmentId.make("environment-box");
+        const moved = ThreadId.make("thread:moved-worker");
+        const handoff = {
+          handoffId: "handoff-1",
+          environmentId,
+          label: "Box",
+        };
+        const update = (
+          expected: "departing" | null,
+          next:
+            | { readonly state: "departing" }
+            | { readonly state: "departed"; readonly threadId: ThreadId },
+          id: string,
+        ) =>
+          orchestrator
+            .dispatch({
+              type: "thread.handoff.update",
+              commandId: CommandId.make(`command:${id}`),
+              threadId: worker,
+              expected,
+              handoff: { ...handoff, ...next },
+            })
+            .pipe(Effect.flatMap(({ storedEvents }) => observe(storedEvents)));
+        // While it moves it still counts as working: nothing wakes the watcher.
+        yield* update(null, { state: "departing" }, "move-departing");
+        yield* reactor.sweep;
+        assert.lengthOf(yield* wakes(lead), 0);
+        assert.deepEqual((yield* watchesOf(lead))[0]?.target, { kind: "thread", threadId: worker });
+
+        yield* update("departing", { state: "departed", threadId: moved }, "move-departed");
+        assert.lengthOf(yield* wakes(lead), 0);
+        const [followed] = yield* watchesOf(lead);
+        assert.deepEqual(followed?.target, { kind: "thread", threadId: moved, environmentId });
+        assert.deepEqual(yield* orchestrator.watchedThreadStanding(worker), {
+          state: "moved",
+          environmentId,
+          threadId: moved,
+        });
+
+        // A remote answer that the thread came back to this environment makes the watch local again.
+        yield* orchestrator.dispatch({
+          type: "thread.thread-watch.fire",
+          commandId: CommandId.make("command:remote-moved-home"),
+          threadId: lead,
+          watchId: followed?.id ?? "",
+          remote: { kind: "moved", movedTo: { threadId: worker } },
+        });
+        assert.deepEqual((yield* watchesOf(lead))[0]?.target, { kind: "thread", threadId: worker });
+        // ...and one that it moved to the watcher itself ends the watch without a wake.
+        yield* orchestrator
+          .dispatch({
+            type: "thread.thread-watch.fire",
+            commandId: CommandId.make("command:remote-moved-here"),
+            threadId: lead,
+            watchId: followed?.id ?? "",
+            remote: { kind: "moved", movedTo: { threadId: lead } },
+          })
+          .pipe(Effect.exit);
+        assert.lengthOf(yield* wakes(lead), 0);
+      }),
   );
 
   it.effect("does not wake while the watched thread still has work after its run ends", () =>

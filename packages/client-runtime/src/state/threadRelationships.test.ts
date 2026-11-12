@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
 import {
@@ -474,6 +474,43 @@ describe("thread watch relationships", () => {
       watcherThreadIds: [],
     });
     expect(result.watched).toEqual([{ threadId: other, kind: "watched" }]);
+  });
+
+  it("keeps a linked environment's watched and ended threads apart from a local one with the same id", () => {
+    const peer = EnvironmentId.make("environment:peer");
+    const ended = (threadId: ThreadId, environmentId?: EnvironmentId) =>
+      ({
+        threadId,
+        title: "t",
+        endedAt: "x",
+        ...(environmentId === undefined ? {} : { environmentId }),
+      }) as never;
+    const result = deriveThreadWatchRelationships({
+      threadId: self,
+      threadWatches: [
+        watch({ kind: "thread", threadId: other }),
+        watch({ kind: "thread", threadId: other, environmentId: peer }),
+        watch({ kind: "thread", threadId: other, environmentId: peer }),
+        // The same id as this thread, but in another environment, is another thread.
+        watch({ kind: "thread", threadId: self, environmentId: peer }),
+      ],
+      endedThreadWatches: [
+        ended(other, peer),
+        ended(other),
+        ended(self, peer),
+        ended(self),
+        ended(ThreadId.make("gone"), peer),
+      ],
+      watcherThreadIds: [],
+    });
+    expect(result.watching).toEqual([
+      { threadId: other, kind: "watching" },
+      { threadId: other, environmentId: peer, kind: "watching" },
+      { threadId: self, environmentId: peer, kind: "watching" },
+    ]);
+    expect(result.watched).toEqual([
+      { threadId: ThreadId.make("gone"), environmentId: peer, kind: "watched" },
+    ]);
   });
 
   it("is empty without watches", () => {
