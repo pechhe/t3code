@@ -239,29 +239,31 @@ export const layer = Layer.effect(
       const stopChild = Effect.gen(function* () {
         const commandId = stableCommandId({ operation: "cancel-task" });
         const reason = agentStopReason(principal.reason);
-        yield* dispatch({
-          type: "thread.stop",
-          commandId,
-          threadId: childThreadId,
-          stopDelegatedTasks: false,
-          reason,
-        }).pipe(
-          Effect.mapError((error) =>
-            failure(
-              "task_not_cancellable",
-              `Unable to stop delegated task ${input.taskId}: ${errorMessage(error)}`,
-            ),
-          ),
-        );
-        // A retry with the same clientRequestId repeats only the stops that failed.
         yield* withCurrentAuthority(
           childThreadId,
-          threadManagement.stopDelegatedTasks({ threadId: childThreadId, commandId, reason }),
+          threadManagement.cancelDelegatedTask({
+            parentThreadId: principal.ownerThreadId,
+            taskId: input.taskId,
+            command: {
+              type: "thread.stop",
+              commandId,
+              threadId: childThreadId,
+              stopDelegatedTasks: false,
+              reason,
+            },
+            stopDescendants: (remoteDispatch) =>
+              threadManagement.stopDelegatedTasks({
+                threadId: childThreadId,
+                commandId,
+                reason,
+                remoteDispatch,
+              }),
+          }),
         ).pipe(
           Effect.mapError((error) =>
             failure(
               "task_not_cancellable",
-              `Stopped delegated task ${input.taskId}, but not every task it delegated: ${errorMessage(error)}`,
+              `Unable to stop delegated task ${input.taskId}: ${errorMessage(error)}`,
             ),
           ),
         );
@@ -397,9 +399,11 @@ export const layer = Layer.effect(
         const latestChildRun = child.runs.toSorted((a, b) => b.ordinal - a.ordinal)[0];
         if (latestChildRun?.status === "failed") {
           yield* disposeCompletionDelivery;
-          yield* threadManagement.recoverDelegatedTask(childThreadId, latestChildRun.id, {
-            cancelled: true,
-          });
+          yield* threadManagement
+            .recoverDelegatedTask(childThreadId, latestChildRun.id, {
+              cancelled: true,
+            })
+            .pipe(Effect.mapError(threadManagementFailure));
           const { subagents } = yield* threadManagement
             .getThreadRecords(principal.ownerThreadId, ["subagents"], {
               subagentIds: [input.taskId],

@@ -600,10 +600,14 @@ const make = Effect.gen(function* () {
     )
       return;
     if (row.worker_environment_id === null && row.worker_run_id !== null)
-      yield* threads.recoverDelegatedTask(
-        ThreadId.make(row.worker_thread_id),
-        RunId.make(row.worker_run_id),
-      );
+      yield* threads
+        .recoverDelegatedTask(ThreadId.make(row.worker_thread_id), RunId.make(row.worker_run_id))
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestratorMcpFailure({ code: "orchestration_error", message: String(cause) }),
+          ),
+        );
   });
   const cancel: AdviceService["Service"]["cancel"] = Effect.fn("AdviceService.cancel")(function* (
     scope,

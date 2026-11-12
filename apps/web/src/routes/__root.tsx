@@ -11,7 +11,7 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
-import { Check, Copy } from "lucide";
+import { CheckIcon, CopyIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
@@ -42,11 +42,9 @@ import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useProjectThemeSync } from "../hooks/useProjectTheme";
 import { Button } from "../components/ui/button";
-import { MorphIcon } from "~/components/MorphIcon";
 import { StandalonePage, StandalonePageHeader } from "../components/ui/standalone-page";
 import { AnchoredToastProvider, ToastProvider } from "../components/ui/toast";
 import { isElectron } from "../env";
-import { cn } from "../lib/utils";
 import { useClientSettings } from "../hooks/useSettings";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -296,7 +294,7 @@ function CopyErrorButton({ report }: { report: string }) {
 
   return (
     <Button size="sm" variant="outline" onClick={() => copyToClipboard(report)}>
-      <MorphIcon className={cn(isCopied && "text-success")} icon={isCopied ? Check : Copy} />
+      {isCopied ? <CheckIcon className="text-success" /> : <CopyIcon />}
       {isCopied ? "Copied" : "Copy error"}
     </Button>
   );

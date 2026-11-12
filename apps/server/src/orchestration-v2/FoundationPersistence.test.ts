@@ -722,8 +722,8 @@ it.effect.each([false, true])("groups shutdown commits with rollback=%s", (fail)
         EffectWorker.OrchestrationEffectWorkerV2.of({
           awaitWork: Effect.void,
           runRecoveryOnce: Effect.succeed(false),
-          runOnce: Effect.succeed(false),
-          nextClaimableAt: Effect.succeedNone,
+          runOnce: () => Effect.succeed(false),
+          nextClaimableAt: () => Effect.succeedNone,
           drain: () => Effect.succeed(0),
         }),
       ),
@@ -2078,8 +2078,8 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
       );
       yield* Effect.gen(function* () {
         const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
-        assert.isTrue(yield* worker.runOnce);
-        assert.isFalse(yield* worker.runOnce);
+        assert.isTrue(yield* worker.runOnce());
+        assert.isFalse(yield* worker.runOnce());
       }).pipe(Effect.provide(layerWorker));
 
       assert.equal(yield* Ref.get(executionCount), 1);
@@ -2566,7 +2566,7 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
 
       yield* Effect.gen(function* () {
         const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
-        const workerFiber = yield* worker.runOnce.pipe(Effect.forkChild);
+        const workerFiber = yield* worker.runOnce().pipe(Effect.forkChild);
         yield* Deferred.await(started);
         const cancelledEffectIds = yield* outbox.cancelUnsettled({
           threadId,
@@ -2689,7 +2689,7 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
 
       assert.isTrue(
         yield* EffectWorker.OrchestrationEffectWorkerV2.pipe(
-          Effect.flatMap((worker) => worker.runOnce),
+          Effect.flatMap((worker) => worker.runOnce()),
           Effect.provide(layerWorker),
         ),
       );
@@ -2935,7 +2935,7 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
       if (Option.isNone(claimed)) return;
       assert.equal(claimed.value.id, "effect:foundation-next-claimable:a1");
 
-      const whileBlocked = yield* outbox.nextClaimableAt;
+      const whileBlocked = yield* outbox.nextClaimableAt();
       assert.isTrue(Option.isSome(whileBlocked));
       if (Option.isSome(whileBlocked)) {
         assert.equal(DateTime.toEpochMillis(whileBlocked.value), DateTime.toEpochMillis(future));
@@ -2945,7 +2945,7 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
         effectId: claimed.value.id,
         workerId: "next-claimable-worker",
       });
-      const afterCompletion = yield* outbox.nextClaimableAt;
+      const afterCompletion = yield* outbox.nextClaimableAt();
       assert.isTrue(Option.isSome(afterCompletion));
       if (Option.isSome(afterCompletion)) {
         assert.isAtMost(DateTime.toEpochMillis(afterCompletion.value), DateTime.toEpochMillis(now));
@@ -3122,7 +3122,7 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
       assert.equal(Option.getOrUndefined(title)?.id, "effect:foundation-retry-order:b-title");
       const blocked = yield* outbox.claimNext({ workerId });
       assert.isTrue(Option.isNone(blocked));
-      const nextClaimable = yield* outbox.nextClaimableAt;
+      const nextClaimable = yield* outbox.nextClaimableAt();
       assert.isTrue(Option.isSome(nextClaimable));
       if (Option.isSome(nextClaimable)) {
         assert.equal(
@@ -3305,7 +3305,7 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
 
       yield* Effect.gen(function* () {
         const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
-        const firstFiber = yield* worker.runOnce.pipe(Effect.forkChild);
+        const firstFiber = yield* worker.runOnce().pipe(Effect.forkChild);
         yield* Deferred.await(firstStarted);
         yield* sql`
           UPDATE orchestration_v2_effect_outbox
@@ -3313,12 +3313,12 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
           WHERE effect_id = ${firstEffectId}
         `;
 
-        assert.isFalse(yield* worker.runOnce);
+        assert.isFalse(yield* worker.runOnce());
         assert.deepEqual(yield* Ref.get(executions), [firstEffectId]);
 
         yield* Deferred.succeed(releaseFirst, undefined);
         assert.isTrue(yield* Fiber.join(firstFiber));
-        assert.isTrue(yield* worker.runOnce);
+        assert.isTrue(yield* worker.runOnce());
         assert.deepEqual(yield* Ref.get(executions), [firstEffectId, secondEffectId]);
       }).pipe(Effect.provide(layerWorker));
     }),
@@ -3647,8 +3647,8 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
           EffectWorker.OrchestrationEffectWorkerV2.of({
             awaitWork: Effect.void,
             runRecoveryOnce: Effect.succeed(false),
-            runOnce: Effect.succeed(false),
-            nextClaimableAt: Effect.succeedNone,
+            runOnce: () => Effect.succeed(false),
+            nextClaimableAt: () => Effect.succeedNone,
             drain: () => Effect.succeed(0),
           }),
         ),
@@ -3864,8 +3864,8 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
           EffectWorker.OrchestrationEffectWorkerV2.of({
             awaitWork: Effect.void,
             runRecoveryOnce: Effect.succeed(false),
-            runOnce: Effect.succeed(false),
-            nextClaimableAt: Effect.succeedNone,
+            runOnce: () => Effect.succeed(false),
+            nextClaimableAt: () => Effect.succeedNone,
             drain: () => Effect.succeed(0),
           }),
         ),

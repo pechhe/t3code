@@ -119,6 +119,7 @@ interface ThreadLifecycleInput {
   readonly serverConfig: EnvironmentServerConfig | null;
   readonly runtimeMode: RuntimeMode;
   readonly isWorking: boolean;
+  readonly runIsLive: boolean;
   readonly pendingBackgroundTasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
   readonly turnItems: ThreadStructure["turnItems"];
   readonly subagents: ReadonlyArray<OrchestrationV2Subagent>;
@@ -172,6 +173,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     serverConfig,
     runtimeMode,
     isWorking,
+    runIsLive,
     pendingBackgroundTasks,
     turnItems,
     subagents,
@@ -425,9 +427,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   const handleSwitchCheckoutToThreadStable = useStableCallback(() => {
     void handleSwitchCheckoutToThread();
   });
-  // The interrupt path also accepts a completed run while its provider still
-  // has background work.
-  const activeBackgroundTasks = !isWorking && activeThread ? pendingBackgroundTasks : [];
+  const activeBackgroundTasks = activeThread ? pendingBackgroundTasks : [];
   const [backgroundWorkStops, setBackgroundWorkStops] = useState<
     Record<string, BackgroundWorkStopRequest | undefined>
   >({});
@@ -704,7 +704,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
             <Button
               size="xs"
               variant="ghost"
-              disabled={!canOperateThread || isStoppingBackgroundWork}
+              disabled={runIsLive || !canOperateThread || isStoppingBackgroundWork}
               onClick={() => void handleStopBackgroundWorkStable()}
             >
               {isStoppingBackgroundWork ? "Stopping..." : "Stop all"}

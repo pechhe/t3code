@@ -75,6 +75,7 @@ import * as ProviderTurnStart from "./ProviderTurnStartService.ts";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as ProviderUsageAnalytics from "../telemetry/ProviderUsageAnalytics.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
+import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 
 const isDomainEvent = Schema.is(OrchestrationV2DomainEvent);
 
@@ -177,6 +178,9 @@ function startWithMissingWorktree(
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({}),
         Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
         IdAllocator.layer,
+        Layer.mock(TurnItemPositionStore.TurnItemPositionStoreV2)({
+          allocate: () => Effect.succeed(0),
+        }),
         NodeChildProcessSpawner.layer.pipe(
           Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         ),
@@ -1177,6 +1181,18 @@ function makeLocalCommandHarness(input: {
       ),
     }),
   );
+  const getRuntimeRecoveryProjection = vi.fn<
+    ProjectionStore.ProjectionStoreV2Shape["getRuntimeRecoveryProjection"]
+  >(() =>
+    Effect.as(failReadIfRunning, {
+      ...projection,
+      hasConversation: projection.messages.some(
+        (m) =>
+          m.role === "user" &&
+          (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
+      ),
+    }),
+  );
   const layer = ProviderTurnStart.layer.pipe(
     Layer.provide(VideoFrames.layerLive),
     Layer.provide(
@@ -1216,6 +1232,9 @@ function makeLocalCommandHarness(input: {
         }),
         IdAllocator.layer,
         Layer.succeed(HostProcess.Environment, input.processEnvironment ?? process.env),
+        Layer.mock(TurnItemPositionStore.TurnItemPositionStoreV2)({
+          allocate: () => Effect.succeed(0),
+        }),
         NodeChildProcessSpawner.layer.pipe(
           Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         ),
@@ -1247,15 +1266,12 @@ function makeLocalCommandHarness(input: {
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
           getThreadRecords,
           getTurnStartContext,
-          getRuntimeRecoveryProjection: () =>
-            Effect.as(failReadIfRunning, {
-              ...projection,
-              hasConversation: projection.messages.some(
-                (m) =>
-                  m.role === "user" &&
-                  (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
-              ),
-            }),
+          getRuntimeRecoveryProjection,
+          getRun: (_threadId, id) =>
+            Effect.as(
+              failReadIfRunning,
+              projection.runs.find((candidate) => candidate.id === id),
+            ),
           getTurnStartHistory: () =>
             input.sideChat !== undefined
               ? Effect.succeed([])
@@ -1316,6 +1332,7 @@ function makeLocalCommandHarness(input: {
     getThreadRecords,
     getTurnStartContext,
     generateCompactionSummary,
+    getRuntimeRecoveryProjection,
     setProjection: (next: OrchestrationV2ThreadProjection) => {
       projection = next;
     },
@@ -3521,6 +3538,29 @@ effectIt.effect.each([true, false])(
         ),
       ),
     ),
+);
+
+effectIt.effect("checks the run's status without loading the thread's history", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Continue",
+      previousTurn: { runStatus: "completed", turnStatus: "completed" },
+    });
+
+    yield* harness.start;
+
+    const controls = harness.startRootRun.mock.calls[0]?.[0];
+    expect(controls).toBeDefined();
+    if (controls === undefined) return;
+    expect(yield* controls.shouldStartProviderTurn!()).toBe(true);
+    expect(yield* controls.shouldFinalizeRun!()).toBe(true);
+    // Each check needs one run row; the recovery projection reads every run and open turn item.
+    // The one read left is the start's inherited background items snapshot, not a status check.
+    expect(
+      harness.getRuntimeRecoveryProjection.mock.calls.length,
+      "recovery projection reads beyond the inherited background items snapshot",
+    ).toBe(1);
+  }),
 );
 
 effectIt.effect("fails the run instead of replacing a native thread another client holds", () =>

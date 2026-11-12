@@ -1,3 +1,4 @@
+import * as FixtureProviderInstallationGate from "../provider/ProviderInstallationGate.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it, vi } from "@effect/vitest";
@@ -965,6 +966,7 @@ it.effect(
             Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
           ),
           Layer.mergeAll(NodeServices.layer, NodeCrypto.layer),
+          FixtureProviderInstallationGate.layer,
         ),
       ),
     ),

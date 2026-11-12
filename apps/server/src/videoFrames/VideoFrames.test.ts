@@ -13,6 +13,7 @@ import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as VideoFrames from "./VideoFrames.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
+import * as FixtureDeviceService from "../device/DeviceService.ts";
 import * as ResourceCleanup from "../orchestration-v2/ResourceCleanupService.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as PreviewManager from "../preview/Manager.ts";
@@ -232,6 +233,7 @@ it.effect("regenerates an incomplete cache and removes it through attachment cle
             Layer.mock(PreviewManager.PreviewManager)({}),
             Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
             McpSessionRegistryTestkit.layer,
+            Layer.mock(FixtureDeviceService.DeviceService)({}),
           ),
         ),
         Layer.provideMerge(h.layer),

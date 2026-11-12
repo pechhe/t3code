@@ -159,6 +159,7 @@ const layerRuntime = Layer.mergeAll(RuntimeLayer.layer, RuntimeLayer.layerEventS
         }),
       invalidate: () => Effect.void,
       subscribeChanges: Effect.never,
+      refreshRepositoryIdentity: () => Effect.succeed(null),
       readRepositoryIdentity: () => Effect.succeed(null),
     }),
   ),

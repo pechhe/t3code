@@ -1,6 +1,10 @@
 import { MessageId, RunId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { observeTimelineRun, stepNewTurnEase } from "./timelineScrollAnchoring";
+import {
+  observeTimelineRun,
+  stepNewTurnEase,
+  resolveDisclosureRevealScrollDelta,
+} from "./timelineScrollAnchoring";
 
 describe("observeTimelineRun", () => {
   const existing = {
@@ -97,5 +101,38 @@ describe("new turn ease", () => {
     expect(
       stepNewTurnEase({ anchorTop: 1016, scrollTop: 400, maxScrollTop: 400, elapsedMs: 16 }),
     ).toEqual({ kind: "settle" });
+  });
+});
+
+describe("resolveDisclosureRevealScrollDelta", () => {
+  const viewport = {
+    viewportTop: 0,
+    viewportBottom: 800,
+    composerOverlayHeight: 150,
+    anchorOffset: 24,
+  };
+
+  it("does not scroll when the expanded row ends above the composer", () => {
+    expect(resolveDisclosureRevealScrollDelta({ ...viewport, rowTop: 300, rowBottom: 650 })).toBe(
+      0,
+    );
+  });
+
+  it("scrolls content hidden behind the composer into view", () => {
+    expect(resolveDisclosureRevealScrollDelta({ ...viewport, rowTop: 560, rowBottom: 900 })).toBe(
+      250,
+    );
+  });
+
+  it("keeps the header of a row taller than the usable viewport visible", () => {
+    expect(resolveDisclosureRevealScrollDelta({ ...viewport, rowTop: 600, rowBottom: 2000 })).toBe(
+      576,
+    );
+  });
+
+  it("never scrolls backwards when the row header is already above the anchor inset", () => {
+    expect(resolveDisclosureRevealScrollDelta({ ...viewport, rowTop: -40, rowBottom: 1200 })).toBe(
+      0,
+    );
   });
 });

@@ -38,8 +38,8 @@ import {
   MessagesSquareIcon,
   Redo2Icon,
   PencilIcon,
+  LinkIcon,
 } from "lucide-react";
-import { Link as LinkIconNode } from "lucide";
 import { Button, InlineButton } from "../ui/button";
 import { FreshSessionRow, ModelSwitchRow } from "./V2LifecycleRow";
 import { useAssetUrlRefresh, useAssetUrls, useAssetUrlState } from "../../assets/assetUrls";
@@ -59,7 +59,6 @@ import { MessageCopyButton } from "./MessageCopyButton";
 import { promptLinkFor } from "../promptLinks/copyPromptLink";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { formatBytes } from "../../lib/formatBytes";
-import { shouldCollapseUserMessage } from "./MessagesTimeline.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   asKnownContextRecord,
@@ -82,6 +81,7 @@ import { markdownProseDirection } from "~/textDirection";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
 import { WorkflowOpeningBlock } from "./WorkflowOpeningBlock";
+import { useTallEnoughToFold } from "./useTallEnoughToFold";
 import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./timelineRowContext";
 import {
   MESSAGE_HEADING_LEVEL,
@@ -377,7 +377,7 @@ function AutomationMessageRow({ row }: { row: Extract<TimelineRow, { kind: "mess
                 <MessageCopyButton
                   text={promptLink}
                   label="Copy prompt link"
-                  icon={LinkIconNode}
+                  icon={LinkIcon}
                   variant="ghost"
                 />
               )}
@@ -868,7 +868,7 @@ function UserMessageTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "me
           <MessageCopyButton
             text={promptLink}
             label="Copy prompt link"
-            icon={LinkIconNode}
+            icon={LinkIcon}
             variant="ghost"
           />
         )}
@@ -1179,8 +1179,9 @@ const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(prop
   const revealForFind = () => setExpanded(true);
   const revealRef = findRevealRef(revealForFind);
   const hasVisibleBody = props.text.trim().length > 0;
-  const canCollapse =
-    props.collapsible !== false && hasVisibleBody && shouldCollapseUserMessage(props.text);
+  const { ref: contentRef, tallEnough: canCollapse } = useTallEnoughToFold(
+    props.collapsible !== false && hasVisibleBody,
+  );
   const isCollapsed = canCollapse && !expanded;
   const showCollapseControl = canCollapse;
 
@@ -1205,12 +1206,14 @@ const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(prop
               : undefined
           }
         >
-          <UserMessageBody
-            text={props.text}
-            renderContextReference={props.renderContextReference}
-            skills={props.skills}
-            markdownCwd={props.markdownCwd}
-          />
+          <div ref={contentRef}>
+            <UserMessageBody
+              text={props.text}
+              renderContextReference={props.renderContextReference}
+              skills={props.skills}
+              markdownCwd={props.markdownCwd}
+            />
+          </div>
         </div>
       ) : null}
       {showCollapseControl ? (

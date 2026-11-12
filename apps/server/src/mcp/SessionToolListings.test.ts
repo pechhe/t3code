@@ -1,3 +1,4 @@
+import * as FixtureRemoteDelegation from "../peer/RemoteDelegation.ts";
 import * as AdviceMcpService from "./AdviceMcpService.ts";
 import * as AssetSigner from "../assets/AssetSigner.ts";
 import * as ContextPeerForwarding from "../peer/PeerForwarding.ts";
@@ -170,7 +171,11 @@ it.effect("says on every endpoint which open tool is headless and which follows 
         if (tool !== undefined) expect(tool.description, `${key} ${name}`).toContain(sentence);
       }
     }
-  }).pipe(Effect.provide(contextServices)),
+  }).pipe(
+    Effect.provide(
+      Layer.merge(contextServices, Layer.mock(FixtureRemoteDelegation.RemoteDelegation)({})),
+    ),
+  ),
 );
 
 it.effect("registers only the tool families each session endpoint declares", () =>
@@ -188,7 +193,11 @@ it.effect("registers only the tool families each session endpoint declares", () 
       );
       expect(names.includes("t3_browser_task"), key).toBe(key === "editor" || key === "reader");
     }
-  }).pipe(Effect.provide(contextServices)),
+  }).pipe(
+    Effect.provide(
+      Layer.merge(contextServices, Layer.mock(FixtureRemoteDelegation.RemoteDelegation)({})),
+    ),
+  ),
 );
 
 it.effect("gives an editor every toolkit, including what used to be workspace-only", () =>
@@ -208,5 +217,9 @@ it.effect("gives an editor every toolkit, including what used to be workspace-on
         ...BOUNDED_BROWSER_TOOL_NAMES,
       ]),
     );
-  }).pipe(Effect.provide(contextServices)),
+  }).pipe(
+    Effect.provide(
+      Layer.merge(contextServices, Layer.mock(FixtureRemoteDelegation.RemoteDelegation)({})),
+    ),
+  ),
 );

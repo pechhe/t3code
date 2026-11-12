@@ -97,6 +97,7 @@ function layerExecutorFor(input: {
       ProviderTurnControlService.ProviderTurnControlServiceV2.of({
         interrupt: input.interrupt ?? (() => Effect.void),
         steer: () => Effect.void,
+        applyModelSelection: () => Effect.void,
         interruptAndAwaitTerminal: (request) =>
           record(
             request.replacementProviderSessionId === undefined
@@ -425,7 +426,7 @@ it.effect("requeues a claim when a pre-execution worker check fails", () =>
     );
 
     const exit = yield* EffectWorker.OrchestrationEffectWorkerV2.pipe(
-      Effect.flatMap((worker) => worker.runOnce),
+      Effect.flatMap((worker) => worker.runOnce()),
       Effect.provide(layerWorker),
       Effect.exit,
     );
@@ -495,7 +496,7 @@ it.effect("arms cancellation before the durable pre-execution check", () =>
     );
 
     const exit = yield* EffectWorker.OrchestrationEffectWorkerV2.pipe(
-      Effect.flatMap((worker) => worker.runOnce),
+      Effect.flatMap((worker) => worker.runOnce()),
       Effect.provide(layerWorker),
       Effect.exit,
     );
@@ -561,7 +562,7 @@ it.effect("terminalizes a process-bound claim when success settlement fails", ()
     );
 
     const exit = yield* EffectWorker.OrchestrationEffectWorkerV2.pipe(
-      Effect.flatMap((worker) => worker.runOnce),
+      Effect.flatMap((worker) => worker.runOnce()),
       Effect.provide(layerWorker),
       Effect.exit,
     );
@@ -715,6 +716,7 @@ it.effect.each([
           cleanupPreviews: () => Effect.void,
           cleanupAttachments: () => Effect.void,
           cleanupScheduledTasks: () => Effect.void,
+          cleanupDevices: () => Effect.void,
           releaseBrowserSessions: () => Ref.update(events, (current) => [...current, "released"]),
         }),
       ),

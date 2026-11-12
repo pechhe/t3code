@@ -119,6 +119,7 @@ const dependencies = Layer.mergeAll(
   } as never),
   Layer.mock(DesktopChannel.DesktopBrowserChannel)({
     available: false,
+    loadFailure: () => undefined,
     attached: Stream.empty,
     detached: Stream.empty,
     isShown: () => false,

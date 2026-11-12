@@ -142,6 +142,9 @@ const layerAdvertisedTools = McpHttpServer.layerTools.pipe(
 it.effect("only request_secret asks Claude Code to load it up front", () =>
   Effect.gen(function* () {
     const mcp = yield* McpServer.McpServer;
+    const backgroundWait = mcp.tools.find(({ tool }) => tool.name === "t3_background_wait");
+    expect(backgroundWait?.tool.annotations?.readOnlyHint).toBe(false);
+    expect(backgroundWait?.tool.annotations?.destructiveHint).toBe(false);
     const alwaysLoad = mcp.tools
       .filter(({ tool }) => tool._meta?.["anthropic/alwaysLoad"] !== undefined)
       .map(({ tool }) => [tool.name, tool._meta]);

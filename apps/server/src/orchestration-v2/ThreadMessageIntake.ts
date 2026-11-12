@@ -29,6 +29,7 @@ function dispatchWasNotAccepted(
     case "OrchestratorSubagentThreadReadOnlyError":
     case "OrchestratorThreadMovedError":
     case "OrchestratorThreadAboveModeLimitError":
+    case "OrchestratorProviderSelectionBusyError":
     case "OrchestratorRuntimeModeAboveCeilingError":
     case "ThreadManagementProviderInstanceDisabledError":
       return true;

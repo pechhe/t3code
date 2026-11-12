@@ -1,3 +1,4 @@
+import * as FixtureRemoteDelegation from "../../../peer/RemoteDelegation.ts";
 import * as AdviceMcpService from "../../AdviceMcpService.ts";
 import { expect, it } from "@effect/vitest";
 import {
@@ -125,7 +126,7 @@ it.effect("schedule_task needs a label to create a task and leaves it alone on a
         { scheduledTaskId, purpose: "long_running" },
       ]);
     }).pipe(Effect.provide(layer));
-  }),
+  }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(FixtureRemoteDelegation.RemoteDelegation)({})))),
 );
 
 it.effect("schedule_task and create_threads are refused at the delegation limit", () =>
@@ -204,7 +205,7 @@ it.effect("schedule_task and create_threads are refused at the delegation limit"
         }),
       ).toContain("delegation limit");
     }).pipe(Effect.provide(layer));
-  }),
+  }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(FixtureRemoteDelegation.RemoteDelegation)({})))),
 );
 
 it.effect("a task a linked environment delegated counts its depth there toward the limit", () =>
@@ -283,5 +284,5 @@ it.effect("remote advice authenticates its local parent service before any peer 
     expect(
       result.content.map((part) => (part.type === "text" ? part.text : "")).join(""),
     ).toContain("authenticated-parent-route");
-  }),
+  }).pipe(Effect.provide(Layer.mergeAll(Layer.mock(FixtureRemoteDelegation.RemoteDelegation)({})))),
 );

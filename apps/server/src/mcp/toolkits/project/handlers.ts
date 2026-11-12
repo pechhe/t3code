@@ -35,6 +35,7 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveRuntimeMode } from "../../delegatedTaskModes.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import * as OrchestrationMcp from "../../OrchestratorMcpService.ts";
 import * as ForgeWorkItems from "../../../weave/ForgeWorkItems.ts";
 import * as WeaveAgentConnections from "../../../weave/WeaveAgentConnections.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
@@ -118,6 +119,28 @@ const connectionHandler: McpToolAccess.Handlers<
     return { connected: current !== null, origin: current?.origin ?? null };
   }),
 );
+
+function worktreeCheckHint(
+  error:
+    | ThreadLaunch.ThreadLaunchBaseRefError
+    | ThreadLaunch.ThreadLaunchBranchConflictError
+    | ThreadLaunch.ThreadLaunchNotRepositoryError,
+  strategy: { readonly startFromOrigin?: boolean | undefined },
+) {
+  if (error._tag === "ThreadLaunchNotRepositoryError")
+    return `Use workspaceStrategy: {type: "root"}, or pass the projectId of a Git repository.`;
+  if (error._tag === "ThreadLaunchBranchConflictError") {
+    const sibling = error.branch.replaceAll("/", "-");
+    return `Use a name that does not nest under or contain an existing branch${
+      sibling === error.branch ? "" : `, such as "${sibling}"`
+    }.`;
+  }
+  return `Pass a branch, tag, or commit that exists there${
+    strategy.startFromOrigin === true
+      ? "; the project has no usable remote to fetch it from."
+      : ", or set startFromOrigin:true if it exists only on a remote."
+  }`;
+}
 
 export const handlers = {
   t3_thread_launch: McpToolAccess.startsThreads(
@@ -228,6 +251,20 @@ export const handlers = {
                 ceiling: context.limits.runtimeMode,
                 runtimeMode: input.runtimeMode,
               });
+        const project = replaying ? undefined : yield* readProject;
+        if (!replaying && project === undefined)
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message: "The project was not found.",
+          });
+        if (!replaying && input.modelSelection !== undefined) {
+          const providers = yield* (yield* ProviderRegistry.ProviderRegistry).getProviders;
+          const provider = providers.find(
+            (candidate) => candidate.instanceId === input.modelSelection!.instanceId,
+          );
+          if (provider !== undefined)
+            yield* OrchestrationMcp.requireAdvertisedModel(provider, input.modelSelection.model);
+        }
         if (!replaying && input.workspaceStrategy?.type === "existing_worktree") {
           const project = yield* readProject;
           if (project === undefined)
@@ -248,7 +285,7 @@ export const handlers = {
                 "worktreePath must be a git worktree or jj workspace of the project's repository.",
             });
         }
-        // Reject unresolved base refs before accepting a launch; worktree provisioning happens later.
+        // Reject unresolved base refs and blocked branch names before accepting a launch; worktree provisioning happens later.
         const strategy = input.workspaceStrategy;
         if (!replaying && strategy?.type === "worktree")
           yield* ThreadLaunch.ThreadLaunchService.pipe(
@@ -259,11 +296,7 @@ export const handlers = {
               (error) =>
                 new OrchestratorMcpFailure({
                   code: "invalid_request",
-                  message: `${error.message} No thread was created. Pass a branch, tag, or commit that exists there${
-                    strategy.startFromOrigin === true
-                      ? "; the project has no usable remote to fetch it from."
-                      : ", or set startFromOrigin:true if it exists only on a remote."
-                  }`,
+                  message: `${error.message} No thread was created. ${worktreeCheckHint(error, strategy)}`,
                 }),
             ),
           );
@@ -283,11 +316,8 @@ export const handlers = {
             ? yield* ServerSettings.ServerSettingsService.pipe(
                 Effect.flatMap((settings) => settings.getSettings),
                 Effect.mapError(unavailable),
-                Effect.flatMap((settings) =>
-                  Effect.map(
-                    readProject,
-                    (project) => resolveProjectSettings(settings, projectId, project).settings,
-                  ),
+                Effect.map(
+                  (settings) => resolveProjectSettings(settings, projectId, project).settings,
                 ),
               )
             : undefined;
@@ -595,7 +625,8 @@ export const handlers = {
     (input) =>
       Effect.gen(function* () {
         const repositories = yield* Repositories.SourceControlRepositoryService;
-        return yield* repositories.cloneRepository(input).pipe(
+        // Agents' MCP calls have their own long budget, and an aborted call interrupts git.
+        return yield* repositories.cloneRepository(input, { timeoutMs: null }).pipe(
           Effect.mapError(
             (error) =>
               new OrchestratorMcpFailure({

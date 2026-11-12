@@ -101,6 +101,8 @@ describe("V2 preview upgrade", () => {
         [119, "SlipJayLandCommandIndex"],
         [120, "SettledThreadPruneMarks"],
         [121, "AdviceConsultations"],
+        [122, "ProjectionMessageSearchText"],
+        [123, "TurnItemConversationIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -245,6 +247,8 @@ describe("V2 preview upgrade", () => {
         [119, "SlipJayLandCommandIndex"],
         [120, "SettledThreadPruneMarks"],
         [121, "AdviceConsultations"],
+        [122, "ProjectionMessageSearchText"],
+        [123, "TurnItemConversationIndex"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

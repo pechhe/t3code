@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./pullRequestAnchor": {
+      "types": "./src/pullRequestAnchor.ts",
+      "import": "./src/pullRequestAnchor.ts"
+    },
     "./changedFileKind": {
       "types": "./src/changedFileKind.ts",
       "import": "./src/changedFileKind.ts"
@@ -578,10 +582,6 @@
     "./composerContextLegacySend": {
       "types": "./src/composerContextLegacySend.ts",
       "import": "./src/composerContextLegacySend.ts"
-    },
-    "./markdownBlocks": {
-      "types": "./src/markdownBlocks.ts",
-      "import": "./src/markdownBlocks.ts"
     },
     "./workspaceAttachments": {
       "types": "./src/workspaceAttachments.ts",

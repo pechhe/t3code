@@ -102,6 +102,8 @@ import Migration0096 from "./Migrations/096_Champions.ts";
 import Migration0097 from "./Migrations/097_ChampionRecovery.ts";
 import Migration0098 from "./Migrations/098_PeerLinks.ts";
 import Migration0099 from "./Migrations/099_PeerLinkFence.ts";
+import Migration0122 from "./Migrations/122_ProjectionMessageSearchText.ts";
+import Migration0123 from "./Migrations/123_TurnItemConversationIndex.ts";
 import Migration0121 from "./Migrations/121_AdviceConsultations.ts";
 import Migration0100 from "./Migrations/100_WaitingLinkRequestIndex.ts";
 import Migration0101 from "./Migrations/101_ActiveTurnItemIndexes.ts";
@@ -248,6 +250,8 @@ const migrationEntries = [
   [119, "SlipJayLandCommandIndex", Migration0119],
   [120, "SettledThreadPruneMarks", Migration0120],
   [121, "AdviceConsultations", Migration0121],
+  [122, "ProjectionMessageSearchText", Migration0122],
+  [123, "TurnItemConversationIndex", Migration0123],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -310,6 +314,25 @@ const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function*
     kind: "BadState",
     message: `This database's migration history would skip required schema migrations: ${skipped.join(", ")}. The migrator skips every id up to the highest recorded id (${latestRecordedId}), regardless of name. It was probably written by a different build. Start the build that wrote it, or report this migration history so an upgrade path can be added.`,
   });
+});
+
+const latestMigrationId = Math.max(...migrationEntries.map(([id]) => id));
+
+// Mirrors the Migrator, which runs only ids above the highest recorded, plus the V2-preview reconciliation.
+export const hasPendingMigrations = Effect.fn("hasPendingMigrations")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const tables = yield* sql`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
+  `;
+  if (tables.length === 0) return true;
+  const rows = yield* sql<{ readonly latestId: number | null; readonly previewRows: number }>`
+    SELECT
+      MAX(migration_id) AS latestId,
+      SUM(name = 'OrchestrationV2' AND migration_id IN (53, 54)) AS previewRows
+    FROM effect_sql_migrations
+  `;
+  const row = rows[0];
+  return (row?.latestId ?? 0) < latestMigrationId || (row?.previewRows ?? 0) > 0;
 });
 
 const run = Migrator.make({});

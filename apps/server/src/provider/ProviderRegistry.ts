@@ -1,6 +1,7 @@
 import {
   defaultInstanceIdForDriver,
   isProviderWorkspaceSnapshotCurrent,
+  isProviderWorkspaceSnapshotPending,
   ProviderDriverKind,
   type ProviderInstanceId,
   type ServerProvider,
@@ -227,6 +228,9 @@ export function upsertProviderWorkspaceSnapshot(
 ): ServerProvider {
   const previousSnapshot = provider.workspaceSnapshots?.find((snapshot) => snapshot.cwd === cwd);
   const optionDescriptors = scopedSnapshot.optionDescriptors ?? previousSnapshot?.optionDescriptors;
+  const models = scopedSnapshot.workspaceModelsPending
+    ? previousSnapshot?.models
+    : scopedSnapshot.workspaceModels;
   const workspaceSnapshot = {
     cwd,
     checkedAt: scopedSnapshot.checkedAt,
@@ -236,6 +240,8 @@ export function upsertProviderWorkspaceSnapshot(
     ...(scopedSnapshot.slashCommandsPending ? { slashCommandsPending: true } : {}),
     skills: scopedSnapshot.skills,
     ...(optionDescriptors === undefined ? {} : { optionDescriptors }),
+    ...(models === undefined ? {} : { models }),
+    ...(scopedSnapshot.workspaceModelsPending ? { modelsPending: true } : {}),
   } satisfies NonNullable<ServerProvider["workspaceSnapshots"]>[number];
   return {
     ...provider,
@@ -265,9 +271,12 @@ const shouldRetainMissingProviderModels = (provider: ServerProvider): boolean =>
     );
   }
 
-  if (provider.driver === ProviderDriverKind.make("grok")) {
-    // Grok reports ready only after it discovers a model list; the pending,
-    // ACP-failed, empty-inventory, and logged-out probes are warning/error.
+  if (
+    provider.driver === ProviderDriverKind.make("grok") ||
+    provider.driver === ProviderDriverKind.make("cursor")
+  ) {
+    // Grok and Cursor report ready only after they discover a model list; the pending,
+    // failed, empty-inventory, and logged-out probes are warning/error.
     return !(provider.installed && provider.status === "ready");
   }
 
@@ -363,14 +372,22 @@ export const mergeProviderSnapshot = (
   }
   const savedAccount = carrySavedAntigravityAccount(previousProvider, nextProvider);
   const { message: _uncheckedMessage, ...nextWithoutMessage } = nextProvider;
+  const models = mergeProviderModels(nextProvider, previousProvider.models, nextProvider.models);
+  // Folder catalogs were compared with the old machine catalog, so every folder rescans.
+  const previousWorkspaceSnapshots = Equal.equals(models, previousProvider.models)
+    ? previousProvider.workspaceSnapshots
+    : previousProvider.workspaceSnapshots?.map((snapshot) => ({
+        ...snapshot,
+        modelsPending: true,
+      }));
   return {
     ...(savedAccount?.status === "ready" ? nextWithoutMessage : nextProvider),
     ...savedAccount,
-    models: mergeProviderModels(nextProvider, previousProvider.models, nextProvider.models),
+    models,
     ...(nextProvider.workspaceSnapshots !== undefined
       ? { workspaceSnapshots: nextProvider.workspaceSnapshots }
-      : previousProvider.workspaceSnapshots !== undefined
-        ? { workspaceSnapshots: previousProvider.workspaceSnapshots }
+      : previousWorkspaceSnapshots !== undefined
+        ? { workspaceSnapshots: previousWorkspaceSnapshots }
         : {}),
     ...(shouldRetainMissingOpenCodeMetadata(nextProvider)
       ? {
@@ -453,10 +470,17 @@ export const layer = Layer.effect(
       }
       fallbackByInstance.set(source.instanceId, provider);
     }
+    // Read after the snapshots: a snapshot read as awaiting is the pre-check placeholder.
+    const awaitingBootInstances = new Set<ProviderInstance>();
+    for (const instance of bootInstances) {
+      if (yield* instance.snapshot.isAwaitingFirstCheck ?? Effect.succeed(false)) {
+        awaitingBootInstances.add(instance);
+      }
+    }
 
-    const cachedProviders = yield* Effect.forEach(
+    const bootProviders = yield* Effect.forEach(
       bootSources,
-      (source) =>
+      (source, index) =>
         Effect.gen(function* () {
           const filePath = yield* resolveProviderStatusCachePath({
             cacheDir: config.providerStatusCacheDir,
@@ -466,11 +490,15 @@ export const layer = Layer.effect(
           if (fallbackProvider === undefined) {
             return undefined;
           }
+          // A completed check is seeded by the boot upsert instead, which persists it.
+          const placeholder = awaitingBootInstances.has(bootInstances[index]!)
+            ? fallbackProvider
+            : undefined;
           return yield* readProviderStatusCache(filePath).pipe(
             Effect.provideService(FileSystem.FileSystem, fileSystem),
             Effect.flatMap((cachedProvider) => {
               if (cachedProvider === undefined) {
-                return Effect.void.pipe(Effect.as(undefined as ServerProvider | undefined));
+                return Effect.succeed(placeholder);
               }
               const correlation = {
                 cachedProvider,
@@ -483,7 +511,7 @@ export const layer = Layer.effect(
                   cachedInstanceId: cachedProvider.instanceId ?? null,
                   driver: source.driverKind,
                   cachedDriver: cachedProvider.driver ?? null,
-                }).pipe(Effect.as(undefined as ServerProvider | undefined));
+                }).pipe(Effect.as(placeholder));
               }
               return Effect.succeed(hydrateCachedProvider(correlation));
             }),
@@ -508,7 +536,7 @@ export const layer = Layer.effect(
         ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,
       );
     const providersRef = yield* Ref.make<ReadonlyArray<ServerProvider>>(
-      cachedProviders.map((provider) => classifyCompatibility(provider, initialManifest)),
+      bootProviders.map((provider) => classifyCompatibility(provider, initialManifest)),
     );
     const workspaceRefreshesRef = yield* Ref.make<
       ReadonlyMap<ProviderInstance, ReadonlyMap<string, Deferred.Deferred<void>>>
@@ -622,14 +650,8 @@ export const layer = Layer.effect(
     });
 
     const compatibilityRefreshRunning = yield* Ref.make(false);
-    const syncProvider = Effect.fn("syncProvider")(function* (
-      provider: ServerProvider,
-      options?: {
-        readonly publish?: boolean;
-      },
-    ) {
-      const providers = yield* upsertProviders([provider], options);
-      // Reclassify the current model after fetch; republishing the old probe could overwrite newer health results.
+    // Reclassify the current model after fetch; republishing the old probe could overwrite newer health results.
+    const refreshCompatibility = Effect.gen(function* () {
       if (!(yield* Ref.getAndSet(compatibilityRefreshRunning, true))) {
         yield* manifestService.refresh.pipe(
           Effect.andThen(upsertProviders([], { persist: false })),
@@ -637,6 +659,15 @@ export const layer = Layer.effect(
           Effect.forkIn(serviceScope),
         );
       }
+    });
+    const syncProvider = Effect.fn("syncProvider")(function* (
+      provider: ServerProvider,
+      options?: {
+        readonly publish?: boolean;
+      },
+    ) {
+      const providers = yield* upsertProviders([provider], options);
+      yield* refreshCompatibility;
       return providers;
     });
 
@@ -1006,6 +1037,13 @@ export const layer = Layer.effect(
             Effect.gen(function* () {
               const source = buildSnapshotSource(instance);
               const provider = yield* source.getSnapshot;
+              // Boot shows the cached status until this instance's first check publishes a result.
+              if (
+                awaitingBootInstances.has(instance) &&
+                (yield* instance.snapshot.isAwaitingFirstCheck ?? Effect.succeed(false))
+              ) {
+                return yield* refreshCompatibility;
+              }
               yield* correlateSnapshotWithSource(source, provider).pipe(
                 Effect.flatMap(syncProvider),
               );
@@ -1065,7 +1103,10 @@ export const layer = Layer.effect(
       Scope.provide(serviceScope),
     );
 
-    yield* upsertProviders(fallbackProviders, { publish: false });
+    yield* upsertProviders(
+      fallbackProviders.filter((_, index) => !awaitingBootInstances.has(bootInstances[index]!)),
+      { publish: false },
+    );
     const instanceChanges = yield* instanceRegistry.subscribeChanges;
     yield* syncLiveSources;
     yield* Stream.runForEach(
@@ -1126,7 +1167,7 @@ export const layer = Layer.effect(
         !provider.enabled ||
         (!input.fresh &&
           scannedFrom &&
-          !scannedFrom.slashCommandsPending &&
+          !isProviderWorkspaceSnapshotPending(scannedFrom) &&
           isProviderWorkspaceSnapshotCurrent(scannedFrom, DateTime.toEpochMillis(now)))
       ) {
         return providers;
@@ -1134,17 +1175,30 @@ export const layer = Layer.effect(
       // Use scan start for TTL, not checkedAt inherited from the machine health check.
       const scannedAt = DateTime.formatIso(now);
       const instance = yield* instanceRegistry.getInstance(input.instanceId);
-      if (!instance?.snapshotForCwd) return providers;
+      const snapshotForCwd = instance?.snapshotForCwd;
+      if (!instance || !snapshotForCwd) return providers;
       const token = yield* Deferred.make<void>();
+      // A machine refresh can change this cwd's snapshot, so the scan publishes against the result.
       const refreshMachineSnapshot = input.fresh
         ? (instance.invalidateCaches ?? Effect.void).pipe(
             Effect.andThen(refreshInstance(input.instanceId)),
+            Effect.andThen(Ref.get(providersRef)),
+            Effect.map((current) =>
+              workspaceSnapshotOf(
+                current.find((candidate) => candidate.instanceId === input.instanceId),
+              ),
+            ),
           )
-        : Effect.void;
+        : Effect.succeed(scannedFrom);
       const runScan = refreshMachineSnapshot.pipe(
-        Effect.andThen(instance.snapshotForCwd(input.scanCwd ?? input.cwd)),
+        Effect.flatMap((scanBase) =>
+          Effect.map(snapshotForCwd(input.scanCwd ?? input.cwd), (scopedSnapshot) => ({
+            scanBase,
+            scopedSnapshot,
+          })),
+        ),
         // Scans fail on error; returned inventory remains valid even when provider health reports an error.
-        Effect.flatMap((scopedSnapshot) =>
+        Effect.flatMap(({ scanBase, scopedSnapshot }) =>
           instanceRegistry.getInstance(input.instanceId).pipe(
             Effect.flatMap((currentInstance) => {
               if (currentInstance !== instance) return Ref.get(providersRef);
@@ -1155,7 +1209,7 @@ export const layer = Layer.effect(
                 }
                 return currentProviders.map((candidate) =>
                   candidate.instanceId === input.instanceId &&
-                  Equal.equals(workspaceSnapshotOf(candidate), scannedFrom)
+                  Equal.equals(workspaceSnapshotOf(candidate), scanBase)
                     ? upsertProviderWorkspaceSnapshot(candidate, input.cwd, {
                         ...scopedSnapshot,
                         checkedAt: scannedAt,

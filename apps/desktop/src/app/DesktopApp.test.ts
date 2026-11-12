@@ -60,6 +60,7 @@ import * as DesktopConnectionCatalogStore from "./DesktopConnectionCatalogStore.
 import * as DesktopIpc from "../ipc/DesktopIpc.ts";
 import * as DesktopLocalEnvironmentAuth from "../backend/DesktopLocalEnvironmentAuth.ts";
 import * as DesktopManagedPolicy from "./DesktopManagedPolicy.ts";
+import * as DesktopPrimaryPaste from "./DesktopPrimaryPaste.ts";
 import * as DesktopSshEnvironment from "../ssh/DesktopSshEnvironment.ts";
 import * as DesktopSshPasswordPrompts from "../ssh/DesktopSshPasswordPrompts.ts";
 import * as DesktopTelemetryPublisher from "../telemetry/DesktopTelemetryPublisher.ts";
@@ -218,6 +219,7 @@ it.effect.each([false, true])(
         Effect.provide(
           Layer.mergeAll(
             Layer.mock(BrowserImport.BrowserImport, {}),
+            Layer.mock(ChildProcessSpawner.ChildProcessSpawner, {}),
             Layer.mock(DesktopBackendConfiguration.DesktopBackendConfiguration, {}),
             Layer.mock(DesktopCliCommand.DesktopCliCommand, {}),
             Layer.mock(DesktopClientSettings.DesktopClientSettings, {}),
@@ -225,6 +227,7 @@ it.effect.each([false, true])(
             Layer.mock(DesktopIpc.DesktopIpc, {}),
             Layer.mock(DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth, {}),
             Layer.mock(DesktopManagedPolicy.DesktopManagedPolicy, {}),
+            Layer.succeed(DesktopPrimaryPaste.DesktopPrimaryPaste, { enabled: true }),
             Layer.mock(DesktopSshEnvironment.DesktopSshEnvironment, {}),
             Layer.mock(DesktopSshPasswordPrompts.DesktopSshPasswordPrompts, {}),
             Layer.mock(DesktopTelemetryPublisher.DesktopTelemetryPublisher, {}),

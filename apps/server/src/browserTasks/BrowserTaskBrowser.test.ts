@@ -294,6 +294,7 @@ const dependencies = Layer.mergeAll(
   }),
   Layer.mock(DesktopChannel.DesktopBrowserChannel)({
     available: false,
+    loadFailure: () => undefined,
     isShown: () => false,
     attached: Stream.empty,
     detached: Stream.empty,
@@ -1223,50 +1224,54 @@ it.live("presses Tab in a named textbox, in goal mode and in ordered mode", () =
   ),
 );
 
-it.live("drags with real mouse input a pointer-based handler accepts, in ordered and goal mode", () =>
-  withFixture((fixture) =>
-    Effect.gen(function* () {
-      const tasks = yield* BrowserTaskService.BrowserTaskService;
-      const moved = [{ id: "moved", kind: "text", includes: "Moved", expect: "present" }] as const;
-      const drag = {
-        id: "move",
-        drag: {
-          from: { role: "button", name: "Job 1" },
-          to: { role: "region", name: "Done" },
-        },
-      } as const;
-      const orderedTab = yield* openTab(`${fixture.origin}/board`);
-      const byStep = yield* tasks.run({
-        scope,
-        authorize: Effect.void,
-        request: request({
-          requestId: "drag-ordered",
-          tabId: orderedTab.tabId,
-          actions: [drag],
-          steps: [{ kind: "run", id: "move" }],
-          checks: moved,
-        }),
-      });
-      expect(byStep).toMatchObject({ status: "passed", decisions: 0 });
-      expect(yield* pageText(orderedTab.tabId)).toContain("Moved");
+it.live(
+  "drags with real mouse input a pointer-based handler accepts, in ordered and goal mode",
+  () =>
+    withFixture((fixture) =>
+      Effect.gen(function* () {
+        const tasks = yield* BrowserTaskService.BrowserTaskService;
+        const moved = [
+          { id: "moved", kind: "text", includes: "Moved", expect: "present" },
+        ] as const;
+        const drag = {
+          id: "move",
+          drag: {
+            from: { role: "button", name: "Job 1" },
+            to: { role: "region", name: "Done" },
+          },
+        } as const;
+        const orderedTab = yield* openTab(`${fixture.origin}/board`);
+        const byStep = yield* tasks.run({
+          scope,
+          authorize: Effect.void,
+          request: request({
+            requestId: "drag-ordered",
+            tabId: orderedTab.tabId,
+            actions: [drag],
+            steps: [{ kind: "run", id: "move" }],
+            checks: moved,
+          }),
+        });
+        expect(byStep).toMatchObject({ status: "passed", decisions: 0 });
+        expect(yield* pageText(orderedTab.tabId)).toContain("Moved");
 
-      const goalTab = yield* openTab(`${fixture.origin}/board`);
-      fixture.script.push("move");
-      const byGoal = yield* tasks.run({
-        scope,
-        authorize: Effect.void,
-        request: request({
-          requestId: "drag-goal",
-          tabId: goalTab.tabId,
-          goal: "Move the job to Done",
-          actions: [drag],
-          checks: moved,
-        }),
-      });
-      expect(byGoal).toMatchObject({ status: "passed" });
-      expect(yield* pageText(goalTab.tabId)).toContain("Moved");
-    }),
-  ),
+        const goalTab = yield* openTab(`${fixture.origin}/board`);
+        fixture.script.push("move");
+        const byGoal = yield* tasks.run({
+          scope,
+          authorize: Effect.void,
+          request: request({
+            requestId: "drag-goal",
+            tabId: goalTab.tabId,
+            goal: "Move the job to Done",
+            actions: [drag],
+            checks: moved,
+          }),
+        });
+        expect(byGoal).toMatchObject({ status: "passed" });
+        expect(yield* pageText(goalTab.tabId)).toContain("Moved");
+      }),
+    ),
 );
 
 it.live("presses a key with no target on whatever holds focus, and reports focus", () =>

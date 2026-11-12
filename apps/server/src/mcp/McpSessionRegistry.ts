@@ -81,12 +81,18 @@ export class McpSessionRegistry extends Context.Service<
   McpSessionRegistryShape
 >()("t3/mcp/McpSessionRegistry") {}
 
+interface AliveMark {
+  readonly wallMs: number;
+  readonly monotonicMs: number;
+}
+
 interface CredentialRecord {
   readonly tokenHash: string;
   readonly scope: McpInvocationContext.McpThreadInvocationScope;
-  readonly lastAliveAt: number;
-  /** Set once the credential expired and its browser resources were released. */
   readonly browserReleased?: boolean;
+  readonly lastAlive: AliveMark;
+  /** Set when a request finds the token idle; only `touch` clears it, whatever the clocks do. */
+  readonly expired: boolean;
 }
 
 interface RegistryState {
@@ -95,6 +101,7 @@ interface RegistryState {
 
 export interface McpSessionRegistryOptions {
   readonly livenessWindowMs?: number;
+  /** Drives both the wall and monotonic readings. */
   readonly now?: () => number;
 }
 
@@ -112,6 +119,11 @@ const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
 const tokenFromBytes = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64url");
+
+// The larger elapsed reading wins: stepping the wall clock back cannot extend a token,
+// and wall time that passes while the host sleeps still counts.
+const idleMs = (since: AliveMark, now: AliveMark): number =>
+  Math.max(now.wallMs - since.wallMs, now.monotonicMs - since.monotonicMs);
 
 const getHttpMcpEndpointHost = (address: NetAddress.IpAddress): string =>
   NetAddress.isUnspecified(address)
@@ -183,7 +195,18 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
             { discard: true },
           ),
         ).pipe(Effect.asVoid);
-  const currentTimeMillis = options.now ? Effect.sync(options.now) : Clock.currentTimeMillis;
+  const { now } = options;
+  const currentAliveMark: Effect.Effect<AliveMark> = now
+    ? Effect.sync(() => {
+        const timestamp = now();
+        return { wallMs: timestamp, monotonicMs: timestamp };
+      })
+    : Effect.all({
+        wallMs: Clock.currentTimeMillis,
+        monotonicMs: Clock.monotonicTimeNanos.pipe(
+          Effect.map((nanos) => Number(nanos / 1_000_000n)),
+        ),
+      });
   const livenessWindowMs = options.livenessWindowMs ?? DEFAULT_LIVENESS_WINDOW_MS;
   const origin = mcpEndpointOrigin(httpServer.address);
   const endpoint = `${origin}/mcp`;
@@ -202,15 +225,18 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
 
   // An expired credential stays until revoked so a trusted touch can restore it, but its browser
   // resources are released once it expires. A touch that restores it clears the mark.
-  const expireDead = Effect.fn("McpSessionRegistry.expireDead")(function* (timestamp: number) {
+  const expireDead = Effect.fn("McpSessionRegistry.expireDead")(function* (alive: AliveMark) {
     const expired = yield* SynchronizedRef.modify(state, ({ records }) => {
       const sessions: Array<McpInvocationContext.McpThreadInvocationScope> = [];
       const next = new Map(records);
       for (const [hash, record] of records) {
-        if (record.browserReleased === true || timestamp - record.lastAliveAt <= livenessWindowMs) {
+        if (
+          record.browserReleased === true ||
+          idleMs(record.lastAlive, alive) <= livenessWindowMs
+        ) {
           continue;
         }
-        next.set(hash, { ...record, browserReleased: true });
+        next.set(hash, { ...record, browserReleased: true, expired: true });
         sessions.push(record.scope);
       }
       return sessions.length === 0
@@ -220,7 +246,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     yield* releaseBrowserSessions(expired);
   });
 
-  yield* currentTimeMillis.pipe(
+  yield* currentAliveMark.pipe(
     Effect.flatMap(expireDead),
     Effect.repeat(Schedule.spaced(Math.min(livenessWindowMs, 60_000))),
     Effect.forkScoped,
@@ -228,8 +254,8 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
 
   const issue: McpSessionRegistryShape["issue"] = Effect.fn("McpSessionRegistry.issue")(
     function* (request) {
-      const issuedAt = yield* currentTimeMillis;
-      yield* expireDead(issuedAt);
+      const issuedAlive = yield* currentAliveMark;
+      yield* expireDead(issuedAlive);
       const providerSessionId = yield* random.uuidV4();
       const rawToken = yield* random.randomBytes(32).pipe(Effect.map(tokenFromBytes), Effect.orDie);
       const tokenHash = yield* hashToken(rawToken);
@@ -277,7 +303,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
                 ...(request.capabilities ?? (browserToolsAvailable ? (["preview"] as const) : [])),
               ],
         ),
-        issuedAt,
+        issuedAt: issuedAlive.wallMs,
         ...(request.toolProfile === undefined ? {} : { toolProfile: request.toolProfile }),
         ...(request.agentRole === undefined ? {} : { agentRole: request.agentRole }),
         ...(endpointKey === undefined ? {} : { endpointKey }),
@@ -300,7 +326,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       };
       yield* SynchronizedRef.update(state, ({ records }) => {
         const next = new Map(records);
-        next.set(tokenHash, { tokenHash, scope, lastAliveAt: issuedAt });
+        next.set(tokenHash, { tokenHash, scope, lastAlive: issuedAlive, expired: false });
         return { records: next };
       });
       return {
@@ -333,15 +359,18 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     function* (rawToken) {
       if (rawToken.length === 0) return undefined;
       const tokenHash = yield* hashToken(rawToken);
-      const timestamp = yield* currentTimeMillis;
-      yield* expireDead(timestamp);
+      const alive = yield* currentAliveMark;
+      yield* expireDead(alive);
       return yield* SynchronizedRef.modify(state, ({ records }) => {
         const record = records.get(tokenHash);
-        if (!record || timestamp - record.lastAliveAt > livenessWindowMs) {
-          return [undefined, { records }] as const;
+        if (!record || record.expired) return [undefined, { records }] as const;
+        if (idleMs(record.lastAlive, alive) > livenessWindowMs) {
+          const next = new Map(records);
+          next.set(tokenHash, { ...record, expired: true });
+          return [undefined, { records: next }] as const;
         }
         const next = new Map(records);
-        next.set(tokenHash, { tokenHash, scope: record.scope, lastAliveAt: timestamp });
+        next.set(tokenHash, { ...record, lastAlive: alive });
         return [record.scope, { records: next }] as const;
       });
     },
@@ -350,12 +379,14 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   const credentialState: McpSessionRegistryShape["credentialState"] = Effect.fn(
     "McpSessionRegistry.credentialState",
   )(function* (providerSessionId) {
-    const timestamp = yield* currentTimeMillis;
+    const alive = yield* currentAliveMark;
+    yield* expireDead(alive);
     const { records } = yield* SynchronizedRef.get(state);
     let result: "expired" | "revoked" = "revoked";
     for (const record of records.values()) {
       if (record.scope.thread.providerSessionId !== providerSessionId) continue;
-      if (timestamp - record.lastAliveAt <= livenessWindowMs) return "live" as const;
+      if (!record.expired && idleMs(record.lastAlive, alive) <= livenessWindowMs)
+        return "live" as const;
       result = "expired";
     }
     return result;
@@ -363,18 +394,23 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
 
   const touch: McpSessionRegistryShape["touch"] = Effect.fn("McpSessionRegistry.touch")(
     function* (threadId) {
-      const timestamp = yield* currentTimeMillis;
+      const alive = yield* currentAliveMark;
       yield* SynchronizedRef.update(state, ({ records }) => {
         const next = new Map(records);
         for (const [tokenHash, record] of records) {
           if (record.scope.thread.threadId === threadId) {
-            next.set(tokenHash, { tokenHash, scope: record.scope, lastAliveAt: timestamp });
+            next.set(tokenHash, {
+              ...record,
+              lastAlive: alive,
+              expired: false,
+              browserReleased: false,
+            });
           }
         }
         return { records: next };
       });
       // After the touch, so the touched thread's own credentials are restored, not released.
-      yield* expireDead(timestamp);
+      yield* expireDead(alive);
     },
   );
 

@@ -1,24 +1,15 @@
 import {
   memo,
+  useEffect,
+  useState,
   type MouseEventHandler,
   type PointerEvent as ReactPointerEvent,
   type PointerEventHandler,
   type ReactNode,
   useRef,
 } from "react";
-import {
-  ArrowRightIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronsRightIcon,
-  MessageSquarePlusIcon,
-  Minimize2Icon,
-  PencilIcon,
-  PlayIcon,
-} from "lucide-react";
-import { CornerUpRight, ListPlus } from "lucide";
-import { MorphIcon } from "~/components/MorphIcon";
+import { ArrowRightIcon, CheckIcon, ChevronLeftIcon, Minimize2Icon, PlayIcon } from "lucide-react";
+import { CornerUpRightIcon, ListPlusIcon } from "lucide-react";
 import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
 import { formatContextWindowTokens } from "~/lib/contextWindow";
 import { dialClicks, pressClick } from "~/lib/interfaceSounds";
@@ -28,7 +19,7 @@ import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../Sideb
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { composerFloatingLayerProps } from "./composerEventScope";
+
 import { DeviceUnit } from "./device/DeviceUnit";
 import {
   alternateComposerDispatchAction,
@@ -51,6 +42,7 @@ interface ComposerPrimaryActionsProps {
   pendingAction: PendingActionState | null;
   isRunning: boolean;
   canInterrupt: boolean;
+  runId?: string | null;
   followUpBehavior?: "queue" | "steer";
   canSteer?: boolean;
   alternateShortcutLabel?: string | null;
@@ -71,6 +63,7 @@ interface ComposerPrimaryActionsProps {
   compactBeforeSendTokens?: number | null;
   /** The cheaper model that summarises that history; null when the conversation's own does. */
   compactionModelName?: string | null;
+  hideCompactToggle?: boolean;
   keepFullHistory?: boolean;
   onToggleKeepFullHistory?: () => void;
   /** Render send and stop as the composer's machined dial. */
@@ -97,6 +90,8 @@ const formatPendingPrimaryActionLabel = (input: {
   return input.questionIndex > 0 ? "Submit answers" : "Submit answer";
 };
 
+const STOP_PENDING_MAX_MS = 10_000;
+
 const messageActionPillClassName =
   "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-message-action font-medium text-base text-message-action-foreground shadow-xs shadow-message-action/24 outline-none hover:bg-message-action-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none sm:text-sm";
 
@@ -111,6 +106,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   pendingAction,
   isRunning,
   canInterrupt,
+  runId = null,
   followUpBehavior = "steer",
   canSteer = true,
   alternateShortcutLabel = null,
@@ -129,6 +125,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   onInterrupt,
   compactBeforeSendTokens = null,
   compactionModelName = null,
+  hideCompactToggle = false,
   keepFullHistory = false,
   onToggleKeepFullHistory,
   device = false,
@@ -160,6 +157,26 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         ? { onPointerDown: preventPointerFocus }
         : undefined;
   const pointerFocusProps = pointerPropsFor(() => true);
+  const [stopPhase, setStopPhase] = useState<"pending" | "timedOut" | "landed" | null>(null);
+  const [stopRunId, setStopRunId] = useState(runId);
+  if (runId !== null && stopRunId !== runId) {
+    setStopRunId(runId);
+    setStopPhase(null);
+  } else if (canOperateThread) {
+    // Losing permission also clears canInterrupt; it does not acknowledge the stop.
+    if ((stopPhase === "pending" || stopPhase === "timedOut") && !canInterrupt)
+      setStopPhase("landed");
+    else if (stopPhase === "landed" && canInterrupt) setStopPhase(null);
+  }
+  const isStopDisabled = stopPhase === "pending" || stopPhase === "landed";
+  const stopLabel =
+    stopPhase === "landed" ? "Stopped" : stopPhase === "pending" ? "Stopping" : "Stop generation";
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- timer that re-enables Stop if the interrupt never settles
+  useEffect(() => {
+    if (stopPhase !== "pending") return;
+    const timeout = setTimeout(() => setStopPhase("timedOut"), STOP_PENDING_MAX_MS);
+    return () => clearTimeout(timeout);
+  }, [stopPhase]);
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
   const shortcutModifiers = useShortcutModifierState();
   // What a send would do even while editing a queued message, whose label stays "Update".
@@ -192,11 +209,13 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
                   )
             }
             {...pointerFocusProps}
-            disabled={!canOperateThread}
+            disabled={!canOperateThread || isStopDisabled}
             onClick={() => {
-              if (canOperateThread) onInterrupt();
+              if (!canOperateThread || isStopDisabled) return;
+              setStopPhase("pending");
+              onInterrupt();
             }}
-            aria-label="Stop generation"
+            aria-label={stopLabel}
           />
         }
       >
@@ -204,8 +223,18 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           <rect x="2" y="2" width="8" height="8" rx="1.5" />
         </svg>
       </TooltipTrigger>
-      <TooltipPopup>Interrupt</TooltipPopup>
+      <TooltipPopup>
+        {stopPhase === "pending" ? "Stopping…" : stopPhase === "landed" ? "Stopped" : "Interrupt"}
+      </TooltipPopup>
     </Tooltip>
+  );
+
+  // Keep the clicked target at the right edge even if typing changes the primary action.
+  const withStopButton = (action: ReactNode) => (
+    <>
+      {action}
+      {stopPhase === null ? null : renderStopGenerationButton(false)}
+    </>
   );
 
   if (pendingAction) {
@@ -273,7 +302,6 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     }
     return (
       <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
-        {canInterrupt ? renderStopGenerationButton(true) : null}
         {pendingAction.questionIndex > 0 ? (
           compact ? (
             <Button
@@ -321,11 +349,16 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             questionIndex: pendingAction.questionIndex,
           })}
         </button>
+        {canInterrupt || stopPhase !== null ? renderStopGenerationButton(true) : null}
       </div>
     );
   }
 
-  if (canInterrupt && !hasSendableContent && !isEditingQueuedMessage) {
+  if (
+    (canInterrupt || stopPhase === "pending" || stopPhase === "timedOut") &&
+    !hasSendableContent &&
+    !isEditingQueuedMessage
+  ) {
     return (
       <>
         {children}
@@ -429,8 +462,10 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         <PlayIcon className="size-4 fill-current" aria-hidden="true" />
       ) : isEditingQueuedMessage ? (
         <CheckIcon className="size-4" aria-hidden="true" />
+      ) : isRunning && isQueuing ? (
+        <ListPlusIcon className="size-4" aria-hidden="true" />
       ) : isRunning ? (
-        <MorphIcon className="size-4" icon={isQueuing ? ListPlus : CornerUpRight} />
+        <CornerUpRightIcon className="size-4" aria-hidden="true" />
       ) : device && compactsBeforeSend && submitStatus === null ? (
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path
@@ -472,16 +507,16 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       </DeviceUnit>
     );
   }
-  if (compactTokens === null) {
-    return (
+  if (compactTokens === null || hideCompactToggle) {
+    return withStopButton(
       <>
         {children}
         {submit}
-      </>
+      </>,
     );
   }
 
-  return (
+  return withStopButton(
     <div data-chat-composer-compact-send="true" className="flex items-center gap-2">
       <Tooltip>
         <TooltipTrigger
@@ -515,6 +550,6 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       </Tooltip>
       {children}
       {submit}
-    </div>
+    </div>,
   );
 });

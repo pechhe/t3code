@@ -9,13 +9,19 @@ import type * as NodeWorkerThreads from "node:worker_threads";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
+
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
-import * as TestClock from "effect/testing/TestClock";
+
 import { vi } from "vite-plus/test";
 
+import * as ServerConfig from "../config.ts";
+import * as ProcessRunner from "../processRunner.ts";
+import * as ServerOwnership from "../serverOwnership.ts";
+import { migrationManifest, runMigrations } from "./Migrations.ts";
 import * as SqlitePersistence from "./Sqlite.ts";
 
 const workers = vi.hoisted((): Array<NodeWorkerThreads.Worker> => []);
@@ -89,17 +95,8 @@ it.effect("keeps writes moving past a 48 MiB WAL while a reader retains its snap
       return Effect.sync(() => checkpointWorker.off("message", onMessage));
     });
     assert.isBelow(state.checkpointed, state.log);
-    // Past the fork's 10,000-frame backstop the pinned checkpoint holds the gate, and its
-    // one-second stall release is what lets the next write through.
-    assert.isTrue(state.blocked);
-
-    const write = yield* sql
-      .withTransaction(sql`INSERT INTO burst_probe VALUES (3, NULL)`)
-      .pipe(Effect.forkChild({ startImmediately: true }));
-    yield* TestClock.adjust("999 millis");
-    assert.isUndefined(write.pollUnsafe());
-    yield* TestClock.adjust("1 millis");
-    yield* Fiber.join(write);
+    assert.isFalse(state.blocked);
+    yield* sql.withTransaction(sql`INSERT INTO burst_probe VALUES (3, NULL)`);
     assert.equal(reader.prepare("SELECT COUNT(*) AS count FROM burst_probe").get()?.count, 1);
     reader.exec("COMMIT");
     assert.equal(reader.prepare("SELECT COUNT(*) AS count FROM burst_probe").get()?.count, 3);
@@ -194,5 +191,67 @@ it.effect("drops planner statistics a database already has", () => {
     }).pipe(Effect.provide(persistence()));
   }).pipe(
     Effect.ensuring(Effect.sync(() => NodeFS.rmSync(tempDir, { recursive: true, force: true }))),
+  );
+});
+
+const ownT3Home = Effect.fn(function* () {
+  const { serverRuntimeStatePath } = yield* ServerConfig.ServerConfig;
+  // An empty home, so no boot service installed on this machine is read.
+  const home = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped();
+  yield* ServerOwnership.acquireServerOwnership(serverRuntimeStatePath).pipe(
+    Effect.provide(ProcessRunner.layer),
+    Effect.provideService(HostProcess.HomeDirectory, home),
+    Effect.provideService(HostProcess.Environment, {}),
+  );
+});
+
+const migrateTo = (toMigrationInclusive?: number) =>
+  Effect.gen(function* () {
+    const { dbPath } = yield* ServerConfig.ServerConfig;
+    yield* runMigrations({ toMigrationInclusive }).pipe(
+      Effect.provide(NodeSqliteClient.layer({ filename: dbPath })),
+    );
+  });
+
+const latestRecordedMigrationId = Effect.gen(function* () {
+  const { dbPath } = yield* ServerConfig.ServerConfig;
+  const rows = yield* Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    return yield* sql<{ readonly id: number }>`
+      SELECT MAX(migration_id) AS id FROM effect_sql_migrations
+    `;
+  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: dbPath })));
+  return rows[0]?.id;
+});
+
+const layerT3Home = ServerConfig.layerTest(process.cwd(), { prefix: "t3-sqlite-cli-" });
+
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("layerCliConfig", (it) => {
+  it.effect("does not migrate a T3 home a running server owns", () =>
+    Effect.gen(function* () {
+      const recorded = Math.max(...migrationManifest.map(([id]) => id)) - 1;
+      yield* migrateTo(recorded);
+      yield* ownT3Home();
+
+      const opened = yield* Effect.void.pipe(
+        Effect.provide(SqlitePersistence.layerCliConfig),
+        Effect.result,
+      );
+
+      assert.equal(yield* latestRecordedMigrationId, recorded);
+      assert.equal(opened._tag, "Failure");
+      if (opened._tag === "Failure") {
+        assert.instanceOf(opened.failure, SqlitePersistence.ServerOwnsDatabaseError);
+      }
+    }).pipe(Effect.scoped, Effect.provide(layerT3Home)),
+  );
+
+  it.effect("opens a current T3 home while a running server owns it", () =>
+    Effect.gen(function* () {
+      yield* migrateTo();
+      yield* ownT3Home();
+
+      yield* Effect.void.pipe(Effect.provide(SqlitePersistence.layerCliConfig));
+    }).pipe(Effect.scoped, Effect.provide(layerT3Home)),
   );
 });

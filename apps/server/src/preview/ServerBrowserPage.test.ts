@@ -16,6 +16,9 @@ import {
   vi,
 } from "vite-plus/test";
 
+import { PreviewAutomationEvaluateInput } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
+const decodeEvaluateInput = Schema.decodeUnknownSync(PreviewAutomationEvaluateInput);
 import { PHI_ANY_VISIBLE_MATCH } from "./PhiBrowserProtocol.ts";
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
 
@@ -386,6 +389,15 @@ describe("server browser element refs", () => {
     expect(result).toBe("Ready");
   });
 
+  it("returns object contents even when a legacy caller asks for a remote reference", async () => {
+    const input = decodeEvaluateInput({
+      expression: "({ answer: 42, nested: { ready: true } })",
+      returnByValue: false,
+    });
+    const result = await ServerBrowserPage.evaluate(cdp, input, 5_000);
+    expect(result).toEqual({ answer: 42, nested: { ready: true } });
+  });
+
   it("still awaits the promise an async function returns", async () => {
     const result = await ServerBrowserPage.evaluate(
       cdp,
@@ -563,6 +575,41 @@ describe("server browser snapshot screenshot", () => {
     expect([captured.fullScreenshot?.width, captured.fullScreenshot?.height]).toEqual([750, 1334]);
   });
 
+  it("records the destination of a finite entrance animation without waiting on infinite ones", async () => {
+    const page = await context.newPage();
+    await page.setContent(`
+      <style>
+        body { margin: 0; background: #2563eb; }
+        @keyframes enter { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes pulse { from { opacity: 0.5; } to { opacity: 1; } }
+        button { animation: pulse 2s infinite; }
+        #paused { animation: enter 2s paused; }
+        #overlay { display: none; position: fixed; inset: 0; background: #ef4444; }
+        #overlay.open { display: block; animation: enter 200ms both; }
+      </style>
+      <button onclick="document.querySelector('#overlay').classList.add('open')">Open</button>
+      <div id="paused"></div>
+      <div id="overlay"></div>
+    `);
+    await page.getByRole("button", { name: "Open" }).click();
+    const frame = await ServerBrowserPage.captureFinalRecordingFrame(
+      await context.newCDPSession(page),
+      80,
+    );
+    expect(frame).toBeDefined();
+    const pixel = (await page.evaluate(`(async () => {
+      const bytes = Uint8Array.from(atob(${JSON.stringify(frame)}), char => char.charCodeAt(0));
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const context = canvas.getContext("2d");
+      context.drawImage(bitmap, 0, 0);
+      return Array.from(context.getImageData(bitmap.width / 2, bitmap.height / 2, 1, 1).data);
+    })()`)) as [number, number, number, number];
+    expect(colorOf(pixel)).toBe("red");
+  });
+
   it("shrinks the screenshot of an XML document, whose createElement makes no canvas", async () => {
     const page = await context.newPage();
     await page.goto("data:text/xml,<a/>");
@@ -680,6 +727,24 @@ describe("server browser evaluate", () => {
 });
 
 describe("server browser net errors", () => {
+  it("ends at its timeout when a check never answers", async () => {
+    // As on a desktop tab whose Playwright utility world never answers.
+    const page = {
+      locator: () => ({ count: () => new Promise<number>(() => {}) }),
+    } as unknown as Page;
+    vi.useFakeTimers();
+    try {
+      let failure: unknown;
+      void ServerBrowserPage.waitFor(page, { selector: "button", timeoutMs: 300 }).catch(
+        (error: unknown) => (failure = error),
+      );
+      await vi.advanceTimersByTimeAsync(300);
+      expect(failure).toMatchObject({ tag: "PreviewAutomationTimeoutError" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([
     ["net::ERR_CONNECTION_REFUSED", "ERR_CONNECTION_REFUSED", -102],
     [

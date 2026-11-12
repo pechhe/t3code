@@ -19,8 +19,9 @@ import {
   CHAT_MARKDOWN_REMARK_PLUGINS,
   CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS,
   createChatMarkdownRehypePlugins,
+  remarkAssistantInsights,
 } from "@t3tools/shared/markdownPipeline";
-import { splitMarkdownBlocks, type MarkdownBlock } from "@t3tools/shared/markdownBlocks";
+import { splitMarkdownBlocks } from "./chat/markdownStreamBlocks";
 import { useAtomValue } from "@effect/atom-react";
 import {
   COMPOSER_CONTEXT_CLIPBOARD_MIME,
@@ -38,6 +39,7 @@ import {
   MessageSquareWarningIcon,
   OctagonAlertIcon,
   PresentationIcon,
+  StarIcon,
   TriangleAlertIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -95,7 +97,7 @@ import { defaultUrlTransform } from "react-markdown";
 import { parseAssistantCitationHref } from "@t3tools/shared/assistantCitations";
 import { parseComposerContextHref } from "@t3tools/shared/composerContextReferences";
 import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
-import { AssistantCitationChip } from "./chat/AssistantCitationChip";
+import { AssistantCitationEmbed } from "./chat/AssistantCitationChip";
 import { MarkdownThreadLink } from "./chat/MarkdownThreadLink";
 import { forgeItemNumberFromUrl } from "@t3tools/shared/forgeLinks";
 import { useThreadForgeOrigin } from "~/state/forgeWorkItems";
@@ -155,6 +157,8 @@ import {
 import { isMarkdownFileLinkLabel } from "@t3tools/shared/markdownLinks";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
+import { appAtomRegistry } from "../rpc/atomRegistry";
+import { hostEnvironmentIdAtom } from "../state/primaryEnvironment";
 import { cn } from "../lib/utils";
 import { resolveRemoteOpenState, useRemoteOpenResolution } from "../remoteOpen";
 import { useRightPanelStore } from "../rightPanelStore";
@@ -228,6 +232,7 @@ import { reportMarkdownActionFailure } from "./chat/markdownActionFailure";
 const isAssetNotFoundError = Schema.is(AssetWorkspaceAssetNotFoundError);
 
 interface ChatMarkdownProps {
+  renderInsights?: boolean;
   /** Compact markdown transforms remove blocks before rendering inside a label. */
   inline?: boolean;
   text: string;
@@ -263,6 +268,9 @@ export interface ChatMarkdownContextReference {
   kind: string;
   contextId: string;
   label: string;
+  /** Whether it starts or ends its block, for a reference that renders as a block. */
+  leading?: boolean;
+  trailing?: boolean;
 }
 
 const EMPTY_MARKDOWN_SKILLS: ReadonlyArray<ServerProviderSkill> = [];
@@ -348,6 +356,12 @@ const GITHUB_ALERT_PRESENTATIONS: Record<
   string,
   { label: string; Icon: typeof InfoIcon; borderClassName: string; titleClassName: string }
 > = {
+  insight: {
+    label: "Insight",
+    Icon: StarIcon,
+    borderClassName: "border-info",
+    titleClassName: "text-info",
+  },
   note: {
     label: "Note",
     Icon: InfoIcon,
@@ -690,6 +704,7 @@ function useChatMarkdownState({
               sshTarget: null,
               remoteOpenTargets: undefined,
               isDesktopRenderer: window.desktopBridge !== undefined,
+              hostEnvironmentId: appAtomRegistry.get(hostEnvironmentIdAtom),
             }).mode !== "local-exec"
           ) {
             description = `The file was not found on ${target.label} at ${error.checkedPath ?? error.resource.path}.`;
@@ -1034,7 +1049,19 @@ const ChatMarkdownRendererContext = React.createContext<
 // The block's markdown source changes on every streamed delta. Only the renderers
 // that slice it by node offset read it, so it sits apart from the renderer context.
 // Node offsets are block-relative; `offset` places them in the whole message.
-const ChatMarkdownTextContext = React.createContext<MarkdownBlock>({ source: "", offset: 0 });
+const ChatMarkdownTextContext = React.createContext<{ source: string; offset: number }>({
+  source: "",
+  offset: 0,
+});
+
+// A quote card is a block. These say nothing else shares its paragraph or list item on that side.
+const LIST_MARKER = String.raw`(?:[-*+]|\d+[.)])[ \t]+`;
+const CITATION_LEADS_BLOCK = new RegExp(
+  String.raw`(?:(?:^|\n[ \t]*\n)[ \t>]*(?:${LIST_MARKER})?|\n[ \t>]*${LIST_MARKER})$`,
+);
+const CITATION_ENDS_BLOCK = new RegExp(
+  String.raw`^[ \t]*(?:$|\n[ \t]*(?:\n|$)|\n[ \t>]*${LIST_MARKER})`,
+);
 
 function markdownHeadingRenderer(level: 1 | 2 | 3 | 4 | 5 | 6) {
   const Tag = `h${level}` as const;
@@ -1191,7 +1218,13 @@ const CHAT_MARKDOWN_COMPONENTS = {
     } = use(ChatMarkdownRendererContext);
     const { source: text } = use(ChatMarkdownTextContext);
     const citation = href ? parseAssistantCitationHref(href) : null;
-    if (citation) return <AssistantCitationChip citation={citation} />;
+    const before = node?.position?.start.offset;
+    const after = node?.position?.end.offset;
+    const leading = before !== undefined && CITATION_LEADS_BLOCK.test(text.slice(0, before));
+    const trailing = after !== undefined && CITATION_ENDS_BLOCK.test(text.slice(after));
+    if (citation) {
+      return <AssistantCitationEmbed citation={citation} leading={leading} trailing={trailing} />;
+    }
     const threadLink = href ? parseThreadLinkHref(href) : null;
     if (threadLink) {
       const written = hastPlainTextDeep(node);
@@ -1232,7 +1265,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
     if (contextReference) {
       const label = hastPlainTextDeep(node) || contextReference.contextId;
       return renderContextReference ? (
-        renderContextReference({ ...contextReference, label })
+        renderContextReference({ ...contextReference, label, leading, trailing })
       ) : (
         <span>{label}</span>
       );
@@ -1809,6 +1842,8 @@ const CHAT_MARKDOWN_REMARK_PLUGIN_SETS = {
 const combinedPlugins = new WeakMap<PluggableList, WeakMap<PluggableList, PluggableList>>();
 
 // One combined list per pair, so a stable extra list shares a renderer and its parse cache.
+const INSIGHT_REMARK_PLUGINS: PluggableList = [remarkAssistantInsights];
+
 function withExtraPlugins(shared: PluggableList, extra: PluggableList): PluggableList {
   if (extra.length === 0) return shared;
   let byShared = combinedPlugins.get(extra);
@@ -1909,6 +1944,7 @@ function ChatMarkdown({
   parseRawHtml = true,
   extraRemarkPlugins = EMPTY_REMARK_PLUGINS,
   revealWords = false,
+  renderInsights = false,
   ...props
 }: ChatMarkdownProps) {
   const {
@@ -1919,15 +1955,27 @@ function ChatMarkdown({
     localMediaPreview,
     closeLocalMediaPreview,
   } = useChatMarkdownState({ text, inline, ...props });
-  // One parse cache per message, so finding the blocks of a streaming, code-heavy
-  // reply does not re-parse its completed prefix on every token.
-  const [incrementalParser] = useState(createIncrementalMarkdownPlugin);
-  const incrementalParsing = props.isStreaming === true && /(?:^|\n) {0,3}(?:`{3}|~{3})/.test(text);
-  // Extra syntax plugins can change the block structure, so those messages render whole.
-  const blocks =
-    extraRemarkPlugins.length === 0 && !componentState.mathEnabled
-      ? splitMarkdownBlocks(text, incrementalParsing ? [incrementalParser] : [])
-      : [{ source: text, offset: 0 }];
+  const hasInsights = renderInsights && text.includes("★ Insight");
+  const streamingBlocks =
+    props.isStreaming === true &&
+    !inline &&
+    extraRemarkPlugins.length === 0 &&
+    !props.onTaskListChange &&
+    !componentState.mathEnabled
+      ? splitMarkdownBlocks(text)
+      : null;
+  const incrementalParsing =
+    props.isStreaming === true &&
+    !hasInsights &&
+    streamingBlocks === null &&
+    extraRemarkPlugins.length === 0 &&
+    /(?:^|\n) {0,3}(?:`{3}|~{3})/.test(text);
+  const blocks: Array<{ source: string; offset: number }> = [];
+  let offset = 0;
+  for (const source of streamingBlocks ?? [text]) {
+    blocks.push({ source, offset });
+    offset += source.length;
+  }
   const Root = inline ? "span" : "div";
   const bindMarkdownRef = (node: HTMLElement | null) => {
     markdownRef.current = node;
@@ -1942,7 +1990,14 @@ function ChatMarkdown({
           ? "breaks"
           : "plain"
     ];
-  const remarkPlugins = withExtraPlugins(sharedRemarkPlugins, extraRemarkPlugins);
+  const remarkPlugins = incrementalParsing
+    ? [...sharedRemarkPlugins, ...extraRemarkPlugins, createIncrementalMarkdownPlugin()]
+    : withExtraPlugins(
+        hasInsights
+          ? withExtraPlugins(INSIGHT_REMARK_PLUGINS, sharedRemarkPlugins)
+          : sharedRemarkPlugins,
+        extraRemarkPlugins,
+      );
 
   const rehypePlugins = chatMarkdownRehypePlugins(buildOrigin, parseRawHtml, false);
   const streamWordsRehypePlugins = chatMarkdownRehypePlugins(
@@ -1974,7 +2029,7 @@ function ChatMarkdown({
             rehypePlugins={
               index >= blocks.length - STREAM_WORD_BLOCKS ? streamWordsRehypePlugins : rehypePlugins
             }
-            shared
+            shared={!incrementalParsing}
             // Every block before the last is finished, so its parse can be reused.
             cache={!props.isStreaming || index < blocks.length - 1}
           />

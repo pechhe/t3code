@@ -251,6 +251,13 @@ function chunkCycleGuardPlugin(): Plugin {
   };
 }
 
+function bootstrapTitlePlugin(): Plugin {
+  return {
+    name: "t3peach:bootstrap-title",
+    transformIndexHtml: (html) => html.replace(/<title>[^<]*<\/title>/, "<title>T3 Peach</title>"),
+  };
+}
+
 // Allow Tailnet hosts for sharing; Tailscale-controlled DNS prevents attacker rebinding.
 const configuredAllowedHosts = (process.env.T3CODE_DEV_ALLOWED_HOSTS ?? "")
   .split(",")
@@ -271,6 +278,7 @@ export default defineConfig(({ mode }) => {
     },
     assetsInclude: ["**/*.wasm"],
     plugins: [
+      bootstrapTitlePlugin(),
       devCompressionPlugin(),
       chunkCycleGuardPlugin(),
       builtDev
@@ -328,12 +336,6 @@ export default defineConfig(({ mode }) => {
     },
     resolve: {
       tsconfigPaths: true,
-      alias: {
-        "@betteroffice/fonts-cjk": new URL(
-          "./src/components/files/office/fonts-cjk.ts",
-          import.meta.url,
-        ).pathname,
-      },
       dedupe: ["react", "react-dom"],
     },
     experimental: {
