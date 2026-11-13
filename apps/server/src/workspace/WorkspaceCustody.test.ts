@@ -1,3 +1,5 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as FileSystem from "effect/FileSystem";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
@@ -87,4 +89,44 @@ it.effect.each([0, 2])(
         assert.equal((yield* (yield* Journal.WorkspaceCustody).list).length, 0);
       }).pipe(Effect.provide(f.layer));
     }),
+);
+
+it.effect.each(["alias", "different-checkout", "missing-requested", "missing-receipt"] as const)(
+  "validates existing custody by filesystem identity: %s",
+  (scenario) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+      const checkout = `${root}/checkout`;
+      const alias = `${root}/alias`;
+      const other = `${root}/other`;
+      yield* fs.makeDirectory(checkout);
+      yield* fs.makeDirectory(other);
+      yield* fs.symlink(checkout, alias);
+      const requested = scenario === "missing-requested" ? `${root}/missing` : alias;
+      const claimed =
+        scenario === "different-checkout"
+          ? other
+          : scenario === "missing-receipt"
+            ? `${root}/missing`
+            : checkout;
+      const f = yield* fixture;
+      yield* Ref.set(f.acquisitionPath, claimed);
+      yield* Effect.gen(function* () {
+        const custody = yield* WorkspaceCustody.WorkspaceCustody;
+        const journal = yield* Journal.WorkspaceCustody;
+        const epoch = yield* custody.prepare({
+          ownerRef: `identity:${scenario}`,
+          projectRoot: root,
+        });
+        const result = yield* custody.acquireExisting(epoch.id, requested).pipe(Effect.result);
+        if (scenario === "alias") {
+          assert.equal(result._tag, "Success");
+          assert.equal((yield* journal.get(epoch.id)).receipt?.path, checkout);
+        } else {
+          assert.equal(result._tag, "Failure");
+          assert.equal((yield* journal.get(epoch.id)).receipt, null);
+        }
+      }).pipe(Effect.provide(f.layer));
+    }).pipe(Effect.provide(NodeServices.layer)),
 );

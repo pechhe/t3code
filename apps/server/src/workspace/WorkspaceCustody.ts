@@ -1,3 +1,4 @@
+import * as FileSystem from "effect/FileSystem";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
@@ -91,11 +92,15 @@ export class WorkspaceCustody extends Context.Service<
       { readonly producerEntry: string; readonly stdin: Redacted.Redacted<string> },
       WorkspaceCustodyError
     >;
-    readonly acquired: (id: string, receipt: unknown) => Effect.Effect<void, WorkspaceCustodyError>;
+    readonly acquired: (
+      id: string,
+      receipt: unknown,
+      expectedPath: string,
+    ) => Effect.Effect<string, WorkspaceCustodyError>;
     readonly acquireExisting: (
       id: string,
       path: string,
-    ) => Effect.Effect<void, WorkspaceCustodyError>;
+    ) => Effect.Effect<string, WorkspaceCustodyError>;
     readonly register: (
       id: string,
       obligation: Pick<Journal.CustodyObligation, "id" | "kind">,
@@ -114,6 +119,7 @@ export class WorkspaceCustody extends Context.Service<
 
 const make = Effect.gen(function* () {
   const journal = yield* Journal.WorkspaceCustody;
+  const fs = yield* FileSystem.FileSystem;
   const processes = yield* ProcessRunner.ProcessRunner;
   const crypto = yield* SecureRandom.SecureRandom;
   const pid = yield* ControllerPid;
@@ -164,7 +170,11 @@ const make = Effect.gen(function* () {
     controller: epoch.producer.controller,
     obligationRef: `t3-custody:${epoch.id}`,
   });
-  const acquired = Effect.fn("WorkspaceCustody.acquired")(function* (id: string, raw: unknown) {
+  const acquired = Effect.fn("WorkspaceCustody.acquired")(function* (
+    id: string,
+    raw: unknown,
+    expectedPath: string,
+  ) {
     const receipt = yield* decodeAcquisition(raw).pipe(
       Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "reply", cause })),
     );
@@ -174,13 +184,27 @@ const make = Effect.gen(function* () {
         cause: "Custody acquisition identity mismatch.",
       });
     }
+    let canonicalPath = receipt.path;
+    if (receipt.path !== expectedPath) {
+      const paths = yield* Effect.all({
+        claimed: fs.realPath(receipt.path),
+        expected: fs.realPath(expectedPath),
+      }).pipe(Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "reply", cause })));
+      if (paths.claimed !== paths.expected)
+        return yield* new WorkspaceCustodyError({
+          stage: "reply",
+          cause: "Custody acquisition path mismatch.",
+        });
+      canonicalPath = paths.claimed;
+    }
     yield* journal
       .acquired(id, {
-        path: receipt.path,
+        path: canonicalPath,
         generation: receipt.generation,
         claimId: receipt.claimId,
       })
       .pipe(Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "journal", cause })));
+    return canonicalPath;
   });
   const releaseSettled = Effect.fn("WorkspaceCustody.releaseSettled")(function* (id: string) {
     const previous = yield* get(id);
@@ -344,15 +368,7 @@ const make = Effect.gen(function* () {
         args: ["claims", "acquire", path],
         payload: claimPayload(epoch),
       });
-      const identity = yield* decodeAcquisition(receipt).pipe(
-        Effect.mapError((cause) => new WorkspaceCustodyError({ stage: "reply", cause })),
-      );
-      if (identity.path !== path)
-        return yield* new WorkspaceCustodyError({
-          stage: "reply",
-          cause: "Custody acquisition path mismatch.",
-        });
-      yield* acquired(id, identity);
+      return yield* acquired(id, receipt, path);
     }),
     register: Effect.fn("WorkspaceCustody.register")((id, obligation) =>
       journal

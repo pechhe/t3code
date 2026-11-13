@@ -300,6 +300,8 @@ export function layerWithRegistry<Error>(
     readonly wrapProjectionStore?: (
       store: ProjectionStore.ProjectionStoreV2Shape,
     ) => ProjectionStore.ProjectionStoreV2Shape;
+    /** Exercises callers when a transactional event publication is refused. */
+    readonly wrapEventSink?: (sink: EventSink.EventSinkV2Shape) => EventSink.EventSinkV2Shape;
     readonly managedPolicy?: ManagedPolicyDocument;
   } = {},
 ): Layer.Layer<
@@ -364,9 +366,16 @@ export function layerWithRegistry<Error>(
     layerEffectOutboxProvided,
     TurnItemPositionStore.layer,
   ).pipe(Layer.provide(layerDatabase));
-  const layerEventSinkProvided = EventSink.layerFromStores.pipe(
+  const layerEventSink = EventSink.layerFromStores.pipe(
     Layer.provide(Layer.mergeAll(layerStores, layerDatabase)),
   );
+  const wrapEventSink = options.wrapEventSink;
+  const layerEventSinkProvided =
+    wrapEventSink === undefined
+      ? layerEventSink
+      : Layer.effect(EventSink.EventSinkV2, Effect.map(EventSink.EventSinkV2, wrapEventSink)).pipe(
+          Layer.provide(layerEventSink),
+        );
   const layerRuntime = RuntimePolicy.layerEnforcingCeiling.pipe(
     Layer.provide(Layer.merge(layerRuntimeBase, layerServerSettings)),
   );

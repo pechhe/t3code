@@ -68,8 +68,10 @@ const cancelBackgroundOnlyTask = (
   {
     cancelAt = "settled",
     remote = false,
+    refuseCompletion = false,
   }: {
     readonly remote?: boolean;
+    readonly refuseCompletion?: boolean;
     readonly cancelAt?: "settled" | "checkpoint" | "turn" | "recorded" | "monitor" | "refused";
   } = {},
 ) =>
@@ -168,13 +170,28 @@ const cancelBackgroundOnlyTask = (
       yield* Effect.provide(Effect.void, databaseLayer);
       // Each build is a server on the same database; the second runs startup recovery.
       let restarted = false;
+      let refusePublication = refuseCompletion;
+      let refusedPublications = 0;
       const layerOrchestrator = Layer.suspend(() =>
         ProviderReplayHarness.layerWithRegistry(
           { name: "task-cancel-native-subagent" },
           layerAdapters,
           restarted
             ? { databaseLayer, recoverOnStartup: true }
-            : { databaseLayer, runEffectWorker: false },
+            : {
+                databaseLayer,
+                runEffectWorker: false,
+                wrapEventSink: (sink) => ({
+                  ...sink,
+                  writeWithEffects: (input) =>
+                    refusePublication && input.guardDelegatedCompletion !== undefined
+                      ? Effect.sync(() => {
+                          refusedPublications++;
+                          return [];
+                        })
+                      : sink.writeWithEffects(input),
+                }),
+              },
         ),
       );
       const layerOrchestration = Layer.merge(
@@ -599,6 +616,15 @@ const cancelBackgroundOnlyTask = (
         const owned = Effect.map(orchestrator.getThreadProjection(task.childThreadId!), (child) =>
           child.runtimeRequests.find((request) => request.id === "request:owned"),
         );
+        if (refuseCompletion) {
+          // A transactional guard may reject a result after the finalizer read a settled child.
+          yield* orchestrator.recoverDelegatedTask(task.childThreadId!, child.turn.runId);
+          assert.isAbove(refusedPublications, 0);
+          assert.equal((yield* parentTask)?.status, "running");
+          assert.equal((yield* owned)?.status, "pending");
+          refusePublication = false;
+          yield* orchestrator.recoverDelegatedTask(task.childThreadId!, child.turn.runId);
+        }
         // task_cancel settles a finished turn itself; a running one settles when it ends.
         if ((yield* owned)?.status !== "resolved") yield* Fiber.join(settled);
 
@@ -668,7 +694,7 @@ const cancelBackgroundOnlyTask = (
   ).pipe(Effect.provide(NodeServices.layer));
 
 it.effect("task_cancel ends a delegated child's background native subagent", () =>
-  cancelBackgroundOnlyTask("subagent").pipe(
+  cancelBackgroundOnlyTask("subagent", { refuseCompletion: true }).pipe(
     Effect.provide(
       Layer.mergeAll(
         Layer.mock(FixtureExperimentService.ExperimentService)({

@@ -16629,13 +16629,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     }
 
-    // Only the run a cancelled task settled from ends with it. The row read above has no
-    // such run yet when this call settled the task, from the same result run.
+    // Publication can be refused by its transactional progress guard. Dismiss questions only
+    // after the parent has the durable result, including when this call just published it.
     const { resultRun } = progress;
     const resultTaskId = resultRun?.delegatedTaskId ?? childControls.thread.forkedFrom.nodeId;
-    const resultTask = parent.subagents.find((task) => task.id === resultTaskId);
+    const settledParent = yield* projectionStore.getThreadRecords(parentThreadId, ["subagents"]);
+    const resultTask = settledParent.subagents.find((task) => task.id === resultTaskId);
+    if (
+      resultTask === undefined ||
+      resultTask.result === null ||
+      !isTerminalDelegatedTaskStatus(resultTask.status)
+    )
+      return;
     const taskCancelled =
-      resultTask?.cancelledRunId !== undefined && resultTask.cancelledRunId === resultRun?.id;
+      resultTask.cancelledRunId !== undefined && resultTask.cancelledRunId === resultRun?.id;
     if (
       resultRun === undefined ||
       (taskCancelled ? progress.state === "working" : progress.state !== "result_available")

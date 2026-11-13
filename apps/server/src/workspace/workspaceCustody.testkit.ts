@@ -21,6 +21,7 @@ export const fixture = Effect.gen(function* () {
   const controllerStart = yield* Ref.make("first-start");
   const producerProtocol = yield* Ref.make(1);
   const releases = yield* Ref.make(0);
+  const acquisitionPath = yield* Ref.make<string | null>(null);
   const acquisitionGate = yield* Ref.make<Effect.Effect<void>>(Effect.void);
   const argumentsUsed = yield* Ref.make<ReadonlyArray<string>>([]);
   const processLayer = Layer.mock(ProcessRunner.ProcessRunner)({
@@ -58,7 +59,7 @@ export const fixture = Effect.gen(function* () {
           reply = {
             ok: true,
             version: 1,
-            path: args[2],
+            path: (yield* Ref.get(acquisitionPath)) ?? args[2],
             generation: "allocation-one",
             claimId: request.ownerId,
             ownerId: request.ownerId,
@@ -103,5 +104,13 @@ export const fixture = Effect.gen(function* () {
     Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
     Layer.provide(Layer.succeed(WorkspaceCustody.ControllerPid, 123)),
   );
-  return { layer, controllerStart, producerProtocol, releases, argumentsUsed, acquisitionGate };
+  return {
+    layer,
+    controllerStart,
+    producerProtocol,
+    releases,
+    argumentsUsed,
+    acquisitionGate,
+    acquisitionPath,
+  };
 });

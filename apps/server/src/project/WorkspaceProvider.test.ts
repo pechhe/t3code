@@ -88,6 +88,7 @@ const harness = Effect.fn("test.harness")(function* (handlers: Partial<Record<st
                           generation: "generation",
                           claimId: request.ownerId,
                           ownerId: request.ownerId,
+                          ...body.claim,
                         },
                       }),
                     };
@@ -290,6 +291,22 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
           ]);
           expect(yield* intents.list).toEqual([]);
         }).pipe(Effect.provide(layerIntents)),
+    );
+
+    it.effect("publishes the canonical checkout for an aliased allocation receipt", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+        const checkout = `${root}/checkout`;
+        const alias = `${root}/alias`;
+        yield* fs.makeDirectory(checkout);
+        yield* fs.symlink(checkout, alias);
+        const { service } = yield* harness({
+          start: () => output(JSON.stringify({ workspacePath: alias, claim: { path: checkout } })),
+        });
+        const allocation = yield* service.allocate(request);
+        expect(allocation.workspacePath).toBe(checkout);
+      }).pipe(Effect.provide(layerIntents)),
     );
 
     it.effect.each([

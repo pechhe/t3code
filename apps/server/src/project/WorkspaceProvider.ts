@@ -569,31 +569,16 @@ export const make = Effect.gen(function* () {
             ),
             Effect.catch((error) => settleStart(root, attemptId, owner, error)),
           ));
-        if ("claim" in result && result.claim !== undefined) {
-          if (result.claim.path !== result.workspacePath)
-            return yield* new WorkspaceProviderError({
-              operation: "allocate",
-              projectRoot,
-              detail: "SlipJay custody receipt identifies another checkout.",
-            });
-          yield* custody
-            .acquired(epoch.id, { ...result.claim, ok: true })
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
-              ),
-            );
-        } else {
-          yield* custody
-            .acquireExisting(epoch.id, result.workspacePath)
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
-              ),
-            );
-        }
+        const claim = "claim" in result ? result.claim : undefined;
+        const workspacePath = yield* (
+          claim !== undefined
+            ? custody.acquired(epoch.id, { ...claim, ok: true }, result.workspacePath)
+            : custody.acquireExisting(epoch.id, result.workspacePath)
+        ).pipe(
+          Effect.mapError(
+            (cause) => new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
+          ),
+        );
         // Resuming would hand over a workspace that may be another thread's. Attaching
         // refuses an item another workspace holds, so this checkout only ever belongs to
         // the thread that asked for it.
@@ -604,12 +589,12 @@ export const make = Effect.gen(function* () {
                 "allocate",
                 root,
                 ["attach-issue", String(issue.number)],
-                result.workspacePath,
+                workspacePath,
               ).pipe(
                 Effect.as(undefined),
                 Effect.catch((error) =>
                   Effect.logWarning("SlipJay workspace allocated without its Issue", {
-                    workspacePath: result.workspacePath,
+                    workspacePath,
                     issue: issue.number,
                     error: error.message,
                   }).pipe(Effect.as(error.message)),
@@ -620,19 +605,19 @@ export const make = Effect.gen(function* () {
         if (forgeProject)
           yield* recordForgeProject({
             projectRoot: root,
-            workspacePath: result.workspacePath,
+            workspacePath,
             forgeProject,
           }).pipe(
             Effect.catch((error) =>
               Effect.logWarning("SlipJay workspace not recorded under its Forge project", {
-                workspacePath: result.workspacePath,
+                workspacePath,
                 forgeProject,
                 error: error.message,
               }),
             ),
           );
         const allocation = {
-          workspacePath: result.workspacePath,
+          workspacePath,
           created: result.created ?? null,
           issue: issue !== undefined && attachFailure === undefined ? issue.number : null,
           attemptId,
