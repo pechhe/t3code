@@ -174,9 +174,7 @@ const summaryOf = (
     ...(read.acceptanceLevel === "owner" || read.acceptanceLevel === "agent"
       ? { acceptanceLevel: read.acceptanceLevel }
       : {}),
-    holds: read.holds
-      .filter((hold) => hold.clearedAt === null)
-      .map(({ kind, note }) => ({ kind, note })),
+    holds: [],
     waits: waits.map(({ required, blocker }) => ({
       number: blocker.number,
       ...(blocker.ref === undefined ? {} : { ref: blocker.ref }),

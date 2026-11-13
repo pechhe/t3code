@@ -52,12 +52,11 @@ function StatusLabel(props: { status: string }) {
   );
 }
 
-function Banner(props: { tone: "held" | "blocked" | "accepted"; children: ReactNode }) {
+function Banner(props: { tone: "blocked" | "accepted"; children: ReactNode }) {
   return (
     <div
       className={cn(
         "mt-2 rounded-md px-2 py-1.5 text-xs leading-snug",
-        props.tone === "held" && "bg-warning-surface text-warning-foreground",
         props.tone === "blocked" && "bg-error-surface text-error-foreground",
         props.tone === "accepted" && "bg-success/10 text-success-foreground",
       )}
@@ -125,12 +124,6 @@ export function ForgeWorkItemCard(props: { card: ForgeWorkItemCardData }) {
         </p>
       ) : null}
 
-      {item.holds.map((hold) => (
-        <Banner key={`${hold.kind}:${hold.note}`} tone="held">
-          ⏸ Held · {hold.kind}
-          {hold.note ? `: ${hold.note}` : ""}
-        </Banner>
-      ))}
       {waits.map((wait) => (
         <Banner key={wait.blocker} tone="blocked">
           ⛓ Blocked by {wait.blocker} ({wait.status}). {wait.startsWhen}

@@ -117,7 +117,7 @@ const make = Effect.gen(function* () {
               const item = cached.item;
               yield* recordLastKnown(
                 watch.id,
-                `Build ${item.ref ?? `#${number}`} was ${item.status}, with ${item.waits.length} open waits and ${item.holds.length} holds.`,
+                `Build ${item.ref ?? `#${number}`} was ${item.status}, with ${item.waits.length} dependency waits.`,
               );
               continue;
             }
@@ -144,7 +144,7 @@ const make = Effect.gen(function* () {
               });
             }
             if (decideBuildWatch(watch.target, cached.item) === undefined) continue;
-            // A cached answer can predate a hold or wait opened outside T3's own connection: wake only
+            // A cached answer can predate a dependency added outside T3's own connection: wake only
             // on an answer read in this pass.
             const readThisPass =
               cached.readAt !== null && Date.parse(cached.readAt) >= passStartedAt;

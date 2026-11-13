@@ -92,12 +92,11 @@ function Section(props: { title: string; children: ReactNode }) {
   );
 }
 
-function Banner(props: { tone: "held" | "blocked" | "accepted"; children: string }) {
+function Banner(props: { tone: "blocked" | "accepted"; children: string }) {
   return (
     <View
       className={cn(
         "mt-4 rounded-xl px-3 py-2.5",
-        props.tone === "held" && "bg-orange-500/15",
         props.tone === "blocked" && "bg-red-500/15",
         props.tone === "accepted" && "bg-emerald-500/15",
       )}
@@ -105,7 +104,6 @@ function Banner(props: { tone: "held" | "blocked" | "accepted"; children: string
       <Text
         className={cn(
           "text-sm",
-          props.tone === "held" && "text-orange-500",
           props.tone === "blocked" && "text-red-500",
           props.tone === "accepted" && "text-emerald-500",
         )}
@@ -186,11 +184,6 @@ function CardBody(props: { card: ForgeWorkItemCard }) {
         </Text>
       ) : null}
 
-      {item.holds.map((hold) => (
-        <Banner key={`${hold.kind}:${hold.note}`} tone="held">
-          {`⏸ Held · ${hold.kind}${hold.note ? `: ${hold.note}` : ""}`}
-        </Banner>
-      ))}
       {waits.map((wait) => (
         <Banner key={wait.blocker} tone="blocked">
           {`⛓ Blocked by ${wait.blocker} (${wait.status}). ${wait.startsWhen}`}

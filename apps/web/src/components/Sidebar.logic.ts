@@ -1222,7 +1222,8 @@ export function threadStandingAttention(
   standing: ThreadStatusInput["standing"],
   parkedWaitGaveUp?: ThreadStatusInput["parkedWaitGaveUp"],
 ): "needs_you" | "gave_up" | "stalled" | null {
-  if (standing?.state === "needs_you" && standing.waitsOnPerson !== undefined) return "needs_you";
+  if (standing?.state === "needs_you" && standing.waitsOnPerson?.need === "acceptance")
+    return "needs_you";
   // A wait that gave up is the owner's to look at, whatever the server's standing says.
   if (parkedWaitGaveUp !== undefined) return "gave_up";
   if (standing?.state === "needs_you") return null;
@@ -1257,9 +1258,7 @@ export function resolveThreadStatusPill(input: {
     const ref = waits?.ref ?? (waits === undefined ? "" : `#${waits.number}`);
     return {
       label: "Needs you",
-      ...(waits === undefined
-        ? {}
-        : { detail: waits.need === "acceptance" ? `accept ${ref}` : `clear holds on ${ref}` }),
+      ...(waits === undefined ? {} : { detail: `accept ${ref}` }),
       colorClass: "text-accent-foreground font-semibold",
       dotClass: "bg-current",
       pulse: false,

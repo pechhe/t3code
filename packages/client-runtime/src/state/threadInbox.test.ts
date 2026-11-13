@@ -92,19 +92,26 @@ describe("createInboxReturnTracker", () => {
 
   it("holds only placement, then expires and notifies without another shell event", () => {
     const tracker = createInboxReturnTracker();
+    const retired = {
+      ...thread("a", false),
+      standing: {
+        state: "needs_you" as const,
+        waitsOnPerson: { kind: "build_item" as const, number: 7, need: "hold" as const },
+      },
+    };
     const notify = vi.fn();
     const unsubscribe = tracker.subscribe(notify);
     tracker.observe([thread("a", true)]);
-    tracker.observe([thread("a", false)]);
-    expect(isThreadWorking(thread("a", false))).toBe(false);
-    expect(tracker.isWorking(thread("a", false))).toBe(true);
+    tracker.observe([retired]);
+    expect(isThreadWorking(retired)).toBe(false);
+    expect(tracker.isWorking(retired)).toBe(true);
     vi.advanceTimersByTime(1_999);
-    tracker.observe([thread("a", false)]);
-    expect(tracker.isWorking(thread("a", false))).toBe(true);
-    expect(tracker.returnedAt(thread("a", false))).toBeUndefined();
+    tracker.observe([retired]);
+    expect(tracker.isWorking(retired)).toBe(true);
+    expect(tracker.returnedAt(retired)).toBeUndefined();
     vi.advanceTimersByTime(1);
-    expect(tracker.isWorking(thread("a", false))).toBe(false);
-    expect(tracker.returnedAt(thread("a", false))).toBe(12_000);
+    expect(tracker.isWorking(retired)).toBe(false);
+    expect(tracker.returnedAt(retired)).toBe(12_000);
     expect(notify).toHaveBeenCalledTimes(1);
     unsubscribe();
   });

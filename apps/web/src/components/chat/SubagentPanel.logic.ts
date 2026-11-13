@@ -81,7 +81,7 @@ export function panelSummaryParts(counts: PanelSummaryCounts): ReadonlyArray<Pan
 export interface PanelWaitsOnYou {
   readonly number: number;
   readonly ref: string;
-  readonly need: "acceptance" | "hold";
+  readonly need: "acceptance";
 }
 
 /**
@@ -93,12 +93,12 @@ export function panelWaitsOnYou(input: {
   readonly threadWatches: ReadonlyArray<OrchestrationV2ThreadWatch> | undefined;
 }): PanelWaitsOnYou | null {
   const waits = input.standing?.waitsOnPerson;
-  if (waits !== undefined) {
+  if (waits?.need === "acceptance") {
     return { number: waits.number, ref: waits.ref ?? `#${waits.number}`, need: waits.need };
   }
   if (input.standing !== undefined) return null;
   for (const watch of input.threadWatches ?? []) {
-    if (watch.waitsOnPerson !== undefined && watch.target.kind === "build_item") {
+    if (watch.waitsOnPerson?.need === "acceptance" && watch.target.kind === "build_item") {
       return {
         number: watch.target.number,
         ref: watch.waitsOnPerson.ref ?? `#${watch.target.number}`,
@@ -110,9 +110,7 @@ export function panelWaitsOnYou(input: {
 }
 
 export function waitsOnYouText(waits: PanelWaitsOnYou): string {
-  return waits.need === "acceptance"
-    ? `${waits.ref} awaits your acceptance`
-    : `${waits.ref} has holds only you can clear`;
+  return `${waits.ref} awaits your acceptance`;
 }
 
 /** A stalled child the panel has no row for (it sits below a direct child) still gets one. */

@@ -346,24 +346,16 @@ export function decideBuildWatch(
   if (target.until === "closed") {
     return item.status === "landed" || item.status === "accepted" ? "closed" : undefined;
   }
-  return item.holds.length === 0 && item.waits.length === 0 ? "unblocked" : undefined;
+  return item.waits.length === 0 ? "unblocked" : undefined;
 }
 
-/**
- * What only the owner can still do for an `unblocked` watch that has not fired: the item itself
- * has landed and its acceptance level is the owner's, or its only remaining blockers are holds.
- * A wait on another item never counts: Forge's wait carries no acceptance level for its blocker,
- * so whether a person must accept it cannot be told.
- */
+/** Owner acceptance is the only Forge state that asks the person to act here. */
 export function buildWatchWaitsOnPerson(
   target: Extract<OrchestrationV2WatchTarget, { readonly kind: "build_item" }>,
   item: ForgeWorkItemSummary,
-): "acceptance" | "hold" | undefined {
-  if (target.until !== "unblocked" || item.status === "dropped" || item.waits.length > 0) {
-    return undefined;
-  }
-  if (item.holds.length === 0) return undefined;
-  return item.status === "landed" && item.acceptanceLevel === "owner" ? "acceptance" : "hold";
+): "acceptance" | undefined {
+  if (target.until !== "unblocked" || item.waits.length > 0) return undefined;
+  return item.status === "landed" && item.acceptanceLevel === "owner" ? "acceptance" : undefined;
 }
 
 export function sameWaitsOnPerson(
@@ -388,7 +380,7 @@ export function buildWatchWake(input: {
       : condition === "unreadable"
         ? "could not be read for over an hour, so T3 cannot tell when it changes"
         : condition === "unblocked"
-          ? "is unblocked: all waits and holds are clear"
+          ? "is unblocked: all dependency waits are clear"
           : "is closed (Landed or Accepted)";
   return {
     text: `Build ${label} ${workName(input.title)} ${met}. ${input.url}\n\nT3 Code has stopped watching it. Call watch again to be woken again.`,

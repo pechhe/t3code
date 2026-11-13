@@ -263,7 +263,8 @@ export function createInboxReturnTracker() {
               ])
             : null;
         const actionable =
-          thread.standing?.state === "needs_you" ||
+          (thread.standing?.state === "needs_you" &&
+            thread.standing.waitsOnPerson?.need !== "hold") ||
           thread.hasPendingApprovals ||
           thread.hasPendingUserInput ||
           thread.pendingSubagentRequest != null ||

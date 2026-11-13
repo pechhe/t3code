@@ -274,7 +274,8 @@ export function resolveThreadListV2Status(
   const standing = thread.standing;
   if (standing !== undefined) {
     if (standing.state === "stalled") return "stalled";
-    if (standing.state === "needs_you" && standing.waitsOnPerson !== undefined) return "needs_you";
+    if (standing.state === "needs_you" && standing.waitsOnPerson?.need === "acceptance")
+      return "needs_you";
   }
   return resolveRuntimeThreadListV2Status(thread);
 }

@@ -299,7 +299,7 @@ export function startThreadNotifications(
       const parsedCompletedAt = Date.parse(thread.latestRun?.completedAt ?? "");
       const completedAt = Number.isFinite(parsedCompletedAt) ? parsedCompletedAt : null;
       const waitsOn =
-        standing?.state === "needs_you" && standing.waitsOnPerson !== undefined
+        standing?.state === "needs_you" && standing.waitsOnPerson?.need === "acceptance"
           ? {
               number: standing.waitsOnPerson.number,
               ...(standing.waitsOnPerson.ref === undefined

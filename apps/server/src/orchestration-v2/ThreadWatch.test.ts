@@ -1578,7 +1578,7 @@ it.layer(layerTest)("thread watches", (it) => {
     }),
   );
   it.effect(
-    "wakes Build unblocked watchers only after waits and holds clear, once, sharing Weave reads",
+    "wakes Build watchers when dependencies clear, ignoring legacy holds and sharing Weave reads",
     () =>
       Effect.gen(function* () {
         const h = yield* makeForgeHarness;
@@ -1606,25 +1606,18 @@ it.layer(layerTest)("thread watches", (it) => {
         };
         yield* TestClock.adjust("1 minute");
         yield* h.reactor.sweep;
-        assert.lengthOf(yield* h.messages(first), 0);
-        h.state.item = { ...h.state.item, holds: [] };
-        // The cached blocked result still applies within its reread interval.
-        yield* h.reactor.sweep;
-        assert.equal(h.state.reads, 2);
-        yield* TestClock.adjust("1 minute");
-        yield* h.reactor.sweep;
         for (const threadId of [first, second]) {
           const [message, ...rest] = yield* h.messages(threadId);
           assert.lengthOf(rest, 0);
           assert.include(message?.text, "Build #1000001");
           assert.include(message?.text, "Publish the candidate");
-          assert.include(message?.text, "all waits and holds are clear");
+          assert.include(message?.text, "all dependency waits are clear");
           assert.lengthOf(yield* watchesOf(threadId), 0);
         }
         yield* TestClock.adjust("2 minutes");
         yield* h.reactor.sweep;
         assert.lengthOf(yield* h.messages(first), 1);
-        assert.equal(h.state.reads, 3);
+        assert.equal(h.state.reads, 2);
       }),
   );
 
@@ -1656,23 +1649,26 @@ it.layer(layerTest)("thread watches", (it) => {
   );
 
   it.effect(
-    "an unblocked watch confirms a cached clear answer before waking, so a hold opened outside T3 keeps it",
+    "an unblocked watch confirms a cached clear answer before waking, so a new dependency keeps it",
     () =>
       Effect.gen(function* () {
         const h = yield* makeForgeHarness;
         const watcher = yield* createThread("build-external-hold");
-        // A card read caches the item clear; the agent then opens a hold through its own Weave connection,
+        // A card read caches the item clear; a dependency is then added through another Weave connection,
         // which T3's cache does not see, and watches straight away.
         h.state.item = { ...h.state.item, waits: [] };
         yield* h.build.mentions({ threadId: watcher, numbers: [1000001] });
         yield* TestClock.adjust("1 second");
-        h.state.item = { ...h.state.item, holds: [{ kind: "external", note: "Publication" }] };
+        h.state.item = {
+          ...h.state.item,
+          waits: [{ number: 1000002, title: "Publication", status: "ready", required: "landed" }],
+        };
         yield* h.start(watcher, "unblocked");
         yield* h.reactor.sweep;
         assert.lengthOf(yield* h.messages(watcher), 0);
         assert.lengthOf(yield* watchesOf(watcher), 1);
-        // A confirmation Forge cannot answer wakes no one either, even once the hold has cleared.
-        h.state.item = { ...h.state.item, holds: [] };
+        // A confirmation Forge cannot answer wakes no one even once the dependency clears.
+        h.state.item = { ...h.state.item, waits: [] };
         h.state.unreachable = true;
         yield* TestClock.adjust("1 minute");
         yield* h.reactor.sweep;
@@ -1686,7 +1682,7 @@ it.layer(layerTest)("thread watches", (it) => {
         yield* restarted.sweep;
         const [message, ...rest] = yield* h.messages(watcher);
         assert.lengthOf(rest, 0);
-        assert.include(message?.text, "all waits and holds are clear");
+        assert.include(message?.text, "all dependency waits are clear");
         assert.lengthOf(yield* watchesOf(watcher), 0);
       }),
   );
@@ -1794,62 +1790,22 @@ it.layer(layerTest)("thread watches", (it) => {
   );
 
   it.effect(
-    "a thread whose only wait is a Forge item landed or held for the owner needs him, naming the item",
+    "legacy Forge holds do not ask the owner to clear them or keep the thread waiting",
     () =>
       Effect.gen(function* () {
         const h = yield* makeForgeHarness;
-        const engine = yield* Orchestrator.OrchestratorV2;
-        const watcher = yield* createThread("build-waits-on-person");
+        const watcher = yield* createThread("build-retired-hold");
         yield* h.start(watcher, "unblocked");
-        const standing = Effect.map(engine.getThreadShell(watcher), (shell) => shell?.standing);
-        yield* h.reactor.sweep;
-        // A blocker still in progress is a machine's to finish.
-        assert.equal((yield* standing)?.state, "waiting");
-
-        // A landed blocker needing acceptance says nothing about who accepts it.
         h.state.item = {
           ...h.state.item,
-          waits: [{ number: 1000002, title: "Blocker", status: "landed", required: "accepted" }],
+          waits: [],
+          holds: [{ kind: "decision", note: "Old question" }],
         };
-        yield* TestClock.adjust("1 minute");
         yield* h.reactor.sweep;
-        assert.equal((yield* standing)?.state, "waiting");
-
-        h.state.item = { ...h.state.item, waits: [], holds: [{ kind: "owner", note: "Approve" }] };
-        yield* TestClock.adjust("2 minutes");
-        yield* h.reactor.sweep;
-        const held = yield* standing;
-        assert.equal(held?.state, "needs_you");
-        assert.equal(held?.waitsOnPerson?.need, "hold");
-
-        // The item itself has landed and only the owner accepts it.
-        h.state.item = { ...h.state.item, status: "landed", acceptanceLevel: "owner" };
-        yield* TestClock.adjust("4 minutes");
-        yield* h.reactor.sweep;
-        assert.deepEqual(yield* standing, {
-          state: "needs_you",
-          waitsOnPerson: {
-            kind: "build_item",
-            number: 1000001,
-            title: "Publish the candidate",
-            need: "acceptance",
-          },
-        });
-
-        // An agent accepts this one, so a hold is all that waits on a person.
-        h.state.item = { ...h.state.item, acceptanceLevel: "agent" };
-        yield* TestClock.adjust("4 minutes");
-        yield* h.reactor.sweep;
-        assert.equal((yield* standing)?.waitsOnPerson?.need, "hold");
-
-        // A wait on work still in progress takes the verdict back.
-        h.state.item = {
-          ...h.state.item,
-          waits: [{ number: 1000002, title: "Blocker", status: "in_progress", required: "landed" }],
-        };
-        yield* TestClock.adjust("8 minutes");
-        yield* h.reactor.sweep;
-        assert.equal((yield* standing)?.state, "waiting");
+        assert.lengthOf(yield* h.messages(watcher), 1);
+        assert.lengthOf(yield* watchesOf(watcher), 0);
+        const shell = yield* (yield* Orchestrator.OrchestratorV2).getThreadShell(watcher);
+        assert.isUndefined(shell?.standing?.waitsOnPerson);
       }),
   );
 
@@ -3209,7 +3165,7 @@ it.layer(layerTest)("parked waits", (it) => {
       );
       yield* forge.reactor.sweep;
       assert.lengthOf(yield* forge.messages(buildThread), 0);
-      assert.include((yield* parkedOf(buildThread))[0]?.lastKnown, "with 1 open waits");
+      assert.include((yield* parkedOf(buildThread))[0]?.lastKnown, "with 1 dependency waits");
       forge.state.item = { ...forge.state.item, waits: [] };
       yield* TestClock.adjust("1 minute");
       yield* forge.reactor.sweep;

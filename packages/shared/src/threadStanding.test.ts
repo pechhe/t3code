@@ -139,6 +139,14 @@ describe("deriveThreadStanding", () => {
       },
     ],
     [
+      "a persisted Forge hold does not ask the owner to act",
+      {
+        pendingBackgroundTasks: [watchTask],
+        threadWatches: [{ ...watch, waitsOnPerson: { need: "hold" } }],
+      },
+      { state: "waiting" },
+    ],
+    [
       "a Forge watch with no verdict",
       { pendingBackgroundTasks: [watchTask], threadWatches: [watch] },
       { state: "waiting" },

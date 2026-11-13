@@ -3,6 +3,7 @@ import { assert, it } from "@effect/vitest";
 import {
   CommandId,
   EventId,
+  type ForgeWorkItemSummary,
   MessageId,
   NodeId,
   type OrchestrationV2AppThread,
@@ -364,7 +365,7 @@ const watchForgeItem = (threadId: ThreadId, number: number) =>
   );
 
 /** The real Forge watch reactor, reading a Forge item from `read`; `null` is an unreadable item. */
-const forgeWatchReactor = (read: () => { readonly holds: ReadonlyArray<string> } | null) =>
+const forgeWatchReactor = (read: () => Pick<ForgeWorkItemSummary, "waits"> | null) =>
   Effect.service(ForgeWatchReactor.ForgeWatchReactor).pipe(
     Effect.provide(
       ForgeWatchReactor.layer.pipe(
@@ -383,7 +384,7 @@ const forgeWatchReactor = (read: () => { readonly holds: ReadonlyArray<string> }
                     item:
                       item === null
                         ? null
-                        : { title: "Hold", ref: null, status: "ready", waits: [], ...item },
+                        : { title: "Dependency", ref: null, status: "ready", holds: [], ...item },
                   })),
                 } as never;
               }),
@@ -1524,73 +1525,82 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
       }),
   );
 
-  it.effect("takes an Arc across two Specs, a failure, a restart and a hold with no human", () =>
-    Effect.gen(function* () {
-      const reactor = yield* ArcRunReactor.ArcRunReactor;
-      const { threadId, run } = yield* setup("journey");
-      const humanMessages = Effect.map(records(threadId), ({ messages }) =>
-        messages.filter((message) => message.role === "user" && message.createdBy === "user"),
-      );
-      const humansAtStart = (yield* humanMessages).length;
-      const looks = { blocked: true };
-      const forge = yield* forgeWatchReactor(() => ({ holds: looks.blocked ? ["hold"] : [] }));
+  it.effect(
+    "takes an Arc across two Specs, a failure, a restart and a dependency with no human",
+    () =>
+      Effect.gen(function* () {
+        const reactor = yield* ArcRunReactor.ArcRunReactor;
+        const { threadId, run } = yield* setup("journey");
+        const humanMessages = Effect.map(records(threadId), ({ messages }) =>
+          messages.filter((message) => message.role === "user" && message.createdBy === "user"),
+        );
+        const humansAtStart = (yield* humanMessages).length;
+        const looks = { blocked: true };
+        const forge = yield* forgeWatchReactor(() => ({
+          waits: looks.blocked
+            ? [{ number: 100, title: "Prerequisite", status: "in_progress", required: "landed" }]
+            : [],
+        }));
 
-      // Spec 1's lead is out, so the Arc lead's turn ending and the watchdog both stay quiet.
-      const spec1 = yield* delegateSpec(threadId, run, "spec-1");
-      yield* reactor.handle(yield* finish(run));
-      yield* reactor.sweep("watchdog");
-      assert.equal((yield* wakes(threadId)).length, 0);
+        // Spec 1's lead is out, so the Arc lead's turn ending and the watchdog both stay quiet.
+        const spec1 = yield* delegateSpec(threadId, run, "spec-1");
+        yield* reactor.handle(yield* finish(run));
+        yield* reactor.sweep("watchdog");
+        assert.equal((yield* wakes(threadId)).length, 0);
 
-      // Spec 1's lead fails. Its result is owed, then delivered, and only then is the lead woken.
-      yield* settleTask(spec1, "failed", "pending");
-      yield* reactor.sweep("watchdog");
-      assert.equal((yield* wakes(threadId)).length, 0);
-      yield* settleTask(spec1, "failed", "acknowledged");
-      yield* reactor.sweep("watchdog");
-      assert.equal((yield* wakes(threadId)).length, 1);
+        // Spec 1's lead fails. Its result is owed, then delivered, and only then is the lead woken.
+        yield* settleTask(spec1, "failed", "pending");
+        yield* reactor.sweep("watchdog");
+        assert.equal((yield* wakes(threadId)).length, 0);
+        yield* settleTask(spec1, "failed", "acknowledged");
+        yield* reactor.sweep("watchdog");
+        assert.equal((yield* wakes(threadId)).length, 1);
 
-      // The lead re-reads, retries with a Spec 2 lead, and the provider's turn fails: no retry
-      // storm from the event, and the watchdog is what brings it back.
-      yield* TestClock.adjust("1 minute");
-      yield* arcRunCommand(threadId, "spec-2", { op: "checkpoint", phase: "Spec 2" });
-      const failing = yield* latestRun(threadId);
-      const spec2 = yield* delegateSpec(threadId, failing, "spec-2");
-      yield* settleTask(spec2, "completed", "acknowledged");
-      yield* reactor.handle(yield* finish(failing, "failed"));
-      assert.equal((yield* wakes(threadId)).length, 1);
-      yield* reactor.sweep("watchdog");
-      assert.equal((yield* wakes(threadId)).length, 2);
+        // The lead re-reads, retries with a Spec 2 lead, and the provider's turn fails: no retry
+        // storm from the event, and the watchdog is what brings it back.
+        yield* TestClock.adjust("1 minute");
+        yield* arcRunCommand(threadId, "spec-2", { op: "checkpoint", phase: "Spec 2" });
+        const failing = yield* latestRun(threadId);
+        const spec2 = yield* delegateSpec(threadId, failing, "spec-2");
+        yield* settleTask(spec2, "completed", "acknowledged");
+        yield* reactor.handle(yield* finish(failing, "failed"));
+        assert.equal((yield* wakes(threadId)).length, 1);
+        yield* reactor.sweep("watchdog");
+        assert.equal((yield* wakes(threadId)).length, 2);
 
-      // The server restarts with that turn just ended: a fresh reactor carries it on from durable
-      // state alone.
-      yield* finish(yield* latestRun(threadId));
-      const restarted = yield* Effect.service(ArcRunReactor.ArcRunReactor).pipe(
-        Effect.provide(Layer.fresh(ArcRunReactor.layer)),
-      );
-      yield* restarted.sweep("startup");
-      assert.equal((yield* wakes(threadId)).length, 3);
+        // The server restarts with that turn just ended: a fresh reactor carries it on from durable
+        // state alone.
+        yield* finish(yield* latestRun(threadId));
+        const restarted = yield* Effect.service(ArcRunReactor.ArcRunReactor).pipe(
+          Effect.provide(Layer.fresh(ArcRunReactor.layer)),
+        );
+        yield* restarted.sweep("startup");
+        assert.equal((yield* wakes(threadId)).length, 3);
 
-      // Only a Forge hold remains: its watch keeps the run quiet without a model call.
-      yield* TestClock.adjust("1 minute");
-      yield* arcRunCommand(threadId, "held", { op: "checkpoint", phase: "Held on the owner" });
-      yield* watchForgeItem(threadId, 99);
-      yield* restarted.handle(yield* finish(yield* latestRun(threadId)));
-      yield* restarted.sweep("watchdog");
-      yield* forge.sweep;
-      assert.equal((yield* wakes(threadId)).length, 3);
-      assert.equal((yield* buildWakes(threadId)).length, 0);
+        // Only a work dependency remains: its watch keeps the run quiet without a model call.
+        yield* TestClock.adjust("1 minute");
+        yield* arcRunCommand(threadId, "dependency", {
+          op: "checkpoint",
+          phase: "Waiting on a prerequisite",
+        });
+        yield* watchForgeItem(threadId, 99);
+        yield* restarted.handle(yield* finish(yield* latestRun(threadId)));
+        yield* restarted.sweep("watchdog");
+        yield* forge.sweep;
+        assert.equal((yield* wakes(threadId)).length, 3);
+        assert.equal((yield* buildWakes(threadId)).length, 0);
 
-      // The hold clears: Forge's own check wakes it, and it proves the outcome and ends the run.
-      looks.blocked = false;
-      yield* TestClock.adjust("1 minute");
-      yield* forge.sweep;
-      assert.equal((yield* buildWakes(threadId)).length, 1);
-      yield* arcRunCommand(threadId, "done", { op: "end" });
-      yield* restarted.sweep("watchdog");
-      assert.isUndefined(yield* arcRunOf(threadId));
-      assert.equal((yield* wakes(threadId)).length, 3);
-      assert.equal((yield* humanMessages).length, humansAtStart);
-    }),
+        // The dependency lands: Forge's own check wakes it, and it proves the outcome and ends the run.
+        looks.blocked = false;
+        yield* TestClock.adjust("1 minute");
+        yield* forge.sweep;
+        assert.equal((yield* buildWakes(threadId)).length, 1);
+        yield* arcRunCommand(threadId, "done", { op: "end" });
+        yield* restarted.sweep("watchdog");
+        assert.isUndefined(yield* arcRunOf(threadId));
+        assert.equal((yield* wakes(threadId)).length, 3);
+        assert.equal((yield* humanMessages).length, humansAtStart);
+      }),
   );
 
   it.effect(
@@ -1838,7 +1848,15 @@ it.layer(layerTest)("ArcRunReactor", (it) => {
     Effect.gen(function* () {
       const { threadId, run } = yield* setup("unreadable-span");
       const reads = { readable: false };
-      const forge = yield* forgeWatchReactor(() => (reads.readable ? { holds: ["hold"] } : null));
+      const forge = yield* forgeWatchReactor(() =>
+        reads.readable
+          ? {
+              waits: [
+                { number: 100, title: "Prerequisite", status: "in_progress", required: "landed" },
+              ],
+            }
+          : null,
+      );
       yield* watchForgeItem(threadId, 77);
       yield* finish(run);
 

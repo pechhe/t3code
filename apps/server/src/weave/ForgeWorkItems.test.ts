@@ -532,7 +532,7 @@ it.effect("reads at once, then re-reads item and waits at most once a minute", (
       kind: "ticket",
       title: "Link and header",
       status: "ready",
-      holds: [{ kind: "decision", note: "Pick the glyph" }],
+      holds: [],
       waits: [
         { number: 1_000_077, title: "Observer role", status: "landed", required: "accepted" },
       ],
@@ -679,9 +679,7 @@ it.effect("a Spec card shows its summary, Tickets by status, Decisions and curre
     const card = yield* service.card({ threadId, itemId: spec.id, open: "open-1" });
     assert.strictEqual(card?.url, `${origin}/forge/1000078`);
     assert.strictEqual(card?.summary, "A body summary");
-    assert.deepStrictEqual(card?.item.holds, [
-      { kind: "information", note: "Waiting on the glyphs" },
-    ]);
+    assert.deepStrictEqual(card?.item.holds, []);
     assert.deepStrictEqual(card?.detail, {
       kind: "spec",
       specKind: "feature",

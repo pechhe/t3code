@@ -82,7 +82,7 @@ export function deriveThreadStanding(input: ThreadStandingInput): OrchestrationV
       const watch = (input.threadWatches ?? []).find(
         (candidate) => threadWatchTaskId(candidate.id) === task.taskId,
       );
-      return watch?.waitsOnPerson !== undefined && watch.target.kind === "build_item"
+      return watch?.waitsOnPerson?.need === "acceptance" && watch.target.kind === "build_item"
         ? [
             {
               number: watch.target.number,

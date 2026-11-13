@@ -83,11 +83,7 @@ describe("what waits on the person", () => {
     ).toBeNull();
     expect(
       panelWaitsOnYou({ standing: undefined, threadWatches: [watch({ need: "hold" })] }),
-    ).toEqual({
-      number: 949,
-      ref: "#949",
-      need: "hold",
-    });
+    ).toBeNull();
   });
 });
 
