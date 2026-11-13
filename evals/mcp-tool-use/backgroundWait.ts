@@ -24,6 +24,9 @@ import * as References from "effect/References";
 import { McpSchema, McpServer } from "effect/ai";
 
 import * as McpHttpServer from "../../apps/server/src/mcp/McpHttpServer.ts";
+import * as AdviceMcpService from "../../apps/server/src/mcp/AdviceMcpService.ts";
+import * as ThreadDirectory from "../../apps/server/src/peers/ThreadDirectory.ts";
+import * as ThreadHandoff from "../../apps/server/src/peer/handoff/ThreadHandoff.ts";
 import * as McpInvocationContext from "../../apps/server/src/mcp/McpInvocationContext.ts";
 import { liveThreadShell } from "../../apps/server/src/mcp/McpToolAccess.testkit.ts";
 import * as OrchestratorMcpService from "../../apps/server/src/mcp/OrchestratorMcpService.ts";
@@ -100,6 +103,9 @@ export const makeBackgroundWait = Effect.fn("evaluateMcpToolUse.makeBackgroundWa
     McpHttpServer.toolkitRegistration(OrchestratorToolkit, OrchestratorHandlers.layer).pipe(
       Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
       Layer.provide(Layer.mock(OrchestratorMcpService.OrchestratorMcpService)({})),
+      Layer.provide(Layer.mock(AdviceMcpService.AdviceMcpService)({})),
+      Layer.provide(Layer.mock(ThreadDirectory.ThreadDirectory)({})),
+      Layer.provide(Layer.mock(ThreadHandoff.ThreadHandoff)({})),
       Layer.provide(Layer.mock(ThreadMetadataMcpService.ThreadMetadataMcpService)({})),
       Layer.provide(threads),
       Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),

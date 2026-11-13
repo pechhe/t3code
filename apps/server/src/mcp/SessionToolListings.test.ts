@@ -329,7 +329,13 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
         });
       const editor = yield* connect("editor");
       const reader = yield* connect("reader");
-      const core = ["delegate_task", "orchestrator_capabilities", "task_status", "tool_search"];
+      const core = [
+        "call_mcp_tool",
+        "delegate_task",
+        "orchestrator_capabilities",
+        "task_status",
+        "tool_search",
+      ];
       expect(yield* editor.listed).toEqual(core);
       expect(yield* reader.listed).toEqual(core);
       const result = yield* editor.rpc("tools/call", {
@@ -350,6 +356,16 @@ it.effect("loads editor tools through its own deferred HTTP catalogue", () =>
       expect(yield* reader.listed).not.toContain("t3_project_create");
       const denied = yield* reader.rpc("tools/call", { name: "t3_project_create", arguments: {} });
       expect(denied.error?.message).toContain("not found");
+      const forwardedDenied = yield* reader.rpc("tools/call", {
+        name: "call_mcp_tool",
+        arguments: { name: "t3_project_create", arguments: {} },
+      });
+      expect(forwardedDenied.error?.message).toContain("not found");
+      const recursive = yield* editor.rpc("tools/call", {
+        name: "call_mcp_tool",
+        arguments: { name: "call_mcp_tool", arguments: {} },
+      });
+      expect(recursive.error?.message).toContain("recursive");
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

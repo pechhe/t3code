@@ -39,6 +39,11 @@ import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 
 import { taskPrompt } from "../../apps/server/src/mcp/delegatedTaskModes.ts";
 import * as McpInvocationContext from "../../apps/server/src/mcp/McpInvocationContext.ts";
+import * as McpToolExposure from "../../apps/server/src/mcp/McpToolExposure.ts";
+import {
+  CallMcpTool,
+  ToolSearchToolkit,
+} from "../../apps/server/src/mcp/toolkits/toolSearch/tools.ts";
 import { advertisedJsonSchema } from "../../apps/server/src/mcp/advertisedJsonSchema.ts";
 import * as Contracts from "@t3tools/contracts";
 import {
@@ -322,6 +327,8 @@ export const McpToolUseCase = Schema.Struct({
     /** delegate_task `role` for a delegated child. T3 builds the child's first message from it. */
     delegateRole: Schema.optional(OrchestratorMcpTaskRole),
     context: Schema.optional(Schema.String),
+    /** ACP runtimes whose callable MCP declarations stay fixed after startup. */
+    staticMcpTools: Schema.optional(Schema.Array(Schema.String)),
     priorTurns: Schema.optional(
       Schema.Array(
         Schema.Struct({
@@ -938,7 +945,48 @@ const SHELL_TOOLS = new Set(["Bash", "Read", "Edit", "Write", "WebFetch"]);
 const isAdvice = Schema.is(OrchestratorMcpAdvice);
 const isAdviceInput = Schema.is(OrchestratorMcpAskAdviceInput);
 
-export const makeSample = (testCase: McpToolUseCase, base: Base): Sample => {
+export const makeSample = (testCase: McpToolUseCase, capturedBase: Base): Sample => {
+  const staticTools = testCase.setup.staticMcpTools;
+  const fixed =
+    staticTools === undefined
+      ? undefined
+      : [
+          ...t3Tools,
+          ...[...Object.values(ToolSearchToolkit.tools), CallMcpTool].map((tool) => ({
+            name: `${T3_PREFIX}${tool.name}`,
+            description: Tool.getDescription(tool) ?? "",
+            input_schema: advertisedJsonSchema(tool),
+          })),
+        ].filter((tool) => staticTools.includes(normalizeToolName(tool.name)));
+  const base =
+    fixed === undefined
+      ? capturedBase
+      : {
+          ...capturedBase,
+          nativeTools: [
+            ...capturedBase.nativeTools.filter((tool) => !isT3Name(tool.name)),
+            ...fixed,
+          ],
+          deferred: capturedBase.deferred.filter((tool) => !isT3Name(tool.name)),
+          system: capturedBase.system.map((block) => ({
+            ...block,
+            ...(block.type === "text"
+              ? {
+                  text:
+                    typeof block.text === "string"
+                      ? block.text.replace(
+                          DEFERRED_LIST,
+                          (_match, header: string) =>
+                            `${header}${capturedBase.deferred
+                              .filter((tool) => !isT3Name(tool.name))
+                              .map((tool) => tool.name)
+                              .join("\n")}\n`,
+                        )
+                      : block.text,
+                }
+              : {}),
+          })),
+        };
   const prior = testCase.setup.priorTurns ?? [];
   const priorCalls = prior.flatMap((turn) => turn.toolCalls ?? []);
   const repo = testCase.setup.world?.repo ?? "acme/app";
@@ -1775,6 +1823,20 @@ export const answerToolCall = Effect.fn("evaluateMcpToolUse.answerToolCall")(fun
     const found = searchTools(base, valueText(input.query), max);
     if (found.length === 0) return toolResult(call.id, "No matching deferred tools found");
     return loadTools(tools, call.id, found);
+  }
+  if (name === "tool_search" && testCase.setup.staticMcpTools !== undefined) {
+    const exposure = McpToolExposure.make(
+      () =>
+        t3Tools.map((tool) => ({
+          name: normalizeToolName(tool.name),
+          description: typeof tool.description === "string" ? tool.description : "",
+          inputSchema: tool.input_schema as Readonly<Record<string, unknown>>,
+        })),
+      () => Effect.void,
+    );
+    return toolResult(call.id, {
+      tools: yield* exposure.search("eval-static", valueText(input.query)),
+    });
   }
   // T3 refuses a page call without exactly one source before any mocked result.
   const sources = [input.html, input.path].filter(

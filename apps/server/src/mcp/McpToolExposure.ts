@@ -2,13 +2,15 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 
 export const TOOL_SEARCH = "tool_search";
+export const CALL_MCP_TOOL = "call_mcp_tool";
 
-/** What a deferring client lists before it searches. Pi's extension declares the same three. */
+/** The discovery and invocation tools a deferring client lists before searching. */
 const DIRECT_TOOLS: ReadonlySet<string> = new Set([
   "orchestrator_capabilities",
   "delegate_task",
   "task_status",
   TOOL_SEARCH,
+  CALL_MCP_TOOL,
 ]);
 
 const MAX_RESULTS = 10;
@@ -18,6 +20,7 @@ const MAX_SESSIONS = 256;
 export interface ListedTool {
   readonly name: string;
   readonly description: string;
+  readonly inputSchema: Readonly<Record<string, unknown>>;
 }
 
 export class McpToolExposure extends Context.Service<
@@ -66,7 +69,7 @@ export const make = (
         .split(/[^a-z0-9_]+/u)
         .filter(Boolean);
       const found = tools()
-        .filter((tool) => tool.name !== TOOL_SEARCH)
+        .filter((tool) => tool.name !== TOOL_SEARCH && tool.name !== CALL_MCP_TOOL)
         .map((tool) => ({ tool, score: score(tool, terms) }))
         .filter((match) => match.score > 0)
         .sort((a, b) => b.score - a.score)

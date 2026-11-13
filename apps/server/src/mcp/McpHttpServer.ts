@@ -123,7 +123,7 @@ import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import * as ToolSearchHandlers from "./toolkits/toolSearch/handlers.ts";
-import { ToolSearchToolkit } from "./toolkits/toolSearch/tools.ts";
+import { CallMcpTool, ToolSearchToolkit } from "./toolkits/toolSearch/tools.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
@@ -1568,7 +1568,11 @@ const layerToolExposure = Layer.effect(
     const server = yield* McpServer.McpServer;
     return McpToolExposure.make(
       () =>
-        server.tools.map(({ tool }) => ({ name: tool.name, description: tool.description ?? "" })),
+        server.tools.map(({ tool }) => ({
+          name: tool.name,
+          description: tool.description ?? "",
+          inputSchema: tool.inputSchema,
+        })),
       () => server.notifications["notifications/tools/list_changed"]({}),
     );
   }),
@@ -1577,7 +1581,7 @@ const layerToolExposure = Layer.effect(
 /**
  * A provider session that sends `MCP_TOOL_EXPOSURE_HEADER: deferred` lists only
  * the direct tools and what its `tool_search` calls loaded. Calls are never
- * gated, and every other client lists everything but `tool_search`.
+ * gated, and other clients omit the discovery and generic invocation tools.
  */
 const layerDeferredListing = McpServer.visibility(
   Effect.gen(function* () {
@@ -1588,7 +1592,7 @@ const layerDeferredListing = McpServer.visibility(
       const scope = yield* Effect.serviceOption(McpInvocationContext.McpInvocationContext);
       const providerSessionId = Option.getOrUndefined(scope)?.thread?.providerSessionId;
       if (headers[MCP_TOOL_EXPOSURE_HEADER] !== "deferred" || providerSessionId === undefined) {
-        return target !== McpToolExposure.TOOL_SEARCH;
+        return target !== McpToolExposure.TOOL_SEARCH && target !== McpToolExposure.CALL_MCP_TOOL;
       }
       return exposure.isListed(providerSessionId, target);
     });
@@ -1596,9 +1600,50 @@ const layerDeferredListing = McpServer.visibility(
   { global: true },
 );
 
-/** Outside layerTools: the clients its budget measures never list `tool_search`. */
+const decodeMcpToolCall = Schema.decodeUnknownEffect(CallMcpTool.parametersSchema);
+
+/** Discovery tools stay outside the eager catalogue measured by layerTools. */
 const layerToolSearch = Layer.mergeAll(
   toolkitRegistration(ToolSearchToolkit, ToolSearchHandlers.layer),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      yield* server.addTool({
+        tool: new McpSchema.Tool({
+          name: CallMcpTool.name,
+          description: Tool.getDescription(CallMcpTool),
+          inputSchema: advertisedJsonSchema(CallMcpTool),
+        }),
+        annotations: CallMcpTool.annotations,
+        // Dispatch through the registry to preserve the target's guards and raw MCP result.
+        handle: Effect.fn("McpHttpServer.callMcpTool")(function* (payload) {
+          const input = yield* decodeMcpToolCall(payload).pipe(
+            Effect.mapError(
+              () =>
+                new McpSchema.InvalidParams({
+                  message: "Pass a tool name and JSON object arguments.",
+                }),
+            ),
+          );
+          if (input.name === McpToolExposure.CALL_MCP_TOOL) {
+            return yield* new McpSchema.InvalidParams({
+              message: "recursive call_mcp_tool calls are not supported.",
+            });
+          }
+          const client = yield* Effect.serviceOption(McpSchema.McpServerClient);
+          if (Option.isNone(client)) {
+            return yield* new McpSchema.InvalidParams({
+              message: "Tool invocation requires an initialized MCP session.",
+            });
+          }
+          return yield* server.callTool(input).pipe(
+            Effect.provideService(McpSchema.McpServerClient, client.value),
+            Effect.mapError((error) => new McpSchema.InvalidParams({ message: error.message })),
+          );
+        }),
+      });
+    }),
+  ),
   layerDeferredListing,
 ).pipe(Layer.provide(layerToolExposure));
 

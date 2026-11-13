@@ -1,4 +1,4 @@
-import { ToolSearchToolkit } from "./toolkits/toolSearch/tools.ts";
+import { CallMcpTool, ToolSearchToolkit } from "./toolkits/toolSearch/tools.ts";
 import { DecisionToolkit } from "./toolkits/decisions/tools.ts";
 import {
   isToolListedForSession,
@@ -233,7 +233,9 @@ it("lists every editor the same tools, whatever its role", () => {
 });
 
 it("keeps a read-only agent to the closed list, and every name on it real", () => {
-  const catalogue = [...tools, ...Object.values(ToolSearchToolkit.tools)].map((tool) => tool.name);
+  const catalogue = [...tools, ...Object.values(ToolSearchToolkit.tools), CallMcpTool].map(
+    (tool) => tool.name,
+  );
   const reader = session("source-reader", "reviewer");
   const known = new Set<string>(catalogue);
   for (const name of READ_ONLY_TOOLS) {

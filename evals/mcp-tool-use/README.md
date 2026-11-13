@@ -306,3 +306,7 @@ After the change, the first reference to a file is an absolute link. The remaini
 2. From `evals/`, run `pnpm mcp-tool-use:trim-capture <claude|codex> <capture.json> mcp-tool-use/templates/<claude|codex>.json.gz`. It keeps only what `run.ts` reads, and removes user instructions, the user's own skills and agents, account ids, and home paths.
 3. Read the output for user data before you commit it: `zcat <file> | less`.
 4. Run the full eval on the old and new templates, and compare.
+
+## Deferred MCP calls
+
+`cases/deferred-tools.ndjson` reproduces Antigravity 1.5.8 finding `watch` without gaining a callable declaration. `setup.staticMcpTools` fixes the available T3 tools for the sample; `tool_search` uses the current server search implementation and schemas, and discovery leaves the callable set unchanged. The case requires invoking the discovered tool through `call_mcp_tool`. Its tool result is mocked, so this checks model routing; mounted HTTP regressions verify dispatch and permissions. The negative control removes `call_mcp_tool` from the static declarations, matching the old runtime path.

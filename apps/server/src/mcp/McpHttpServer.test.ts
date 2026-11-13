@@ -2352,7 +2352,13 @@ it.effect("lists optional tools to a deferring client only after tool_search loa
         });
       const OptionalToolkit = Toolkit.make(
         tool("delegate_task", "Delegates a task."),
-        tool("preview_open", "Opens a browser preview."),
+        Tool.make("preview_open", {
+          description: "Opens a browser preview.",
+          parameters: Schema.Struct({ url: Schema.String }),
+          success: Schema.Struct({}),
+          failure: OrchestratorMcpFailure,
+          failureMode: "return",
+        }),
         tool("schedule_task", "Schedules a task."),
       );
       const reads = McpToolAccess.reads(() => Effect.succeed({}));
@@ -2419,6 +2425,7 @@ it.effect("lists optional tools to a deferring client only after tool_search loa
                 ),
               );
           return {
+            rpc,
             listed: rpc("tools/list", {}).pipe(
               Effect.map((body) =>
                 (body as { result: { tools: ReadonlyArray<{ name: string }> } }).result.tools
@@ -2435,15 +2442,44 @@ it.effect("lists optional tools to a deferring client only after tool_search loa
 
       const deferring = yield* session("deferringToken", true);
       const other = yield* session("otherToken", false);
-      expect(yield* deferring.listed).toEqual(["delegate_task", "tool_search"]);
+      expect(yield* deferring.listed).toEqual(["call_mcp_tool", "delegate_task", "tool_search"]);
       expect(yield* other.listed).toEqual(["delegate_task", "preview_open", "schedule_task"]);
       // Unlisted tools stay callable.
       expect((yield* deferring.call("schedule_task", {})).structuredContent).toEqual({});
 
       expect(
         (yield* deferring.call("tool_search", { query: "browser" })).structuredContent,
-      ).toEqual({ tools: [{ name: "preview_open", description: "Opens a browser preview." }] });
-      expect(yield* deferring.listed).toEqual(["delegate_task", "preview_open", "tool_search"]);
+      ).toMatchObject({
+        tools: [
+          {
+            name: "preview_open",
+            description: "Opens a browser preview.",
+            inputSchema: {
+              type: "object",
+              properties: { url: { type: "string" } },
+              required: ["url"],
+            },
+          },
+        ],
+      });
+      expect(
+        (yield* deferring.call("call_mcp_tool", {
+          name: "preview_open",
+          arguments: { url: "https://example.test" },
+        })).structuredContent,
+      ).toEqual({});
+      expect(
+        yield* deferring.rpc("tools/call", {
+          name: "call_mcp_tool",
+          arguments: { name: "preview_open", arguments: { url: 42 } },
+        }),
+      ).toMatchObject({ error: { code: -32602 } });
+      expect(yield* deferring.listed).toEqual([
+        "call_mcp_tool",
+        "delegate_task",
+        "preview_open",
+        "tool_search",
+      ]);
       expect(yield* other.listed).toEqual(["delegate_task", "preview_open", "schedule_task"]);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),

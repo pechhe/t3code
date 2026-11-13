@@ -818,6 +818,58 @@ it("does not record a deferred tool called before it was loaded", () => {
   );
 });
 
+it.effect("keeps a static MCP catalogue fixed after tool discovery", () =>
+  Effect.gen(function* () {
+    const base = buildBase(template, { model: "claude-sonnet-5-5", keepUserInstructions: false });
+    const sample = makeSample(
+      { ...childCase, setup: { role: "top", staticMcpTools: ["tool_search", "call_mcp_tool"] } },
+      base,
+    );
+    const result = yield* answerToolCall(
+      sample,
+      {
+        apiKey: "",
+        model: "claude-sonnet-5-5",
+        effort: "high",
+        maxSteps: 6,
+        shellModel: "claude-haiku-5-5",
+      },
+      {
+        type: "tool_use",
+        id: "search",
+        name: "mcp__t3-code__tool_search",
+        input: { query: "watch" },
+      },
+    );
+    expect(JSON.parse(String(result.content))).toMatchObject({
+      tools: expect.arrayContaining([
+        expect.objectContaining({
+          name: "watch",
+          inputSchema: expect.objectContaining({ type: "object" }),
+        }),
+      ]),
+    });
+    expect(sample.tools.some((tool) => tool.name === "mcp__t3-code__watch")).toBe(false);
+    const direct = yield* answerToolCall(
+      sample,
+      {
+        apiKey: "",
+        model: "claude-sonnet-5-5",
+        effort: "high",
+        maxSteps: 6,
+        shellModel: "claude-haiku-5-5",
+      },
+      {
+        type: "tool_use",
+        id: "direct",
+        name: "mcp__t3-code__watch",
+        input: {},
+      },
+    );
+    expect(direct.is_error).toBe(true);
+  }).pipe(Effect.provide(FetchHttpClient.layer)),
+);
+
 it("answers simple mocked commands itself and gives the simulator the sample's history", () => {
   const sample = makeSample(
     childCase,
