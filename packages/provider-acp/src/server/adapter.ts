@@ -916,6 +916,7 @@ export function acpMcpContext(
             serverId: "t3-code",
             endpoint: session.endpoint,
             authorization: session.authorizationHeader,
+            ...(deferMcpTools === true ? { toolExposure: "deferred" as const } : {}),
           },
         ]),
     ...agentServers
@@ -936,6 +937,9 @@ export function acpMcpContext(
         { name: "ELECTRON_RUN_AS_NODE", value: "1" },
         { name: "T3_ACP_MCP_ENDPOINT", value: server.endpoint },
         { name: "T3_ACP_MCP_AUTHORIZATION", value: server.authorization },
+        ...(server.toolExposure === undefined
+          ? []
+          : [{ name: "T3_ACP_MCP_TOOL_EXPOSURE", value: server.toolExposure }]),
       ],
     })),
     acpServers: bridgeServers.map((server) => ({

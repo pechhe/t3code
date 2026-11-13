@@ -73,6 +73,63 @@ describe("ACP MCP context", () => {
     ]);
     assert.isUndefined(context.processEnvironment);
   });
+
+  it("propagates deferred tool exposure across stdio, ACP, and HTTP bridges for t3-code only", () => {
+    const context = acpMcpContext(
+      {
+        environmentId: EnvironmentId.make("environment-acp-mcp"),
+        threadId: ThreadId.make("thread-acp-mcp"),
+        providerSessionId: "mcp-session-acp",
+        providerInstanceId: ProviderInstanceId.make("antigravity"),
+        endpoint: "http://127.0.0.1:43123/mcp",
+        authorizationHeader: "Bearer t3-credential",
+        browserToolsAvailable: false,
+      },
+      self,
+      true,
+      [weave],
+      true,
+    );
+    assert.deepEqual(
+      context.servers.map((server) => ("env" in server ? [server.name, server.env] : [])),
+      [
+        [
+          "t3-code",
+          [
+            ...bridgeEnv("http://127.0.0.1:43123/mcp", "Bearer t3-credential"),
+            { name: "T3_ACP_MCP_TOOL_EXPOSURE", value: "deferred" },
+          ],
+        ],
+        ["weave", bridgeEnv(weave.url, weave.authorizationHeader)],
+      ],
+    );
+    assert.deepEqual(context.bridgeServers, [
+      {
+        serverId: "t3-code",
+        endpoint: "http://127.0.0.1:43123/mcp",
+        authorization: "Bearer t3-credential",
+        toolExposure: "deferred",
+      },
+      { serverId: "weave", endpoint: weave.url, authorization: weave.authorizationHeader },
+    ]);
+    assert.deepEqual(context.httpServers, [
+      {
+        type: "http",
+        name: "t3-code",
+        url: "http://127.0.0.1:43123/mcp",
+        headers: [
+          { name: "Authorization", value: "Bearer t3-credential" },
+          { name: "t3-tool-exposure", value: "deferred" },
+        ],
+      },
+      {
+        type: "http",
+        name: "weave",
+        url: weave.url,
+        headers: [{ name: "Authorization", value: weave.authorizationHeader }],
+      },
+    ]);
+  });
 });
 
 describe("ACP v1 diff fallback", () => {

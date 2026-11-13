@@ -12,12 +12,14 @@ import { mcpToolSession, runAcpMcpCliFastPath, runAcpMcpStdioBridge } from "./Ac
 function makeHarness(
   responder: (request: Request) => Promise<Response> | Response,
   input = new NodeStream.PassThrough(),
+  toolExposure?: string,
 ) {
   const written: Array<string> = [];
   const requests: Array<{ readonly headers: Headers; readonly body: string }> = [];
   const bridge = runAcpMcpStdioBridge({
     endpoint: "http://127.0.0.1:1/mcp",
     authorization: "Bearer bridge-test",
+    ...(toolExposure === undefined ? {} : { toolExposure }),
     input,
     output: {
       write: (chunk: string) => {
@@ -88,6 +90,21 @@ describe("AcpMcpStdioBridge", () => {
       expect.objectContaining({ method: "DELETE" }),
     );
   });
+
+  it.effect("forwards t3-tool-exposure when toolExposure is set", () =>
+    Effect.gen(function* () {
+      const input = new NodeStream.PassThrough();
+      const { requests, bridge } = makeHarness(
+        () => Response.json({ jsonrpc: "2.0", id: 1, result: { tools: [] } }),
+        input,
+        "deferred",
+      );
+      input.end('{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n');
+      yield* bridge;
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.headers.get("t3-tool-exposure")).toBe("deferred");
+    }),
+  );
 
   it.effect("forwards requests and replays the session id and protocol version", () =>
     Effect.gen(function* () {

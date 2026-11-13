@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { discardResponseBody, responsePayloads } from "@t3tools/shared/mcpResponsePayloads";
+import { MCP_TOOL_EXPOSURE_HEADER } from "@t3tools/provider-core/server/mcpSession";
 
 /** ACP mandates stdio MCP support; HTTP/SSE support varies. */
 
@@ -40,6 +41,7 @@ const MCP_PROTOCOL_VERSION = "2025-06-18";
 export interface AcpMcpStdioBridgeOptions {
   readonly endpoint: string;
   readonly authorization: string;
+  readonly toolExposure?: string | undefined;
   readonly input: NodeJS.ReadableStream;
   readonly output: { write(chunk: string): unknown };
   readonly fetchImplementation?: (url: string, init?: RequestInit) => Promise<Response>;
@@ -238,6 +240,9 @@ export function runAcpMcpStdioBridge(options: AcpMcpStdioBridgeOptions): Effect.
                 authorization: options.authorization,
                 ...(sessionId === null ? {} : { "mcp-session-id": sessionId }),
                 ...(protocolVersion === null ? {} : { "mcp-protocol-version": protocolVersion }),
+                ...(options.toolExposure === undefined
+                  ? {}
+                  : { [MCP_TOOL_EXPOSURE_HEADER]: options.toolExposure }),
               },
               body: line,
               signal,
@@ -355,10 +360,12 @@ export async function runAcpMcpCliFastPath(
     return;
   }
   if (command === "acp-mcp-bridge") {
+    const toolExposure = process.env.T3_ACP_MCP_TOOL_EXPOSURE;
     await Effect.runPromise(
       runAcpMcpStdioBridge({
         endpoint,
         authorization,
+        ...(toolExposure === undefined ? {} : { toolExposure }),
         input: process.stdin,
         output: process.stdout,
       }),

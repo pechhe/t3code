@@ -6,6 +6,7 @@ import * as Stream from "effect/Stream";
 import type * as AcpSchema from "effect-acp/compat";
 
 import { responsePayloads } from "@t3tools/shared/mcpResponsePayloads";
+import { MCP_TOOL_EXPOSURE_HEADER } from "@t3tools/provider-core/server/mcpSession";
 
 const MAX_CONNECTIONS = 16;
 const MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
@@ -67,6 +68,7 @@ export interface AcpMcpOverAcpServer {
   readonly serverId: string;
   readonly endpoint: string;
   readonly authorization: string;
+  readonly toolExposure?: "deferred";
 }
 
 export interface AcpMcpOverAcpBridgeOptions {
@@ -141,6 +143,9 @@ export const makeAcpMcpOverAcpBridge = Effect.fn("AcpMcpOverAcpBridge.make")(fun
                 ...(connection.protocolVersion === null
                   ? {}
                   : { "mcp-protocol-version": connection.protocolVersion }),
+                ...(connection.server.toolExposure === undefined
+                  ? {}
+                  : { [MCP_TOOL_EXPOSURE_HEADER]: connection.server.toolExposure }),
               },
               body,
             }),
