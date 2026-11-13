@@ -1,3 +1,4 @@
+import { resolveProviderProbeTimeoutMs } from "@t3tools/provider-core/server/snapshotProbe";
 import type { SDKModel, SDKUser } from "@cursor/sdk";
 import type {
   ModelCapabilities,
@@ -287,8 +288,13 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
   }
 
   const sdkCatalog = yield* CursorSdkCatalog.CursorSdkCatalog;
+  const timeoutMs = resolveProviderProbeTimeoutMs(
+    "cursor",
+    CURSOR_SDK_CATALOG_TIMEOUT_MS,
+    environment,
+  );
   const readCatalog = Effect.suspend(() => sdkCatalog.read(sdkApiKey)).pipe(
-    Effect.timeoutOption(CURSOR_SDK_CATALOG_TIMEOUT_MS),
+    Effect.timeoutOption(timeoutMs),
   );
   // api.cursor.com latency is intermittent; one slow read should not flip the provider to error.
   const catalogResult = yield* readCatalog.pipe(
@@ -339,7 +345,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
         version: null,
         status: "error",
         auth: { status: "unknown" },
-        message: `Cursor SDK catalog request timed out after ${CURSOR_SDK_CATALOG_TIMEOUT_MS}ms.`,
+        message: `Cursor SDK catalog request timed out after ${timeoutMs}ms.`,
       },
     });
   }

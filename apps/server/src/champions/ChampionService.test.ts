@@ -525,7 +525,7 @@ const fixture = Effect.fn("test.championFixture")(() =>
           ),
         );
         return yield* toolkit
-          .handle("t3_champions_report", input)
+          .handle("t3_champions_report", JSON.parse(JSON.stringify(input)))
           .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(deps), Effect.orDie);
       }),
       credential: () => credential!,

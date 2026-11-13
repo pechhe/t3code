@@ -1,3 +1,4 @@
+import { SETTINGS_DEVICE_ONLY_PATHS } from "../components/settings/SettingsScopeSentence";
 import { useSharedProviderSetup } from "../components/settings/SharedProviderSetup";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { Outlet, createFileRoute, redirect, useLocation } from "@tanstack/react-router";
@@ -174,6 +175,7 @@ function SettingsRouteLayout() {
       }
       environmentOnly={pathname === "/settings/delegation" && !isSearching}
       preferredEnvironmentId={pathname === "/settings/providers" ? editingEnvironmentId : null}
+      deviceOnly={SETTINGS_DEVICE_ONLY_PATHS.has(pathname)}
       onChange={(next) => {
         // Send every axis so retain middleware recognizes "all" as an explicit target.
         void navigate({

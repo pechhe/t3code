@@ -40,7 +40,7 @@ function isStateStorage(
   );
 }
 
-export function resolveStorage(storage: Partial<StateStorage> | null | undefined): StateStorage {
+function resolveStorage(storage: Partial<StateStorage> | null | undefined): StateStorage {
   return isStateStorage(storage) ? storage : createMemoryStorage();
 }
 

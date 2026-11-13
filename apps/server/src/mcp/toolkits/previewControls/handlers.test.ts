@@ -117,7 +117,7 @@ const runControls = ({
       );
       const call = (name: "t3_preview_list" | "t3_preview_close", args: Record<string, unknown>) =>
         toolkit
-          .handle(name, args)
+          .handle(name, JSON.parse(JSON.stringify(args)))
           .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
       return {
         tab,

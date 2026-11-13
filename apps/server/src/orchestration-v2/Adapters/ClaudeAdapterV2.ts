@@ -2142,7 +2142,9 @@ export function makeClaudeQueryOptions(input: {
     : undefined;
   // A settings file path cannot take extra keys, so it goes through unchanged.
   const effectiveQuerySettings =
-    (input.toolSearchOverride === undefined && aliasOverrideEnv === undefined) ||
+    (input.toolSearchOverride === undefined &&
+      aliasOverrideEnv === undefined &&
+      autoCompactWindow === undefined) ||
     typeof compactQuerySettings === "string"
       ? compactQuerySettings
       : ({
@@ -2150,6 +2152,10 @@ export function makeClaudeQueryOptions(input: {
           env: {
             ...compactQuerySettings?.env,
             ...aliasOverrideEnv,
+            // Claude Code ranks this env var above the autoCompactWindow setting.
+            ...(autoCompactWindow === undefined
+              ? {}
+              : { CLAUDE_CODE_AUTO_COMPACT_WINDOW: autoCompactWindow }),
             ...(input.toolSearchOverride === undefined
               ? {}
               : { ENABLE_TOOL_SEARCH: input.toolSearchOverride }),
@@ -3684,6 +3690,7 @@ function claudePendingBackgroundTask(input: {
   readonly description: string | undefined;
   // Undeclared SDK field: the subagent whose own background work this is.
   readonly parentTaskId: unknown;
+  readonly toolUseId: string | undefined;
 }): OrchestrationV2PendingBackgroundTask {
   return {
     taskId: input.taskId,
@@ -3698,6 +3705,7 @@ function claudePendingBackgroundTask(input: {
     ...(typeof input.parentTaskId === "string" && input.parentTaskId.trim().length > 0
       ? { parentTaskId: input.parentTaskId }
       : {}),
+    ...(input.toolUseId === undefined ? {} : { nativeItemId: input.toolUseId }),
   };
 }
 
@@ -3752,6 +3760,7 @@ function claudePendingBackgroundTasksFromRoster(
 function parseClaudeBackgroundTaskEntry(
   entry: unknown,
   monitorTasks: ReadonlyMap<string, unknown>,
+  toolUseIds: ReadonlyMap<string, string>,
 ): OrchestrationV2PendingBackgroundTask | null {
   if (entry === null || typeof entry !== "object") {
     return null;
@@ -3772,6 +3781,7 @@ function parseClaudeBackgroundTaskEntry(
     startedByMonitor: monitorTasks.has(taskId),
     description: typeof description === "string" ? description : undefined,
     parentTaskId: Reflect.get(entry, "parent_task_id"),
+    toolUseId: toolUseIds.get(taskId),
   });
 }
 
@@ -5599,11 +5609,11 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
     },
   );
 
-  const readToolSearchSetting = (filePath: string) =>
+  const readSettingsEnv = (filePath: string, name: string) =>
     fileSystem.readFileString(filePath).pipe(
       Effect.flatMap(decodeClaudeEnvSettings),
       Effect.map((settings) => {
-        const value = settings.env?.ENABLE_TOOL_SEARCH;
+        const value = settings.env?.[name];
         return typeof value === "string" ? value : undefined;
       }),
       Effect.orElseSucceed(() => undefined),
@@ -5661,17 +5671,26 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
   // Settings env beats the process env, --settings over local over project over user, and a local
   // file an older Claude Code left in cwd applies under the root one. resolveSettings reads local
   // from cwd only.
-  const resolveToolSearchOverride = Effect.fn("ClaudeAdapterV2.resolveToolSearchOverride")(
-    function* (cwd: string | null, launchArgSettings: ClaudeSdkSettings | undefined) {
-      const launchValue = launchArgSettings?.env?.ENABLE_TOOL_SEARCH;
-      if (typeof launchValue === "string") return claudeToolSearchOverride(launchValue);
-      for (const settingsFile of yield* settingsFilesByPrecedence(cwd)) {
-        const value = yield* readToolSearchSetting(settingsFile);
-        if (value !== undefined) return claudeToolSearchOverride(value);
-      }
-      return claudeToolSearchOverride(adapterOptions.environment.ENABLE_TOOL_SEARCH);
-    },
-  );
+  const resolveClaudeEnv = Effect.fn("ClaudeAdapterV2.resolveClaudeEnv")(function* (
+    cwd: string | null,
+    launchArgSettings: ClaudeSdkSettings | undefined,
+    name: string,
+  ) {
+    const launchValue = launchArgSettings?.env?.[name];
+    if (typeof launchValue === "string") return launchValue;
+    for (const settingsFile of yield* settingsFilesByPrecedence(cwd)) {
+      const value = yield* readSettingsEnv(settingsFile, name);
+      if (value !== undefined) return value;
+    }
+    return adapterOptions.environment[name];
+  });
+  const resolveToolSearchOverride = (
+    cwd: string | null,
+    launchArgSettings: ClaudeSdkSettings | undefined,
+  ) =>
+    resolveClaudeEnv(cwd, launchArgSettings, "ENABLE_TOOL_SEARCH").pipe(
+      Effect.map(claudeToolSearchOverride),
+    );
 
   const resolveAutoCompactWindow = Effect.fn("ClaudeAdapterV2.resolveAutoCompactWindow")(function* (
     cwd: string | null,
@@ -5680,6 +5699,20 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
   ) {
     if (adapterOptions.settings.autoCompactWindow !== "")
       return adapterOptions.settings.autoCompactWindow;
+    const validWindow = (value: unknown) => {
+      const selected = Option.getOrUndefined(decodeClaudeCompactWindow(value));
+      return typeof selected === "number" && selected >= 100_000 && selected <= 1_000_000
+        ? String(selected)
+        : undefined;
+    };
+    // Claude gives CLAUDE_CODE_AUTO_COMPACT_WINDOW precedence over the autoCompactWindow keys.
+    const envValue = yield* resolveClaudeEnv(
+      cwd,
+      launchArgSettings,
+      "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+    );
+    const envWindow = envValue === undefined ? undefined : validWindow(Number(envValue));
+    if (envWindow !== undefined) return envWindow;
     const model = compileClaudeModelSelection(modelSelection).apiModelId.replace(/\[1m\]$/i, "");
     const windowFrom = (settings: unknown) => {
       if (typeof settings !== "object" || settings === null) return undefined;
@@ -5690,12 +5723,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         typeof modelSetting === "object" && modelSetting !== null
           ? Reflect.get(modelSetting, "autoCompactWindow")
           : undefined;
-      const validWindow = (value: unknown) => {
-        const selected = Option.getOrUndefined(decodeClaudeCompactWindow(value));
-        return typeof selected === "number" && selected >= 100_000 && selected <= 1_000_000
-          ? String(selected)
-          : undefined;
-      };
       return modelWindow === "auto"
         ? ""
         : (validWindow(modelWindow) ?? validWindow(Reflect.get(settings, "autoCompactWindow")));
@@ -5969,6 +5996,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         const lastKnownOpaqueTasks = yield* Ref.make(
           new Map<string, OrchestrationV2PendingBackgroundTask>(),
         );
+        // Roster entries carry only Claude's task id; the timeline item is keyed by the tool call.
+        const toolUseIdsByTaskId = yield* Ref.make(new Map<string, string>());
         const claudeMonitors = yield* Ref.make<{
           readonly calls: ReadonlySet<string>;
           readonly tasks: ReadonlyMap<
@@ -6138,6 +6167,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         );
         const absorbedWakes = yield* Ref.make(new Set<string>());
         const heldProposedPlansByToolUseId = new Map<string, string>();
+        // /clear moves a live process to a new native session; persist that one so a reopen resumes it.
+        const clearedNativeSessions = new Map<string, string>();
         const runtimeContext = yield* Effect.context<never>();
         const runPromise = Effect.runPromiseWith(runtimeContext);
 
@@ -6156,6 +6187,23 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                       pagesUsed: budget.committed.pages,
                     },
                   },
+                },
+              };
+            }
+            const nativeSessionId = clearedNativeSessions.get(
+              event.providerThread.nativeThreadRef?.nativeId ?? "",
+            );
+            if (nativeSessionId !== undefined) {
+              event = {
+                ...event,
+                providerThread: {
+                  ...event.providerThread,
+                  nativeThreadRef: {
+                    driver: CLAUDE_PROVIDER,
+                    nativeId: nativeSessionId,
+                    strength: "strong",
+                  },
+                  nativeConversationHeadRef: null,
                 },
               };
             }
@@ -9975,8 +10023,19 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               (taskId, task) =>
                 task.nativeThreadId === input.nativeThreadId && !listedTaskIds.has(taskId),
             );
+            const toolUseIds = new Map(yield* Ref.get(toolUseIdsByTaskId));
+            // A live task keeps its tool call after the bounded map evicts it.
+            const current = rosterForNativeThread(
+              yield* Ref.get(pendingBackgroundTasksByNativeThread),
+              input.nativeThreadId,
+            );
+            for (const [taskId, task] of current) {
+              if (task.nativeItemId !== undefined && !toolUseIds.has(taskId)) {
+                toolUseIds.set(taskId, task.nativeItemId);
+              }
+            }
             for (const entry of roster) {
-              const task = parseClaudeBackgroundTaskEntry(entry, monitorTasks);
+              const task = parseClaudeBackgroundTaskEntry(entry, monitorTasks, toolUseIds);
               if (task !== null) {
                 nextTasks.push(task);
               }
@@ -9984,7 +10043,22 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             yield* replacePendingBackgroundTasks(input.nativeThreadId, nextTasks);
             rosterChanged = true;
           } else if (message.type === "system" && message.subtype === "task_started") {
-            if (!isClaudeNonSubagentTask(message) || message.is_backgrounded === false) {
+            if (!isClaudeNonSubagentTask(message)) {
+              return false;
+            }
+            const toolUseId = message.tool_use_id?.trim() || undefined;
+            if (toolUseId !== undefined) {
+              // A foreground command can move to the background later, so remember every one.
+              yield* Ref.update(toolUseIdsByTaskId, (current) => {
+                const updated = new Map(current).set(message.task_id, toolUseId);
+                for (const oldest of updated.keys()) {
+                  if (updated.size <= 64) break;
+                  updated.delete(oldest);
+                }
+                return updated;
+              });
+            }
+            if (message.is_backgrounded === false) {
               return false;
             }
             const launch =
@@ -10017,6 +10091,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 description:
                   typeof message.description === "string" ? message.description : undefined,
                 parentTaskId: Reflect.get(message, "parent_task_id"),
+                toolUseId,
               }),
             });
             rosterChanged = true;
@@ -10026,6 +10101,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 .get(input.nativeThreadId)
                 ?.delete(message.task_id);
             yield* endClaudeMonitorTasks((taskId) => taskId === message.task_id);
+            yield* Ref.update(toolUseIdsByTaskId, (current) => {
+              if (!current.has(message.task_id)) return current;
+              const updated = new Map(current);
+              updated.delete(message.task_id);
+              return updated;
+            });
             const removed = yield* clearPendingBackgroundTask(
               input.nativeThreadId,
               message.task_id,
@@ -12445,6 +12526,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             path,
           });
           const closedExistingNativeThreadId = existing !== null ? existing.nativeThreadId : null;
+          clearedNativeSessions.delete(nativeThreadId);
           if (existing !== null) {
             yield* existing.query.close.pipe(Effect.ignore);
             if (existing.nativeThreadId !== nativeThreadId) {
@@ -12633,6 +12715,14 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     context.receivedInit = true;
                     context.capabilities = new Set(message.capabilities ?? []);
                     context.claudeCodeVersion = message.claude_code_version;
+                  }
+                  if (
+                    message.type === "system" &&
+                    message.subtype === "init" &&
+                    message.session_id.length > 0 &&
+                    message.session_id !== context.nativeThreadId
+                  ) {
+                    clearedNativeSessions.set(context.nativeThreadId, message.session_id);
                   }
                   if (
                     message.type === "system" &&
@@ -13383,7 +13473,11 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
 
         const closeLiveQueryForNativeThread = Effect.fnUntraced(function* (nativeThreadId: string) {
           const existing = yield* Ref.get(queryContext);
-          if (existing === null || existing.nativeThreadId !== nativeThreadId) {
+          if (
+            existing === null ||
+            (existing.nativeThreadId !== nativeThreadId &&
+              clearedNativeSessions.get(existing.nativeThreadId) !== nativeThreadId)
+          ) {
             return;
           }
 
@@ -13405,7 +13499,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           );
           if (ownedLiveQuery) {
             yield* finalizeActiveTurnAfterQueryExit(existing);
-            yield* endSubagentCallsOfClosedQuery(nativeThreadId, "interrupted");
+            yield* endSubagentCallsOfClosedQuery(existing.nativeThreadId, "interrupted");
           } else {
             yield* endSubagentsOfReplacedQuery(existing);
           }

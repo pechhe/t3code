@@ -1,5 +1,6 @@
 import {
   ProviderInstanceId,
+  applyServerProviderDeltas,
   type ServerConfig,
   type ServerConfigStreamEvent,
 } from "@t3tools/contracts";
@@ -80,6 +81,34 @@ export function withFormerInstanceIds(config: ServerConfig): ServerConfig {
   };
 }
 
+type ServerProviders = ServerConfig["providers"];
+
+/**
+ * A provider sent with a catalog digest comes without its slash commands and skills. Keep the
+ * lists this client holds, stale ones too, until it loads the lists the digest stands for.
+ */
+function withHeldProviderCatalogs(
+  previous: ServerProviders | undefined,
+  next: ServerProviders,
+): ServerProviders {
+  if (previous === undefined) return next;
+  return next.map((provider) => {
+    if (provider.catalogDigest === undefined || provider.loadedCatalogDigest !== undefined) {
+      return provider;
+    }
+    const held = previous.find((candidate) => candidate.instanceId === provider.instanceId);
+    if (held === undefined) return provider;
+    return {
+      ...provider,
+      slashCommands: held.slashCommands,
+      skills: held.skills,
+      ...(held.loadedCatalogDigest === undefined
+        ? {}
+        : { loadedCatalogDigest: held.loadedCatalogDigest }),
+    };
+  });
+}
+
 export function applyServerConfigProjection(
   current: Option.Option<ServerConfigProjection>,
   event: ServerConfigStreamEvent,
@@ -96,6 +125,10 @@ export function applyServerConfigProjection(
         : undefined;
       const config: ServerConfig = {
         ...event.config,
+        providers: withHeldProviderCatalogs(
+          Option.getOrUndefined(current)?.config.providers,
+          event.config.providers,
+        ),
         ...(carriedThemes === undefined ? {} : { environmentThemes: carriedThemes }),
         ...(carriedSources === undefined ? {} : { usageLimitSources: carriedSources }),
       };
@@ -117,14 +150,22 @@ export function applyServerConfigProjection(
         source: "live",
       }));
     case "providerStatuses":
-      return Option.map(current, (projection) => ({
-        config: {
-          ...projection.config,
-          providers: reuseUnchanged(projection.config.providers, event.payload.providers),
-        },
-        latestEvent: event,
-        source: "live",
-      }));
+    case "providerStatusDeltas":
+      return Option.map(current, (projection) => {
+        const previous = projection.config.providers;
+        const providers =
+          event.type === "providerStatuses"
+            ? event.payload.providers
+            : applyServerProviderDeltas(previous, event.payload.providers);
+        return {
+          config: {
+            ...projection.config,
+            providers: reuseUnchanged(previous, withHeldProviderCatalogs(previous, providers)),
+          },
+          latestEvent: event,
+          source: "live",
+        };
+      });
     case "settingsUpdated":
       return Option.map(current, (projection) => {
         const settings = reuseUnchanged(projection.config.settings, event.payload.settings);

@@ -43,6 +43,7 @@ import * as FleetSummaryService from "../fleet/FleetSummaryService.ts";
 import * as UnattendedReactor from "../orchestration-v2/UnattendedReactor.ts";
 import * as PeerEnvironments from "../peers/PeerEnvironments.ts";
 import * as PreviewManager from "../preview/Manager.ts";
+import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as PullRequestReviewGuideService from "../pullRequest/PullRequestReviewGuideService.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -118,6 +119,7 @@ const serviceMocks = Layer.mergeAll(
   Layer.mock(PreviewManager.PreviewManager)({}),
   Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
   Layer.mock(OrchestratorV2.OrchestratorV2)({}),
+  Layer.mock(PullRequestService.PullRequestService)({}),
   Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),
   McpToolAccessTestkit.liveThreadsLayer,
   ServerSettings.layerTest({}),

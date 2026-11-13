@@ -96,6 +96,7 @@ const SettingsScopeContext = createContext<
   | (ReturnType<typeof useResolvedSettingsScope> & {
       singleEnvironment: boolean;
       environmentOnly: boolean;
+      deviceOnly: boolean;
       search: SettingsScopeSearch;
       selectScope: (next: SettingsScopeSearch) => void;
     })
@@ -107,10 +108,12 @@ export function SettingsScopeProvider({
   onChange,
   children,
   singleEnvironment = false,
+  deviceOnly = false,
   environmentOnly = false,
   preferredEnvironmentId = null,
 }: {
   singleEnvironment?: boolean;
+  deviceOnly?: boolean;
   /** For pages whose settings never vary by project: the project axis is ignored, not lost. */
   environmentOnly?: boolean;
   /** Overrides the primary environment as the single environment shown by default. */
@@ -129,6 +132,7 @@ export function SettingsScopeProvider({
     ...resolved,
     singleEnvironment,
     environmentOnly,
+    deviceOnly,
     selectScope: (next: SettingsScopeSearch) =>
       onChange(environmentOnly ? { ...search, machine: next.machine } : next),
   };

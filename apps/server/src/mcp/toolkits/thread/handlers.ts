@@ -181,6 +181,7 @@ export const handlers = {
             .pipe(Effect.mapError(unavailable));
           return {
             environmentId: scope.environmentId,
+            currentThreadId: scope.thread?.threadId ?? null,
             matches: result.matches.map((match) => ({
               ...match,
               environmentId: scope.environmentId,

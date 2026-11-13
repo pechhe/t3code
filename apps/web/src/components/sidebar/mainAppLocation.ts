@@ -4,10 +4,10 @@ import { useNavigate, type AnyRouter } from "@tanstack/react-router";
 
 import { GUEST_PAGE_PATH } from "../../guestPage";
 import { withoutAssistantCitationHash } from "../../lib/assistantCitationNavigation";
+import { resolveThreadRouteTarget, type ThreadRouteTarget } from "../../threadRoutes";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { readThreadShell } from "../../state/entities";
-import { resolveThreadRouteTarget, type ThreadRouteTarget } from "../../threadRoutes";
 
 /** Settings and Usage open as modals over the last main-app view. */
 export function isAppModalPage(pathname: string) {
@@ -31,6 +31,7 @@ const SHELL_LESS_PATHS = new Set(["/pair", "/connect", "/connect-agent", GUEST_P
 let mainAppHref: string | null = null;
 let appModalReturnHref: string | null = null;
 let mainAppThreadTarget: ThreadRouteTarget | null = null;
+let appModalReturnThreadTarget: ThreadRouteTarget | null = null;
 
 /** Remembers where Settings, Usage, and the utility pages lead back to. */
 export function startMainAppLocationTracking(router: AnyRouter): () => void {
@@ -39,6 +40,9 @@ export function startMainAppLocationTracking(router: AnyRouter): () => void {
     if (isAppModalPage(pathname) || SHELL_LESS_PATHS.has(pathname)) return;
     const href = withoutAssistantCitationHash(router.state.location.href);
     appModalReturnHref = href;
+    appModalReturnThreadTarget = resolveThreadRouteTarget(
+      router.state.matches.at(-1)?.params ?? {},
+    );
     if (!isSidebarUtilityPage(pathname)) {
       mainAppHref = href;
       mainAppThreadTarget = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
@@ -46,6 +50,11 @@ export function startMainAppLocationTracking(router: AnyRouter): () => void {
   };
   record();
   return router.subscribe("onResolved", record);
+}
+
+/** The thread Settings or Usage opened over, for views mounted while the modal is open. */
+export function getAppModalReturnThreadTarget() {
+  return appModalReturnThreadTarget;
 }
 
 export function useNavigateToMainApp() {

@@ -239,7 +239,7 @@ let db;
 try {
   // A read-only open cannot be undone by SQL, unlike PRAGMA query_only.
   const next = new DatabaseSync(workerData.filename, {
-    readOnly: true,
+    readOnly: workerData.readOnly,
     allowExtension: workerData.allowExtension,
   });
   next.exec("PRAGMA busy_timeout = 5000;");
@@ -348,8 +348,8 @@ interface ReaderSlot {
  * continuing outside the transaction on a replacement. A slot starts its worker
  * on first use, so a second worker starts only once reads overlap.
  */
-const makeReaders = Effect.fnUntraced(function* (options: SqliteClientConfig) {
-  const slots: Array<ReaderSlot | undefined> = Array.from({ length: READER_COUNT });
+const makeReaders = Effect.fnUntraced(function* (options: SqliteClientConfig, readOnly = true) {
+  const slots: Array<ReaderSlot | undefined> = Array.from({ length: readOnly ? READER_COUNT : 1 });
   let unavailable = false;
   let nextRequestId = 0;
 
@@ -358,6 +358,7 @@ const makeReaders = Effect.fnUntraced(function* (options: SqliteClientConfig) {
       eval: true,
       workerData: {
         filename: options.filename,
+        readOnly,
         allowExtension: false,
         prepareCacheSize: 200,
       },
@@ -401,7 +402,10 @@ const makeReaders = Effect.fnUntraced(function* (options: SqliteClientConfig) {
 
     const request = (input: ReaderRequest) =>
       Effect.withFiber<ReadonlyArray<any>, SqlError>((fiber) => {
-        const endsTransaction = endsReadTransaction(input.sql);
+        // A COMMIT that never reached a writer must fail; only its ROLLBACK is moot.
+        const endsTransaction = readOnly
+          ? endsReadTransaction(input.sql)
+          : /^\s*ROLLBACK\b/i.test(input.sql);
         if (stoppedMessage !== undefined) {
           return endsTransaction
             ? Effect.succeed([])
@@ -454,7 +458,7 @@ const makeReaders = Effect.fnUntraced(function* (options: SqliteClientConfig) {
       },
       executeUnprepared(sql, params, rowTransform) {
         // Read snapshots need deferred BEGIN; readonly connections reject IMMEDIATE and EXCLUSIVE.
-        const statement = /^\s*BEGIN\b/i.test(sql) ? "BEGIN" : sql;
+        const statement = readOnly && /^\s*BEGIN\b/i.test(sql) ? "BEGIN" : sql;
         const effect = request({
           sql: statement,
           params: params ?? [],
@@ -1560,6 +1564,40 @@ const make = Effect.fn("makeWithDatabase")(function* (
       }),
   });
 });
+
+const makeWorker = Effect.fn("makeWorkerClient")(function* (filename: string) {
+  yield* checkNodeSqliteCompat();
+  const workers = yield* makeReaders({ filename }, false);
+  const connection = yield* workers.acquire(0, Effect.interruptible);
+  if (connection === undefined) {
+    return yield* failed(
+      new Error("database worker is unavailable"),
+      readerFailureMessages.open,
+      "open",
+    );
+  }
+  const { acquirer, borrower, onCommitFailure, transactionAcquirer } = Client.makeSqliteAcquirers({
+    connection: Effect.succeed(connection),
+    semaphore: yield* Semaphore.make(1),
+  });
+  return yield* Client.make({
+    driver: "node:sqlite",
+    acquirer,
+    borrower,
+    compiler: Statement.makeCompilerSqlite(),
+    transactionAcquirer,
+    onCommitFailure,
+    beginTransaction: "BEGIN IMMEDIATE",
+    spanAttributes: [[ATTR_DB_SYSTEM_NAME, "sqlite"]],
+  });
+});
+
+/**
+ * A read-write client whose one connection runs in a worker thread, so long statements such as
+ * index builds leave the event loop free. Requires a file database already in WAL mode.
+ */
+export const layerWorker = (filename: string): Layer.Layer<Client.SqlClient, SqlError> =>
+  Layer.effect(Client.SqlClient, makeWorker(filename)).pipe(Layer.provide(Reactivity.layer));
 
 export const layer = (config: SqliteClientConfig): Layer.Layer<Client.SqlClient, SqlError> =>
   Layer.effect(Client.SqlClient, make(config)).pipe(Layer.provide(Reactivity.layer));

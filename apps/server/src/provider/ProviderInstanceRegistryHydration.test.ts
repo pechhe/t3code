@@ -317,6 +317,7 @@ describe("layerSettingsWatcher", () => {
         reconcile: () => Queue.offer(reconciled, undefined),
         setAliases: () => Effect.void,
         reloadSecrets: () => Effect.sync(() => void reloads++),
+        applySecret: () => Effect.succeed([]),
       });
       yield* Layer.build(
         layerSettingsWatcher(Stream.fromQueue(changes), initial).pipe(Layer.provide(mutator)),

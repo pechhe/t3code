@@ -4,8 +4,8 @@ This record lists the material, deliberate differences between the T3peach fork 
 
 ## Baseline
 
-- Upstream: v0.1.10-nightly.20261112.4580 (`40526f96f6ae3dfe74ae60ca279e748d7838a691`)
-- Fork before merge: `566f12cdafbc5e7bea5ede8352509350d6f24749`
+- Upstream: v0.1.10-nightly.20261113.4616 (`59e64eef881632a23f89c4138bcf37f23d92bf93`)
+- Fork before merge: `4b347e0e98333c8de79e2f3113afe1dcfae85a6d`
 
 ## Coverage
 
@@ -50,6 +50,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### compact-line
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Adopt upstream environment-aware Claude context reporting while keeping per-thread/model compact points and managed-query hook isolation. Evidence: Adapters/ClaudeAdapterV2.test.ts; Orchestrator.compact-at.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream background-work refusal before session-changing settings, preserving per-thread compact points and provider defaults. Evidence: ProviderSessionManager.test.ts; ThreadManagementService.test.ts; Orchestrator.compact-at.test.ts.
 
 - **Kind:** durable extension
@@ -67,6 +69,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** Weave Forge #4361.
 
 ### compact-model
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Keep alternate-account summaries and transcript bounds alongside upstream history narrowing and provider model capability reporting. Evidence: ProviderTurnStartService.test.ts; ContextHandoffDelivery.ts; ContextHandoffBudget.test.ts.
 
 - **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep cross-account compaction, fallback summarizers and transcript bounds around upstream provider-start recovery; the new failure path must not replace a live session. Evidence: ProviderTurnStartService.test.ts; ContextHandoffBudget.test.ts.
 
@@ -99,6 +103,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** pechhe/t3code#1, #16, #55, #58, #59, #130, #132 (closed); no open item.
 
 ### agent-policy-roles
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Preserve managed role authority and provider enforcement around updated provider starts, model capabilities and ACP session notes. Evidence: ProviderTurnStartService.test.ts; packages/provider-acp/src/server/adapter.test.ts; shippedClientCompatibility.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep managed roles and host/read-only admission while adopting per-thread hasPendingWake; compare a Spec lead’s effective listing and wake state, rather than Effect object identity. Evidence: ProviderSessionManager.test.ts; packages/provider-core/src/server/driver.ts.
 
@@ -136,6 +142,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** T3-401.
 
 ### managed-delegation
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Adopt bounded newest-first thread reads and background-work summaries, keeping per-page final-result acknowledgement, handoff metadata, managed scope and worker watches. PR watch registration now uses upstream PullRequestWatchService; workers retain the fork permission to watch. Root background shells newly recognized by upstream remain pending until their wake or Stop, as other root tasks do. Evidence: OrchestratorMcpService.activity.test.ts; OrchestratorMcpService.test.ts; ProviderSessionManager.test.ts; PullRequestWatchService.test.ts; Adapters/ClaudeAdapterV2.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt bounded MCP wait, failed-child final reports, short child IDs, recovery of waiting children and finished-Claude process release. Preserve role authority, follow-ups, stopped-task resumption and browser release; process release reads command turn items required by the fork progress classifier. Evidence: OrchestratorMcpService.test.ts; ProviderSessionManager.test.ts; DelegatedCompletionDelivery.test.ts; ThreadManagementService.test.ts; runtimeLayer.test.ts.
 
@@ -214,6 +222,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### slipjay-workspaces
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Adopt upstream shared ordinary-worktree recovery and terminal cwd leasing; keep SlipJay archive restoration and unresolved-release refusal. The shared recovery helper excludes delegated tasks and SlipJay-owned paths for both terminal launches and provider starts; failed archive restoration keeps its diagnostic reason. Evidence: ProviderTurnStartService.test.ts; terminal/Manager.test.ts; ws.test.ts; workspace/restoreMissingWorktree.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep SlipJay admission, default workspace allocation and checkpoint/VCS boundaries; adopt root branch discovery and upstream Git status/checkpoint fixes without replacing the workspace provider. The new checkpoint timeout test uses the fork’s supportsCheckpoints capability probe; upstream’s isGitRepository-only mock cannot start the fork capture. Evidence: ThreadLaunchService.test.ts; CheckpointService.test.ts; VcsStatusBroadcaster.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Retain WorkspaceProvider admission, landing subscribers and VCS-independent checkpoints; restore upstream HEAD watchers and branch-status refresh helpers as one broadcaster. Evidence: VcsStatusBroadcaster, VcsDriverRegistry, GitVcsDriver and CheckpointService tests.
@@ -234,6 +244,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** pechhe/t3code#21–23, #41, #42, #45, #46, #50–54, #67 (closed); open: #108, #112, #125; Forge #3352, #3368, #3412, #4402, #3747, #4294, #3142.
 
 ### slipjay-workspace-archive
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Retain archive restoration and release-state refusal around upstream recovery extraction. Development cleanup uses the fork-aware isolated-home resolver. Evidence: ProviderTurnStartService.test.ts; storageCleanup.test.ts.
 
 - **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep archive/restore and managed workspace identity guards alongside launch branch fixes; missing managed checkouts remain lead-owned recovery. Evidence: ProviderTurnStartService.test.ts; ThreadManagementService.test.ts.
 
@@ -310,6 +322,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### validation-tooling
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Use newer-side dependency reconciliation across 1,046 settings in 46 files: adopt Effect 4.1.3 and upstream Markdown tarball, keep newer fork toolchain and package versions. Preserve the newer electron-updater 6.8.11 patch with upstream channel-pointer/API fallback hunks; keep resolveStorage local now that its caller moved into the same module. Evidence: pnpm-workspace.yaml; pnpm-lock.yaml; patches/electron-updater@6.8.11.patch; docs/dependencies.md; vp i.
+
 - **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep newer fork toolchain/catalog/patches under Decision #6796. Adopt upstream security overrides and updater timeout patch rebased to the newer fork package. Evidence: Dependency audit: 913 settings, 47 files; vp i; docs/dependencies.md.
 
 - **Kind:** deliberate behaviour change
@@ -348,6 +362,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### landing-test-parallelism
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Keep the fork replay-file partition and fixture-count guard while adopting upstream replay synchronization changes. Evidence: ProviderReplayFixtures.ts; upstream replay fixture changes.
+
 - **Kind:** deliberate behaviour change (test-only; upstreamable)
 - **Why:** Landing verification runs test files across eight workers but runs the tests inside one file one after another, so its slowest single files set the floor: Claude's 34 recorded fixture variants plus its extra after-root cases shared one file, OpenCode's 19 and Grok's 16 shared one each, and `migrate-dev-db.test.ts` re-ran the whole migration series for every fixture.
 - **Requirements:** a driver's recorded replay fixtures register every fixture exactly once, with unchanged test names and assertions, however many files they span: the split is `<Stem><n>.integration.test.ts` (`ClaudeReplayFixtures1–6`, `GrokReplayFixtures1–2`, `OpenCodeReplayFixtures1–2`, single files elsewhere), each registering the fixtures whose index among its driver's fixtures leaves that file's group when divided by the driver's file count (`itRunsReplayFixtures(driver, run, group)`), so the union of a driver's files is the original set. `ProviderReplayFixtures.ts` owns the driver → `{ stem, files }` table and fails while loading if a fixture names a driver with no entry, a file asks for a group past its count, or the directory's `<stem><N>.integration.test.ts` names do not number exactly `files` files, so a missing test file fails at load time instead of silently skipping its fixtures. OpenCode's v1/v2 protocol choice lives in `OpenCodeReplayRuns.ts`, shared by both of its files. `migrate-dev-db.test.ts` runs the migration series once per file into a template database and copies it per fixture with `VACUUM INTO` before writing only that fixture's rows, so the dev-database behaviour each test asserts is unchanged. The landing selector's replay-transcript readers list names the six Claude files, so a changed transcript still selects every test that reads one.
@@ -375,6 +391,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** T3-210.
 
 ### build-items-hq
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Retain the canonical per-thread Weave server list and usage attribution around upstream provider protocol/usage changes. Restore the dedicated Weave RPC layer and service bindings after independent upstream/fork group splits. Evidence: ws.ts; packages/provider-acp/src/server/adapter.test.ts; packages/provider-cursor/src/server/adapter.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep per-thread Weave MCP registration and credential renewal. Adopt OpenCode’s initial tool-load settle only on versions before 2.2.6, preserving the fork’s complete per-thread MCP server set and cleanup. The old-version Weave replay advances TestClock through upstream’s 250 ms tool-load settle before joining the forked startTurn. Evidence: OpenCode2AdapterV2.test.ts; CodexAdapterV2.test.ts; packages/provider-opencode/src/server/v2/adapter.ts.
 
@@ -446,6 +464,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### thread-watches
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Adopt upstream PR-watch baseline initialization and carry it across re-watches, so already-failing checks and existing conflicts establish state silently on the first read. Retain the fork's thread, Forge and landing watches. Evidence: runtimeLayer.test.ts (fresh failing/conflicting PR baseline and re-watch); pullRequestWatch.test.ts. Retire the extension when upstream supplies equivalent durable thread, Forge and landing watches.
+
 - **Kind:** durable extension
 - **Why:** A thread can wait on another thread or a Forge item with `watch` / `unwatch`, alongside upstream PR watches.
 - **Requirements:** wake a thread when a watched thread finishes; a finished wake waits until every target run has ended, including monitor runs and held queued runs, so a newer steer or queued send cannot expose an older result while unfinished; archived/deleted and needs-input outcomes retain precedence, and finished quiet targets still wake immediately; no firing between a background task ending and its wake; wake quotes the right earlier turn and does not repeat a result already read; settling a thread ends its watches, kills its pending background work and tells its watchers "Finished"; a thread holds its Working place and Waiting pill only for work that will wake its agent — subagents, thread, Forge, landing and pull-request watches, and commands or monitors the Claude agent marked with `t3_background_wait` or whose wake is still owed — so a dev server left running neither holds it nor reads Waiting, though it still blocks settling; the composer strip summarises every pending wait in one line ("Waiting on 8 · 6 threads · …") that expands to a row per item with its kind, a link and, for a watched thread, its live status; Lineage lists "Watching" and "Watched by" threads beside the relationship graph, not as graph edges, so the running count and mobile ignore them. A watch that ends (fired, unwatched, or its watcher settled or archived) is kept in the watcher's `endedThreadWatches` (newest first, one per thread, at most 50), and Lineage lists those threads in the collapsed "Earlier" list with a "Watched" badge. Forge watches wake once when waits and holds clear (or Dropped), or on Landed/Accepted/Dropped for closed; they require T3’s Weave connection and survive restarts.
@@ -468,6 +488,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adopt` (v0.1.9-nightly.20261110.4478, 2026-11-10): one finished turn looks up its branch's pull request once (#33752). PR watches stay upstream's and separate from the fork's thread and Forge watches: `ThreadWatchReactor`, `orchestrationV2PendingBackgroundWork`, `endedThreadWatches` and the composer strip are unchanged. Source: orchestration-v2/ThreadPullRequestService.ts and its test.
 
 ### scheduled-tasks-extensions
+
+- **Decision:** `retain` (v0.1.10-nightly.20261113.4616, 2026-11-13): Retain the standalone /scheduled page and its existing entry points. Omit upstream’s new Scheduled tasks Settings-search item because the deleted upstream panel has no fork equivalent there and Settings search mounts matched controls inline. Keep other upstream search additions. Remove this search difference when upstream offers an equivalent standalone schedule navigation/search model, or a separately approved fork cross-page search design replaces the inline-control contract. Evidence: apps/web/src/components/settings/settingsSearch.ts; settingsSearch.test.ts; SettingsSearchResults.tsx; ScheduledTasksSettings.browser.test.tsx; routes/scheduled.tsx.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream run-outcome recording after an accepted scheduled message, keeping role/purpose fields, rootIsDefault workspace selection and the fork scheduled page. Proof: ScheduledTaskService.test.ts covers accepted-message run outcomes alongside retained purpose/default-workspace cases; ThreadLaunchService.test.ts covers launch integration. Retire the extension when upstream supplies equivalent machine/project/role scheduling.
 
@@ -502,6 +524,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** T3-351; T3-375; T3-448; T3-444; T3-592; T3-593; T3-622.
 
 ### linked-environments
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Adopt upstream peer handshake bounds and shell capability advertisement; keep linked thread-directory aggregation and report currentThreadId optionally in search pages for older peers. Evidence: peer/PeerMcpClient.test.ts; mcp/toolkits/core.test.ts; packages/contracts/src/orchestratorMcp.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt optional linkedSender metadata and names on web/mobile, preserving sender authentication, endpoint ceilings, environment-qualified links and fork machine chips. Evidence: McpHttpServer.test.ts; shippedClientCompatibility.test.ts; ThreadManagementService.test.ts; web/mobile typechecks.
 
@@ -551,6 +575,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### account-pools
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Adopt upstream plan-aware weighting, unknown-plan handling and provider usage fixes, retaining Max Nx label parsing, pool routing and refresh/cache semantics. Secret application refreshes preserve pooled provider snapshots. Evidence: packages/shared/src/usageLimits.test.ts; provider/ProviderRegistry.test.ts; secrets/SecretCheck.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt independent status probes, usage refresh and update lifecycle hooks without replacing pool routing, per-response accounting or the separate refreshUsage hook. Evidence: ProviderSessionManager.test.ts; ProviderRegistry.test.ts; packages/provider-core/src/server/maintenanceResolver.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep pool routing and per-response Weave accounting; adopt upstream reported-model metadata and installation gating. Consume a rerouted-model value once for both provider-turn metadata and usage. Evidence: ProviderRegistry, providerMaintenanceRunner, ClaudeAdapterV2 and CodexAdapterV2 tests.
@@ -580,6 +606,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adapt` (v0.1.9-nightly.20261110.4478, 2026-11-10): Claude Mythos 5.2 prices from its Bedrock rate (#33721), a signed-out Claude instance with its own config dir names it in the sign-in hint (#32951), a Claude CLI that exits before its first frame fails the turn instead of running forever (#33008), a Cursor steer keeps the prompt it interrupted (#32583), and a Pi model whose provider id contains a slash can be selected (#32585). Adopted, and the fork's one-rule account choice is kept: a retried 429 that names no reset time stays a provider error rather than a usage limit, so an account is never marked out on it. Source: apps/server/src/usage/usagePricing.ts, provider/ClaudeProvider.ts, orchestration-v2/Adapters/ClaudeAdapterV2.ts, packages/provider-cursor/src/server/adapter.ts, packages/provider-pi/src/server/adapter.ts and rpc.ts.
 
 ### phi-browser-backend
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Adopt upstream reported-profile persistence and failed desktop-navigation diagnostics while preserving Phi routing and isolated context ownership; the failed-open cleanup includes post-attachment navigation refusal. Evidence: preview/ServerBrowser.test.ts; preview/ServerBrowserPage.test.ts.
 
 - **Kind:** durable extension
 - **Why:** Browser tools can run on the Phi browser as a selectable backend.
@@ -614,6 +642,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### preview-browser-lifetime
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Keep held context ownership and popup/crash cleanup around upstream persistent profile restoration and recording changes. Evidence: preview/ServerBrowser.test.ts; preview/ServerBrowser.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream System appearance, shared HTML render lifetime and local HTTPS certificate support while retaining managed tab ownership, profile release and fork navigation guards. Evidence: ServerBrowser.test.ts; apps/desktop/src/preview/Manager.test.ts; packages/shared/src/htmlRender.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep BrowserContexts ownership/release while adopting beforeunload closure and navigation-failure reporting. Evidence: ManagedIntegratedBrowser.test.ts; ServerBrowserPage.test.ts; BrowserTaskBrowser.test.ts.
@@ -635,6 +665,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adopt` (v0.1.9-nightly.20261110.4478, 2026-11-10): a new desktop browser tab waits for its first page before announcing itself, so Playwright connecting during the first commit no longer loses every wait, click and snapshot (#32861: `FIRST_PAGE_TIMEOUT`, `stopWaiting`, the `ERR_ABORTED` fail-load guard and the announced-only detach). Adopted; the fork's profile-context close, revoked-access and stalled-start bounds are unchanged. Source: apps/desktop/src/preview/DesktopBrowserHost.ts and its test.
 
 ### screen-recording-video
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Adopt upstream chunked/native recording download transfer and keep provider video-frame delivery; ACP attachment-only prompt construction adds frames before assembling the final prompt. Evidence: packages/provider-acp/src/server/adapter.test.ts; preview/ServerBrowser.test.ts.
 
 - **Kind:** durable extension
 - **Why:** Users record the screen from the composer and agents can see attached video.
@@ -713,6 +745,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### no-project-chats
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Preserve scratch-project recommendations and existing draft routing while adopting upstream pre-send load refresh and current-input guards. Evidence: useDraftEnvironmentRouting.browser.test.tsx; composerDraftStore.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream No project Git suppression and thread-local linked-PR actions; retain fork Scratch/No project semantics, SlipJay control, overlay panel suppression and machine icons. Evidence: ThreadDetailsPanel.browser.test.tsx; web typecheck; packages/client-runtime/src/operations/projects.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Adopt symlink-aware scratch scanning while retaining realBaseDir/worktreesDir checks. Evidence: AgentSessionScanner.test.ts.
@@ -770,6 +804,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### live-response-streaming
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Keep fork stream opt-in and metadata while adopting upstream reusable timeline rows, shell prefetch/resume, provider catalog digests and incremental provider-status events. Evidence: ws.test.ts; packages/client-runtime/src/state/server.test.ts; packages/client-runtime/src/state/serverConfigProjection.test.ts; shippedClientCompatibility.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Replace duplicate fork Claude text tracking with upstream block-stop completion and snapshot correction; retain the 400 ms coalescing constant, stable item/start identity and lazy allocation for empty native text blocks. Keep fork origin/start metadata on Codex. Remove the lazy-ID extension when upstream skips empty native text blocks consistently in streams and snapshots; the rest of this entry’s retirement condition is unchanged. Evidence: ClaudeAdapterV2.test.ts (streamed blocks, empty-first-block regression); CodexAdapterV2.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Retain block IDs, origins, start times and 400 ms coalescing; adopt upstream interrupted-reply/scanner state. Claude keeps root-owned owed wakes until the relevant notification is consumed, including sibling wakes. Evidence: ClaudeAdapterV2.test.ts; CodexAdapterV2.test.ts; MessagesTimeline.logic.test.ts.
@@ -790,6 +826,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adapt` (v0.1.9-nightly.20261110.4465, 2026-11-10): upstream rewrites the paragraph filter around tracks that hold an undelivered snapshot and deliver it whole once its message has been idle for 800ms (#28221: `makeAssistantStreamingFilter` returns `{ filter, nextIdleFlushAt, takeIdleFlushes }`, and `RunExecutionService` arms one timer for the earliest due snapshot), a shape the fork's live mode had to move into. Live is kept as the filter's own early branch: the same 45ms burst cap, each snapshot delivered whole and none held, so `nextIdleFlushAt` stays null and the idle machinery never runs for it. Paragraph mode is upstream's unchanged, including the rule that an idle delivery already ahead of the next boundary never shrinks. Source: apps/server/src/orchestration-v2/assistantStreaming.ts, RunExecutionService.ts, assistantStreaming.test.ts (the live test now drives `filter` through the returned object). The opt-in reveal, eased height, `DotMatrixSpinner` working row and the per-connection gate for shipped clients are unchanged.
 
 ### web-client-customisation
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Adopt upstream composer resume, Stop helper extraction, storage merge and settings validation without replacing the fork device dial, sounds, response typography or standalone schedule page. Cross-tab storage uses the fork surface-specific storage key. Remove the unused upstream resolveSelectionActionPosition wrapper in favor of the fork placement helper. Evidence: ComposerPrimaryActions.browser.test.tsx; ProviderSettingsForm.test.ts; composerDraftStore.test.ts; main.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream file-tree persistence, diff scroll restoration, editor/annotation/input and question-preview fixes. Preserve fork layout, overlay, machine icons, inline thread context and review-comment projection; no visual restyling. Evidence: pendingUserInput.test.ts; MessagesTimeline.logic.test.ts; web typecheck; upstream browser regressions remain with parent acceptance.
 
@@ -817,6 +855,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adapt` (v0.1.9-nightly.20261109.4443, 2026-11-10): upstream removed its own half-second wait before the thread title's menu by letting the whole title open that menu (#33598) — the behaviour the fork replaced with a split control, whose chevron already opens the actions menu at once while the title copies the thread id after `TITLE_CLICK_COPY_DELAY_MS`, so the resolution keeps the fork's title and its copy timer and turns upstream's new test into the fork's test that the chevron opens the menu without waiting. Upstream's custom-instructions copy (#33113) is adopted with the fork's settings search entries unchanged. Source: apps/web/src/components/chat/ChatHeader.tsx, components/settings/SourceControlWritingSettings.tsx, components/settings/settingsSearch.ts. ChatHeader.browser.test.tsx and settingsSearch.test.ts pass.
 
 ### mobile-fork-screens
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Keep Forge-scoped home lists and mobile fork routes while adopting upstream home visibility refresh, shell startup and inline image/code fixes. No new native payload enum or required field is introduced by reconciliation. Evidence: apps/mobile/src/features/home/HomeRouteScreen.tsx; shippedClientCompatibility.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream provider-host opt-ins, question previews, settings search, review scrolling and linked-sender names; keep fork settings routes and agent-image expansion using senderRef. Evidence: mobile typecheck; shippedClientCompatibility.test.ts.
 
@@ -846,6 +886,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adopt` (v0.1.9-nightly.20261110.4478, 2026-11-10): medium Android windows keep the rail's room and the sidebar's place (#33021), the Android Files sheet scrolls its tree instead of dragging the sheet (#33223), and a missing file names the checked path instead of asking to reconnect (#32994). Adopted under the fork's screens, which are unchanged. Source: apps/mobile/src/features/layout/AdaptiveWorkspaceLayout.tsx, features/files/*, components/ui/FilePreviewSession.tsx.
 
 ### desktop-fork-build
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Keep fork external-open activation, installed-build identity and packaging while adopting upstream startup migration wait, update-lock markers and release feed selection. Evidence: apps/desktop/src/electron/ElectronShell.test.ts; packages/ssh/src/tunnel.test.ts; patches/electron-updater@6.8.11.patch.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt SSH-forward teardown, shell PATH recovery, update recovery and Linux self-check packaging. Keep newer Electron updater 6.8.11 pinned with its rebased timeout patch, fork build staging and native exclusions. Evidence: ElectronHttpExecutor.test.ts; DesktopShellEnvironment.test.ts; DesktopHomeOwner.test.ts; DesktopUpdates.test.ts; build-desktop-artifact.test.ts.
 
@@ -930,14 +972,16 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### perf-persistence-reads
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Adopt upstream indexed shell reads, compacted-history narrowing, HTTP shell startup and turn-item aggregate table. Retire the fork run_item_counts table/triggers in new migration 126 after replacing their shared capability; preserve four lazy reader workers, transactional run-status authority, per-thread prune boundaries and bounded decoding. New upstream migrations 084–087 use fork 125–128; deployed IDs and aliases remain fixed. Evidence: ProjectionStore.test.ts; persistence/Migrations.test.ts; persistence/reconcileV2PreviewMigration.test.ts; packages/shared/src/nodeSqliteClient.test.ts; ws.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream command read indexes as migration 124, pending-only context-transfer reads and conversation-index selection; preserve fork rare-type index routing, decode-after-transaction and bounded getShellSnapshot wrapper so fork shell fields survive. Keep historical migration IDs and accepted aliases. Evidence: ProjectionStore.test.ts; Orchestrator.control-reads.test.ts; Sqlite.test.ts; reconcileV2PreviewMigration.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Adopt upstream timeline/search indexes as migrations 122 and 123, following deployed fork migration 121; preserve selective reads, reader routing and changed-column writes. Evidence: ProjectionStore.test.ts; reconcileV2PreviewMigration.test.ts; DatabaseMaintenance.test.ts.
 
 - **Kind:** deliberate behaviour change (upstreamable performance fixes)
 - **Why:** Reads queued on the single SQLite writer and trace volume erased evidence (#135).
-- **Requirements:** non-mutating projection reads, client thread snapshots and the live shell streams' thread reads use readers, and each live shell batch (active and archived) reads its threads in one shell-snapshot read filtered by `threadIds`, not one `getThreadShell` per thread (pool of up to four, started on overlap; a connection wait is as interruptible as its caller, so a cancelled request leaves and a finalizer still writes); command decisions stay on the writer; event-store compaction pages an indexed set of compactable event types, retaining the same replay anchors and imported-legacy deletion rules; an unpinned settled thread without active runs, provider turns, turn items, requests, subagents or provider background tasks keeps no `message.updated`, `node.updated`, `turn-item.updated` or `provider-turn.updated` event except those carrying a `command_id` (attachment and receipt retries read the original response), subagent turn items (a retained row can name one as the anchor holding its prompt) and the thread's newest event (an idle client's cursor rests on it): the projection is then the only copy of that thread's content, so `rebuild` refuses once any thread is marked; each removal first records the thread's highest removed sequence in `orchestration_v2_event_prune_marks` (migration 120), and a thread resume from below that mark loads a snapshot while other threads and the shell replay as before; the writer rechecks settlement, pin and `command_id` in the deleting statement, and deletes are batched by payload bytes (4 MB) as well as rows; freed pages return through the minute reclamation at up to 4,096 pages a pass (about 23 GB a day), so a pass's space is back on disk within 24 hours; limit recovery shortlists thread IDs from a partial usage-limit failure index and finds their latest executed run in index order, preserving the latest-run and root-error checks; shell item counts read per-thread/run counts (migration 091) that item insert, delete and move triggers keep in the writer transaction (text updates skip them; reads still join current run status), and canonical message ordering reads a partial expression index on thread, message ID and ordinal, keeping its minimum-ordinal rule; `isNodeStored` compares the stored payload inside SQLite and returns only a scalar; every provider-thread ownership read (`getThreadRecords`' provider threads, `getProviderControlContext`, run and checkpoint rollback contexts) starts from the few owned provider threads (upstream's `nodesOwningProviderThreads`: the owner index, then one node lookup each) rather than one probe per node of a long thread (the runtime-recovery projection's `providerThreads` read keeps upstream's own inline copy of that indexed form); background PR discovery and the settlement sweep run their git commands in upstream's own small `BackgroundGitWork` lane, so a restart's discovery cannot hold the user's git status; a full read filtered by turn-item type reads a thread/type/ordinal index (migration 095) instead of walking the thread's items in ordinal order; the landing, thread and Forge watch reactors' sweep reads a partial index of live threads holding a watch (migration 095) instead of scanning every thread's payload; a writer transaction's span carries its lease wait, checkpoint admission wait, BEGIN, body and COMMIT times (`db.transaction.*_ms`) and, when admission waited, the checkpoint episode and reason, so a day's writer wait can be split into checkpoint backpressure and transaction work (`db.lock_wait_ms` keeps its meaning); decode outside transactions; branch pull request discovery reads only unarchived thread records with a branch, not full thread shells, for its per-minute sweep and per-thread refreshes; the settlement sweep skips threads without a branch or pull request whose inactivity timer is not yet due (the shortest configured timer, in SQL); successful sub-1 ms spans are dropped (kept if waited ≥5 ms or warned); rotated server trace files are gzipped (`server.trace.ndjson.<n>.gz`, about a tenth of the size) and 360 are retained (plain backups from before shift with them and age out), about a day at the 19 October peak of 150 MB/h, and the trace diagnostics RPC and `t3 trace` read them; a WebSocket RPC's server span is a child of the client's RPC span (Effect RpcServer tracing on with the `ws.rpc` prefix, which upstream turns off), so client and server traces of one request join; the event-loop monitor records a delay the loop spent idle (system sleep, suspension, starvation) as a `freeze` event apart from `stall` rows, and both carry load, free memory and swap.
-- **Integration points:** `shared/nodeSqliteClient`, `persistence/DatabaseStorage`, `ProjectionStore` (`ShellSnapshotOptions.threadIds`, `getBranchPullRequestThreads`, `getSettlementCandidates` timer prefilter, `listActiveSubagentThreadIds`), `ThreadPullRequestService`, `ThreadSettlementService`, `ws.ts` shell streams, `ProjectionMaintenance`, `compactionCandidates`, `OrchestrationEventStore.threadPrunedThroughSequence` and `ws.ts` thread resume, migrations 091 (projection aggregate counts and message-ordinal index), 092 (maintenance candidate indexes), 120 (per-thread prune marks), 093 (expanded compaction candidate index and partial active-work indexes; compaction reads these indexes by name, so their predicates must match the queries) and 095 (turn-item type index and watching-thread partial index, both read by name), `LandingWatchReactor`, `ThreadWatchReactor`, `ForgeWatchReactor`, observability config, `makeAsyncRotatingFileSink` (`compressRotated`), `TraceDiagnostics` (`toRotatedTracePaths`, `streamTraceFileLines`), `RpcInstrumentation` (`RPC_SERVER_TRACING_OPTIONS`), `WS_RPC_SERVER_OPTIONS`, and `EventLoopMonitor` (`loopDelay`) with `HostResources.readHostMemory`.
+- **Requirements:** non-mutating projection reads, client thread snapshots and the live shell streams' thread reads use readers, and each live shell batch (active and archived) reads its threads in one shell-snapshot read filtered by `threadIds`, not one `getThreadShell` per thread (pool of up to four, started on overlap; a connection wait is as interruptible as its caller, so a cancelled request leaves and a finalizer still writes); command decisions stay on the writer; event-store compaction pages an indexed set of compactable event types, retaining the same replay anchors and imported-legacy deletion rules; an unpinned settled thread without active runs, provider turns, turn items, requests, subagents or provider background tasks keeps no `message.updated`, `node.updated`, `turn-item.updated` or `provider-turn.updated` event except those carrying a `command_id` (attachment and receipt retries read the original response), subagent turn items (a retained row can name one as the anchor holding its prompt) and the thread's newest event (an idle client's cursor rests on it): the projection is then the only copy of that thread's content, so `rebuild` refuses once any thread is marked; each removal first records the thread's highest removed sequence in `orchestration_v2_event_prune_marks` (migration 120), and a thread resume from below that mark loads a snapshot while other threads and the shell replay as before; the writer rechecks settlement, pin and `command_id` in the deleting statement, and deletes are batched by payload bytes (4 MB) as well as rows; freed pages return through the minute reclamation at up to 4,096 pages a pass (about 23 GB a day), so a pass's space is back on disk within 24 hours; limit recovery shortlists thread IDs from a partial usage-limit failure index and finds their latest executed run in index order, preserving the latest-run and root-error checks; shell item counts read upstream’s per-thread/run counts (migration 126 replaces the fork counts from migration 091) that item insert, delete and move triggers keep in the writer transaction (text updates skip them; reads still join current run status), and canonical message ordering reads a partial expression index on thread, message ID and ordinal, keeping its minimum-ordinal rule; `isNodeStored` compares the stored payload inside SQLite and returns only a scalar; every provider-thread ownership read (`getThreadRecords`' provider threads, `getProviderControlContext`, run and checkpoint rollback contexts) starts from the few owned provider threads (upstream's `nodesOwningProviderThreads`: the owner index, then one node lookup each) rather than one probe per node of a long thread (the runtime-recovery projection's `providerThreads` read keeps upstream's own inline copy of that indexed form); background PR discovery and the settlement sweep run their git commands in upstream's own small `BackgroundGitWork` lane, so a restart's discovery cannot hold the user's git status; a full read filtered by turn-item type reads a thread/type/ordinal index (migration 095) instead of walking the thread's items in ordinal order; the landing, thread and Forge watch reactors' sweep reads a partial index of live threads holding a watch (migration 095) instead of scanning every thread's payload; a writer transaction's span carries its lease wait, checkpoint admission wait, BEGIN, body and COMMIT times (`db.transaction.*_ms`) and, when admission waited, the checkpoint episode and reason, so a day's writer wait can be split into checkpoint backpressure and transaction work (`db.lock_wait_ms` keeps its meaning); decode outside transactions; branch pull request discovery reads only unarchived thread records with a branch, not full thread shells, for its per-minute sweep and per-thread refreshes; the settlement sweep skips threads without a branch or pull request whose inactivity timer is not yet due (the shortest configured timer, in SQL); successful sub-1 ms spans are dropped (kept if waited ≥5 ms or warned); rotated server trace files are gzipped (`server.trace.ndjson.<n>.gz`, about a tenth of the size) and 360 are retained (plain backups from before shift with them and age out), about a day at the 19 October peak of 150 MB/h, and the trace diagnostics RPC and `t3 trace` read them; a WebSocket RPC's server span is a child of the client's RPC span (Effect RpcServer tracing on with the `ws.rpc` prefix, which upstream turns off), so client and server traces of one request join; the event-loop monitor records a delay the loop spent idle (system sleep, suspension, starvation) as a `freeze` event apart from `stall` rows, and both carry load, free memory and swap.
+- **Integration points:** `shared/nodeSqliteClient`, `persistence/DatabaseStorage`, `ProjectionStore` (`ShellSnapshotOptions.threadIds`, `getBranchPullRequestThreads`, `getSettlementCandidates` timer prefilter, `listActiveSubagentThreadIds`), `ThreadPullRequestService`, `ThreadSettlementService`, `ws.ts` shell streams, `ProjectionMaintenance`, `compactionCandidates`, `OrchestrationEventStore.threadPrunedThroughSequence` and `ws.ts` thread resume, migrations 091 (historical aggregate counts and the retained message-ordinal index), 125–128 (upstream last-run, replacement turn-item counts, queued-input and custom-title migrations), 092 (maintenance candidate indexes), 120 (per-thread prune marks), 093 (expanded compaction candidate index and partial active-work indexes; compaction reads these indexes by name, so their predicates must match the queries) and 095 (turn-item type index and watching-thread partial index, both read by name), `LandingWatchReactor`, `ThreadWatchReactor`, `ForgeWatchReactor`, observability config, `makeAsyncRotatingFileSink` (`compressRotated`), `TraceDiagnostics` (`toRotatedTracePaths`, `streamTraceFileLines`), `RpcInstrumentation` (`RPC_SERVER_TRACING_OPTIONS`), `WS_RPC_SERVER_OPTIONS`, and `EventLoopMonitor` (`loopDelay`) with `HostResources.readHostMemory`.
 - **Proof:** `ProjectionMaintenance.test.ts` (sparse history skips immutable events, indexed paging retains oldest/newest keyed events and pending legacy imports, settled-thread removal keeping command replies and the newest event, a resume before the delete, and bounded resumable reclamation); `FoundationPersistence.test.ts` ("a settled thread's events leave the log while what a client loads stays": settled, pinned, unsettled and working threads over two passes, identical loaded projections, the command reply still read, rebuild refused); `ws.test.ts` (resume below the log's, the thread's and another thread's pruned boundary); migration 093 test (index upgrade retains history); `apps/server/scripts/event-compaction-equivalence.ts` (clones its input, runs the pass and the reclaim loop, compares projection-table digests before and after, and reports sizes by table, durations and the longest event-loop stall); `ProjectionStore.test.ts` (usage-limit candidate lifecycle, shortlist and ordered latest-run plans), migration 091 test (count backfill, runless/missing/rolled-back runs, edits, moves, deletes, rollback, ordinal plan) and migration 092 test (existing failure backfill and index membership updates); `ProjectionStore.test.ts` (`isNodeStored` for absent, identical, changed, rolled-back and deleted nodes; full reads include provider threads the thread's nodes own and filter turn items by type in ordinal order); migration 095 test (watching-thread backfill and membership through watch, payload and deletion changes; type-index plan); packages/shared/src/nodeSqliteClient.test.ts (a write held behind a checkpoint attributes the delay to admission, not the body); packages/shared/src/nodeSqliteClient.test.ts (including "records the writer connection owner on a waiting query"); apps/server/src/persistence/DatabaseStorage.test.ts; apps/server/src/orchestration-v2/FoundationPersistence.test.ts (reader routing around an occupied writer); packages/shared/src/observability.test.ts; packages/shared/src/logging.test.ts (gzipped rotation); apps/server/src/diagnostics/TraceDiagnostics.test.ts (gzipped backups); apps/server/src/observability/RpcInstrumentation.test.ts (server span parented on the client's); apps/server/src/observability/EventLoopMonitor.test.ts (freeze rows apart from stalls, with load and swap); apps/server/src/orchestration-v2/ProjectionStore.test.ts (shell snapshots scoped to chosen threads) and ThreadPullRequestService.test.ts (branch pull request reads); ProjectionSettlement.test.ts (settle timer prefilter).
 - **Upstream:** the base design is upstream; the fixes touch central persistence (merge cost medium); upstream prunes projection-covered events after a day behind one log-wide boundary (#29806); the fork removes them per settled thread behind per-thread marks and keeps command-associated responses; open upstream #21628 batches settlement decoding but does not narrow the candidates, so the timer prefilter still applies when it merges.
 - **Retire when:** upstream ships equivalent reader routing, trace sampling and consumer-safe settled-history compaction (retire per item).
@@ -982,6 +1026,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### perf-persistence-writes
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Adopt upstream incremental terminal-output persistence and writable migration worker while keeping fork checkpoint gating, changed-column updates and writer scheduling. The existing worker implementation supports read-only pool connections and the single migration writer. Evidence: terminal/Manager.test.ts; packages/shared/src/nodeSqliteClient.test.ts; persistence/Migrations.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt typed invalid-database startup failure and masked cleanup while preserving the fork WAL worker, fallback gate and hard frame ceiling. Evidence: packages/shared/src/nodeSqliteClient.test.ts; Sqlite.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Adopt upstream immediate writer release when a checkpoint reports a pinned reader. Keep the fork one-second fallback only while the worker cannot report, its 250000-frame disk ceiling, episode diagnostics and 400 ms provider coalescing. Evidence: nodeSqliteClient.test.ts; Sqlite.test.ts; ClaudeAdapterV2.test.ts; CodexAdapterV2.test.ts.
@@ -1013,6 +1059,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### agent-process-ledger
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Retain process ownership tracking alongside new terminal cwd recovery and upstream provider release handling. Evidence: terminal/Manager.test.ts; ProviderSessionManager.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt finished-Claude delegate process release and provider background lifecycles while preserving owned process-group accounting and the fork’s background command grace. Evidence: DelegatedCompletionDelivery.test.ts; ClaudeAdapterV2.test.ts; ProviderSessionManager.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep process-group accounting while adopting detached-job cleanup and prompt lifecycle updates. Evidence: ClaudeAdapterV2.test.ts; provider adapter suites.
@@ -1030,6 +1078,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** Forge #3416 and #3443 under Spec #3172.
 
 ### dev-state-tooling
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Adopt upstream dev seeding side-effect cleanup and retain fork child-row pruning and isolated SlipJay-home discovery. Evidence: apps/server/scripts/migrate-dev-db.test.ts; storageCleanup.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Map upstream command-read indexes to deployed fork migration 124 and retain historical fixture manifests and collision checks. Evidence: reconcileV2PreviewMigration.test.ts; Sqlite.test.ts.
 
@@ -1051,6 +1101,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### quiet-run-read-state
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Retain quiet completion/read-state rules while adopting secret-request notification semantics and upstream client thread sort changes. Evidence: packages/shared/src/agentAwareness.test.ts; packages/client-runtime/src/state/threadCommands.test.ts.
+
 - **Kind:** durable extension
 - **Why:** an agent turn with nothing to report finishes without raising its thread.
 - **Requirements:** #155 / Spec #152: agents can finish a no-change sweep without making its bound thread unread or sending completion notifications. Failed/interrupted runs remain visible; explicit mark-unread overrides the quiet request. A completion alert waits the inbox's working-exit grace (`WORKING_EXIT_GRACE_MS`, 2 s) and is dropped if the thread starts working again (a subagent return or queued message wakes it straight after a run ends).
@@ -1065,6 +1117,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adopt` (v0.1.9-nightly.20261110.4478, 2026-11-10): attention is keyed on the pending request id, so a second request inside one run notifies again (#32719: `requestId` on the observation and the `attended` set in `createThreadNotificationGate`). Adopted behind the fork's `quiet` option, so a stopped run, a silent run and the run a mark-read request is bound to still notify nothing, and the 2 s working-exit grace is unchanged. Source: apps/web/src/components/ThreadNotificationCoordinator.logic.ts; the quiet cases are still in its test beside upstream's new request-id cases.
 
 ### delegated-work-visibility
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Retain inherited background waits and fork standing while adopting native task timing, terminalization and upstream pending-work summaries. Evidence: ProviderSessionManager.test.ts; Adapters/ClaudeAdapterV2.test.ts; packages/shared/src/agentAwareness.test.ts.
 
 - **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep one fork subagent panel and request projection while adopting upstream background wake and completion fixes; no second work surface is added. Evidence: MessagesTimeline.logic.test.ts; DelegatedCompletionDelivery.test.ts; ProviderSessionManager.test.ts.
 
@@ -1144,6 +1198,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### ws-rpc-group-split
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Keep explicit fork RPC groups; reconstruct authoritative layer declarations and move upstream helper/handler changes into them. Audit maps all 301 final RPC methods to exactly one implementation and assembles all groups without type masking. Evidence: ws.ts; packages/contracts/src/rpc.ts; server/contracts typecheck; ws.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Keep feature RPC groups; adopt launch preflight, ACP session APIs and interactive PR reads using their existing scoped services. Evidence: ws.test.ts; server typecheck.
 
 - **Kind:** durable extension (a type-system constraint, not a product behaviour)
@@ -1193,6 +1249,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Owner:** pechhe/t3code Forge T3-252 (#5124).
 
 ### mcp-orchestration-annotations
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Retain fork read/write annotations and linked-environment schemas while adopting bounded newest-first read defaults and optional current-thread search identity. Evidence: mcp/toolkits/orchestrator/tools.test.ts; packages/contracts/src/orchestratorMcp.test.ts; mcp/toolkits/core.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): `t3_background_wait` changes durable waiting state, so its read-only annotation stays false and its destructive annotation stays false. Adopt upstream's explicit Claude Plan allowlist exception; hosted-agent metadata and Plan execution policy serve different purposes. Evidence: `AgentContextBudget.test.ts` checks advertised hints; `ClaudeAdapterV2.test.ts` checks the allowlist exception and Plan approvals.
 
@@ -1301,6 +1359,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### ssh-launch-respects-boot-service
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Keep service-owned-home adoption and its separate ready timeout, beside upstream desktop-update marker and lock handling. Shared launcher fixtures expose baseline failures; do not change upstream launcher semantics to silence their clock assertions. Evidence: packages/ssh/src/tunnel.test.ts; packages/ssh/src/tunnel.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt changed SSH alias Port and failed-download diagnostics while preserving service-owned-home wait/adoption and refusal to launch a second server. Evidence: packages/ssh/src/tunnel.test.ts.
 
 - **Kind:** fork fix to upstream code.
@@ -1318,6 +1378,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adapt` (v0.1.9-nightly.20261110.4478, 2026-11-10): upstream gives one remote home one launch lock and reuses a live sibling alias's managed server before picking a port (#32587: the launch lock, the `ssh-launch/*` sibling scan and `REMOTE_LAUNCH_LOCK_WAIT_SECONDS`). Adopted, with the fork's boot-service guard kept after that scan: a live sibling is reused first, and only when none answers does a home owned by the user's T3 service get waited for (30 s) and adopted instead of started beside. The constants are a union, the fork's `REMOTE_SERVICE_READY_TIMEOUT_MS` beside upstream's base/lock split, so `SSH_TUNNEL_CONNECT_TIMEOUT_MS` still measures a connect and the launch timeout carries the lock wait. Requirements unchanged. Source: packages/ssh/src/tunnel.ts; the three fork launch tests and upstream's concurrent-launch `it.live` are both kept in tunnel.test.ts.
 
 ### unhandled-rejection-keeps-server
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Retain log-and-continue process rejection handling while adopting Cursor transport selection and workspace MCP expansion. Evidence: packages/provider-cursor/src/server/CursorSdk.test.ts; packages/provider-cursor/src/server/adapter.test.ts.
 
 - **Kind:** durable behaviour difference
 - **Requirement:** an unhandled promise rejection is logged and the server keeps running. Upstream's Cursor guard exits the whole process with code 1, which stops every agent on the environment; a stale-ref preview snapshot did this repeatedly on peach-box (fixed at its source in `ServerBrowserPage.snapshot`).
@@ -1343,6 +1405,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### shared-provider-setup
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Retain former instance aliases and shared whole-list synchronization while adopting provider status deltas and catalog retention; secret checks resolve and apply to the destination instance without discarding pool state. Evidence: packages/client-runtime/src/state/server.test.ts; serverConfigProjection.test.ts; packages/shared/src/serverSettings.test.ts; shippedClientCompatibility.test.ts.
+
 - **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep former-instance aliases and whole-list shared setup while adopting independent per-provider updates; preserve both behavior tests in the client-runtime server suite. Evidence: packages/client-runtime/src/state/server.test.ts; shippedClientCompatibility.test.ts.
 
 - **Kind:** durable extension
@@ -1361,6 +1425,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### stop-pauses-delegated-tasks
 
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Keep pause marks, stopped cohorts and user-message-only resume around upstream active-task archive refusal, session release and root background work. Evidence: ThreadStop.test.ts; DelegatedCompletionDelivery.test.ts; ProviderSessionManager.test.ts.
+
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4580, 2026-11-12): Adopt upstream Stop/start race and completion/process-release fixes while retaining pausedByParentStop, stopped completion cohorts and user-message-only resume. Evidence: ThreadStop.test.ts; DelegatedCompletionDelivery.test.ts; ThreadManagementService.test.ts.
 
 - **Decision:** `adapt` (v0.1.10-nightly.20261112.4564, 2026-11-12): Retain pausedByParentStop and resumable tasks alongside upstream cancelledRunId; task_cancel uses the same transactional Stop and descendant dispatch without reacquiring its parent lock. Evidence: TaskCancelNativeSubagent.integration.test.ts; DelegatedCompletionDelivery.test.ts.
@@ -1376,6 +1442,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adopt` (v0.1.9-nightly.20261111.4501, 2026-11-11): upstream's #33446 and #33758 edit `Orchestrator.ts` around the completion delivery this entry's pause marks ride on; the marks, the resume effect and the cohort disposal are unchanged. Source: apps/server/src/orchestration-v2/Orchestrator.ts, ThreadStop.test.ts.
 
 ### saved-and-temporary-secrets
+
+- **Decision:** `adapt` (v0.1.10-nightly.20261113.4616, 2026-11-13): Adopt upstream reference validation and secret-request awareness, keeping durable BWS lifecycle, metadata-only inventory, destination grants and warm query cache. The new secret-check RPC lives in the existing guarded server-operations group. Evidence: secrets/SecretCheck.test.ts; packages/client-runtime/src/state/commandPermissions.test.ts; shippedClientCompatibility.test.ts.
 
 - **Decision:** `retain` (v0.1.10-nightly.20261112.4580, 2026-11-12): Keep BWS lifecycle, secret disclosure boundaries and new settings routes; upstream question previews and optional settings additions do not replace durable-secret management. Evidence: shippedClientCompatibility.test.ts; mobile/web typechecks; existing BwsClient/SavedSecrets/SecretRequests proof retained.
 

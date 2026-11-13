@@ -18,12 +18,15 @@ import { afterEach, vi } from "vite-plus/test";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
-import { pinnedRuntimePaths, prunePinnedRuntimes } from "../cloud/pinnedRuntime.ts";
+import {
+  pinnedRuntimePaths,
+  prunePinnedRuntimes,
+  resolveLauncherPath,
+} from "../cloud/pinnedRuntime.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import {
   repointLauncher,
-  resolveLauncherPath,
   resolveMirrorVersion,
   resolveNewestVersion,
   runUpdate,
@@ -415,7 +418,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("t3 update launch
       const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-update-" });
       const launcher = path.join(root, "bin/t3");
       yield* fs.makeDirectory(path.dirname(launcher), { recursive: true });
-      yield* fs.writeFileString(launcher, "");
+      yield* fs.writeFileString(launcher, "", { mode: 0o755 });
 
       const bare = yield* resolveLauncherPath.pipe(
         Effect.provideService(HostProcess.InvokedAs, "t3"),
