@@ -84,19 +84,20 @@ describe("Antigravity release gates", () => {
           : {}),
         ...(version === undefined ? {} : { agentInfo: { name: "antigravity-acp", version } }),
       };
-      // Helpers send no append, so only the workflow filter can apply.
-      expect(antigravitySessionMeta(initialize)).toEqual(
-        filter ? { antigravity: { disabledTools: ["run_workflow"] } } : undefined,
-      );
+      const disabledTools = [
+        "start_subagent",
+        "invoke_subagent",
+        ...(filter ? ["run_workflow"] : []),
+      ];
+      // Helpers send no append, but still disable Antigravity's native subagent tools.
+      expect(antigravitySessionMeta(initialize)).toEqual({ antigravity: { disabledTools } });
       const antigravity = {
-        ...(filter ? { disabledTools: ["run_workflow"] } : {}),
+        disabledTools,
         ...(native || advertisedAppend
           ? { systemPrompt: { append: "<pull_request_linking/>" } }
           : {}),
       };
-      expect(antigravitySessionMeta(initialize, "<pull_request_linking/>")).toEqual(
-        filter || native || advertisedAppend ? { antigravity } : undefined,
-      );
+      expect(antigravitySessionMeta(initialize, "<pull_request_linking/>")).toEqual({ antigravity });
       expect(isQualifiedAntigravityRelease(version)).toBe(native);
       expect(antigravityClientInfo(version).name).toBe(ownName ? "t3-code" : "zed");
     },

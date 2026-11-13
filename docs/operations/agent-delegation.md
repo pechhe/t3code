@@ -133,7 +133,8 @@ its revision and the role names, or the reason the policy is refused.
   | Claude                                          | Yes, through ToolSearch, unless a setting stops it                                   | Recorded first-turn requests list names only      | Yes                |
   | Pi                                              | Yes, except two or three direct tools, if search is built in; names are never listed | Pi's tool-search source and the extension's tests | None to turn off   |
   | Codex                                           | Yes, through tool search, except `t3_thread_wait`                                    | Thread-start request from the replay fixtures     | Yes                |
-  | Cursor, Grok, OpenCode, Antigravity, Kiro, Muse | Not confirmed                                                                        | Not measured                                      | Not turned off     |
+  | Antigravity                                      | Not confirmed                                                                        | Not measured                                      | Native subagents disabled |
+  | Cursor, Grok, OpenCode, Kiro, Muse              | Not confirmed                                                                        | Not measured                                      | Not turned off     |
 
   An adapter that loads T3's tools eagerly gives every editor the full catalogue's schemas, about
   650 KB, on its first turn, so an unconfirmed adapter is a poor choice for delegated work.

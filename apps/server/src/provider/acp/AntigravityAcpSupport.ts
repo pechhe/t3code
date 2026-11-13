@@ -112,14 +112,18 @@ export function antigravitySessionMeta(
   systemPromptAppend?: string,
 ): EffectAcpSchema.NewSessionRequest["_meta"] | undefined {
   const antigravity = {
-    ...(antigravityWritesRunWorkflowSkill(initializeResult.agentInfo?.version)
-      ? { disabledTools: ["run_workflow"] }
-      : {}),
+    disabledTools: [
+      "start_subagent",
+      "invoke_subagent",
+      ...(antigravityWritesRunWorkflowSkill(initializeResult.agentInfo?.version)
+        ? ["run_workflow"]
+        : []),
+    ],
     ...(systemPromptAppend !== undefined && antigravityAppendsSystemPrompt(initializeResult)
       ? { systemPrompt: { append: systemPromptAppend } }
       : {}),
   };
-  return Object.keys(antigravity).length === 0 ? undefined : { antigravity };
+  return { antigravity };
 }
 
 /** Older releases offer non-Gemini models only to allowlisted clients such as Zed. */
